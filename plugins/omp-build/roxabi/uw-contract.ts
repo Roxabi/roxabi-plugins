@@ -4,9 +4,19 @@ import type {
   NativeIssueWritePlan,
 } from '../../issue-triage/skills/shared/domain/issue-write.ts'
 import type { ParsedIssueSpec } from '../adapters/github-native/uw-spec.ts'
+import type { ReportListing } from '../engine/cause-disposition.ts'
+import type {
+  CauseAdjudicationInput,
+  CauseAdjudicationProposal,
+  CauseSisterInput,
+  CreationContext,
+  ReportPromotionInput,
+} from '../engine/cause-disposition-schema.ts'
+import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { AcceptedOwnSpecResult, ProposedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
 import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
@@ -21,6 +31,7 @@ import type {
   PreparedUwAction,
   ReviewActionBatch,
   ReviewActionProjection,
+  SelectedReview,
   UwActionRequest,
 } from './uw-action-contract.ts'
 import type { UwDeliveryRead } from './uw-delivery-read.ts'
@@ -64,6 +75,7 @@ export type UwProposal = {
   writes: Pick<NativeIssueWritePlan, 'labels' | 'relations'>
   normalization: readonly NormalizationDecision[]
   assessment: ExternalRecordRef | null
+  creation: CreationContext | null
 }
 
 export type PreparedUwProposal = { proposal: UwProposal; digest: string }
@@ -71,7 +83,10 @@ export type PreparedUwProposal = { proposal: UwProposal; digest: string }
 export type OperatorResult<T> =
   | { status: 'confirmed'; value: T }
   | { status: 'refused'; diagnostics: readonly UwDiagnostic[] }
-export type PreparedOperatorProposal = PreparedUwProposal | PreparedMaterialAcceptance
+export type PreparedOperatorProposal =
+  | PreparedUwProposal
+  | PreparedMaterialAcceptance
+  | { proposal: CauseAdjudicationProposal; digest: string }
 
 /** Context-bound only: command argv and a native result cannot manufacture this capability. */
 export type OperatorPort = {
@@ -88,6 +103,14 @@ export type UwRead = {
   proposed: ProposedOwnSpecResult
   accepted: AcceptedOwnSpecResult
   admission: UwAdmission
+  /** Canonically decoded histories used to compute this admission, retained for consumers. */
+  histories: readonly DecodedHistory[]
+  /** Immutable catalogue evidence loaded for these exact observed histories. */
+  catalogues: ReviewClassCatalogues
+  /** Whether this lexical observation completed typed closure and catalogue loading. */
+  causalObservation:
+    | { status: 'complete'; histories: readonly DecodedHistory[]; catalogues: ReviewClassCatalogues }
+    | { status: 'unavailable' }
   graph: UwGraphObservation
   /** Reuses the complete graph/history observation for sibling current-child facts. */
   observedReader?: UwReadPort
@@ -99,6 +122,11 @@ export type UwOperationResult =
   | { status: 'partial'; uw: Scope; diagnostics: readonly UwDiagnostic[] }
   /** A create request may have reached GitHub but yielded no trustworthy issue reference. */
   | { status: 'uncertain'; diagnostics: readonly { code: string; message: string }[] }
+
+export type CauseOperationResult =
+  | { status: 'adjudicated'; disposition: ExternalRecordRef & { kind: 'cause-disposition' } }
+  | { status: 'created'; value: UwRead; receipt: ExternalRecordRef & { kind: 'debt-receipt' | 'report-promotion' } }
+  | Extract<UwOperationResult, { status: 'refused' | 'partial' | 'uncertain' }>
 
 /** Selection sends parser facts and native relation intent; the runner supplies judgement-only fields. */
 export type NormalizationProposalRequest = {
@@ -120,14 +148,26 @@ export type UwReadPort = {
 
 export interface UwOperations extends UwReadPort {
   prepare(input: UwProposalInput | UwCreateInput): Promise<Result<PreparedUwProposal, UwDiagnostic>>
+  listReports(uw: Scope): Promise<UwResult<ReportListing>>
+  adjudicateCause(input: CauseAdjudicationInput): Promise<CauseOperationResult>
+  createSister(input: CauseSisterInput): Promise<CauseOperationResult>
+  promoteReport(input: ReportPromotionInput): Promise<CauseOperationResult>
   /** Runtime parser is injected from the installed bundled engine facade. */
   validateNormalization(request: NormalizationProposalRequest, value: unknown): UwResult<NormalizationJudgement>
   write(input: UwProposalInput): Promise<UwOperationResult>
   create(input: UwCreateInput): Promise<UwOperationResult>
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
-  prepareAction(input: UwActionRequest, projection?: ReviewActionProjection): Promise<Result<PreparedUwAction>>
+  prepareAction(
+    input: UwActionRequest,
+    projection?: ReviewActionProjection,
+    review?: SelectedReview,
+  ): Promise<Result<PreparedUwAction>>
   prepareReviewActions(input: ReviewActionBatch): Promise<Result<readonly PreparedUwAction[]>>
-  replayActionInputs(input: { reviewed: ActionInputs; request: UwActionRequest }): Promise<Result<ActionInputs>>
+  replayActionInputs(input: {
+    reviewed: ActionInputs
+    request: UwActionRequest
+    reviewedRoot?: SelectedReview['root']
+  }): Promise<Result<ActionInputs>>
   verifyAction(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>>
   readDelivery(uw: Scope): Promise<UwResult<UwDeliveryRead>>
 }

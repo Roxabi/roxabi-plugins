@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
-import type { DecodedHistory } from '../../engine/history-schema.ts'
-import { githubScope } from '../github/transport.ts'
+import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
+import type { GitHubOptions } from '../github/types.ts'
 import { publishConfirmedWorkflowRecord } from '../github-workflow/binding.ts'
 
 it('does not POST if publication ownership is revoked during the fresh history read', async () => {
@@ -15,43 +15,31 @@ it('does not POST if publication ownership is revoked during the fresh history r
     kind: 'epic-event' as const,
     payload: { outcome: 'verified' },
   }
-  const empty: DecodedHistory = {
-    source: {
-      scope: githubScope('acme/app', 42),
-      expectedAuthor: 'automation',
-      stopAuthor: null,
-      complete: true,
-      comments: [],
-      diagnostics: [],
-    },
-    operations: [],
-    diagnostics: [],
-  }
   let owned = true
   let posts = 0
+  const options: GitHubOptions = {
+    cwd: '/fixture',
+    readAuthor: 'automation',
+    writeAuthor: 'automation',
+    writerLogin: 'automation',
+    canPublish: () => owned,
+    gh: async (_cwd, args) => {
+      if (args.includes('POST')) {
+        posts += 1
+        throw new Error('must not post')
+      }
+      if (String(args[1] ?? '').includes('/comments')) {
+        await Promise.resolve()
+        owned = false
+        return '[]'
+      }
+      throw new Error(`unexpected gh request: ${args.join(' ')}`)
+    },
+  }
   const published = await publishConfirmedWorkflowRecord(
     record,
-    empty,
-    {
-      cwd: '/fixture',
-      readAuthor: 'automation',
-      writeAuthor: 'automation',
-      writerLogin: 'automation',
-      canPublish: () => owned,
-      gh: async (_cwd, args) => {
-        if (args.includes('POST')) {
-          posts += 1
-          throw new Error('must not post')
-        }
-        if (String(args[1] ?? '').includes('/comments')) {
-          await Promise.resolve()
-          owned = false
-          return '[]'
-        }
-        throw new Error(`unexpected gh request: ${args.join(' ')}`)
-      },
-    },
-    null,
+    options,
+    createPublicationContextResolver(options, null),
   )
   expect(posts).toBe(0)
   expect(published.status).toBe('uncertain')

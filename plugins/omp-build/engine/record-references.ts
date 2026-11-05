@@ -11,6 +11,9 @@ export const KIND_NAMES = [
   'correction-result',
   'falsification-result',
   'debt-receipt',
+  'cause-disposition',
+  'cause-operation',
+  'report-promotion',
   'stop',
   'epic-event',
   'spec-identity',
@@ -30,6 +33,9 @@ export const WORKFLOW_RECORD_KINDS = [
   'workflow-binding',
   'review-interruption',
   'review-replacement-grant',
+  'cause-disposition',
+  'cause-operation',
+  'report-promotion',
 ] as const
 export type WorkflowRecordKind = (typeof WORKFLOW_RECORD_KINDS)[number]
 

@@ -9,6 +9,7 @@ import { asHistory } from './feature-delivery-facts.ts'
 import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 import { type Contracts, defaultGh, isRecord, loadContracts, type Scope } from './feature-engine.ts'
 import { issueReference } from './feature-selection.ts'
+import { type FixUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { defaultGit, type SessionWorktreeIdentity, sessionWorktreeIdentity } from './workflow-checkout.ts'
 
@@ -32,6 +33,7 @@ export type FeatureAuthority = {
   scope: Scope
   history: DecodedHistory
   parentHistories: DecodedHistory[]
+  causal: FixUwCausalContext
   selection: MandateSelection
 }
 
@@ -159,10 +161,10 @@ async function readHistoryAuthority(
   exactMandateRef: ScopedRecordRef | undefined,
   native: NativeAuthority,
   context: FeatureContext,
-): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'selection'> | ContinueFeatureResult> {
+): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const control = input.control
   if (control === 'pause' || control === 'abandon') inhibit(native.scope, control)
-  const options = { cwd: context.cwd, gh: context.gh }
+  const options = { ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }), gh: context.gh }
   const composed = await context.engine.readComposedWorkflowHistory([native.scope], options)
   if (!composed.ok || composed.histories[0] === undefined) {
     return handleUnavailableHistory(input, native, context, composed.ok ? 'incomplete' : composed.reason)
@@ -190,10 +192,12 @@ async function selectHistoryAuthority(
   context: FeatureContext,
   history: DecodedHistory,
   options: { cwd: string; gh: NonNullable<ContinueFeatureInput['gh']> },
-): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'selection'> | ContinueFeatureResult> {
+): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const parents = await mandateParentHistories(context.engine, history, options)
   if (!parents.ok) return disarmParents(input, native, context, parents.reason)
-  const selection = context.engine.selectApplicableMandate(history, parents.parents)
+  const causal = await readFixUwCausalContext([history, ...parents.parents], [], options)
+  if (!causal.ok) return disarmParents(input, native, context, causal.diagnostics[0] ?? 'causal-history-unavailable')
+  const selection = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
   if (
     exactMandateRef === undefined &&
     input.control === 'pause' &&
@@ -207,7 +211,7 @@ async function selectHistoryAuthority(
       return { kind: 'blocked', reason: 'exact-mandate-not-applicable' }
     }
   }
-  return { history, parentHistories: parents.parents, selection }
+  return { history, parentHistories: parents.parents, causal: causal.value, selection }
 }
 
 async function disarmParents(

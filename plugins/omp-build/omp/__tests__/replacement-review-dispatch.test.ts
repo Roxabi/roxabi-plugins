@@ -19,6 +19,18 @@ afterEach(() => {
 })
 
 const operations = {
+  listReports: async () => {
+    throw new Error('unexpected-operations')
+  },
+  adjudicateCause: async () => {
+    throw new Error('unexpected-operations')
+  },
+  createSister: async () => {
+    throw new Error('unexpected-operations')
+  },
+  promoteReport: async () => {
+    throw new Error('unexpected-operations')
+  },
   readUw: async () => {
     throw new Error('unexpected-operations')
   },

@@ -147,9 +147,20 @@ async function readNode(
   }
 }
 
+function enqueueAdjacent(node: PartialNode, descendantsOnly: boolean, queued: Set<string>, queue: Scope[]): void {
+  const adjacentNodes = descendantsOnly ? node.children : [node.node.parent, ...node.children, ...node.blockers]
+  for (const adjacent of adjacentNodes) {
+    if (adjacent !== null && !queued.has(adjacent.target)) {
+      queued.add(adjacent.target)
+      queue.push(adjacent)
+    }
+  }
+}
+
 async function loadClosure(
   root: Scope,
   options: GitHubOptions,
+  descendantsOnly = false,
 ): Promise<{ partial: Map<string, PartialNode>; diagnostics: UwDiagnostic[] }> {
   const queue: Scope[] = [root]
   const queued = new Set([root.target])
@@ -168,12 +179,7 @@ async function loadClosure(
       diagnostics.push(...read.diagnostics)
       if (read.node === null) continue
       partial.set(scope.target, read.node)
-      for (const adjacent of [read.node.node.parent, ...read.node.children, ...read.node.blockers]) {
-        if (adjacent !== null && !queued.has(adjacent.target)) {
-          queued.add(adjacent.target)
-          queue.push(adjacent)
-        }
-      }
+      enqueueAdjacent(read.node, descendantsOnly, queued, queue)
     }
   }
   return { partial, diagnostics }
@@ -224,5 +230,19 @@ export async function readUwGraph(root: Scope, options: GitHubOptions): Promise<
   if (diagnostics.length === 0 && rootNode !== undefined) {
     return { status: 'complete', root, nodes, observedAt: rootNode.node.updatedAt }
   }
+  return { status: 'incomplete', root, nodes, observedAt: rootNode?.node.updatedAt ?? null, diagnostics }
+}
+
+/** Read only the root and its native descendants; never follow parent or blocker edges. */
+export async function readUwSubtree(root: Scope, options: GitHubOptions): Promise<UwGraphObservation> {
+  const { partial, diagnostics } = await loadClosure(root, options, true)
+  diagnostics.push(...reciprocalDiagnostics(partial))
+  const nodes = [...partial.values()].map((entry) => entry.node)
+  const rootNode = partial.get(root.target)
+  const parent = rootNode?.node.parent
+  if (parent !== null && parent !== undefined && partial.has(parent.target))
+    diagnostics.push(incomplete(root, 'parent', 1, undefined, 'Native child relations cycle back to the subtree root'))
+  if (diagnostics.length === 0 && rootNode !== undefined)
+    return { status: 'complete', root, nodes, observedAt: rootNode.node.updatedAt }
   return { status: 'incomplete', root, nodes, observedAt: rootNode?.node.updatedAt ?? null, diagnostics }
 }

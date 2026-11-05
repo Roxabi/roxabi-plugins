@@ -81,6 +81,17 @@ export function gh(args: string[], input?: string) {
   return { status: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
+/** Resolve the same immutable tooling repository and pin served by the simulator. */
+export function toolingFixture() {
+  const result = gh(['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'])
+  if (result.status !== 0) throw new Error(`Cannot resolve fixture tooling pin: ${result.stderr}`)
+  const commit = result.stdout.trim()
+  const cwd = path.join(activeBox().root, 'omp-tooling.git')
+  if (!/^[0-9a-f]{40}$/.test(commit) || git(cwd, ['rev-parse', 'HEAD']) !== commit)
+    throw new Error('Fixture tooling pin does not match its Git checkout')
+  return { cwd, commit }
+}
+
 export function callWorkflow<T>(fn: string, cwd: string, payload: object): T {
   const active = activeBox()
   const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {

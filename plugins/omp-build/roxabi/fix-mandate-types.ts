@@ -1,7 +1,13 @@
-import type { CanonicalRecord, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
+import type {
+  AcceptedChildCommitment,
+  AcceptedOwnSpec,
+  CanonicalRecord,
+  DecodedHistory,
+  GitHubOptions,
+  MandatePayload,
+  Scope,
+} from '../dist/contracts.js'
 import { mandatePayloadSchema } from '../dist/contracts.js'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import type { FixActionResult, FixTarget, ReviewAuthority, ReviewStepResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import type { UwReadPort } from './uw-contract.ts'

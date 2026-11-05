@@ -132,6 +132,9 @@ function prepare(box: Box, cwd: string, armed = false): void {
   writeSim(box, (state) => {
     const pull = state.prs[String(PR)]
     if (!pull) throw new Error('missing pull')
+    const issue = state.issues[String(ISSUE)]
+    if (!issue) throw new Error('missing origin issue')
+    issue.comments.push(...review.issueComments.map(({ body }) => ({ author: 'operator', body })))
     pull.comments.push(...review.comments.map(({ body }) => ({ author: 'operator', body })))
   })
 }

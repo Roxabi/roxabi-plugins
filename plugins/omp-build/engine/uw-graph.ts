@@ -47,6 +47,14 @@ export function unknownWayfinderLabels(node: UwNativeNode): readonly string[] {
 export function isWayfinder(node: UwNativeNode): boolean {
   return knownWayfinderLabels(node).length > 0
 }
+export function isCompletedUw(node: UwNativeNode): boolean {
+  return (
+    !isWayfinder(node) &&
+    unknownWayfinderLabels(node).length === 0 &&
+    node.native.state === 'CLOSED' &&
+    node.native.stateReason === 'COMPLETED'
+  )
+}
 function diag(
   uw: Scope,
   code: string,

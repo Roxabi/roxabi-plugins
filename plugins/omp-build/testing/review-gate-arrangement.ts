@@ -5,20 +5,23 @@ import { decodeHistory } from '../adapters/github/history-codec.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import { actionInputDigest } from '../engine/action-input.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
-import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../engine/uw-spec-schema.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
 import { createProductionActionPorts } from '../roxabi/uw-input-readers.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
 import { freshReviewInputs, standaloneReviewInputs } from './action-input-fixtures.ts'
+import {
+  committedFixtureInputs,
+  committedFixtureProjection,
+  committedFixtureRecords,
+} from './committed-plugin-fixture.ts'
 import { criterionImplementationRecords } from './criterion-accepted-plan.ts'
-import { criterionReviewGraph } from './criterion-approval.ts'
+import { encodedAdmissionReviewGraph } from './record-admission.ts'
+import { type BoundCriterionFixture, boundReviewBodies, type CriterionFixture } from './review-gate-criterion.ts'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, type IssueState, PR_EDITED, PR_TEXT, SCOPE, type StoredComment } from './review-gate-gh.ts'
 import { assembleActionInputs } from './review-input-assembly.ts'
-import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
+import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
 const ISSUE_SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
 export function nativeFeatureSpec(criterion: string): string {
@@ -34,30 +37,33 @@ export function nativeFeatureSpec(criterion: string): string {
   return renderIssueSpecBody(canonical.value)
 }
 const SPEC = nativeFeatureSpec('Save keeps the selected region')
-const { encodedAdmissionReviewGraph, projection } = roxabiRecordFixtures()
 const { framedBodies, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
-type CriterionFixture = { mandate: MandateRecord; issueRecords: CanonicalRecord[] }
 const fixtureCriteria = new WeakMap<ReviewGateFixture, CriterionFixture>()
-const inputCriteria = new WeakMap<ActionInputs, CriterionFixture & { pullHistory: DecodedHistory }>()
+const inputCriteria = new WeakMap<ActionInputs, BoundCriterionFixture>()
 
 export { SPEC }
 
-function standaloneForHead(inputs: ActionInputs, head: string): ActionInputs {
+function standaloneForHead(fixture: ReviewGateFixture, inputs: ActionInputs, head: string): ActionInputs {
   const manifest = {
     ...inputs.manifest,
     code: { ...inputs.manifest.code, head, referenceCommit: head },
     subject: { kind: 'standalone-pr' as const, pullRequest: SCOPE },
   }
-  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+  return committedFixtureInputs(
+    fixture.tools,
+    { ...inputs, manifest, fingerprint: actionInputDigest(manifest) },
+    fixture.pin,
+  )
 }
 
-export function freshStandaloneReviewInputs(head: string): ActionInputs {
-  return standaloneForHead(freshReviewInputs(), head)
+export function freshStandaloneReviewInputs(fixture: ReviewGateFixture, head: string): ActionInputs {
+  return standaloneForHead(fixture, freshReviewInputs(), head)
 }
 
 type PublishedInput = string | ActionInputs | null
 
 export function reviewBodies(
+  fixture: ReviewGateFixture,
   head: string,
   prefix: string,
   input: PublishedInput = null,
@@ -65,26 +71,15 @@ export function reviewBodies(
 ): string[] {
   if (input !== null && typeof input !== 'string') {
     const criterion = inputCriteria.get(input)
-    if (criterion !== undefined) {
-      return criterionReviewGraph({
-        ...criterion,
-        inputs: input,
-        head,
-        scope: SCOPE,
-        prefix,
-        verdict,
-        author: AUTOMATION,
-        projection,
-      }).comments.map((comment) => comment.body)
-    }
+    if (criterion !== undefined) return boundReviewBodies(criterion, input, head, prefix, verdict)
   }
   const bound =
     input === null
-      ? { digest: null, inputs: standaloneForHead(standaloneReviewInputs(), head) }
+      ? { digest: null, inputs: standaloneForHead(fixture, standaloneReviewInputs(), head) }
       : typeof input === 'string'
-        ? { digest: input, inputs: undefined }
+        ? { digest: input, inputs: standaloneForHead(fixture, standaloneReviewInputs(), head) }
         : { digest: input.fingerprint, inputs: input }
-  return encodedAdmissionReviewGraph({
+  return encodedAdmissionReviewGraph(committedFixtureProjection(fixture.tools, bound.inputs), {
     scope: SCOPE,
     head,
     input: bound.digest,
@@ -94,12 +89,17 @@ export function reviewBodies(
   }).comments.map((comment) => comment.body)
 }
 
-export function cleanReview(head: string, prefix: string, input: PublishedInput = null): string[] {
-  return reviewBodies(head, prefix, input)
+export function cleanReview(
+  fixture: ReviewGateFixture,
+  head: string,
+  prefix: string,
+  input: PublishedInput = null,
+): string[] {
+  return reviewBodies(fixture, head, prefix, input)
 }
 
-export function approvals(head: string, input: PublishedInput = null): string[] {
-  return ['one', 'two', 'three'].flatMap((prefix) => cleanReview(head, prefix, input))
+export function approvals(fixture: ReviewGateFixture, head: string, input: PublishedInput = null): string[] {
+  return ['one', 'two', 'three'].flatMap((prefix) => cleanReview(fixture, head, prefix, input))
 }
 
 export function capturedCiFailure(reviewId = 'three-final') {
@@ -124,7 +124,11 @@ export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Prom
     body: spec,
     ownSpec: ownSpecFromSnapshot(ISSUE_SCOPE, parsed.snapshot),
   })
-  const issueRecords = criterionImplementationRecords(mandate, fixture.head)
+  const issueRecords = committedFixtureRecords(
+    fixture.tools,
+    criterionImplementationRecords(mandate, fixture.head),
+    fixture.pin,
+  )
   fixtureCriteria.set(fixture, { mandate, issueRecords })
   const binding = workflowBinding(SCOPE, mandate, 'feat/7-fixture', 'main')
   const state = readState(fixture)
@@ -209,7 +213,7 @@ export async function boundInput(fixture: ReviewGateFixture): Promise<ActionInpu
       updatedAt: comment.updated_at,
     })),
   })
-  inputCriteria.set(inputs, { ...criterion, pullHistory })
+  inputCriteria.set(inputs, { ...criterion, pullHistory, fixture })
   return inputs
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { workflowEvidence } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest, canonicalActionOperands } from '../action-input.ts'
 import { actionInputManifestSchema } from '../action-input-schema.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
@@ -163,11 +164,7 @@ describe('workflow Spec assessment operand binding and freshness', () => {
       'material',
     )
     const staleRecords = [mandated, historical.start, historical.result, accepted]
-    const staleEvidence = {
-      issue: history(staleRecords),
-      pullRequest: null,
-      parents: [],
-    }
+    const staleEvidence = workflowEvidence(history(staleRecords), null, [], [])
     const liveFacts = currentFacts(mandated, live.proposed)
     expect(reconstructWorkflow({ evidence: staleEvidence, facts: liveFacts, decisions: decisions() })).toMatchObject({
       status: 'action',
@@ -176,7 +173,7 @@ describe('workflow Spec assessment operand binding and freshness', () => {
     })
     expect(
       reconstructWorkflow({
-        evidence: { ...staleEvidence, issue: history([...staleRecords, live.start]) },
+        evidence: workflowEvidence(history([...staleRecords, live.start]), null, [], []),
         facts: liveFacts,
         decisions: decisions(),
       }),
@@ -203,7 +200,7 @@ describe('workflow Spec assessment operand binding and freshness', () => {
     const histories = [issueHistory]
     expect(
       reconstructWorkflow({
-        evidence: { issue: issueHistory, pullRequest: null, parents: [] },
+        evidence: workflowEvidence(issueHistory, null, [], []),
         facts: currentFacts(mandated, dateOnlyCurrent),
         decisions: decisions(),
       }),

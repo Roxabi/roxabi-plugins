@@ -13,8 +13,11 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { OwnSpecAuthority } from '../engine/workflow-mandate-admission.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
 import { createInstalledMaterialAcceptance } from './material-acceptance-service.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
 import type { OperatorPort, UwOperationResult, UwRead, UwReadPort } from './uw-contract.ts'
 import { type CurrentOwnSpecFacts, readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 import { UwGraphUnavailableError } from './uw-read-port.ts'
@@ -73,6 +76,7 @@ function materialAuthority(
   uw: Scope,
   histories: readonly DecodedHistory[],
   currentSpec: CurrentOwnSpecFacts['currentSpec'],
+  causal: WorkflowCausalContext,
 ): { ok: true; value: OwnSpecAuthority } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
   const home = histories.find((history) => sameScope(history.source.scope, uw))
   if (home === undefined)
@@ -80,6 +84,7 @@ function materialAuthority(
   const authority = resolveOwnSpecAuthority(
     home,
     histories.filter((history) => history !== home),
+    causal,
   )
   if (!authority.ok) return { ok: false, diagnostics: diagnostics(uw, authority.diagnostics) }
   const parent = authority.value.mandate.payload.parent
@@ -93,6 +98,7 @@ function materialAuthority(
   const parentAuthority = resolveOwnSpecAuthority(
     parentHistory,
     histories.filter((history) => history !== parentHistory),
+    causal,
   )
   if (!parentAuthority.ok) return { ok: false, diagnostics: diagnostics(uw, parentAuthority.diagnostics) }
   const commitment = parentAuthority.value.accepted.children.find((entry) => sameScope(entry.scope, uw))
@@ -155,7 +161,16 @@ export function createInstalledMaterialOperations(input: {
     ]
     const composed = await readComposedWorkflowHistory(scopes, input.github)
     if (!composed.ok) return { ok: false as const, diagnostics: diagnostics(uw, composed.diagnostics) }
-    const authority = materialAuthority(uw, composed.histories, current.value.currentSpec)
+    const causal = await readFixUwCausalContext(read.histories, composed.histories, input.github)
+    if (!causal.ok)
+      return {
+        ok: false as const,
+        diagnostics: diagnostics(
+          uw,
+          causal.diagnostics.map((code) => ({ code })),
+        ),
+      }
+    const authority = materialAuthority(uw, composed.histories, current.value.currentSpec, causal.value)
     if (!authority.ok) return { ok: false as const, diagnostics: authority.diagnostics }
     return {
       ok: true as const,
@@ -221,7 +236,12 @@ export function createInstalledMaterialOperations(input: {
             diagnostic(prepared.proposal.uw, 'history-missing', 'Own UW history is absent before material publication'),
           ],
         }
-      const published = await publishConfirmedWorkflowRecord(record.value, home, input.github, null)
+      const published = await publishConfirmedWorkflowRecord(
+        record.value,
+        input.github,
+        createPublicationContextResolver(input.github, null),
+        current.value.facts.histories,
+      )
       if (published.status !== 'confirmed')
         return published.status === 'uncertain'
           ? {

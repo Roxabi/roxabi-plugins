@@ -1,7 +1,11 @@
+import { assessCauseHolds } from './cause-hold.ts'
+import type { DecodedHistory } from './history-schema.ts'
 import type { Scope } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import {
+  isCompletedUw,
   isWayfinder,
   sameScope,
   scopeKey,
@@ -34,6 +38,8 @@ type UwAdmissionBase = {
   proposed: ProposedOwnSpecResult
   accepted: AcceptedOwnSpecResult
   identities: SpecIdentityLedger
+  histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
 }
 type InitialUwAdmissionInput = UwAdmissionBase & { phase: 'initial-selection' }
 type TransitionUwAdmissionInput = UwAdmissionBase & {
@@ -115,7 +121,7 @@ function blockerDiagnostics(root: UwNativeNode, nodes: ReadonlyMap<string, UwNat
           connection: 'labels',
         }),
       )
-    else if (blocker.native.state !== 'CLOSED' || blocker.native.stateReason !== 'COMPLETED')
+    else if (!isCompletedUw(blocker))
       diagnostics.push(
         diag(
           root.uw,
@@ -232,6 +238,18 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   if (root !== undefined) {
     const nodes = new Map(input.graph.nodes.map((node) => [scopeKey(node.uw), node]))
     deliverable.push(...blockerDiagnostics(root, nodes), ...transitionDiagnostics(input, root, nodes))
+  }
+  if (input.accepted.status === 'accepted') {
+    for (const hold of assessCauseHolds({
+      uw: input.uw,
+      histories: input.histories,
+      graph: input.graph,
+      catalogues: input.catalogues,
+    })) {
+      deliverable.push(
+        diag(input.uw, hold.code, hold.recordId === undefined ? hold.message : `${hold.message} (${hold.recordId})`),
+      )
+    }
   }
   return {
     framed: { ok: framed.length === 0, diagnostics: framed },

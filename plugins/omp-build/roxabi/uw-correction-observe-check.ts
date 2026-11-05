@@ -9,6 +9,8 @@ import {
   workflowOperationProblem,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
+import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import type { CorrectionActionCode } from './uw-correction-observation.ts'
 
@@ -19,15 +21,16 @@ export function correctionAnchorsValid(
   request: UwActionRequest,
   basis: CorrectionActionCode,
   histories: readonly DecodedHistory[],
-): boolean {
+  catalogues: ReviewClassCatalogues,
+): Result<boolean> {
   const scope = request.subject.pullRequest
   if (
     scope === null ||
     !request.stageSources.some((ref) => canonicalValueDigest(ref) === canonicalValueDigest(basis.decision))
   )
-    return false
+    return { ok: true, value: false }
   const history = historyFor(scope, histories)
-  if (history === null || workflowOperationProblem(history) !== null) return false
+  if (history === null || workflowOperationProblem(history) !== null) return { ok: true, value: false }
   const records = recordsOf(history)
   const selected = [basis.request, basis.decision].map((ref) => {
     const matches = records.filter(
@@ -44,15 +47,17 @@ export function correctionAnchorsValid(
       : undefined
   })
   const [fix, decision] = selected
-  if (fix?.kind !== 'fix-request' || decision?.kind !== 'decision') return false
-  const resolved = resolveCorrectionRequestBasis(history, fix, decision)
-  return (
-    resolved.ok &&
-    resolved.value.originalCandidate === basis.originalCandidate &&
-    resolved.value.expectedRemoteHead === basis.expectedRemoteHead &&
-    resolved.value.branch === basis.remoteBranch &&
-    resolved.value.base === basis.base
-  )
+  if (fix?.kind !== 'fix-request' || decision?.kind !== 'decision') return { ok: true, value: false }
+  const resolved = resolveCorrectionRequestBasis(history, fix, decision, catalogues)
+  if (!resolved.ok) return resolved
+  return {
+    ok: true,
+    value:
+      resolved.value.originalCandidate === basis.originalCandidate &&
+      resolved.value.expectedRemoteHead === basis.expectedRemoteHead &&
+      resolved.value.branch === basis.remoteBranch &&
+      resolved.value.base === basis.base,
+  }
 }
 
 /** Observe the actual correction checkout; no local contents are presented as remote facts. */

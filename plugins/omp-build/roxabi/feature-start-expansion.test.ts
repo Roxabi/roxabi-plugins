@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
-import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
-import { buildRecord } from '../engine/record-construction.ts'
+import { actionInputDigest, buildRecord, canonicalValueDigest } from '../dist/contracts.js'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { shippedMandate } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { authorizeExpandedStart } from './feature-start-expansion.ts'
@@ -59,5 +59,10 @@ test('rejects an expanded plan start that changes the authenticated original sem
     inputs,
     exactInputs: { ...start.payload.exactInputs, specDigest: '0'.repeat(64) },
   }
-  expect(authorizeExpandedStart(changed, [history])).toEqual({ ok: false, reason: 'review-input-changed' })
+  expect(
+    authorizeExpandedStart(changed, [history], {
+      histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
+  ).toEqual({ ok: false, reason: 'review-input-changed' })
 })

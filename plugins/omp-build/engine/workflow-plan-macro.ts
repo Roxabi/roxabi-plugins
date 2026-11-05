@@ -37,11 +37,7 @@ export function planMacro(
 ): PlanMacro {
   const empty = emptyMacro(mandate, null)
   if (mandate === null) return empty('blocked', [diagnostic('mandate-absent', 'plan macro has no mandate')])
-  const accepted = resolveAcceptedSpec(
-    mandate,
-    [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest]), ...evidence.parents],
-    options?.assessmentReplay,
-  )
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories, options?.assessmentReplay)
   if (!accepted.ok) return empty('blocked', accepted.evidence)
   const effective = resolveOwnSpecEffective(accepted.spec)
   if (!effective.ok) return empty('blocked', effective.diagnostics)

@@ -1,13 +1,10 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { GitHubOptions } from '../dist/contracts.js'
 import {
-  buildRecord,
   type CanonicalRecord,
   decodeHistory,
-  gh as githubClient,
   githubScope,
   parseRecord,
-  type RecordDraft,
   readGitHubHistory,
   type Scope,
 } from '../dist/contracts.js'
@@ -15,7 +12,6 @@ import type { NativeBatchResult, NativeChildResult } from '../omp/review-runtime
 import { deliveryTask } from './delivery-action.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
-import { nativeContributionPayload } from './native-contribution'
 import type {
   PreparedReviewBatch,
   PreparedReviewInputs,
@@ -24,19 +20,19 @@ import type {
   ReviewPublisher,
   ReviewStage,
 } from './review-contract'
+import { reviewDispositionHandlers } from './review-disposition.ts'
 import { allocateReviewPanel } from './review-panel'
 import {
   createInventory,
   createReviewIdentity,
   observedEvidenceContext,
   type ReviewSlot,
-  recordBase,
-  requireRecord,
   slotsForInitial,
 } from './review-records'
+import { buildReviewContribution } from './review-runner-contribution.ts'
+import { reviewEvidenceReaders } from './review-runner-evidence.ts'
 import { publishReviewInventory } from './review-runner-inventory'
 import { advanceReviewStage, createSynthesisBatch, finalizeReview } from './review-runner-outcomes'
-import { readReviewInputHistories } from './uw-input-readers.ts'
 
 export type { PreparedReviewInputs }
 
@@ -61,11 +57,8 @@ export class CanonicalReviewRunner implements ReviewPublisher {
   ) {
     this.#scope = githubScope(input.context.repository, input.context.number)
     this.#options = withRoxabiGitHubPolicy(options)
-    const projectionConfig = {
-      taxonomy: input.canonicalClasses,
-      acceptedPolicy: input.policy.version === 'evidence-v1' ? input.policy.acceptanceRef : null,
-    }
-    this.#publisher = createGitHubRecordPublisher(this.#scope, this.#options, projectionConfig)
+    const acceptedPolicy = input.policy.version === 'evidence-v1' ? input.policy.acceptanceRef : null
+    this.#publisher = createGitHubRecordPublisher(this.#scope, this.#options, acceptedPolicy)
     this.#identity = createReviewIdentity(input.context)
   }
 
@@ -184,7 +177,12 @@ export class CanonicalReviewRunner implements ReviewPublisher {
     ) {
       return { ok: false, reason: 'review-context-mismatch' }
     }
-    return this.input.authorize(stage)
+    const id = this.#inventories[0]
+    if (stage !== 'initial' && id === undefined) return { ok: false, reason: 'review-root-unconfirmed' }
+    return this.input.authorize(
+      stage,
+      id === undefined ? undefined : { scope: this.#scope, kind: 'review-attempt', recordId: id },
+    )
   }
   async publishInventory(
     prepared: PreparedReviewBatch,
@@ -210,14 +208,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         ? (this.#slots.get(child.expectedId) ?? null)
         : null
     const recordId = this.#identity.next('contribution')
-    const item = requireRecord(
-      buildRecord({
-        ...recordBase(this.#identity, this.#scope, recordId),
-        kind: 'contribution',
-        payload: nativeContributionPayload(slot, child, inventory.value.recordId, recordId, 'findings'),
-      } satisfies Extract<RecordDraft, { kind: 'contribution' }>),
-      'contribution',
-    )
+    const item = buildReviewContribution(this.#identity, this.#scope, recordId, slot, child, inventory.value.recordId)
     const saved = await this.#publisher.publish(item, [], child.canPublishContext)
     if (!saved.ok) throw new Error(`contribution-unconfirmed:${saved.diagnostics.join(',')}`)
     if (slot !== null && slot.phase !== 'synthesis' && child.contextBlock === undefined) {
@@ -248,6 +239,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
       sourceContributions: this.#sourceContributions,
       knownSlots: this.#slots,
       readHistory: () => this.#history(),
+      loadCatalogues: (history) => reviewEvidenceReaders(this.input, this.#options).loadCatalogues([history]),
       createSynthesis: (rootAttemptId) => this.#synthesis(rootAttemptId),
     })
   }
@@ -282,17 +274,14 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         const saved = await this.#publisher.publish(record, externalHistories, canContinue)
         if (!saved.ok) throw new Error(`${failurePrefix}:${saved.diagnostics.join(',')}`)
       },
-      readExternalHistories: (history) =>
-        readReviewInputHistories(history, {
-          cwd: this.#options.cwd,
-          gh: githubClient(this.#options),
-          readAuthor: this.#options.readAuthor,
-        }),
+      ...reviewDispositionHandlers(this.input, this.#options, this.#identity, this.#inventories),
+      ...reviewEvidenceReaders(this.input, this.#options),
       onDecisionConfirmed: (decisionId) => {
         this.#confirmedDecisionId = decisionId
       },
     })
   }
+
   async #history() {
     return decodeHistory(await readGitHubHistory(this.#scope, this.#options))
   }

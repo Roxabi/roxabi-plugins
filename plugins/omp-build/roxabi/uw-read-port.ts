@@ -1,8 +1,10 @@
-import { createHash } from 'node:crypto'
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
+  createReviewClassCatalogues,
+  observeCauseSisters,
   parseIssueSpecBody,
+  readCauseHistoryClosure,
   readComposedWorkflowHistory,
   readUwGraph,
   resolveAcceptedSpec,
@@ -12,27 +14,15 @@ import {
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { AcceptedOwnSpecResult, ProposedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
-import { successionAntecedent } from './feature-succession.ts'
+import { defaultGh } from './feature-engine.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
-import { bindHistoricalProjection } from './uw-normalization-internal.ts'
+import { assembleUwRead, type HistoryObservation, type InstalledUwContracts, refused } from './uw-read-state.ts'
 import { withTransitionAdmission } from './uw-read-transition.ts'
-
-type InstalledUwContracts = Pick<
-  typeof import('../dist/contracts.js'),
-  | 'assessUwAdmission'
-  | 'parseIssueSpecBody'
-  | 'readComposedWorkflowHistory'
-  | 'readUwGraph'
-  | 'resolveOwnSpecAuthority'
-  | 'resolveAcceptedSpec'
-  | 'selectApplicableMandate'
-  | 'resolveSpecIdentityLedger'
->
-
-type HistoryObservation = { ok: true; histories: readonly DecodedHistory[] } | { ok: false; reason: string }
 
 export type InstalledUwReadOptions = {
   cwd: string
@@ -48,169 +38,12 @@ export class UwGraphUnavailableError extends Error {
   }
 }
 
-function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function refused(uw: Scope, code: string, message: string): UwDiagnostic[] {
-  return [diagnostic(uw, code, message)]
-}
-
 function readOptions(options: InstalledUwReadOptions): GitHubOptions {
-  return {
+  return withRoxabiGitHubPolicy({
     cwd: options.cwd,
     gh: options.gh,
     ...(options.readAuthor === undefined ? {} : { readAuthor: options.readAuthor }),
-  }
-}
-
-function admissionUnavailable(diagnostics: readonly UwDiagnostic[]): UwAdmission {
-  return {
-    framed: { ok: false, diagnostics },
-    deliverable: { ok: false, diagnostics },
-    applicability: 'own-only',
-  }
-}
-
-function coldAccepted(
-  contracts: InstalledUwContracts,
-  uw: Scope,
-  histories: readonly DecodedHistory[],
-  assessmentReplay?: { actionId: string; fingerprint: string },
-): AcceptedOwnSpecResult {
-  const own = histories.find(
-    (history) => history.source.scope.repository === uw.repository && history.source.scope.target === uw.target,
-  )
-  if (own === undefined)
-    return { status: 'refused', diagnostics: refused(uw, 'history-missing', 'Own UW history is absent') }
-  const resolved = contracts.resolveOwnSpecAuthority(
-    own,
-    histories.filter((history) => history !== own),
-    undefined,
-    assessmentReplay,
-  )
-  if (!resolved.ok) {
-    const hasOwnMandateClaim = own.operations.some(
-      (operation) =>
-        operation.authority !== 'foreign' &&
-        (operation.kind === 'mandate' || operation.claimedKinds.includes('mandate')),
-    )
-    if (!hasOwnMandateClaim) return { status: 'absent' }
-    const summary = resolved.diagnostics.map((entry) => `${entry.code}: ${entry.message}`).join('; ')
-    return {
-      status: 'refused',
-      diagnostics: refused(uw, 'accepted-unavailable', summary || 'Own accepted Spec cannot be reconstructed'),
-    }
-  }
-  return { status: 'accepted', value: resolved.value.accepted }
-}
-
-function bindEligibleHistoricalProjection(
-  contracts: InstalledUwContracts,
-  result: UwRead,
-  own: DecodedHistory,
-  histories: readonly DecodedHistory[],
-): void {
-  const selection = contracts.selectApplicableMandate(
-    own,
-    histories.filter((entry) => entry !== own),
-  )
-  if (
-    result.accepted.status !== 'refused' ||
-    selection.status !== 'refused' ||
-    (selection.reason !== 'abandoned' && selection.reason !== 'revoked')
-  )
-    return
-  const antecedent = successionAntecedent(own)
-  if ('reason' in antecedent || antecedent.mandate.payload.format !== 'omp-build-mandate/3') return
-  const historical = contracts.resolveAcceptedSpec(antecedent.mandate, histories)
-  if (historical.ok)
-    bindHistoricalProjection(
-      result,
-      historical.spec,
-      createHash('sha256').update(JSON.stringify(histories)).digest('hex'),
-    )
-}
-
-function assembleUwRead(
-  contracts: InstalledUwContracts,
-  input: {
-    uw: Scope
-    graph: UwGraphObservation
-    history: HistoryObservation
-    observedReader?: UwReadPort
-    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
-  },
-): UwRead {
-  const { uw, graph, history } = input
-  const root = graph.nodes.find((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
-  if (root === undefined) throw new Error(`UW graph root is missing: ${uw.target}`)
-  // The requested node is the native observation authority for its body, title, labels, state and relations.
-  const parsed = contracts.parseIssueSpecBody({ uw, raw: root.raw })
-  const proposed: ProposedOwnSpecResult =
-    parsed.status === 'conformant'
-      ? { ok: true, snapshot: parsed.snapshot }
-      : { ok: false, diagnostics: [...parsed.diagnostics] }
-  if (!history.ok) {
-    const diagnostics = refused(uw, `history-${history.reason}`, 'Own UW history cannot be read completely')
-    return {
-      uw,
-      parsed,
-      graph,
-      proposed,
-      accepted: { status: 'refused', diagnostics },
-      identity: { ok: false, diagnostics },
-      admission: admissionUnavailable(diagnostics),
-    }
-  }
-  const replay =
-    input.assessmentReplay?.uw.repository === uw.repository && input.assessmentReplay.uw.target === uw.target
-      ? input.assessmentReplay
-      : undefined
-  const accepted = coldAccepted(contracts, uw, history.histories, replay)
-  const own = history.histories.find(
-    (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
-  )
-  if (own === undefined) {
-    const diagnostics = refused(uw, 'history-missing', 'Own UW history is absent')
-    return {
-      uw,
-      parsed,
-      graph,
-      proposed,
-      accepted,
-      identity: { ok: false, diagnostics },
-      admission: admissionUnavailable(diagnostics),
-    }
-  }
-  const identity = contracts.resolveSpecIdentityLedger({
-    uw,
-    history: own,
-    histories: history.histories,
-    accepted: accepted.status === 'accepted' ? accepted.value : null,
-    ...(replay === undefined ? {} : { assessmentReplay: replay }),
   })
-  const result: UwRead = {
-    uw,
-    parsed,
-    graph,
-    proposed,
-    accepted,
-    identity,
-    ...(input.observedReader === undefined ? {} : { observedReader: input.observedReader }),
-    admission: identity.ok
-      ? contracts.assessUwAdmission({
-          uw,
-          graph,
-          proposed,
-          accepted,
-          identities: identity.value,
-          phase: 'initial-selection',
-        })
-      : admissionUnavailable(identity.diagnostics),
-  }
-  bindEligibleHistoricalProjection(contracts, result, own, history.histories)
-  return result
 }
 
 /** Test seam for a loaded facade. */
@@ -235,15 +68,41 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
         return assembleUwRead(contracts, {
           uw,
           graph,
-          history: { ok: false, reason: composed.reason },
+          history: { ok: false, reason: composed.reason, diagnostics: composed.diagnostics },
+          catalogues: createReviewClassCatalogues([]),
         })
       }
-      const reader = createObservedUwReadPort(contracts, {
+      const closure = await readCauseHistoryClosure(composed.histories, (needed) =>
+        contracts.readComposedWorkflowHistory(needed, github),
+      )
+      if (!closure.ok) {
+        return assembleUwRead(contracts, {
+          uw,
+          graph,
+          history: { ok: false, reason: closure.reason, diagnostics: closure.diagnostics },
+          catalogues: createReviewClassCatalogues([]),
+        })
+      }
+      const catalogues = await loadReviewClassCatalogues({
+        histories: closure.histories,
+        cwd: options.cwd,
+        gh: options.gh ?? defaultGh(),
+      })
+      const observedGraph = await observeCauseSisters(
         graph,
-        histories: composed.histories,
+        closure.histories,
+        (scope) => contracts.readUwGraph(scope, github),
+        catalogues,
+      )
+      const reader = createObservedUwReadPort(contracts, {
+        graph: observedGraph,
+        histories: closure.histories,
+        catalogues,
         assessmentReplay: options.assessmentReplay,
       })
-      return withTransitionAdmission(contracts, await reader.readUw(uw), reader)
+      const read = await reader.readUw(uw)
+      read.causalObservation = { status: 'complete', histories: read.histories, catalogues: read.catalogues }
+      return withTransitionAdmission(contracts, read, reader)
     },
   }
 }
@@ -254,6 +113,7 @@ export function createObservedUwReadPort(
   input: {
     graph: UwGraphObservation
     histories: readonly DecodedHistory[]
+    catalogues: ReviewClassCatalogues
     history?: HistoryObservation
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
@@ -265,6 +125,7 @@ export function createObservedUwReadPort(
         uw,
         graph: input.graph,
         history: input.history ?? { ok: true, histories: input.histories },
+        catalogues: input.catalogues,
         observedReader: reader,
         assessmentReplay: input.assessmentReplay,
       })
@@ -288,10 +149,44 @@ const installedUwContracts: InstalledUwContracts = {
 export function createInstalledUwReadPort(options: InstalledUwReadOptions): UwReadPort {
   return createUwReadPort(installedUwContracts, options)
 }
+/** Creation readback proves only native framing and the created issue's own identity ledger. */
+export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions): Promise<UwRead> {
+  const github = readOptions(options)
+  const graph = await installedUwContracts.readUwGraph(uw, github)
+  if (
+    graph.status !== 'complete' ||
+    !graph.nodes.some((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
+  )
+    throw new UwGraphUnavailableError(refused(uw, 'graph-incomplete', 'Created UW native graph is incomplete'))
+  const composed = await installedUwContracts.readComposedWorkflowHistory([uw], github)
+  if (!composed.ok)
+    throw new UwGraphUnavailableError(refused(uw, 'history-incomplete', 'Created UW identity history is incomplete'))
+  const result = assembleUwRead(installedUwContracts, {
+    uw,
+    graph,
+    history: { ok: true, histories: composed.histories },
+    catalogues: await loadReviewClassCatalogues({
+      histories: composed.histories,
+      cwd: options.cwd,
+      gh: options.gh ?? defaultGh(),
+    }),
+  })
+  const diagnostics = refused(uw, 'creation-read-only', 'Creation readback does not assess delivery admission')
+  return {
+    ...result,
+    accepted: { status: 'refused', diagnostics },
+    admission: {
+      framed: { ok: false, diagnostics },
+      deliverable: { ok: false, diagnostics },
+      applicability: 'own-only',
+    },
+  }
+}
 
 export function createInstalledObservedUwReadPort(input: {
   graph: UwGraphObservation
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
 }): UwReadPort {
   return createObservedUwReadPort(installedUwContracts, input)
 }

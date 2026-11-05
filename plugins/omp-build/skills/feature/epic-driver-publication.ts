@@ -1,8 +1,9 @@
 import { buildRecord, type CanonicalRecord, type Json, publishGitHubRecord } from '../../dist/contracts.js'
+import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
 import { ticketOfBranch } from './epic-claims'
 import type { EpicAuthority } from './epic-driver-authority'
 import { readChildPrInventory } from './epic-driver-containment'
-import { adapterOptions, diagnosticsText, issueHistory, tree } from './epic-driver-github'
+import { adapterOptions, diagnosticsText, tree } from './epic-driver-github'
 import { gh, git, repoName } from './epic-driver-runtime'
 import type { ChildFacts } from './epic-types'
 import { disarmReviewedBeforePush } from './landing-foundation.js'
@@ -61,10 +62,10 @@ export async function publishEpicEvent(
   canPublish?: () => boolean,
 ): Promise<void> {
   const repository = repoName(repo).full
-  const history = await issueHistory(repo, repository, issue)
   if (canPublish?.() === false) throw new Error('publication-ownership-revoked')
   const record = newEpicEvent(repository, issue, run, event, key, payload, inputs)
-  const publication = await publishGitHubRecord(record, history, { ...adapterOptions(repo), canPublish }, null)
+  const options = { ...adapterOptions(repo), canPublish }
+  const publication = await publishGitHubRecord(record, options, createPublicationContextResolver(options, null))
   if (publication.status !== 'confirmed') {
     throw new Error(`Epic event ${record.recordId} was not confirmed: ${diagnosticsText(publication.diagnostics)}`)
   }

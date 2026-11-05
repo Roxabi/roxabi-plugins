@@ -69,7 +69,7 @@ export function handle(state: State, argv: string[]): void {
     argv,
     cmd: parsed.positionals[0],
     sub: parsed.positionals[1],
-    expression: one(parsed.flag, '--jq'),
+    expression: one(parsed.flag, '--jq') ?? one(parsed.flag, '-q'),
     cwd: invocation.cwd,
     readStdin: () => invocation.readStdin(),
     writeStdout: (text) => invocation.writeStdout(text),

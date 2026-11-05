@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
+import type { AssessSpecExact, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
 import {
   assessUwAdmission,
   composeChantier,
@@ -9,11 +9,11 @@ import {
   reconstructWorkflow,
   shippedProductVersion,
 } from '../dist/contracts.js'
-import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { type AttributedCiCorrectionInput, diagnosticCodes, objectValue } from './fix-mandate-types.ts'
+import { type FixUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
 import type { UwRead } from './uw-contract.ts'
 import { defaultGit } from './workflow-checkout.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
@@ -129,7 +129,7 @@ export async function authorizeFixAction(
   }
   const commit = input.target.candidateGitSHA
   if (commit === null || !/^[0-9a-f]{40}$/.test(commit)) return failure('fix-config-unreadable')
-  const currentFacts = currentFixFacts(uw)
+  const currentFacts = await currentFixFacts(uw, [history, ...(linked === null ? [] : [linked]), ...parents], input)
   if (!currentFacts.ok) return currentFacts
   return reconstructAuthorizedFix(input, history, linked, parents, reviewStep, liveEvidence, currentFacts.value, commit)
 }
@@ -157,6 +157,7 @@ function reconstructedFixOutcome(
 type CurrentFixFacts = {
   currentSpec: AssessSpecExact['proposed']
   identityAllocations: AssessSpecExact['identityAllocations']
+  causal: FixUwCausalContext
 }
 
 function nativeTier(label: string): AssessSpecExact['proposed']['tier'] | null {
@@ -166,8 +167,14 @@ function nativeTier(label: string): AssessSpecExact['proposed']['tier'] | null {
   return null
 }
 
-function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
+async function currentFixFacts(
+  uw: UwRead,
+  histories: readonly DecodedHistory[],
+  input: Pick<AttributedCiCorrectionInput, 'cwd' | 'options'>,
+): Promise<FixActionResult<CurrentFixFacts>> {
   if (!uw.identity.ok) return failure('fix-own-uw-unsettled', ...uw.identity.diagnostics.map((item) => item.code))
+  const causal = await readFixUwCausalContext(uw.histories, histories, { ...input.options, cwd: input.cwd })
+  if (!causal.ok) return causal
   const admission = assessUwAdmission({
     uw: uw.uw,
     graph: uw.graph,
@@ -176,6 +183,8 @@ function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
     identities: uw.identity.value,
     phase: 'delivery-transition',
     currentChildren: { ok: true, value: [] },
+    histories: causal.value.histories,
+    catalogues: causal.value.catalogues,
   })
   if (!admission.deliverable.ok)
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
@@ -192,6 +201,7 @@ function currentFixFacts(uw: UwRead): FixActionResult<CurrentFixFacts> {
     value: {
       currentSpec: { snapshot: uw.proposed.snapshot, tier, children: [] },
       identityAllocations: [...uw.identity.value.allocations.values()],
+      causal: causal.value,
     },
   }
 }
@@ -218,7 +228,7 @@ async function reconstructAuthorizedFix(
   }
   const issue = linked ?? history
   const pullRequest = linked !== null && input.target.kind === 'pull-request' ? history : null
-  const composed = composeChantier({ issue, pullRequest, parents })
+  const composed = composeChantier({ issue, pullRequest, parents, causal: currentFacts.causal })
   if (!composed.ok) return failure('fix-history-incomplete', ...diagnosticCodes(composed.diagnostics))
   const pullRequestFacts =
     input.target.kind === 'pull-request' && input.base !== null

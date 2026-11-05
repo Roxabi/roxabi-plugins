@@ -2,6 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   abandoned,
@@ -18,7 +19,7 @@ import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
-import type { WorkflowEvidence } from './workflow-plan.ts'
+import type { WorkflowCausalContext, WorkflowEvidence } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import { sessionEvidence, sessionReady } from './workflow-session.ts'
@@ -120,11 +121,12 @@ function refusalDecision(selection: Extract<MandateSelection, { status: 'refused
 function selectedMandate(
   history: DecodedHistory,
   externalHistories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
   facts: WorkflowFacts,
 ): MandateAdmission {
-  const own = resolveOwnSpecAuthority(history, externalHistories)
+  const own = resolveOwnSpecAuthority(history, externalHistories, causal)
   if (own.ok) return { mandate: own.value.mandate }
-  const selection = selectApplicableMandate(history, externalHistories)
+  const selection = selectApplicableMandate(history, externalHistories, causal)
   if (selection.status === 'applicable') return { mandate: selection.mandate }
   if (selection.reason === 'missing') return missingMandateDecision(facts)
   if (selection.reason === 'abandoned' || selection.reason === 'revoked')
@@ -275,23 +277,24 @@ export function reconstructWorkflow(input: ReconstructionInput): WorkflowDecisio
   )
   const historyProblem = historyProblemDecision(history)
   if (historyProblem !== null) return historyProblem
-  const selected = selectedMandate(history, externalHistories, input.facts)
+  const drift = workflowCausalDiagnostics([history, ...externalHistories], input.evidence.causal)
+  if (drift.length) return blocked('missing-history', drift)
+  const selected = selectedMandate(history, externalHistories, input.evidence.causal, input.facts)
   if (!('mandate' in selected)) return selected
   const local = localAuthorityDecision(selected.mandate, history, externalHistories, input.facts)
   if (local !== null) return local
   if (!sessionReady(input.facts)) return blocked('session-cwd', sessionEvidence(input.facts))
-  const histories = [history, ...externalHistories]
   const assessment = assessmentDecision(
     matchingAssessments(history, selected.mandate, input.facts),
     selected.mandate,
-    histories,
+    input.evidence.causal.histories,
   )
   if (assessment !== null) return assessment
   const graph = executableGraph(selected.mandate)
   if (!graph.ok) return blocked('unsupported-graph', graph.diagnostics)
   const decision = walkWorkflow(graph.value, input.evidence, input.facts, input.decisions, selected.mandate)
   if (decision.status === 'action' && decision.action === 'assess-spec') return decision
-  const delivery = selectApplicableMandate(history, externalHistories)
+  const delivery = selectApplicableMandate(history, externalHistories, input.evidence.causal)
   if (delivery.status !== 'applicable') return refusalDecision(delivery)
   return bindingDecision(decision, input, history, externalHistories, selected.mandate) ?? decision
 }

@@ -45,6 +45,8 @@ async function captureInput(
     automationLogin,
     pluginPin,
     persistedFingerprint,
+    selectedReviewId,
+    reviewedRoot,
     preparedSnapshot,
   } = {},
   mergedBase,
@@ -59,7 +61,16 @@ async function captureInput(
   const snapshot = await captureReviewInputCore(
     cwd,
     { pr: Number(pr), candidate: head, base: mergedBase ?? base.tip },
-    { gh: ghFn, semantic, automationLogin, pluginPin, persistedFingerprint, preparedSnapshot },
+    {
+      gh: ghFn,
+      semantic,
+      automationLogin,
+      pluginPin,
+      persistedFingerprint,
+      preparedSnapshot,
+      selectedReviewId,
+      reviewedRoot,
+    },
   )
   if (!snapshot.ok) return snapshot
   return {
@@ -116,5 +127,7 @@ export async function validateLandingReviewInput(cwd, pr, head, input, deps = {}
 }
 
 export async function hasFreshReviewInput(cwd, pr, records, deps = {}) {
-  return (await validateReviewInput(cwd, pr, records.head, records.input, deps)).ok
+  return (
+    await validateReviewInput(cwd, pr, records.head, records.input, { ...deps, selectedReviewId: records.reviewId })
+  ).ok
 }

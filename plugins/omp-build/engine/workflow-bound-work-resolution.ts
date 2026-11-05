@@ -4,8 +4,10 @@ import type { Diagnostic, Scope } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { BoundWork, ConfigIdentity, MandateUse } from './workflow-binding.ts'
+import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import { historyFor, type MandateRecord, mandateScope, outstandingPauseInAuthority } from './workflow-control.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
+import type { WorkflowCausalContext } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import { sameCurrentAssessedState } from './workflow-spec-assessment.ts'
@@ -15,6 +17,7 @@ type BoundWorkInput = {
   explicitSelection: boolean
   pullRequest: Scope
   histories: readonly DecodedHistory[]
+  causal: WorkflowCausalContext
   native: { branch: string; base: string }
   currentSpec?: AssessSpecExact['proposed'] | null
 }
@@ -113,7 +116,7 @@ function authorizedBoundWork(input: BoundWorkInput, mandate: MandateRecord): Bou
       evidence: [diagnostic('incompatible', 'Mandate does not permit correction')],
     }
   }
-  const accepted = resolveAcceptedSpec(mandate, input.histories)
+  const accepted = resolveAcceptedSpec(mandate, input.causal.histories)
   if (!accepted.ok) return { status: 'refused', reason: accepted.reason, evidence: accepted.evidence }
   const identity = configIdentityOf(mandate)
   if (!identity.ok) return { status: 'refused', reason: 'incomplete', evidence: identity.evidence }
@@ -121,6 +124,8 @@ function authorizedBoundWork(input: BoundWorkInput, mandate: MandateRecord): Bou
 }
 
 export function resolveBoundWork(input: BoundWorkInput): BoundWork {
+  const causalDiagnostics = workflowCausalDiagnostics(input.histories, input.causal)
+  if (causalDiagnostics.length > 0) return { status: 'refused', reason: 'incomplete', evidence: causalDiagnostics }
   const binding = selectWorkflowBinding(input)
   if (binding.status === 'absent') return absentBinding(input)
   if (binding.status !== 'bound') {
@@ -138,7 +143,7 @@ export function resolveBoundWork(input: BoundWorkInput): BoundWork {
       evidence: [diagnostic('missing-history', 'Bound mandate history is missing')],
     }
   }
-  const selected = selectApplicableMandate(mandateHistory, input.histories)
+  const selected = selectApplicableMandate(mandateHistory, input.histories, input.causal)
   if (selected.status === 'refused') return { status: 'refused', reason: selected.reason, evidence: selected.evidence }
   if (selected.mandate.recordId !== binding.mandateRecord.recordId) {
     return {

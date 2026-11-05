@@ -1,4 +1,4 @@
-import type { DecodedHistory, OperationRead } from '../../engine/history-schema.ts'
+import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
 import { decodeHistory } from './history-codec.ts'
@@ -11,7 +11,7 @@ import {
 import { readWithAuthor } from './transport.ts'
 import { diagnostic, type GitHubOptions, gh, parseComment, targetNumber } from './types.ts'
 
-export type PublicationWriteResult = { status: 'confirmed'; operation: OperationRead } | PublicationFailure | null
+export type PublicationWriteResult = { status: 'recovered'; history: DecodedHistory } | PublicationFailure | null
 
 export async function freshHistory(
   record: CanonicalRecord,
@@ -61,7 +61,7 @@ async function reconcileFailedPost(
     return publicationFailure('uncertain', current, publicationReadDiagnostics(readError))
   }
   const afterFailure = current.operations.find((operation) => sameOperation(record, operation))
-  if (afterFailure !== undefined) return { status: 'confirmed', operation: afterFailure }
+  if (afterFailure !== undefined) return { status: 'recovered', history: current }
   return publicationFailure('uncertain', current, [
     diagnostic('github-write-uncertain', error instanceof Error ? error.message : String(error)),
   ])

@@ -16,6 +16,15 @@ describe('review-bound fix entry', () => {
         requestContributionId: source.recordId,
         existingReviewId: 'review-1',
         scope: 'correct the review finding',
+        originalSpec: {
+          uw: { repository: 'Acme/app', target: 'Acme/app#42' },
+          version: 'a'.repeat(64),
+          sourceAccepted: {
+            scope: { repository: 'Acme/app', target: 'Acme/app#42' },
+            kind: 'mandate',
+            recordId: 'mandate',
+          },
+        },
         landing: false,
       },
     }

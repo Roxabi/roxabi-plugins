@@ -11,8 +11,58 @@ type WorkflowBindingPayload = Extract<CanonicalRecord, { kind: 'workflow-binding
 type ReviewInterruptionPayload = Extract<CanonicalRecord, { kind: 'review-interruption' }>['payload']
 type ReviewReplacementGrantPayload = Extract<CanonicalRecord, { kind: 'review-replacement-grant' }>['payload']
 
+type CauseDispositionPayload = Extract<CanonicalRecord, { kind: 'cause-disposition' }>['payload']
+type CauseOperationPayload = Extract<CanonicalRecord, { kind: 'cause-operation' }>['payload']
+
+function causeDispositionRefs(payload: CauseDispositionPayload): ExternalRecordRef[] {
+  const subject = payload.subject
+  return [
+    payload.origin.sourceAccepted,
+    payload.previous,
+    payload.adjudication,
+    subject.kind === 'cause'
+      ? subject.decision
+      : subject.kind === 'retained-finding'
+        ? subject.contribution
+        : subject.source,
+  ].filter((ref): ref is ExternalRecordRef => ref !== null)
+}
+
+function causeOperationRefs(payload: CauseOperationPayload): ExternalRecordRef[] {
+  const proposal = payload.proposal
+  return [
+    proposal.operation === 'adjudicate-cause'
+      ? proposal.pending
+      : proposal.creation.kind === 'sister'
+        ? proposal.creation.disposition
+        : proposal.creation.report,
+  ]
+}
+
 export function scopedRefsOf(record: { kind: Kind; payload: unknown }): ExternalRecordRef[] {
   switch (record.kind) {
+    case 'review':
+      return (record.payload as Extract<CanonicalRecord, { kind: 'review' }>['payload']).causeDispositionRefs ?? []
+    case 'fix-request':
+      return [
+        (record.payload as Extract<CanonicalRecord, { kind: 'fix-request' }>['payload']).originalSpec.sourceAccepted,
+      ]
+    case 'correction-result':
+      return [(record.payload as Extract<CanonicalRecord, { kind: 'correction-result' }>['payload']).causeDisposition]
+    case 'fix-result':
+      return (record.payload as Extract<CanonicalRecord, { kind: 'fix-result' }>['payload']).causeDispositionRefs
+    case 'debt-receipt': {
+      const p = record.payload as Extract<CanonicalRecord, { kind: 'debt-receipt' }>['payload']
+      return [p.operation, p.disposition, p.decision, p.identity]
+    }
+    case 'cause-disposition':
+      return causeDispositionRefs(record.payload as CauseDispositionPayload)
+    case 'cause-operation':
+      return causeOperationRefs(record.payload as CauseOperationPayload)
+    case 'report-promotion': {
+      const p = record.payload as Extract<CanonicalRecord, { kind: 'report-promotion' }>['payload']
+      return [p.report, p.operation, p.identity]
+    }
     case 'spec-identity': {
       const payload = record.payload as SpecIdentityPayload
       return payload.predecessor === null ? [] : [payload.predecessor]
@@ -63,7 +113,11 @@ export function partitionScopedRefs(record: Pick<CanonicalRecord, 'kind' | 'payl
 }
 
 export function workflowInputMeaning(record: CanonicalRecord): Diagnostic | null {
-  if (!isWorkflowKind(record.kind)) return null
+  if (
+    !isWorkflowKind(record.kind) &&
+    !['review', 'fix-request', 'correction-result', 'fix-result', 'debt-receipt'].includes(record.kind)
+  )
+    return null
   const { sameScope, external } = partitionScopedRefs(record)
   for (const ref of sameScope) {
     if (!record.inputs.includes(ref.recordId))

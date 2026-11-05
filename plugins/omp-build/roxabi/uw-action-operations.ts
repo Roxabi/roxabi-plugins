@@ -4,6 +4,7 @@ import type {
   ActionSnapshot,
   PreparedUwAction,
   ReviewActionProjection,
+  SelectedReview,
   UwActionPorts,
   UwActionRequest,
 } from './uw-action-contract.ts'
@@ -28,11 +29,19 @@ export function actionOperationMethods(
   const missing = (): Promise<Result<never>> =>
     Promise.resolve(actionFailure('action-input-missing', 'Action ports are not installed'))
   return {
-    prepareAction: (input: UwActionRequest, projection?: ReviewActionProjection): Promise<Result<PreparedUwAction>> =>
-      ports.actions === undefined ? missing() : prepareUwAction(input, ports.actions, projection),
+    prepareAction: (
+      input: UwActionRequest,
+      projection?: ReviewActionProjection,
+      review?: SelectedReview,
+    ): Promise<Result<PreparedUwAction>> =>
+      ports.actions === undefined ? missing() : prepareUwAction(input, ports.actions, projection, review),
     prepareReviewActions: (input) =>
       ports.actions === undefined ? missing() : prepareReviewActions(input, ports.actions),
-    replayActionInputs: (input: { reviewed: ActionInputs; request: UwActionRequest }): Promise<Result<ActionInputs>> =>
+    replayActionInputs: (input: {
+      reviewed: ActionInputs
+      request: UwActionRequest
+      reviewedRoot?: SelectedReview['root']
+    }): Promise<Result<ActionInputs>> =>
       ports.actions === undefined ? missing() : replayUwActionInputs(input, ports.actions),
     verifyAction: (snapshot: ActionSnapshot) => verifyActionSnapshot(snapshot),
     readDelivery: (uw) =>

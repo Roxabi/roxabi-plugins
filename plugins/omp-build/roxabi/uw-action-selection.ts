@@ -14,6 +14,7 @@ import type { ActionSpecInput } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
 import { expandedPlannerMacro, type PlannerExpansion } from './uw-action-negative-expansion.ts'
@@ -189,13 +190,19 @@ function selectPlanActionId(
   request: UwActionRequest,
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   expansion?: PlannerExpansion,
   reviewedFingerprint?: string,
 ): Result<string | null> {
   const issue = historyFor(mandateScope(mandate), histories)
   if (issue === null) return actionFailure('record-unreadable', 'Mandate history is absent')
   const pullRequest = request.subject.kind === 'uw' ? request.subject.pullRequest : null
-  const evidence = { issue, pullRequest: pullRequest === null ? null : historyFor(pullRequest, histories), parents: [] }
+  const evidence = {
+    issue,
+    pullRequest: pullRequest === null ? null : historyFor(pullRequest, histories),
+    parents: [],
+    causal: { histories, catalogues },
+  }
   const replay =
     request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
       ? { actionId: request.actionId, fingerprint: reviewedFingerprint }
@@ -218,12 +225,13 @@ export function selectDeliveryData(
   request: UwActionRequest,
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>,
   expansion?: PlannerExpansion,
   spec?: ActionSpecInput,
   reviewedFingerprint?: string,
 ): Result<{ refs: DeliveryDataRef[]; plannedPaths: readonly string[] }> {
-  const plan = selectPlanActionId(request, mandate, histories, expansion, reviewedFingerprint)
+  const plan = selectPlanActionId(request, mandate, histories, catalogues, expansion, reviewedFingerprint)
   if (!plan.ok) return plan
   const planActionId = plan.value
   const gathered = gatherReceipts(request, mandate, histories, authenticate, planActionId)
@@ -232,6 +240,7 @@ export function selectDeliveryData(
     request,
     mandate,
     histories,
+    catalogues,
     authenticate,
     planActionId,
     spec,

@@ -44,14 +44,6 @@ function retainedAdmissions(admissions: readonly CauseAdmission[]): Map<string, 
   return retained
 }
 
-function optionalParentWasApplied(
-  admission: SelectedAdmission,
-  outcomesByCause: ReadonlyMap<string, CorrectionOutcome>,
-): boolean {
-  if (admission.required || typeof admission.cause.authorization !== 'object') return true
-  return outcomesByCause.get(admission.cause.authorization.optionalNeighborOf)?.outcome === 'applied'
-}
-
 type PlanExecutionState = {
   outcomes: CorrectionOutcome[]
   outcomesByCause: Map<string, CorrectionOutcome>
@@ -94,10 +86,6 @@ export async function executeCorrectionPlan(
     if (admission.status !== 'selected') continue
     if (state.terminal) {
       retained.set(admission.cause.id, retainWithoutAttempt(admission, ['prior-correction-terminal']))
-      continue
-    }
-    if (!optionalParentWasApplied(admission, state.outcomesByCause)) {
-      retained.set(admission.cause.id, retainWithoutAttempt(admission, ['optional-parent-not-applied-after-gate']))
       continue
     }
     const outcome = await executeCorrection(admission, executor, state.appliedRequiredCauses)

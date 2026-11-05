@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureMissingReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { finding, submission, TEST_HEAD } from '../../testing/record-builders.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history } from '../../testing/record-history.ts'
@@ -71,8 +72,11 @@ describe('review projection policy context', () => {
     const classifiedHistory = history(replaceRecords(classified.records, [classifiedPanel]))
     expect(projectRecord(classified.review, classifiedHistory, PROJECTION_CONFIG)).toMatchObject({ ok: true })
     expect(
-      refusalCodes(projectRecord(classified.review, classifiedHistory, { taxonomy: [], acceptedPolicy: null })),
-    ).toContain('unknown-reference')
+      projectRecord(classified.review, classifiedHistory, {
+        catalogues: fixtureMissingReviewClassCatalogues(),
+        acceptedPolicy: null,
+      }).ok,
+    ).toBe(false)
   })
 })
 describe('action-result proof and guard binding', () => {

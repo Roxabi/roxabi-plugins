@@ -5,6 +5,7 @@ import {
   type Policy,
   type Scope,
 } from '../dist/contracts.js'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import { actionRequest, confirmPreparedAction, deliveryTask, prepareRefusal } from './delivery-action.ts'
 import type { PreparedReviewBatch } from './review-contract.ts'
 import type { ObservedEvidence, PreparedReviewChunk } from './review-input-contract'
@@ -79,6 +80,10 @@ export async function createSynthesisBatch(input: {
       contextWindow: input.review.contextWindow,
       chunks: input.review.chunks,
     },
+    {
+      root: { scope: input.scope, kind: 'review-attempt', recordId: input.rootAttemptId },
+      fingerprint: specAction.inputs.fingerprint,
+    },
   )
   if (!preparedAction.ok) throw new Error(`prepare-action-unavailable:${prepareRefusal(preparedAction.diagnostics)}`)
   if (
@@ -106,6 +111,7 @@ export async function createSynthesisBatch(input: {
       output: 'decision',
       classId: null,
       sourceFindingIds: [...input.sourceContributionIds],
+      action: { actionId: prepared.snapshot.actionId, inputs: prepared.inputs },
     },
   ]
   return createInventory({
@@ -138,15 +144,14 @@ export async function advanceReviewStage(input: {
   sourceContributions: readonly SourceContribution[]
   knownSlots: Map<string, ReviewSlot>
   readHistory: () => Promise<Parameters<typeof deriveRecallPlan>[0]>
+  loadCatalogues: (history: Parameters<typeof deriveRecallPlan>[0]) => Promise<ReviewClassCatalogues>
   createSynthesis: (rootAttemptId: string) => Promise<PreparedReviewBatch>
 }): Promise<PreparedReviewBatch> {
   if (input.prepared.stage === 'recall') return input.createSynthesis(input.prepared.rootAttemptId)
 
-  const recall = deriveRecallPlan(
-    await input.readHistory(),
-    input.prepared.rootAttemptId,
-    input.review.canonicalClasses,
-  )
+  const history = await input.readHistory()
+  const catalogues = await input.loadCatalogues(history)
+  const recall = deriveRecallPlan(history, input.prepared.rootAttemptId, catalogues)
   if (!recall.ok) {
     throw new Error(`recall-plan-refused:${recall.diagnostics.map((item) => item.code).join(',')}`)
   }
@@ -188,6 +193,10 @@ export async function advanceReviewStage(input: {
         contextWindow: input.review.contextWindow,
         chunks: input.review.chunks,
       },
+      {
+        root: { scope: input.scope, kind: 'review-attempt', recordId: input.prepared.rootAttemptId },
+        fingerprint: specAction.inputs.fingerprint,
+      },
     )
     if (!prepared.ok) throw new Error(`prepare-action-unavailable:${prepareRefusal(prepared.diagnostics)}`)
     if (
@@ -216,6 +225,7 @@ export async function advanceReviewStage(input: {
     output: 'findings',
     classId: recallEntries[index].classId,
     sourceFindingIds: recallEntries[index].sourceFindingIds,
+    action: { actionId: task.action.snapshot.actionId, inputs: task.action.inputs },
   }))
   return createInventory({
     identity: input.identity,

@@ -9,6 +9,7 @@ import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { freshOwnSpec } from '../feature-initial-mandate.ts'
 import { readCurrentChildrenProjection, readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
@@ -141,11 +142,24 @@ test('abandoning a parent preserves factual child projection without restoring c
       },
     ],
   }
-  const activeReader = createInstalledObservedUwReadPort({ graph, histories: [activeParent, childHistory] })
-  const inactiveReader = createInstalledObservedUwReadPort({ graph, histories: [abandonedParent, childHistory] })
+  const activeReader = createInstalledObservedUwReadPort({
+    graph,
+    histories: [activeParent, childHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
+  const inactiveReader = createInstalledObservedUwReadPort({
+    graph,
+    histories: [abandonedParent, childHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
   const activeParentRead = await activeReader.readUw(parent)
   const activeChildRead = await activeReader.readUw(child)
-  expect(resolveOwnSpecAuthority(childHistory, [activeParent])).toMatchObject({ ok: true })
+  expect(
+    resolveOwnSpecAuthority(childHistory, [activeParent], {
+      histories: [childHistory, activeParent],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
+  ).toMatchObject({ ok: true })
   expect(activeChildRead.accepted.status).toBe('accepted')
   const activeFacts = await readCurrentOwnSpecFacts({ uw: parent, read: activeParentRead, reader: activeReader })
   expect(activeFacts).toMatchObject({ ok: true, value: { currentSpec: { children: [childGrant] } } })
@@ -154,7 +168,12 @@ test('abandoning a parent preserves factual child projection without restoring c
   expect(abandonedParent.source.complete).toBe(true)
   expect(childHistory.source.complete).toBe(true)
   expect(resolveAcceptedSpec(c1, [abandonedParent, childHistory])).toMatchObject({ ok: true })
-  expect(resolveOwnSpecAuthority(childHistory, [abandonedParent])).toMatchObject({
+  expect(
+    resolveOwnSpecAuthority(childHistory, [abandonedParent], {
+      histories: [childHistory, abandonedParent],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
+  ).toMatchObject({
     ok: false,
     diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'abandoned' })]),
   })
@@ -180,6 +199,8 @@ test('abandoning a parent preserves factual child projection without restoring c
       proposed: childRead.proposed,
       accepted: childRead.accepted,
       identities: childRead.identity.value,
+      histories: childRead.histories,
+      catalogues: childRead.catalogues,
       phase: 'delivery-transition',
       currentChildren: { ok: true, value: [] },
     }).deliverable,

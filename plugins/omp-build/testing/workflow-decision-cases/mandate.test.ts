@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { selectApplicableMandate } from '../../engine/workflow-mandate-admission.ts'
+import { fixtureCausal } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import { SCOPE } from './support/workflow-decision-fixtures.ts'
 
@@ -13,7 +14,8 @@ describe('workflow mandate selection', () => {
       operationId: 'op-mandate-b',
       branch: 'feat/42-other',
     })
-    expect(selectApplicableMandate(historyFrom([first, second]))).toMatchObject({
+    const issue = historyFrom([first, second])
+    expect(selectApplicableMandate(issue, [], fixtureCausal([issue]))).toMatchObject({
       status: 'refused',
       reason: 'ambiguous',
     })

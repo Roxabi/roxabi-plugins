@@ -16,8 +16,12 @@ const requiredCause: CorrectionCause = {
   paths: ['src/consumer.ts:10'],
   proof: 'consumer rejects malformed input',
   findingIds: ['finding-blocking'],
-  authorization: 'required',
-  admission: { safePlan: true },
+  judgment: {
+    necessary: { state: 'missing', value: null, reason: 'fixture', references: [] },
+    urgent: { state: 'missing', value: null, reason: 'fixture', references: [] },
+    tooLarge: { state: 'missing', value: null, reason: 'fixture', references: [] },
+  },
+  proposedDisposition: null,
 }
 const selectedRequired: Extract<CauseAdmission, { status: 'selected' }> = {
   status: 'selected',
@@ -78,8 +82,8 @@ describe('correction plan execution', () => {
     expect(
       orderSelectedCauses([retained, selectedRequired]).map((admission) => [admission.cause.id, admission.status]),
     ).toEqual([
-      ['RC-1', 'selected'],
       ['RC-2', 'retained'],
+      ['RC-1', 'selected'],
     ])
   })
   it('fails on a known tautological guard even when another guard is unavailable', () => {
@@ -187,43 +191,6 @@ describe('correction plan execution', () => {
     expect(afterEffect).toMatchObject({ ok: false, terminal: true, terminalDiagnostics: null })
     expect(afterEffect.outcomes[0]?.commitSHAs).toEqual([sha])
   })
-  it('withholds an optional child when its required parent did not remain applied after its gate', async () => {
-    const optionalCause: CorrectionCause = {
-      ...requiredCause,
-      id: 'RC-2',
-      findingIds: ['finding-optional'],
-      authorization: { optionalNeighborOf: 'RC-1' },
-      admission: {
-        currentDefectMechanism: true,
-        requiredBoundary: true,
-        preservesPromise: true,
-        noDependency: true,
-        callerCompatibility: true,
-        targetedProof: true,
-        separable: true,
-      },
-    }
-    const calls: string[] = []
-    const result = await executeCorrectionPlan(
-      [selectedRequired, { status: 'selected', cause: optionalCause, required: false }],
-      baseExecutor({
-        apply: async (cause) => {
-          calls.push(cause.id)
-          return failed(['ordinary-red'])
-        },
-      }),
-    )
-    expect(calls).toEqual(['RC-1', 'RC-1', 'RC-1'])
-    expect(result.outcomes.map((entry) => [entry.cause.id, entry.outcome])).toEqual([['RC-1', 'failed']])
-    expect(result.retainedObligations).toContainEqual(
-      expect.objectContaining({
-        cause: expect.objectContaining({ id: 'RC-2' }),
-        source: 'withheld',
-        diagnostics: ['optional-parent-not-applied-after-gate'],
-      }),
-    )
-    expect(result).toMatchObject({ ok: true, terminal: false })
-  })
   it('reverts before revalidating required paths when optional falsification fails', async () => {
     const optional: Extract<CauseAdmission, { status: 'selected' }> = {
       status: 'selected',
@@ -232,16 +199,6 @@ describe('correction plan execution', () => {
         ...requiredCause,
         id: 'RC-2',
         findingIds: ['finding-optional'],
-        authorization: { optionalNeighborOf: 'RC-1' },
-        admission: {
-          currentDefectMechanism: true,
-          requiredBoundary: true,
-          preservesPromise: true,
-          noDependency: true,
-          callerCompatibility: true,
-          targetedProof: true,
-          separable: true,
-        },
       },
     }
     const effects: string[] = []
@@ -288,16 +245,6 @@ describe('correction plan execution', () => {
         ...requiredCause,
         id: 'RC-2',
         findingIds: ['finding-optional'],
-        authorization: { optionalNeighborOf: 'RC-1' },
-        admission: {
-          currentDefectMechanism: true,
-          requiredBoundary: true,
-          preservesPromise: true,
-          noDependency: true,
-          callerCompatibility: true,
-          targetedProof: true,
-          separable: true,
-        },
       },
     }
     const calls: string[] = []

@@ -124,10 +124,16 @@ export {
   resolveOwnSpecEffective,
   SPEC_EFFECTIVE_FORMAT,
   type SpecEffective,
+  sameOwnSpecRef,
   specEffectiveSchema,
 } from './engine/spec-effective.ts'
 export { actionEnvelopeSchema, actionRequestSchema } from './engine/uw-action-command-schema.ts'
-export { type ActionOperands, actionOperandsSchema, type CiExact } from './engine/workflow-action-operands.ts'
+export {
+  type ActionOperands,
+  type AssessSpecExact,
+  actionOperandsSchema,
+  type CiExact,
+} from './engine/workflow-action-operands.ts'
 export {
   workflowContextDirectSuccessor,
   workflowContextResolution,

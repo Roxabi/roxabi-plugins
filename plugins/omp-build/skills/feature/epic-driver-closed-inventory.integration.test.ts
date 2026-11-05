@@ -93,17 +93,8 @@ function serveOwnership(
             ownSpec: fixtures.ownSpecFromSnapshot(parentScope, snapshot(parentScope, parentBody)),
           },
         )
-      : ownership === 'foreign'
-        ? fixtures.epicMandate(
-            foreignScope,
-            [{ scope: childScope, snapshot: childSnapshot, specVersion: childSnapshot.spec.version, tier: 'S' }],
-            {
-              body: parentBody,
-              ownSpec: fixtures.ownSpecFromSnapshot(foreignScope, snapshot(foreignScope, parentBody)),
-            },
-          )
-        : parent
-  const historical = ownership === 'old-parent' || ownership === 'foreign'
+      : parent
+  const historical = ownership === 'old-parent'
   const child = fixtures.featureMandate(childScope, {
     body: node.body,
     ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
@@ -127,11 +118,20 @@ function serveOwnership(
   const childRecords = historical ? successorHistory(child, current, 'child') : [child]
   const parentRecords = ownership === 'old-parent' ? successorHistory(owner, parent, 'parent') : [parent]
   const parentHistory = fixtures.historyFrom(parentRecords)
-  const ownerHistories = ownership === 'foreign' ? [parentHistory, fixtures.historyFrom([owner])] : [parentHistory]
+  const foreignBody = strictSpecBody('Foreign PR work')
+  const foreignMandate = fixtures.featureMandate(foreignScope, {
+    body: foreignBody,
+    ownSpec: fixtures.ownSpecFromSnapshot(foreignScope, snapshot(foreignScope, foreignBody)),
+    branch: BRANCH,
+    runId: 'run00004',
+    run: 'run00004',
+  })
+  const foreignHistory = fixtures.historyFrom([foreignMandate])
+  const ownerHistories = ownership === 'foreign' ? [parentHistory, foreignHistory] : [parentHistory]
   const childHistory = fixtures.historyFrom(childRecords, ME, ME, ownerHistories)
-  const binding = fixtures.workflowBinding(prScope, child, BRANCH, 'main')
+  const binding = fixtures.workflowBinding(prScope, ownership === 'foreign' ? foreignMandate : child, BRANCH, 'main')
   const prHistory = fixtures.historyFrom([binding], ME, ME, [childHistory, ...ownerHistories])
-  if (!historical) {
+  if (ownership === 'owned' || ownership === 'unbound') {
     expect(
       selectWorkflowBinding({
         pullRequest: prScope,
@@ -144,9 +144,22 @@ function serveOwnership(
       mandateRecord: { payload: { ownSpec: { uw: childScope }, parent: fixtures.mandateRef(owner) } },
     })
   }
+  if (ownership === 'foreign') {
+    expect(
+      selectWorkflowBinding({
+        pullRequest: prScope,
+        histories: [prHistory, childHistory, ...ownerHistories],
+        native: { branch: BRANCH, base: 'main' },
+      }),
+    ).toMatchObject({
+      status: 'bound',
+      mandate: fixtures.mandateRef(foreignMandate),
+      mandateRecord: { payload: { ownSpec: { uw: foreignScope } } },
+    })
+  }
   const comments = fixtures.framedBodies(childRecords, ME, ownerHistories).map((body) => ({ body, author: ME }))
   serveEpic([{ ...node, fixtureComments: comments }], framedRecords(1, parentRecords), { mandate: false })
-  if (ownership === 'foreign') serveComments(4, framedRecords(4, [owner]))
+  if (ownership === 'foreign') serveComments(4, framedRecords(4, [foreignMandate]))
   serveComments(
     11,
     ownership === 'unbound'

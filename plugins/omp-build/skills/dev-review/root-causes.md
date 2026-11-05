@@ -11,36 +11,19 @@ copied descriptions. `dev-review` names them after synthesis; `fix` consumes the
 decision by record reference, and `skill://fix/falsification.md` tries to break
 each applied plan under § Proof.
 
-## Evidence-v1 candidate
+## Partition and disposition
 
-Read `skill://dev-review/evidence-policy.md` when evaluating the candidate. Baseline
-remains authoritative in shadow. An active candidate follows only independently
-accepted selected work; Phase 4 remains the sole source of qualification, final
-labels, verdict and selected decision records.
+Every usable final finding belongs to exactly one cause; every unusable finding
+belongs to one `unassignedFindings` entry with diagnostics. Each original is
+retained exactly once. Merge originals only when their targets match; findings with
+different targets may still share a cause when their mechanism is the same.
 
-For an active candidate, every selected cause carries `authorization: required` or
-`authorization: optional-neighbor-of <causeId>` plus bounded admission evidence.
-Exact `findingIds` are required. A missing/invalid authorization, admission, safe
-boundary or membership authorizes no patch. A required member is an evidenced,
-applicable mandatory obligation, not an inherited baseline label. An optional-only
-set creates neither a plan nor a fix route. An optional neighbor records the six
-evidence-policy conditions (current defect/mechanism, selected required boundary,
-unchanged promise, no dependency, caller compatibility, targeted proof) and
-separability. Shared class, file, callsite, wording or prior neighbor does not
-inherit admission.
-
-A `required` cause may bind both blocking and non-blocking findings when one
-demonstrated mechanism and minimal shared-producer correction resolves every exact
-member. Do not split it by label or call an ordinary shared mechanism an optional
-neighbor. `optional-neighbor-of` is a distinct additional correction beside an
-admitted required cause; it needs its own exact memberships, all six conditions and
-separability, and never authorizes unrelated work.
-
-## Who enters
-
-actionable := {issue, suggestion, todo, nitpick}, including `(blocking)` and `(non-blocking)` forms.
-
-praise, thought, question never enter a cause. They stay in the review.
+Each cause supplies cited judgments for necessary, urgent and too-large, and a
+proposed disposition. Necessary and urgent work that fits is `fix-original`;
+too-large blocking work is `sister-blocking`, and too-large nonblocking necessary
+and urgent work is `sister-after`. Other nonblocking work is a report. Missing,
+contested or contradictory blocking evidence stays pending for adjudication.
+The engine validates these rules; a proposed disposition grants no authority.
 
 ## Join
 
@@ -54,43 +37,38 @@ Join when any holds:
 
 Do not join on a shared file, a shared agent, a shared class slug, or similar symptom wording. Two `sql-injection` findings in unrelated queries are two causes.
 
-An unusable finding (`dev-review` § Finding format) is never healed by a join: when cited, its cause is ineligible to apply and remains blocking when it is required. In baseline, each ineligible or failed blocking cause has its own debt issue while nonblocking obligations are bundled per run. In evidence-v1, an obligation requires independent `important AND urgent AND too-large` evidence before filing; otherwise its receipt/comment retains it. When not cited, it stays uncited.
+An unusable finding is retained with its original label and target when known, and diagnostics; it is never healed by a join or used to authorize an apply.
 
 ## Record
 
-One immutable `Cause` per mechanism, ordered with required/blocking causes first.
-The model decision supplies:
+One immutable `Cause` per mechanism. The model decision supplies:
 
 ```text
 id, title, mechanism, fix, failure, restored, paths[], proof, findingIds[],
-authorization?, admission?
+judgment, proposedDisposition
 ```
 
 The seven plan fields are `mechanism`, `fix`, `failure`, `restored`, `paths`,
 `proof`, and `findingIds`. They are non-empty; paths are repository-local producer
 and consumer entries. Cause `findingIds` resolve to final findings; those findings'
 `sourceFindingIds` resolve to the retained originals. Unknown or duplicate
-references refuse admission rather than causing reclustering. An unusable member
-remains represented but cannot authorize application of its cause.
+references refuse admission rather than causing reclustering. An unusable finding
+remains represented in `unassignedFindings`, not a runnable cause.
 
 `fix` is the one plan: it changes the oracle or single source of truth across every
 path and member callsite. Widening a denylist, adding a grep, or copying an inventory
-is not a fix. An unplannable actionable finding remains retained; baseline preserves
-the blocking disposition and evidence-v1 preserves required obligations unless the
-separate debt rule admits a later issue.
+is not a fix. An unplannable actionable finding remains retained, and a blocking
+or indeterminate obligation stays pending until motivated adjudication.
 
 ## No planned correction
 
-The canonical representation is `causes: []`, not a Markdown section to parse.
-It means no correction plan was selected, not that the findings disappeared or
-that the review is clean. Every final finding and original association remains;
-final labels still determine the verdict.
+The canonical representation is `causes: []` only when no usable finding requires
+a cause. It does not imply that retained findings disappeared or the review is
+clean; final labels and independent criterion verdicts still govern review.
 
-An uncited actionable finding is not reclustered by `fix`. Baseline files each
-uncited blocker and places nonblocking obligations in the single deferral bundle.
-Evidence-v1 retains the obligation and permits an issue only with independently
-supported `important AND urgent AND too-large` admission. Filing never clears a
-blocker or grants application or landing.
+Every usable finding has exactly one cause. Retained findings and rule errors
+receive named handling on the original UW; no grouped issue is filed automatically.
+Neither a report nor an operator rejection grants criterion satisfaction or landing.
 
 ## Proof
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { encodeParts } from '../adapters/github/history-encoder.ts'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import { parseRecord } from '../engine/record-construction.ts'
@@ -8,6 +9,7 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
 import { acceptedActionInputs, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { NATIVE_AUTHOR, submission, TEST_SCOPE } from '../testing/record-builders.ts'
 import { contribution } from '../testing/record-decisions.ts'
 import { observedComment } from '../testing/record-history.ts'
@@ -26,7 +28,19 @@ function fixtureRecords(): CanonicalRecord[] {
     readFileSync(new URL('../engine/__tests__/fixtures/native-correction-records.json', import.meta.url), 'utf8'),
   )
   if (!Array.isArray(raw)) throw new Error('Expected correction records')
-  return raw.map(valid)
+  const plugin = standaloneReviewInputs().manifest.plugin
+  return raw.map(valid).map((record) => {
+    if (record.kind !== 'review-attempt') return record
+    const slots = record.payload.slots.map((slot) => {
+      if (slot.action === undefined) return slot
+      const manifest = { ...slot.action.inputs.manifest, plugin }
+      const inputs = { ...slot.action.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+      return { ...slot, action: { ...slot.action, inputs } }
+    })
+    const action = slots.find((slot) => slot.action !== undefined)?.action
+    if (action === undefined) throw new Error('Expected captured correction action')
+    return valid({ ...record, payload: { ...record.payload, actionInputDigest: action.inputs.fingerprint, slots } })
+  })
 }
 
 function encodedHistory(records: CanonicalRecord[]): DecodedHistory {
@@ -40,7 +54,7 @@ function encodedHistory(records: CanonicalRecord[]): DecodedHistory {
     diagnostics: [],
   }
   for (const record of records) {
-    const encoded = encodeRecord(record, source, null)
+    const encoded = encodeParts(record, 'Captured correction fixture', 65_536)
     if (!encoded.ok) throw new Error(encoded.diagnostics.map((item) => item.message).join('; '))
     for (const body of encoded.value) {
       const id = String(comments.length + 100)
@@ -66,9 +80,11 @@ function ref(record: CanonicalRecord): RecordInputRef {
 function setup() {
   const records = fixtureRecords()
   const decision = records.find((record) => record.kind === 'decision')
+  const binding = records.find((record) => record.kind === 'workflow-binding')
   const initial = records.find((record) => record.kind === 'review-attempt' && record.payload.stage === 'initial')
   if (
     decision?.kind !== 'decision' ||
+    binding?.kind !== 'workflow-binding' ||
     initial?.kind !== 'review-attempt' ||
     initial.payload.stage !== 'initial' ||
     initial.payload.purpose !== 'correction'
@@ -84,9 +100,9 @@ function setup() {
     ...subject,
     binding: {
       source: 'record' as const,
-      record: { scope: TEST_SCOPE, kind: 'workflow-binding' as const, recordId: 'workflow-binding-fixture' },
+      record: { scope: TEST_SCOPE, kind: 'workflow-binding' as const, recordId: binding.recordId },
       selector: '/payload',
-      digest: '0'.repeat(64),
+      digest: canonicalValueDigest(binding.payload),
     },
   }
   const request: UwActionRequest = {
@@ -180,9 +196,21 @@ describe('correction stage closure', () => {
     const { records, decision, request, prior, sealedSubject } = setup()
     const history = encodedHistory([...records, prior.inventory, prior.result])
     expect(
-      assertCurrentOutputClosure({ ...request, stageSources: [ref(decision), ref(prior.result)] }, [history], []),
+      assertCurrentOutputClosure(
+        { ...request, stageSources: [ref(decision), ref(prior.result)] },
+        [history],
+        fixtureHostReviewClassCatalogues(),
+        [],
+      ),
     ).toEqual({ ok: true, value: true })
-    expectRefused(assertCurrentOutputClosure({ ...request, stageSources: [ref(prior.result)] }, [history], []))
+    expectRefused(
+      assertCurrentOutputClosure(
+        { ...request, stageSources: [ref(prior.result)] },
+        [history],
+        fixtureHostReviewClassCatalogues(),
+        [],
+      ),
+    )
     expectRefused(
       assertCurrentOutputClosure(
         {
@@ -191,6 +219,7 @@ describe('correction stage closure', () => {
           stageSources: [ref(decision), ref(prior.result)],
         },
         [history],
+        fixtureHostReviewClassCatalogues(),
         [],
       ),
     )
@@ -203,6 +232,7 @@ describe('correction stage closure', () => {
           stageSources: [ref(decision), ref(prior.result)],
         },
         [history],
+        fixtureHostReviewClassCatalogues(),
         [],
       ),
     )
@@ -217,6 +247,7 @@ describe('correction stage closure', () => {
       assertCurrentOutputClosure(
         { ...currentRequest, stageSources: [ref(decision), ref(current.result)] },
         [history],
+        fixtureHostReviewClassCatalogues(),
         [],
       ),
     )
@@ -224,10 +255,13 @@ describe('correction stage closure', () => {
       assertCurrentOutputClosure(
         { ...request, actionId: 'prior-action', stageSources: [ref(decision), ref(prior.result)] },
         [history],
+        fixtureHostReviewClassCatalogues(),
         [],
       ),
     )
-    expectRefused(assertCurrentOutputClosure(currentRequest, [history], [ref(current.result)]))
+    expectRefused(
+      assertCurrentOutputClosure(currentRequest, [history], fixtureHostReviewClassCatalogues(), [ref(current.result)]),
+    )
   })
 
   it('rejects changed digests and wrong-scope references for both kinds of prior stage data', () => {
@@ -243,6 +277,7 @@ describe('correction stage closure', () => {
           assertCurrentOutputClosure(
             { ...request, stageSources: record.kind === 'decision' ? [invalid] : [ref(decision), invalid] },
             [history],
+            fixtureHostReviewClassCatalogues(),
             [],
           ),
         )
@@ -260,7 +295,13 @@ describe('correction stage closure', () => {
         ),
       }
       const stageSources = record.kind === 'decision' ? [ref(decision)] : [ref(decision), ref(prior.result)]
-      expectRefused(assertCurrentOutputClosure({ ...request, stageSources }, [foreign], []))
+      const result = assertCurrentOutputClosure(
+        { ...request, stageSources },
+        [foreign],
+        fixtureHostReviewClassCatalogues(),
+        [],
+      )
+      expect(result.ok).toBe(false)
     }
     if (prior.result.kind !== 'contribution') throw new Error('Expected action contribution')
     const unbound = valid({
@@ -268,16 +309,25 @@ describe('correction stage closure', () => {
       payload: { ...prior.result.payload, host: { ...prior.result.payload.host, slotId: 'other-slot' } },
     })
     const unboundHistory = encodedHistory([...records, prior.inventory, unbound])
-    expectRefused(
-      assertCurrentOutputClosure({ ...request, stageSources: [ref(decision), ref(unbound)] }, [unboundHistory], []),
+    const result = assertCurrentOutputClosure(
+      { ...request, stageSources: [ref(decision), ref(unbound)] },
+      [unboundHistory],
+      fixtureHostReviewClassCatalogues(),
+      [],
     )
+    expect(result.ok).toBe(false)
   })
 
   it('does not admit an unrelated root as stage data for review', () => {
     const { records, request, prior } = setup()
     const history = encodedHistory([...records, prior.inventory, prior.result])
     expectRefused(
-      assertCurrentOutputClosure({ ...request, purpose: 'review', stageSources: [ref(prior.result)] }, [history], []),
+      assertCurrentOutputClosure(
+        { ...request, purpose: 'review', stageSources: [ref(prior.result)] },
+        [history],
+        fixtureHostReviewClassCatalogues(),
+        [],
+      ),
     )
   })
 })

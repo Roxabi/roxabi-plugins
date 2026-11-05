@@ -1,5 +1,5 @@
+import { resolveOwnSpecEffective } from '../dist/contracts.js'
 import type { NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
-import { createTrustedDebtFiling } from './debt-filing-writer.ts'
 import {
   actionRequest,
   codePin,
@@ -9,33 +9,20 @@ import {
   uwSubject,
 } from './delivery-action.ts'
 import { type ExpectedAttributedCiCorrectionInput, reAdmitAttributedCiCorrection } from './fix-ci-admission.ts'
-import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, PublishBinding } from './fix-contract.ts'
+import { type CiCorrectionProduct, synthesizeCiCorrection } from './fix-ci-synthesis.ts'
+import type { FixActionResult, FixRecord, PreparedFix } from './fix-contract.ts'
 import { capturedSubmission, failure } from './fix-contract.ts'
-import {
-  assessFixIntake,
-  type FixIntakePublication,
-  publishNativeContributions,
-  taskSlot,
-} from './fix-contributions-native.ts'
-import {
-  finalizeCorrectionSynthesis,
-  type PreservedSynthesis,
-  prepareCorrectionSynthesis,
-} from './fix-contributions-synthesis.ts'
-import type { DebtEvidence, FixPolicy } from './fix-domain'
-import { admitDecisionExecution, type DefaultFixWorkflow, defaultDebtEvidence } from './fix-execution-policy.ts'
+import { assessFixIntake, publishNativeContributions, taskSlot } from './fix-contributions-native.ts'
+import { persistCauseDispositions } from './fix-disposition-execution.ts'
+import type { FixPolicy } from './fix-domain'
+import { admitDecisionExecution, executionCatalogues } from './fix-execution-policy.ts'
 import { executeDecision } from './fix-execution-runner.ts'
 import { confirmFixContinuation } from './fix-mandate-authority.ts'
 import type { AttributedCiCorrectionInput, CiCorrectionBound } from './fix-mandate-types.ts'
 import { actionTask, dispatchNativeBatch } from './fix-native-dispatch.ts'
+import { validateCorrectionOrigin } from './fix-origin-validation.ts'
 import { publish, record } from './fix-records.ts'
 import { nativeFixProfileByAction } from './native-review-profiles'
-
-type CiCorrectionProduct = DefaultFixWorkflow & {
-  identity: FixIdentity
-  publishBinding: PublishBinding
-  debtEvidence?: DebtEvidence
-}
 
 type AttributedCorrection = Extract<CiCorrectionBound, { status: 'attributed-correction' }>
 type CiCorrectionPreparation = { prepared: PreparedFix; intakeTask: NativeTask; evidence: FixRecord }
@@ -44,11 +31,30 @@ function isFixRequest(record: FixRecord): record is Extract<FixRecord, { kind: '
   return record.kind === 'fix-request'
 }
 
+async function validateSynthesisHistory(
+  product: CiCorrectionProduct,
+  decision: FixRecord,
+): Promise<FixActionResult<void>> {
+  try {
+    const history = await product.readHistory()
+    if (!history.source.complete) return failure('correction-synthesis-history-incomplete')
+    if (decision.kind !== 'decision') return failure('ci-correction-decision-invalid')
+    const catalogues = await executionCatalogues(history, product.github)
+    if (!catalogues.ok) return catalogues
+    return admitDecisionExecution(decision, history, catalogues.value)
+  } catch (error) {
+    return failure(`correction-synthesis-history-unreadable:${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 async function prepareCiCorrection(
   input: AttributedCiCorrectionInput,
   product: CiCorrectionProduct,
   admitted: AttributedCorrection,
 ): Promise<FixActionResult<CiCorrectionPreparation>> {
+  const effective = resolveOwnSpecEffective(admitted.uw.ownSpec)
+  if (!effective.ok) return failure('correction-spec-not-accepted', ...effective.diagnostics.map((item) => item.code))
+  const causeContext = { original: admitted.uw.ownSpec.ref.uw, effective: effective.value }
   const evidence = record(product.identity, input.target, 'contribution', {
     content: 'operator-request',
     inventoryId: null,
@@ -75,6 +81,7 @@ async function prepareCiCorrection(
       requestContributionId: evidence.recordId,
       existingReviewId: null,
       scope: correctionScope,
+      originalSpec: causeContext.effective.own,
       landing: false,
     },
     [evidence.recordId],
@@ -106,6 +113,8 @@ async function prepareCiCorrection(
     }),
   )
   if (!preparedAction.ok) return failure('prepare-action-unavailable')
+  const origin = validateCorrectionOrigin(preparedAction.value.inputs.manifest, causeContext)
+  if (!origin.ok) return origin
   const intakeTask = deliveryTask({
     name: intakeDraft.name,
     agent: intakeDraft.agent,
@@ -115,6 +124,7 @@ async function prepareCiCorrection(
     proofEvidence: intakeDraft.proofEvidence,
   })
   const prepared: PreparedFix = {
+    causeContext,
     target: input.target,
     requestId: request.recordId,
     inventoryId,
@@ -122,7 +132,6 @@ async function prepareCiCorrection(
     policy,
     cwd: input.cwd,
     publishBinding: product.publishBinding,
-    debtFiling: createTrustedDebtFiling(),
     subject: uwSubject(admitted.uw.ownSpec.ref.uw, pullRequest),
     batch: {
       operationId: product.identity.operationId,
@@ -198,59 +207,6 @@ async function dispatchCiCorrectionIntake(
   )
 }
 
-async function synthesizeCiCorrection(
-  prepared: PreparedFix,
-  product: CiCorrectionProduct,
-  evidence: FixRecord,
-  intake: FixIntakePublication,
-): Promise<FixActionResult<FixRecord>> {
-  const synthesisTask = actionTask(
-    'ci-correction-synthesis',
-    nativeFixProfileByAction.synthesis,
-    'Synthesize one correction-purpose decision only from the confirmed CI attribution and intake records named by the index. Do not replay review findings. Do not edit, commit, push, arm, or land.',
-    'one correction decision from attributed CI evidence',
-  )
-  const synthesis = await prepareCorrectionSynthesis(
-    prepared,
-    product.identity,
-    product.publisher,
-    [evidence, ...intake.records],
-    synthesisTask,
-    product.runtime.uw,
-  )
-  if (!synthesis.ok) return synthesis
-  const preservedSynthesis = await dispatchNativeBatch<PreservedSynthesis>(
-    product.native,
-    synthesis.value.batch,
-    product.runtime,
-    async (result) => {
-      const contributions = await publishNativeContributions(
-        prepared,
-        product.identity,
-        product.publisher,
-        synthesis.value.inventoryId,
-        [synthesisTask],
-        'synthesis',
-        'decision',
-        [synthesis.value.inventoryId, ...synthesis.value.sourceContributionIds],
-        result,
-      )
-      return contributions.ok ? { ok: true, value: { result, contributions: contributions.value } } : contributions
-    },
-    false,
-  )
-  if (!preservedSynthesis.ok) return preservedSynthesis
-  if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  return finalizeCorrectionSynthesis(
-    prepared,
-    synthesis.value,
-    product.identity,
-    product.publisher,
-    preservedSynthesis.value,
-    product.runtime.signal,
-  )
-}
-
 export async function runAdmittedCiCorrection(
   input: ExpectedAttributedCiCorrectionInput,
   product: CiCorrectionProduct,
@@ -272,25 +228,34 @@ export async function runAdmittedCiCorrection(
     preservedIntake.value.result,
     preservedIntake.value.records,
   )
-  if (!intake.complete) return failure(`native-intake-incomplete:${intake.diagnostics.join(';')}`)
+  if (!intake.complete) {
+    const retained = await persistCauseDispositions(
+      preparation.value.prepared,
+      {
+        kind: 'retained-output',
+        contributions: [preparation.value.evidence, ...intake.records].filter(
+          (item): item is Extract<FixRecord, { kind: 'contribution' }> => item.kind === 'contribution',
+        ),
+        diagnostics: intake.diagnostics.map((code) => ({ code, message: code })),
+      },
+      product.identity,
+      product.dispositionStore,
+    )
+    return retained.ok ? failure(`native-intake-incomplete:${intake.diagnostics.join(';')}`) : retained
+  }
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   const decision = await synthesizeCiCorrection(preparation.value.prepared, product, preparation.value.evidence, intake)
   if (!decision.ok) return decision
   if (decision.value.kind !== 'decision') return failure('ci-correction-decision-invalid')
-  try {
-    const history = await product.readHistory()
-    if (!history.source.complete) return failure('correction-synthesis-history-incomplete')
-    const admission = admitDecisionExecution(decision.value, history)
-    if (!admission.ok) return admission
-  } catch (error) {
-    return failure(`correction-synthesis-history-unreadable:${error instanceof Error ? error.message : String(error)}`)
-  }
-  if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  return executeDecision(
+  const retainedDecision = await persistCauseDispositions(
     preparation.value.prepared,
-    decision.value,
-    product,
+    { kind: 'decision', decision: decision.value },
     product.identity,
-    product.debtEvidence ?? defaultDebtEvidence,
+    product.dispositionStore,
   )
+  if (!retainedDecision.ok) return retainedDecision
+  const admittedDecision = await validateSynthesisHistory(product, decision.value)
+  if (!admittedDecision.ok) return admittedDecision
+  if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
+  return executeDecision(preparation.value.prepared, decision.value, product, product.identity)
 }

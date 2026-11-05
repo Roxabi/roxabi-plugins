@@ -1,7 +1,6 @@
-import type { CanonicalRecord, Json, Scope, Submission } from '../dist/contracts.js'
+import type { CanonicalRecord, CauseContext, Json, Scope, Submission } from '../dist/contracts.js'
 import type { NativeBatch, NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
-import type { DebtFiling } from './debt-filing-port.ts'
 import type { FixPolicy } from './fix-domain'
 import type { ActionSubject } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
@@ -59,7 +58,7 @@ export type FixRecordKind =
   | 'decision'
   | 'correction-result'
   | 'falsification-result'
-  | 'debt-receipt'
+  | 'cause-disposition'
   | 'fix-result'
 export type FixRecord = Extract<CanonicalRecord, { kind: FixRecordKind }>
 
@@ -88,8 +87,6 @@ export type FixRequestInput = {
   uw?: Scope
   /** Same-scope confirmed mandate ids only. Cross-scope ids stay external refs, never inputs. */
   authorityInputs?: readonly string[]
-  /** Production defaults to the trusted issue-triage boundary; tests may inject it. */
-  debtFiling?: DebtFiling
 }
 
 export type PreparedFix = {
@@ -97,10 +94,10 @@ export type PreparedFix = {
   requestId: string
   inventoryId: string
   batch: NativeBatch
+  causeContext: CauseContext
   sourceContributionId: string
   policy: FixPolicy
   cwd: string
-  debtFiling: DebtFiling
   publishBinding: PublishBinding
   subject: ActionSubject
 }

@@ -18,6 +18,7 @@ export function pinnedHead(record: CanonicalRecord | undefined): string | null {
 export function reconstructFixCheckpoint(
   history: DecodedHistory,
   trustedLiveRequest?: Extract<FixRecord, { kind: 'fix-request' }>,
+  externalHistories: DecodedHistory[] = [],
 ): FixCheckpoint {
   if (!history.source.complete) {
     return {
@@ -31,7 +32,7 @@ export function reconstructFixCheckpoint(
   if (pending !== null) return pending
   const records = completedRecords(history)
   if (!(records instanceof Map)) return records
-  return checkpointFromRecords(history, records, trustedLiveRequest)
+  return checkpointFromRecords(history, records, trustedLiveRequest, externalHistories)
 }
 
 function pendingOperationCheckpoint(history: DecodedHistory): FixCheckpoint | null {
@@ -80,6 +81,7 @@ function checkpointFromRecords(
   history: DecodedHistory,
   byId: Map<string, CanonicalRecord>,
   trustedLiveRequest: Extract<FixRecord, { kind: 'fix-request' }> | undefined,
+  externalHistories: DecodedHistory[],
 ): FixCheckpoint {
   const requests = [...byId.values()].filter((record) => record.kind === 'fix-request')
   const results = [...byId.values()].filter((record) => record.kind === 'fix-result')
@@ -111,7 +113,12 @@ function checkpointFromRecords(
     last.payload.decisionId,
     ...last.payload.correctionResultIds,
     ...last.payload.falsificationResultIds,
-    ...last.payload.debtReceiptIds,
+    ...last.payload.causeDispositionRefs
+      .filter(
+        (ref) =>
+          ref.scope.repository === history.source.scope.repository && ref.scope.target === history.source.scope.target,
+      )
+      .map((ref) => ref.recordId),
   ]
   const missing = referenced.filter((id) => !byId.has(id))
   if (missing.length > 0) {
@@ -122,6 +129,29 @@ function checkpointFromRecords(
       startedRequestIds: [],
     }
   }
+  const missingScoped = last.payload.causeDispositionRefs.filter(
+    (ref) =>
+      ![history, ...externalHistories].some(
+        (source) =>
+          source.source.complete &&
+          source.source.scope.repository === ref.scope.repository &&
+          source.source.scope.target === ref.scope.target &&
+          source.operations.some(
+            (operation) =>
+              operation.status === 'complete' &&
+              operation.authority !== 'foreign' &&
+              operation.record?.kind === ref.kind &&
+              operation.record.recordId === ref.recordId,
+          ),
+      ),
+  )
+  if (missingScoped.length > 0)
+    return {
+      status: 'blocked',
+      reason: 'unresolved-effect',
+      diagnostics: missingScoped.map((ref) => `fix-result-disposition-unconfirmed:${ref.recordId}`),
+      startedRequestIds: [],
+    }
   return {
     status: 'complete',
     requestId: last.payload.requestId,

@@ -12,8 +12,10 @@ import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { guardedCauseWriter } from '../uw-cause-guard.ts'
 import { createUwOperations } from '../uw-operations.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
@@ -117,7 +119,11 @@ export function setup(abandoned: boolean) {
     ],
   })
   const read = (scope: Scope) =>
-    createInstalledObservedUwReadPort({ graph: graph(), histories: [history] }).readUw(scope)
+    createInstalledObservedUwReadPort({
+      graph: graph(),
+      histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).readUw(scope)
   const unsupported = async (): Promise<never> => {
     throw new Error('unexpected issue mutation')
   }
@@ -163,7 +169,22 @@ export function setup(abandoned: boolean) {
   } as unknown as ExtensionContext)
   const operations = createUwOperations({
     read,
+    readCreated: read,
+    listReports: async (root) => ({ ok: true, value: { root, reports: [] } }),
+    guardParent: async () => {},
     writer: createIssueWriter(issuePorts),
+    guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+    causeOperations: () => ({
+      adjudicateCause: async () => {
+        throw new Error('unexpected adjudication')
+      },
+      createSister: async () => {
+        throw new Error('unexpected sister')
+      },
+      promoteReport: async () => {
+        throw new Error('unexpected promotion')
+      },
+    }),
     operator,
     prepareSpecAllocation,
     renderIssueSpecBody,

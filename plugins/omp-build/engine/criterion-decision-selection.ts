@@ -21,6 +21,7 @@ import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
 import { resolveManifestMandate } from './workflow-pr-binding.ts'
@@ -231,6 +232,7 @@ export function selectedDeclarations(
   histories: readonly DecodedHistory[],
   inputs: ActionInputs,
   diagnostics: Diagnostic[],
+  catalogues: ReviewClassCatalogues,
 ): { declarations: CriterionDeclaration[]; evidence: SelectedEvidence } {
   const declarations: CriterionDeclaration[] = []
   const evidence: SelectedEvidence = []
@@ -250,12 +252,20 @@ export function selectedDeclarations(
   const pins = manifestPins(inputs)
   const ownSpec = inputs.manifest.spec.effective.own
   for (const ref of inputs.manifest.deliveryData) {
-    if (ref.role === 'correction-lineage') continue
+    if (ref.role === 'correction-lineage' || ref.role === 'cause-state') continue
     if (ref.record.kind === 'fix-result') {
-      appendCorrectionSelection(ref, histories, inputs, current.payload.actionId, mandate, ownSpec, pins, diagnostics, {
-        declarations,
-        evidence,
-      })
+      appendCorrectionSelection(
+        ref,
+        histories,
+        inputs,
+        current.payload.actionId,
+        mandate,
+        ownSpec,
+        pins,
+        diagnostics,
+        { declarations, evidence },
+        catalogues,
+      )
       continue
     }
     appendDelivery(

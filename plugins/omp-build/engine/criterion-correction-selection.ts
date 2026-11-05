@@ -14,6 +14,7 @@ import { diagnostic } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 
@@ -47,42 +48,16 @@ function pinnedLineage(records: readonly CanonicalRecord[], inputs: ActionInputs
   )
 }
 
-export function appendCorrectionSelection(
+function appendCorrectionDeclaration(
+  value: unknown,
   ref: Ref,
   histories: readonly DecodedHistory[],
   inputs: ActionInputs,
-  planActionId: string,
-  mandate: ExternalRecordRef,
-  ownSpec: OwnSpecRef,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
   selected: Selection,
+  contribution: Extract<CanonicalRecord, { kind: 'contribution' }>,
 ): void {
-  const history = historyFor(ref.record.scope, histories)
-  const bound = history === null ? null : bindExternalRef(ref.record, history)
-  const fix = bound?.ok && bound.value.kind === 'fix-result' ? bound.value : null
-  const source =
-    fix === null
-      ? null
-      : resolveAdmittedCorrectionCriterionSource(fix, histories, {
-          head: inputs.manifest.code.head,
-          planActionId,
-          mandate,
-          ownSpec,
-        })
-  const value = fix === null ? undefined : pointer(fix, ref.selector)
-  if (source === null || value === undefined || canonicalValueDigest(value) !== ref.digest) {
-    diagnostics.push(
-      diagnostic('unconfirmed', `Correction delivery ${ref.record.recordId} is not an authenticated current source`),
-    )
-    return
-  }
-  if (!pinnedLineage(source.lineage, inputs)) {
-    diagnostics.push(
-      diagnostic('mismatch', `Correction delivery ${ref.record.recordId} lacks its authenticated lineage pins`),
-    )
-    return
-  }
   if (ref.role !== 'implementation') return
   const declaration = criterionDeclarationSchema.safeParse(value)
   if (!declaration.success) return
@@ -93,10 +68,60 @@ export function appendCorrectionSelection(
       diagnostics.push(diagnostic('mismatch', `Evidence ${item.id} is not the admitted current head`))
       continue
     }
-    diagnostics.push(...correctionObservationAuthenticationDiagnostics(item, histories, pins, source.contribution))
+    diagnostics.push(...correctionObservationAuthenticationDiagnostics(item, histories, pins, contribution))
     selected.evidence.push({
       ref: { receipt: ref.record, evidenceId: item.id, digest: evidenceDigest(item) },
       value: item,
     })
   }
+}
+
+export function appendCorrectionSelection(
+  ref: Ref,
+  histories: readonly DecodedHistory[],
+  inputs: ActionInputs,
+  planActionId: string,
+  mandate: ExternalRecordRef,
+  ownSpec: OwnSpecRef,
+  pins: readonly PinnedFileRef[],
+  diagnostics: Diagnostic[],
+  selected: Selection,
+  catalogues: ReviewClassCatalogues,
+): void {
+  const history = historyFor(ref.record.scope, histories)
+  const bound = history === null ? null : bindExternalRef(ref.record, history)
+  const fix = bound?.ok && bound.value.kind === 'fix-result' ? bound.value : null
+  const source =
+    fix === null
+      ? null
+      : resolveAdmittedCorrectionCriterionSource(
+          fix,
+          histories,
+          {
+            head: inputs.manifest.code.head,
+            planActionId,
+            mandate,
+            ownSpec,
+          },
+          catalogues,
+        )
+  if (source !== null && !source.ok) {
+    diagnostics.push(...source.diagnostics)
+    return
+  }
+  const admitted = source?.value ?? null
+  const value = fix === null ? undefined : pointer(fix, ref.selector)
+  if (admitted === null || value === undefined || canonicalValueDigest(value) !== ref.digest) {
+    diagnostics.push(
+      diagnostic('unconfirmed', `Correction delivery ${ref.record.recordId} is not an authenticated current source`),
+    )
+    return
+  }
+  if (!pinnedLineage(admitted.lineage, inputs)) {
+    diagnostics.push(
+      diagnostic('mismatch', `Correction delivery ${ref.record.recordId} lacks its authenticated lineage pins`),
+    )
+    return
+  }
+  appendCorrectionDeclaration(value, ref, histories, inputs, pins, diagnostics, selected, admitted.contribution)
 }

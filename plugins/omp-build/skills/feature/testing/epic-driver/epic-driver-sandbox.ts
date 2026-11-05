@@ -12,6 +12,7 @@ import path from 'node:path'
 
 const DRIVER = path.resolve(import.meta.dirname, '..', '..', 'epic-driver.ts')
 const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
+const TOOLING_READER = path.resolve(import.meta.dirname, '../../../../testing/review-gate-tooling-gh-cli.ts')
 
 const GH_STUB = `#!/usr/bin/env bash
 set -u
@@ -19,6 +20,9 @@ S="$DRIVER_STATE"
 ME="operator"
 log() { printf '%s\\n' "$*" >> "$S/writes.log"; printf '%s\\n' "$*" >> "$S/trace.log"; printf '%s\\t%s\\n' "$(pwd -P)" "$*" >> "$S/cwd.log"; }
 query() { printf 'query %s\\n' "$1" >> "$S/trace.log"; }
+if [[ "$1" == "api" && ( ( "\${2:-}" == "graphql" && "$*" == *"object(expression:"* && "$*" == *"owner=Roxabi"* && "$*" == *"name=roxabi-plugins"* ) || ( "\${2:-}" == "--method" && "\${3:-}" == "GET" && "\${4:-}" == repos/Roxabi/roxabi-plugins/git/blobs/* ) ) ]]; then
+  exec ${JSON.stringify(REAL_BUN)} ${JSON.stringify(TOOLING_READER)} ${JSON.stringify(import.meta.dirname)} "$@"
+fi
 case "$1 \${2:-}" in
   "repo view")
     if [[ "$*" == *defaultBranchRef* ]]; then echo "develop"; else echo "o/r"; fi ;;

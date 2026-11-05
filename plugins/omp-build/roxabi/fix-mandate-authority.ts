@@ -1,7 +1,13 @@
-import type { DecodedHistory, GitHubOptions, Json, Scope, ScopedRecordRef } from '../dist/contracts.js'
+import type {
+  AcceptedOwnSpec,
+  DecodedHistory,
+  GitHubOptions,
+  Json,
+  MandatePayload,
+  Scope,
+  ScopedRecordRef,
+} from '../dist/contracts.js'
 import { effectiveMandateRole, shippedProductVersion } from '../dist/contracts.js'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
 import type { FixActionResult, FixRecord, FixTarget } from './fix-contract.ts'
@@ -13,6 +19,7 @@ import {
   type FixMandateView,
   mandateView,
 } from './fix-mandate-types.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
@@ -48,16 +55,36 @@ export async function decideFixAuthority(input: {
 }): Promise<FixActionResult<FixAuthorityDecision>> {
   const history = await input.readHistory()
   if (!history.source.complete) return failure('fix-history-incomplete')
-  const checkpoint = reconstructFixCheckpoint(history, input.trustedLiveRequest)
-  if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
   const linked = await linkedIssueBinding(input.target, input.options, input.uw)
   if (!linked.ok) return linked
+  const selectedHistories = [
+    history,
+    ...(linked.value.history === null ? [] : [linked.value.history]),
+    ...linked.value.externalHistories,
+  ]
+  const causal = await readFixUwCausalContext(
+    linked.value.currentSpec === null ? selectedHistories : linked.value.currentSpec.causal.histories,
+    selectedHistories,
+    input.options,
+  )
+  if (!causal.ok) return causal
+  const checkpoint = reconstructFixCheckpoint(
+    history,
+    input.trustedLiveRequest,
+    causal.value.histories.filter(
+      (item) =>
+        item.source.scope.repository !== history.source.scope.repository ||
+        item.source.scope.target !== history.source.scope.target,
+    ),
+  )
+  if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
   const selected = await resolveCorrectionMandate({
     target: input.target,
     history,
     linkedIssueHistory: linked.value.history,
     linkedIssueScopes: [],
     externalHistories: linked.value.externalHistories,
+    causal: causal.value,
     branch: linked.value.branch ?? input.branch,
     base: linked.value.base ?? input.base,
     currentSpec: linked.value.currentSpec,

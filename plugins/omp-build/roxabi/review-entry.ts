@@ -3,6 +3,7 @@ import type { CanonicalRecord, GitHubOptions } from '../dist/contracts.js'
 import type { ReviewContext } from './review-contract'
 import type { PreparedReviewInputs as AssembledReviewInputs } from './review-input-contract'
 import { CanonicalReviewRunner } from './review-runner'
+import type { ReviewRootRef } from './uw-action-contract.ts'
 
 export type PreparedReviewRunnerOptions = {
   identity?: Pick<ReviewContext, 'runId' | 'operationId'>
@@ -13,7 +14,10 @@ export type PreparedReviewRunnerOptions = {
 export function createPreparedReviewRunner(
   input: AssembledReviewInputs,
   options: GitHubOptions,
-  authorize: (stage: 'initial' | 'recall' | 'synthesis') => Promise<{ ok: true } | { ok: false; reason: string }>,
+  authorize: (
+    stage: 'initial' | 'recall' | 'synthesis',
+    root?: ReviewRootRef,
+  ) => Promise<{ ok: true } | { ok: false; reason: string }>,
   runnerOptions: PreparedReviewRunnerOptions = {},
 ): CanonicalReviewRunner {
   return new CanonicalReviewRunner(

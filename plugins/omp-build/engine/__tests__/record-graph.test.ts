@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { finding, reviewRoot, submission, synthesisInventory, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { contribution, decision } from '../../testing/record-decisions.ts'
 import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
@@ -121,6 +122,7 @@ describe('closed review graph', () => {
           label: 'issue(blocking)',
           impactReason: 'The retained source is incomplete.',
           state: 'unusable',
+          target: null,
           sourceFindingIds: ['invalid-child:f0'],
         },
       ],
@@ -130,7 +132,12 @@ describe('closed review graph', () => {
     expect(validateRecordGraph(retained)).toMatchObject({ ok: true })
     expect(projectRecord(invalid, retained, null)).toMatchObject({ ok: true })
     expect(
-      validateDecision(decisionFromInvalidSource, history([root, invalid, decisionFromInvalidSource]), TAXONOMY, null),
+      validateDecision(
+        decisionFromInvalidSource,
+        history([root, invalid, decisionFromInvalidSource]),
+        fixtureReviewClassCatalogues(),
+        null,
+      ),
     ).toMatchObject({
       admissible: false,
       verdict: null,
@@ -140,7 +147,7 @@ describe('closed review graph', () => {
         validateDecision(
           decisionFromInvalidSource,
           history([root, invalid, decisionFromInvalidSource]),
-          TAXONOMY,
+          fixtureReviewClassCatalogues(),
           null,
         ),
       ),
@@ -192,7 +199,7 @@ describe('closed review graph', () => {
 })
 describe('recall scheduling', () => {
   test('indexes usable non-candidate findings by observed chunks and callsites only', () => {
-    const root = reviewRoot({
+    const baseRoot = reviewRoot({
       slots: [
         {
           slotId: 'spec-0',
@@ -226,6 +233,26 @@ describe('recall scheduling', () => {
         },
       ],
     })
+    if (baseRoot.payload.stage !== 'initial' || baseRoot.payload.purpose !== 'review')
+      throw new Error('Expected initial review inventory')
+    const inputs = baseRoot.payload.inputSnapshot
+    const firstAction = { actionId: 'recall-panel-0', inputs }
+    const secondAction = { actionId: 'recall-panel-1', inputs }
+    const root = {
+      ...baseRoot,
+      payload: {
+        ...baseRoot.payload,
+        slots: baseRoot.payload.slots.map((slot) => ({
+          ...slot,
+          action:
+            slot.slotId === 'panel-0'
+              ? firstAction
+              : slot.slotId === 'panel-1'
+                ? secondAction
+                : { actionId: 'recall-spec', inputs },
+        })),
+      },
+    }
     const recallSpecStructured = { findings: [], specRows: [] }
     const spec = contribution({
       id: 'recall-spec',
@@ -248,7 +275,7 @@ describe('recall scheduling', () => {
           id: 'recall-first:f0',
           attemptIndex: 0,
           data: finding({
-            classes: ['race-condition'],
+            classes: ['test-tautology'],
             rawCallsites: [
               { file: 'src/a.ts', line: 10 },
               { file: 'src/b.ts', line: 20 },
@@ -267,7 +294,7 @@ describe('recall scheduling', () => {
           id: 'recall-second:f0',
           attemptIndex: 0,
           data: finding({
-            classes: ['race-condition', 'candidate/isolated-hypothesis'],
+            classes: ['test-tautology', 'candidate/isolated-hypothesis'],
             rawCallsites: [{ file: 'src/c.ts', line: 30 }],
           }),
         },
@@ -284,6 +311,7 @@ describe('recall scheduling', () => {
           label: 'issue',
           impactReason: 'Race.',
           state: 'usable',
+          target: finding().target,
           sourceFindingIds: ['recall-first:f0'],
           description: 'Synchronize writes.',
         },
@@ -292,6 +320,7 @@ describe('recall scheduling', () => {
           label: 'issue',
           impactReason: 'Race.',
           state: 'usable',
+          target: finding().target,
           sourceFindingIds: ['recall-second:f0'],
           description: 'Synchronize reads.',
         },
@@ -314,14 +343,22 @@ describe('recall scheduling', () => {
       structured: reviewReady.payload.judgment,
     })
     const synthesisStage = synthesisInventory({ id: 'recall-synthesis', rootId: root.recordId })
-    const records = [root, spec, first, second, synthesisStage, synthesis, reviewReady]
+    const capturedFirst = {
+      ...first,
+      payload: { ...first.payload, host: { ...first.payload.host, action: firstAction } },
+    }
+    const capturedSecond = {
+      ...second,
+      payload: { ...second.payload, host: { ...second.payload.host, action: secondAction } },
+    }
+    const records = [root, spec, capturedFirst, capturedSecond, synthesisStage, synthesis, reviewReady]
 
-    expect(deriveRecallPlan(history(records), root.recordId, TAXONOMY)).toMatchObject({
+    expect(deriveRecallPlan(history(records), root.recordId, fixtureReviewClassCatalogues())).toMatchObject({
       ok: true,
       value: {
         index: [
           {
-            classId: 'race-condition',
+            classId: 'test-tautology',
             chunks: [0, 1],
             callsites: [
               { file: 'src/a.ts', line: 10 },
@@ -331,7 +368,7 @@ describe('recall scheduling', () => {
             sourceFindingIds: ['recall-first:f0', 'recall-second:f0'],
           },
         ],
-        triggeredClassIds: ['race-condition'],
+        triggeredClassIds: ['test-tautology'],
       },
     })
     expect(

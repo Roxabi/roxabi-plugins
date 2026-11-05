@@ -1,32 +1,27 @@
 import {
   type CanonicalRecord,
   type DecodedHistory,
-  decodeHistory,
   type GitHubOptions,
   publishGitHubRecord,
-  type RecordProjectionConfig,
-  readGitHubHistory,
   type Scope,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from './github-policy'
+import { createPublicationContextResolver } from './publication-context.ts'
 
 export type PublishedRecord = { ok: true } | { ok: false; diagnostics: string[] }
 
 async function publishChecked(
-  scope: Scope,
   options: GitHubOptions,
-  config: RecordProjectionConfig | null,
+  acceptedPolicy: string | null,
   record: CanonicalRecord,
   externalHistories: readonly DecodedHistory[],
   canPublish?: () => boolean,
 ): Promise<PublishedRecord> {
-  const history = decodeHistory(await readGitHubHistory(scope, options))
   if (canPublish?.() === false) return { ok: false, diagnostics: ['publication-ownership-revoked'] }
   const result = await publishGitHubRecord(
     record,
-    history,
     canPublish === undefined ? options : { ...options, canPublish },
-    config,
+    createPublicationContextResolver(options, acceptedPolicy),
     externalHistories,
   )
   if (canPublish?.() === false) return { ok: false, diagnostics: ['publication-ownership-revoked'] }
@@ -42,7 +37,7 @@ async function publishChecked(
 export function createGitHubRecordPublisher(
   scope: Scope,
   supplied: GitHubOptions,
-  config: RecordProjectionConfig | null,
+  acceptedPolicy: string | null,
 ): {
   publish(
     record: CanonicalRecord,
@@ -56,7 +51,7 @@ export function createGitHubRecordPublisher(
       if (record.repository !== scope.repository || record.target !== scope.target)
         return { ok: false, diagnostics: ['record-scope-mismatch'] }
       try {
-        return await publishChecked(scope, options, config, record, externalHistories, canPublish)
+        return await publishChecked(options, acceptedPolicy, record, externalHistories, canPublish)
       } catch (error) {
         return { ok: false, diagnostics: [error instanceof Error ? error.message : String(error)] }
       }

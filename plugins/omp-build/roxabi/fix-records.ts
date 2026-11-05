@@ -1,4 +1,4 @@
-import type { Json, RecordDraft } from '../dist/contracts.js'
+import type { Json, OwnSpecRef, RecordDraft } from '../dist/contracts.js'
 import { buildRecord } from '../dist/contracts.js'
 import type {
   FixActionResult,
@@ -54,6 +54,7 @@ export async function publishOperatorRequest(
     scope: string
     existingReviewId: string | null
     contextInputs: readonly string[]
+    originalSpec: OwnSpecRef
   },
   signal?: AbortSignal,
 ): Promise<FixActionResult<{ source: FixRecord; request: FixRecord }>> {
@@ -84,6 +85,7 @@ export async function publishOperatorRequest(
       requestContributionId: source.recordId,
       existingReviewId: input.existingReviewId,
       scope: input.scope,
+      originalSpec: input.originalSpec,
       landing: false,
     },
     [source.recordId, ...input.contextInputs],

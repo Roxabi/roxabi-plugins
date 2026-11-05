@@ -1,6 +1,8 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
+import { sameOwnSpecRef } from './spec-effective.ts'
+import type { OwnSpecRef } from './uw-spec-schema.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './workflow-accepted-spec-types.ts'
 import {
   bindExternalRef,
@@ -239,6 +241,8 @@ export function resolveAcceptedSpecChain(input: {
   home: DecodedHistory
   histories: readonly DecodedHistory[]
   mandateRef: ExternalRecordRef
+  target?: OwnSpecRef
+  prefixes?: AcceptedOwnSpec[]
   scope: ExternalRecordRef['scope']
 }): AcceptedSpecResult {
   const { confirmed, home, histories, mandateRef } = input
@@ -256,6 +260,8 @@ export function resolveAcceptedSpecChain(input: {
   }
   const applied = new Set<string>([confirmed.recordId])
   let accepted = initial
+  input.prefixes?.push(initial)
+  let selected = input.target && sameOwnSpecRef(initial.ref, input.target) ? initial : undefined
   let predecessor = mandateRef
   for (let guard = 0; guard < recordsOf(home).length + 1; guard += 1) {
     const step = nextAcceptedSpecStep({ home, histories, mandateRef, applied, accepted, predecessor })
@@ -266,8 +272,14 @@ export function resolveAcceptedSpecChain(input: {
       chain: [...accepted.chain, step.step],
       sourceRefs: [...accepted.sourceRefs, ...step.refs],
     }
+    if (input.target && sameOwnSpecRef(accepted.ref, input.target)) selected = accepted
+    input.prefixes?.push(accepted)
     predecessor = step.predecessor
     applied.add(step.applied)
+  }
+  if (input.target) {
+    if (!selected) return specChainFailure('incomplete', 'Requested Spec is not an authenticated accepted prefix')
+    return { ok: true, spec: selected }
   }
   return { ok: true, spec: accepted }
 }

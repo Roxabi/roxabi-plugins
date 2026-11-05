@@ -14,6 +14,8 @@ export type ReviewInputDeps = {
   automationLogin?: string
   pluginPin?: import('../../roxabi/uw-action-contract.ts').TrustedHostPluginPin
   persistedFingerprint?: string
+  selectedReviewId?: string | null
+  reviewedRoot?: import('../../roxabi/uw-action-contract.ts').ReviewRootRef
 }
 
 export declare function confirmedReviewSemanticContext(
@@ -59,6 +61,6 @@ export declare function validateLandingReviewInput(
 export declare function hasFreshReviewInput(
   cwd: string,
   pr: number | string,
-  records: { head: string | null; input: string | null },
+  records: { head: string | null; input: string | null; reviewId: string | null },
   deps?: Omit<ReviewInputDeps, 'semantic'>,
 ): Promise<boolean>

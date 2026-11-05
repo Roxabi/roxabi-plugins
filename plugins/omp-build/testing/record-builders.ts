@@ -2,17 +2,16 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { FindingData, Json, NativeOutcome, Policy, Scope, Submission } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { ReviewInputSnapshot, ReviewStandards, ReviewSubject } from '../engine/review-schema.ts'
-import { standaloneReviewInputs } from './action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, standaloneReviewInputs } from './action-input-fixtures.ts'
 export const TEST_SCOPE: Scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
 export const NATIVE_AUTHOR = 'roxabi-bot'
 export const TEST_HEAD = '1111111111111111111111111111111111111111'
 export const TEST_INPUT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 export const BASELINE_POLICY: Policy = { version: 'baseline' }
-export const SYNTHETIC_TAXONOMY = ['race-condition', 'candidate/isolated-hypothesis']
 
-/** Projection policy is an explicit caller input; this synthetic value is only a mechanical-test fixture. */
-export function projectionConfig(taxonomy: readonly string[]): RecordProjectionConfig {
-  return { taxonomy, acceptedPolicy: null }
+/** Projection evidence matches the local fixture action's pinned catalogue bytes. */
+export function projectionConfig(): RecordProjectionConfig {
+  return { catalogues: fixtureReviewClassCatalogues(), acceptedPolicy: null }
 }
 
 export const TEST_INPUT_SNAPSHOT: ReviewInputSnapshot = standaloneReviewInputs(TEST_SCOPE, TEST_HEAD)
@@ -33,6 +32,7 @@ function envelope(recordId: string, operationId: string, inputs: string[] = []):
 export function finding(overrides: Partial<FindingData> = {}): FindingData {
   return {
     label: 'issue',
+    target: { format: 'omp-build-finding-target/1', kind: 'outside-spec', uw: TEST_SCOPE, element: 'widget save' },
     description: 'Widget save discards the selected region.',
     location: { file: 'src/widget.ts', line: 41 },
     rootCause: 'The save path serializes the stale region field.',
@@ -170,6 +170,7 @@ export function synthesisInventory(
     head?: string
     input?: string | null
     actionInputDigest?: string
+    actionInputs?: ReviewInputSnapshot
     policy?: Policy
   } = {},
 ): ReviewAttempt {
@@ -194,6 +195,7 @@ export function synthesisInventory(
           required: true,
           output: 'decision',
           classId: null,
+          ...(options.actionInputs ? { action: { actionId: id, inputs: options.actionInputs } } : {}),
           sourceFindingIds: [],
         },
       ],

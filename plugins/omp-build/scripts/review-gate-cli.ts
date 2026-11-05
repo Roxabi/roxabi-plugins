@@ -1,7 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 
-import { loadReviewClassCatalogue } from '../roxabi/review-assets.ts'
 import type { Gh, Git } from '../skills/feature/review-base.ts'
 
 export type Arguments = {
@@ -131,14 +130,6 @@ export async function requiredCommand(cwd: string, argv: string[], input?: strin
   const result = await command(cwd, argv, input)
   if (result.code !== 0) throw commandError(argv, result)
   return result.stdout
-}
-
-export function canonicalTaxonomy(toolingRoot: string): string[] {
-  const { classes: source } = loadReviewClassCatalogue(join(toolingRoot, 'plugins/omp-build/skills/dev-review'))
-  const classes = [...source.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
-  if (classes.length === 0 || new Set(classes).size !== classes.length)
-    throw new Error('trusted review taxonomy is unreadable')
-  return classes
 }
 
 export async function trustedRoot(expectedSha: string): Promise<string> {

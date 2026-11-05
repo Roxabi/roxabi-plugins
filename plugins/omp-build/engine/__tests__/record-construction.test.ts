@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, submission, synthesisInventory, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
@@ -6,7 +7,7 @@ import { history, operation } from '../../testing/record-history.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
 import { validateDecision } from '../review-decision.ts'
-import { refusalCodes, TAXONOMY } from './record-test-support.ts'
+import { refusalCodes } from './record-test-support.ts'
 import { featureMandate } from './workflow-test-support.ts'
 
 describe('buildRecord', () => {
@@ -56,6 +57,7 @@ describe('buildRecord', () => {
     const graph = reviewGraph({ prefix: 'semantic-json' })
     const rawJudgment = {
       purpose: 'review' as const,
+      format: 'omp-build-cause-decision/1' as const,
       policy: { version: 'baseline' as const },
       sourceContributionIds: [graph.spec.recordId, graph.panel.recordId],
       findings: [
@@ -64,11 +66,13 @@ describe('buildRecord', () => {
           label: 'issue' as const,
           impactReason: 'The saved region is wrong.',
           state: 'usable' as const,
+          target: graph.decision.payload.judgment.findings[0]?.target,
           description: 'Save the selected region rather than the stale region.',
           sourceFindingIds: [`${graph.panel.recordId}:f0`],
         },
       ],
-      causes: [],
+      causes: graph.decision.payload.judgment.causes,
+      unassignedFindings: [],
       standards: {
         state: 'observed' as const,
         rows: [{ smell: 'State persistence', assessment: 'The save path must preserve the selected region.' }],
@@ -118,7 +122,7 @@ describe('buildRecord', () => {
       },
     }
 
-    expect(validateDecision(built.value, retained, TAXONOMY, null)).toMatchObject({
+    expect(validateDecision(built.value, retained, fixtureReviewClassCatalogues(), null)).toMatchObject({
       admissible: true,
       verdict: 'Request changes',
     })

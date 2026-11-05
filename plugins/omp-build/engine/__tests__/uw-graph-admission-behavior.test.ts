@@ -1,6 +1,8 @@
 import { expect, test } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { createInstalledObservedUwReadPort } from '../../roxabi/uw-read-port.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { specDigest } from '../record-digests.ts'
 import type { ExternalRecordRef } from '../record-references.ts'
@@ -15,6 +17,16 @@ const ROOT: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
 const CHILD: Scope = { repository: 'acme/payments', target: 'acme/payments#42' }
 const BLOCKER: Scope = { repository: 'other/dependencies', target: 'other/dependencies#9' }
 const OBSERVED_AT = '2026-10-27T12:00:00.000Z'
+const NO_CAUSE_HISTORY = [
+  decodeHistory({
+    scope: ROOT,
+    expectedAuthor: 'operator',
+    stopAuthor: 'operator',
+    complete: true,
+    comments: [],
+    diagnostics: [],
+  }),
+]
 
 function must<T>(result: { ok: true; value: T } | { ok: false; diagnostics: readonly { code: string }[] }): T {
   if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(','))
@@ -122,10 +134,12 @@ test('refuses an accepted UW when a parser draft has no diagnostics', async () =
   const baseline = createInstalledObservedUwReadPort({
     graph: graph([{ ...node({ uw: ROOT }), raw: source }]),
     histories: [history],
+    catalogues: fixtureReviewClassCatalogues(),
   })
   const changed = createInstalledObservedUwReadPort({
     graph: graph([{ ...node({ uw: ROOT }), raw: draftSource }]),
     histories: [history],
+    catalogues: fixtureReviewClassCatalogues(),
   })
   const before = await baseline.readUw(ROOT)
   const read = await changed.readUw(ROOT)
@@ -134,6 +148,8 @@ test('refuses an accepted UW when a parser draft has no diagnostics', async () =
   expect(read.proposed).toEqual({ ok: false, diagnostics: [] })
   if (!read.identity.ok) throw new Error('fixture identity ledger must resolve')
   const admission = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: read.graph,
     proposed: read.proposed,
@@ -155,6 +171,8 @@ test('frames the own Spec only, requiring an explicit native tier and no open qu
   const own = snapshot()
   const complete = graph([node({ uw: ROOT })])
   const initiallyFramed = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: complete,
     proposed: { ok: true, snapshot: own },
@@ -163,6 +181,8 @@ test('frames the own Spec only, requiring an explicit native tier and no open qu
     phase: 'initial-selection',
   })
   const landingWithoutAcceptance = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: complete,
     proposed: { ok: true, snapshot: own },
@@ -172,6 +192,8 @@ test('frames the own Spec only, requiring an explicit native tier and no open qu
     currentChildren: { ok: true, value: [] },
   })
   const unframed = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([node({ uw: ROOT, labels: [] })]),
     proposed: { ok: true, snapshot: snapshot([{ id: 'C1', statement: 'Own commitment' }], ['Who owns the rollback?']) },
@@ -189,6 +211,8 @@ test('frames the own Spec only, requiring an explicit native tier and no open qu
 test('lifts a dependency only when its native state is CLOSED with exactly COMPLETED', () => {
   const own = snapshot()
   const completed = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([
       node({ uw: ROOT, blockers: [BLOCKER] }),
@@ -200,6 +224,8 @@ test('lifts a dependency only when its native state is CLOSED with exactly COMPL
     phase: 'initial-selection',
   })
   const notPlanned = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([
       node({ uw: ROOT, blockers: [BLOCKER] }),
@@ -211,6 +237,8 @@ test('lifts a dependency only when its native state is CLOSED with exactly COMPL
     phase: 'initial-selection',
   })
   const unknownReason = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([node({ uw: ROOT, blockers: [BLOCKER] }), node({ uw: BLOCKER, state: 'CLOSED', stateReason: null })]),
     proposed: { ok: true, snapshot: own },
@@ -252,6 +280,8 @@ test('validates the combined hierarchy and dependency closure across repositorie
 test('refuses wayfinder roots and dependencies, and retains an accepted child reclassified as non-UW before filtering', () => {
   const own = snapshot()
   const rootWayfinder = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([node({ uw: ROOT, labels: ['wayfinder:map', 'size:S'], wayfinderLabels: ['wayfinder:map'] })]),
     proposed: { ok: true, snapshot: own },
@@ -260,6 +290,8 @@ test('refuses wayfinder roots and dependencies, and retains an accepted child re
     phase: 'initial-selection',
   })
   const dependencyWayfinder = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([
       node({ uw: ROOT, blockers: [BLOCKER] }),
@@ -278,6 +310,8 @@ test('refuses wayfinder roots and dependencies, and retains an accepted child re
   })
   const childSnapshot = snapshot([{ id: 'C1', statement: 'Child commitment' }], [], CHILD)
   const reclassifiedChild = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([
       node({ uw: ROOT, children: [CHILD] }),
@@ -311,6 +345,8 @@ test('requires root child membership and a canonical child projection without tr
   const child = snapshot([{ id: 'C1', statement: 'Child commitment' }], [], CHILD)
   const acceptedChild = { scope: CHILD, specVersion: child.spec.version, snapshot: child, tier: 'S' as const }
   const detached = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([
       node({ uw: ROOT, blockers: [CHILD] }),
@@ -323,6 +359,8 @@ test('requires root child membership and a canonical child projection without tr
     currentChildren: { ok: true, value: [{ scope: CHILD, specVersion: child.spec.version, tier: 'S' }] },
   })
   const missingTier = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([node({ uw: ROOT, children: [CHILD] }), node({ uw: CHILD, labels: [], parent: ROOT })]),
     proposed: { ok: true, snapshot: own },
@@ -332,6 +370,8 @@ test('requires root child membership and a canonical child projection without tr
     currentChildren: { ok: true, value: [{ scope: CHILD, specVersion: child.spec.version, tier: 'S' }] },
   })
   const unavailableProjection = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([node({ uw: ROOT, children: [CHILD] }), node({ uw: CHILD, parent: ROOT })]),
     proposed: { ok: true, snapshot: own },
@@ -352,6 +392,8 @@ test('requires root child membership and a canonical child projection without tr
   })
   const changed = snapshot([{ id: 'C1', statement: 'Changed child commitment' }], [], CHILD)
   const changedVersion = assessUwAdmission({
+    histories: NO_CAUSE_HISTORY,
+    catalogues: fixtureReviewClassCatalogues(),
     uw: ROOT,
     graph: graph([node({ uw: ROOT, children: [CHILD] }), node({ uw: CHILD, parent: ROOT })]),
     proposed: { ok: true, snapshot: own },

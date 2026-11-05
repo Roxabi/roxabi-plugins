@@ -18,6 +18,18 @@ function refusal(proposal: PreparedOperatorProposal, code: string, message: stri
 
 function decisionFacts(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
+  if ('operation' in proposal && proposal.operation === 'adjudicate-cause') {
+    return [
+      'operation: adjudicate-cause',
+      `repository: ${JSON.stringify(proposal.uw.repository)}`,
+      `UW: ${JSON.stringify(proposal.uw.target)}`,
+      `pending: ${JSON.stringify(proposal.pending)}`,
+      `rejected findings: ${JSON.stringify(proposal.rejectedFindingIds)}`,
+      `judgment: ${JSON.stringify(proposal.judgment)}`,
+      `reason: ${JSON.stringify(proposal.reason)}`,
+      `references: ${JSON.stringify(proposal.references)}`,
+    ]
+  }
   if (!('target' in proposal)) {
     return [
       `operation: accept-material`,
@@ -35,6 +47,9 @@ function decisionFacts(prepared: PreparedOperatorProposal): string[] {
     `repository: ${JSON.stringify(repository)}`,
     `UW: ${JSON.stringify(uw)}`,
     `title: ${JSON.stringify(proposal.title)}`,
+    ...(proposal.creation === null || proposal.creation === undefined || proposal.creation.kind === 'operator-create'
+      ? []
+      : [`creation: ${JSON.stringify(proposal.creation)}`, `framing: ${JSON.stringify(proposal.draft)}`]),
     ...(proposal.normalization ?? []).map((decision) => `change: ${JSON.stringify(decision)}`),
   ]
 }

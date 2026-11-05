@@ -8,11 +8,22 @@ import { resolveHistoricalCorrectionBasis } from './correction-historical-basis.
 import { correctionRecord } from './correction-lineage-admission.ts'
 import { genuineCorrectionSource } from './correction-native-source.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 
 type Fix = Extract<CanonicalRecord, { kind: 'fix-result' }>
+const invalid = () => ({
+  ok: false as const,
+  diagnostics: [diagnostic('unconfirmed', 'Selected correction source is not authenticated')],
+})
 
-function correctionIdentity(fix: Fix, histories: readonly DecodedHistory[], context: CorrectionCriterionContext) {
+function correctionIdentity(
+  fix: Fix,
+  histories: readonly DecodedHistory[],
+  context: CorrectionCriterionContext,
+  catalogues: ReviewClassCatalogues,
+) {
   const receipt = fix.payload.criterionReceipt
   if (
     !receipt ||
@@ -20,7 +31,7 @@ function correctionIdentity(fix: Fix, histories: readonly DecodedHistory[], cont
     !fix.inputs.includes(receipt.sourceContributionId) ||
     correctionRecord(fix, histories, fix.recordId, 'fix-result') === null
   )
-    return null
+    return invalid()
   const request = correctionRecord(fix, histories, fix.payload.requestId, 'fix-request')
   const decision = correctionRecord(fix, histories, fix.payload.decisionId, 'decision')
   const contribution = correctionRecord(fix, histories, receipt.sourceContributionId, 'contribution')
@@ -31,44 +42,48 @@ function correctionIdentity(fix: Fix, histories: readonly DecodedHistory[], cont
     !fix.inputs.includes(request.recordId) ||
     !fix.inputs.includes(decision.recordId)
   )
-    return null
+    return invalid()
   const review =
     request.payload.existingReviewId === null
       ? null
       : correctionRecord(fix, histories, request.payload.existingReviewId, 'review')
   if (request.payload.existingReviewId === null) {
-    if (decision.payload.judgment.purpose !== 'correction') return null
+    if (decision.payload.judgment.purpose !== 'correction') return invalid()
   } else if (review?.payload.decisionId !== decision.recordId || decision.payload.judgment.purpose !== 'review')
-    return null
-  const historical = resolveHistoricalCorrectionBasis({ contribution, histories })
+    return invalid()
+  const historical = resolveHistoricalCorrectionBasis({ contribution, histories, catalogues })
+  if (!historical.ok) return historical
   if (
-    !historical.ok ||
     historical.value.requestRef.record.recordId !== request.recordId ||
     historical.value.decisionRef.record.recordId !== decision.recordId
   )
-    return null
-  return { receipt, request, decision, contribution, review, historical: historical.value }
+    return invalid()
+  return {
+    ok: true as const,
+    value: { receipt, request, decision, contribution, review, historical: historical.value },
+  }
 }
 
 export function admitCorrectionSourceBinding(
   fix: Fix,
   histories: readonly DecodedHistory[],
   context: CorrectionCriterionContext,
+  catalogues: ReviewClassCatalogues,
 ) {
-  const identity = correctionIdentity(fix, histories, context)
-  if (identity === null) return null
-  const { receipt, request, decision, contribution, review, historical } = identity
+  const identity = correctionIdentity(fix, histories, context, catalogues)
+  if (!identity.ok) return identity
+  const { receipt, request, decision, contribution, review, historical } = identity.value
   const source = contribution.payload
   const native = source.native
   const observation = native?.observation
   const action = source.host.action
-  if (!native || !observation || !action || !genuineCorrectionSource(contribution)) return null
+  if (!native || !observation || !action || !genuineCorrectionSource(contribution)) return invalid()
   const manifest = action.inputs.manifest
   if (
     !currentCorrectionContext(action.inputs, fix, histories, context) ||
     !correctionCurrentPlan(manifest, histories, context)
   )
-    return null
+    return invalid()
   const inventory =
     source.inventoryId === null ? null : correctionRecord(fix, histories, source.inventoryId, 'review-attempt')
   if (
@@ -79,7 +94,7 @@ export function admitCorrectionSourceBinding(
     !inventory.inputs.includes(decision.recordId) ||
     !contribution.inputs.includes(inventory.recordId)
   )
-    return null
+    return invalid()
   const slots = inventory.payload.slots.filter(
     (slot) => slot.slotId === source.host.slotId && slot.phase === source.host.phase && slot.role === source.host.role,
   )
@@ -94,18 +109,21 @@ export function admitCorrectionSourceBinding(
     !slot?.correction ||
     !decision.payload.judgment.causes.some((cause) => cause.id === slot.correction?.causeId)
   )
-    return null
+    return invalid()
   return {
-    receipt,
-    request,
-    decision,
-    contribution,
-    review,
-    historical,
-    source,
-    native,
-    observation,
-    inventory,
-    correction: slot.correction,
+    ok: true as const,
+    value: {
+      receipt,
+      request,
+      decision,
+      contribution,
+      review,
+      historical,
+      source,
+      native,
+      observation,
+      inventory,
+      correction: slot.correction,
+    },
   }
 }

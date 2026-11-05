@@ -1,24 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { validateDecisionBindings } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
-import { fixturePreparedAction, fixtureUwOperations } from '../testing/action-input-fixtures.ts'
+import { fixturePreparedAction } from '../testing/action-input-fixtures.ts'
 import { contribution } from '../testing/record-decisions.ts'
-import { reviewGraph } from '../testing/record-graphs.ts'
 import { history } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { executeCorrection } from './correction-plan-execution.ts'
 import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
 import type { FixRecord, FixTarget, PreparedFix } from './fix-contract.ts'
 import { publishFixIntake } from './fix-contributions-native.ts'
-import { admitCorrectionCauses, assessFalsification, type CorrectionCause, type FixFinding } from './fix-domain'
-import { runReviewBoundFixWorkflow } from './fix-execution-runner.ts'
+import { assessFalsification, type CauseAdmission, type CorrectionCause } from './fix-domain'
 import { matchesRequiredFeatureMandate } from './fix-mandate-authority.ts'
 import type { FixMandateView } from './fix-mandate-types.ts'
 
-const blocking: FixFinding = { id: 'finding-1', label: 'issue(blocking)', usable: true }
-const optional: FixFinding = { id: 'finding-2', label: 'suggestion', usable: true }
 const requiredCause: CorrectionCause = {
   id: 'RC-1',
   title: 'guard missing',
@@ -29,8 +24,12 @@ const requiredCause: CorrectionCause = {
   paths: ['src/consumer.ts:10'],
   proof: 'consumer rejects invalid input',
   findingIds: ['finding-1'],
-  authorization: 'required',
-  admission: { safePlan: true },
+  judgment: {
+    necessary: { state: 'missing', value: null, reason: 'fixture', references: [] },
+    urgent: { state: 'missing', value: null, reason: 'fixture', references: [] },
+    tooLarge: { state: 'missing', value: null, reason: 'fixture', references: [] },
+  },
+  proposedDisposition: null,
 }
 
 function openTarget(): FixTarget {
@@ -46,35 +45,6 @@ function openTarget(): FixTarget {
 }
 
 describe('fix correction safety', () => {
-  it('admits an accepted candidate required cause without inheriting a baseline label', () => {
-    const neighbor: CorrectionCause = {
-      ...requiredCause,
-      id: 'RC-2',
-      findingIds: ['finding-2'],
-
-      authorization: { optionalNeighborOf: 'RC-1' },
-      admission: {
-        currentDefectMechanism: true,
-        requiredBoundary: true,
-        preservesPromise: true,
-        noDependency: true,
-        callerCompatibility: true,
-        targetedProof: true,
-        separable: true,
-      },
-    }
-    const admissions = admitCorrectionCauses(
-      { version: 'evidence-v1', acceptanceRef: 'acceptance-1' },
-      [requiredCause, neighbor],
-      [{ ...blocking, label: 'suggestion' }, optional],
-    )
-
-    expect(admissions).toMatchObject([
-      { status: 'selected', required: true },
-      { status: 'selected', required: false },
-    ])
-  })
-
   it('allows only the exact confirmed live request to reach its first native dispatch', () => {
     const evidence = contribution({
       id: 'ci-evidence',
@@ -99,6 +69,15 @@ describe('fix correction safety', () => {
         requestContributionId: evidence.recordId,
         existingReviewId: null,
         scope: 'correct the attributed CI failure',
+        originalSpec: {
+          uw: { repository: 'Acme/app', target: 'Acme/app#42' },
+          version: 'a'.repeat(64),
+          sourceAccepted: {
+            scope: { repository: 'Acme/app', target: 'Acme/app#42' },
+            kind: 'mandate',
+            recordId: 'mandate',
+          },
+        },
         landing: false,
       },
     }
@@ -225,7 +204,7 @@ describe('fix correction safety', () => {
           defaultBranch: 'main',
           observed: {},
         },
-        debtFiling: { file: async () => ({ ok: false, diagnostics: ['not-used'] }) },
+        causeContext: {} as PreparedFix['causeContext'],
         subject: { kind: 'standalone-pr', pullRequest: { repository: 'Acme/app', target: 'Acme/app#42' } },
         batch,
       },
@@ -310,7 +289,7 @@ describe('fix correction safety', () => {
           defaultBranch: 'main',
           observed: {},
         },
-        debtFiling: { file: async () => ({ ok: false, diagnostics: ['not-used'] }) },
+        causeContext: {} as PreparedFix['causeContext'],
         subject: { kind: 'standalone-pr', pullRequest: { repository: 'Acme/app', target: 'Acme/app#42' } },
         batch,
       },
@@ -373,114 +352,13 @@ describe('fix correction safety', () => {
     expect(firstContribution.payload.host).toMatchObject({ slotId: null, childId: 'slot-1:2' })
     expect(secondContribution.payload.host).toMatchObject({ slotId: null, childId: 'slot-1:3' })
   })
-  it('blocks correction effects when a structurally bound required native slot is invalid', async () => {
-    const graph = reviewGraph({ prefix: 'fix-effect-admission' })
-    const decision = {
-      ...graph.decision,
-      payload: {
-        ...graph.decision.payload,
-        judgment: {
-          ...graph.decision.payload.judgment,
-          causes: [{ ...requiredCause, findingIds: ['fix-effect-admission-finding-final'] }],
-        },
-      },
-    }
-    const synthesis = {
-      ...graph.synthesisContribution,
-      payload: {
-        ...graph.synthesisContribution.payload,
-        structured: decision.payload.judgment,
-        rawAttempts: graph.synthesisContribution.payload.rawAttempts.map((attempt) => ({
-          ...attempt,
-          data: decision.payload.judgment,
-        })),
-      },
-    }
-    const invalidPanel = {
-      ...graph.panel,
-      payload: {
-        ...graph.panel.payload,
-        native: { completion: 'error' as const, strict: 'invalid' as const, raw: { reason: 'terminal-native-error' } },
-        structured: null,
-      },
-    }
-    const invalidHistory = history(
-      graph.records.map((record) =>
-        record.recordId === graph.decision.recordId
-          ? decision
-          : record.recordId === graph.synthesisContribution.recordId
-            ? synthesis
-            : record.recordId === graph.panel.recordId
-              ? invalidPanel
-              : record,
-      ),
-    )
-    expect(validateDecisionBindings(decision, invalidHistory)).toMatchObject({ admissible: true })
-    let activated = 0
-    let published = 0
-    const result = await runReviewBoundFixWorkflow(
-      {} as PreparedFix,
-      decision,
-      {
-        readHistory: async () => invalidHistory,
-        native: {
-          active: () => null,
-          activate: () => {
-            activated += 1
-          },
-          announce: async () => {},
-          stopOwned: async () => {},
-        },
-        publisher: {
-          publish: async () => {
-            published += 1
-            return { ok: true, value: undefined }
-          },
-        },
-        runtime: {
-          signal: new AbortController().signal,
-          uw: fixtureUwOperations(),
-          onBatch: () => {},
-          onStarted: () => {},
-        },
-      },
-      { runId: 'run-1', operationId: 'operation-1', nextRecordId: (kind) => `${kind}-1` },
-    )
-    expect(result).toMatchObject({
-      ok: false,
-      diagnostics: [expect.stringContaining('correction-execution-admission-invalid:')],
-    })
-    expect(activated).toBe(0)
-    expect(published).toBe(0)
-  })
 
   it('withdraws an optional falsification failure without spending a retry', async () => {
-    const [admission] = admitCorrectionCauses(
-      { version: 'evidence-v1', acceptanceRef: 'acceptance-1' },
-      [
-        {
-          ...requiredCause,
-          id: 'RC-2',
-          findingIds: ['finding-2'],
-          authorization: { optionalNeighborOf: 'RC-1' },
-          admission: {
-            currentDefectMechanism: true,
-            requiredBoundary: true,
-            preservesPromise: true,
-            noDependency: true,
-            callerCompatibility: true,
-            targetedProof: true,
-            separable: true,
-          },
-        },
-        {
-          ...requiredCause,
-          findingIds: ['finding-1'],
-        },
-      ],
-      [blocking, optional],
-    ).filter((item) => item.status === 'selected' && item.cause.id === 'RC-2')
-    if (admission?.status !== 'selected') throw new Error('test setup did not admit the optional neighbor')
+    const admission: Extract<CauseAdmission, { status: 'selected' }> = {
+      status: 'selected',
+      required: false,
+      cause: { ...requiredCause, id: 'RC-2', findingIds: ['finding-2'] },
+    }
     const attempts: number[] = []
     const outcome = await executeCorrection(admission, {
       apply: async (_cause, attempt) => {

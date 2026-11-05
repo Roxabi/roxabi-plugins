@@ -1,13 +1,41 @@
 import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { recordMap } from './result.ts'
+import type { CanonicalRecord } from './record-schema.ts'
+import { type DecisionAssessment, type Result, recordMap } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { reviewContextLineage } from './review-context-lineage.ts'
 import { validateDecision } from './review-decision.ts'
+import { validateHistoricalReviewDecision } from './review-fresh-decision.ts'
 import { latestUnfinishedPullRequestRoot, reviewOperations } from './review-identity.ts'
+
+function assessHistoricalDecision(
+  decision: Extract<CanonicalRecord, { kind: 'decision' }>,
+  history: DecodedHistory,
+  catalogues: ReviewClassCatalogues,
+  acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
+  refs: Extract<CanonicalRecord, { kind: 'review' }>['payload']['causeDispositionRefs'],
+): Result<DecisionAssessment> {
+  if (refs !== undefined)
+    return validateHistoricalReviewDecision(
+      decision,
+      history,
+      catalogues,
+      acceptedPolicyRef,
+      externalHistories,
+      deliveryHistory,
+      refs,
+    )
+  return {
+    ok: true,
+    value: validateDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory),
+  }
+}
 
 export function spentBeforeCurrentPullRequestAttempt(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
@@ -33,11 +61,11 @@ export function spentBeforeCurrentPullRequestAttempt(
     ...deliveryHistory,
     operations: deliveryHistory.operations.slice(0, deliveryRootIndex),
   }
-  return spentInCompleteHistory(prefix, taxonomy, acceptedPolicyRef, externalHistories, deliveryPrefix)
+  return spentInCompleteHistory(prefix, catalogues, acceptedPolicyRef, externalHistories, deliveryPrefix)
 }
 export function spentInCompleteHistory(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
@@ -57,14 +85,17 @@ export function spentInCompleteHistory(
     if (index < 2 || operation.record?.kind !== 'review') continue
     const decision = records.get(operation.record.payload.decisionId)
     if (decision?.kind !== 'decision') return null
-    const assessment = validateDecision(
+    const assessed = assessHistoricalDecision(
       decision,
       completedHistory,
-      taxonomy,
+      catalogues,
       acceptedPolicyRef,
       externalHistories,
       deliveryHistory,
+      operation.record.payload.causeDispositionRefs,
     )
+    if (!assessed.ok) return null
+    const assessment = assessed.value
     if (!assessment.admissible) return null
     if (assessment.verdict === 'Request changes') return true
   }

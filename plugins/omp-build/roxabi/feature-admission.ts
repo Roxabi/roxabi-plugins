@@ -3,6 +3,9 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import { explicitParentHistories } from './feature-context.ts'
 import { type Contracts, type History, loadContracts } from './feature-engine.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -63,7 +66,8 @@ async function readBindingContext(
 ) {
   const issueScope = loaded.githubScope(repository, input.issue)
   const prScope = loaded.githubScope(repository, input.pr)
-  const issueHistory = await loaded.readComposedWorkflowHistory([issueScope], { cwd: input.cwd, gh })
+  const options = { ...withRoxabiGitHubPolicy({ cwd: input.cwd, gh }), gh }
+  const issueHistory = await loaded.readComposedWorkflowHistory([issueScope], options)
   if (!issueHistory.ok) return { ok: false as const, reason: issueHistory.reason }
   const issueRecord = issueHistory.histories[0]
   if (!issueRecord) return { ok: false as const, reason: 'incomplete' }
@@ -71,13 +75,16 @@ async function readBindingContext(
     [...issueRecord.operations]
       .reverse()
       .find((operation) => operation.status === 'complete' && operation.record?.kind === 'mandate')?.record ?? null
-  const parents = await explicitParentHistories(loaded, localMandate, { cwd: input.cwd, gh })
+  const parents = await explicitParentHistories(loaded, localMandate, options)
   if (!parents.ok) return { ok: false as const, reason: parents.reason }
-  const selected = loaded.selectApplicableMandate(issueRecord, [...issueHistory.histories.slice(1), ...parents.parents])
+  const authorityHistories = [...issueHistory.histories.slice(1), ...parents.parents]
+  const causal = await readFixUwCausalContext([issueRecord, ...authorityHistories], [], options)
+  if (!causal.ok) return { ok: false as const, reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  const selected = loaded.selectApplicableMandate(issueRecord, authorityHistories, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return { ok: false as const, reason: selected.status === 'refused' ? selected.reason : 'mandate-missing' }
   }
-  const prHistory = await loaded.readComposedWorkflowHistory([prScope], { cwd: input.cwd, gh })
+  const prHistory = await loaded.readComposedWorkflowHistory([prScope], options)
   if (!prHistory.ok) return { ok: false as const, reason: prHistory.reason }
   const history = prHistory.histories[0]
   if (!history) return { ok: false as const, reason: 'incomplete' }
@@ -140,9 +147,8 @@ export async function confirmWorkflowBinding(input: {
   if (!built.ok) return { ok: false, reason: built.diagnostics.map((item) => item.code).join(',') || 'record-invalid' }
   const published = await loaded.publishConfirmedWorkflowRecord(
     built.value,
-    context.history,
     { cwd: input.cwd, gh },
-    null,
+    createPublicationContextResolver({ cwd: input.cwd, gh }, null),
     [...context.issueHistory.histories, ...context.parents.parents],
   )
   return published.status === 'confirmed' ? { ok: true, recordId } : { ok: false, reason: published.status }

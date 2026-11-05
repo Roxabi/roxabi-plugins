@@ -3,9 +3,15 @@ import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import { abandoned, type MandateRecord, mandateScope, mandatesOf, successorOf } from './workflow-control.ts'
+import type { WorkflowCausalContext } from './workflow-plan.ts'
 
-function parentListings(mandate: MandateRecord, histories: readonly DecodedHistory[]): ExternalRecordRef[] {
+function parentListings(
+  mandate: MandateRecord,
+  histories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
+): ExternalRecordRef[] {
   const scope = mandateScope(mandate)
   const refs: ExternalRecordRef[] = []
   for (const history of histories) {
@@ -15,7 +21,7 @@ function parentListings(mandate: MandateRecord, histories: readonly DecodedHisto
     if (active.length !== 1) continue
     const parent = active[0]
     if (parent === undefined) continue
-    const accepted = resolveAcceptedSpec(parent, [history, ...histories])
+    const accepted = resolveAcceptedSpec(parent, causal.histories)
     if (!accepted.ok || !accepted.spec.children.some((child) => equalScope(child.scope, scope))) continue
     refs.push({ scope: mandateScope(parent), recordId: parent.recordId, kind: 'mandate' })
   }
@@ -25,8 +31,11 @@ function parentListings(mandate: MandateRecord, histories: readonly DecodedHisto
 export function epicParentProblem(
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
 ): { reason: 'ambiguous' | 'missing' | 'incompatible'; evidence: Diagnostic[] } | null {
-  const listings = parentListings(mandate, histories)
+  const drift = workflowCausalDiagnostics(histories, causal)
+  if (drift.length) return { reason: 'incompatible', evidence: drift }
+  const listings = parentListings(mandate, histories, causal)
   if (listings.length > 1) {
     return { reason: 'ambiguous', evidence: [diagnostic('ambiguous', 'More than one parent lists this child')] }
   }

@@ -37,7 +37,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('refuses an unknown CI conclusion instead of retaining native auto-merge', () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, cleanReview(fixture.head, 'one'), 'ACTION_REQUIRED')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one'), 'ACTION_REQUIRED')
 
       const result = runReviewGate(fixture)
 
@@ -49,7 +49,7 @@ export function registerReviewGateRefusalCases(): void {
     it('keeps the review usable when display-only PR prose changes', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one', await boundInput(fixture)), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', await boundInput(fixture)), 'SUCCESS')
       const state = readState(fixture)
       state.prBody = `${state.prBody}changed after review\n`
       state.prEditedAt = '2026-10-21T00:01:00Z'
@@ -64,7 +64,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('refuses a failed CI after the third approving review', () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, approvals(fixture.head), 'FAILURE')
+      publish(fixture, approvals(fixture, fixture.head), 'FAILURE')
 
       const result = runReviewGate(fixture)
 
@@ -75,7 +75,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('surfaces the third-review CI stop before refusing unbound positive admission', () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, approvals(fixture.head, freshStandaloneReviewInputs(fixture.head)), 'FAILURE')
+      publish(fixture, approvals(fixture, fixture.head, freshStandaloneReviewInputs(fixture, fixture.head)), 'FAILURE')
 
       const result = runReviewGate(fixture)
 
@@ -97,7 +97,7 @@ export function registerReviewGateRefusalCases(): void {
       git(fixture.candidate, ['add', '.'])
       git(fixture.candidate, ['commit', '-qm', 'unreviewed head'])
       const currentHead = git(fixture.candidate, ['rev-parse', 'HEAD'])
-      publish(fixture, approvals(reviewedHead), 'FAILURE')
+      publish(fixture, approvals(fixture, reviewedHead), 'FAILURE')
       const state = readState(fixture)
       state.head = currentHead
       state.calls = []
@@ -117,7 +117,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('retains the captured third-review CI stop across later green CI and a fresh head', async () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, approvals(fixture.head), 'FAILURE', 'COMPLETED', 100)
+      publish(fixture, approvals(fixture, fixture.head), 'FAILURE', 'COMPLETED', 100)
 
       const stopped = runReviewStop(fixture, capturedCiFailure())
 
@@ -158,7 +158,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('accepts a normal automation stop when the CI bot is also configured as a stop author', async () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, approvals(fixture.head), 'FAILURE')
+      publish(fixture, approvals(fixture, fixture.head), 'FAILURE')
       expect(runReviewStop(fixture, capturedCiFailure()).status).toBe(0)
       const state = readState(fixture)
       for (const comment of state.comments) {
@@ -180,7 +180,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('keeps a bot-authored non-stop record observable without authority', async () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, cleanReview(fixture.head, 'one'), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one'), 'SUCCESS')
       const state = readState(fixture)
       for (const comment of state.comments) comment.user.login = STOP_BOT
       writeState(fixture, state)
@@ -196,7 +196,7 @@ export function registerReviewGateRefusalCases(): void {
 
     it('refuses stale head and captured review-bound mismatches without posting a stop', () => {
       const fixture = setupReviewGateFixture()
-      publish(fixture, approvals(fixture.head), 'FAILURE')
+      publish(fixture, approvals(fixture, fixture.head), 'FAILURE')
       const moved = readState(fixture)
       moved.head = 'f'.repeat(40)
       writeState(fixture, moved)

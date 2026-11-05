@@ -88,6 +88,17 @@ export function recordFormatDiagnostic(value: unknown): Diagnostic | null {
   const record = value as Record<string, unknown>
   if (record.kind === 'proof')
     return incompatible("Record kind 'proof' was removed in #902 and cannot authorize anything")
+  const payload = record.payload
+  if (
+    record.kind === 'debt-receipt' &&
+    (payload === null ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      (payload as Record<string, unknown>).format !== 'omp-build-debt-receipt/2')
+  )
+    return incompatible('Debt receipt format must be omp-build-debt-receipt/2')
+  const decisionFormat = decisionFormatDiagnostic(record)
+  if (decisionFormat !== null) return decisionFormat
   if (record.kind === 'action-receipt') {
     const payload = record.payload
     if (
@@ -104,4 +115,19 @@ export function recordFormatDiagnostic(value: unknown): Diagnostic | null {
     assessmentFormatDiagnostic(record) ??
     reviewFormatDiagnostic(record)
   )
+}
+
+function decisionFormatDiagnostic(record: Record<string, unknown>): Diagnostic | null {
+  const payload = record.payload
+  if (record.kind !== 'decision' || payload === null || typeof payload !== 'object' || Array.isArray(payload))
+    return null
+  const judgment = (payload as Record<string, unknown>).judgment
+  if (
+    judgment === null ||
+    typeof judgment !== 'object' ||
+    Array.isArray(judgment) ||
+    (judgment as Record<string, unknown>).format !== 'omp-build-cause-decision/1'
+  )
+    return incompatible('Decision format must be omp-build-cause-decision/1')
+  return null
 }

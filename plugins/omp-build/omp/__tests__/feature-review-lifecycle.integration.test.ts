@@ -1,20 +1,24 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, type TestContext } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { reviewClassCatalogueRef } from '../../dist/contracts.js'
 import { resolveAdmittedCorrectionCriterionSource } from '../../engine/correction-criterion-source.ts'
 import { assessCriterionDeclarations } from '../../engine/criterion-admission.ts'
 import { criterionDeclarationSchema } from '../../engine/criterion-evidence-schema.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { fixtureSourceReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { boundedLifecycleChild } from '../../testing/bounded-lifecycle-child.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
   REVIEW_SCOPE as SCOPE,
   seedReviewFixture,
 } from '../../testing/feature-review-fixture.ts'
+import { arrangeRecallReviewFixture } from '../../testing/feature-review-recall-fixture.ts'
 import { git, readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
@@ -33,12 +37,20 @@ function arrange() {
   return fixture
 }
 
-function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume', operation = 'omp-review-lifecycle') {
-  const run = spawnSync(BUN, [RUNNER, operation, cwd, JSON.stringify({ control })], {
+async function invoke(
+  task: TestContext['task'],
+  box: Box,
+  cwd: string,
+  control: 'continue' | 'pause' | 'resume',
+  operation = 'omp-review-lifecycle',
+) {
+  const run = await boundedLifecycleChild(
+    task,
+    BUN,
+    [RUNNER, operation, cwd, JSON.stringify({ control })],
     cwd,
-    env: box.env,
-    encoding: 'utf8',
-  })
+    box.env,
+  )
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout) as {
     messages: string[]
@@ -51,6 +63,7 @@ function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume',
     beforeRelease?: number
     commit?: string
     priorHead?: string
+    applyTasks?: Array<{ agent: string; proof?: { purpose: string; causeId: string; occurrence: string } }>
     snapshots?: Array<{
       agent: string
       actionId: string
@@ -62,6 +75,16 @@ function invoke(box: Box, cwd: string, control: 'continue' | 'pause' | 'resume',
     reviewSnapshots?: Array<{ head: string; index: string; fingerprint: string; sourceRecordId: string }>
     replay?: { head: string; verdict: string }
     terminal?: { status: 'complete' | 'stopped'; recordId?: string; kind?: string }
+    published?: boolean
+    reviewReferencesRecall?: boolean
+    fixActive?: boolean
+    diagnostics?: unknown[]
+    exact?: { ok: boolean; reason?: string }
+    wrongActive?: string | null
+    wrongAnnounced?: boolean
+    replacementId?: string
+    interruptedId?: string
+    expectedOperation?: string
     transitionOutcome?: 'next-batch' | 'terminal'
   }
 }
@@ -151,7 +174,7 @@ function announcedBatchIds(messages: readonly string[]): string[] {
 }
 
 function assertCorrectionSnapshots(
-  observed: ReturnType<typeof invoke>,
+  observed: Awaited<ReturnType<typeof invoke>>,
   records: CanonicalRecord[],
   observations: string,
 ) {
@@ -193,7 +216,7 @@ function assertCorrectionReceipt(
   review: DecodedHistory,
   issue: DecodedHistory,
   issueRecords: CanonicalRecord[],
-  observed: ReturnType<typeof invoke>,
+  observed: Awaited<ReturnType<typeof invoke>>,
   records: CanonicalRecord[],
   result: CanonicalRecord | undefined,
 ) {
@@ -208,6 +231,17 @@ function assertCorrectionReceipt(
   if (source?.kind !== 'contribution' || !source.payload.host.action || !observed.commit || !observed.priorHead)
     throw new Error('fixture-correction-source-missing')
   const manifest = source.payload.host.action.inputs.manifest
+  const catalogueRef = reviewClassCatalogueRef(source.payload.host.action.inputs)
+  if (!catalogueRef.ok) throw new Error('fixture-catalogue-ref-missing')
+  const catalogues = fixtureSourceReviewClassCatalogues([
+    {
+      ref: catalogueRef.value,
+      contents: {
+        ok: true,
+        value: readFileSync(new URL('../../skills/dev-review/review-classes.yml', import.meta.url)),
+      },
+    },
+  ])
   if (manifest.spec.kind !== 'accepted') throw new Error('fixture-correction-spec-missing')
   const planRef = manifest.deliveryData.find((ref) => ref.role === 'plan')
   const plan = issueRecords.find(
@@ -222,27 +256,37 @@ function assertCorrectionReceipt(
     mandate: plan.payload.mandate,
     ownSpec: manifest.spec.effective.own,
   }
-  const admitted = resolveAdmittedCorrectionCriterionSource(result, histories, context)
-  expect(admitted?.contribution.recordId).toBe(receipt.sourceContributionId)
+  const admitted = resolveAdmittedCorrectionCriterionSource(result, histories, context, catalogues)
+  expect(admitted).toMatchObject({ ok: true, value: { contribution: { recordId: receipt.sourceContributionId } } })
   expect(
-    resolveAdmittedCorrectionCriterionSource(result, histories, { ...context, head: observed.priorHead }),
-  ).toBeNull()
-  expect(resolveAdmittedCorrectionCriterionSource(result, [issue], context)).toBeNull()
+    resolveAdmittedCorrectionCriterionSource(result, histories, { ...context, head: observed.priorHead }, catalogues),
+  ).toEqual({ ok: true, value: null })
+  expect(resolveAdmittedCorrectionCriterionSource(result, [issue], context, catalogues)).toMatchObject({ ok: false })
   expect(
-    resolveAdmittedCorrectionCriterionSource(result, histories, {
-      ...context,
-      ownSpec: {
-        ...context.ownSpec,
-        sourceAccepted: { ...context.ownSpec.sourceAccepted, recordId: 'wrong-acceptance-source' },
+    resolveAdmittedCorrectionCriterionSource(
+      result,
+      histories,
+      {
+        ...context,
+        ownSpec: {
+          ...context.ownSpec,
+          sourceAccepted: { ...context.ownSpec.sourceAccepted, recordId: 'wrong-acceptance-source' },
+        },
       },
-    }),
-  ).toBeNull()
+      catalogues,
+    ),
+  ).toMatchObject({ ok: false })
   expect(
-    resolveAdmittedCorrectionCriterionSource(result, histories, {
-      ...context,
-      mandate: { ...context.mandate, scope: { ...context.mandate.scope, target: 'wrong-owner-scope' } },
-    }),
-  ).toBeNull()
+    resolveAdmittedCorrectionCriterionSource(
+      result,
+      histories,
+      {
+        ...context,
+        mandate: { ...context.mandate, scope: { ...context.mandate.scope, target: 'wrong-owner-scope' } },
+      },
+      catalogues,
+    ),
+  ).toMatchObject({ ok: false })
   const implementation = issueRecords.find(
     (record) =>
       record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',
@@ -290,10 +334,33 @@ function assertCorrectionReceipt(
 }
 
 describe('installed /feature review lifecycle through actual Bun and external boundaries', () => {
-  it('keeps the activated fix after the preceding review terminal', async () => {
+  it('continues to review-bound fix after an actually published recall inventory', async ({ task }) => {
+    const { box, cwd } = arrangeRecallReviewFixture()
+    roots.add(box.root)
+    await seedReviewFixture(box, cwd)
+    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-recall-fix')
+    expect(observed.published).toBe(true)
+    expect(observed.reviewReferencesRecall).toBe(true)
+    expect(observed.fixActive, JSON.stringify({ messages: observed.messages, diagnostics: observed.diagnostics })).toBe(
+      true,
+    )
+  })
+  it('authorizes the confirmed replacement root with genuine review-input validation', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = invoke(box, cwd, 'continue')
+    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-replacement-real')
+    expect(observed.exact?.ok).toBe(true)
+    expect(observed.replacementId).not.toBe(observed.interruptedId)
+    expect(observed.wrongActive).toBeNull()
+    expect(observed.wrongAnnounced).toBe(false)
+    expect(observed.active?.operationId).toBe(observed.expectedOperation)
+    expect(observed.messages.some((message) => message.includes('OMP_BUILD_NATIVE_BATCH:'))).toBe(true)
+  })
+
+  it('keeps the activated fix after the preceding review terminal', async ({ task }) => {
+    const { box, cwd } = arrange()
+    await seedReviewFixture(box, cwd)
+    const observed = await invoke(task, box, cwd, 'continue')
     const records = reviewHistory(box).operations.flatMap((operation) => (operation.record ? [operation.record] : []))
     const decision = records.find((record) => record.kind === 'decision')
     const review = records.find((record) => record.kind === 'review')
@@ -347,10 +414,10 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     expect(batches[2]).toBe(observed.activeBatchId)
   })
 
-  it('pushes the owned correction only after native falsification', async () => {
+  it('pushes the owned correction only after native falsification', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = invoke(box, cwd, 'continue', 'omp-review-apply-falsify')
+    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-apply-falsify')
     const state = readSim(box)
     const review = reviewHistory(box, state)
     const issue = issueDecodedHistory(box, state)
@@ -396,19 +463,87 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     expect(issueRecords.some((record) => record.kind === 'operator-control')).toBe(false)
   })
 
-  it('persists confirmed local pause for a fresh review without another dispatch', async () => {
+  it('executes only fix-original while retaining sister-after and report without filing', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = invoke(box, cwd, 'pause')
+    const before = readSim(box)
+    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-mixed-dispositions')
+    const state = readSim(box)
+    const review = reviewHistory(box, state)
+    const issue = issueDecodedHistory(box, state)
+    const records = review.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
+    const retained = issue.operations.flatMap((operation) =>
+      operation.record?.kind === 'cause-disposition' && operation.record.payload.subject.kind === 'cause'
+        ? [operation.record]
+        : [],
+    )
+    const outcomes = new Map(
+      retained.map((record) => [
+        record.payload.subject.kind === 'cause' ? record.payload.subject.cause.id : '',
+        record.payload.outcome,
+      ]),
+    )
+    expect(outcomes.get('selected-region-cause')).toMatchObject({ state: 'final', disposition: 'fix-original' })
+    expect(outcomes.get('broad-audit-cause')).toMatchObject({ state: 'final', disposition: 'sister-after' })
+    expect(outcomes.get('save-observation-cause')).toMatchObject({ state: 'final', disposition: 'report' })
+    expect(observed.applyTasks).toEqual([
+      {
+        agent: 'R-review-fix-apply',
+        proof: { purpose: 'fix-apply', causeId: 'selected-region-cause', occurrence: 'apply' },
+      },
+    ])
+    const corrections = records.filter((record) => record.kind === 'correction-result')
+    expect(corrections.map((record) => record.payload.causeId)).toEqual(['selected-region-cause'])
+    expect(corrections[0]?.payload).toMatchObject({
+      outcome: 'applied',
+      causeDisposition: {
+        scope: SCOPE,
+        kind: 'cause-disposition',
+        recordId: retained.find(
+          (record) =>
+            record.payload.subject.kind === 'cause' && record.payload.subject.cause.id === 'selected-region-cause',
+        )?.recordId,
+      },
+    })
+    if (corrections[0]?.kind !== 'correction-result') throw new Error('fixture-correction-result-missing')
+    expect(corrections[0].payload.commitSHAs).toEqual([observed.commit])
+    const appliedSource = records.find((record) => record.recordId === corrections[0]?.payload.appliedContributionId)
+    expect(appliedSource).toMatchObject({ kind: 'contribution', payload: { host: { role: 'R-review-fix-apply' } } })
+    expect(corrections[0].inputs).toContain(appliedSource?.recordId)
+    const result = records.find((record) => record.kind === 'fix-result')
+    expect(result?.target).toBe('acme/app#7')
+    expect(result?.payload.correctionResultIds).toEqual(corrections.map((record) => record.recordId))
+    expect(result?.payload.causeDispositionRefs).toEqual(
+      expect.arrayContaining(
+        retained.map((record) => ({ scope: SCOPE, kind: 'cause-disposition', recordId: record.recordId })),
+      ),
+    )
+    expect(Object.keys(state.issues).sort()).toEqual(Object.keys(before.issues).sort())
+    expect(
+      state.calls.filter(
+        (call) =>
+          (call[0] === 'issue' && call[1] === 'create') ||
+          (call[0] === 'api' &&
+            call.includes('POST') &&
+            call.some((arg) => arg.startsWith('repos/') && arg.endsWith('/issues'))),
+      ),
+    ).toEqual([])
+    expect(observed.terminal).toMatchObject({ status: 'complete', kind: 'fix-result' })
+  })
+
+  it('persists confirmed local pause for a fresh review without another dispatch', async ({ task }) => {
+    const { box, cwd } = arrange()
+    await seedReviewFixture(box, cwd)
+    const observed = await invoke(task, box, cwd, 'pause')
     expect(observed.active).toBeNull()
     expect(announcedBatchIds(observed.messages)).toHaveLength(1)
     assertPauseConfirmed(box, observed.messages)
   })
 
-  it('fences continuation when final review publication is actually pending', async () => {
+  it('fences continuation when final review publication is actually pending', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = invoke(box, cwd, 'resume')
+    const observed = await invoke(task, box, cwd, 'resume')
     expect(observed.barrier).toBe(true)
     expect(observed.beforeRelease).toBe(2)
     expect(announcedBatchIds(observed.messages)).toHaveLength(2)

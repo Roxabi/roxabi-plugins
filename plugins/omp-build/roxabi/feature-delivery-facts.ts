@@ -14,7 +14,9 @@ import { explicitParentHistories } from './feature-context.ts'
 import { discoverDeliveryPr } from './feature-delivery-discovery.ts'
 import type { Contracts, History, Scope, WorkflowEvidence } from './feature-engine.ts'
 import { isRecord, payload } from './feature-engine.ts'
+import { composeObservedUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import type { UwRead } from './uw-contract.ts'
 
 export type Delivery = {
   number: number
@@ -53,7 +55,9 @@ export function boundEnds(binding: { kind: string; payload: unknown }): { branch
   return { branch, base }
 }
 
-type Chantier = { ok: true; evidence: WorkflowEvidence; delivery: Delivery | null } | { ok: false; reason: string }
+type Chantier =
+  | { ok: true; evidence: WorkflowEvidence; delivery: Delivery | null }
+  | { ok: false; reason: string; diagnostics?: readonly { code: string; message: string }[] }
 type BoundFacts = {
   issue: History | null
   pullRequest: History
@@ -65,14 +69,27 @@ type BoundFacts = {
 type BoundRead = { status: 'ok'; value: BoundFacts } | { status: 'absent' } | { status: 'error'; reason: string }
 type GitHubPolicy = GitHubOptions
 
-function composeChantier(
+async function composeChantier(
   loaded: Contracts,
   issue: History,
   pullRequest: History | null,
   parents: History[],
   delivery: Delivery | null,
-): Chantier {
-  const composed = loaded.composeChantier({ issue, pullRequest, parents })
+  uwRead: UwRead | null,
+  options: GitHubOptions,
+): Promise<Chantier> {
+  const selected = [issue, ...(pullRequest === null ? [] : [pullRequest]), ...parents]
+  const causal =
+    uwRead === null
+      ? await readFixUwCausalContext(selected, [], options)
+      : await composeObservedUwCausalContext(uwRead, selected, options)
+  if (!causal.ok)
+    return {
+      ok: false,
+      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
+      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
+  const composed = loaded.composeChantier({ issue, pullRequest, parents, causal: causal.value })
   return composed.ok
     ? { ok: true, evidence: composed.value, delivery }
     : { ok: false, reason: composed.diagnostics[0]?.code ?? 'incomplete' }
@@ -198,13 +215,19 @@ async function epicChantier(
   loaded: Contracts,
   primary: History,
   mandate: History['operations'][number]['record'] | null,
+  uwRead: UwRead | null,
   options: { cwd: string; gh: Gh },
 ): Promise<Chantier> {
   const granted = await explicitParentHistories(loaded, mandate, options)
-  return granted.ok ? composeChantier(loaded, primary, null, granted.parents, null) : granted
+  return granted.ok ? composeChantier(loaded, primary, null, granted.parents, null, uwRead, options) : granted
 }
 
-async function pullRequestChantier(loaded: Contracts, targetScope: Scope, policy: GitHubPolicy): Promise<Chantier> {
+async function pullRequestChantier(
+  loaded: Contracts,
+  targetScope: Scope,
+  uwRead: UwRead | null,
+  policy: GitHubPolicy,
+): Promise<Chantier> {
   const facts = await readBoundFacts(targetScope, policy, true)
   if (facts.status === 'absent') return { ok: false, reason: 'binding-missing' }
   if (facts.status === 'error' || facts.value.issue === null)
@@ -212,7 +235,7 @@ async function pullRequestChantier(loaded: Contracts, targetScope: Scope, policy
   const delivery = deliveryFromBound(scopeNumber(targetScope), targetScope, facts.value.issue.source.scope, facts.value)
   return delivery.number === 0
     ? { ok: false, reason: 'binding-incomplete' }
-    : composeChantier(loaded, facts.value.issue, facts.value.pullRequest, facts.value.parents, delivery)
+    : composeChantier(loaded, facts.value.issue, facts.value.pullRequest, facts.value.parents, delivery, uwRead, policy)
 }
 
 async function issueChantier(
@@ -220,6 +243,7 @@ async function issueChantier(
   targetScope: Scope,
   primary: History,
   mandate: History['operations'][number]['record'] | null,
+  uwRead: UwRead | null,
   options: { cwd: string; gh: Gh },
   policy: GitHubPolicy,
 ): Promise<Chantier> {
@@ -227,7 +251,7 @@ async function issueChantier(
   if (!granted.ok) return granted
   const delivery = await discoverIssueDelivery(loaded, targetScope, primary, mandate, options, granted.parents, policy)
   return delivery.ok
-    ? composeChantier(loaded, primary, delivery.pullRequest, granted.parents, delivery.delivery)
+    ? composeChantier(loaded, primary, delivery.pullRequest, granted.parents, delivery.delivery, uwRead, policy)
     : delivery
 }
 
@@ -237,13 +261,14 @@ export async function assembleChantier(
   primary: History,
   mandate: History['operations'][number]['record'] | null,
   acceptedSpec: AcceptedOwnSpec | null,
+  uwRead: UwRead | null,
   options: { cwd: string; gh: Gh },
 ): Promise<Chantier> {
   const role = mandateRole(mandate, acceptedSpec)
   if (mandate?.kind === 'mandate' && role === null) return { ok: false, reason: 'mandate-spec-missing' }
-  if (role === 'epic') return epicChantier(loaded, primary, mandate, options)
-  const policy = withRoxabiGitHubPolicy({ cwd: options.cwd, gh: options.gh })
+  const policy = { ...withRoxabiGitHubPolicy(options), gh: options.gh }
+  if (role === 'epic') return epicChantier(loaded, primary, mandate, uwRead, policy)
   return target.status === 'pull-request'
-    ? pullRequestChantier(loaded, target.scope, policy)
-    : issueChantier(loaded, target.scope, primary, mandate, options, policy)
+    ? pullRequestChantier(loaded, target.scope, uwRead, policy)
+    : issueChantier(loaded, target.scope, primary, mandate, uwRead, policy, policy)
 }

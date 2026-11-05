@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { githubScope } from '../adapters/github/transport.ts'
 import type { Gh } from '../adapters/github/types.ts'
-import { TAXONOMY } from '../engine/__tests__/record-test-support.ts'
 import { SCOPE } from '../engine/__tests__/workflow-test-support.ts'
 import type { NativeBatchCallbacks, NativeChildResult } from '../omp/review-runtime/contracts.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
@@ -55,7 +54,7 @@ async function exercise(target: Target) {
   const publisher = createGitHubRecordPublisher(
     githubScope(SCOPE.repository, 42),
     withRoxabiGitHubPolicy({ cwd: recoverySmokeCwd, gh: fixture.gh }),
-    { taxonomy: TAXONOMY, acceptedPolicy: null },
+    null,
   )
   for (const record of [spec, panel]) expect(await publisher.publish(record)).toMatchObject({ ok: true })
 
@@ -169,7 +168,7 @@ async function exerciseFollowingInventory(revoke: boolean) {
   const publisher = createGitHubRecordPublisher(
     githubScope(SCOPE.repository, 42),
     withRoxabiGitHubPolicy({ cwd: recoverySmokeCwd, gh: fixture.gh }),
-    { taxonomy: TAXONOMY, acceptedPolicy: null },
+    null,
   )
   for (const record of [spec, panel]) expect(await publisher.publish(record)).toMatchObject({ ok: true })
 

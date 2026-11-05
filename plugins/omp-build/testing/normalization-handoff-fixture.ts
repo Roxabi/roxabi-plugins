@@ -3,6 +3,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { rawSource } from '../adapters/github-native/uw-spec.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import { createInstalledObservedUwReadPort } from '../roxabi/uw-read-port.ts'
+import { fixtureHostReviewClassCatalogues } from './host-catalogue-fixture.ts'
 
 // Fictional native observations only: no mandate or authenticated workflow record.
 const repository = 'fixture/widgets'
@@ -66,6 +67,10 @@ export function normalizationHandoffFixture() {
     rejected,
     graph,
     history,
-    read: createInstalledObservedUwReadPort({ graph, histories: [history] }),
+    read: createInstalledObservedUwReadPort({
+      graph,
+      histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
   }
 }

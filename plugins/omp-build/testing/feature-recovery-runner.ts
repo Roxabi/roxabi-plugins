@@ -16,6 +16,9 @@ const { invokeOmpLiveInterleave } = await import('./feature-recovery-live-interl
 const { observedIncompleteNativeResult } = await import('./feature-recovery-observed-native.ts')
 const { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } = await import('./feature-review-lifecycle.ts')
 const { invokeReviewRace } = await import('./feature-review-races.ts')
+const { invokeSuccessiveReviewLineage } = await import('./feature-review-lineage.ts')
+const { invokeRecallFixContinuation } = await import('./feature-review-recall.ts')
+const { invokeReplacementDispatch } = await import('./feature-review-replacement.ts')
 
 type Payload = {
   reference: string
@@ -144,6 +147,21 @@ async function invokeSdkDriver(operationName: string): Promise<unknown> {
       )
     case 'omp-review-apply-falsify':
       return invokeOmpReviewApplyFalsify(cwd ?? '')
+    case 'omp-review-mixed-dispositions':
+      return invokeOmpReviewApplyFalsify(cwd ?? '', true)
+    default:
+      return invokeReviewDriver(operationName)
+  }
+}
+
+async function invokeReviewDriver(operationName: string): Promise<unknown> {
+  switch (operationName) {
+    case 'omp-review-lineage':
+      return invokeSuccessiveReviewLineage(cwd ?? '')
+    case 'omp-review-recall-fix':
+      return invokeRecallFixContinuation(cwd ?? '')
+    case 'omp-review-replacement-real':
+      return invokeReplacementDispatch(cwd ?? '')
     case 'omp-review-race-latest':
     case 'omp-review-race-pause':
       return invokeReviewRace(cwd ?? '', operationName === 'omp-review-race-latest' ? 'latest' : 'pause')

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import {
+  acceptedActionInputs,
+  fixtureCausal,
+  fixtureReviewClassCatalogues,
+  workflowEvidence,
+} from '../../testing/action-input-fixtures.ts'
 import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
 import { TEST_HEAD } from '../../testing/record-builders.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -137,6 +142,7 @@ function selectSuccessor(
     histories,
     { ...fixture.base, manifest, fingerprint: actionInputDigest(manifest) },
     problems,
+    fixtureReviewClassCatalogues(),
   )
   return { result, problems }
 }
@@ -269,7 +275,7 @@ describe('workflow plan execution behavior', () => {
       oldReviewStart,
       oldReview,
     ])
-    const stale = planMacro({ issue: advanced, pullRequest: null, parents: [] }, mandated)
+    const stale = planMacro(workflowEvidence(advanced, null, [], []), mandated)
     expect(stale).toMatchObject({
       phase: 'needs-draft',
       specDigest: advancedVersion,
@@ -308,14 +314,7 @@ describe('workflow plan execution behavior', () => {
       newReviewStart,
       newReview,
     ]
-    const bound = planMacro(
-      {
-        issue: history(eligibleRecords),
-        pullRequest: null,
-        parents: [],
-      },
-      mandated,
-    )
+    const bound = planMacro(workflowEvidence(history(eligibleRecords), null, [], []), mandated)
     expect(bound).toMatchObject({
       phase: 'eligible',
       specDigest: advancedVersion,
@@ -348,11 +347,12 @@ describe('workflow plan execution behavior', () => {
       true,
     )
     const currentImplementation = reconstructWorkflow({
-      evidence: {
-        issue: history([...eligibleRecords, oldImplementationStart, oldImplementationResult]),
-        pullRequest: null,
-        parents: [],
-      },
+      evidence: workflowEvidence(
+        history([...eligibleRecords, oldImplementationStart, oldImplementationResult]),
+        null,
+        [],
+        [],
+      ),
       facts: workflowFacts,
       decisions: workflowDecisions,
     })
@@ -360,8 +360,8 @@ describe('workflow plan execution behavior', () => {
 
     const unmatchedOldStart = implementationStart(mandated, 'act-implement-open', 'act-plan-a')
     const oldUncertain = reconstructWorkflow({
-      evidence: {
-        issue: history([
+      evidence: workflowEvidence(
+        history([
           mandated,
           editorial.start,
           editorial.result,
@@ -371,9 +371,10 @@ describe('workflow plan execution behavior', () => {
           oldReview,
           unmatchedOldStart,
         ]),
-        pullRequest: null,
-        parents: [],
-      },
+        null,
+        [],
+        [],
+      ),
       facts: workflowFacts,
       decisions: workflowDecisions,
     })
@@ -381,16 +382,12 @@ describe('workflow plan execution behavior', () => {
 
     const currentImplementationStart = implementationStart(mandated, 'act-implement-b', 'act-plan-b')
     const currentUncertain = reconstructWorkflow({
-      evidence: {
-        issue: history([
-          ...eligibleRecords,
-          oldImplementationStart,
-          oldImplementationResult,
-          currentImplementationStart,
-        ]),
-        pullRequest: null,
-        parents: [],
-      },
+      evidence: workflowEvidence(
+        history([...eligibleRecords, oldImplementationStart, oldImplementationResult, currentImplementationStart]),
+        null,
+        [],
+        [],
+      ),
       facts: workflowFacts,
       decisions: workflowDecisions,
     })
@@ -407,17 +404,18 @@ describe('workflow plan execution behavior', () => {
       accepted.spec,
     )
     const published = reconstructWorkflow({
-      evidence: {
-        issue: history([
+      evidence: workflowEvidence(
+        history([
           ...eligibleRecords,
           oldImplementationStart,
           oldImplementationResult,
           currentImplementationStart,
           currentImplementationResult,
         ]),
-        pullRequest: null,
-        parents: [],
-      },
+        null,
+        [],
+        [],
+      ),
       facts: workflowFacts,
       decisions: workflowDecisions,
     })
@@ -425,17 +423,18 @@ describe('workflow plan execution behavior', () => {
     const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
     const boundPull = history([binding(mandated, pull)], pull)
     const review = reconstructWorkflow({
-      evidence: {
-        issue: history([
+      evidence: workflowEvidence(
+        history([
           ...eligibleRecords,
           oldImplementationStart,
           oldImplementationResult,
           currentImplementationStart,
           currentImplementationResult,
         ]),
-        pullRequest: boundPull,
-        parents: [],
-      },
+        boundPull,
+        [],
+        [],
+      ),
       facts: {
         ...workflowFacts,
         pullRequest: { scope: pull, head: 'feature/bounded', base: 'main', associatedIssue: SCOPE },
@@ -492,21 +491,22 @@ describe('workflow plan execution behavior', () => {
       }),
     )
     const successorHistory = history([mandated, oldStart, oldResult, abandoned, successor, selectedSuccessor])
-    expect(selectApplicableMandate(successorHistory)).toMatchObject({
+    expect(selectApplicableMandate(successorHistory, [], fixtureCausal([successorHistory]))).toMatchObject({
       status: 'applicable',
       mandate: { recordId: successor.recordId },
     })
-    expect(planMacro({ issue: successorHistory, pullRequest: null, parents: [] }, successor)).toMatchObject({
+    expect(planMacro(workflowEvidence(successorHistory, null, [], []), successor)).toMatchObject({
       phase: 'needs-draft',
       draftActionId: null,
     })
     const [antecedentOpenPlanStart] = workflow.planDraftRecords(mandated, 'act-plan-open', originalVersion)
     const antecedentUncertain = reconstructWorkflow({
-      evidence: {
-        issue: history([mandated, antecedentOpenPlanStart, abandoned, successor, selectedSuccessor]),
-        pullRequest: null,
-        parents: [],
-      },
+      evidence: workflowEvidence(
+        history([mandated, antecedentOpenPlanStart, abandoned, successor, selectedSuccessor]),
+        null,
+        [],
+        [],
+      ),
       facts: facts({
         productVersion: mandated.payload.config.productVersion,
         configVersion: mandated.payload.config.version,
@@ -525,11 +525,12 @@ describe('workflow plan execution behavior', () => {
       null,
     )
     const blocked = planMacro(
-      {
-        issue: history([mandated, broken.start, broken.result, newStart, newResult, newReviewStart, newReview]),
-        pullRequest: null,
-        parents: [],
-      },
+      workflowEvidence(
+        history([mandated, broken.start, broken.result, newStart, newResult, newReviewStart, newReview]),
+        null,
+        [],
+        [],
+      ),
       mandated,
     )
     expect(blocked.phase).toBe('blocked')

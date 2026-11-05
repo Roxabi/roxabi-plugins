@@ -31,16 +31,18 @@ export function synthesisSources(task: string): unknown[] {
     if (!files.has(source)) throw new Error('synthesis-source-unlisted')
     const payload: unknown = JSON.parse(readFileSync(path.join(directory, source), 'utf8'))
     if (canonicalValueDigest(payload) !== ref.digest) throw new Error('synthesis-source-digest-mismatch')
-    return { contributionId: ref.record.recordId, payload }
+    return { contributionId: ref.record.recordId, payload, ref }
   })
 }
 type SynthesisSources = {
   sourceContributionIds: string[]
   sourceFindingIds: string[]
+  findingTargets: unknown[]
+  findingRefs: unknown[]
   criterionVerdicts: { contributionId: string; target: unknown }[]
 }
 
-function collectFindingIds(payload: object, result: SynthesisSources): void {
+function collectFindingIds(payload: object, result: SynthesisSources, ref: unknown): void {
   if (!('findings' in payload) || !Array.isArray(payload.findings)) return
   for (const item of payload.findings) {
     if (
@@ -52,6 +54,16 @@ function collectFindingIds(payload: object, result: SynthesisSources): void {
     )
       throw new Error('synthesis-finding-invalid')
     result.sourceFindingIds.push(item.id)
+    if (
+      !('data' in item) ||
+      item.data === null ||
+      typeof item.data !== 'object' ||
+      Array.isArray(item.data) ||
+      !('target' in item.data)
+    )
+      throw new Error('synthesis-finding-target-missing')
+    result.findingTargets.push(item.data.target)
+    result.findingRefs.push(ref)
   }
 }
 
@@ -81,20 +93,36 @@ function collectSourceIds(source: unknown, result: SynthesisSources): void {
       result.criterionVerdicts.push({ contributionId, target: row.target })
     }
   }
-  collectFindingIds(payload, result)
+  collectFindingIds(payload, result, 'ref' in source ? source.ref : null)
 }
 
 function decodeSynthesisSources(task: string, requireFindings = true): SynthesisSources {
   const sources = synthesisSources(task)
-  const result: SynthesisSources = { sourceContributionIds: [], sourceFindingIds: [], criterionVerdicts: [] }
+  const result: SynthesisSources = {
+    sourceContributionIds: [],
+    sourceFindingIds: [],
+    findingTargets: [],
+    findingRefs: [],
+    criterionVerdicts: [],
+  }
   for (const source of sources) collectSourceIds(source, result)
   if (result.sourceContributionIds.length === 0 || (requireFindings && result.sourceFindingIds.length === 0))
     throw new Error('synthesis-evidence-missing')
   return result
 }
 export function reviewDecision(task: string): Data {
-  const { sourceContributionIds, sourceFindingIds, criterionVerdicts } = decodeSynthesisSources(task)
+  const { sourceContributionIds, sourceFindingIds, findingTargets, findingRefs, criterionVerdicts } =
+    decodeSynthesisSources(task)
+  if (new Set(findingTargets.map(canonicalValueDigest)).size !== 1) throw new Error('synthesis-finding-target-mismatch')
+  const cited = [...new Map(findingRefs.map((ref) => [canonicalValueDigest(ref), ref])).values()]
+  const judgment = (value: boolean) => ({
+    state: 'supported',
+    value,
+    reason: 'The cited source establishes this judgment.',
+    references: cited,
+  })
   return {
+    format: 'omp-build-cause-decision/1',
     purpose: 'review',
     policy: { version: 'baseline' },
     sourceContributionIds,
@@ -105,6 +133,7 @@ export function reviewDecision(task: string): Data {
         impactReason: 'The saved region can be stale.',
         state: 'usable',
         sourceFindingIds,
+        target: findingTargets[0],
         description: 'Persist the selected region.',
         mergeReason: 'Both panel reports identify the same stale selected-region persistence defect.',
       },
@@ -120,7 +149,8 @@ export function reviewDecision(task: string): Data {
         paths: ['src/save.ts'],
         proof: 'Exercise a save after selecting a region.',
         findingIds: ['selected-region-blocker'],
-        authorization: 'required',
+        judgment: { necessary: judgment(true), urgent: judgment(true), tooLarge: judgment(false) },
+        proposedDisposition: 'fix-original',
       },
     ],
     standards: {
@@ -129,12 +159,14 @@ export function reviewDecision(task: string): Data {
     },
     criterionVerdicts,
     exclusionClaims: [],
+    unassignedFindings: [],
   }
 }
 
 export function cleanReviewDecision(task: string): Data {
   const { sourceContributionIds, criterionVerdicts } = decodeSynthesisSources(task, false)
   return {
+    format: 'omp-build-cause-decision/1',
     purpose: 'review',
     policy: { version: 'baseline' },
     sourceContributionIds,
@@ -143,5 +175,6 @@ export function cleanReviewDecision(task: string): Data {
     standards: { state: 'ras' },
     criterionVerdicts,
     exclusionClaims: [],
+    unassignedFindings: [],
   }
 }

@@ -1,19 +1,25 @@
 import { z } from 'zod'
-import { validateActionInputs } from './action-input.ts'
+import { validateParsedActionInputs } from './action-input.ts'
 import { type ActionInputs, actionInputsSchema } from './action-input-schema.ts'
 import { criterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import { criterionVerdictRefSchema, exclusionClaimSchema } from './criterion-verdict-schema.ts'
 import { REVIEW_INPUT_FORMAT } from './record-format.ts'
+import { externalRecordRefSchema } from './record-references.ts'
 import {
+  diagnosticSchema,
   identifierSchema,
   jsonSchema,
-  labelSchema,
   policySchema,
   recallPlanSchema,
+  scopeSchema,
   sha256Schema,
   shaSchema,
   slotSchema,
 } from './record-values.ts'
+import { causeSchema, finalFindingSchema } from './review-cause-schema.ts'
+import { ownSpecRefSchema } from './uw-spec-schema.ts'
+
+export * from './review-cause-schema.ts'
 export const observedCommentSchema = z.strictObject({
   locator: z.string().min(1),
   nativeId: z.string().min(1).nullable(),
@@ -27,7 +33,7 @@ function bindActionSnapshot(
   value: { actionInputDigest: string; input: string | null; inputSnapshot: ActionInputs },
   context: z.RefinementCtx,
 ): void {
-  const validated = validateActionInputs(value.inputSnapshot)
+  const validated = validateParsedActionInputs(value.inputSnapshot)
   if (!validated.ok) {
     context.addIssue({
       code: 'custom',
@@ -158,39 +164,6 @@ export function isInitialPullRequestReviewInventory(
   return inventory.stage === 'initial' && inventory.purpose === 'review' && inventory.subject.kind === 'pull-request'
 }
 
-export const finalFindingSchema = z.discriminatedUnion('state', [
-  z.strictObject({
-    id: identifierSchema,
-    label: labelSchema.nullable(),
-    impactReason: z.string().min(1),
-    state: z.literal('usable'),
-    sourceFindingIds: z.array(identifierSchema).min(1),
-    description: z.string().min(1),
-    mergeReason: z.string().min(1).optional(),
-  }),
-  z.strictObject({
-    id: identifierSchema,
-    label: labelSchema.nullable(),
-    impactReason: z.string().min(1),
-    state: z.literal('unusable'),
-    sourceFindingIds: z.tuple([identifierSchema]),
-  }),
-])
-export type FinalFinding = z.infer<typeof finalFindingSchema>
-export const causeSchema = z.strictObject({
-  id: identifierSchema,
-  title: z.string().min(1),
-  mechanism: z.string().min(1),
-  fix: z.string().min(1),
-  failure: z.string().min(1),
-  restored: z.string().min(1),
-  paths: z.array(z.string().min(1)).min(1),
-  proof: z.string().min(1),
-  findingIds: z.array(identifierSchema).min(1),
-  authorization: z.union([z.literal('required'), z.strictObject({ optionalNeighborOf: identifierSchema })]).optional(),
-  admission: jsonSchema.optional(),
-})
-export type Cause = z.infer<typeof causeSchema>
 export const standardsRowSchema = z.strictObject({ smell: z.string().min(1), assessment: z.string().min(1) })
 export const reviewStandardsSchema = z.union([
   z.strictObject({ state: z.literal('ras') }),
@@ -199,6 +172,7 @@ export const reviewStandardsSchema = z.union([
 export type ReviewStandards = z.infer<typeof reviewStandardsSchema>
 const reviewDecisionSchema = z.strictObject({
   purpose: z.literal('review'),
+  format: z.literal('omp-build-cause-decision/1'),
   policy: policySchema,
   sourceContributionIds: z.array(identifierSchema),
   findings: z.array(finalFindingSchema),
@@ -206,13 +180,21 @@ const reviewDecisionSchema = z.strictObject({
   standards: reviewStandardsSchema.nullable(),
   criterionVerdicts: z.array(criterionVerdictRefSchema),
   exclusionClaims: z.array(exclusionClaimSchema),
+  unassignedFindings: z.array(
+    z.strictObject({ findingId: identifierSchema, reason: z.string().min(1), diagnostics: z.array(diagnosticSchema) }),
+  ),
 })
 const correctionDecisionSchema = z.strictObject({
   purpose: z.literal('correction'),
+  format: z.literal('omp-build-cause-decision/1'),
   policy: policySchema,
   sourceContributionIds: z.array(identifierSchema),
   findings: z.array(finalFindingSchema),
   causes: z.array(causeSchema),
+  exclusionClaims: z.array(exclusionClaimSchema),
+  unassignedFindings: z.array(
+    z.strictObject({ findingId: identifierSchema, reason: z.string().min(1), diagnostics: z.array(diagnosticSchema) }),
+  ),
 })
 export const decisionSchema = z.discriminatedUnion('purpose', [reviewDecisionSchema, correctionDecisionSchema])
 export type Decision = z.infer<typeof decisionSchema>
@@ -227,10 +209,12 @@ export const finalReviewSchema = z.strictObject({
   input: sha256Schema.nullable(),
   inventoryIds: z.array(identifierSchema).min(1),
   decisionId: identifierSchema,
+  causeDispositionRefs: z.array(externalRecordRefSchema.extend({ kind: z.literal('cause-disposition') })).optional(),
 })
 export type FinalReview = z.infer<typeof finalReviewSchema>
 export const fixRequestSchema = z.strictObject({
   requestContributionId: identifierSchema,
+  originalSpec: ownSpecRefSchema,
   existingReviewId: identifierSchema.nullable(),
   scope: z.string().min(1),
   landing: z.literal(false),
@@ -238,6 +222,7 @@ export const fixRequestSchema = z.strictObject({
 export type FixRequest = z.infer<typeof fixRequestSchema>
 export const correctionResultSchema = z.strictObject({
   decisionId: identifierSchema,
+  causeDisposition: externalRecordRefSchema.extend({ kind: z.literal('cause-disposition') }),
   causeId: identifierSchema,
   attempt: z.union([z.literal(1), z.literal(2)]),
   outcome: z.enum(['applied', 'failed', 'reverted', 'withdrawn']),
@@ -257,12 +242,16 @@ export const falsificationResultSchema = z.strictObject({
 })
 export type FalsificationResult = z.infer<typeof falsificationResultSchema>
 export const debtReceiptSchema = z.strictObject({
-  decisionId: identifierSchema,
-  findingIds: z.array(identifierSchema),
-  causeIds: z.array(identifierSchema),
-  disposition: z.enum(['filed', 'deferred', 'retained']),
-  target: z.string().nullable(),
-  evidence: jsonSchema,
+  format: z.literal('omp-build-debt-receipt/2'),
+  operation: externalRecordRefSchema.extend({ kind: z.literal('cause-operation') }),
+  disposition: externalRecordRefSchema.extend({ kind: z.literal('cause-disposition') }),
+  decision: externalRecordRefSchema.extend({ kind: z.literal('decision') }),
+  causeId: identifierSchema,
+  original: scopeSchema,
+  sister: scopeSchema,
+  parent: scopeSchema.nullable(),
+  relation: z.enum(['original-blocked-by-sister', 'sister-blocked-by-original']),
+  identity: externalRecordRefSchema.extend({ kind: z.literal('spec-identity') }),
 })
 export type DebtReceipt = z.infer<typeof debtReceiptSchema>
 export const fixResultSchema = z.strictObject({
@@ -271,7 +260,7 @@ export const fixResultSchema = z.strictObject({
   candidateGitSHA: shaSchema,
   correctionResultIds: z.array(identifierSchema),
   falsificationResultIds: z.array(identifierSchema),
-  debtReceiptIds: z.array(identifierSchema),
+  causeDispositionRefs: z.array(externalRecordRefSchema.extend({ kind: z.literal('cause-disposition') })),
   criterionReceipt: z
     .strictObject({
       sourceContributionId: identifierSchema,

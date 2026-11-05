@@ -4,8 +4,11 @@ import { type HistoricalCorrectionBasis, resolveHistoricalCorrectionBasis } from
 import { correctionRecord, finalApplyAttempt } from './correction-lineage-admission.ts'
 import { genuineCorrectionSource } from './correction-native-source.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { applyActionResultSchema } from './record-values.ts'
+import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 
 type Fix = Extract<CanonicalRecord, { kind: 'fix-result' }>
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
@@ -17,6 +20,7 @@ type Input = {
   fix: Fix
   histories: readonly DecodedHistory[]
   context: CorrectionCriterionContext
+  catalogues: ReviewClassCatalogues
   historical: HistoricalCorrectionBasis
   decision: Decision
   contribution: Contribution
@@ -143,23 +147,28 @@ function validObservation(input: Input, applied: Contribution): boolean {
 
 export function admitAppliedCorrection(
   input: Input,
-): { applied: Contribution; inventory: Inventory; basis: HistoricalCorrectionBasis } | null {
+): Result<{ applied: Contribution; inventory: Inventory; basis: HistoricalCorrectionBasis }> {
+  const invalid = (): Result<never> => ({
+    ok: false,
+    diagnostics: [diagnostic('unconfirmed', 'Selected applied correction is not authenticated')],
+  })
   const applied = correctionRecord(input.fix, input.histories, input.lineage.appliedId, 'contribution')
-  if (!applied || applied.payload.inventoryId === null) return null
+  if (!applied || applied.payload.inventoryId === null) return invalid()
   const basis = resolveHistoricalCorrectionBasis({
     contribution: applied,
     histories: input.histories,
+    catalogues: input.catalogues,
     expectedSubject: input.historical.inputs.manifest.subject,
   })
+  if (!basis.ok) return basis
   if (
-    !basis.ok ||
     basis.value.requestRef.record.recordId !== input.historical.requestRef.record.recordId ||
     basis.value.decisionRef.record.recordId !== input.decision.recordId ||
     basis.value.originalCandidate !== input.historical.originalCandidate
   )
-    return null
+    return invalid()
   const inventory = correctionRecord(input.fix, input.histories, applied.payload.inventoryId, 'review-attempt')
   if (!inventory || !validApplied(input, applied, inventory, basis.value) || !validObservation(input, applied))
-    return null
-  return { applied, inventory, basis: basis.value }
+    return invalid()
+  return { ok: true, value: { applied, inventory, basis: basis.value } }
 }

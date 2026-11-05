@@ -1,6 +1,9 @@
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 
 import { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import { actionInputDigest, buildRecord } from '../dist/contracts.js'
 import { specDigest } from '../engine/record-digests.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
@@ -56,7 +59,7 @@ export function arrangeReviewFixture(): { box: Box; cwd: string } {
   return { box, cwd }
 }
 
-export async function seedReviewFixture(box: Box, _cwd: string): Promise<void> {
+export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
   const head = box.sha[REVIEW_BRANCH]
   if (head === undefined) throw new Error('review-fixture-head-missing')
   const mandate = featureMandate(REVIEW_SCOPE, {
@@ -66,7 +69,49 @@ export async function seedReviewFixture(box: Box, _cwd: string): Promise<void> {
     lineageHead: head,
     tier: REVIEW_TIER,
   })
-  const records = criterionImplementationRecords(mandate, head)
+  const toolingCommit = execFileSync(
+    'gh',
+    ['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'],
+    {
+      cwd,
+      env: box.env,
+      encoding: 'utf8',
+    },
+  ).trim()
+  const fileDigests = new Map<string, string>()
+  const records = criterionImplementationRecords(mandate, head).map((record) => {
+    if (record.kind !== 'action-receipt') return record
+    const prior = record.payload.inputs
+    const plugin = prior.manifest.plugin
+    const manifest = {
+      ...prior.manifest,
+      plugin: {
+        ...plugin,
+        commit: toolingCommit,
+        files: plugin.files.map((file) => {
+          let digest = fileDigests.get(file.path)
+          if (digest === undefined) {
+            const bytes = execFileSync(
+              'git',
+              ['-C', path.join(box.root, 'omp-tooling.git'), 'show', `${toolingCommit}:${file.path}`],
+              {
+                env: box.env,
+              },
+            )
+            digest = createHash('sha256').update(bytes).digest('hex')
+            fileDigests.set(file.path, digest)
+          }
+          return { ...file, commit: toolingCommit, digest }
+        }),
+      },
+    }
+    const updated = buildRecord({
+      ...record,
+      payload: { ...record.payload, inputs: { ...prior, manifest, fingerprint: actionInputDigest(manifest) } },
+    })
+    if (!updated.ok) throw new Error(JSON.stringify(updated.diagnostics))
+    return updated.value
+  })
   const binding = workflowBinding({ repository: 'acme/app', target: 'acme/app#7' }, mandate, REVIEW_BRANCH, 'main')
   writeSim(box, (state) => {
     const issue = state.issues['42']

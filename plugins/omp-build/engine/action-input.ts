@@ -42,12 +42,12 @@ function refIdentity(ref: RefLike): string {
   return ref.source === 'record' ? `record\0${recordIdentity(ref)}` : `file\0${pinnedIdentity(ref)}`
 }
 
-function byIdentity(left: RefLike, right: RefLike): number {
-  const leftKey = refIdentity(left)
-  const rightKey = refIdentity(right)
-  if (leftKey < rightKey) return -1
-  if (leftKey > rightKey) return 1
-  return 0
+function identitySorted<T extends RefLike>(refs: readonly T[]): T[] {
+  if (refs.length < 2) return [...refs]
+  return refs
+    .map((ref) => ({ ref, key: refIdentity(ref) }))
+    .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
+    .map(({ ref }) => ref)
 }
 
 function durableSource(raw: { reference: string; body: string; bodySha256: string }): {
@@ -99,11 +99,11 @@ export function canonicalActionOperands(operands: ActionOperands): string {
 function sortedManifest(manifest: ActionInputManifest): ActionInputManifest {
   return {
     ...manifest,
-    acceptedSources: [...manifest.acceptedSources].sort(byIdentity),
-    deliveryData: [...manifest.deliveryData].sort(byIdentity),
-    repositoryReferences: [...manifest.repositoryReferences].sort(byIdentity),
-    plugin: { ...manifest.plugin, files: [...manifest.plugin.files].sort(byIdentity) },
-    expandedContext: [...manifest.expandedContext].sort(byIdentity),
+    acceptedSources: identitySorted(manifest.acceptedSources),
+    deliveryData: identitySorted(manifest.deliveryData),
+    repositoryReferences: identitySorted(manifest.repositoryReferences),
+    plugin: { ...manifest.plugin, files: identitySorted(manifest.plugin.files) },
+    expandedContext: identitySorted(manifest.expandedContext),
   }
 }
 
@@ -152,6 +152,7 @@ const ADMITTED_ROLE_SELECTOR: Record<DeliveryDataRef['role'], RegExp | null> = {
   implementation: /^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+$/,
   'criterion-evidence': /^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+\/evidence\/\d+$/,
   'correction-lineage': /^\/payload$/,
+  'cause-state': /^\/payload$/,
   // No frozen pointer yet. An unconstrained selector can launder native/raw as proof.
   'external-observation': null,
 }
@@ -206,24 +207,41 @@ function stageOverlap(input: ActionInputs, diagnostics: Diagnostic[]): void {
         message: `Delivery role ${ref.role} does not admit selector ${ref.selector}`,
       })
     }
+    if (
+      ref.role === 'cause-state' &&
+      ((input.manifest.purpose !== 'review' && input.manifest.purpose !== 'correction') ||
+        input.manifest.subject.kind !== 'uw' ||
+        (ref.record.kind !== 'cause-disposition' && ref.record.kind !== 'cause-operation') ||
+        ref.record.scope.repository !== input.manifest.subject.uw.repository ||
+        ref.record.scope.target !== input.manifest.subject.uw.target)
+    )
+      diagnostics.push({
+        code: 'malformed',
+        message: 'Cause state must select a disposition or operation on the review UW',
+      })
   }
+}
+
+/** Validate semantics after an enclosing actionInputsSchema has parsed the input. */
+export function validateParsedActionInputs(input: ActionInputs): Result<ActionInputs> {
+  const diagnostics: Diagnostic[] = []
+  const manifest = input.manifest
+  duplicate(manifest.acceptedSources, 'accepted source', diagnostics)
+  duplicate(manifest.deliveryData, 'delivery data', diagnostics)
+  duplicate(manifest.repositoryReferences, 'repository reference', diagnostics)
+  duplicate(manifest.plugin.files, 'plugin file', diagnostics)
+  duplicate(manifest.expandedContext, 'expanded context', diagnostics)
+  duplicate(input.stageSources, 'stage source', diagnostics)
+  stageOverlap(input, diagnostics)
+  if (input.fingerprint !== actionInputDigest(manifest)) {
+    diagnostics.push({ code: 'mismatch', message: 'action input fingerprint does not match the canonical manifest' })
+  }
+  return diagnostics.length === 0 ? { ok: true, value: input } : { ok: false, diagnostics }
 }
 
 export function validateActionInputs(input: ActionInputs): Result<ActionInputs> {
   const parsed = actionInputsSchema.safeParse(input)
   if (!parsed.success)
     return { ok: false, diagnostics: [{ code: 'malformed', message: 'action inputs are not binding/1' }] }
-  const diagnostics: Diagnostic[] = []
-  const manifest = parsed.data.manifest
-  duplicate(manifest.acceptedSources, 'accepted source', diagnostics)
-  duplicate(manifest.deliveryData, 'delivery data', diagnostics)
-  duplicate(manifest.repositoryReferences, 'repository reference', diagnostics)
-  duplicate(manifest.plugin.files, 'plugin file', diagnostics)
-  duplicate(manifest.expandedContext, 'expanded context', diagnostics)
-  duplicate(parsed.data.stageSources, 'stage source', diagnostics)
-  stageOverlap(parsed.data, diagnostics)
-  if (parsed.data.fingerprint !== actionInputDigest(manifest)) {
-    diagnostics.push({ code: 'mismatch', message: 'action input fingerprint does not match the canonical manifest' })
-  }
-  return diagnostics.length === 0 ? { ok: true, value: parsed.data } : { ok: false, diagnostics }
+  return validateParsedActionInputs(parsed.data)
 }

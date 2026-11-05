@@ -2,9 +2,10 @@ import { actionInputDigest, decodeHistory, readGitHubHistory, validateActionInpu
 import type { ActionInputManifest, ActionInputs } from '../../engine/action-input-schema.ts'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
-import type { TrustedHostPluginPin, UwActionRequest } from '../../roxabi/uw-action-contract.ts'
+import type { ReviewRootRef, TrustedHostPluginPin, UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { currentActionFingerprint, storedReviewExpansion } from '../../roxabi/uw-action-inputs.ts'
 import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
+import { selectedReviewRoot } from '../../roxabi/uw-selected-review.ts'
 import { type Gh, isMap, jsonField, type Refusal, refuse, repositoryOf } from './review-base.ts'
 
 const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -25,6 +26,8 @@ export type ReviewInputDeps = {
   semantic?: ConfirmedReviewSemanticContext
   pluginPin?: TrustedHostPluginPin
   persistedFingerprint?: string
+  selectedReviewId?: string | null
+  reviewedRoot?: ReviewRootRef
   preparedSnapshot?: ActionInputs
 }
 export type ReviewInputCapture = { ok: true; input: string | null; body: ReviewPrBody | null } | Refusal
@@ -108,44 +111,64 @@ async function loadSemantic(
   }
   return confirmedReviewSemanticContext(resolved.value)
 }
+function preparedReviewExpansion(
+  target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
+  repository: string,
+  preparedSnapshot: ActionInputs,
+  persistedFingerprint?: string,
+) {
+  const parsed = validateActionInputs(preparedSnapshot)
+  const snapshot = parsed.ok ? parsed.value : null
+  const scope = snapshot?.manifest.subject.pullRequest
+  if (
+    persistedFingerprint !== undefined ||
+    snapshot === null ||
+    snapshot.manifest.purpose !== 'review' ||
+    snapshot.manifest.code.repository !== repository ||
+    snapshot.manifest.code.head !== target.candidate ||
+    snapshot.manifest.code.base !== target.base ||
+    scope?.repository !== repository ||
+    scope.target !== `${repository}#${target.pr}` ||
+    actionInputDigest(snapshot.manifest) !== snapshot.fingerprint
+  )
+    return refuse('review-input-changed', 'prepared review snapshot does not match the selected PR and code')
+  return { expandedContext: snapshot.manifest.expandedContext, stageSources: snapshot.stageSources }
+}
+
 async function reviewExpansion(
   cwd: string,
   target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
   repository: string,
   deps: ReviewInputDeps,
 ): Promise<
-  { expandedContext: UwActionRequest['expandedContext']; stageSources: UwActionRequest['stageSources'] } | Refusal
+  | {
+      expandedContext: UwActionRequest['expandedContext']
+      stageSources: UwActionRequest['stageSources']
+      reviewedRoot?: ReviewRootRef
+    }
+  | Refusal
 > {
-  if (deps.preparedSnapshot !== undefined) {
-    const parsed = validateActionInputs(deps.preparedSnapshot)
-    const snapshot = parsed.ok ? parsed.value : null
-    const scope = snapshot?.manifest.subject.pullRequest
-    if (
-      deps.persistedFingerprint !== undefined ||
-      snapshot === null ||
-      snapshot.manifest.purpose !== 'review' ||
-      snapshot.manifest.code.repository !== repository ||
-      snapshot.manifest.code.head !== target.candidate ||
-      snapshot.manifest.code.base !== target.base ||
-      scope?.repository !== repository ||
-      scope.target !== `${repository}#${target.pr}` ||
-      actionInputDigest(snapshot.manifest) !== snapshot.fingerprint
-    )
-      return refuse('review-input-changed', 'prepared review snapshot does not match the selected PR and code')
-    return { expandedContext: snapshot.manifest.expandedContext, stageSources: snapshot.stageSources }
-  }
+  if (deps.preparedSnapshot !== undefined)
+    return preparedReviewExpansion(target, repository, deps.preparedSnapshot, deps.persistedFingerprint)
   if (deps.persistedFingerprint !== undefined) {
     const pullRequest = { repository, target: `${repository}#${target.pr}` }
     const history = decodeHistory(
       await readGitHubHistory(pullRequest, { cwd, gh: deps.gh, readAuthor: deps.automationLogin }),
     )
-    const stored = storedReviewExpansion(history, deps.persistedFingerprint)
+    const selected =
+      deps.reviewedRoot === undefined
+        ? deps.selectedReviewId == null
+          ? null
+          : selectedReviewRoot(history, deps.selectedReviewId)
+        : { ok: true as const, value: deps.reviewedRoot }
+    if (selected === null || !selected.ok) return refuse('review-input-changed', 'selected review root is unavailable')
+    const stored = storedReviewExpansion(history, deps.persistedFingerprint, selected.value)
     if (!stored.ok)
       return refuse(
         'review-input-changed',
         stored.diagnostics.map((item) => item.message).join('; ') || 'reviewed action inputs are absent',
       )
-    return stored.value
+    return { ...stored.value, reviewedRoot: selected.value }
   }
   return { expandedContext: [], stageSources: [] }
 }
@@ -194,7 +217,14 @@ export async function captureReviewInput(
   const fingerprint = await currentActionFingerprint(
     request,
     createProductionActionPorts({ cwd, gh: deps.gh, readAuthor: deps.automationLogin, pluginPin: deps.pluginPin }),
+    deps.persistedFingerprint,
+    expansion.reviewedRoot,
   )
-  if (!fingerprint.ok) return refuse('unreadable', fingerprint.diagnostics.map((item) => item.message).join('; '))
+  if (!fingerprint.ok) {
+    const reason = fingerprint.diagnostics.some((item) => item.code === 'review-input-changed')
+      ? 'review-input-changed'
+      : 'unreadable'
+    return refuse(reason, fingerprint.diagnostics.map((item) => item.message).join('; '))
+  }
   return { ok: true, input: fingerprint.value, body }
 }

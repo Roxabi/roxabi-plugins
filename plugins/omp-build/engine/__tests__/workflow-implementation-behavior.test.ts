@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, workflowEvidence } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
@@ -46,13 +46,13 @@ describe('workflow implementation behavior', () => {
     })
     const bound = history([binding(shipped, pull)], pull)
     const open = reconstructWorkflow({
-      evidence: { issue: history([shipped, start]), pullRequest: bound, parents: [] },
+      evidence: workflowEvidence(history([shipped, start]), bound, [], []),
       facts: shippedFacts,
       decisions,
     })
     expect(open).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     const rejectedDecision = reconstructWorkflow({
-      evidence: { issue: history([shipped, start, rejected]), pullRequest: bound, parents: [] },
+      evidence: workflowEvidence(history([shipped, start, rejected]), bound, [], []),
       facts: shippedFacts,
       decisions,
     })
@@ -66,18 +66,19 @@ describe('workflow implementation behavior', () => {
     const admittedStart = implementationStart(shipped, 'act-implement-admitted', 'act-plan-1')
     const admittedResult = implementationResult(shipped, admittedStart, 'act-implement-admitted', 'act-plan-1', true)
     const adopted = reconstructWorkflow({
-      evidence: {
-        issue: history([shipped, planStart, planResult, planReviewStart, planReview, admittedStart, admittedResult]),
-        pullRequest: bound,
-        parents: [],
-      },
+      evidence: workflowEvidence(
+        history([shipped, planStart, planResult, planReviewStart, planReview, admittedStart, admittedResult]),
+        bound,
+        [],
+        [],
+      ),
       facts: shippedFacts,
       decisions: { ...decisions, publish: { status: 'published', evidence: [] } },
     })
     expect(adopted).toMatchObject({ status: 'action', action: 'review' })
     expect(history([shipped]).operations.some((operation) => operation.record?.kind === 'action-receipt')).toBe(false)
     const nativeOnly = reconstructWorkflow({
-      evidence: { issue: history([shipped]), pullRequest: history([], pull), parents: [] },
+      evidence: workflowEvidence(history([shipped]), history([], pull), [], []),
       facts: shippedFacts,
       decisions,
     })
@@ -106,7 +107,7 @@ describe('workflow implementation behavior', () => {
       },
     })
     const decision = reconstructWorkflow({
-      evidence: { issue: history([mandated]), pullRequest: null, parents: [] },
+      evidence: workflowEvidence(history([mandated]), null, [], []),
       facts: facts({
         productVersion: mandated.payload.config.productVersion,
         configVersion: mandated.payload.config.version,
@@ -195,11 +196,7 @@ describe('workflow implementation behavior', () => {
       }),
     )
     const decision = reconstructWorkflow({
-      evidence: {
-        issue: history([shipped, staleStart]),
-        pullRequest: history([binding(shipped, pull)], pull),
-        parents: [],
-      },
+      evidence: workflowEvidence(history([shipped, staleStart]), history([binding(shipped, pull)], pull), [], []),
       facts: facts({
         candidateGitSHA: currentCandidate,
         productVersion: shipped.payload.config.productVersion,
@@ -222,11 +219,7 @@ describe('workflow implementation behavior', () => {
     })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     const greenDecision = reconstructWorkflow({
-      evidence: {
-        issue: history([shipped, staleStart]),
-        pullRequest: history([binding(shipped, pull)], pull),
-        parents: [],
-      },
+      evidence: workflowEvidence(history([shipped, staleStart]), history([binding(shipped, pull)], pull), [], []),
       facts: facts({
         candidateGitSHA: currentCandidate,
         productVersion: shipped.payload.config.productVersion,

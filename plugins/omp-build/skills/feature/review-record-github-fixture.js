@@ -1,3 +1,4 @@
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
 import { toolingGh } from './review-record-pin.js'
 
 function commentPage(path) {
@@ -137,6 +138,8 @@ function disarmCommand(args, state) {
 export function createGateGh({ history, issueHistory, state, calls, fixture, historyPage }) {
   return async (_cwd, args) => {
     calls.push(args)
+    const fixtureCatalogue = fixtureCatalogueGhResponse(args)
+    if (fixtureCatalogue !== null) return fixtureCatalogue
     const pinned = toolingGh(args)
     if (pinned !== null) return pinned.trim()
     if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: fixture.repository })

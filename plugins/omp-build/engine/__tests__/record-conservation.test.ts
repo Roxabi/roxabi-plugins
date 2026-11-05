@@ -1,13 +1,27 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { finding, reviewRoot, submission, synthesisInventory } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history } from '../../testing/record-history.ts'
 import { inspectFinding } from '../producer-schema.ts'
-import { validateDecision, validateDecisionBindings, validateReviewDecisionBindings } from '../review-decision.ts'
+import {
+  validateDecision,
+  validateDecisionBindings,
+  validateFreshDecision,
+  validateReviewDecisionBindings,
+} from '../review-decision.ts'
 import { assessmentCodes, TAXONOMY } from './record-test-support.ts'
 
 describe('canonical finding conservation', () => {
+  test('keeps historical verdicts diagnostic-only and refuses live review without disposition refs', () => {
+    const graph = reviewGraph({ prefix: 'historical-no-cause-refs', label: 'issue(blocking)' })
+    const historical = validateDecision(graph.decision, graph.history, fixtureReviewClassCatalogues(), null)
+    const fresh = validateFreshDecision(graph.decision, graph.history, fixtureReviewClassCatalogues(), null)
+    expect(historical.verdict).toBe('Request changes')
+    expect(fresh.ok).toBe(false)
+    if (!fresh.ok) expect(fresh.diagnostics.map((item) => item.code)).toContain('cause-disposition-incomplete')
+  })
   test('retains a known blocking label from an invalid model source and refuses admission', () => {
     const raw = { label: 'issue(blocking)', description: 'The model omitted all location evidence.' }
     const root = reviewRoot({ id: 'invalid-root' })
@@ -44,6 +58,7 @@ describe('canonical finding conservation', () => {
           label: 'issue(blocking)',
           impactReason: 'The raw source names a data-loss risk.',
           state: 'unusable',
+          target: null,
           sourceFindingIds: ['invalid-source:f0'],
         },
       ],
@@ -76,7 +91,7 @@ describe('canonical finding conservation', () => {
       diagnostics: [{ code: 'unusable-finding', message: 'Original finding is not a strict canonical finding' }],
     })
     const retained = history([root, spec, source, synthesis, decisionSource, modelDecision, final])
-    const assessment = validateDecision(modelDecision, retained, TAXONOMY, null)
+    const assessment = validateDecision(modelDecision, retained, fixtureReviewClassCatalogues(), null)
     const duplicateSources = {
       ...modelDecision,
       payload: {
@@ -92,10 +107,14 @@ describe('canonical finding conservation', () => {
       },
     }
 
-    const bindings = validateDecisionBindings(modelDecision, retained)
-    expect(bindings, JSON.stringify(bindings)).toMatchObject({ admissible: true })
-    expect(validateDecisionBindings(duplicateSources, retained)).toMatchObject({ admissible: false })
-    expect(validateDecisionBindings(inventedSource, retained)).toMatchObject({ admissible: false })
+    const bindings = validateDecisionBindings(modelDecision, retained, fixtureReviewClassCatalogues())
+    expect(bindings, JSON.stringify(bindings)).toMatchObject({ admissible: false })
+    expect(validateDecisionBindings(duplicateSources, retained, fixtureReviewClassCatalogues())).toMatchObject({
+      admissible: false,
+    })
+    expect(validateDecisionBindings(inventedSource, retained, fixtureReviewClassCatalogues())).toMatchObject({
+      admissible: false,
+    })
     expect(assessment).toMatchObject({
       admissible: false,
       verdict: null,
@@ -142,7 +161,7 @@ describe('canonical finding conservation', () => {
           : record,
     )
 
-    expect(validateDecision(modelDecision, history(records), TAXONOMY, null)).toMatchObject({
+    expect(validateDecision(modelDecision, history(records), fixtureReviewClassCatalogues(), null)).toMatchObject({
       admissible: true,
       verdict: 'Approve with comments',
       groups: { Blockers: [], Warnings: ['downgrade-finding-final'], Suggestions: [], Praise: [] },
@@ -165,7 +184,7 @@ describe('canonical finding conservation', () => {
 
     for (const [label, group, verdict] of cases) {
       const graph = reviewGraph({ prefix: `label-${label.replaceAll(/[^a-z]/g, '-')}`, label })
-      const assessment = validateDecision(graph.decision, graph.history, TAXONOMY, null)
+      const assessment = validateDecision(graph.decision, graph.history, fixtureReviewClassCatalogues(), null)
       expect(assessment).toMatchObject({
         admissible: true,
         verdict,
@@ -198,6 +217,15 @@ describe('canonical finding conservation', () => {
         ...blocker.decision.payload,
         judgment: {
           ...blocker.decision.payload.judgment,
+          causes: blocker.decision.payload.judgment.causes.flatMap((cause) => [
+            cause,
+            {
+              ...cause,
+              id: 'cause-mixed-warning',
+              findingIds: ['mixed-warning-final'],
+              proposedDisposition: 'report' as const,
+            },
+          ]),
           findings: [
             ...blocker.decision.payload.judgment.findings,
             {
@@ -205,6 +233,7 @@ describe('canonical finding conservation', () => {
               label: 'suggestion' as const,
               impactReason: 'Non-blocking fixture warning.',
               state: 'usable' as const,
+              target: warningFinding.target,
               sourceFindingIds: [`${blocker.panel.recordId}:f1`],
               description: 'Keep the warning visible.',
             },
@@ -234,7 +263,7 @@ describe('canonical finding conservation', () => {
             ? synthesis
             : record,
     )
-    expect(validateDecision(decision, history(records), TAXONOMY, null)).toMatchObject({
+    expect(validateDecision(decision, history(records), fixtureReviewClassCatalogues(), null)).toMatchObject({
       admissible: true,
       verdict: 'Request changes',
       groups: { Blockers: ['mixed-blocker-finding-final'], Warnings: ['mixed-warning-final'] },
@@ -248,11 +277,11 @@ describe('canonical finding conservation', () => {
         entry.recordId === graph.review.recordId ? { ...entry, status: 'incomplete' as const } : entry,
       ),
     })
-    expect(validateReviewDecisionBindings(graph.review, incomplete).ok).toBe(false)
+    expect(validateReviewDecisionBindings(graph.review, incomplete, fixtureReviewClassCatalogues()).ok).toBe(false)
 
     const pending = reviewRoot({ id: 'pending-root', operationId: 'pending-root-operation' })
     const withPendingRoot = history([...graph.records, pending])
-    expect(validateReviewDecisionBindings(graph.review, withPendingRoot).ok).toBe(false)
+    expect(validateReviewDecisionBindings(graph.review, withPendingRoot, fixtureReviewClassCatalogues()).ok).toBe(false)
   })
 
   test('keeps distinct findings at one anchor unless the decision explicitly merges them', () => {
@@ -282,12 +311,16 @@ describe('canonical finding conservation', () => {
         ...graph.decision.payload,
         judgment: {
           ...graph.decision.payload.judgment,
+          causes: graph.decision.payload.judgment.causes.flatMap((cause) =>
+            ['first-final', 'second-final'].map((id) => ({ ...cause, id: `cause-${id}`, findingIds: [id] })),
+          ),
           findings: [
             {
               id: 'first-final',
               label: 'suggestion' as const,
               impactReason: 'Region is lost.',
               state: 'usable' as const,
+              target: first.target,
               sourceFindingIds: ['shared-anchor-panel:f0'],
               description: 'Persist the selected region.',
             },
@@ -296,6 +329,7 @@ describe('canonical finding conservation', () => {
               label: 'suggestion' as const,
               impactReason: 'Zone is lost.',
               state: 'usable' as const,
+              target: second.target,
               sourceFindingIds: ['shared-anchor-panel:f1'],
               description: 'Persist the selected zone.',
             },
@@ -331,12 +365,18 @@ describe('canonical finding conservation', () => {
         ...separate.payload,
         judgment: {
           ...separate.payload.judgment,
+          causes: separate.payload.judgment.causes.slice(0, 1).map((cause) => ({
+            ...cause,
+            id: 'cause-merged-final',
+            findingIds: ['merged-final'],
+          })),
           findings: [
             {
               id: 'merged-final',
               label: 'suggestion' as const,
               impactReason: 'Both persisted fields are stale.',
               state: 'usable' as const,
+              target: first.target,
               sourceFindingIds: ['shared-anchor-panel:f0', 'shared-anchor-panel:f1'],
               description: 'Persist the selected fields.',
             },
@@ -365,14 +405,14 @@ describe('canonical finding conservation', () => {
           : record,
     )
 
-    expect(validateDecision(separate, history(records), TAXONOMY, null)).toMatchObject({
+    expect(validateDecision(separate, history(records), fixtureReviewClassCatalogues(), null)).toMatchObject({
       admissible: true,
       verdict: 'Approve with comments',
       groups: { Blockers: [], Warnings: ['first-final', 'second-final'], Suggestions: [], Praise: [] },
     })
-    expect(assessmentCodes(validateDecision(implicitMerge, history(mergedRecords), TAXONOMY, null))).toContain(
-      'malformed',
-    )
+    expect(
+      assessmentCodes(validateDecision(implicitMerge, history(mergedRecords), fixtureReviewClassCatalogues(), null)),
+    ).toContain('malformed')
   })
 
   test('refuses omitted, unknown, and multiply-covered source references', () => {
@@ -386,6 +426,7 @@ describe('canonical finding conservation', () => {
           label: 'issue',
           impactReason: 'The model cited a source never retained.',
           state: 'usable',
+          target: finding().target,
           sourceFindingIds: ['missing-original'],
           description: 'No source exists.',
         },
@@ -400,6 +441,7 @@ describe('canonical finding conservation', () => {
           label: 'issue',
           impactReason: 'First.',
           state: 'usable',
+          target: finding().target,
           sourceFindingIds: ['source-set:f0'],
           description: 'First coverage.',
         },
@@ -408,17 +450,18 @@ describe('canonical finding conservation', () => {
           label: 'issue',
           impactReason: 'Second.',
           state: 'usable',
+          target: finding().target,
           sourceFindingIds: ['source-set:f0'],
           description: 'Second coverage.',
         },
       ],
     })
 
-    expect(assessmentCodes(validateDecision(unknown, history([source, unknown]), TAXONOMY, null))).toEqual(
-      expect.arrayContaining(['unknown-reference', 'missing-contribution']),
-    )
-    expect(assessmentCodes(validateDecision(duplicate, history([source, duplicate]), TAXONOMY, null))).toContain(
-      'duplicate-reference',
-    )
+    expect(
+      assessmentCodes(validateDecision(unknown, history([source, unknown]), fixtureReviewClassCatalogues(), null)),
+    ).toEqual(expect.arrayContaining(['unknown-reference', 'missing-contribution']))
+    expect(
+      assessmentCodes(validateDecision(duplicate, history([source, duplicate]), fixtureReviewClassCatalogues(), null)),
+    ).toContain('duplicate-reference')
   })
 })

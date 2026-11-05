@@ -4,6 +4,7 @@ import * as contracts from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwGraphObservation, UwNativeNode } from '../engine/uw-graph.ts'
 import { canonicalSpec, type SpecSnapshot } from '../engine/uw-spec.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { authorizeFixAction } from './fix-ci-evidence.ts'
@@ -108,13 +109,18 @@ function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
         ]
       : []),
   ])
-  const reader = createInstalledObservedUwReadPort({ graph: observed, histories: [history] })
+  const reader = createInstalledObservedUwReadPort({
+    graph: observed,
+    histories: [history],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
   const bindingRead = {
     ok: true as const,
     value: {
       binding,
       history,
       histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
       parentScopes: [],
       native: { branch: 'feature/41', base: 'main', pullRequest: PR, linkedIssueScopes: [UW] },
       observed: { head: SHA, baseTip: 'b'.repeat(40) },
@@ -158,6 +164,34 @@ describe('fix checkpoint UW delivery admission', () => {
     )
     expect(ci).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
     expect(git).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses CI admission when the authenticated original UW history is absent', async () => {
+    const leaf = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
+    const read = await leaf.reader.readUw(UW)
+    const prHistory = { ...leaf.history, source: { ...leaf.history.source, scope: PR }, operations: [] }
+    const git = vi.fn()
+    vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
+    const result = await authorizeFixAction(
+      {
+        cwd: '/worktree',
+        target: pullRequestTarget(),
+        branch: 'feature/41',
+        base: 'main',
+        options: { cwd: '/worktree' },
+      },
+      prHistory,
+      null,
+      [],
+      'fix',
+      { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
+      { ...read, histories: [] },
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled', 'cause-history-unconfirmed']),
+    })
+    expect(git).not.toHaveBeenCalled()
   })
 
   it('refuses default-fix advancement for a CLOSED/NOT_PLANNED blocker while preserving CLOSED/COMPLETED', async () => {

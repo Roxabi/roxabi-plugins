@@ -185,23 +185,19 @@ export type ActionReceiptPayload =
   | z.infer<typeof ciResult>
   | z.infer<typeof normalizeStart>
   | z.infer<typeof normalizeResult>
+const taggedActionReceipts = z.discriminatedUnion('action', [
+  z.discriminatedUnion('phase', [assessStart, assessResult]),
+  z.discriminatedUnion('phase', [planStart, planResult]),
+  z.discriminatedUnion('phase', [planReviewStart, planReviewResult]),
+  z.discriminatedUnion('phase', [implementStart, implementResult]),
+  z.discriminatedUnion('phase', [ciStart, ciResult]),
+  z.discriminatedUnion('phase', [normalizeStart, normalizeResult]),
+])
+
 export const actionReceiptPayloadSchema = z
   .union([
-    frameStart,
-    frameResult,
-    frameUnmandatedStart,
-    frameUnmandatedResult,
-    assessStart,
-    assessResult,
-    planStart,
-    planResult,
-    planReviewStart,
-    planReviewResult,
-    implementStart,
-    implementResult,
-    ciStart,
-    ciResult,
-    normalizeStart,
-    normalizeResult,
+    taggedActionReceipts,
+    z.discriminatedUnion('phase', [frameStart, frameResult]),
+    z.discriminatedUnion('phase', [frameUnmandatedStart, frameUnmandatedResult]),
   ])
   .superRefine(refineActionReceipt) as z.ZodType<ActionReceiptPayload>

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
+import {
+  acceptedActionInputs,
+  fixtureReviewClassCatalogues,
+  standaloneReviewInputs,
+} from '../../testing/action-input-fixtures.ts'
 import { NATIVE_AUTHOR, reviewRoot, TEST_HEAD } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
 import { history, observedComment, operation } from '../../testing/record-history.ts'
@@ -144,6 +148,7 @@ describe('authorized criterion delivery admission', () => {
         },
       },
       diagnostics,
+      fixtureReviewClassCatalogues(),
     )
     expect(codes(diagnostics)).not.toEqual(expect.arrayContaining(['unconfirmed', 'ambiguous']))
   })
@@ -187,6 +192,7 @@ describe('authorized criterion delivery admission', () => {
         },
       },
       diagnostics,
+      fixtureReviewClassCatalogues(),
     )
     expect(codes(diagnostics)).toContain('unconfirmed')
   })
@@ -235,7 +241,7 @@ describe('authorized criterion delivery admission', () => {
       { declarations: [], evidence: [], verdicts: [], diagnostics: [] },
       code,
     )
-    const admitted = validateDecision(verdict, observed, [], null)
+    const admitted = validateDecision(verdict, observed, fixtureReviewClassCatalogues(), null)
     expect(root.payload.candidateGitSHA).toBe(TEST_HEAD)
     expect(stored.manifest.code.head).toBe('b'.repeat(40))
     expect(root.payload.inputSnapshot?.fingerprint).toBe(stored.fingerprint)
@@ -318,6 +324,7 @@ describe('authorized criterion delivery admission', () => {
         },
       },
       clearDiagnostics,
+      fixtureReviewClassCatalogues(),
     )
     const unresolved = criterionEvidenceSchema.parse({
       ...aligned,
@@ -338,6 +345,7 @@ describe('authorized criterion delivery admission', () => {
         },
       },
       refusedDiagnostics,
+      fixtureReviewClassCatalogues(),
     )
     const stored = criterionVerdictSchema.parse({
       target: aligned.target,

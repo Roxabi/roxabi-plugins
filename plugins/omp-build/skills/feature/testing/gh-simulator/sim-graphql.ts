@@ -78,6 +78,7 @@ export function flags(argv: string[]): ParsedFlags {
   const takes: Record<string, true> = {
     '--json': true,
     '--jq': true,
+    '-q': true,
     '--method': true,
     '--repo': true,
     '--head': true,

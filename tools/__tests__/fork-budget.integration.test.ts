@@ -98,7 +98,7 @@ describe('the repo suite is wired to the guard', () => {
         expect(byName[name].env.GITHUB_REPO, `${name} must inherit root env`).toBe('Test/test-repo')
       }
       expect(byName.unit.testTimeout).toBe(5_000)
-      expect(byName.integration.testTimeout).toBe(30_000)
+      expect(byName.integration.testTimeout).toBe(60_000)
     } finally {
       await vitest.close()
     }

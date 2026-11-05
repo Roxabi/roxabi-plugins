@@ -26,12 +26,15 @@ import { PR_EDITED } from '../testing/review-gate-gh.ts'
 
 export function registerReviewGateMandateCases(): void {
   describe('review-gate CLI mandate and binding', () => {
-    it('allows a green review whose input is the no-producer v2 hash', async () => {
+    it('allows a green review without treating its own published cause disposition as a prior input', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
       expect(input.fingerprint).toMatch(/^[0-9a-f]{64}$/)
-      publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
+      expect(
+        readState(fixture).issues['42']?.comments.some((comment) => comment.body.includes('kind=cause-disposition')),
+      ).toBe(true)
 
       const result = runReviewGate(fixture)
 
@@ -44,7 +47,7 @@ export function registerReviewGateMandateCases(): void {
       writeState(fixture, { ...readState(fixture), installation: true })
       await seedMandate(fixture)
       const input = await boundInput(fixture)
-      publish(fixture, cleanReview(fixture.head, 'app-installation', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'app-installation', input), 'SUCCESS')
 
       const result = runReviewGate(fixture)
 
@@ -57,7 +60,7 @@ export function registerReviewGateMandateCases(): void {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
-      publish(fixture, cleanReview(fixture.head, 'isolated', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'isolated', input), 'SUCCESS')
       const copiedPlugin = path.join(fixture.tools, 'plugins', 'omp-build')
 
       expect(fixture.env.HOME).toBe(fixture.home)
@@ -82,7 +85,7 @@ export function registerReviewGateMandateCases(): void {
         expect(input.fingerprint).toMatch(/^[0-9a-f]{64}$/)
         publish(
           fixture,
-          cleanReview(fixture.head, 'one', input),
+          cleanReview(fixture, fixture.head, 'one', input),
           conclusion,
           conclusion === '' ? 'IN_PROGRESS' : 'COMPLETED',
         )
@@ -101,7 +104,7 @@ export function registerReviewGateMandateCases(): void {
       await seedMandate(fixture)
       setMandateIssue(fixture, { state: 'CLOSED' })
       const input = await boundInput(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
 
       const result = runReviewGate(fixture)
 
@@ -113,7 +116,7 @@ export function registerReviewGateMandateCases(): void {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
       setMandateIssue(fixture, {
         state: 'CLOSED',
         body: nativeFeatureSpec('Save keeps the selected region after clarification'),
@@ -148,7 +151,7 @@ export function registerReviewGateMandateCases(): void {
       state.issues['42'] = { body: SPEC, updatedAt: PR_EDITED, state: 'CLOSED', labels: [], comments: [] }
       writeState(fixture, state)
       const input = await standaloneNoProducerInput(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
 
       const result = runReviewGate(fixture)
 
@@ -159,7 +162,7 @@ export function registerReviewGateMandateCases(): void {
     it('refuses a stored null review input at landing', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one'), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one'), 'SUCCESS')
 
       const result = runReviewGate(fixture)
 
@@ -175,7 +178,7 @@ export function registerReviewGateMandateCases(): void {
     it('allows pending CI when the no-producer hash matches the bound review', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one', await boundInput(fixture)), '', 'IN_PROGRESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', await boundInput(fixture)), '', 'IN_PROGRESS')
 
       const result = runReviewGate(fixture)
 
@@ -190,7 +193,7 @@ export function registerReviewGateMandateCases(): void {
         const origin = attachBareOriginAtBase(fixture)
         await seedMandate(fixture)
         const input = await boundInput(fixture)
-        publish(fixture, cleanReview(fixture.head, 'one', input), conclusion, status)
+        publish(fixture, cleanReview(fixture, fixture.head, 'one', input), conclusion, status)
 
         expect(JSON.parse(runReviewGate(fixture).stdout)).toMatchObject({ ok: true, allowed: true, ci })
         expect(advanceOriginNormativeStack(fixture, origin)).not.toBe(fixture.base)
@@ -208,7 +211,7 @@ export function registerReviewGateMandateCases(): void {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
       const input = await boundInput(fixture)
-      publish(fixture, cleanReview(fixture.head, 'one', input), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
       await seedMandate(fixture, nativeFeatureSpec('Save keeps the selected region after clarification'))
 
       const result = runReviewGate(fixture)
@@ -221,13 +224,18 @@ export function registerReviewGateMandateCases(): void {
     it('refuses pending CI when the current canonical review requests changes', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      const blockers = reviewBodies(fixture.head, 'blocker', await boundInput(fixture), 'Request changes')
+      const blockers = reviewBodies(fixture, fixture.head, 'blocker', await boundInput(fixture), 'Request changes')
       publish(fixture, blockers, '', 'IN_PROGRESS')
 
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout)).toEqual({ ok: false, allowed: false, reason: 'review-state-wait' })
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: false,
+        allowed: false,
+        reason: 'uw-not-deliverable',
+        detail: expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]),
+      })
       expect(result.stderr).toBe('')
     })
 
@@ -236,7 +244,7 @@ export function registerReviewGateMandateCases(): void {
       async (kind) => {
         const fixture = setupReviewGateFixture()
         await seedMandate(fixture)
-        publish(fixture, cleanReview(fixture.head, 'integrity', await boundInput(fixture)), 'SUCCESS')
+        publish(fixture, cleanReview(fixture, fixture.head, 'integrity', await boundInput(fixture)), 'SUCCESS')
         const state = readState(fixture)
         const comment =
           kind === 'mandate'
@@ -260,7 +268,7 @@ export function registerReviewGateMandateCases(): void {
     it.each(['review-attempt', 'decision'] as const)('refuses a foreign-author %s record', async (kind) => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture.head, 'foreign', await boundInput(fixture)), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'foreign', await boundInput(fixture)), 'SUCCESS')
       const state = readState(fixture)
       const comment = state.comments.find((entry) => entry.body.includes(`kind=${kind} `))
       if (!comment) throw new Error(`missing ${kind} fixture record`)
@@ -276,7 +284,7 @@ export function registerReviewGateMandateCases(): void {
     it('refuses an approval with absent native revision metadata', async () => {
       const fixture = setupReviewGateFixture()
       await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture.head, 'unreadable', await boundInput(fixture)), 'SUCCESS')
+      publish(fixture, cleanReview(fixture, fixture.head, 'unreadable', await boundInput(fixture)), 'SUCCESS')
       const state = readState(fixture)
       const review = state.comments.find((comment) => comment.body.includes('kind=review '))
       if (!review) throw new Error('missing review fixture record')

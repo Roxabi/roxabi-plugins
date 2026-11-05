@@ -56,6 +56,44 @@ function interactiveContext(confirm: () => Promise<boolean>): ExtensionContext {
 }
 
 describe('native operator confirmation capability', () => {
+  it('shows the exact adjudication and does not execute it when declined', async () => {
+    const uw = { repository: 'acme/widgets', target: 'acme/widgets#42' }
+    const prepared = {
+      digest: 'a'.repeat(64),
+      proposal: {
+        format: 'omp-build-cause-adjudication-proposal/1' as const,
+        operationId: 'op-1',
+        operation: 'adjudicate-cause' as const,
+        uw,
+        pending: { scope: uw, recordId: 'pending-1', kind: 'cause-disposition' as const },
+        pendingDigest: 'b'.repeat(64),
+        rejectedFindingIds: ['finding-1'],
+        judgment: null,
+        reason: 'The cited evidence disproves this finding',
+        references: [],
+      },
+    }
+    let displayed = ''
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          displayed = message
+          return false
+        },
+      },
+    } as unknown as ExtensionContext
+    const effects: string[] = []
+    const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
+      effects.push('written')
+    })
+    expect(result.status).toBe('refused')
+    expect(displayed).toContain('pending-1')
+    expect(displayed).toContain('finding-1')
+    expect(displayed).toContain('disproves')
+    expect(effects).toEqual([])
+  })
+
   it('presents the semantic decision and UW identity before an operator declines', async () => {
     const prepared = structuredClone(proposal)
     prepared.proposal.title = 'Preserve payment audit'

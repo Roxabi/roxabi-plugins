@@ -1,8 +1,10 @@
 import { expect, it } from 'vitest'
 import { parseRecord } from '../../engine/record-construction.ts'
+import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot } from '../../testing/record-builders.ts'
 import { contribution } from '../../testing/record-decisions.ts'
-import { decodeHistory } from '../github/history-codec.ts'
+import type { GitHubOptions } from '../github/types.ts'
 import { publishConfirmedWorkflowRecord } from '../github-workflow/binding.ts'
 import { nativeComment, wire } from './github-workflow-support.ts'
 
@@ -26,36 +28,30 @@ it.each(['clean', 'foreign', 'expected'] as const)(
         user: { login: mode === 'foreign' ? 'stranger' : 'automation' },
       })
     }
-    const empty = decodeHistory({
-      scope: { repository: root.repository, target: root.target },
-      expectedAuthor: 'automation',
-      stopAuthor: null,
-      complete: true,
-      comments: [],
-      diagnostics: [],
-    })
     let posts = 0
+    const options: GitHubOptions = {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      writerLogin: 'automation',
+      gh: async (_cwd, args) => {
+        const catalogue = fixtureCatalogueGhResponse(args)
+        if (catalogue !== null) return catalogue
+        if (args.includes('POST')) {
+          const body = args.find((arg) => arg.startsWith('body='))
+          if (body === undefined) throw new Error('missing fake publication body')
+          posts += 1
+          const posted = nativeComment(100 + posts, body.slice(5))
+          comments.push(posted)
+          return JSON.stringify(posted)
+        }
+        if (String(args[1] ?? '').includes('/comments')) return JSON.stringify(comments)
+        throw new Error(`unexpected gh args: ${args.join(' ')}`)
+      },
+    }
     const result = await publishConfirmedWorkflowRecord(
       record,
-      empty,
-      {
-        cwd: '/fixture',
-        readAuthor: 'automation',
-        writerLogin: 'automation',
-        gh: async (_cwd, args) => {
-          if (args.includes('POST')) {
-            const body = args.find((arg) => arg.startsWith('body='))
-            if (body === undefined) throw new Error('missing fake publication body')
-            posts += 1
-            const posted = nativeComment(100 + posts, body.slice(5))
-            comments.push(posted)
-            return JSON.stringify(posted)
-          }
-          if (String(args[1] ?? '').includes('/comments')) return JSON.stringify(comments)
-          throw new Error(`unexpected gh args: ${args.join(' ')}`)
-        },
-      },
-      null,
+      options,
+      createPublicationContextResolver(options, null),
     )
     if (mode === 'expected') {
       expect(result).toMatchObject({ status: 'refused' })

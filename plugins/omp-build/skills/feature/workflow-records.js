@@ -6,19 +6,9 @@ import {
   summarizeReviews,
 } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
-import { loadReviewClassCatalogue } from '../../roxabi/review-assets.ts'
+import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
 import { gh, preview } from './workflow-runtime.js'
-
-let cachedTaxonomy
-export function reviewTaxonomy() {
-  if (cachedTaxonomy !== undefined) return cachedTaxonomy
-  const { classes } = loadReviewClassCatalogue()
-  const taxonomy = [...classes.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
-  if (taxonomy.length === 0) throw new Error('reviewRecords: canonical review taxonomy is unreadable')
-  cachedTaxonomy = taxonomy
-  return taxonomy
-}
 
 export function reviewRefusal(refusal) {
   const diagnostics = Array.isArray(refusal?.diagnostics) ? refusal.diagnostics : []
@@ -45,21 +35,41 @@ export async function repositoryScope(cwd, pr, ghFn = gh) {
   return githubScope(data.nameWithOwner, number)
 }
 
-export function reviewRecords(
-  history,
-  { taxonomy = reviewTaxonomy(), acceptedEvidencePolicyRef = null, externalHistories = [] } = {},
-) {
-  return summarizeReviews(history, taxonomy, acceptedEvidencePolicyRef, externalHistories)
+export function reviewRecords(history, { catalogues, acceptedEvidencePolicyRef = null, externalHistories = [] }) {
+  return summarizeReviews(history, catalogues, acceptedEvidencePolicyRef, externalHistories)
 }
 
-async function citedHistories(history, cwd, ghFn) {
+async function observedReviewRecords(cwd, pr, { gh: ghFn = gh, acceptedEvidencePolicyRef = null } = {}) {
+  const history = await readReviewHistory(cwd, pr, ghFn)
   const cited = await readReviewInputHistories(history, { cwd, gh: ghFn })
   if (!cited.ok) {
+    // A proved primary denial may take precedence, never authorize admission.
+    // Keep the external failure on that refusal instead of replacing it.
+    const catalogues = await loadReviewClassCatalogues({ histories: [history], cwd, gh: ghFn })
+    const primary = reviewRecords(history, { catalogues, acceptedEvidencePolicyRef })
+    if (!primary.ok && primary.spent === true) {
+      return {
+        history,
+        result: { ...primary, diagnostics: [...primary.diagnostics, ...cited.diagnostics] },
+      }
+    }
     const error = reviewRefusal(cited)
     error.citedHistory = true
     throw error
   }
-  return cited.value
+  const catalogues = await loadReviewClassCatalogues({
+    histories: [history, ...cited.value],
+    cwd,
+    gh: ghFn,
+  })
+  return {
+    history,
+    result: reviewRecords(history, {
+      catalogues,
+      acceptedEvidencePolicyRef,
+      externalHistories: cited.value,
+    }),
+  }
 }
 
 export async function readReviewHistory(cwd, pr, ghFn = gh) {
@@ -67,25 +77,13 @@ export async function readReviewHistory(cwd, pr, ghFn = gh) {
   return decodeHistory(await readGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, gh: ghFn })))
 }
 
-export async function readReviewRecords(cwd, pr, { gh: ghFn = gh, taxonomy, acceptedEvidencePolicyRef = null } = {}) {
-  const history = await readReviewHistory(cwd, pr, ghFn)
-  const externalHistories = await citedHistories(history, cwd, ghFn)
-  return reviewRecords(history, {
-    ...(taxonomy === undefined ? {} : { taxonomy }),
-    acceptedEvidencePolicyRef,
-    externalHistories,
-  })
+export async function readReviewRecords(cwd, pr, options) {
+  const { result } = await observedReviewRecords(cwd, pr, options)
+  return result
 }
 
 export async function requiredReviewAdmission(cwd, pr, options) {
-  const { gh: ghFn = gh, taxonomy, acceptedEvidencePolicyRef = null } = options ?? {}
-  const history = await readReviewHistory(cwd, pr, ghFn)
-  const externalHistories = await citedHistories(history, cwd, ghFn)
-  const result = reviewRecords(history, {
-    ...(taxonomy === undefined ? {} : { taxonomy }),
-    acceptedEvidencePolicyRef,
-    externalHistories,
-  })
+  const { history, result } = await observedReviewRecords(cwd, pr, options)
   if (!result.ok) throw reviewRefusal(result)
   return { records: result.value, operations: selectedReviewOperations(history, result.value) }
 }

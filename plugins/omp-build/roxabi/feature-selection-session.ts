@@ -28,3 +28,28 @@ export async function prepareRequestedSession(
   const boot = await runWorktreeBootstrap(context.cwd)
   return boot.ok ? null : { kind: 'blocked', reason: boot.reason }
 }
+
+export async function prepareSuccessorCheckout(
+  authority: FeatureAuthority,
+  branch: string,
+  sessionCwd: string | null,
+): Promise<ContinueFeatureResult | null> {
+  const { context, identity, onPrincipal, scope } = authority
+  if (!onPrincipal && sessionCwd !== null) return null
+  const base = await resolveBase(context.git, identity.ok ? identity.principalTop : context.cwd)
+  if ('reason' in base) return { kind: 'blocked', reason: base.reason }
+  const prepared = await prepareFeatureCheckout({
+    git: context.git,
+    sessionCwd: context.cwd,
+    branch,
+    base: base.base,
+    repository: scope.repository,
+    detached: false,
+  })
+  if (prepared.status === 'blocked') return { kind: 'blocked', reason: prepared.reason }
+  if (prepared.status === 'move') {
+    const move = linkedMove(context.cwd, prepared.path)
+    if (move) return move
+  }
+  return null
+}

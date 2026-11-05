@@ -7,6 +7,7 @@ import type {
   PinnedFileRef,
   RecordInputRef,
 } from '../engine/action-input-schema.ts'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Json } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { ActionOperands } from '../engine/workflow-action-operands.ts'
@@ -21,6 +22,8 @@ export type {
   PinnedFileRef,
   RecordInputRef,
 } from '../engine/action-input-schema.ts'
+export type ReviewRootRef = ExternalRecordRef & { kind: 'review-attempt' }
+export type SelectedReview = { root: ReviewRootRef; fingerprint: string }
 
 export type InstalledPluginPin = {
   name: 'omp-build'
@@ -83,10 +86,15 @@ export type CurrentActionFacts = {
 }
 
 export type UwInputReadPorts = {
-  readCurrentActionFacts(request: UwActionRequest, reviewedFingerprint?: string): Promise<Result<CurrentActionFacts>>
+  readCurrentActionFacts(
+    request: UwActionRequest,
+    reviewedFingerprint?: string,
+    reviewedRoot?: ReviewRootRef,
+  ): Promise<Result<CurrentActionFacts>>
   readCurrentActionFactsBatch?(
     requests: readonly UwActionRequest[],
     reviewedFingerprint?: string,
+    reviewedRoot?: ReviewRootRef,
   ): Promise<Result<readonly { actionId: string; facts: CurrentActionFacts }[]>>
   readRecord(ref: RecordInputRef): Promise<Result<Json>>
   /** One fresh history observation per invocation; every reference is independently validated. */

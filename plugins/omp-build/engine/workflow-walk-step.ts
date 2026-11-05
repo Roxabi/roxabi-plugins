@@ -5,7 +5,7 @@ import { completionBlockReason } from './workflow-action-state.ts'
 import { conditionHolds } from './workflow-condition-evaluation.ts'
 import type { MandateRecord } from './workflow-control.ts'
 import type { WorkflowGraph } from './workflow-graph.ts'
-import type { WorkflowEvidence } from './workflow-plan.ts'
+import type { WorkflowCausalContext, WorkflowEvidence } from './workflow-plan.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 
 function blocked(
@@ -22,12 +22,11 @@ function terminalDecision(
   decisions: SpecializedDecisions,
   mandate: MandateRecord,
   pullRequest: DecodedHistory | null,
-  externalHistories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
 ): WorkflowDecision | null {
   if (
     node.action === 'stop' &&
-    conditionHolds('ci-attribution-refused', history, facts, decisions, mandate, pullRequest, externalHistories) ===
-      true
+    conditionHolds('ci-attribution-refused', history, facts, decisions, mandate, pullRequest, causal) === true
   ) {
     return {
       status: 'terminal',
@@ -52,12 +51,12 @@ function nextNode(
   decisions: SpecializedDecisions,
   mandate: MandateRecord,
   pullRequest: DecodedHistory | null,
-  externalHistories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
 ): string | WorkflowDecision {
   const matching = graph.edges.filter(
     (edge) =>
       edge.from === current &&
-      conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest, externalHistories) === true,
+      conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest, causal) === true,
   )
   const exclusive = [
     ['spec-differs', 'spec-settled'],
@@ -101,7 +100,6 @@ export function walkWorkflowStep(
   const completion = actionCompletion(node.action, evidence, decisions, mandate, facts)
   if (completion.status === 'uncertain') return blocked('action-uncertain', completion.evidence)
   if (completion.status === 'blocked') return blocked(completionBlockReason(completion), completion.evidence)
-  const externalHistories = [...evidence.parents, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
   const terminal = terminalDecision(
     node,
     evidence.issue,
@@ -109,7 +107,7 @@ export function walkWorkflowStep(
     decisions,
     mandate,
     evidence.pullRequest,
-    externalHistories,
+    evidence.causal,
   )
   if (terminal !== null) return terminal
   const next = nextNode(
@@ -121,7 +119,7 @@ export function walkWorkflowStep(
     decisions,
     mandate,
     evidence.pullRequest,
-    externalHistories,
+    evidence.causal,
   )
   if (
     enteredByTransition &&

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { ComplexityTierResult, calculateTier } from '../../issue-triage/skills/shared/domain/complexity.ts'
 import type { IssueWriteObservation } from '../../issue-triage/skills/shared/domain/issue-write.ts'
 import type { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import type { CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { prepareSpecAllocation, SpecIdentityLedger } from '../engine/uw-identity.ts'
@@ -177,6 +178,7 @@ function assemblePlan(
     writes,
     normalization: structuredClone(input.normalization),
     assessment: null,
+    creation: null,
   }
   return { proposal, digest: proposalDigest(proposal) }
 }
@@ -209,7 +211,13 @@ export function prepareExistingProposal(
   )
 }
 
-export function prepareCreateProposal(input: UwCreateInput, ports: UwProposalPreparationPorts): PreparedProposal {
+export function prepareCreateProposal(
+  input: UwCreateInput,
+  ports: UwProposalPreparationPorts,
+  creation: CreationContext,
+): PreparedProposal {
+  const parentDiagnostics = parentRepositoryDiagnostics(input)
+  if (parentDiagnostics.length > 0) return { diagnostics: parentDiagnostics }
   const provisional: ProposalAssemblyInput = {
     ...input,
     uw: { repository: input.repository, target: `${input.repository}#0` },
@@ -238,6 +246,7 @@ export function prepareCreateProposal(input: UwCreateInput, ports: UwProposalPre
     ...prepared.proposal,
     target: { kind: 'create', repository: input.repository },
     expected: null,
+    creation: structuredClone(creation),
   }
   return { proposal, digest: proposalDigest(proposal) }
 }

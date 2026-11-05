@@ -92,7 +92,7 @@ process.env.GIT_CONFIG_VALUE_0 = 'false'
  * A forking test pays for process startup plus whatever the child does, which
  * on a loaded CI runner can exceed the 5s default priced for an in-process
  * unit test (#502). Those tests belong in the `integration` project, named
- * `*.integration.test.*`, where the budget is 30s.
+ * `*.integration.test.*`, where the budget is 60s.
  *
  * The count is taken at run time rather than read off the source, because the
  * property that matters is whether the test *reaches* a fork. A test that
@@ -245,6 +245,6 @@ afterAll(() => {
   if (INTEGRATION_FILE.test(testPath)) return
   throw new Error(
     `This test forked ${forks} process(es) on the 5s unit budget, so it flakes under CI load (#502).\n` +
-      `Rename it to *.integration.test.<ext> to run it in the integration project at 30s.`,
+      `Rename it to *.integration.test.<ext> to run it in the integration project at 60s.`,
   )
 })

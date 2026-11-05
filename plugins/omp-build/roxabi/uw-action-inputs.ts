@@ -2,10 +2,8 @@ import {
   ACTION_BINDING_FORMAT,
   ACTION_INPUT_FORMAT,
   actionInputDigest,
-  actionInputsSchema,
   canonicalValueDigest,
   citesCurrentRootOutput,
-  recordsOf,
   validateActionInputs,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
@@ -18,6 +16,8 @@ import type {
   PreparedUwAction,
   ResolvedActionInputs,
   ReviewActionProjection,
+  ReviewRootRef,
+  SelectedReview,
   UwActionPorts,
   UwActionRequest,
 } from './uw-action-contract.ts'
@@ -28,6 +28,7 @@ import { projectionFiles, repositorySealPath, sealedIndex } from './uw-action-pr
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 import { sealActionSnapshot, verifyActionSnapshot } from './uw-action-snapshot.ts'
 import { correctionLocalPorts } from './uw-correction-local-ports.ts'
+import { selectedReviewInputs, selectedReviewRoot } from './uw-selected-review.ts'
 
 function text(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('utf8')
@@ -65,12 +66,14 @@ async function resolveFiles(
 async function buildManifest(
   request: UwActionRequest,
   ports: UwActionPorts,
+  reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
 ): Promise<
   Result<{ manifest: ActionInputManifest; verifiedPluginFiles: readonly { path: string; bytes: Uint8Array }[] }>
 > {
   const pin = await ports.plugin.resolveInstalledPluginPin()
   if (!pin.ok) return pin
-  const facts = await ports.readCurrentActionFacts(request)
+  const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot)
   if (!facts.ok) return facts
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
@@ -113,9 +116,10 @@ export async function prepareUwAction(
   request: UwActionRequest,
   ports: UwActionPorts,
   projection?: ReviewActionProjection,
+  review?: SelectedReview,
 ): Promise<Result<PreparedUwAction>> {
   const scoped = correctionLocalPorts(request, ports)
-  const manifest = await buildManifest(request, scoped)
+  const manifest = await buildManifest(request, scoped, review?.fingerprint, review?.root)
   if (!manifest.ok) return manifest
   const files = await resolveFiles(
     request,
@@ -149,7 +153,7 @@ export async function prepareUwAction(
 }
 
 export async function replayUwActionInputs(
-  input: { reviewed: ActionInputs; request: UwActionRequest },
+  input: { reviewed: ActionInputs; request: UwActionRequest; reviewedRoot?: ReviewRootRef },
   ports: UwActionPorts,
 ): Promise<Result<ActionInputs>> {
   const scoped = correctionLocalPorts(input.request, ports)
@@ -163,7 +167,7 @@ export async function replayUwActionInputs(
   if (!expanded.ok) return expanded
   const plugin = await verifyReviewedPlugin(input.reviewed.manifest, scoped)
   if (!plugin.ok) return plugin
-  const facts = await scoped.readCurrentActionFacts(input.request, input.reviewed.fingerprint)
+  const facts = await scoped.readCurrentActionFacts(input.request, input.reviewed.fingerprint, input.reviewedRoot)
   if (!facts.ok) return facts
   const rebuilt: ActionInputs = {
     format: ACTION_BINDING_FORMAT,
@@ -201,51 +205,44 @@ export async function replayUwActionInputs(
 export function storedReviewExpansion(
   history: DecodedHistory,
   fingerprint: string,
+  root: ReviewRootRef,
 ): Result<{
   expandedContext: ActionInputs['manifest']['expandedContext']
   stageSources: ActionInputs['stageSources']
 }> {
-  const stored = recordsOf(history).find(
-    (record) =>
-      record.kind === 'review-attempt' &&
-      record.payload !== null &&
-      typeof record.payload === 'object' &&
-      (record.payload as { inputSnapshot?: { fingerprint?: unknown } }).inputSnapshot?.fingerprint === fingerprint,
-  )
-  const snapshot =
-    stored?.payload !== null && typeof stored?.payload === 'object'
-      ? (stored.payload as { inputSnapshot?: unknown }).inputSnapshot
-      : null
-  const parsed = actionInputsSchema.safeParse(snapshot)
-  if (!parsed.success || parsed.data.fingerprint !== fingerprint)
-    return actionFailure('review-input-changed', 'reviewed action inputs are absent')
+  const inputs = selectedReviewInputs(history, root, fingerprint)
+  if (!inputs.ok) return inputs
   return {
     ok: true,
-    value: { expandedContext: parsed.data.manifest.expandedContext, stageSources: parsed.data.stageSources },
+    value: { expandedContext: inputs.value.manifest.expandedContext, stageSources: inputs.value.stageSources },
   }
 }
 export async function replayStoredReviewAttempt(
-  input: { history: DecodedHistory; head: string; fingerprint: string; repository: string; pr: number; base: string },
+  input: {
+    history: DecodedHistory
+    reviewId: string
+    head: string
+    fingerprint: string
+    repository: string
+    pr: number
+    base: string
+  },
   ports: UwActionPorts,
 ): Promise<Result<ActionInputs>> {
-  const stored = recordsOf(input.history).find((record) => {
-    if (record.kind !== 'review-attempt' || record.payload === null || typeof record.payload !== 'object') return false
-    const payload = record.payload as { input?: unknown; candidateGitSHA?: unknown }
-    return payload.input === input.fingerprint && payload.candidateGitSHA === input.head
-  })
-  const payload = stored?.payload
-  const parsed = actionInputsSchema.safeParse(
-    payload !== null && typeof payload === 'object' ? (payload as { inputSnapshot?: unknown }).inputSnapshot : null,
-  )
-  if (!parsed.success || parsed.data.fingerprint !== input.fingerprint || parsed.data.manifest.subject.kind !== 'uw')
+  const root = selectedReviewRoot(input.history, input.reviewId)
+  if (!root.ok) return root
+  const parsed = selectedReviewInputs(input.history, root.value, input.fingerprint)
+  if (!parsed.ok) return parsed
+  if (parsed.value.manifest.subject.kind !== 'uw')
     return actionFailure('review-input-changed', 'reviewed action inputs are absent')
   return replayUwActionInputs(
     {
-      reviewed: parsed.data,
+      reviewed: parsed.value,
+      reviewedRoot: root.value,
       request: {
         actionId: `review-${input.pr}`,
         purpose: 'review',
-        subject: parsed.data.manifest.subject,
+        subject: parsed.value.manifest.subject,
         code: { repository: input.repository, base: input.base, head: input.head, referenceCommit: input.head },
         stageSources: [],
         expandedContext: [],
@@ -257,8 +254,10 @@ export async function replayStoredReviewAttempt(
 export async function currentActionFingerprint(
   request: UwActionRequest,
   ports: UwActionPorts,
+  reviewedFingerprint?: string,
+  reviewedRoot?: ReviewRootRef,
 ): Promise<Result<string>> {
-  const manifest = await buildManifest(request, ports)
+  const manifest = await buildManifest(request, ports, reviewedFingerprint, reviewedRoot)
   return manifest.ok ? { ok: true, value: actionInputDigest(manifest.value.manifest) } : manifest
 }
 

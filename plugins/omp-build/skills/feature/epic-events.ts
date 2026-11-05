@@ -14,6 +14,7 @@ export type EpicReviewEvent = {
   range: string
   decisionId: string
   inventoryIds: string[]
+  dispositionIds: string[]
 }
 export type PostMergeEvent = {
   event: 'post-merge'
@@ -64,7 +65,9 @@ function epicReview(event: Record<string, unknown>, run: string): EpicReviewEven
     typeof event.range !== 'string' ||
     typeof event.decisionId !== 'string' ||
     event.decisionId.length === 0 ||
-    !strings(event.inventoryIds)
+    !strings(event.inventoryIds) ||
+    !Array.isArray(event.dispositionIds) ||
+    !event.dispositionIds.every((entry) => typeof entry === 'string' && entry.length > 0)
   ) {
     return null
   }
@@ -76,6 +79,7 @@ function epicReview(event: Record<string, unknown>, run: string): EpicReviewEven
     range: event.range,
     decisionId: event.decisionId,
     inventoryIds: event.inventoryIds,
+    dispositionIds: event.dispositionIds,
   }
 }
 

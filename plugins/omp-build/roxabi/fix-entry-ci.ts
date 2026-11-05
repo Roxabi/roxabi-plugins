@@ -9,7 +9,7 @@ import type {
   RecordPublisher,
   ReviewAuthority,
 } from './fix-contract.ts'
-import type { DebtEvidence } from './fix-domain'
+import { createFixDispositionStore } from './fix-disposition-store.ts'
 import { createIdentity, type FixRun, type FixStart } from './fix-entry-lifecycle.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
 import { defaultGh, fail, type Gh, gitResult, object } from './fix-entry-target-core.ts'
@@ -31,7 +31,6 @@ export type AdmittedCiCorrectionEntry = {
   expectedUw: CiCorrectionAdmission['uw']
   github?: GitHubOptions
   gh?: Gh
-  debtEvidence?: DebtEvidence
 }
 export async function runAdmittedCiCorrectionEntry(
   input: AdmittedCiCorrectionEntry,
@@ -62,7 +61,12 @@ export async function runAdmittedCiCorrectionEntry(
   const rawPublisher = createGitHubRecordPublisher(scope, github, null)
   const publisher: RecordPublisher = {
     publish: async (record, canPublish) => {
-      const saved = await rawPublisher.publish(record, [], canPublish)
+      const original = input.expectedUw.ownSpec.ref.uw
+      const external =
+        original.repository !== scope.repository || original.target !== scope.target
+          ? [decodeHistory(await readGitHubHistory(original, github))]
+          : []
+      const saved = await rawPublisher.publish(record, external, canPublish)
       return saved.ok ? { ok: true, value: undefined } : saved
     },
   }
@@ -84,13 +88,14 @@ export async function runAdmittedCiCorrectionEntry(
     {
       resolver,
       publisher,
+      dispositionStore: createFixDispositionStore(input.expectedUw.ownSpec.ref.uw, github),
       readHistory,
+      github,
       workflow: input.workflow,
       native: input.native,
       runtime,
       identity,
       publishBinding: publishBinding.value,
-      debtEvidence: input.debtEvidence,
     },
   )
 }

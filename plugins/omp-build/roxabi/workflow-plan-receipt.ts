@@ -121,7 +121,13 @@ export async function coordinatePlanAndReceiptAction(
       )
     }
     case 'review':
-      return reviewAfterBinding(context.engine, history, observation.delivery, observation.evidence.parents)
+      return reviewAfterBinding(
+        context.engine,
+        history,
+        observation.delivery,
+        observation.evidence.parents,
+        observation.evidence.causal,
+      )
     case 'stop':
     case 'done':
       return { kind: 'terminal', reason: action }

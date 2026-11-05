@@ -7,21 +7,32 @@ export type {
   ReviewState,
   ReviewSummary,
 } from './engine/result.ts'
+export {
+  catalogueForAction,
+  createReviewClassCatalogues,
+  parseReviewClassCatalogue,
+  type ReviewCatalogueRead,
+  type ReviewClassCatalogues,
+  reviewClassCatalogueRef,
+} from './engine/review-class-catalogue.ts'
 export { deriveRecallPlan } from './engine/review-conservation.ts'
 export {
   type DecisionBindings,
   type ReviewDecisionBindings,
   validateDecision,
   validateDecisionBindings,
+  validateFreshDecision,
   validateRetainedUnusableLabels,
   validateReviewDecisionBindings,
 } from './engine/review-decision.ts'
+export { validateHistoricalReviewDecision } from './engine/review-fresh-decision.ts'
 export {
   type ReviewInterruptionPayload,
   type ReviewReplacementGrantPayload,
   reviewInterruptionPayloadSchema,
   reviewReplacementGrantPayloadSchema,
 } from './engine/review-interruption-schema.ts'
+export { reviewRootFromDecision } from './engine/review-inventory-input.ts'
 export {
   confirmHistoricalReviewInputMatch,
   type HistoricalReviewAssociation,
@@ -51,14 +62,19 @@ export {
 } from './engine/review-recovery-records.ts'
 export {
   type Cause,
+  type CauseJudgment,
   type CorrectionResult,
+  causeJudgmentSchema,
   causeSchema,
+  citedJudgmentSchema,
   correctionResultSchema,
   type DebtReceipt,
   type Decision,
+  type Disposition,
   debtReceiptSchema,
   decisionPayloadSchema,
   decisionSchema,
+  dispositionSchema,
   type FalsificationResult,
   type FinalFinding,
   type FinalReview,
@@ -86,3 +102,4 @@ export {
   stopSchema,
 } from './engine/review-schema.ts'
 export { deriveReviewState, selectedReviewOperations, summarizeReviews } from './engine/review-state.ts'
+export { reviewSubjectBound } from './engine/review-subject-binding.ts'

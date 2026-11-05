@@ -8,7 +8,7 @@ import { diagnostic, GitHubHistoryReadError } from './types.ts'
 
 export type PublicationFailure = {
   status: 'uncertain' | 'refused'
-  history: DecodedHistory
+  history: DecodedHistory | null
   diagnostics: Diagnostic[]
 }
 
@@ -85,7 +85,7 @@ export function retainedPartConflictDiagnostics(
 
 export function publicationFailure(
   status: 'uncertain' | 'refused',
-  history: DecodedHistory,
+  history: DecodedHistory | null,
   diagnostics: Diagnostic[],
 ): PublicationFailure {
   return { status, history, diagnostics }

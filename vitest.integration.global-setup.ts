@@ -21,6 +21,8 @@ export default function setupSimulator(project: TestProject): () => void {
         'build',
         path.join(plugin, 'skills/feature/testing/gh-simulator/gh-simulator.ts'),
         '--compile',
+        '--no-compile-autoload-dotenv',
+        '--no-compile-autoload-bunfig',
         '--bytecode',
         '--format=esm',
         '--define',

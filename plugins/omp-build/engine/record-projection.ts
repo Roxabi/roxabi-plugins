@@ -1,3 +1,5 @@
+import { isRetainedReportPublication } from './cause-publication-role.ts'
+import { validateCausePublication, validateRetainedReportPublication } from './cause-publication-validation.ts'
 import { classifyHistory } from './history-classification.ts'
 import { validateProspectiveRecord, validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -7,7 +9,8 @@ import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type RecordProjectionConfig, type Result, recordMap } from './result.ts'
-import { validateDecision } from './review-decision.ts'
+import { validateFreshDecision } from './review-decision.ts'
+import { bindExternalRef } from './workflow-control.ts'
 import { scopedRefsOf, workflowInputMeaning } from './workflow-record-references.ts'
 
 function stringified(value: unknown): string {
@@ -60,10 +63,26 @@ function workflowReferenceDiagnostic(
   return null
 }
 
+function workflowPublicationDiagnostics(
+  record: CanonicalRecord,
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+  config: RecordProjectionConfig | null,
+): Diagnostic[] {
+  if (isRetainedReportPublication(record))
+    return validateRetainedReportPublication({ record, history, externalHistories })
+  if (record.kind !== 'cause-disposition' && record.kind !== 'cause-operation' && record.kind !== 'report-promotion')
+    return []
+  if (config === null || typeof config.catalogues !== 'object' || config.catalogues === null)
+    return [diagnostic('unbound', `Record ${record.recordId} has no catalogue context`)]
+  return validateCausePublication({ record, history, externalHistories, catalogues: config.catalogues })
+}
+
 function projectWorkflowRecord(
   record: CanonicalRecord,
   history: DecodedHistory,
   externalHistories: readonly DecodedHistory[],
+  config: RecordProjectionConfig | null,
 ): Result<string> {
   const meaning = workflowInputMeaning(record)
   if (meaning !== null) return fail([meaning])
@@ -82,6 +101,8 @@ function projectWorkflowRecord(
     ])
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories)
   if (referenceDiagnostic !== null) return fail([referenceDiagnostic])
+  const publicationDiagnostics = workflowPublicationDiagnostics(record, history, externalHistories, config)
+  if (publicationDiagnostics.length) return fail(publicationDiagnostics)
   return {
     ok: true,
     value: `# OMP build record\n\n- Kind: ${record.kind}\n- Record: ${record.recordId}\n- Operation: ${record.operationId}\n\n\`\`\`json\n${stringified(record.payload)}\n\`\`\``,
@@ -102,19 +123,22 @@ function projectReviewRecord(
   if (
     config === null ||
     typeof config !== 'object' ||
-    !Array.isArray(Reflect.get(config, 'taxonomy')) ||
-    Reflect.get(config, 'taxonomy').some((classId: unknown) => typeof classId !== 'string') ||
+    typeof config.catalogues !== 'object' ||
+    config.catalogues === null ||
     (Reflect.get(config, 'acceptedPolicy') !== null && typeof Reflect.get(config, 'acceptedPolicy') !== 'string')
   )
     return fail([diagnostic('unbound', `Review ${record.recordId} has no valid projection policy context`)])
-  const assessment = validateDecision(
+  const fresh = validateFreshDecision(
     decision,
     history,
-    config.taxonomy,
+    config.catalogues,
     config.acceptedPolicy,
     externalHistories,
     deliveryHistory,
+    record.payload.causeDispositionRefs,
   )
+  if (!fresh.ok) return fail(fresh.diagnostics)
+  const assessment = fresh.value
   if (!assessment.admissible || assessment.verdict === null)
     return fail(
       assessment.diagnostics.length > 0
@@ -151,6 +175,56 @@ function projectOperatorContribution(record: Extract<CanonicalRecord, { kind: 'c
   }
 }
 
+function matchesCorrectionDisposition(
+  record: Extract<CanonicalRecord, { kind: 'correction-result' }>,
+  source: CanonicalRecord,
+): boolean {
+  return (
+    source.kind === 'cause-disposition' &&
+    source.payload.subject.kind === 'cause' &&
+    source.payload.subject.decision.recordId === record.payload.decisionId &&
+    equalScope(source.payload.subject.decision.scope, record) &&
+    source.payload.subject.cause.id === record.payload.causeId &&
+    source.payload.outcome.state === 'final' &&
+    source.payload.outcome.disposition === 'fix-original'
+  )
+}
+
+function correctionReferenceDiagnostics(
+  record: Extract<CanonicalRecord, { kind: 'fix-request' | 'correction-result' | 'fix-result' }>,
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+): Diagnostic[] | null {
+  for (const ref of scopedRefsOf(record)) {
+    const sourceHistory = [history, ...externalHistories].find((item) => equalScope(item.source.scope, ref.scope))
+    if (!sourceHistory) return [diagnostic('missing-history', `No history supplied for ${ref.recordId}`)]
+    const source = bindExternalRef(ref, sourceHistory)
+    if (!source.ok) return source.diagnostics
+    if (record.kind === 'correction-result' && !matchesCorrectionDisposition(record, source.value))
+      return [
+        diagnostic('cause-effect-mismatch', `Correction ${record.recordId} does not match an admitted fix disposition`),
+      ]
+  }
+  return null
+}
+
+function projectionReferenceDiagnostics(
+  record: CanonicalRecord,
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+  config: RecordProjectionConfig | null,
+): Diagnostic[] | null {
+  if (record.kind === 'debt-receipt') {
+    if (config === null || typeof config.catalogues !== 'object' || config.catalogues === null)
+      return [diagnostic('unbound', `Record ${record.recordId} has no catalogue context`)]
+    const diagnostics = validateCausePublication({ record, history, externalHistories, catalogues: config.catalogues })
+    if (diagnostics.length) return diagnostics
+  }
+  if (record.kind === 'fix-request' || record.kind === 'correction-result' || record.kind === 'fix-result')
+    return correctionReferenceDiagnostics(record, history, externalHistories)
+  return null
+}
+
 export function projectRecord(
   record: CanonicalRecord,
   history: DecodedHistory,
@@ -159,7 +233,7 @@ export function projectRecord(
 ): Result<string> {
   const prospective = validateProspectiveRecord(record, history)
   if (prospective.length > 0) return fail(prospective)
-  if (isWorkflowKind(record.kind)) return projectWorkflowRecord(record, history, externalHistories)
+  if (isWorkflowKind(record.kind)) return projectWorkflowRecord(record, history, externalHistories, config)
   const closure = projectionClosure(record, history, classifyHistory(history))
   if (!closure.ok) return fail(closure.diagnostics)
   const projectionHistory = closure.value
@@ -170,6 +244,8 @@ export function projectRecord(
       diagnostic('unbound', `Record ${record.recordId} cannot be projected outside a complete bound history`),
     ])
   const records = new Map(graph.value.map((entry) => [entry.recordId, entry]))
+  const referenceDiagnostics = projectionReferenceDiagnostics(record, history, externalHistories, config)
+  if (referenceDiagnostics !== null) return fail(referenceDiagnostics)
   if (record.kind === 'review')
     return projectReviewRecord(record, projectionHistory, records, config, externalHistories, history)
   if (record.kind === 'contribution' && record.payload.host.origin === 'operator')

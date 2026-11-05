@@ -1,16 +1,20 @@
 import { decodeHistory, encodeRecord, parseIssueSpecBody, rawSource } from '../../../../contracts.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
 import { acceptedActionInputs } from '../../../../testing/action-input-fixtures.ts'
+import {
+  committedFixturePlugin,
+  committedFixtureProjection,
+  committedFixtureRecords,
+} from '../../../../testing/committed-plugin-fixture.ts'
 import { criterionImplementationRecords } from '../../../../testing/criterion-accepted-plan.ts'
 import { criterionEpicReviewGraph } from '../../../../testing/criterion-range-approval.ts'
-import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
+import { roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
 import { createWorkflowActionFixtures } from '../../../../testing/workflow-actions.ts'
 import { nativeComments } from './goal-scenario-approval.ts'
 import { A, B, C, type DriverNext, EPIC, RUN_A, RUN_B } from './goal-scenario-domain.ts'
 import { bindImplementationIdentity } from './goal-scenario-implementation.ts'
-import { git, readSim, runDriver, sandboxEpic, writeSim } from './goal-scenario-sandbox.ts'
+import { git, readSim, runDriver, sandboxEpic, toolingFixture, writeSim } from './goal-scenario-sandbox.ts'
 
-const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
 const { epicMandate, featureMandate, framedBodies, historyFrom, identityAllocation, mandateRef, ownSpecFromSnapshot } =
   roxabiWorkflowFixtures()
 
@@ -57,6 +61,7 @@ export function seedEpicDecision(range: string): string {
     .find((record) => record?.kind === 'mandate')
   if (mandate?.kind !== 'mandate') throw new Error('goal review fixture needs its accepted parent mandate')
   const base = acceptedActionInputs(mandate, 'review')
+  const tooling = toolingFixture()
   const manifest = {
     ...base.manifest,
     acceptedSources: [
@@ -68,11 +73,19 @@ export function seedEpicDecision(range: string): string {
       },
     ],
     code: { repository: scope.repository, base: baseCommit, head, referenceCommit: head },
-    plugin: { ...base.manifest.plugin, commit: git(import.meta.dirname, ['rev-parse', 'HEAD']) },
+    plugin: committedFixturePlugin(tooling.cwd, base.manifest.plugin, tooling.commit),
   }
   const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+  const projection = committedFixtureProjection(tooling.cwd, inputs)
   const graph = criterionEpicReviewGraph({ mandate, prefix: `goal-${RUN_B}`, head, range, inputs })
-  const records = [...graph.issueRecords.filter((record) => record.kind !== 'mandate'), ...graph.records]
+  const records = [
+    ...committedFixtureRecords(
+      tooling.cwd,
+      graph.issueRecords.filter((record) => record.kind !== 'mandate'),
+      inputs.manifest.plugin.commit,
+    ),
+    ...graph.records,
+  ]
   writeSim((state) => {
     const issue = state.issues[String(EPIC)]
     if (!issue) throw new Error('missing epic issue')
@@ -87,7 +100,7 @@ export function seedEpicDecision(range: string): string {
           comments: nativeComments(EPIC, issue.comments),
           diagnostics: [],
         },
-        TEST_PROJECTION_CONFIG,
+        projection,
       )
       if (!encoded.ok) throw new Error(encoded.diagnostics.map((entry) => entry.code).join(', '))
       issue.comments.push(...encoded.value.map((body) => ({ author: 'operator', body })))
@@ -163,7 +176,7 @@ export function ensureChildMandate(number: number, branch: string, id: string): 
   if (!cwd) throw new Error('missing epic checkout')
   const baseCommit = git(cwd, ['rev-parse', 'refs/remotes/origin/main'])
   const head = git(cwd, ['rev-parse', 'HEAD'])
-  const pluginCommit = git(import.meta.dirname, ['rev-parse', 'HEAD'])
+  const tooling = toolingFixture()
   const fixtures = createWorkflowActionFixtures({
     planOutput: {
       steps: [
@@ -209,7 +222,7 @@ export function ensureChildMandate(number: number, branch: string, id: string): 
       const manifest = {
         ...input.manifest,
         code: { repository: current.scope.repository, base: baseCommit, head, referenceCommit: baseCommit },
-        plugin: { ...input.manifest.plugin, commit: pluginCommit },
+        plugin: committedFixturePlugin(tooling.cwd, input.manifest.plugin, tooling.commit),
         acceptedSources: [
           {
             source: 'record' as const,
@@ -224,10 +237,17 @@ export function ensureChildMandate(number: number, branch: string, id: string): 
         payload: { ...record.payload, inputs: { ...input, manifest, fingerprint: actionInputDigest(manifest) } },
       }
     }),
-    ...criterionImplementationRecords(mandate, head)
-      .slice(-2)
-      .map((record) => bindImplementationIdentity(record, number, planActionId)),
+    ...committedFixtureRecords(
+      tooling.cwd,
+      criterionImplementationRecords(mandate, head)
+        .slice(-2)
+        .map((record) => bindImplementationIdentity(record, number, planActionId)),
+      tooling.commit,
+    ),
   ]
+  const action = records.find((record) => record.kind === 'action-receipt')
+  if (action?.kind !== 'action-receipt') throw new Error('Missing fixture action receipt')
+  const projection = committedFixtureProjection(tooling.cwd, action.payload.inputs)
   writeSim((sim) => {
     const child = sim.issues[String(number)]
     if (!child) throw new Error(`missing child issue #${number}`)
@@ -242,7 +262,7 @@ export function ensureChildMandate(number: number, branch: string, id: string): 
           comments: nativeComments(number, child.comments),
           diagnostics: [],
         },
-        TEST_PROJECTION_CONFIG,
+        projection,
         [parentHistory],
       )
       if (!encoded.ok)

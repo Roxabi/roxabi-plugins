@@ -1,6 +1,7 @@
 import { effectiveMandateRole, missingContextOutputSchema } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import { readDecodedHistory } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
@@ -11,6 +12,7 @@ import type { FeatureObservation } from './feature-observation-contract.ts'
 import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
 import { boundCorrection } from './fix-mandate-resolution.ts'
 import { classifyCiCorrectionStep } from './fix-mandate-types.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -28,6 +30,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   history: History
   mandateHistory?: History
   parents: readonly History[]
+  causal: WorkflowCausalContext
   scope: Scope
   uw: UwReadPort
   head: string | null
@@ -44,7 +47,17 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   const attributionRecordId = latestAttributeCiChangeReceiptId(decoded.history, input.head, input.scope)
   if (attributionRecordId === null) return null
   const mandateHistory = input.mandateHistory ?? input.history
-  const selected = input.selectApplicableMandate(mandateHistory, input.parents)
+  const causal = await readFixUwCausalContext(input.causal.histories, [decoded.history], {
+    cwd: input.cwd,
+    gh: input.gh,
+  })
+  if (!causal.ok)
+    return {
+      kind: 'blocked',
+      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
+      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
+  const selected = input.selectApplicableMandate(mandateHistory, input.parents, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return { kind: 'blocked', reason: 'mandate-missing' }
   }
@@ -71,7 +84,12 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
     options: withRoxabiGitHubPolicy({ cwd: input.cwd, gh: input.gh }),
     readHistory: async () => decoded.history,
   })
-  if (!admitted.ok) return { kind: 'blocked', reason: admitted.diagnostics[0] ?? 'ci-attribution-unconfirmed' }
+  if (!admitted.ok)
+    return {
+      kind: 'blocked',
+      reason: admitted.diagnostics[0] ?? 'ci-attribution-unconfirmed',
+      diagnostics: admitted.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
   if (admitted.value.status === 'spent') {
     return { kind: 'terminal', reason: admitted.value.reason }
   }
@@ -120,8 +138,14 @@ export async function continueReviewBoundFix(
       tier: selected.acceptedSpec.tier,
       children: selected.acceptedSpec.children,
     },
+    observation.evidence.causal,
   )
-  if (!bound.ok) return { kind: 'blocked', reason: bound.diagnostics[0] ?? 'review-fix-binding-unreadable' }
+  if (!bound.ok)
+    return {
+      kind: 'blocked',
+      reason: bound.diagnostics[0] ?? 'review-fix-binding-unreadable',
+      diagnostics: bound.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
   if (bound.value.status !== 'applicable') return { kind: 'blocked', reason: 'review-fix-binding-missing' }
   const correctionScope = bound.value.acceptedSpec.snapshot.raw.body
   if (
@@ -154,6 +178,7 @@ export async function continueCiCorrection(
     history: delivery.history,
     mandateHistory: observation.evidence.issue,
     parents: observation.evidence.parents,
+    causal: observation.evidence.causal,
     scope: delivery.scope,
     head: delivery.head,
     branch: delivery.branch,

@@ -51,6 +51,7 @@ export async function settleOwnedCorrectionFalsification(
   cwd: string,
   head: string,
   priorHead: string,
+  restoreContent = restoredSave,
 ) {
   const snapshots: Array<{
     agent: string
@@ -110,7 +111,7 @@ export async function settleOwnedCorrectionFalsification(
       program: 'bash',
       args: ['-c', guardCommand],
       prepare: () => writeFileSync(path.join(cwd, 'src/save.ts'), removedSave),
-      restore: () => writeFileSync(path.join(cwd, 'src/save.ts'), restoredSave),
+      restore: () => writeFileSync(path.join(cwd, 'src/save.ts'), restoreContent),
     },
   )
   if ((await restored) !== 'next-batch') throw new Error('falsification-restored-proof-not-announced')

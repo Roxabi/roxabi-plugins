@@ -112,11 +112,7 @@ function mandatedCompletion(
   mandate: MandateRecord,
   receipts: readonly ImplementationReceipt[],
 ): ActionCompletion {
-  const accepted = resolveAcceptedSpec(mandate, [
-    evidence.issue,
-    ...(evidence.pullRequest === null ? [] : [evidence.pullRequest]),
-    ...evidence.parents,
-  ])
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (!accepted.ok) return { status: 'blocked', evidence: accepted.evidence }
   const effective = resolveOwnSpecEffective(accepted.spec)
   if (!effective.ok) return { status: 'blocked', evidence: effective.diagnostics }

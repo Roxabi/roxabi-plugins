@@ -7,9 +7,27 @@ import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
-import { registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
+import { parseUwCommand, registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
+import { reportResult } from '../omp-uw-result.ts'
 
 const target = { repository: 'acme/widgets', target: 'acme/widgets#42' }
+
+it('accepts only an explicit issue scope for subtree reports', () => {
+  expect(parseUwCommand('reports acme/widgets#42')).toEqual({ kind: 'reports', repository: 'acme/widgets', number: 42 })
+  expect(parseUwCommand('reports')).toMatchObject({ kind: 'invalid' })
+  expect(parseUwCommand('reports acme/widgets#42 --confirmed')).toMatchObject({ kind: 'invalid' })
+})
+
+it('requires a request file and rejects confirmation flags for cause operations', () => {
+  for (const kind of ['adjudicate', 'sister', 'promote-report']) {
+    expect(parseUwCommand(`${kind} --request-file /tmp/request.json`)).toEqual({
+      kind,
+      requestFile: '/tmp/request.json',
+    })
+    expect(parseUwCommand(`${kind} --request-file /tmp/request.json --confirmed`)).toMatchObject({ kind: 'invalid' })
+    expect(parseUwCommand(`${kind} --confirmed`)).toMatchObject({ kind: 'invalid' })
+  }
+})
 
 type Command = { handler: (args: string, context: ExtensionContext) => Promise<void> }
 type Session = (event: { signal?: AbortSignal }, context: ExtensionContext) => void | Promise<void>
@@ -60,6 +78,18 @@ function lifecycleFixture() {
   const factory: UwOperationsFactory = ({ operator }) => {
     const accepted: UwOperationResult = { status: 'accepted', value: {} as never }
     return {
+      listReports: async () => {
+        throw new Error('unexpected-reports')
+      },
+      adjudicateCause: async () => {
+        throw new Error('unexpected-adjudicate')
+      },
+      createSister: async () => {
+        throw new Error('unexpected-sister')
+      },
+      promoteReport: async () => {
+        throw new Error('unexpected-promotion')
+      },
       readUw: async () => {
         throw new Error('unexpected-read')
       },
@@ -133,6 +163,21 @@ function lifecycleFixture() {
 }
 
 describe('registered /uw command root lifecycle', () => {
+  it('reports an adjudicated disposition using its authoritative scope', () => {
+    const messages: string[] = []
+    const pi = createExtensionApiStub({
+      sendMessage: (message) => messages.push(typeof message === 'string' ? message : String(message.content)),
+    })
+    const context = { localProtocolOptions: consultableProtocolOptions() } as unknown as ExtensionContext
+    reportResult(pi, context, {
+      status: 'adjudicated',
+      disposition: { scope: target, recordId: 'disposition-42', kind: 'cause-disposition' },
+    })
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toContain('uw-adjudicated: acme/widgets#42')
+    expect(messages[0]).not.toContain('no-trustworthy-uw')
+  })
+
   it.each(['evidence', 'verdicts'] as const)(
     'reports a successful empty %s result and retains the consultable array',
     async (kind) => {

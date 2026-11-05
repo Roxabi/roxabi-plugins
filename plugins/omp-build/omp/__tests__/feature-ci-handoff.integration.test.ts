@@ -133,6 +133,9 @@ function appendApprovedReview(box: Box, cwd: string): void {
   writeSim(box, (state) => {
     const pull = state.prs['7']
     if (pull === undefined) throw new Error('feature-pull-missing')
+    const issue = state.issues['42']
+    if (issue === undefined) throw new Error('feature-issue-missing')
+    issue.comments.push(...review.issueComments.map(({ body }) => ({ author: 'operator', body })))
     pull.comments.push(
       ...review.comments.map(({ body }) => ({
         author: 'operator',

@@ -2,13 +2,17 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import { parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { committedFixturePlugin } from '../testing/committed-plugin-fixture.ts'
 import { NATIVE_AUTHOR, TEST_SCOPE } from '../testing/record-builders.ts'
+import { toolingGh } from '../testing/review-gate-tooling-gh.ts'
+import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { prepareUwAction } from './uw-action-inputs.ts'
 import { observeCode } from './uw-action-observe.ts'
@@ -59,6 +63,9 @@ function fixture() {
   git('commit', '-q', '-m', 'correction')
   const h2 = git('rev-parse', 'HEAD')
   git('update-ref', 'refs/remotes/origin/main', base)
+  const tools = fileURLToPath(new URL('../../../', import.meta.url))
+  const toolsCommit = execFileSync('git', ['-C', tools, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  const plugin = committedFixturePlugin(tools, standaloneReviewInputs().manifest.plugin, toolsCommit)
 
   const raw: unknown = JSON.parse(
     readFileSync(new URL('../engine/__tests__/fixtures/native-correction-records.json', import.meta.url), 'utf8'),
@@ -68,7 +75,35 @@ function fixture() {
     const parsed = parseRecord(value)
     if (!parsed.ok) throw new Error(JSON.stringify(parsed.diagnostics))
     const record = parsed.value
-    if (record.kind === 'review-attempt') return { ...record, payload: { ...record.payload, candidateGitSHA: h1 } }
+    if (record.kind === 'review-attempt') {
+      const slots = record.payload.slots.map((slot) => {
+        if (slot.action === undefined) throw new Error('Expected captured fixture action')
+        const manifest = {
+          ...slot.action.inputs.manifest,
+          code: { ...slot.action.inputs.manifest.code, base, head: h1, referenceCommit: h1 },
+          plugin,
+        }
+        return {
+          ...slot,
+          action: {
+            ...slot.action,
+            inputs: { ...slot.action.inputs, manifest, fingerprint: actionInputDigest(manifest) },
+          },
+        }
+      })
+      const action = slots[0]?.action
+      if (action === undefined) throw new Error('Expected captured inventory action')
+      return {
+        ...record,
+        payload: {
+          ...record.payload,
+          candidateGitSHA: h1,
+          input: action.inputs.fingerprint,
+          actionInputDigest: action.inputs.fingerprint,
+          slots,
+        },
+      }
+    }
     if (record.kind === 'contribution' && record.payload.content === 'operator-request') {
       const attempt = record.payload.rawAttempts[0]
       if (attempt === undefined) throw new Error('Expected operator request')
@@ -133,6 +168,19 @@ function fixture() {
       created_at: '2026-10-21T10:00:00Z',
       updated_at: '2026-10-21T10:00:00Z',
     }))
+  const original = roxabiWorkflowFixtures().fixOnlyMandate({
+    repository: TEST_SCOPE.repository,
+    target: 'acme/widgets#7',
+  })
+  const originalParts = encodeParts(original, '', 65536)
+  if (!originalParts.ok) throw new Error(JSON.stringify(originalParts.diagnostics))
+  const originalComments = originalParts.value.map((body, index) => ({
+    id: index + 1000,
+    body,
+    user: { login: NATIVE_AUTHOR },
+    created_at: '2026-10-21T10:00:00Z',
+    updated_at: '2026-10-21T10:00:00Z',
+  }))
   const pull = { headRefOid: h1, baseRefOid: base, headRefName: 'feature', baseRefName: 'main', state: 'OPEN' }
   const source = {
     cwd,
@@ -140,6 +188,9 @@ function fixture() {
     gh: async (_cwd: string, args: string[]) => {
       if (args[0] === 'pr') return JSON.stringify(pull)
       if (args[0] === 'api' && args[1]?.includes('/issues/42/comments?')) return JSON.stringify(comments)
+      if (args[0] === 'api' && args[1]?.includes('/issues/7/comments?')) return JSON.stringify(originalComments)
+      const tooling = toolingGh(args, tools)
+      if (tooling !== undefined) return tooling
       throw new Error(`Unexpected gh call: ${args.join(' ')}`)
     },
   }
@@ -164,7 +215,7 @@ function fixture() {
   }
   const observe = (selected = request, selectedBasis = basis) =>
     withCorrectionObservation(selected, selectedBasis, () => observeCode(selected, source))
-  return { git, base, h1, h2, pull, request, basis, source, observe }
+  return { git, base, h1, h2, pull, request, basis, source, observe, tools, plugin }
 }
 
 describe('private correction code observation', () => {
@@ -175,11 +226,9 @@ describe('private correction code observation', () => {
   })
 
   it('prepares a sealed H2 snapshot from the authenticated local correction', async () => {
-    const { request, basis, source, h2 } = fixture()
+    const { request, basis, source, h2, tools, plugin } = fixture()
     const artifactsDir = mkdtempSync(path.join(tmpdir(), 'omp-correction-snapshot-'))
     roots.push(artifactsDir)
-    const baseline = standaloneReviewInputs()
-    const pluginBytes = Buffer.from('installed plugin fixture')
     const production = createProductionActionPorts({ ...source, artifactsDir })
     const ports = {
       ...production,
@@ -187,22 +236,21 @@ describe('private correction code observation', () => {
         resolveInstalledPluginPin: async () => ({
           ok: true as const,
           value: {
-            name: 'omp-build' as const,
-            version: baseline.manifest.plugin.version,
-            repository: baseline.manifest.plugin.repository,
-            commit: baseline.manifest.plugin.commit,
-            root: baseline.manifest.plugin.root,
+            name: plugin.name,
+            version: plugin.version,
+            repository: plugin.repository,
+            commit: plugin.commit,
+            root: plugin.root,
           },
         }),
-        readInstalledFile: async () => ({ ok: true as const, value: pluginBytes }),
+        readInstalledFile: async (file: string) => ({
+          ok: true as const,
+          value: execFileSync('git', ['-C', tools, 'show', `${plugin.commit}:${plugin.root}/${file}`]),
+        }),
       },
-      readPinnedFiles: async (refs: readonly unknown[]) => ({
-        ok: true as const,
-        value: refs.map(() => pluginBytes),
-      }),
     }
     const prepared = await withCorrectionObservation(request, basis, () => prepareUwAction(request, ports))
-    expect(prepared.ok).toBe(true)
+    expect(prepared.ok, JSON.stringify(prepared)).toBe(true)
     if (!prepared.ok) throw new Error(JSON.stringify(prepared.diagnostics))
     expect(prepared.value.inputs.manifest.code.head).toBe(h2)
     expect(prepared.value.inputs.manifest.code.referenceCommit).toBe(h2)

@@ -27,11 +27,14 @@ const verifyShell =
 const worktreeWrite =
   'Write only the confirmed worktree change named by the index. Residual environment, gh config, git helpers, and SSH credentials may remain on Bash; that is a procedural fallback, not isolation. Worktree separation is not a credential boundary. Do not publish, push, comment, or close.'
 
-const findings = [snapshot, verifyShell, 'Return structured findings only.'].join('\n\n')
+const targetInstructions =
+  'Every finding requires a target in format omp-build-finding-target/1. Use the indexed accepted OwnSpecRef and local criterion or invariant ID when applicable; otherwise use an outside-spec target bound to the indexed original scope. Never infer a criterion or invariant from prose or use an ancestor or foreign Spec.'
+const findings = [snapshot, verifyShell, targetInstructions, 'Return structured findings only.'].join('\n\n')
 
 const specInstructions = [
   snapshot,
   verifyShell,
+  targetInstructions,
   'Judge each accepted criterion named by the index. Return specRows as canonical CriterionVerdict rows, one per criterion, plus findings only for concrete conformity gaps.',
   'Each row uses the index OwnSpecRef on target format omp-build-finding-target/1, kind criterion, and that criterion id. verdict is satisfied, missing, or unverified. criterionKind is content or behavior. bugRegression is boolean. restoration is demonstrated, not-demonstrated, or not-applicable. examined cites dossier evidence by receipt, evidenceId, and digest. Each judgment has truth, applicability, reason, and codeLink. Test codeLink is method test: judge after alone, and judge before alone when a before run is recorded. Observation codeLink is method observation and current. support is supported, unsupported, or unknown. Do not omit codeLink and do not default it to supported.',
   'A supported version link names the implementation or build this scenario actually exercised. Inspect the exact original command, the runner, scripts, imports, build selection, and the pinned or captured facts the index supplies. Account for a visible temporary edit and restore, an internal directory change, another checkout, ignored or generated output, and a remote build identity when the command can reach one. Equal endpoint samples are context only. Candidate equality, ancestry, a model or command-printed SHA, and exit 0 are not support by themselves.',
@@ -42,9 +45,15 @@ const specInstructions = [
   'Done when every accepted criterion has one specRows verdict and no finding stands in for a missing row.',
 ].join('\n\n')
 
+const causeInstructions = [
+  'Return format omp-build-cause-decision/1. Preserve every original exactly once in final findings; merge only findings with identical targets. Assign every usable final finding to exactly one cause and every unusable final finding to exactly one unassignedFindings entry with its reason and diagnostics. Preserve an unparseable target as null, not an invented target.',
+  'For each cause provide necessary, urgent, and tooLarge judgments. Each supported judgment has a nonblank reason and distinct authenticated observation references specific to that cause and dimension. Mark absent or disputed evidence missing or contested. Propose fix-original for necessary and urgent work that fits; sister-blocking for blocking work that is too large; sister-after for nonblocking necessary and urgent work that is too large; otherwise report. A blocking finding is necessary and urgent but unsupported, contested, or contradictory evidence requires proposedDisposition null and adjudication, not a blind fix.',
+  'Provide exclusionClaims with sourceFindingId, target, exclusion, concern, and reason. Only explicitly excluded outside-Spec additional work is excluded; an accepted criterion, introduced regression, security defect, or invariant violation remains actionable. Separate excluded additional work from actionable work into distinct causes.',
+].join('\n\n')
 const synthesisInstructions = [
   snapshot,
   dossierOnly,
+  causeInstructions,
   'Synthesize only confirmed contribution and recall records named by the index. Return the structured review decision. Do not invent a satisfied row from code or from memory.',
   'criterionVerdicts are refs {contributionId, target} to authenticated R-review-spec rows in this same review. Do not supply or upgrade a codeLink; only that row judges executed version. exclusionClaims cite sourceFindingId, target, exclusion {spec, index}, concern, and reason. Only additional-work against an outside-spec element is an exclusion. An accepted criterion, introduced regression, security defect, or invariant violation is not an exclusion.',
   'A missing, unverified, or proofless criterion stays a blocker independent of finding labels. Do not relabel it clear. Keep retained originals. Judge defect identity, impact, final labels, and causes from the dossier. Do not add policy.',
@@ -54,8 +63,9 @@ const synthesisInstructions = [
 const correctionSynthesis = [
   snapshot,
   dossierOnly,
-  'Synthesize only confirmed correction-intake records named by the index. Return the structured correction decision. This decision does not carry criterion verdicts or exclusion claims; do not invent them.',
-  'Done when the decision covers the confirmed intake records and adds no policy.',
+  'Synthesize only confirmed correction-intake records named by the index. Return the structured correction decision; correction decisions do not carry criterion verdicts.',
+  causeInstructions,
+  'Done when all original findings and rule errors are retained, each finding has its exact target and partition, and each cause has cited judgments and a disposition proposal.',
 ].join('\n\n')
 
 const applyInstructions = [
@@ -194,6 +204,7 @@ export const nativeReviewProfiles: readonly NativeReviewProfile[] = [
     output: 'findings',
     body: [
       snapshot,
+      targetInstructions,
       'Read only the index and the supplied canonical class, chunk reports, and callsites it names. Verify cross-chunk recurrence and return structured findings only.',
       'Do not write, run a command, fetch live records, or publish. Do not substitute a new classification policy.',
       'Done when the findings account for cross-chunk recurrence in the supplied reports, or state that none is evidenced.',

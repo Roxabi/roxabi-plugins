@@ -15,7 +15,7 @@ function issueOf(scope: Scope): IssueRef {
   return { repository: scope.repository, number }
 }
 
-export function rootObservation(uw: Scope, read: UwRead): IssueWriteObservation {
+export function rootObservation(uw: Scope, read: Pick<UwRead, 'graph'>): IssueWriteObservation {
   if (read.graph.status !== 'complete') throw new Error(`UW native graph is incomplete: ${uw.target}`)
   const root = read.graph.nodes.find((node) => sameScope(node.uw, uw))
   if (root === undefined) throw new Error(`UW graph root is missing: ${uw.target}`)

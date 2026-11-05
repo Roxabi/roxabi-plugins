@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 
+import { finding } from '../../testing/record-builders.ts'
 import { decision } from '../../testing/record-decisions.ts'
 
 const ompBuildRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -15,6 +16,7 @@ describe('producer JSON schema SDK compatibility', () => {
           label: 'issue(blocking)' as const,
           impactReason: 'Captured source lacks required fields.',
           state: 'unusable' as const,
+          target: null,
           sourceFindingIds: ['source:f0'],
         },
       ],
@@ -26,6 +28,7 @@ describe('producer JSON schema SDK compatibility', () => {
           label: 'suggestion' as const,
           impactReason: 'The two reports describe one correction.',
           state: 'usable' as const,
+          target: finding().target,
           sourceFindingIds: ['source:f0', 'source:f1'],
           description: 'Keep both reports visible.',
           mergeReason: 'Both reports name the same correction.',

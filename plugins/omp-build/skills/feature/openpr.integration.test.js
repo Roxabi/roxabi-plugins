@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../dist/contracts.js'
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { AUTHOR, HEADS, historyPage, PR, REPOSITORY, reviewHistory } from './review-record-fixture.js'
 import { readReviewRecords, reviewRecords } from './workflow-records.js'
 
 describe('canonical review records', () => {
   it('derives the approval from the confirmed decision, not a rendered verdict', () => {
-    const summary = reviewRecords(reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)' }]))
+    const summary = reviewRecords(reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)' }]), {
+      catalogues: fixtureHostReviewClassCatalogues(),
+    })
     expect(summary.ok).toBe(true)
     if (!summary.ok) throw new Error('canonical review history refused')
     expect(summary.value.verdict).toBe('Approve')
@@ -15,20 +19,21 @@ describe('canonical review records', () => {
     expect(summary.value.reviewId).toBeTruthy()
   })
 
-  it('reads every record through the shared GitHub adapter', async () => {
+  it('derives approval and head from the fetched review history', async () => {
     const history = reviewHistory([{ head: HEADS[0], verdict: 'Approve' }])
-    const calls = []
     const result = await readReviewRecords('/tmp/wt', PR, {
       gh: async (_cwd, args) => {
-        calls.push(args)
         if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: REPOSITORY })
         if (args[0] === 'api' && args[1] === 'user') return `${AUTHOR}\n`
-        if (args[0] === 'api') return historyPage(history)
+        const catalogue = fixtureCatalogueGhResponse(args)
+        if (catalogue !== null) return catalogue
+        if (args[0] === 'api' && String(args[1]).startsWith(`repos/${REPOSITORY}/issues/${PR}/comments?`))
+          return historyPage(history)
         throw new Error(`unexpected ${args.join(' ')}`)
       },
     })
+    if (!result.ok) throw new Error(`review records refused: ${JSON.stringify(result.diagnostics)}`)
     expect(result).toMatchObject({ ok: true, value: { verdict: 'Approve', head: HEADS[0] } })
-    expect(calls.some((args) => String(args[1]).includes('/comments?per_page=100&page=1'))).toBe(true)
   })
 
   it('refuses legacy review markdown instead of treating it as an empty history', () => {
@@ -41,7 +46,9 @@ describe('canonical review records', () => {
       updatedAt: null,
       body: '<!-- omp-build:code-review -->\n**Verdict: Approve**',
     })
-    expect(reviewRecords(decodeHistory(history.source))).toMatchObject({
+    expect(
+      reviewRecords(decodeHistory(history.source), { catalogues: fixtureHostReviewClassCatalogues() }),
+    ).toMatchObject({
       ok: false,
       diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'legacy-format' })]),
     })

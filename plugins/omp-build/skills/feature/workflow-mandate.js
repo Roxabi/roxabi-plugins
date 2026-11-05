@@ -55,7 +55,7 @@ async function trustedLandingWorkflowConfig(gitCwd, gitFn, baseTip, productVersi
   }
 }
 
-async function currentSpecProjection(facts) {
+async function currentSpecProjection(facts, catalogues) {
   const currentFacts = await import('../../roxabi/uw-current-facts.ts')
   const readerFactory = await import('../../roxabi/uw-read-port.ts')
   if (
@@ -84,6 +84,7 @@ async function currentSpecProjection(facts) {
   const reader = readerFactory.createInstalledObservedUwReadPort({
     graph: facts.uwGraph,
     histories: facts.histories,
+    catalogues,
   })
   const read = await reader.readUw(facts.uwGraph.root)
   return {
@@ -177,18 +178,23 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
   ensureNativeLandingCoordinates(native)
   const contracts = await bundledLandingMandate()
   const pullRequest = await repositoryScope(cwd, pr, ghFn)
+  const { loadReviewClassCatalogues } = await import('../../roxabi/review-class-catalogues.ts')
   const facts = await contracts.readLandingFacts(
     pullRequest,
     withRoxabiGitHubPolicy({ cwd, gh: ghFn, automationLogin: native.automationLogin }),
+    (histories) => loadReviewClassCatalogues({ histories, cwd, gh: ghFn }),
   )
   const refusal = landingFactsRefusal(facts)
   if (refusal) return refusal
   ensureLandingFactsForNative(facts, pullRequest, native)
   const productVersion = currentProductVersion(contracts)
   const config = await trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion)
-  const current = await currentSpecProjection(facts)
+  const catalogues = facts.catalogues
+  const current = await currentSpecProjection(facts, catalogues)
   const decision = contracts.requireLandingMandate({
     histories: facts.histories,
+    authorityHistories: facts.authorityHistories,
+    catalogues,
     native: {
       branch: facts.native.branch,
       base: native.base,

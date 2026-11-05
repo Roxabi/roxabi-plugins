@@ -5,6 +5,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Diagnostic, Scope } from '../engine/record-values.ts'
 import { authorizeStartPublication, recheckStartPublication } from './feature-start-publication.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -89,9 +90,8 @@ export async function publishRecord(
   if (!authorized.ok) return authorized
   const published = await contracts.publishConfirmedWorkflowRecord(
     built.value,
-    history,
     { cwd, gh, ...(canPublish === undefined ? {} : { canPublish }) },
-    null,
+    createPublicationContextResolver({ cwd, gh }, null),
     externalHistories,
   )
   if (published.status !== 'confirmed') {

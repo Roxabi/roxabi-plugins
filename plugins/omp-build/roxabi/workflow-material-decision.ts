@@ -10,7 +10,11 @@ export async function acceptOwnMaterialDecision(
   authority: FeatureAuthority,
   onAccepted: MaterialContinuation,
 ): Promise<ContinueFeatureResult> {
-  const own = authority.context.engine.resolveOwnSpecAuthority(authority.history, authority.parentHistories)
+  const own = authority.context.engine.resolveOwnSpecAuthority(
+    authority.history,
+    authority.parentHistories,
+    authority.causal,
+  )
   if (!own.ok)
     return { kind: 'blocked', reason: 'material-decision-authority-unconfirmed', diagnostics: own.diagnostics }
   return acceptMaterialDecision(input, authority.scope, onAccepted)

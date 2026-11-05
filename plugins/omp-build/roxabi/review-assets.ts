@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseReviewClassCatalogue } from '../dist/contracts.js'
 
 import type { ReviewSemanticAssets } from './review-prompts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
@@ -30,7 +31,10 @@ const reviewSkillDir = installedReviewSkillDir()
 /** Reads the class catalogue only, without requiring unrelated prompt assets. */
 export function loadReviewClassCatalogue(skillDir = reviewSkillDir): ReviewClassCatalogue {
   const classes = readFileSync(join(skillDir, 'review-classes.yml'), 'utf8')
-  const canonicalClasses = [...classes.matchAll(/^\s*- class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
+  const parsed = parseReviewClassCatalogue(classes)
+  if (!parsed.ok)
+    throw new Error(`review class catalogue invalid: ${parsed.diagnostics.map((item) => item.message).join(', ')}`)
+  const canonicalClasses = parsed.value
   return {
     config: {
       canonicalClasses,

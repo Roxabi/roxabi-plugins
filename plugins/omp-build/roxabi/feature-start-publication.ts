@@ -7,8 +7,9 @@ import {
   recheckExpandedStart,
   validateExpandedStartLive,
 } from './feature-start-expansion.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 
-type StartRecord = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 type Checked = { ok: true } | { ok: false; reason: string }
 
 export async function authorizeStartPublication(
@@ -20,12 +21,15 @@ export async function authorizeStartPublication(
 ): Promise<Checked> {
   if (record.kind !== 'action-receipt' || record.payload.phase !== 'start' || !hasExpandedStart(record.payload))
     return { ok: true }
+  const options = withRoxabiGitHubPolicy({ cwd, gh })
   const fresh = await contracts.readComposedWorkflowHistory(
     histories.map((item) => item.source.scope),
-    { cwd, gh },
+    options,
   )
   if (!fresh.ok) return { ok: false, reason: fresh.reason }
-  const authorized = authorizeExpandedStart(record.payload, fresh.histories)
+  const causal = await readFixUwCausalContext(fresh.histories, [], options)
+  if (!causal.ok) return { ok: false, reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  const authorized = authorizeExpandedStart(record.payload, fresh.histories, causal.value)
   if (!authorized.ok) return authorized
   return validateExpandedStartLive(record.payload, fresh.histories, { cwd, gh })
 }
@@ -40,9 +44,12 @@ export async function recheckStartPublication(
   if (record.kind !== 'action-receipt' || record.payload.phase !== 'start' || !hasExpandedStart(record.payload))
     return { ok: true }
   const scopes = histories.map((item) => item.source.scope)
-  const fresh = await contracts.readComposedWorkflowHistory(scopes, { cwd, gh })
+  const options = withRoxabiGitHubPolicy({ cwd, gh })
+  const fresh = await contracts.readComposedWorkflowHistory(scopes, options)
   if (!fresh.ok) return { ok: false, reason: fresh.reason }
-  const authorized = recheckExpandedStart(record as StartRecord, fresh.histories)
+  const causal = await readFixUwCausalContext(fresh.histories, [], options)
+  if (!causal.ok) return { ok: false, reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  const authorized = recheckExpandedStart(record, fresh.histories, causal.value)
   if (!authorized.ok) return authorized
   const beforeStart = fresh.histories.map((item) => ({
     ...item,

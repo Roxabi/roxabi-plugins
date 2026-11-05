@@ -10,6 +10,7 @@ import {
   toDiagnostics,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from './github-policy'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 import type { ReviewIssueSpec } from './uw-spec'
@@ -115,7 +116,9 @@ export async function resolveReviewSemanticContext(
       ? { cwd: input.cwd, gh: input.gh }
       : { cwd: input.cwd, automationLogin: input.automationLogin, gh: input.gh },
   )
-  const landing = await readLandingFacts(pullRequest, github)
+  const landing = await readLandingFacts(pullRequest, github, (histories) =>
+    loadReviewClassCatalogues({ histories, cwd: input.cwd, gh: input.gh }),
+  )
   if (!landing.ok) {
     return landing.reason === 'absent'
       ? resolveStandaloneContext(input)
@@ -148,7 +151,11 @@ async function resolveBoundSemanticContext(
     }
   const node = graph.nodes.find((entry) => entry.uw.repository === scope.repository && entry.uw.target === scope.target)
   if (node === undefined) return failed('graph-root-missing', 'Bound UW is absent from its native graph')
-  const reader = createInstalledObservedUwReadPort({ graph, histories: observation.histories })
+  const reader = createInstalledObservedUwReadPort({
+    graph,
+    histories: observation.histories,
+    catalogues: observation.catalogues,
+  })
   const read = await reader.readUw(scope)
   if (!read.admission.deliverable.ok)
     return { ok: false, diagnostics: toDiagnostics(read.admission.deliverable.diagnostics) }
@@ -156,9 +163,10 @@ async function resolveBoundSemanticContext(
   if (!facts.ok) return { ok: false, diagnostics: toDiagnostics(facts.diagnostics) }
   const resolved = resolveBoundWork({
     use: 'review',
+    histories: observation.authorityHistories,
+    causal: { histories: observation.histories, catalogues: observation.catalogues },
     explicitSelection: true,
     pullRequest,
-    histories: observation.histories,
     native: { branch: input.branch, base: input.base },
     currentSpec: facts.value.currentSpec,
   })

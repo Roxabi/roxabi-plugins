@@ -12,6 +12,7 @@ import {
   prepareSpecAllocation,
   publishConfirmedWorkflowRecord,
   readComposedWorkflowHistory,
+  readUwGraph,
   renderIssueSpecBody,
   viewer,
 } from '../dist/contracts.js'
@@ -22,13 +23,20 @@ import type { SpecIdentityDraft } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import { createCauseAdjudication } from './uw-cause-adjudication.ts'
+import { createCauseCreation } from './uw-cause-creation.ts'
+import { guardedCauseWriter } from './uw-cause-guard.ts'
 import type { OperatorPort, PreparedUwProposal, UwOperations, UwReadPort } from './uw-contract.ts'
 import { createProductionActionPorts, createProductionDeliveryPorts } from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
+import { diagnostic, diagnostics, listInstalledReports, postEffectDiagnostics } from './uw-installed-reports.ts'
 import { createUwOperations } from './uw-operations.ts'
-import { createInstalledUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
+import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
+import { guardParentInsertions, parentInsertionGuard } from './uw-parent-insertion.ts'
+import { createInstalledUwReadPort, readCreatedUw } from './uw-read-port.ts'
 
 export type InstalledUwOperationsOptions = {
   cwd: string
@@ -38,30 +46,6 @@ export type InstalledUwOperationsOptions = {
   readAuthor?: string
   pluginPin?: TrustedHostPluginPin
   artifactsDir?: string | null
-}
-
-function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function diagnostics(uw: Scope, values: readonly { code?: unknown; message?: unknown }[]): readonly UwDiagnostic[] {
-  return values.map((value) =>
-    diagnostic(
-      uw,
-      typeof value.code === 'string' ? value.code : 'uw-publication-unconfirmed',
-      typeof value.message === 'string' ? value.message : 'UW publication was not confirmed',
-    ),
-  )
-}
-function postEffectDiagnostics(uw: Scope, error: unknown): readonly UwDiagnostic[] {
-  if (error instanceof UwGraphUnavailableError) return error.diagnostics
-  return [
-    diagnostic(
-      uw,
-      'post-effect-read-failed',
-      error instanceof Error ? error.message : 'UW read failed after durable effects',
-    ),
-  ]
 }
 
 function scopeOf(issue: IssueRef): Scope {
@@ -116,7 +100,11 @@ async function publishIdentityDraft(
       status: 'refused',
       diagnostics: [diagnostic(uw, 'history-missing', 'Own UW history is absent before identity publication')],
     }
-  const published = await publishConfirmedWorkflowRecord(record.value, own, github, null)
+  const published = await publishConfirmedWorkflowRecord(
+    record.value,
+    github,
+    createPublicationContextResolver(github, null),
+  )
   if (published.status !== 'confirmed')
     return { status: published.status, diagnostics: diagnostics(uw, published.diagnostics) }
   return {
@@ -213,16 +201,22 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     writerLogin: authenticatedAuthor,
   })
   const reader = createInstalledUwReadPort({ cwd: input.cwd, gh, readAuthor: authenticatedAuthor })
+  const createdReader: UwReadPort = {
+    readUw: (uw) => readCreatedUw(uw, { cwd: input.cwd, gh, readAuthor: authenticatedAuthor }),
+  }
   const completeReader = async (issue: IssueRef): Promise<IssueWriteObservation> => {
     const uw = scopeOf(issue)
-    return rootObservation(uw, await reader.readUw(uw))
+    return rootObservation(uw, { graph: await readUwGraph(uw, github) })
   }
-  const writer = createIssueWriter(
+  const guardParent = parentInsertionGuard(createParentEngagementReadPort(github))
+  const issuePorts = guardParentInsertions(
     createGhIssueWritePorts({
       gh: (args) => gh(input.cwd, [...args]),
       read: completeReader,
     }),
+    guardParent,
   )
+  const writer = createIssueWriter(issuePorts)
   const publishIdentity = async ({
     uw,
     proposal,
@@ -236,7 +230,13 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     if (allocated.status !== 'confirmed') return allocated
     const retired = await publishIdentityRetirement(uw, proposal, confirmation, github, allocated)
     if (retired.status !== 'confirmed') return retired
-    return retired.knownEffect ? confirmIdentityReadback(uw, retired.predecessor, reader) : { status: 'confirmed' }
+    return retired.knownEffect
+      ? confirmIdentityReadback(
+          uw,
+          retired.predecessor,
+          proposal.proposal.operation === 'create' ? createdReader : reader,
+        )
+      : { status: 'confirmed' }
   }
   const actionOptions = {
     cwd: input.cwd,
@@ -248,7 +248,25 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     read: reader.readUw,
+    readCreated: createdReader.readUw,
+    listReports: (uw) => listInstalledReports(uw, github),
+    guardParent,
     writer,
+    guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+    causeOperations(backend) {
+      return {
+        adjudicateCause: createCauseAdjudication({ reader, github, operator: input.operator }),
+        ...createCauseCreation({
+          reader,
+          nativeReader: createdReader,
+          github,
+          operator: input.operator,
+          prepare: backend.prepare,
+          commit: backend.commit,
+          guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+        }),
+      }
+    },
     operator: input.operator,
     prepareSpecAllocation,
     renderIssueSpecBody,

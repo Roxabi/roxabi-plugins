@@ -5,21 +5,24 @@ import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type Result, type ReviewFacts, type ReviewState, type ReviewSummary, recordMap } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { validateDecision } from './review-decision.ts'
+import { validateHistoricalReviewDecision } from './review-fresh-decision.ts'
 import { spentBeforeCurrentPullRequestAttempt, spentInCompleteHistory } from './review-history.ts'
 import { analyzeReviewIdentity, reviewOperations } from './review-identity.ts'
 import { readReviewRecovery } from './review-recovery.ts'
+import { spentReviewFor } from './review-spend.ts'
 import { nextReviewState, requiredReviewStop } from './review-state-transition.ts'
 
 export function summarizeReviews(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
 ): Result<ReviewSummary> {
   return summarizeAuthorityReviews(
     classifyHistory(history).authorityHistory,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     externalHistories,
     history,
@@ -47,7 +50,7 @@ function latestReviewSummary(
   at: ReviewSummary['at'],
   records: ReadonlyMap<string, CanonicalRecord>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   knownReviews: number,
   spent: boolean,
@@ -67,14 +70,17 @@ function latestReviewSummary(
       true,
       spent,
     )
-  const assessment = validateDecision(
+  const assessed = validateHistoricalReviewDecision(
     decision,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     externalHistories,
     deliveryHistory,
+    latest.payload.causeDispositionRefs,
   )
+  if (!assessed.ok) return summaryFailure(assessed.diagnostics, knownReviews, true, spent)
+  const assessment = assessed.value
   if (assessment.verdict === null) return summaryFailure(assessment.diagnostics, knownReviews, true, spent)
   return {
     ok: true,
@@ -94,7 +100,7 @@ function validateAuthorityReviewSpend(
   reviews: DecodedHistory['operations'],
   records: ReadonlyMap<string, CanonicalRecord>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   initialSpent: boolean,
   externalHistories: readonly DecodedHistory[],
@@ -110,14 +116,30 @@ function validateAuthorityReviewSpend(
         diagnostics: [diagnostic('unknown-reference', `Review ${record.recordId} lacks its decision`)],
         spent,
       }
-    const assessment = validateDecision(
-      decision,
-      history,
-      taxonomy,
-      acceptedPolicyRef,
-      externalHistories,
-      deliveryHistory,
-    )
+    const assessed =
+      record.payload.causeDispositionRefs === undefined
+        ? {
+            ok: true as const,
+            value: validateDecision(
+              decision,
+              history,
+              catalogues,
+              acceptedPolicyRef,
+              externalHistories,
+              deliveryHistory,
+            ),
+          }
+        : validateHistoricalReviewDecision(
+            decision,
+            history,
+            catalogues,
+            acceptedPolicyRef,
+            externalHistories,
+            deliveryHistory,
+            record.payload.causeDispositionRefs,
+          )
+    if (!assessed.ok) return { diagnostics: assessed.diagnostics, spent }
+    const assessment = assessed.value
     if (!assessment.admissible) return { diagnostics: assessment.diagnostics, spent }
     if (index >= 2 && assessment.verdict === 'Request changes') spent = true
   }
@@ -126,7 +148,7 @@ function validateAuthorityReviewSpend(
 
 function summarizeAuthorityReviews(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[],
   deliveryHistory: DecodedHistory,
@@ -135,8 +157,8 @@ function summarizeAuthorityReviews(
   const reviews = identity.reviews
   const knownReviews = identity.knownReviews
   const preservedSpent =
-    spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory) ??
-    spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
+    spentInCompleteHistory(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) ??
+    spentBeforeCurrentPullRequestAttempt(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
   const uncertainSpent: boolean | null = preservedSpent === true ? true : reviews.length >= 3 ? null : false
   const transportDiagnostics = reviewTransportDiagnostics(identity.transportDiagnostics, identity.incompleteFinal)
   if (transportDiagnostics !== null)
@@ -157,7 +179,7 @@ function summarizeAuthorityReviews(
     reviews,
     records,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     preservedSpent === true,
     externalHistories,
@@ -186,7 +208,7 @@ function summarizeAuthorityReviews(
     at,
     records,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     knownReviews,
     reviewSpend.spent,
@@ -195,33 +217,6 @@ function summarizeAuthorityReviews(
   )
 }
 
-function spentReviewFor(
-  reviews: readonly Extract<CanonicalRecord, { kind: 'review' }>[],
-  records: ReadonlyMap<string, CanonicalRecord>,
-  history: DecodedHistory,
-  taxonomy: readonly string[],
-  acceptedPolicyRef: string | null,
-  externalHistories: readonly DecodedHistory[],
-  deliveryHistory: DecodedHistory,
-): Result<Extract<CanonicalRecord, { kind: 'review' }> | null> {
-  let spentReview: Extract<CanonicalRecord, { kind: 'review' }> | null = null
-  for (const [index, review] of reviews.entries()) {
-    const decision = records.get(review.payload.decisionId)
-    if (decision?.kind !== 'decision')
-      return fail([diagnostic('unknown-reference', `Review ${review.recordId} lacks its decision`)])
-    const assessment = validateDecision(
-      decision,
-      history,
-      taxonomy,
-      acceptedPolicyRef,
-      externalHistories,
-      deliveryHistory,
-    )
-    if (!assessment.admissible) return fail(assessment.diagnostics)
-    if (index >= 2 && assessment.verdict === 'Request changes' && spentReview === null) spentReview = review
-  }
-  return { ok: true, value: spentReview }
-}
 function reviewStateFailure(
   diagnostics: Diagnostic[],
   knownReviews: number,
@@ -234,7 +229,7 @@ function reviewStateFailure(
 export function deriveReviewState(
   history: DecodedHistory,
   facts: ReviewFacts,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   externalHistories: readonly DecodedHistory[] = [],
 ): ReviewState {
   if (!equalScope(history.source.scope, facts))
@@ -242,7 +237,7 @@ export function deriveReviewState(
   const authorityHistory = classifyHistory(history).authorityHistory
   const summary = summarizeAuthorityReviews(
     authorityHistory,
-    taxonomy,
+    catalogues,
     facts.acceptedEvidencePolicyRef,
     externalHistories,
     history,
@@ -267,7 +262,7 @@ export function deriveReviewState(
     orderedReviews,
     records,
     authorityHistory,
-    taxonomy,
+    catalogues,
     facts.acceptedEvidencePolicyRef,
     externalHistories,
     history,

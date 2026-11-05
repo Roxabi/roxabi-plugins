@@ -5,6 +5,7 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import { selectApplicableMandate } from '../../engine/workflow-mandate-admission.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../../omp/review-runtime/contracts.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { selectionNormalization } from '../feature-continuation-selection.ts'
 import type { FeatureCommandHost } from '../feature-contract.ts'
 import type { UwOperations, UwProposalInput, UwRead } from '../uw-contract.ts'
@@ -33,7 +34,10 @@ async function normalizeExplicitSuccessor(
     'new',
     {
       scope: uw,
-      selection: selectApplicableMandate(subject.history),
+      selection: selectApplicableMandate(subject.history, [], {
+        histories: [subject.history],
+        catalogues: fixtureReviewClassCatalogues(),
+      }),
     },
     before,
   )
@@ -142,7 +146,10 @@ describe('normalization after an authenticated abandoned mandate', () => {
       'new',
       {
         scope: uw,
-        selection: selectApplicableMandate(subject.history),
+        selection: selectApplicableMandate(subject.history, [], {
+          histories: [subject.history],
+          catalogues: fixtureReviewClassCatalogues(),
+        }),
       },
       read,
     )

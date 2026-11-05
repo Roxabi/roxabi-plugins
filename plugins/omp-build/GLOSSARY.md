@@ -153,8 +153,8 @@ The GitHub support for a proposed Spec, native graph facts, records, and the dis
 _Avoid_: the UW itself, proof of delivery from native closure
 
 **Report**:
-A formalized, untreated cause retained on its UW of origin.
-_Avoid_: an automatically created follow-up issue, a satisfied criterion
+An immutable record retaining an untreated cause, or a finding or rule error resolved by an explicit adjudication without fabricating a root cause, on its UW of origin with its reason and code version. Reports can be read for that UW and its descendants; promotion to a UW requires an authenticated operator decision and fresh creation admission. Historical report retention is not criterion satisfaction or current delivery authority.
+_Avoid_: an automatically created follow-up issue, global search without an index, a satisfied criterion
 
 **Orchestrateur**:
 The code that assembles action inputs, dispatches agents, submits their returned forms to the engine for verification, and publishes confirmed results.
@@ -225,9 +225,19 @@ _Avoid_: Instantané, fork, submodule, live share
 A native GitHub relation between UWs: sub-issue (parent/child) or dependency (blocked-by/blocks), written through issue-triage.
 _Avoid_: ticket link, a `Blocked by:` text line, `.scratch/` local edges, raw `gh issue create` for a relation
 
-**Sibling rule**:
-A deferred follow-up is a sibling of its origin under their shared parent, blocked-by the origin — never its child.
-_Avoid_: child-of-origin, nested deferral cascade
+**Cause disposition**:
+The evidence-backed decision for one cause. A blocking cause is necessary and urgent by definition; uncertainty keeps it blocking rather than authorizing an automatic correction or report.
+
+| Established cause | Disposition |
+|---|---|
+| Blocking, missing or contested evidence | Pending motivated operator adjudication; not a final disposition |
+| Necessary and urgent, fits the original UW | Fix in the original UW |
+| Blocking, too large | Confirmed sister UW; original waits for sister |
+| Nonblocking, necessary and urgent, too large | Confirmed sister UW after original |
+| All other established causes, including unsupported nonblocking work | Report on original UW, no issue |
+
+An exclusion protects only explicitly excluded additional work, never an introduced regression, security defect or invariant violation. A sister shares the original's parent and is only created after confirmation of its exact framed proposal; an active or indeterminate parent holds the addition until its acceptance is available.
+_Avoid_: an automatic nonblocking bundle, a blanket sibling rule, treating a pending blocker as a final report, clearing a missing criterion by rejecting a finding
 
 **Tier**:
 `S` | `F-lite` | `F-full`, read from the UW's native GitHub `size:` label. Determines the review's spec-evidence requirements, not its agent roster.
@@ -282,11 +292,11 @@ The native review product on OMP: spec, panel, recall, synthesis, and confirmed 
 _Avoid_: a Markdown review protocol, R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
-The native correction that applies each admitted cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Baseline defers non-blocking causes; a blocker it cannot apply is filed and still blocks. A correction never lands.
-_Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, applying a non-blocking baseline cause, picking a fix from a finding's solutions
+The native correction that applies each established `fix-original` cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Every cause receives its evidence-backed disposition; pending blocking causes remain blocking, sisters require exact operator confirmation and reports stay on their original UW. A failed correction retains its decision and execution evidence; it is not silently reported or filed. A correction never lands.
+_Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, automatic issue filing, picking a fix from a finding's solutions
 
 **Root cause**:
-The shared mechanism behind one or more review findings, stated with its one plan: mechanism, fix, failure scenario, restored behaviour, affected paths, proof, findings. Named after the review, before any edit. The unit `fix` applies when a member blocks; otherwise the unit it defers.
+The shared mechanism behind one or more review findings, stated with its one plan: mechanism, fix, failure scenario, restored behaviour, affected paths, proof and findings. Named after the review, before any edit. Its cited necessity, urgency and size determine the cause disposition; a finding label alone does not authorize execution.
 _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 
 **Review record**:

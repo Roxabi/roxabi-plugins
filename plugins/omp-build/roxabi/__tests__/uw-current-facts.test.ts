@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import {
   type ParsedIssueSpec,
   parseIssueSpecBody,
@@ -12,6 +13,8 @@ import { type UwGraphObservation, type UwNativeNode, WAYFINDER_LABELS } from '..
 import type { SpecIdentityLedger } from '../../engine/uw-identity.ts'
 import { canonicalSpec, type SpecItemId, type SpecSnapshot, type UwTier } from '../../engine/uw-spec.ts'
 import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-schema.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import type { UwRead, UwReadPort } from '../uw-contract.ts'
 import { readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
 
@@ -121,8 +124,21 @@ function read(input: {
   const identities = input.identity?.ok ? input.identity.value : ledger(input.scope, input.fact.snapshot)
   const proposed = { ok: true as const, snapshot: input.fact.snapshot }
   const acceptedState = input.accepted ?? { status: 'absent' as const }
+  const histories = [
+    decodeHistory({
+      scope: input.scope,
+      expectedAuthor: 'operator',
+      stopAuthor: 'operator',
+      complete: true,
+      comments: [],
+      diagnostics: [],
+    }),
+  ]
   return {
     uw: input.scope,
+    histories,
+    catalogues: fixtureHostReviewClassCatalogues(),
+    causalObservation: { status: 'unavailable' },
     parsed: input.fact.parsed,
     identity: input.identity ?? { ok: true, value: identities },
     proposed,
@@ -133,6 +149,8 @@ function read(input: {
       proposed,
       accepted: acceptedState,
       identities,
+      histories,
+      catalogues: fixtureReviewClassCatalogues(),
       phase: 'initial-selection',
     }),
     graph: input.graph,

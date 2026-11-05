@@ -1,8 +1,9 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
-import type { RecordProjectionConfig } from '../../engine/result.ts'
+import type { ReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
 import { historyFor } from '../../engine/workflow-control.ts'
+import type { PublicationContextResolver } from '../github/publication-context.ts'
 import { publishGitHubRecord } from '../github/publish.ts'
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph.ts'
@@ -12,7 +13,9 @@ import {
   resolveInitialWorkflowBinding,
   uniqueHistories,
 } from './binding-resolution.ts'
-import { readComposedWorkflowHistory, validateComposedWorkflowHistories } from './history.ts'
+import { readCauseHistoryClosure } from './cause-history-closure.ts'
+import { observeCauseSisters } from './cause-sister-graph.ts'
+import { readComposedWorkflowHistory } from './history.ts'
 import type { LandingFactsRead, WorkflowBindingRead, WorkflowPublication } from './types.ts'
 
 /**
@@ -123,25 +126,33 @@ async function completeLandingHistories(
   bound: Extract<WorkflowBindingRead, { ok: true }>['value'],
   options: GitHubOptions,
 ): Promise<{ ok: true; histories: DecodedHistory[] } | Extract<LandingFactsRead, { ok: false }>> {
-  if (bound.uwGraph.status !== 'complete') return { ok: true, histories: bound.histories }
-  const graphScopes = graphHistoryScopes(bound.uwGraph)
-  if (!graphScopes.ok) return landingRefusal('conflicting', graphScopes.diagnostics)
-  const known = new Set(bound.histories.map((history) => scopeKey(history.source.scope)))
-  const scopes = graphScopes.scopes.filter((scope) => !known.has(scopeKey(scope)))
-  if (scopes.length === 0) return { ok: true, histories: bound.histories }
-  const composed = await readComposedWorkflowHistory(scopes, options)
-  if (!composed.ok) return landingRefusal(composed.reason, composed.diagnostics)
-  const merged = mergeObservedHistories(bound.histories, composed.histories)
-  if (!merged.ok) return landingRefusal('conflicting', merged.diagnostics)
-  const validated = validateComposedWorkflowHistories(merged.histories)
-  return validated.ok ? merged : landingRefusal(validated.reason, validated.diagnostics)
+  let histories = bound.histories
+  if (bound.uwGraph.status === 'complete') {
+    const graphScopes = graphHistoryScopes(bound.uwGraph)
+    if (!graphScopes.ok) return landingRefusal('conflicting', graphScopes.diagnostics)
+    const known = new Set(histories.map((history) => scopeKey(history.source.scope)))
+    const scopes = graphScopes.scopes.filter((scope) => !known.has(scopeKey(scope)))
+    if (scopes.length > 0) {
+      const composed = await readComposedWorkflowHistory(scopes, options)
+      if (!composed.ok) return landingRefusal(composed.reason, composed.diagnostics)
+      const merged = mergeObservedHistories(histories, composed.histories)
+      if (!merged.ok) return landingRefusal('conflicting', merged.diagnostics)
+      histories = merged.histories
+    }
+  }
+  const closure = await readCauseHistoryClosure(histories, (scopes) => readComposedWorkflowHistory(scopes, options))
+  return closure.ok ? { ok: true, histories: closure.histories } : landingRefusal(closure.reason, closure.diagnostics)
 }
 
 /**
  * Cold landing read. Admission is the confirmed workflow-binding, then its
  * mandate and explicit parent refs. Native closing links are not authority.
  */
-export async function readLandingFacts(prScope: Scope, options: GitHubOptions): Promise<LandingFactsRead> {
+export async function readLandingFacts(
+  prScope: Scope,
+  options: GitHubOptions,
+  loadCatalogues: (histories: readonly DecodedHistory[]) => Promise<ReviewClassCatalogues>,
+): Promise<LandingFactsRead> {
   const bound = await readWorkflowBinding(prScope, options)
   if (!bound.ok) {
     return {
@@ -154,12 +165,21 @@ export async function readLandingFacts(prScope: Scope, options: GitHubOptions): 
 
   const complete = await completeLandingHistories(bound.value, options)
   if (!complete.ok) return complete
+  const catalogues = await loadCatalogues(complete.histories)
+  const uwGraph = await observeCauseSisters(
+    bound.value.uwGraph,
+    complete.histories,
+    (scope) => readUwGraph(scope, options),
+    catalogues,
+  )
   return {
     ok: true,
     histories: complete.histories,
+    authorityHistories: bound.value.histories,
+    catalogues,
     native: bound.value.native,
     observed: bound.value.observed,
-    uwGraph: bound.value.uwGraph,
+    uwGraph,
     parentScopes: bound.value.parentScopes,
     binding: bound.value.binding,
   }
@@ -174,10 +194,9 @@ export async function readLandingFacts(prScope: Scope, options: GitHubOptions): 
  */
 export async function publishConfirmedWorkflowRecord(
   record: CanonicalRecord,
-  history: DecodedHistory,
   options: GitHubOptions,
-  config: RecordProjectionConfig | null,
+  resolveContext: PublicationContextResolver,
   externalHistories: readonly DecodedHistory[] = [],
 ): Promise<WorkflowPublication> {
-  return publishGitHubRecord(record, history, options, config, externalHistories)
+  return publishGitHubRecord(record, options, resolveContext, externalHistories)
 }
