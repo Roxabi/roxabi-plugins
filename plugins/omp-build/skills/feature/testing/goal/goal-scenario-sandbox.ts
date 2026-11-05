@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { observe905 } from '../../../../testing/feature-goal-905.ts'
 import {
   A,
   B,
@@ -53,11 +54,13 @@ export function dispose(): void {
 
 export function git(cwd: string, args: string[]): string {
   const active = activeBox()
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t', '-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  }).trim()
+  return observe905(active.env.OMP_905_TRACE_DIR, 'git', undefined, () =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t', '-c', 'core.hooksPath=/dev/null', ...args], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    }).trim(),
+  )
 }
 
 export function readSim(): SimState {
@@ -72,13 +75,15 @@ export function writeSim(mutate: (state: SimState) => void): void {
 
 export function gh(args: string[], input?: string) {
   const active = activeBox()
-  const out = spawnSync(path.join(active.root, 'bin', 'gh'), args, {
-    cwd: active.epic,
-    env: active.env,
-    encoding: 'utf8',
-    input,
+  return observe905(active.env.OMP_905_TRACE_DIR, 'gh', undefined, () => {
+    const out = spawnSync(path.join(active.root, 'bin', 'gh'), args, {
+      cwd: active.epic,
+      env: active.env,
+      encoding: 'utf8',
+      input,
+    })
+    return { status: out.status, stdout: out.stdout, stderr: out.stderr }
   })
-  return { status: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
 /** Resolve the same immutable tooling repository and pin served by the simulator. */
@@ -94,23 +99,28 @@ export function toolingFixture() {
 
 export function callWorkflow<T>(fn: string, cwd: string, payload: object): T {
   const active = activeBox()
-  const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
+  return observe905(active.env.OMP_905_TRACE_DIR, 'workflow', undefined, () => {
+    const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    })
+    if (out.status !== 0) throw new Error(`${fn} failed (${out.status}): ${out.stderr}\n${out.stdout}`)
+    return JSON.parse(out.stdout)
   })
-  if (out.status !== 0) throw new Error(`${fn} failed (${out.status}): ${out.stderr}\n${out.stdout}`)
-  return JSON.parse(out.stdout)
 }
 
 export function runDriver(args: string[], cwd: string): { code: number | null; stdout: string; stderr: string } {
   const active = activeBox()
-  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
+  const operation = ['next', 'stop', 'review', 'hook', 'report'].includes(args[0] ?? '') ? args[0] : undefined
+  return observe905(active.env.OMP_905_TRACE_DIR, 'driver', operation, () => {
+    const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
+      cwd,
+      env: active.env,
+      encoding: 'utf8',
+    })
+    return { code: out.status, stdout: out.stdout, stderr: out.stderr }
   })
-  return { code: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
 function child(number: number, title: string, blockedBy: number[] = []) {
@@ -128,7 +138,7 @@ function child(number: number, title: string, blockedBy: number[] = []) {
   }
 }
 
-export function sandbox(): Box {
+export function sandbox(trace?: string): Box {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-goal-scenario-')))
   const origin = path.join(root, 'origin.git')
   const principal = path.join(root, 'principal')
@@ -158,6 +168,13 @@ exec "${REAL_GIT}" "$@"
     GH_SIM_STATE: stateFile,
     GH_SIM_ORIGIN: origin,
     GIT_CONFIG_NOSYSTEM: '1',
+  }
+  if (trace) {
+    env.OMP_905_TRACE_DIR = trace
+    env.OMP_905_TRACE_CASE = 'goal'
+  } else {
+    delete env.OMP_905_TRACE_DIR
+    delete env.OMP_905_TRACE_CASE
   }
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY'])
     delete env[key]

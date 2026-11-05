@@ -3,6 +3,9 @@ import { join } from 'node:path'
 
 import { fail, type State, stamp } from './sim-types.ts'
 
+// TEMPORARY #905: process-local observation identity, never simulator state.
+let traceSequence = 0
+
 export function statePath(): string {
   const path = process.env.GH_SIM_STATE
   if (!path) fail('gh: GH_SIM_STATE is unset')
@@ -71,12 +74,24 @@ export function withState<T>(fn: (state: State) => T): T {
       rmSync(lock, { recursive: true, force: true })
     }
   }
+  const transactionSequence = ++traceSequence
   const times: Record<string, number> = {}
   const mark = (name: string) => {
     if (trace) times[name] = performance.timeOrigin + performance.now()
   }
   const cpu = trace ? process.cpuUsage() : undefined
   let bytes = 0
+  const boundaries: Record<string, { mono: number; wall: number; realtime: number; cpu: NodeJS.CpuUsage }> = {}
+  let persistPhase: string | undefined
+  let serializedCharacters: number | undefined
+  const boundary = (name: string) => {
+    try {
+      const mono = performance.now()
+      boundaries[name] = { mono, wall: performance.timeOrigin + mono, realtime: Date.now(), cpu: process.cpuUsage() }
+    } catch {
+      // Preserve the original transaction even if observation is unavailable.
+    }
+  }
   let committed = false
   mark('start')
   try {
@@ -92,7 +107,24 @@ export function withState<T>(fn: (state: State) => T): T {
       mark('hydrate')
       const result = fn(state)
       mark('handle')
-      persist(state)
+      const persistPath = statePath()
+      persistPhase = 'serialize'
+      boundary('p0')
+      try {
+        const serialized = JSON.stringify(state)
+        serializedCharacters = serialized.length
+        boundary('p1')
+        persistPhase = 'write'
+        writeFileSync(`${persistPath}.tmp`, serialized)
+        boundary('p2')
+        persistPhase = 'rename'
+        renameSync(`${persistPath}.tmp`, persistPath)
+        boundary('p3')
+        persistPhase = 'complete'
+      } catch (error) {
+        boundary('exception')
+        throw error
+      }
       committed = true
       mark('persist')
       return result
@@ -108,10 +140,16 @@ export function withState<T>(fn: (state: State) => T): T {
           `${JSON.stringify({
             pid: process.pid,
             ppid: process.ppid,
+            case: process.env.OMP_905_TRACE_CASE === 'goal' ? 'goal' : 'mixed',
+            processOrigin: performance.timeOrigin,
+            transactionSequence,
             times,
             cpu: process.cpuUsage(cpu),
             bytes,
             committed,
+            boundaries,
+            persistPhase,
+            serializedCharacters,
           })}\n`,
         )
       } catch {

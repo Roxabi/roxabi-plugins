@@ -1,18 +1,28 @@
 // TEMPORARY #905: remove after the hosted observation.
 import { appendFileSync } from 'node:fs'
 import path from 'node:path'
+import { snapshot905Resources } from './feature-review-905-resources.ts'
 
-export function create905Cut(trace: string | undefined) {
+export function create905Cut(trace: string | undefined, statePath?: string) {
   return (name: string) => {
     if (!trace) return
     try {
+      const at = performance.timeOrigin + performance.now()
+      const cpu = process.cpuUsage()
+      let resources: unknown
+      try {
+        resources = snapshot905Resources(trace, name === 'initial-review' || name === 'sandbox-end', statePath)
+      } catch {
+        resources = { available: false, reason: 'snapshot-error' }
+      }
       appendFileSync(
         path.join(trace, 'stages.jsonl'),
         `${JSON.stringify({
           name,
-          at: performance.timeOrigin + performance.now(),
+          at,
           pid: process.pid,
-          cpu: process.cpuUsage(),
+          cpu,
+          resources,
         })}\n`,
       )
     } catch {

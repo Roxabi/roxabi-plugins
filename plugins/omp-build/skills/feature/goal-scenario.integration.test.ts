@@ -1,6 +1,8 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { goal905Directory } from '../../testing/feature-goal-905.ts'
+import { create905Cut } from '../../testing/feature-review-905-cuts.ts'
 import { approve } from './testing/goal/goal-scenario-approval.ts'
 import { A, B, BRANCH_A, BRANCH_B, BRANCH_C, C, EPIC, RUN_A, RUN_B } from './testing/goal/goal-scenario-domain.ts'
 import { drive, ensureChildMandate, events, jsonOf, seedEpicDecision } from './testing/goal/goal-scenario-records.ts'
@@ -22,7 +24,13 @@ afterEach(dispose)
 
 describe('stateful gh — one continuous goal', () => {
   it('lands, crashes, merges, stops, and completes without an armed stopped PR', () => {
-    const { epic, origin, root } = sandbox()
+    // TEMPORARY #905: only this scenario opts its own sandbox into observation.
+    const trace = goal905Directory(process.env.OMP_905_ENABLE_DIR)
+    const cut = create905Cut(trace)
+    cut('test-start')
+    cut('sandbox-begin')
+    const { epic, origin, root, stateFile } = sandbox(trace)
+    create905Cut(trace, stateFile)('sandbox-end')
     const started = jsonOf(drive(['next'], RUN_A))
     expect(started.step).toMatchObject({ action: 'start', ticket: A, branch: BRANCH_A })
     expect(git(epic, ['branch', '--show-current'])).toBe(BRANCH_A)
@@ -37,6 +45,7 @@ describe('stateful gh — one continuous goal', () => {
     })
     expect(openedA.status).toBe('created')
     approve(openedA.number, shaA, epic)
+    cut('a-approved')
 
     const wrong = 'a'.repeat(40)
     const pin = gh(['pr', 'merge', String(openedA.number), '--auto', '--merge', '--match-head-commit', wrong])
@@ -204,6 +213,7 @@ describe('stateful gh — one continuous goal', () => {
       issue.stateReason = 'COMPLETED'
     })
     const afterACompleted = jsonOf(drive(['next'], RUN_B))
+    cut('a-completed')
     expect(afterACompleted.step).toMatchObject({ action: 'start', ticket: B, branch: BRANCH_B })
     expect(stoppedArms()).toEqual([])
 
@@ -244,6 +254,7 @@ describe('stateful gh — one continuous goal', () => {
       title: 'feat(b): child b',
     })
     approve(openedB.number, shaB, epic)
+    cut('b-approved')
     const landedB = callWorkflow<{ status: string }>('landPr', epic, { pr: openedB.number })
     expect(landedB.status).toBe('merged')
     expect(prOf(BRANCH_B).state).toBe('MERGED')
@@ -262,6 +273,7 @@ describe('stateful gh — one continuous goal', () => {
       }
     })
     const afterStop = jsonOf(drive(['next'], RUN_B))
+    cut('final-review-start')
     expect(stoppedArms()).toEqual([])
     expect(afterStop.step.action).toBe('final-review')
     expect(afterStop.step.stage).toBe('review')
@@ -288,10 +300,12 @@ describe('stateful gh — one continuous goal', () => {
     expect(hookStep.step.action).toBe('post-merge')
     expect(stoppedArms()).toEqual([])
 
+    cut('hook-start')
     const hooked = drive(['hook', '--repo', epic], RUN_B, root)
     expect(hooked.code).toBe(0)
     const hookSha = git(epic, ['rev-parse', 'refs/remotes/origin/main'])
     expect(hooked.stdout).toContain(hookSha)
+    cut('hook-complete')
     const done = jsonOf(drive(['next'], RUN_B))
     expect(stoppedArms()).toEqual([])
     expect(done.step.action).toBe('complete')
@@ -307,5 +321,6 @@ describe('stateful gh — one continuous goal', () => {
     )
     expect(readSim().prs[String(openedA.number)]?.state).toBe('MERGED')
     expect(readSim().prs[String(openedB.number)]?.state).toBe('MERGED')
+    cut('test-finish')
   })
 })
