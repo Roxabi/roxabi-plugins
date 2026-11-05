@@ -19,6 +19,7 @@ export async function withTransitionAdmission(
       accepted: read.accepted,
       identities: read.identity.value,
       histories: read.histories,
+      catalogues: read.catalogues,
       phase: 'delivery-transition',
       currentChildren,
     }),

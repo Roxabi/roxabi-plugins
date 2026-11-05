@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { observedComment, operation } from '../../testing/record-history.ts'
 import { validateDecisionBindings } from '../review-decision.ts'
@@ -18,8 +19,8 @@ describe('decision bindings with foreign native records', () => {
       parts: [observedComment({ author: 'mallory', locator: 'foreign-decision', nativeId: '999' })],
     })
     const withShadow = { ...graph.history, operations: [...graph.history.operations, foreign] }
-    const baseline = validateDecisionBindings(graph.decision, graph.history)
-    const bound = validateDecisionBindings(graph.decision, withShadow)
+    const baseline = validateDecisionBindings(graph.decision, graph.history, fixtureReviewClassCatalogues())
+    const bound = validateDecisionBindings(graph.decision, withShadow, fixtureReviewClassCatalogues())
 
     expect(baseline.admissible).toBe(true)
     expect(bound.admissible).toBe(true)
@@ -30,7 +31,7 @@ describe('decision bindings with foreign native records', () => {
       ...graph.history,
       operations: [...graph.history.operations.filter((entry) => entry.recordId !== graph.decision.recordId), foreign],
     }
-    const unbound = validateDecisionBindings(graph.decision, missingTrusted)
+    const unbound = validateDecisionBindings(graph.decision, missingTrusted, fixtureReviewClassCatalogues())
     expect(unbound.admissible).toBe(false)
     expect(unbound.diagnostics.map((item) => item.code)).toContain('unbound')
   })
@@ -52,7 +53,7 @@ describe('decision bindings with foreign native records', () => {
         foreign,
       ],
     }
-    const result = validateDecisionBindings(graph.decision, edited)
+    const result = validateDecisionBindings(graph.decision, edited, fixtureReviewClassCatalogues())
     expect(result.admissible).toBe(false)
     expect(result.diagnostics.map((item) => item.code)).toContain('record-edited')
   })

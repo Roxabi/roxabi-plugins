@@ -90,6 +90,7 @@ export async function runAdmittedCiCorrectionEntry(
       publisher,
       dispositionStore: createFixDispositionStore(input.expectedUw.ownSpec.ref.uw, github),
       readHistory,
+      github,
       workflow: input.workflow,
       native: input.native,
       runtime,

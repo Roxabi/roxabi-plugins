@@ -239,10 +239,12 @@ export function criterionReviewGraph(options: {
   )
   if (boundDecision?.kind !== 'decision')
     throw new Error('Fixture decision was not present in its authenticated history')
-  const { original, dispositions } = criterionDispositionRecords(inputs, boundDecision, [
-    issueHistory,
-    beforeReview.history,
-  ])
+  const { original, dispositions } = criterionDispositionRecords(
+    inputs,
+    boundDecision,
+    [issueHistory, beforeReview.history],
+    projection.catalogues,
+  )
   const persisted = encodeCriterionRecords(
     dispositions,
     original,

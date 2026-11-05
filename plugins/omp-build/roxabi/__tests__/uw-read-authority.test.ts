@@ -5,6 +5,7 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import { type UwGraphObservation, type UwNativeNode, WAYFINDER_LABELS } from '../../engine/uw-graph.ts'
 import { canonicalSpec, type SpecSnapshot } from '../../engine/uw-spec.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
@@ -139,11 +140,17 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
   it('treats an in-memory foreign copied mandate claim as the same accepted absence as pre-mandate history', async () => {
     const snapshot = fact(UW)
     const observed = graph(UW, snapshot)
-    const baseline = await createInstalledObservedUwReadPort({ graph: observed, histories: [emptyHistory(UW)] }).readUw(
-      UW,
-    )
+    const baseline = await createInstalledObservedUwReadPort({
+      graph: observed,
+      histories: [emptyHistory(UW)],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).readUw(UW)
     const foreignHistory = copiedForeignMandate(UW, snapshot)
-    const foreign = await createInstalledObservedUwReadPort({ graph: observed, histories: [foreignHistory] }).readUw(UW)
+    const foreign = await createInstalledObservedUwReadPort({
+      graph: observed,
+      histories: [foreignHistory],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).readUw(UW)
 
     expect(foreignHistory.operations).toContainEqual(
       expect.objectContaining({
@@ -164,10 +171,13 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const baseline = await createInstalledObservedUwReadPort({
       graph: observed,
       histories: [histories.baseline],
+      catalogues: fixtureHostReviewClassCatalogues(),
     }).readUw(UW)
-    const foreign = await createInstalledObservedUwReadPort({ graph: observed, histories: [histories.foreign] }).readUw(
-      UW,
-    )
+    const foreign = await createInstalledObservedUwReadPort({
+      graph: observed,
+      histories: [histories.foreign],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).readUw(UW)
 
     expect(histories.foreign.operations).toContainEqual(
       expect.objectContaining({
@@ -184,9 +194,11 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const snapshot = fact(UW)
     const histories = managedHistoryWithForeignCopiedIdentity(UW, snapshot)
     const history = incompleteTrustedIdentity(histories.baseline)
-    const read = await createInstalledObservedUwReadPort({ graph: graph(UW, snapshot), histories: [history] }).readUw(
-      UW,
-    )
+    const read = await createInstalledObservedUwReadPort({
+      graph: graph(UW, snapshot),
+      histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).readUw(UW)
 
     expect(history.operations).toContainEqual(
       expect.objectContaining({
@@ -206,9 +218,11 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
   it('fails closed when the same in-memory mandate claim is trusted but unreconstructable', async () => {
     const snapshot = fact(UW)
     const history = incompleteTrustedMandate(UW, snapshot)
-    const read = await createInstalledObservedUwReadPort({ graph: graph(UW, snapshot), histories: [history] }).readUw(
-      UW,
-    )
+    const read = await createInstalledObservedUwReadPort({
+      graph: graph(UW, snapshot),
+      histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).readUw(UW)
 
     expect(history.operations).toContainEqual(
       expect.objectContaining({

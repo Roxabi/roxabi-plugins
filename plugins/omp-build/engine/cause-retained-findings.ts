@@ -25,7 +25,7 @@ function appendSourceFindings(
     if (source.kind !== 'contribution') continue
     const original = source.payload.findings?.find((item) => item.id === sourceId)
     if (!original) continue
-    const inspection = inspectFinding(original.data, [])
+    const inspection = input.bindings.inspections.get(sourceId) ?? inspectFinding(original.data, [])
     const blocking = inspection.knownLabel === null || blockingLabels.has(inspection.knownLabel)
     const sourceDiagnostics = [...inspection.diagnostics, ...(entry?.diagnostics ?? [])]
     outcomes.push({

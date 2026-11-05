@@ -10,6 +10,7 @@ import type { CauseAdjudicationInput, CauseAdjudicationProposal } from '../engin
 import type { ObservationRef } from '../engine/criterion-evidence-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
 import { type AdjudicationRead, readAdjudicationPending } from './uw-cause-adjudication-read.ts'
 import { publishAdjudicationSuccessor } from './uw-cause-adjudication-successor.ts'
 import type { CauseOperationResult, OperatorPort, UwReadPort } from './uw-contract.ts'
@@ -121,9 +122,8 @@ export function createCauseAdjudication(input: {
           effectMayExist = true
           const published = await publishConfirmedWorkflowRecord(
             intent.value,
-            own,
             input.github,
-            null,
+            createPublicationContextResolver(input.github, null),
             fresh.histories.filter((history) => history !== own),
           )
           if (published.status !== 'confirmed')

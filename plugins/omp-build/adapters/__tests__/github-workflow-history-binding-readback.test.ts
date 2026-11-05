@@ -5,7 +5,8 @@ import {
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../../engine/__tests__/workflow-spec-assessment-support.ts'
-import type { DecodedHistory } from '../../engine/history-schema.ts'
+import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { decodeHistory, encodeRecord } from '../github/history-codec.ts'
 import { githubScope } from '../github/transport.ts'
 import { readLinkedIssueAssociation } from '../github-native/relations.ts'
@@ -300,32 +301,40 @@ describe('composed workflow history and landing binding readback', () => {
     })
     expect(association).toEqual({ status: 'none' })
 
-    const landing = await readLandingFacts(githubScope('acme/app', 42), {
-      cwd: '/fixture',
-      readAuthor: 'automation',
-      gh: fakeGh([
-        (args) => (args[0] === 'pr' && args[1] === 'view' ? stagingView() : undefined),
-        (args) => (args.includes('graphql') ? emptyClosing : undefined),
-        (args) =>
-          args[0] === 'api' && String(args[1] ?? '').includes('/issues/42/comments') ? JSON.stringify([]) : undefined,
-      ]),
-    })
+    const landing = await readLandingFacts(
+      githubScope('acme/app', 42),
+      {
+        cwd: '/fixture',
+        readAuthor: 'automation',
+        gh: fakeGh([
+          (args) => (args[0] === 'pr' && args[1] === 'view' ? stagingView() : undefined),
+          (args) => (args.includes('graphql') ? emptyClosing : undefined),
+          (args) =>
+            args[0] === 'api' && String(args[1] ?? '').includes('/issues/42/comments') ? JSON.stringify([]) : undefined,
+        ]),
+      },
+      async () => fixtureReviewClassCatalogues(),
+    )
     expect(landing.ok).toBe(false)
     if (landing.ok) throw new Error('closing text must not bind a staging PR')
     expect(landing.reason).toBe('absent')
   })
 
   it('does not treat closing-issue ambiguity as a landing binding', async () => {
-    const refused = await readLandingFacts(githubScope('acme/app', 42), {
-      cwd: '/fixture',
-      readAuthor: 'automation',
-      gh: fakeGh([
-        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
-        (args) => (args.includes('graphql') ? closingGraphql([{ number: 7 }, { number: 8 }]) : undefined),
-        (args) =>
-          args[0] === 'api' && String(args[1] ?? '').includes('/issues/42/comments') ? JSON.stringify([]) : undefined,
-      ]),
-    })
+    const refused = await readLandingFacts(
+      githubScope('acme/app', 42),
+      {
+        cwd: '/fixture',
+        readAuthor: 'automation',
+        gh: fakeGh([
+          (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+          (args) => (args.includes('graphql') ? closingGraphql([{ number: 7 }, { number: 8 }]) : undefined),
+          (args) =>
+            args[0] === 'api' && String(args[1] ?? '').includes('/issues/42/comments') ? JSON.stringify([]) : undefined,
+        ]),
+      },
+      async () => fixtureReviewClassCatalogues(),
+    )
     expect(refused).toMatchObject({ ok: false, reason: 'absent' })
   })
 
@@ -372,43 +381,47 @@ describe('composed workflow history and landing binding readback', () => {
   it('follows a confirmed workflow-binding and ignores tracker parentage', async () => {
     const mandate = issueMandate(githubScope('acme/app', 7))
     const binding = bindingRecord(mandate)
-    const result = await readLandingFacts(githubScope('acme/app', 42), {
-      cwd: '/fixture',
-      readAuthor: 'automation',
-      gh: fakeGh([
-        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
-        (args) => {
-          if (!args.includes('graphql')) return undefined
-          if (!args.some((arg) => arg.includes('subIssues(first: 100, after:')))
-            return JSON.stringify({ data: { repository: { issue: { number: 7, parent: { number: 3 } } } } })
-          return JSON.stringify({
-            data: {
-              repository: {
-                issue: {
-                  number: 7,
-                  title: 'Save selection',
-                  body: 'live strict spec',
-                  updatedAt: '2026-10-27T12:00:00Z',
-                  state: 'OPEN',
-                  stateReason: null,
-                  repository: { nameWithOwner: 'acme/app' },
-                  parent: null,
-                  labels: { nodes: [{ name: 'size:S' }], pageInfo: { hasNextPage: false, endCursor: null } },
-                  subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
-                  blockedBy: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    const result = await readLandingFacts(
+      githubScope('acme/app', 42),
+      {
+        cwd: '/fixture',
+        readAuthor: 'automation',
+        gh: fakeGh([
+          (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+          (args) => {
+            if (!args.includes('graphql')) return undefined
+            if (!args.some((arg) => arg.includes('subIssues(first: 100, after:')))
+              return JSON.stringify({ data: { repository: { issue: { number: 7, parent: { number: 3 } } } } })
+            return JSON.stringify({
+              data: {
+                repository: {
+                  issue: {
+                    number: 7,
+                    title: 'Save selection',
+                    body: 'live strict spec',
+                    updatedAt: '2026-10-27T12:00:00Z',
+                    state: 'OPEN',
+                    stateReason: null,
+                    repository: { nameWithOwner: 'acme/app' },
+                    parent: null,
+                    labels: { nodes: [{ name: 'size:S' }], pageInfo: { hasNextPage: false, endCursor: null } },
+                    subIssues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                    blockedBy: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                  },
                 },
               },
-            },
-          })
-        },
-        (args) => {
-          const path = args[1] ?? ''
-          if (path.includes('/issues/42/comments')) return JSON.stringify([nativeComment(1, wire(binding))])
-          if (path.includes('/issues/7/comments')) return JSON.stringify([nativeComment(2, wire(mandate))])
-          return undefined
-        },
-      ]),
-    })
+            })
+          },
+          (args) => {
+            const path = args[1] ?? ''
+            if (path.includes('/issues/42/comments')) return JSON.stringify([nativeComment(1, wire(binding))])
+            if (path.includes('/issues/7/comments')) return JSON.stringify([nativeComment(2, wire(mandate))])
+            return undefined
+          },
+        ]),
+      },
+      async () => fixtureReviewClassCatalogues(),
+    )
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('expected a confirmed binding')
     expect(result.native).toEqual({
@@ -432,39 +445,47 @@ describe('composed workflow history and landing binding readback', () => {
   })
 
   it('refuses a present malformed binding instead of treating it as absent', async () => {
-    const refused = await readLandingFacts(githubScope('acme/app', 42), {
-      cwd: '/fixture',
-      readAuthor: 'automation',
-      gh: fakeGh([
-        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
-        (args) =>
-          args[0] === 'api' && String(args[1] ?? '').includes('/issues/42/comments')
-            ? JSON.stringify([nativeComment(1, framed('workflow-binding', 'op-bad', 'bind-bad'))])
-            : undefined,
-      ]),
-    })
+    const refused = await readLandingFacts(
+      githubScope('acme/app', 42),
+      {
+        cwd: '/fixture',
+        readAuthor: 'automation',
+        gh: fakeGh([
+          (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+          (args) =>
+            args[0] === 'api' && String(args[1] ?? '').includes('/issues/42/comments')
+              ? JSON.stringify([nativeComment(1, framed('workflow-binding', 'op-bad', 'bind-bad'))])
+              : undefined,
+        ]),
+      },
+      async () => fixtureReviewClassCatalogues(),
+    )
     expect(refused).toMatchObject({ ok: false, reason: 'incomplete' })
   })
   it('preserves a graph read failure as a named incomplete graph fact', async () => {
     const mandate = issueMandate(githubScope('acme/app', 7))
     const binding = bindingRecord(mandate)
-    const facts = await readLandingFacts(githubScope('acme/app', 42), {
-      cwd: '/fixture',
-      readAuthor: 'automation',
-      gh: fakeGh([
-        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
-        (args) =>
-          args[0] === 'api' && String(args[1] ?? '') === 'repos/acme/app/issues/7'
-            ? JSON.stringify({ number: 7, state: 'open', user: { login: 'operator' }, body: null })
-            : undefined,
-        (args) => {
-          const path = args[1] ?? ''
-          if (path.includes('/issues/42/comments')) return JSON.stringify([nativeComment(1, wire(binding))])
-          if (path.includes('/issues/7/comments')) return JSON.stringify([nativeComment(2, wire(mandate))])
-          return undefined
-        },
-      ]),
-    })
+    const facts = await readLandingFacts(
+      githubScope('acme/app', 42),
+      {
+        cwd: '/fixture',
+        readAuthor: 'automation',
+        gh: fakeGh([
+          (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+          (args) =>
+            args[0] === 'api' && String(args[1] ?? '') === 'repos/acme/app/issues/7'
+              ? JSON.stringify({ number: 7, state: 'open', user: { login: 'operator' }, body: null })
+              : undefined,
+          (args) => {
+            const path = args[1] ?? ''
+            if (path.includes('/issues/42/comments')) return JSON.stringify([nativeComment(1, wire(binding))])
+            if (path.includes('/issues/7/comments')) return JSON.stringify([nativeComment(2, wire(mandate))])
+            return undefined
+          },
+        ]),
+      },
+      async () => fixtureReviewClassCatalogues(),
+    )
     expect(facts).toMatchObject({ ok: true, uwGraph: { status: 'incomplete' } })
   })
 
@@ -482,33 +503,26 @@ describe('composed workflow history and landing binding readback', () => {
     }
     const partial =
       '<!-- omp-build-record v=1 kind=epic-event id=event-retry operationId=op-retry part=1/2 data=e30 -->'
-    const empty = decodeHistory({ ...historyFrom(''), comments: [] })
     let posts = 0
-    const publish = (login: string) =>
-      publishConfirmedWorkflowRecord(
-        record,
-        empty,
-        {
-          cwd: '/fixture',
-          readAuthor: 'automation',
-          writerLogin: 'automation',
-          gh: fakeGh([
-            (args) => {
-              if (args.includes('POST')) {
-                posts++
-                throw new Error('unexpected publication')
-              }
-              if (String(args[1] ?? '').includes('/comments'))
-                return JSON.stringify([
-                  nativeComment(1, wire(record)),
-                  { ...nativeComment(2, partial), user: { login } },
-                ])
-              return undefined
-            },
-          ]),
-        },
-        null,
-      )
+    const publish = (login: string) => {
+      const options = {
+        cwd: '/fixture',
+        readAuthor: 'automation',
+        writerLogin: 'automation',
+        gh: fakeGh([
+          (args) => {
+            if (args.includes('POST')) {
+              posts++
+              throw new Error('unexpected publication')
+            }
+            if (String(args[1] ?? '').includes('/comments'))
+              return JSON.stringify([nativeComment(1, wire(record)), { ...nativeComment(2, partial), user: { login } }])
+            return undefined
+          },
+        ]),
+      }
+      return publishConfirmedWorkflowRecord(record, options, createPublicationContextResolver(options, null))
+    }
     expect(await publish('foreign')).toMatchObject({ status: 'confirmed', operation: { authority: 'accounted' } })
     expect(await publish('automation')).toMatchObject({ status: 'refused' })
     expect(posts).toBe(0)
@@ -526,36 +540,24 @@ describe('composed workflow history and landing binding readback', () => {
       kind: 'epic-event' as const,
       payload: { outcome: 'verified' },
     }
-    const empty: DecodedHistory = {
-      source: {
-        scope: githubScope('acme/app', 42),
-        expectedAuthor: 'automation',
-        stopAuthor: null,
-        complete: true,
-        comments: [],
-        diagnostics: [],
-      },
-      operations: [],
-      diagnostics: [],
+    const options = {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      writeAuthor: 'automation',
+      writerLogin: 'automation',
+      gh: fakeGh([
+        (args) => {
+          if (args[0] === 'api' && String(args[1] ?? '').includes('/comments') && !args.includes('--method'))
+            return '[]'
+          if (args.includes('--method') && args.includes('POST')) throw new Error('simulated outage')
+          return undefined
+        },
+      ]),
     }
     const published = await publishConfirmedWorkflowRecord(
       record,
-      empty,
-      {
-        cwd: '/fixture',
-        readAuthor: 'automation',
-        writeAuthor: 'automation',
-        writerLogin: 'automation',
-        gh: fakeGh([
-          (args) => {
-            if (args[0] === 'api' && String(args[1] ?? '').includes('/comments') && !args.includes('--method'))
-              return '[]'
-            if (args.includes('--method') && args.includes('POST')) throw new Error('simulated outage')
-            return undefined
-          },
-        ]),
-      },
-      null,
+      options,
+      createPublicationContextResolver(options, null),
     )
     expect(published.status).toBe('uncertain')
     if (published.status === 'confirmed') throw new Error('outage must not confirm')

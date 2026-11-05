@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import { githubScope } from '../adapters/github/transport.ts'
-import { TAXONOMY } from '../engine/__tests__/record-test-support.ts'
 import { SCOPE } from '../engine/__tests__/workflow-test-support.ts'
 import { readReviewRecovery } from '../engine/review-recovery.ts'
 import { deriveReviewState, summarizeReviews } from '../engine/review-state.ts'
+import { fixtureReviewClassCatalogues } from '../testing/action-input-fixtures.ts'
 import { TEST_HEAD } from '../testing/record-builders.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createGitHubRecordPublisher } from './github-publisher.ts'
@@ -33,7 +33,7 @@ describe('GitHub interrupted-review recovery publication', () => {
       ok: true,
       value: { normalProgression: 'stopped', replacementGrant: null },
     })
-    expect(summarizeReviews(afterTerminal, TAXONOMY, null)).toMatchObject({ ok: false })
+    expect(summarizeReviews(afterTerminal, fixtureReviewClassCatalogues(), null)).toMatchObject({ ok: false })
 
     const grant = await ghGrantInterruptedReviewReplacement({
       cwd: recoverySmokeCwd,
@@ -99,7 +99,7 @@ describe('GitHub interrupted-review recovery publication', () => {
     const publisher = createGitHubRecordPublisher(
       githubScope(SCOPE.repository, 42),
       withRoxabiGitHubPolicy({ cwd: recoverySmokeCwd, gh: fixture.gh }),
-      { taxonomy: TAXONOMY, acceptedPolicy: null },
+      null,
     )
     for (const record of completedReplacementRecords(inventory))
       expect(await publisher.publish(record)).toMatchObject({ ok: true })
@@ -111,7 +111,7 @@ describe('GitHub interrupted-review recovery publication', () => {
       ok: true,
       value: { normalProgression: 'eligible', replacementGrant: null },
     })
-    expect(summarizeReviews(completed, TAXONOMY, null, cited.value)).toMatchObject({
+    expect(summarizeReviews(completed, fixtureReviewClassCatalogues(), null, cited.value)).toMatchObject({
       ok: true,
       value: { reviews: 1, verdict: 'Request changes' },
     })
@@ -125,7 +125,7 @@ describe('GitHub interrupted-review recovery publication', () => {
           ci: 'green',
           acceptedEvidencePolicyRef: null,
         },
-        TAXONOMY,
+        fixtureReviewClassCatalogues(),
         cited.value,
       ),
     ).toMatchObject({ ok: true, next: 'fix' })
@@ -177,7 +177,9 @@ describe('GitHub interrupted-review recovery publication', () => {
       const terminal = await ghTerminalizeInterruptedReview({ cwd: recoverySmokeCwd, pr: 42, gh: fixture.gh })
 
       expect(terminal).toMatchObject({ ok: false })
-      expect(summarizeReviews(await fixture.history(), TAXONOMY, null)).toMatchObject({ ok: false })
+      expect(summarizeReviews(await fixture.history(), fixtureReviewClassCatalogues(), null)).toMatchObject({
+        ok: false,
+      })
     })
   }
 })

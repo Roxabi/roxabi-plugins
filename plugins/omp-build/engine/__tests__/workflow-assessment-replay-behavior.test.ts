@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { fixtureCausal } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
@@ -68,7 +69,7 @@ test('observes only a linked authenticated pending expanded-context assessment',
   expect(observeAssessmentContextReplay(issue, { ...start })).toBe('uncertain')
   expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: false })
   expect(resolveAcceptedSpec(mandated, [issue], replay)).toMatchObject({ ok: true })
-  expect(resolveOwnSpecAuthority(issue, [], new Set(), replay)).toMatchObject({ ok: true })
+  expect(resolveOwnSpecAuthority(issue, [], fixtureCausal([issue]), new Set(), replay)).toMatchObject({ ok: true })
   expect(resolveAcceptedSpec(mandated, [issue], { ...replay, fingerprint: '0'.repeat(64) })).toMatchObject({
     ok: false,
   })

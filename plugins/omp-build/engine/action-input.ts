@@ -222,21 +222,26 @@ function stageOverlap(input: ActionInputs, diagnostics: Diagnostic[]): void {
   }
 }
 
-export function validateActionInputs(input: ActionInputs): Result<ActionInputs> {
-  const parsed = actionInputsSchema.safeParse(input)
-  if (!parsed.success)
-    return { ok: false, diagnostics: [{ code: 'malformed', message: 'action inputs are not binding/1' }] }
+/** Validate semantics after an enclosing actionInputsSchema has parsed the input. */
+export function validateParsedActionInputs(input: ActionInputs): Result<ActionInputs> {
   const diagnostics: Diagnostic[] = []
-  const manifest = parsed.data.manifest
+  const manifest = input.manifest
   duplicate(manifest.acceptedSources, 'accepted source', diagnostics)
   duplicate(manifest.deliveryData, 'delivery data', diagnostics)
   duplicate(manifest.repositoryReferences, 'repository reference', diagnostics)
   duplicate(manifest.plugin.files, 'plugin file', diagnostics)
   duplicate(manifest.expandedContext, 'expanded context', diagnostics)
-  duplicate(parsed.data.stageSources, 'stage source', diagnostics)
-  stageOverlap(parsed.data, diagnostics)
-  if (parsed.data.fingerprint !== actionInputDigest(manifest)) {
+  duplicate(input.stageSources, 'stage source', diagnostics)
+  stageOverlap(input, diagnostics)
+  if (input.fingerprint !== actionInputDigest(manifest)) {
     diagnostics.push({ code: 'mismatch', message: 'action input fingerprint does not match the canonical manifest' })
   }
-  return diagnostics.length === 0 ? { ok: true, value: parsed.data } : { ok: false, diagnostics }
+  return diagnostics.length === 0 ? { ok: true, value: input } : { ok: false, diagnostics }
+}
+
+export function validateActionInputs(input: ActionInputs): Result<ActionInputs> {
+  const parsed = actionInputsSchema.safeParse(input)
+  if (!parsed.success)
+    return { ok: false, diagnostics: [{ code: 'malformed', message: 'action inputs are not binding/1' }] }
+  return validateParsedActionInputs(parsed.data)
 }

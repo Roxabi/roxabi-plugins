@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { actionInputDigest, selectorAdmitted, validateActionInputs } from '../action-input.ts'
 import {
   readCauseDispositionHeads,
@@ -125,15 +126,27 @@ describe('cause disposition contract', () => {
     expect(causeAdjudicationInputSchema.safeParse({ ...input, confirmed: true }).success).toBe(false)
   })
   it('reads durable heads from only the authenticated original history', () => {
-    const pending = retainedDisposition('pending')
-    const result = readCauseDispositionHeads({ uw: scope, histories: [history([pending], scope)] })
-    expect(result.ok && result.value.map((record) => record.recordId)).toEqual(['pending'])
-    expect(readCauseDispositionHeads({ uw: scope, histories: [] }).ok).toBe(false)
-    const incomplete = history([pending], scope)
+    const { graph, held, operation, identity, receipt } = sisterRecords()
+    const original = causeOriginalHistory([held, operation, receipt])
+    const histories = [
+      original,
+      graph.history,
+      history([identity], { repository: identity.repository, target: identity.target }),
+    ]
+    const catalogues = fixtureReviewClassCatalogues()
+    const result = readCauseDispositionHeads({
+      uw: { repository: held.repository, target: held.target },
+      histories,
+      catalogues,
+    })
+    expect(result.ok && result.value.map((record) => record.recordId)).toEqual([held.recordId])
+    expect(readCauseDispositionHeads({ uw: scope, histories: [], catalogues }).ok).toBe(false)
+    const incomplete = original
     expect(
       readCauseDispositionHeads({
-        uw: scope,
-        histories: [{ ...incomplete, source: { ...incomplete.source, complete: false } }],
+        uw: { repository: held.repository, target: held.target },
+        histories: [{ ...incomplete, source: { ...incomplete.source, complete: false } }, graph.history],
+        catalogues,
       }).ok,
     ).toBe(false)
   })
@@ -141,7 +154,11 @@ describe('cause disposition contract', () => {
     const first = retainedDisposition('first')
     const second = retainedDisposition('second')
     const observed = history([first, second], scope)
-    const heads = readCauseDispositionHeads({ uw: scope, histories: [observed] })
+    const heads = readCauseDispositionHeads({
+      uw: scope,
+      histories: [observed],
+      catalogues: fixtureReviewClassCatalogues(),
+    })
     expect(heads.ok).toBe(false)
     if (!heads.ok) expect(heads.diagnostics.map((item) => item.code)).toContain('cause-duplicate-initial')
     expect(resolveCauseSisterReceipt({ disposition: first, histories: [observed] }).ok).toBe(false)

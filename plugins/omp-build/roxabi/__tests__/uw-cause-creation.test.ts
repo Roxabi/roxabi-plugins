@@ -5,6 +5,7 @@ import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import type * as Contracts from '../../dist/contracts.js'
 import { causeCreationProposalSchema, parseRecord } from '../../dist/contracts.js'
 import type { RecordDraft } from '../../engine/record-construction.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { createInput, fixture } from '../../testing/uw-operations-fixture.ts'
 import { createCauseCreation } from '../uw-cause-creation.ts'
 import type { CauseEffectGuard } from '../uw-cause-guard.ts'
@@ -116,14 +117,19 @@ function setup(
   boundary.readCause.mockImplementation(async () => ({
     disposition: options.stale && ++sourceReads > 1 ? { ...source, recordId: 'changed' } : source,
     histories: [own],
+    catalogues: fixtureHostReviewClassCatalogues(),
   }))
-  boundary.readReport.mockResolvedValue({ record: report, histories: [own] })
+  boundary.readReport.mockResolvedValue({
+    record: report,
+    histories: [own],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
   boundary.observeParent.mockImplementation(async (observedParent) => ({
     ...parentObservation,
     parent: observedParent,
     state: options.parentState ?? 'inactive',
   }))
-  boundary.checkParent.mockImplementation(async (_parent, _reader, _github, created) => {
+  boundary.checkParent.mockImplementation(async (_parent, _reader, created) => {
     if (options.parentChangesAfterCreate && created !== null) throw new Error('cause-parent-active')
   })
   boundary.validate.mockReturnValue([])
@@ -160,6 +166,7 @@ function setup(
   const readUw = vi.fn(async (scope: typeof original) => ({
     uw: scope,
     histories: [history(scope)],
+    catalogues: fixtureHostReviewClassCatalogues(),
     graph: {
       status: 'complete',
       nodes: [

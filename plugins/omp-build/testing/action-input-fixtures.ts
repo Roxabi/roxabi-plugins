@@ -1,25 +1,101 @@
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { actionInputDigest } from '../engine/action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import {
   ACTION_BINDING_FORMAT,
   ACTION_INPUT_FORMAT,
   type ActionInputs,
   type ActionPurpose,
 } from '../engine/action-input-schema.ts'
+import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
+import { createReviewClassCatalogues, type ReviewCatalogueRead } from '../engine/review-class-catalogue.ts'
 import type { SpecEffective } from '../engine/spec-effective.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { mandateScope } from '../engine/workflow-control.ts'
 import type { PreparedUwAction, ReviewActionBatch } from '../roxabi/uw-action-contract.ts'
 import { sealActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
+import { admitsConfirmingReviewBatchItem } from './review-batch-fixture.ts'
 
 const SHA = 'a'.repeat(64)
 const GIT = 'b'.repeat(40)
 const SCOPE = { repository: 'acme/app', target: 'acme/app#42' }
+const catalogueBytes = readFileSync(new URL('../skills/dev-review/review-classes.yml', import.meta.url))
+const catalogueRef = {
+  source: 'git-file' as const,
+  repository: 'Roxabi/roxabi-plugins',
+  commit: GIT,
+  path: 'plugins/omp-build/skills/dev-review/review-classes.yml',
+  digest: createHash('sha256').update(catalogueBytes).digest('hex'),
+}
+
+/** Respond only to this local fixture's fictional GitHub blob lookup and blob fetch. */
+export function fixtureCatalogueGhResponse(args: readonly string[]): string | null {
+  const oid = createHash('sha1').update(`blob ${catalogueBytes.byteLength}\0`).update(catalogueBytes).digest('hex')
+  if (
+    args[0] === 'api' &&
+    args[1] === 'graphql' &&
+    args.some((arg) => arg.includes('object(expression:$expression)')) &&
+    args.includes('owner=Roxabi') &&
+    args.includes('name=roxabi-plugins') &&
+    args.includes(`expression=${catalogueRef.commit}:${catalogueRef.path}`)
+  )
+    return JSON.stringify({ data: { repository: { object: { oid } } } })
+  if (args[0] === 'api' && args.includes(`repos/${catalogueRef.repository}/git/blobs/${oid}`))
+    return JSON.stringify({
+      sha: oid,
+      encoding: 'base64',
+      size: catalogueBytes.byteLength,
+      content: catalogueBytes.toString('base64'),
+    })
+  return null
+}
+
+export function fixtureReviewCatalogueReads() {
+  return [{ ref: { ...catalogueRef }, contents: { ok: true as const, value: new Uint8Array(catalogueBytes) } }]
+}
+/** Source-engine instance for tests supplying their own exact pinned bytes. */
+export function fixtureSourceReviewClassCatalogues(reads: readonly ReviewCatalogueRead[]) {
+  return createReviewClassCatalogues(reads)
+}
+
+export function fixtureReviewClassCatalogues() {
+  return createReviewClassCatalogues(fixtureReviewCatalogueReads())
+}
+
+/** Explicit negative evidence: no catalogue bytes have been observed. */
+export function fixtureMissingReviewClassCatalogues() {
+  return createReviewClassCatalogues([])
+}
+
+export function fixtureCausal(histories: readonly DecodedHistory[]) {
+  const byScope = new Map<string, DecodedHistory>()
+  for (const history of histories) {
+    const key = JSON.stringify([history.source.scope.repository, history.source.scope.target])
+    const previous = byScope.get(key)
+    if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(history))
+      throw new Error(`Conflicting fixture histories for ${history.source.scope.target}`)
+    byScope.set(key, history)
+  }
+  return { histories: [...byScope.values()], catalogues: fixtureReviewClassCatalogues() }
+}
+
+export function workflowEvidence(
+  issue: DecodedHistory,
+  pullRequest: DecodedHistory | null,
+  parents: readonly DecodedHistory[],
+  extraCausalHistories: readonly DecodedHistory[],
+) {
+  return {
+    issue,
+    pullRequest,
+    parents,
+    causal: fixtureCausal([issue, ...(pullRequest === null ? [] : [pullRequest]), ...parents, ...extraCausalHistories]),
+  }
+}
 
 function pin() {
   return {
@@ -34,7 +110,7 @@ function pin() {
       repository: 'Roxabi/roxabi-plugins',
       commit: GIT,
       root: 'plugins/omp-build',
-      files: [],
+      files: [{ ...catalogueRef }],
     },
     configuration: { version: '0.15.0', digest: SHA, serialized: 'config' },
     expandedContext: [],
@@ -87,6 +163,14 @@ export function acceptedActionInputs(mandate: MandateRecord, purpose: ActionPurp
   }
   const manifest = {
     ...pin(),
+    acceptedSources: [
+      {
+        source: 'record' as const,
+        record: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' as const },
+        selector: '/payload',
+        digest: canonicalValueDigest(mandate.payload),
+      },
+    ],
     purpose,
     subject: { kind: 'uw' as const, uw: own.uw, pullRequest: null, binding: null },
     spec: { kind: 'accepted' as const, effective },
@@ -158,26 +242,6 @@ export function confirmingUwOperations(): UwOperations {
     prepareReviewActions: (input) => confirmingReviewActions(operations, input),
   }
   return operations
-}
-
-function admitsConfirmingReviewBatchItem(
-  item: ReviewActionBatch['actions'][number],
-  index: number,
-  commonRequest: string,
-  commonProjection: string,
-  ids: ReadonlySet<string>,
-  names: ReadonlySet<string>,
-): boolean {
-  const panel = /^panel-(\d+)-(.+)$/.exec(item.projection.taskName)
-  return (
-    item.request.purpose === 'review' &&
-    JSON.stringify({ ...item.request, actionId: '' }) === commonRequest &&
-    JSON.stringify({ contextWindow: item.projection.contextWindow, chunks: item.projection.chunks }) ===
-      commonProjection &&
-    !ids.has(item.request.actionId) &&
-    !names.has(item.projection.taskName) &&
-    (index === 0 || (panel !== null && Number(panel[1]) === item.projection.assignedChunk))
-  )
 }
 
 async function confirmDistinctReviewAction(

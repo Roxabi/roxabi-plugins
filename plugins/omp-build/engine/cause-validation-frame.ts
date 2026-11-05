@@ -6,6 +6,8 @@ import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
+import type { DecisionBindings } from './review-decision.ts'
 import { resolveOwnSpecEffective, sameOwnSpecRef } from './spec-effective.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpecPrefixes } from './workflow-accepted-spec.ts'
@@ -15,20 +17,27 @@ import { recordsOf } from './workflow-control.ts'
 /** Never retain this frame across observations; its evidence is the supplied immutable snapshot. */
 export type CauseValidationFrame = {
   histories: readonly DecodedHistory[]
+  readonly catalogues: ReviewClassCatalogues
   chains: Map<string, readonly AcceptedOwnSpec[] | null>
   authorities: Map<string, Result<null>>
   adjudications: Map<string, readonly Diagnostic[]>
   confirmations: Set<string>
+  bindings: Map<string, DecisionBindings>
   contexts: Map<string, Result<CauseContext>>
   transitions: Map<string, Result<CauseDispositionPayload>>
 }
 
-export function causeValidationFrame(histories: readonly DecodedHistory[]): CauseValidationFrame {
+export function causeValidationFrame(
+  histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
+): CauseValidationFrame {
   return {
     histories,
+    catalogues,
     chains: new Map(),
     contexts: new Map(),
     transitions: new Map(),
+    bindings: new Map(),
     authorities: new Map(),
     adjudications: new Map(),
     confirmations: new Set(),

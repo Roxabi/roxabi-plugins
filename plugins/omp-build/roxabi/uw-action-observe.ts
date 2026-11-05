@@ -14,11 +14,13 @@ import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { ActionInputManifest, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure, isGitSha, jsonPointer } from './uw-action-result.ts'
 import { type CorrectionActionCode, correctionObservation } from './uw-correction-observation.ts'
 import { correctionAnchorsValid, correctionWorktreeValid } from './uw-correction-observe-check.ts'
 import { checkoutRepository } from './uw-git-bytes.ts'
+import { readReviewInputHistories } from './uw-input-readers.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
@@ -121,12 +123,20 @@ async function validateCorrectionPull(
 ): Promise<Result<void>> {
   const histories = await readHistories([pull], source)
   if (!histories.ok) return histories
+  const history = histories.value[0]
+  if (history === undefined) return actionFailure('record-unreadable', 'Correction pull request history is absent')
+  const external = await readReviewInputHistories(history, source)
+  if (!external.ok) return external
+  const completeHistories = [history, ...external.value]
+  const catalogues = await loadReviewClassCatalogues({ histories: completeHistories, cwd: source.cwd, gh: source.gh })
+  const anchors = correctionAnchorsValid(request, correction, completeHistories, catalogues)
+  if (!anchors.ok) return anchors
   if (
     parsed.headRefOid !== correction.expectedRemoteHead ||
     parsed.headRefName !== correction.remoteBranch ||
     parsed.baseRefName !== correction.base ||
     (await checkoutRepository(correction.cwd)) !== pull.repository ||
-    !correctionAnchorsValid(request, correction, histories.value) ||
+    !anchors.value ||
     !(await correctionWorktreeValid(correction))
   )
     return actionFailure('action-code-moved', 'Correction remote anchor, original authority, or worktree changed')

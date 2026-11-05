@@ -1,6 +1,7 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
+import type { ReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 
 export type LinkedIssueAssociation =
@@ -53,6 +54,9 @@ export type LandingFactsRead =
       ok: true
       /** Authenticated records are derived from these histories only. */
       histories: DecodedHistory[]
+      /** Binding, own UW and explicit parent observations used for authority selection. */
+      authorityHistories: DecodedHistory[]
+      catalogues: ReviewClassCatalogues
       /** Exact requireLandingMandate.native; GH numbers stay adapter-private. */
       native: { branch: string; base: string; pullRequest: Scope; linkedIssueScopes: Scope[] }
       /** Observed PR tips for product gates; never copied into engine native. */
@@ -81,7 +85,7 @@ export type LandingFactsRead =
 
 export type WorkflowPublication =
   | { status: 'confirmed'; operation: DecodedHistory['operations'][number] }
-  | { status: 'uncertain' | 'refused'; history: DecodedHistory; diagnostics: Diagnostic[] }
+  | { status: 'uncertain' | 'refused'; history: DecodedHistory | null; diagnostics: Diagnostic[] }
 
 export type WorkflowBindingRead =
   | {

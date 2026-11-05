@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { criterionEpicReviewGraph } from '../../testing/criterion-range-approval.ts'
 import { reviewRoot } from '../../testing/record-builders.ts'
 import { shippedMandate } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
@@ -38,7 +38,7 @@ function epicFixture() {
 
 function selection(inputs: ActionInputs, observed: DecodedHistory) {
   const diagnostics: Diagnostic[] = []
-  const selected = selectedDeclarations([observed], inputs, diagnostics)
+  const selected = selectedDeclarations([observed], inputs, diagnostics, fixtureReviewClassCatalogues())
   return { selected, diagnostics }
 }
 

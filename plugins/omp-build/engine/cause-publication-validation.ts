@@ -1,4 +1,5 @@
 import { validateCauseEffects } from './cause-effect-validation.ts'
+import { isRetainedReportPublication } from './cause-publication-role.ts'
 import { validateConfirmation, validateCreation } from './cause-record-operation-validation.ts'
 import { validateCauseDispositionRecords } from './cause-record-validation.ts'
 import { readCauseReports } from './cause-reports.ts'
@@ -6,22 +7,26 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { bindExternalRef, recordsOf, workflowOperationProblem } from './workflow-control.ts'
 
 type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>
 type Promotion = Extract<CanonicalRecord, { kind: 'report-promotion' }>
 
-type Input = { record: CanonicalRecord; history: DecodedHistory; externalHistories: readonly DecodedHistory[] }
-
-function isPromotionIntent(record: CanonicalRecord): record is Operation {
-  return (
-    record.kind === 'cause-operation' &&
-    record.payload.proposal.operation === 'create' &&
-    record.payload.proposal.creation.kind === 'report-promotion'
-  )
+type RetainedInput = {
+  record: CanonicalRecord
+  history: DecodedHistory
+  externalHistories: readonly DecodedHistory[]
+}
+type Input = RetainedInput & {
+  catalogues: ReviewClassCatalogues
 }
 
-function promotionReport(input: Input, record: Operation | Promotion) {
+function isPromotionIntent(record: CanonicalRecord): record is Operation {
+  return record.kind === 'cause-operation' && isRetainedReportPublication(record)
+}
+
+function promotionReport(input: RetainedInput, record: Operation | Promotion) {
   const history = input.history
   const scope = history.source.scope
   if (!equalScope(record, scope) || workflowOperationProblem(history) !== null)
@@ -62,7 +67,7 @@ function promotionReport(input: Input, record: Operation | Promotion) {
 }
 
 function validatePromotionReceipt(
-  input: Input,
+  input: RetainedInput,
   record: Promotion,
   existing: readonly CanonicalRecord[],
   report: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
@@ -88,7 +93,7 @@ function validatePromotionReceipt(
   )
 }
 
-function historicalPublication(input: Input, record: Operation | Promotion): Diagnostic[] {
+function historicalPublication(input: RetainedInput, record: Operation | Promotion): Diagnostic[] {
   const { history } = input
   const diagnostics: Diagnostic[] = []
   const result = promotionReport(input, record)
@@ -129,12 +134,19 @@ function historicalPublication(input: Input, record: Operation | Promotion): Dia
   return diagnostics
 }
 
-/** Publication-only semantic dispatch; all other causal records retain live validation. */
+/** The retained role is derived solely from the record and needs no current D14 context. */
+export function validateRetainedReportPublication(input: RetainedInput): Diagnostic[] {
+  return isRetainedReportPublication(input.record) &&
+    (input.record.kind === 'cause-operation' || input.record.kind === 'report-promotion')
+    ? historicalPublication(input, input.record)
+    : [diagnostic('cause-operation-source-unconfirmed', 'Record is not a report promotion')]
+}
+
+/** All other causal publications require current semantic validation. */
 export function validateCausePublication(input: Input): Diagnostic[] {
-  if (isPromotionIntent(input.record) || input.record.kind === 'report-promotion')
-    return historicalPublication(input, input.record)
   return validateCauseDispositionRecords({
     histories: [input.history, ...input.externalHistories],
+    catalogues: input.catalogues,
     records: [
       ...recordsOf(input.history).filter((item) => item.recordId !== input.record.recordId),
       ...input.externalHistories.flatMap(recordsOf),

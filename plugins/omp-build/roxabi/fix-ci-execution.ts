@@ -15,7 +15,7 @@ import { capturedSubmission, failure } from './fix-contract.ts'
 import { assessFixIntake, publishNativeContributions, taskSlot } from './fix-contributions-native.ts'
 import { persistCauseDispositions } from './fix-disposition-execution.ts'
 import type { FixPolicy } from './fix-domain'
-import { admitDecisionExecution } from './fix-execution-policy.ts'
+import { admitDecisionExecution, executionCatalogues } from './fix-execution-policy.ts'
 import { executeDecision } from './fix-execution-runner.ts'
 import { confirmFixContinuation } from './fix-mandate-authority.ts'
 import type { AttributedCiCorrectionInput, CiCorrectionBound } from './fix-mandate-types.ts'
@@ -39,7 +39,9 @@ async function validateSynthesisHistory(
     const history = await product.readHistory()
     if (!history.source.complete) return failure('correction-synthesis-history-incomplete')
     if (decision.kind !== 'decision') return failure('ci-correction-decision-invalid')
-    return admitDecisionExecution(decision, history)
+    const catalogues = await executionCatalogues(history, product.github)
+    if (!catalogues.ok) return catalogues
+    return admitDecisionExecution(decision, history, catalogues.value)
   } catch (error) {
     return failure(`correction-synthesis-history-unreadable:${error instanceof Error ? error.message : String(error)}`)
   }

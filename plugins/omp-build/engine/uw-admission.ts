@@ -1,6 +1,7 @@
 import { assessCauseHolds } from './cause-hold.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import type { Scope } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import {
@@ -38,6 +39,7 @@ type UwAdmissionBase = {
   accepted: AcceptedOwnSpecResult
   identities: SpecIdentityLedger
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
 }
 type InitialUwAdmissionInput = UwAdmissionBase & { phase: 'initial-selection' }
 type TransitionUwAdmissionInput = UwAdmissionBase & {
@@ -238,7 +240,12 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
     deliverable.push(...blockerDiagnostics(root, nodes), ...transitionDiagnostics(input, root, nodes))
   }
   if (input.accepted.status === 'accepted') {
-    for (const hold of assessCauseHolds({ uw: input.uw, histories: input.histories, graph: input.graph })) {
+    for (const hold of assessCauseHolds({
+      uw: input.uw,
+      histories: input.histories,
+      graph: input.graph,
+      catalogues: input.catalogues,
+    })) {
       deliverable.push(
         diag(input.uw, hold.code, hold.recordId === undefined ? hold.message : `${hold.message} (${hold.recordId})`),
       )

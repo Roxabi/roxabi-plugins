@@ -6,6 +6,8 @@ import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { publishFirstMandate } from './feature-mandate.ts'
 import { prepareRequestedSession } from './feature-selection-session.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
 import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 
@@ -24,6 +26,7 @@ export async function freshOwnSpec(
     accepted: read.accepted,
     identities: read.identity.value,
     histories: read.histories,
+    catalogues: read.catalogues,
     phase: 'initial-selection',
   })
   if (!initial.deliverable.ok)
@@ -49,17 +52,17 @@ export async function establishFirstMandate(input: {
   reader: UwReadPort | undefined
   branch: string
   history: FeatureAuthority['history']
-}): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'selection'> | ContinueFeatureResult> {
+}): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const { authority, uwRead, reader, branch, history } = input
   const { context, scope } = authority
-  if (uwRead === null) return { kind: 'blocked', reason: 'uw-read-required' }
+  if (uwRead === null || reader === undefined) return { kind: 'blocked', reason: 'uw-read-required' }
   const own = await freshOwnSpec(scope, uwRead, reader)
   if ('kind' in own) return own
   const root = uwRead.graph.nodes.find(
     (node) => node.uw.repository === scope.repository && node.uw.target === scope.target,
   )
   if (root === undefined) return { kind: 'blocked', reason: 'graph-root-missing' }
-  const parentAuthority = await firstMandateParent(authority, root.parent, own)
+  const parentAuthority = await firstMandateParent(authority, root.parent, own, uwRead)
   if ('kind' in parentAuthority) return parentAuthority
   const { parent, parentHistories } = parentAuthority
   const prepared = await prepareRequestedSession(authority, branch)
@@ -76,28 +79,32 @@ export async function establishFirstMandate(input: {
     parentHistories,
   )
   if (!published.ok) return { kind: 'blocked', reason: published.reason, diagnostics: published.diagnostics }
-  return confirmFirstMandateSelection(authority, parent)
+  return confirmFirstMandateSelection(authority, parent, reader)
 }
 
 async function firstMandateParent(
   authority: FeatureAuthority,
   parent: FeatureAuthority['scope'] | null,
   own: Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children'>,
+  uwRead: UwRead,
 ): Promise<
   { parent: ExternalRecordRef | null; parentHistories: FeatureAuthority['parentHistories'] } | ContinueFeatureResult
 > {
   if (parent === null) return { parent: null, parentHistories: authority.parentHistories }
   const { context, scope } = authority
-  const read = await context.engine.readComposedWorkflowHistory([parent], { cwd: context.cwd, gh: context.gh })
+  const options = { ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }), gh: context.gh }
+  const read = await context.engine.readComposedWorkflowHistory([parent], options)
   if (!read.ok) return { kind: 'blocked', reason: read.reason }
   const history = read.histories.find(
     (candidate) =>
       candidate.source.scope.repository === parent.repository && candidate.source.scope.target === parent.target,
   )
   if (history === undefined) return { kind: 'blocked', reason: 'parent-history-missing' }
-  const ancestry = await mandateParentHistories(context.engine, history, { cwd: context.cwd, gh: context.gh })
+  const ancestry = await mandateParentHistories(context.engine, history, options)
   if (!ancestry.ok) return { kind: 'blocked', reason: ancestry.reason }
-  const selected = context.engine.resolveOwnSpecAuthority(history, ancestry.parents)
+  const causal = await readFixUwCausalContext(uwRead.histories, [history, ...ancestry.parents], options)
+  if (!causal.ok) return { kind: 'blocked', reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  const selected = context.engine.resolveOwnSpecAuthority(history, ancestry.parents, causal.value)
   if (!selected.ok) return { kind: 'blocked', reason: 'parent-mandate-unconfirmed', diagnostics: selected.diagnostics }
   const commitment = selected.value.accepted.children.find(
     (child) => child.scope.repository === scope.repository && child.scope.target === scope.target,
@@ -115,15 +122,20 @@ async function firstMandateParent(
 async function confirmFirstMandateSelection(
   authority: FeatureAuthority,
   parent: ExternalRecordRef | null,
-): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'selection'> | ContinueFeatureResult> {
+  reader: UwReadPort,
+): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const { context, scope } = authority
-  const refreshed = await context.engine.readComposedWorkflowHistory([scope], { cwd: context.cwd, gh: context.gh })
+  const options = { ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }), gh: context.gh }
+  const refreshed = await context.engine.readComposedWorkflowHistory([scope], options)
   if (!refreshed.ok || refreshed.histories[0] === undefined)
     return { kind: 'blocked', reason: 'first-mandate-unconfirmed' }
   const history = refreshed.histories[0]
-  const parents = await mandateParentHistories(context.engine, history, { cwd: context.cwd, gh: context.gh })
+  const parents = await mandateParentHistories(context.engine, history, options)
   if (!parents.ok) return { kind: 'blocked', reason: parents.reason }
-  const selected = context.engine.selectApplicableMandate(history, parents.parents)
+  const read = await reader.readUw(scope)
+  const causal = await readFixUwCausalContext(read.histories, [history, ...parents.parents], options)
+  if (!causal.ok) return { kind: 'blocked', reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  const selected = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null)
     return { kind: 'blocked', reason: 'first-mandate-unconfirmed' }
   if (
@@ -134,5 +146,5 @@ async function confirmFirstMandateSelection(
       selected.mandate.payload.parent.scope.target !== parent.scope.target)
   )
     return { kind: 'blocked', reason: 'first-mandate-parent-unconfirmed' }
-  return { history, parentHistories: parents.parents, selection: selected }
+  return { history, parentHistories: parents.parents, causal: causal.value, selection: selected }
 }

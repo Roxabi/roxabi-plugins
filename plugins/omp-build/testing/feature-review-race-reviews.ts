@@ -4,9 +4,11 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { persistCauseDispositions } from '../roxabi/fix-disposition-execution.ts'
 import { createFixDispositionStore } from '../roxabi/fix-disposition-store.ts'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
-import { loadReviewConfig } from '../roxabi/review-assets.ts'
+import { createPublicationContextResolver } from '../roxabi/publication-context.ts'
+import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
+import { gh } from '../skills/feature/workflow-runtime.js'
 import { citedHistory, history, reviewRecord } from './feature-review-race-history.ts'
 
 type ReviewRecord = Extract<CanonicalRecord, { kind: 'review' }>
@@ -21,7 +23,7 @@ async function publishNewReview(
   initial: Awaited<ReturnType<typeof history>>,
 ): Promise<void> {
   const store = createFixDispositionStore(effective.own.uw, { cwd })
-  const projection = { taxonomy: loadReviewConfig().canonicalClasses, acceptedPolicy: null }
+  const projection = createPublicationContextResolver({ cwd }, null)
   const id = `race-review-${round}`
   const newerDecision: DecisionRecord = {
     ...decision,
@@ -32,7 +34,6 @@ async function publishNewReview(
   }
   const decisionPublication = await publishGitHubRecord(
     newerDecision,
-    await history(cwd),
     withRoxabiGitHubPolicy({ cwd }),
     projection,
     await citedHistory(cwd, initial),
@@ -56,13 +57,7 @@ async function publishNewReview(
   }
   const origin = await store.read([effective.own.uw])
   if (!origin.ok) throw new Error(`third-review-origin-unreadable:${JSON.stringify(origin.diagnostics)}`)
-  const publication = await publishGitHubRecord(
-    newerReview,
-    await history(cwd),
-    withRoxabiGitHubPolicy({ cwd }),
-    projection,
-    origin.value,
-  )
+  const publication = await publishGitHubRecord(newerReview, withRoxabiGitHubPolicy({ cwd }), projection, origin.value)
   if (publication.status !== 'confirmed')
     throw new Error(`third-review-publication-refused:${JSON.stringify(publication.diagnostics)}`)
 }
@@ -93,7 +88,9 @@ export async function nextReviewRecords(
   const effective = root.payload.inputSnapshot.manifest.spec.effective
   for (const round of [2, 3]) await publishNewReview(cwd, round, review, decision, effective, initial)
   const current = await history(cwd)
-  const summary = reviewRecords(current, { externalHistories: await citedHistory(cwd, current) })
+  const externalHistories = await citedHistory(cwd, current)
+  const catalogues = await loadReviewClassCatalogues({ histories: [current, ...externalHistories], cwd, gh })
+  const summary = reviewRecords(current, { catalogues, externalHistories })
   if (!current.source.complete || !summary.ok || summary.value.reviews !== 3)
     throw new Error('third-review-history-invalid')
   const step = reviewStep(summary.value, { head: summary.value.head })

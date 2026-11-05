@@ -2,6 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { accounted } from './review-context-authentication.ts'
 import { validateDecisionBindings } from './review-decision.ts'
 import { recordsOf } from './workflow-control.ts'
@@ -124,18 +125,16 @@ export function resolveCorrectionRequestBasis(
   history: DecodedHistory,
   fix: FixRequest,
   decision: Decision,
+  catalogues: ReviewClassCatalogues,
 ): Result<{
   originalCandidate: string
   expectedRemoteHead: string
   branch: string
   base: string
 }> {
-  if (
-    !accounted(history, fix) ||
-    !accounted(history, decision) ||
-    !validateDecisionBindings(decision, history).admissible
-  )
-    return failure()
+  if (!accounted(history, fix) || !accounted(history, decision)) return failure()
+  const bindings = validateDecisionBindings(decision, history, catalogues)
+  if (!bindings.admissible) return { ok: false, diagnostics: bindings.diagnostics }
   const basis = operatorBasis(history, fix)
   return basis !== null && originalDecisionMatches(history, fix, decision, basis.originalCandidate)
     ? { ok: true, value: basis }

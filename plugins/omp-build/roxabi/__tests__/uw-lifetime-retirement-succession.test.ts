@@ -15,6 +15,7 @@ import type { Scope } from '../../engine/record-values.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { type CriterionId, canonicalSpec, type SpecSnapshot, validateSpecIds } from '../../engine/uw-spec.ts'
 import { resolveOwnSpecAuthority } from '../../engine/workflow-mandate-admission.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
@@ -169,14 +170,27 @@ test('accepted retirement survives abandonment and a compatible successor, and c
   expect(activeHistory.operations.every((entry) => entry.status === 'complete' && entry.authority !== 'foreign')).toBe(
     true,
   )
-  expect(resolveOwnSpecAuthority(activeHistory, [])).toMatchObject({ ok: true })
-  expect(resolveOwnSpecAuthority(inactiveHistory, [])).toMatchObject({ ok: false })
-  const active = await createInstalledObservedUwReadPort({ graph: graph(retained), histories: [activeHistory] }).readUw(
-    uw,
-  )
+  expect(
+    resolveOwnSpecAuthority(activeHistory, [], {
+      histories: [activeHistory],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
+  ).toMatchObject({ ok: true })
+  expect(
+    resolveOwnSpecAuthority(inactiveHistory, [], {
+      histories: [inactiveHistory],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
+  ).toMatchObject({ ok: false })
+  const active = await createInstalledObservedUwReadPort({
+    graph: graph(retained),
+    histories: [activeHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  }).readUw(uw)
   const inactive = await createInstalledObservedUwReadPort({
     graph: graph(retained),
     histories: [inactiveHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
   }).readUw(uw)
   expect(active.accepted.status).toBe('accepted')
   expect(active.identity.ok && active.identity.value.retired.get('C1')?.recordId).toBe(acceptance.recordId)
@@ -191,6 +205,7 @@ test('accepted retirement survives abandonment and a compatible successor, and c
   const attemptedReuse = await createInstalledObservedUwReadPort({
     graph: graph(original),
     histories: [inactiveHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
   }).readUw(uw)
   expect.soft(attemptedReuse.admission.framed).toMatchObject({
     ok: false,
@@ -206,6 +221,7 @@ test('accepted retirement survives abandonment and a compatible successor, and c
   const successorRead = await createInstalledObservedUwReadPort({
     graph: graph(retained),
     histories: [history([...records, abandon, successor])],
+    catalogues: fixtureHostReviewClassCatalogues(),
   }).readUw(uw)
   expect(successorRead.accepted.status).toBe('accepted')
   if (!successorRead.identity.ok) throw new Error('successor identity history must remain readable')
@@ -217,6 +233,7 @@ test('accepted retirement survives abandonment and a compatible successor, and c
   const successorReuse = await createInstalledObservedUwReadPort({
     graph: graph(original),
     histories: [history([...records, abandon, successor])],
+    catalogues: fixtureHostReviewClassCatalogues(),
   }).readUw(uw)
   expect(successorReuse.admission.framed).toMatchObject({
     ok: false,

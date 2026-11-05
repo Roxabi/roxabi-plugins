@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { contextNegativeBindingSchema } from './action-context.ts'
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest, validateParsedActionInputs } from './action-input.ts'
 import { type ExternalRecordRef, gitObjectIdSchema } from './record-references.ts'
 import {
   contributionSchema,
@@ -193,7 +193,7 @@ function refineMandatedReceipt(receipt: MandatedReceipt, context: z.RefinementCt
 }
 
 export function refineActionReceipt(receipt: ActionReceiptPayload, context: z.RefinementCtx): void {
-  const checked = validateActionInputs(receipt.inputs)
+  const checked = validateParsedActionInputs(receipt.inputs)
   if (receipt.action === 'assess-spec' || receipt.action === 'attribute-ci') {
     const operands = receipt.inputs.manifest.operands
     if (

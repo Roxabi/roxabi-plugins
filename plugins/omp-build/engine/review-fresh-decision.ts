@@ -1,15 +1,18 @@
 import { canonicalValueDigest } from './action-input.ts'
+import { assessHistoricalCauseDispositions } from './cause-assessment.ts'
 import {
   assessCauseDispositions,
   effectiveRejectedFindingIds,
   type Ref,
   validateCauseDispositionRecords,
 } from './cause-disposition.ts'
+import { historicalRejectedFindingIds } from './cause-effective-findings.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { DecisionAssessment, Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { assessDecision } from './review-decision.ts'
 import { reviewInputsFromInventory } from './review-inventory-input.ts'
 import { sameOwnSpecRef } from './spec-effective.ts'
@@ -73,7 +76,9 @@ function validateBoundAssessment(
   spec: AcceptedSpec,
   refs: readonly Ref<'cause-disposition'>[],
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   assessment: DecisionAssessment,
+  historical: boolean,
 ): Result<DecisionAssessment> {
   const uw = spec.effective.own.uw
   const origin = histories.find((entry) => equalScope(entry.source.scope, uw))
@@ -81,12 +86,13 @@ function validateBoundAssessment(
   const bound = bindReviewDispositions(refs, origin, spec, record)
   if (!bound.ok) return bound
   const relevant = bound.value
-  const validation = validateCauseDispositionRecords({ records: recordsOf(origin), histories })
+  const validation = validateCauseDispositionRecords({ records: recordsOf(origin), histories, catalogues })
   if (validation.length) return fail(validation)
-  const expected = assessCauseDispositions({
+  const expected = (historical ? assessHistoricalCauseDispositions : assessCauseDispositions)({
     context: { original: uw, effective: spec.effective },
     source: { kind: 'decision', decision: record },
     histories,
+    catalogues,
     adjudications: [],
   })
   if (!expected.ok) return expected
@@ -113,14 +119,15 @@ function validateBoundAssessment(
   return { ok: true, value: veto ? { ...assessment, verdict: 'Request changes' } : assessment }
 }
 
-export function validateFreshDecision(
+function validateDecisionAtObservation(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
   reviewDispositionRefs?: readonly Ref<'cause-disposition'>[],
+  historical = false,
 ): Result<DecisionAssessment> {
   if (reviewDispositionRefs === undefined)
     return fail([
@@ -134,14 +141,19 @@ export function validateFreshDecision(
   let rejected: readonly string[] = []
   const histories = [deliveryHistory, ...externalHistories]
   if (selected.some((item) => item.record.kind === 'cause-disposition')) {
-    const effective = effectiveRejectedFindingIds({ decision: record, action: inputs, histories })
+    const effective = (historical ? historicalRejectedFindingIds : effectiveRejectedFindingIds)({
+      decision: record,
+      action: inputs,
+      histories,
+      catalogues,
+    })
     if (!effective.ok) return effective
     rejected = effective.value
   }
   const assessment = assessDecision(
     record,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     externalHistories,
     deliveryHistory,
@@ -152,5 +164,54 @@ export function validateFreshDecision(
     return reviewDispositionRefs.length === 0
       ? { ok: true, value: assessment }
       : fail([diagnostic('cause-origin-mismatch', 'Standalone review cannot select UW dispositions')])
-  return validateBoundAssessment(record, inputs.manifest.spec, reviewDispositionRefs, histories, assessment)
+  return validateBoundAssessment(
+    record,
+    inputs.manifest.spec,
+    reviewDispositionRefs,
+    histories,
+    catalogues,
+    assessment,
+    historical,
+  )
+}
+
+export function validateFreshDecision(
+  record: Decision,
+  history: DecodedHistory,
+  catalogues: ReviewClassCatalogues,
+  acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[] = [],
+  deliveryHistory: DecodedHistory = history,
+  reviewDispositionRefs?: readonly Ref<'cause-disposition'>[],
+): Result<DecisionAssessment> {
+  return validateDecisionAtObservation(
+    record,
+    history,
+    catalogues,
+    acceptedPolicyRef,
+    externalHistories,
+    deliveryHistory,
+    reviewDispositionRefs,
+  )
+}
+
+export function validateHistoricalReviewDecision(
+  record: Decision,
+  history: DecodedHistory,
+  catalogues: ReviewClassCatalogues,
+  acceptedPolicyRef: string | null,
+  externalHistories: readonly DecodedHistory[],
+  deliveryHistory: DecodedHistory,
+  reviewDispositionRefs: readonly Ref<'cause-disposition'>[] | undefined,
+): Result<DecisionAssessment> {
+  return validateDecisionAtObservation(
+    record,
+    history,
+    catalogues,
+    acceptedPolicyRef,
+    externalHistories,
+    deliveryHistory,
+    reviewDispositionRefs,
+    true,
+  )
 }

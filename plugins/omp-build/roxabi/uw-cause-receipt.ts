@@ -7,14 +7,20 @@ import {
   bindExternalRef,
   buildRecord,
   type GitHubOptions,
+  isRetainedReportPublication,
   publishConfirmedWorkflowRecord,
+  readCauseHistoryClosure,
   readComposedWorkflowHistory,
   validateCausePublication,
+  validateRetainedReportPublication,
 } from '../dist/contracts.js'
 import type { CauseCreationProposal, CauseSisterInput } from '../engine/cause-disposition-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import { defaultGh } from './feature-engine.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { diagnostic, home, issue } from './uw-cause-creation-support.ts'
 import type { CauseOperationResult, PreparedUwProposal, UwRead, UwReadPort } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
@@ -77,9 +83,46 @@ async function assertRelations(args: ReceiptArgs): Promise<void> {
   if (!linked) throw new Error('cause-relation-unconfirmed')
 }
 
+function buildCauseReceipt(args: ReceiptArgs, identity: { scope: Scope; recordId: string; kind: 'spec-identity' }) {
+  const { uw, known, mode, relation, parentScope, proposal, intent, source, ref } = args
+  const operation = { scope: uw, recordId: intent.value.recordId, kind: 'cause-operation' as const }
+  if (mode !== 'sister') {
+    return buildRecord({
+      ...uw,
+      version: 1,
+      kind: 'report-promotion',
+      recordId: `${proposal.operationId}:receipt`,
+      runId: proposal.operationId,
+      operationId: `${proposal.operationId}:receipt`,
+      payload: { format: 'omp-build-report-promotion/1', report: ref, operation, created: known, identity },
+    })
+  }
+  const subject = source.payload.subject
+  if (subject.kind !== 'cause') throw new Error('cause-subject-not-runnable')
+  return buildRecord({
+    ...uw,
+    version: 1,
+    kind: 'debt-receipt',
+    recordId: `${proposal.operationId}:receipt`,
+    runId: proposal.operationId,
+    operationId: `${proposal.operationId}:receipt`,
+    payload: {
+      format: 'omp-build-debt-receipt/2',
+      operation,
+      disposition: ref,
+      decision: subject.decision,
+      causeId: subject.cause.id,
+      original: uw,
+      sister: known,
+      parent: parentScope,
+      relation,
+      identity,
+    },
+  })
+}
+
 export async function publishCauseReceipt(args: ReceiptArgs): Promise<CauseOperationResult> {
-  const { input, uw, known, mode, relation, parentScope, result, checked, prepared, proposal, intent, source, ref } =
-    args
+  const { input, uw, known, result, checked, prepared, proposal } = args
   await assertRelations(args)
   if (!result.value.identity.ok || result.value.identity.value.head?.kind !== 'spec-identity')
     throw new Error('cause-identity-unconfirmed')
@@ -96,73 +139,52 @@ export async function publishCauseReceipt(args: ReceiptArgs): Promise<CauseOpera
     identityRecord.value.payload.confirmation.operationId !== proposal.operationId
   )
     throw new Error('cause-identity-unconfirmed')
-  const operation = { scope: uw, recordId: intent.value.recordId, kind: 'cause-operation' as const }
-  const receipt =
-    mode === 'sister'
-      ? buildRecord({
-          ...uw,
-          version: 1,
-          kind: 'debt-receipt',
-          recordId: `${proposal.operationId}:receipt`,
-          runId: proposal.operationId,
-          operationId: `${proposal.operationId}:receipt`,
-          payload: {
-            format: 'omp-build-debt-receipt/2',
-            operation,
-            disposition: ref,
-            decision:
-              source.payload.subject.kind === 'cause'
-                ? source.payload.subject.decision
-                : (() => {
-                    throw new Error('cause-subject-not-runnable')
-                  })(),
-            causeId: source.payload.subject.kind === 'cause' ? source.payload.subject.cause.id : '',
-            original: uw,
-            sister: known,
-            parent: parentScope,
-            relation,
-            identity,
-          },
-        })
-      : buildRecord({
-          ...uw,
-          version: 1,
-          kind: 'report-promotion',
-          recordId: `${proposal.operationId}:receipt`,
-          runId: proposal.operationId,
-          operationId: `${proposal.operationId}:receipt`,
-          payload: { format: 'omp-build-report-promotion/1', report: ref, operation, created: known, identity },
-        })
+  const receipt = buildCauseReceipt(args, identity)
   if (!receipt.ok)
     return {
       status: 'partial',
       uw: known,
-      diagnostics: receipt.diagnostics.map((item) => diagnostic(known as Scope, item.code, item.message)),
+      diagnostics: receipt.diagnostics.map((item) => diagnostic(known, item.code, item.message)),
     }
-  const receiptHome = home(reread.histories, uw)
-  const invalid = validateCausePublication({
+  const retained = isRetainedReportPublication(receipt.value)
+  const closure = retained
+    ? { ok: true as const, histories: reread.histories }
+    : await readCauseHistoryClosure(reread.histories, (needed) => readComposedWorkflowHistory(needed, input.github))
+  if (!closure.ok) throw new Error(closure.diagnostics.map((item) => item.code).join(','))
+  const histories = closure.histories
+  const receiptHome = home(histories, uw)
+  const evidence = {
     record: receipt.value,
     history: receiptHome,
-    externalHistories: reread.histories.filter((entry) => entry !== receiptHome),
-  })
+    externalHistories: histories.filter((entry) => entry !== receiptHome),
+  }
+  const invalid = retained
+    ? validateRetainedReportPublication(evidence)
+    : validateCausePublication({
+        ...evidence,
+        catalogues: await loadReviewClassCatalogues({
+          histories,
+          cwd: input.github.cwd,
+          gh: input.github.gh ?? defaultGh(),
+        }),
+      })
   if (invalid.length)
     return {
       status: 'partial',
       uw: known,
-      diagnostics: invalid.map((item) => diagnostic(known as Scope, item.code, item.message)),
+      diagnostics: invalid.map((item) => diagnostic(known, item.code, item.message)),
     }
   const written = await publishConfirmedWorkflowRecord(
     receipt.value,
-    receiptHome,
     input.github,
-    null,
-    reread.histories.filter((entry) => entry !== receiptHome),
+    createPublicationContextResolver(input.github, null),
+    histories.filter((entry) => entry !== receiptHome),
   )
   if (written.status !== 'confirmed')
     return {
       status: 'partial',
       uw: known,
-      diagnostics: written.diagnostics.map((item) => diagnostic(known as Scope, item.code, item.message)),
+      diagnostics: written.diagnostics.map((item) => diagnostic(known, item.code, item.message)),
     }
   return {
     status: 'created',

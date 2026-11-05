@@ -1,4 +1,4 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
 import { resolveCauseActionInputs } from './cause-adjudication.ts'
 import type { CauseContext } from './finding-target.ts'
@@ -7,6 +7,7 @@ import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
+import { originalContributionAction } from './review-original-action.ts'
 import { sameOwnSpecRef } from './spec-effective.ts'
 import { bindExternalRef } from './workflow-control.ts'
 
@@ -22,31 +23,13 @@ function contributionInputs(
   histories: readonly DecodedHistory[],
   context: CauseContext,
 ): Result<readonly ActionInputs[]> {
-  if (source.payload.inventoryId === null) return { ok: true, value: [] }
   const scope = { repository: source.repository, target: source.target }
   const history = histories.find((item) => equalScope(item.source.scope, scope))
-  if (!history || !source.inputs.includes(source.payload.inventoryId)) return unavailable()
-  const inventory = bindExternalRef({ scope, recordId: source.payload.inventoryId, kind: 'review-attempt' }, history)
-  if (!inventory.ok || inventory.value.kind !== 'review-attempt') return unavailable()
-  const slots = inventory.value.payload.slots.filter((slot) => slot.slotId === source.payload.host.slotId)
-  const slot = slots[0]
+  if (!history) return unavailable()
+  const action = originalContributionAction(source, history)
+  if (!action.ok) return action
+  const inputs = action.value
   if (
-    slots.length !== 1 ||
-    !slot ||
-    slot.phase !== source.payload.host.phase ||
-    slot.role !== source.payload.host.role ||
-    slot.chunk !== source.payload.host.chunk
-  )
-    return unavailable()
-  const binding = slot.action
-  if (!binding) return source.payload.host.action === undefined ? { ok: true, value: [] } : unavailable()
-  const inputs = binding.inputs
-  if (
-    (source.payload.host.action !== undefined &&
-      canonicalValueDigest(source.payload.host.action) !== canonicalValueDigest(binding)) ||
-    !validateActionInputs(inputs).ok ||
-    inputs.fingerprint !== inventory.value.payload.actionInputDigest ||
-    inputs.manifest.code.head !== inventory.value.payload.candidateGitSHA ||
     inputs.manifest.spec.kind !== 'accepted' ||
     !sameOwnSpecRef(inputs.manifest.spec.effective.own, context.effective.own) ||
     canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(context.effective)

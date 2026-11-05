@@ -29,6 +29,8 @@ import type {
 import { bindSuccessorWriter } from './uw-normalization-internal.ts'
 import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
 import { issueRef, observation } from './uw-operation-observation.ts'
+import { insertionDiagnostics } from './uw-parent-admission.ts'
+import { readAfterEffect } from './uw-post-effect-read.ts'
 import {
   parentRepositoryDiagnostics,
   prepareCreateProposal,
@@ -37,7 +39,6 @@ import {
   staleWrite,
   type UwProposalPreparationPorts,
 } from './uw-proposal-preparation.ts'
-import { UwGraphUnavailableError } from './uw-read-port.ts'
 
 export type IdentityPublicationResult =
   | { status: 'confirmed' }
@@ -48,6 +49,7 @@ export type UwOperationsPorts = {
   readCreated(uw: Scope): Promise<UwRead>
   listReports: UwOperations['listReports']
   writer: IssueWriter
+  guardParent(parent: IssueRef): Promise<void>
   guardedWriter(beforeEffect: CauseEffectGuard): IssueWriter
   causeOperations(backend: {
     prepare(
@@ -83,27 +85,6 @@ export type UwOperationsPorts = {
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-function postEffectDiagnostics(uw: Scope, error: unknown): readonly UwDiagnostic[] {
-  if (error instanceof UwGraphUnavailableError) return error.diagnostics
-  return [
-    diagnostic(
-      uw,
-      'post-effect-read-failed',
-      error instanceof Error ? error.message : 'UW read failed after durable effects',
-    ),
-  ]
-}
-async function readAfterEffect(
-  status: 'written' | 'created',
-  uw: Scope,
-  read: () => Promise<UwRead>,
-): Promise<UwOperationResult> {
-  try {
-    return { status, value: await read() }
-  } catch (error) {
-    return { status: 'partial', uw, diagnostics: postEffectDiagnostics(uw, error) }
-  }
 }
 
 function issuePlan(proposal: UwProposal): NativeIssueWritePlan {
@@ -143,6 +124,8 @@ async function commitWrite(
         ),
       ],
     }
+  const parentDiagnostics = await insertionDiagnostics(prepared.proposal, ports)
+  if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
   const publishesIdentity =
     prepared.proposal.allocation.assignments.length > 0 ||
     (prepared.proposal.expected?.acceptedPredecessor === null && prepared.proposal.allocation.retirements.length > 0)
@@ -179,6 +162,8 @@ async function commitCreate(
   ports: UwOperationsPorts,
   writer: IssueWriter,
 ): Promise<UwOperationResult> {
+  const parentDiagnostics = await insertionDiagnostics(prepared.proposal, ports)
+  if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
   const created = await writer.create(issuePlan(prepared.proposal))
   if (created.status === 'uncertain')
     return { status: 'uncertain', diagnostics: created.diagnostics.map(({ code, message }) => ({ code, message })) }
@@ -251,6 +236,8 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       const request = structuredClone(input)
       const prepared = await prepareExisting(request)
       if ('diagnostics' in prepared) return { status: 'refused', diagnostics: prepared.diagnostics }
+      const parentDiagnostics = await insertionDiagnostics(prepared.proposal, ports)
+      if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
       return confirmedResult(
         await ports.operator.executeConfirmed(prepared, (confirmation) =>
           commitWrite(request, prepared, confirmation, ports),
@@ -263,6 +250,8 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
       const prepared = prepareCreateProposal(request, proposalPorts, { kind: 'operator-create' })
       if ('diagnostics' in prepared) return { status: 'refused', diagnostics: prepared.diagnostics }
+      const insertion = await insertionDiagnostics(prepared.proposal, ports)
+      if (insertion.length > 0) return { status: 'refused', diagnostics: insertion }
       return confirmedResult(
         await ports.operator.executeConfirmed(prepared, (confirmation) =>
           commitCreate(request, prepared, confirmation, ports, ports.writer),

@@ -1,10 +1,11 @@
 import { missingContextOutputSchema } from './action-context.ts'
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
 import { recordIntegrity } from './record-integrity.ts'
 import type { CanonicalRecord } from './record-schema.ts'
+import { matchesContributionSlot } from './review-original-action.ts'
 import { isInitialPullRequestReviewInventory } from './review-schema.ts'
 
 type Root = Extract<CanonicalRecord, { kind: 'review-attempt' }>
@@ -29,7 +30,7 @@ export function accounted(history: DecodedHistory, record: CanonicalRecord): boo
     operation.operationId === record.operationId &&
     operation.kind === record.kind &&
     operation.record !== null &&
-    same(operation.record, record) &&
+    (operation.record === record || same(operation.record, record)) &&
     equalScope(record, history.source.scope) &&
     operation.parts.every((part) => part.author === history.source.expectedAuthor) &&
     recordIntegrity(operation.parts, record) === null
@@ -43,17 +44,9 @@ export function negativeFor(history: DecodedHistory, root: Root, entry: Contribu
   const slot = root.payload.slots.find((candidate) => candidate.slotId === payload.host.slotId)
   return (
     payload.inventoryId === root.recordId &&
-    entry.inputs.includes(root.recordId) &&
     slot !== undefined &&
-    payload.host.origin === 'native' &&
-    payload.host.childId !== null &&
-    payload.host.phase === slot.phase &&
-    payload.host.role === slot.role &&
-    payload.host.chunk === slot.chunk &&
     binding !== undefined &&
-    slot.action !== undefined &&
-    same(slot.action, binding) &&
-    validateActionInputs(binding.inputs).ok &&
+    matchesContributionSlot(entry, slot, root.recordId) &&
     binding.inputs.fingerprint === root.payload.actionInputDigest &&
     binding.inputs.manifest.code.head === root.payload.candidateGitSHA &&
     (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) &&
@@ -111,15 +104,8 @@ export function resolvedOutputValid(
 ): boolean {
   const binding = slot.action
   return (
-    next.inputs.includes(rootId) &&
-    next.payload.host.origin === 'native' &&
-    next.payload.host.childId !== null &&
-    next.payload.host.phase === slot.phase &&
-    next.payload.host.role === slot.role &&
-    next.payload.host.chunk === slot.chunk &&
+    matchesContributionSlot(next, slot, rootId) &&
     binding !== undefined &&
-    (next.payload.host.action === undefined || same(binding, next.payload.host.action)) &&
-    validateActionInputs(binding.inputs).ok &&
     same(binding.inputs, snapshot) &&
     next.payload.native?.completion === 'completed' &&
     next.payload.native.strict === 'valid' &&

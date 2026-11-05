@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureCausal, workflowEvidence } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest } from '../action-input.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
@@ -63,8 +64,8 @@ describe('workflow Spec assessment behavior', () => {
         assessmentReplay: context,
       }),
     ).toMatchObject({ ok: true })
-    expect(resolveOwnSpecAuthority(issue)).toMatchObject({ ok: false })
-    expect(resolveOwnSpecAuthority(issue, [], new Set(), context)).toMatchObject({ ok: true })
+    expect(resolveOwnSpecAuthority(issue, [], fixtureCausal([issue]))).toMatchObject({ ok: false })
+    expect(resolveOwnSpecAuthority(issue, [], fixtureCausal([issue]), new Set(), context)).toMatchObject({ ok: true })
     expect(resolveAcceptedSpec(mandated, [issue], { ...context, actionId: 'other' })).toMatchObject({ ok: false })
     expect(resolveAcceptedSpec(mandated, [issue], { ...context, fingerprint: '0'.repeat(64) })).toMatchObject({
       ok: false,
@@ -161,7 +162,7 @@ describe('workflow Spec assessment behavior', () => {
       },
     })
     const decision = reconstructWorkflow({
-      evidence: { issue: history([mandated]), pullRequest: null, parents: [] },
+      evidence: workflowEvidence(history([mandated]), null, [], []),
       facts: facts({
         productVersion: mandated.payload.config.productVersion,
         configVersion: mandated.payload.config.version,
@@ -193,7 +194,7 @@ describe('workflow Spec assessment behavior', () => {
     expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: true, spec: accepted })
     expect(
       reconstructWorkflow({
-        evidence: { issue, pullRequest: null, parents: [] },
+        evidence: workflowEvidence(issue, null, [], []),
         facts: currentFacts(mandated, assessment.proposed),
         decisions: decisions(),
       }),
@@ -229,7 +230,7 @@ describe('workflow Spec assessment behavior', () => {
     })
     expect(
       reconstructWorkflow({
-        evidence: { issue, pullRequest: null, parents: [] },
+        evidence: workflowEvidence(issue, null, [], []),
         facts: currentFacts(mandated, proposed),
         decisions: decisions(),
       }),
@@ -260,7 +261,7 @@ describe('workflow Spec assessment behavior', () => {
     })
     expect(
       reconstructWorkflow({
-        evidence: { issue, pullRequest: null, parents: [] },
+        evidence: workflowEvidence(issue, null, [], []),
         facts: currentFacts(mandated, assessment.proposed),
         decisions: decisions(),
       }),
@@ -293,19 +294,12 @@ describe('workflow Spec assessment behavior', () => {
       proposedAssessmentState(afterSecond, { body: 'editorial body B' }),
       'editorial',
     )
-    const evidence = {
-      issue: history([
-        mandated,
-        first.start,
-        first.result,
-        second.start,
-        second.result,
-        returned.start,
-        returned.result,
-      ]),
-      pullRequest: null,
-      parents: [],
-    }
+    const evidence = workflowEvidence(
+      history([mandated, first.start, first.result, second.start, second.result, returned.start, returned.result]),
+      null,
+      [],
+      [],
+    )
     expect(resolveAcceptedSpec(mandated, [evidence.issue])).toMatchObject({
       ok: true,
       spec: { ref: { version: returned.currentVersion }, snapshot: { spec: { version: returned.currentVersion } } },
@@ -374,12 +368,13 @@ describe('workflow Spec assessment behavior', () => {
         },
       }),
     )
-    const evidence = {
-      issue: history([predecessor, stale.start, stale.result, abandoned, successor, selected]),
-      pullRequest: null,
-      parents: [],
-    }
-    expect(selectApplicableMandate(evidence.issue)).toMatchObject({
+    const evidence = workflowEvidence(
+      history([predecessor, stale.start, stale.result, abandoned, successor, selected]),
+      null,
+      [],
+      [],
+    )
+    expect(selectApplicableMandate(evidence.issue, [], evidence.causal)).toMatchObject({
       status: 'applicable',
       mandate: { recordId: successor.recordId },
     })
@@ -413,11 +408,12 @@ describe('workflow Spec assessment behavior', () => {
     )
     expect(
       reconstructWorkflow({
-        evidence: {
-          issue: history([successor, first.start, first.result, second.start, second.result]),
-          pullRequest: null,
-          parents: [],
-        },
+        evidence: workflowEvidence(
+          history([successor, first.start, first.result, second.start, second.result]),
+          null,
+          [],
+          [],
+        ),
         facts: currentFacts(successor, first.proposed),
         decisions: decisions(),
       }),

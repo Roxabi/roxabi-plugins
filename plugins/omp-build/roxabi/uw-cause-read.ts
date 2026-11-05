@@ -6,6 +6,7 @@ import {
   causeDispositionLineage,
   causeHistoryReferences,
   type GitHubOptions,
+  readCauseHistoryClosure,
   readCauseReports,
   readComposedWorkflowHistory,
   resolveCauseActionInputs,
@@ -19,6 +20,9 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import { defaultGh } from './feature-engine.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwReadPort } from './uw-contract.ts'
 
 const key = (scope: Scope) => `${scope.repository}\0${scope.target}`
@@ -77,6 +81,7 @@ function assertAdjudicatedDisposition(
   adjudicationRef: ExternalRecordRef,
   loaded: readonly DecodedHistory[],
   context: CauseContext,
+  catalogues: ReviewClassCatalogues,
 ): void {
   const previous = bindExternalRef(previousRef, home(loaded, previousRef.scope))
   const operation = bindExternalRef(adjudicationRef, home(loaded, adjudicationRef.scope))
@@ -89,6 +94,7 @@ function assertAdjudicatedDisposition(
     operation: operation.value,
     histories: loaded,
     context,
+    catalogues,
   })
   if (!assessed.ok) fail(assessed.diagnostics)
   if (canonicalValueDigest(assessed.value) !== canonicalValueDigest(disposition.payload))
@@ -100,11 +106,12 @@ function assertDispositionAssessment(
   decision: Extract<CanonicalRecord, { kind: 'decision' }>,
   loaded: readonly DecodedHistory[],
   context: CauseContext,
+  catalogues: ReviewClassCatalogues,
 ): void {
   const previousRef = disposition.payload.previous
   const adjudicationRef = disposition.payload.adjudication
   if (previousRef !== null && adjudicationRef !== null) {
-    assertAdjudicatedDisposition(disposition, previousRef, adjudicationRef, loaded, context)
+    assertAdjudicatedDisposition(disposition, previousRef, adjudicationRef, loaded, context, catalogues)
     return
   }
   if (previousRef !== null || adjudicationRef !== null) throw new Error('cause-disposition-stale')
@@ -112,6 +119,7 @@ function assertDispositionAssessment(
     context,
     source: { kind: 'decision', decision },
     histories: loaded,
+    catalogues,
     adjudications: [],
   })
   if (!assessed.ok) fail(assessed.diagnostics)
@@ -126,6 +134,7 @@ export type CauseRead = {
   disposition: Extract<CanonicalRecord, { kind: 'cause-disposition' }>
   histories: DecodedHistory[]
   context: CauseContext
+  catalogues: ReviewClassCatalogues
 }
 
 /** Reconstruct a cause only from its authenticated disposition, original Spec and producer action. */
@@ -178,6 +187,17 @@ export async function readAuthenticatedCause(
     ]),
   )
   loaded = await histories(scopes, github)
+  const closure = await readCauseHistoryClosure(loaded, (required) => readComposedWorkflowHistory(required, github))
+  if (!closure.ok) fail(closure.diagnostics)
+  loaded = closure.histories
+  const reboundSource = bindExternalRef(subject.decision, home(loaded, subject.decision.scope))
+  if (!reboundSource.ok || canonicalValueDigest(reboundSource.value) !== canonicalValueDigest(source.value))
+    throw new Error('cause-source-stale')
+  const catalogues = await loadReviewClassCatalogues({
+    histories: loaded,
+    cwd: github.cwd,
+    gh: github.gh ?? defaultGh(),
+  })
   const own = home(loaded, ref.scope)
   const records = loaded.flatMap((history) =>
     history.operations.flatMap((operation) =>
@@ -186,7 +206,7 @@ export async function readAuthenticatedCause(
         : [],
     ),
   )
-  const validation = validateCauseDispositionRecords({ records, histories: loaded })
+  const validation = validateCauseDispositionRecords({ records, histories: loaded, catalogues })
   if (validation.length) fail(validation)
   if (
     records.some(
@@ -197,9 +217,9 @@ export async function readAuthenticatedCause(
     )
   )
     throw new Error('cause-disposition-stale')
-  assertDispositionAssessment(disposition, source.value, loaded, context)
+  assertDispositionAssessment(disposition, source.value, loaded, context, catalogues)
   assertDispositionRebound(ref, own, disposition)
-  return { disposition, histories: loaded, context }
+  return { disposition, histories: loaded, context, catalogues }
 }
 
 /** Promotion uses the immutable original report snapshot, not a PR-wide search. */

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
 import { assessCauseHolds, buildRecord, parseRecord } from '../dist/contracts.js'
-import { submission } from '../testing/record-builders.ts'
+import { fixtureCatalogueGhResponse } from '../testing/action-input-fixtures.ts'
+import { encodeCriterionRecords } from '../testing/criterion-approval.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
+import { projectionConfig, submission } from '../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph, reviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
@@ -47,8 +50,35 @@ function consumer(origin: DecodedHistory, target: DecodedHistory) {
   const saved: Extract<CanonicalRecord, { kind: 'cause-disposition' }>[] = []
   const activate = vi.fn()
   const publish = vi.fn()
+  const records = origin.operations.flatMap((entry) => (entry.record === null ? [] : [entry.record]))
+  const encodedOrigin = encodeCriterionRecords(
+    records,
+    origin.source.scope,
+    projectionConfig(),
+    origin.source.expectedAuthor,
+  )
+  const github = {
+    cwd: '/fixture',
+    readAuthor: origin.source.expectedAuthor,
+    gh: async (_cwd: string, args: string[]) => {
+      const catalogue = fixtureCatalogueGhResponse(args)
+      if (catalogue !== null) return catalogue
+      if (args[0] === 'api' && args[1] === `repos/${original.repository}/issues/12/comments?per_page=100&page=1`)
+        return JSON.stringify(
+          encodedOrigin.comments.map((comment, index) => ({
+            id: index + 1,
+            body: comment.body,
+            user: { login: origin.source.expectedAuthor },
+            created_at: comment.createdAt,
+            updated_at: comment.updatedAt,
+          })),
+        )
+      throw new Error(`Unexpected fixture GitHub request: ${args.join(' ')}`)
+    },
+  }
   const dispositionStore = {
     read: vi.fn(async () => ({ ok: true as const, value: [current, target] })),
+    catalogues: async () => fixtureHostReviewClassCatalogues(),
     publish: vi.fn(async (item: Extract<CanonicalRecord, { kind: 'cause-disposition' }>) => {
       saved.push(item)
       const observed = operation(item, {
@@ -60,6 +90,7 @@ function consumer(origin: DecodedHistory, target: DecodedHistory) {
     }),
   }
   const workflow = {
+    github,
     dispositionStore,
     native: { activate },
     publisher: { publish },
@@ -74,6 +105,12 @@ describe('correction disposition ingress', () => {
     const activate = vi.fn()
     const publish = vi.fn()
     const product = {
+      github: {
+        cwd: '/fixture',
+        gh: async () => {
+          throw new Error('Unexpected GitHub request')
+        },
+      },
       runtime: { signal: new AbortController().signal },
       native: { activate },
       publisher: { publish },
@@ -82,6 +119,9 @@ describe('correction disposition ingress', () => {
           ok: false as const,
           diagnostics: [{ code: 'correction-disposition-history-unreadable', message: 'unavailable' }],
         })),
+        catalogues: vi.fn(async () => {
+          throw new Error('Catalogue loading must not follow an unreadable history')
+        }),
         publish: vi.fn(),
       },
       readHistory: vi.fn(),
@@ -192,6 +232,7 @@ describe('correction disposition ingress', () => {
     const holds = assessCauseHolds({
       uw: original,
       histories: readback.value,
+      catalogues: fixtureHostReviewClassCatalogues(),
       graph: { status: 'complete', root: original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
     })
     expect(holds).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]))
@@ -353,6 +394,7 @@ describe('correction disposition ingress', () => {
       assessCauseHolds({
         uw: original,
         histories: readback.value,
+        catalogues: fixtureHostReviewClassCatalogues(),
         graph: { status: 'complete', root: original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
       }),
     ).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]))

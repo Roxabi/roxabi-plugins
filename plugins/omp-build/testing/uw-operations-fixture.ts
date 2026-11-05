@@ -15,6 +15,7 @@ import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { guardedCauseWriter } from '../roxabi/uw-cause-guard.ts'
 import type { UwRead } from '../roxabi/uw-contract.ts'
 import { createUwOperations, type IdentityPublicationResult, type UwOperationsPorts } from '../roxabi/uw-operations.ts'
+import { fixtureHostReviewClassCatalogues } from './host-catalogue-fixture.ts'
 import { consultableProtocolOptions } from './protocol-retention.unit.ts'
 import { allocationRef, CREATED, CREATED_UW, ISSUE, SOURCE_BODY, UW } from './uw-operations-fixture-input.ts'
 
@@ -180,6 +181,8 @@ export function fixture(
       if (state.patchCount > 0 && options.postEffectReadFailure !== undefined) throw options.postEffectReadFailure
       return {
         uw: UW,
+        catalogues: fixtureHostReviewClassCatalogues(),
+        causalObservation: { status: 'unavailable' },
         graph: {
           status: 'complete',
           root: UW,
@@ -224,6 +227,7 @@ export function fixture(
       } as UwRead
     },
     listReports: async (root) => ({ ok: true, value: { root, reports: [] } }),
+    guardParent: async () => {},
     writer: createIssueWriter(issuePorts),
     guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
     causeOperations: () => ({

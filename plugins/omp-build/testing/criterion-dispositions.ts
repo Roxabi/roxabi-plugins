@@ -3,12 +3,14 @@ import { assessCauseDispositions } from '../engine/cause-assessment.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 
 /** Assess the actual authenticated decision; do not synthesize empty or preselected dispositions. */
 export function criterionDispositionRecords(
   inputs: ActionInputs,
   decision: Extract<CanonicalRecord, { kind: 'decision' }>,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
 ) {
   if (inputs.manifest.spec.kind !== 'accepted') throw new Error('Expected accepted review origin')
   const original = inputs.manifest.spec.effective.own.uw
@@ -16,6 +18,7 @@ export function criterionDispositionRecords(
     context: { original, effective: inputs.manifest.spec.effective },
     source: { kind: 'decision', decision },
     histories,
+    catalogues,
     adjudications: [],
   })
   if (!assessment.ok)

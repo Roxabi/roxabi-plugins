@@ -2,24 +2,26 @@ import { validateRecordGraph } from './history-graph.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { type DecisionAssessment, type Result, recordMap } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { reviewContextLineage } from './review-context-lineage.ts'
-import { validateDecision, validateFreshDecision } from './review-decision.ts'
+import { validateDecision } from './review-decision.ts'
+import { validateHistoricalReviewDecision } from './review-fresh-decision.ts'
 import { latestUnfinishedPullRequestRoot, reviewOperations } from './review-identity.ts'
 
 function assessHistoricalDecision(
   decision: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[],
   deliveryHistory: DecodedHistory,
   refs: Extract<CanonicalRecord, { kind: 'review' }>['payload']['causeDispositionRefs'],
 ): Result<DecisionAssessment> {
   if (refs !== undefined)
-    return validateFreshDecision(
+    return validateHistoricalReviewDecision(
       decision,
       history,
-      taxonomy,
+      catalogues,
       acceptedPolicyRef,
       externalHistories,
       deliveryHistory,
@@ -27,13 +29,13 @@ function assessHistoricalDecision(
     )
   return {
     ok: true,
-    value: validateDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory),
+    value: validateDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory),
   }
 }
 
 export function spentBeforeCurrentPullRequestAttempt(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
@@ -59,11 +61,11 @@ export function spentBeforeCurrentPullRequestAttempt(
     ...deliveryHistory,
     operations: deliveryHistory.operations.slice(0, deliveryRootIndex),
   }
-  return spentInCompleteHistory(prefix, taxonomy, acceptedPolicyRef, externalHistories, deliveryPrefix)
+  return spentInCompleteHistory(prefix, catalogues, acceptedPolicyRef, externalHistories, deliveryPrefix)
 }
 export function spentInCompleteHistory(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
@@ -86,7 +88,7 @@ export function spentInCompleteHistory(
     const assessed = assessHistoricalDecision(
       decision,
       completedHistory,
-      taxonomy,
+      catalogues,
       acceptedPolicyRef,
       externalHistories,
       deliveryHistory,

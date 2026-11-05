@@ -1,35 +1,122 @@
 import { expect, it } from 'vitest'
 import { nativeComment, wire } from '../../adapters/__tests__/github-workflow-support.ts'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import type { Gh } from '../../adapters/github/types.ts'
-import { buildRecord } from '../../engine/record-construction.ts'
-import { sisterRecords } from '../../testing/cause-input-fixture.ts'
+import {
+  assessCauseDispositions,
+  buildRecord,
+  createReviewClassCatalogues,
+  readCauseDispositionHeads,
+  recordsOf,
+  reviewClassCatalogueRef,
+} from '../../dist/contracts.js'
+import { causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
+import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInput, fixture } from '../../testing/uw-operations-fixture.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 
+type NativeComment = { id: number; body: string; user: { login: string }; created_at: string; updated_at: string }
+
+function independentHold() {
+  const origin = causeOriginalHistory()
+  const originalMandate = recordsOf(origin).find((record) => record.kind === 'mandate')
+  if (originalMandate?.kind !== 'mandate') throw new Error('expected original mandate')
+  const otherPr = { repository: 'acme/app', target: 'acme/app#46' }
+  const binding = roxabiWorkflowFixtures().workflowBinding(otherPr, originalMandate, 'feat/42-save', 'main')
+  const other = acceptedPullRequestReviewGraph({
+    mandate: originalMandate,
+    binding,
+    prefix: 'independent-hold',
+    label: 'issue',
+  })
+  if (other.inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted hold input')
+  const assessed = assessCauseDispositions({
+    context: { original: origin.source.scope, effective: other.inputs.manifest.spec.effective },
+    source: { kind: 'decision', decision: other.decision },
+    histories: [origin, other.history],
+    catalogues: fixtureHostReviewClassCatalogues(),
+    adjudications: [],
+  })
+  if (!assessed.ok) throw new Error(`independent hold assessment refused: ${JSON.stringify(assessed.diagnostics)}`)
+  const pending = assessed.value.outcomes.find((item) => item.outcome.state === 'pending-blocking')
+  if (!pending) throw new Error('expected independent pending hold')
+  const hold = buildRecord({
+    version: 1,
+    ...origin.source.scope,
+    recordId: 'independent-hold',
+    runId: 'hold-run',
+    operationId: 'independent-hold-op',
+    kind: 'cause-disposition',
+    payload: pending,
+  })
+  if (!hold.ok || hold.value.kind !== 'cause-disposition') throw new Error('invalid independent hold')
+  const pinned = reviewClassCatalogueRef(other.inputs)
+  if (!pinned.ok) throw new Error('expected pinned hold catalogue')
+  const missingCatalogue = createReviewClassCatalogues([
+    {
+      ref: pinned.value,
+      contents: { ok: false, diagnostics: [{ code: 'unreadable', message: 'Pinned catalogue unavailable' }] },
+    },
+  ])
+  const currentHoldHistory = decodeHistory({
+    ...origin.source,
+    comments: [
+      ...origin.source.comments,
+      {
+        locator: 'acme/app#42:independent-hold',
+        nativeId: 'independent-hold',
+        body: wire(hold.value),
+        author: origin.source.expectedAuthor,
+        createdAt: '2026-10-27T12:00:00Z',
+        updatedAt: '2026-10-27T12:00:00Z',
+      },
+    ],
+  })
+  const completeHold = readCauseDispositionHeads({
+    uw: origin.source.scope,
+    histories: [currentHoldHistory, other.history],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
+  expect(completeHold.ok, JSON.stringify(completeHold)).toBe(true)
+  const missingEvidence = readCauseDispositionHeads({
+    uw: origin.source.scope,
+    histories: [currentHoldHistory, other.history],
+    catalogues: missingCatalogue,
+  })
+  expect(missingEvidence.ok).toBe(false)
+  return hold
+}
+
+function historicalReport() {
+  const held = sisterRecords().held
+  if (held.kind !== 'cause-disposition') throw new Error('expected disposition')
+  const built = buildRecord({
+    version: 1,
+    repository: held.repository,
+    target: held.target,
+    recordId: 'historical-report',
+    runId: 'historic',
+    operationId: 'historical-report-op',
+    kind: 'cause-disposition',
+    payload: {
+      ...held.payload,
+      outcome: { state: 'final', disposition: 'report', blocking: false, reason: 'Retained historical work' },
+    },
+  })
+  if (!built.ok) throw new Error('report fixture invalid')
+  return built.value
+}
+
 it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)(
   'uses the installed parent guard during promotion: %s',
   async (parentState) => {
-    const held = sisterRecords().held
-    if (held.kind !== 'cause-disposition') throw new Error('expected disposition')
-    const built = buildRecord({
-      version: 1,
-      repository: held.repository,
-      target: held.target,
-      recordId: 'historical-report',
-      runId: 'historic',
-      operationId: 'historical-report-op',
-      kind: 'cause-disposition',
-      payload: {
-        ...held.payload,
-        outcome: { state: 'final', disposition: 'report', blocking: false, reason: 'Retained historical work' },
-      },
-    })
-    if (!built.ok) throw new Error('report fixture invalid')
-    const report = built.value
-    const comments = new Map<number, ReturnType<typeof nativeComment>[]>([
+    const hold = independentHold()
+    const report = historicalReport()
+    const comments = new Map<number, NativeComment[]>([
       [41, []],
-      [42, [nativeComment(1, wire(report))]],
+      [42, [nativeComment(1, wire(report)), nativeComment(2, wire(hold.value))]],
       [43, []],
     ])
     const parentScope = { repository: 'acme/app', target: 'acme/app#41' }
@@ -52,11 +139,11 @@ it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)
     let patches = 0
     const forbidden: string[] = []
     function handleComments(endpoint: string, args: string[], number: number): string {
-      if (!comments.has(number)) {
+      const list = comments.get(number)
+      if (!list) {
         forbidden.push(endpoint)
         throw new Error('old PR unavailable')
       }
-      const list = comments.get(number) as ReturnType<typeof nativeComment>[]
       if (!args.includes('POST')) return JSON.stringify(list)
       const body = args.find((arg) => arg.startsWith('body='))?.slice(5)
       if (body === undefined) throw new Error('missing comment body')
@@ -161,6 +248,13 @@ it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)
       readAuthor: 'automation',
       operator: base.ports.operator,
     })
+    if (parentState === 'inactive') {
+      const before = await operations.listReports(parentScope)
+      expect(before.ok, JSON.stringify(before)).toBe(true)
+      if (!before.ok) throw new Error('historical descendant report unavailable')
+      expect(before.value.reports.map((item) => item.ref.recordId)).toContain('historical-report')
+      expect(forbidden).toEqual([])
+    }
     const initial = createInput()
     const create = {
       ...initial,
@@ -221,6 +315,29 @@ it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)
           promotion: expect.objectContaining({ kind: 'report-promotion' }),
         }),
       ])
+      const ledger = decodeHistory({
+        scope: { repository: report.repository, target: report.target },
+        expectedAuthor: 'automation',
+        stopAuthor: null,
+        complete: true,
+        diagnostics: [],
+        comments: (comments.get(42) ?? []).map((item) => ({
+          locator: `acme/app#42:${item.id}`,
+          nativeId: String(item.id),
+          body: item.body,
+          author: item.user.login,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+        })),
+      })
+      expect(recordsOf(ledger).find((record) => record.recordId === hold.value.recordId)).toEqual(hold.value)
+      const current = readCauseDispositionHeads({
+        uw: ledger.source.scope,
+        histories: [ledger],
+        catalogues: fixtureHostReviewClassCatalogues(),
+      })
+      if (!current.ok) expect(current.diagnostics.map((item) => item.code)).toContain('cause-source-unconfirmed')
+      expect(current.ok).toBe(false)
       expect(forbidden).toEqual([])
     }
   },

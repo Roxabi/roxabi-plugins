@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 
 import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
+import { gh } from '../skills/feature/workflow-runtime.js'
 import { reviewInitialData } from './feature-review-lifecycle.ts'
 import { citedHistory, history } from './feature-review-race-history.ts'
 import { nextReviewRecords } from './feature-review-race-reviews.ts'
@@ -101,7 +103,9 @@ function failNextPost() {
 async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'checkout') {
   const source = await history(cwd)
   const records = source.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
-  const summary = reviewRecords(source, { externalHistories: await citedHistory(cwd, source) })
+  const externalHistories = await citedHistory(cwd, source)
+  const catalogues = await loadReviewClassCatalogues({ histories: [source, ...externalHistories], cwd, gh })
+  const summary = reviewRecords(source, { catalogues, externalHistories })
   const requests = records.filter((record) => record.kind === 'fix-request')
   if (kind === 'preflight') {
     if (!source.source.complete || requests.length !== 1) throw new Error('fix-request-not-confirmed-before-race')

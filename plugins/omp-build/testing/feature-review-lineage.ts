@@ -4,9 +4,11 @@ import path from 'node:path'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import { bindExternalRef, recordsOf } from '../engine/workflow-control.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
+import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 import { selectedReviewRoot } from '../roxabi/uw-selected-review.ts'
 import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
+import { gh } from '../skills/feature/workflow-runtime.js'
 import {
   correctionCriteria,
   guardCommand,
@@ -182,7 +184,9 @@ export async function invokeSuccessiveReviewLineage(cwd: string) {
       }
     }
     const current = await history(cwd)
-    const summary = reviewRecords(current, { externalHistories: await citedHistory(cwd, current) })
+    const externalHistories = await citedHistory(cwd, current)
+    const catalogues = await loadReviewClassCatalogues({ histories: [current, ...externalHistories], cwd, gh })
+    const summary = reviewRecords(current, { catalogues, externalHistories })
     if (!summary.ok) throw new Error(`review-history-invalid:${JSON.stringify(summary.diagnostics)}`)
     const roots = authenticatedReviewRoots(current)
     const before = roots.length

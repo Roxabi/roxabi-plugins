@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest'
 import { history } from '../../engine/__tests__/workflow-test-support.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { UwGraphObservation, UwNativeNode } from '../../engine/uw-graph.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { observeCauseSisters } from '../github-workflow/cause-sister-graph.ts'
 
@@ -30,7 +31,7 @@ it('loads only the authenticated receipt sister when its native edge is absent',
   const { graph: source, held, operation, identity, receipt } = sisterRecords()
   const histories = [history([held, operation, receipt], uw), source.history, history([identity], sister)]
   const read = vi.fn(async (scope: Scope) => graph(scope, true))
-  const observed = await observeCauseSisters(graph(uw), histories, read)
+  const observed = await observeCauseSisters(graph(uw), histories, read, fixtureReviewClassCatalogues())
   expect(read.mock.calls).toEqual([[sister]])
   expect(observed.nodes.map((item) => item.uw)).toEqual([uw, sister])
   expect(observed.nodes[1]?.native).toEqual({ state: 'CLOSED', stateReason: 'COMPLETED' })

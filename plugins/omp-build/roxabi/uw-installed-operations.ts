@@ -23,6 +23,7 @@ import type { SpecIdentityDraft } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import { createCauseAdjudication } from './uw-cause-adjudication.ts'
 import { createCauseCreation } from './uw-cause-creation.ts'
@@ -33,6 +34,8 @@ import { createInstalledMaterialOperations } from './uw-installed-material-opera
 import { rootObservation } from './uw-installed-observation.ts'
 import { diagnostic, diagnostics, listInstalledReports, postEffectDiagnostics } from './uw-installed-reports.ts'
 import { createUwOperations } from './uw-operations.ts'
+import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
+import { guardParentInsertions, parentInsertionGuard } from './uw-parent-insertion.ts'
 import { createInstalledUwReadPort, readCreatedUw } from './uw-read-port.ts'
 
 export type InstalledUwOperationsOptions = {
@@ -97,7 +100,11 @@ async function publishIdentityDraft(
       status: 'refused',
       diagnostics: [diagnostic(uw, 'history-missing', 'Own UW history is absent before identity publication')],
     }
-  const published = await publishConfirmedWorkflowRecord(record.value, own, github, null)
+  const published = await publishConfirmedWorkflowRecord(
+    record.value,
+    github,
+    createPublicationContextResolver(github, null),
+  )
   if (published.status !== 'confirmed')
     return { status: published.status, diagnostics: diagnostics(uw, published.diagnostics) }
   return {
@@ -201,10 +208,14 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     const uw = scopeOf(issue)
     return rootObservation(uw, { graph: await readUwGraph(uw, github) })
   }
-  const issuePorts = createGhIssueWritePorts({
-    gh: (args) => gh(input.cwd, [...args]),
-    read: completeReader,
-  })
+  const guardParent = parentInsertionGuard(createParentEngagementReadPort(github))
+  const issuePorts = guardParentInsertions(
+    createGhIssueWritePorts({
+      gh: (args) => gh(input.cwd, [...args]),
+      read: completeReader,
+    }),
+    guardParent,
+  )
   const writer = createIssueWriter(issuePorts)
   const publishIdentity = async ({
     uw,
@@ -239,6 +250,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     read: reader.readUw,
     readCreated: createdReader.readUw,
     listReports: (uw) => listInstalledReports(uw, github),
+    guardParent,
     writer,
     guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
     causeOperations(backend) {

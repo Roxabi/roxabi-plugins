@@ -81,20 +81,22 @@ export async function persistCauseDispositions(
   dispositionSourceScopes(source, addScope)
   const loaded = await loadDispositionHistories(store, scopeMap)
   if (!loaded.ok) return loaded
+  const catalogues = await store.catalogues(loaded.value)
   const operations = loaded.value.flatMap((history) => history.operations)
-  const heads = readCauseDispositionHeads({ uw: prepared.causeContext.original, histories: loaded.value })
+  const heads = readCauseDispositionHeads({ uw: prepared.causeContext.original, histories: loaded.value, catalogues })
   if (!heads.ok) return failure(...heads.diagnostics.map((item) => item.code))
   const records = operations.flatMap((operation) =>
     operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
       ? [operation.record]
       : [],
   )
-  const invalid = validateCauseDispositionRecords({ records, histories: loaded.value })
+  const invalid = validateCauseDispositionRecords({ records, histories: loaded.value, catalogues })
   if (invalid.length) return failure(...invalid.map((item) => item.code))
   const assessment = assessCauseDispositions({
     context: prepared.causeContext,
     source,
     histories: loaded.value,
+    catalogues,
     adjudications: [],
   })
   if (!assessment.ok) return failure(...assessment.diagnostics.map((item) => item.code))

@@ -3,12 +3,19 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, fail } from './record-diagnostics.ts'
 import type { Diagnostic, implementationCommandSchema } from './record-values.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import type { PlanBlockerRef } from './workflow-output-schema.ts'
+
+export type WorkflowCausalContext = Readonly<{
+  histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
+}>
 
 export type WorkflowEvidence = {
   issue: DecodedHistory
   pullRequest: DecodedHistory | null
   parents: readonly DecodedHistory[]
+  causal: WorkflowCausalContext
 }
 export type ActionCompletion = { status: 'not-started' | 'confirmed' | 'uncertain' | 'blocked'; evidence: Diagnostic[] }
 export type PlanMacroPhase = 'needs-draft' | 'needs-review' | 'needs-amendment' | 'eligible' | 'blocked' | 'uncertain'

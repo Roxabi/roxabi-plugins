@@ -9,20 +9,13 @@ import {
   summarizeReviews,
 } from '../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
+import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 import { replayStoredReviewAttempt } from '../roxabi/uw-action-inputs.ts'
 import { createProductionActionPorts, readReviewInputHistories } from '../roxabi/uw-input-readers.ts'
 import { type Gh, type Refusal, refreshReviewBase } from '../skills/feature/review-base.ts'
 import { currentLandingMandate } from '../skills/feature/workflow-mandate.js'
 import { validateLandingReviewInput } from '../skills/feature/workflow-review-input.js'
-import {
-  type Arguments,
-  canonicalTaxonomy,
-  ciState,
-  jsonDetail,
-  type MachineResult,
-  scopedGh,
-  scopedGit,
-} from './review-gate-cli.ts'
+import { type Arguments, ciState, jsonDetail, type MachineResult, scopedGh, scopedGit } from './review-gate-cli.ts'
 import {
   type AcceptedReviewState,
   type AcceptedSummary,
@@ -73,7 +66,6 @@ async function readInitialReview(args: Arguments, toolingRoot: string): Promise<
   const gh = scopedGh(toolingRoot, args.repository)
   const git = scopedGit(args.candidateCwd)
   const scope = githubScope(args.repository, args.pr)
-  const taxonomy = canonicalTaxonomy(toolingRoot)
   const history = decodeHistory(await readGitHubHistory(scope, reviewPolicy(args, toolingRoot, gh)))
   const external = await readReviewInputHistories(history, {
     cwd: args.candidateCwd,
@@ -81,7 +73,12 @@ async function readInitialReview(args: Arguments, toolingRoot: string): Promise<
     readAuthor: args.automationLogin,
   })
   if (!external.ok) return { refusal: await citedHistoryRefusal(args, toolingRoot, gh, git, external.diagnostics) }
-  const summary = summarizeReviews(history, taxonomy, null, external.value)
+  const catalogues = await loadReviewClassCatalogues({
+    histories: [history, ...external.value],
+    cwd: args.candidateCwd,
+    gh,
+  })
+  const summary = summarizeReviews(history, catalogues, null, external.value)
   if (!summary.ok) return { refusal: historyRefusal(summary.diagnostics) }
   const integrity = selectedReviewIntegrity(history, summary)
   if (integrity !== null) return { refusal: integrity }
@@ -92,7 +89,7 @@ async function readInitialReview(args: Arguments, toolingRoot: string): Promise<
   void coordinates.recordedBaseOid
   const selectedBase = await refreshReviewBase(args.candidateCwd, coordinates.baseName, git, gh)
   if (!selectedBase.ok) return { refusal: baseRefusal(selectedBase) }
-  return { gh, git, scope, taxonomy, summary, coordinates, baseTip: selectedBase.tip }
+  return { gh, git, scope, summary, coordinates, baseTip: selectedBase.tip }
 }
 
 function nativeAutoMergePending(
@@ -159,7 +156,12 @@ async function postAdmissionRefusal(
     readAuthor: args.automationLogin,
   })
   if (!external.ok) return citedHistoryRefusal(args, toolingRoot, context.gh, context.git, external.diagnostics)
-  const refreshed = summarizeReviews(refreshedDecoded, context.taxonomy, null, external.value)
+  const catalogues = await loadReviewClassCatalogues({
+    histories: [refreshedDecoded, ...external.value],
+    cwd: args.candidateCwd,
+    gh: context.gh,
+  })
+  const refreshed = summarizeReviews(refreshedDecoded, catalogues, null, external.value)
   if (!refreshed.ok) return historyRefusal(refreshed.diagnostics)
   const integrity = selectedReviewIntegrity(refreshedDecoded, refreshed)
   if (integrity !== null) return integrity
@@ -175,7 +177,7 @@ async function postAdmissionRefusal(
       ci,
       acceptedEvidencePolicyRef: null,
     },
-    context.taxonomy,
+    catalogues,
     external.value,
   )
   const fresh = currentHeadAndBase(

@@ -1,5 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import { openPr } from '../skills/feature/workflow-pr.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, payload, type Scope } from './feature-engine.ts'
@@ -80,9 +81,10 @@ export function reviewAfterBinding(
   issueHistory: History,
   delivery: Delivery | null,
   parents: readonly History[],
+  causal: WorkflowCausalContext,
 ): ContinueFeatureResult {
   if (delivery === null) return { kind: 'blocked', reason: 'binding-missing' }
-  const selected = contracts.selectApplicableMandate(issueHistory, parents)
+  const selected = contracts.selectApplicableMandate(issueHistory, parents, causal)
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return { kind: 'blocked', reason: 'binding-missing' }
   }

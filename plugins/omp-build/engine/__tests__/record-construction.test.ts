@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, submission, synthesisInventory, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
@@ -6,7 +7,7 @@ import { history, operation } from '../../testing/record-history.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
 import { validateDecision } from '../review-decision.ts'
-import { refusalCodes, TAXONOMY } from './record-test-support.ts'
+import { refusalCodes } from './record-test-support.ts'
 import { featureMandate } from './workflow-test-support.ts'
 
 describe('buildRecord', () => {
@@ -121,7 +122,7 @@ describe('buildRecord', () => {
       },
     }
 
-    expect(validateDecision(built.value, retained, TAXONOMY, null)).toMatchObject({
+    expect(validateDecision(built.value, retained, fixtureReviewClassCatalogues(), null)).toMatchObject({
       admissible: true,
       verdict: 'Request changes',
     })

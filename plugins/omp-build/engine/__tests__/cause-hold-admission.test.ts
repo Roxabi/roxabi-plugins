@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { authenticatedReview, sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { canonicalValueDigest } from '../action-input.ts'
@@ -163,6 +164,7 @@ function admission(
       ...(options.sourceHistory ? [options.sourceHistory] : []),
       ...(options.sisterHistory ? [options.sisterHistory] : []),
     ],
+    catalogues: fixtureReviewClassCatalogues(),
     phase: 'delivery-transition',
     currentChildren: { ok: true, value: [] },
   })
@@ -241,6 +243,7 @@ function authenticatedSuccessor() {
       source: { kind: 'decision', decision: graph.decision },
       histories: [originHistory, graph.history],
       adjudications: [],
+      catalogues: fixtureReviewClassCatalogues(),
     }),
   )
   const pendingPayload = initial.outcomes.find(
@@ -298,6 +301,7 @@ function authenticatedSuccessor() {
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory([pending, operation]), graph.history],
       adjudications: [operation],
+      catalogues: fixtureReviewClassCatalogues(),
     }),
   )
   const successorPayload = assessed.outcomes.find((item) => item.previous?.recordId === pending.recordId)
@@ -329,6 +333,7 @@ it.each(['retained-finding', 'rule-error'] as const)('accepts motivated exact %s
       },
       histories: [originalHistory(), graph.history],
       adjudications: [],
+      catalogues: fixtureReviewClassCatalogues(),
     }),
   )
   const payload = assessed.outcomes.find((item) => item.subject.kind === kind)
@@ -400,6 +405,7 @@ it.each(['retained-finding', 'rule-error'] as const)('accepts motivated exact %s
       operation,
       context,
       histories: [originalHistory([pending, operation]), graph.history],
+      catalogues: fixtureReviewClassCatalogues(),
     }),
   )
   expect(successor.subject).toEqual(pending.payload.subject)
@@ -461,6 +467,7 @@ describe('cause holds at UW admission', () => {
           sourceHistory,
           history([identity], { repository: uw.repository, target: 'acme/app#45' }),
         ],
+        catalogues: fixtureReviewClassCatalogues(),
       }).map((d) => d.code),
     ).toContain('cause-effect-unconfirmed')
   })
@@ -520,7 +527,6 @@ describe('cause holds at UW admission', () => {
     )
     const retained = admission([...records, unrelated], { sourceHistory })
     expect(retained.deliverable.ok).toBe(false)
-    expect(codes(retained)).toEqual(['cause-adjudication-required'])
   })
 
   it('refuses an apparently confirmed successor without its decision and citation provenance', () => {

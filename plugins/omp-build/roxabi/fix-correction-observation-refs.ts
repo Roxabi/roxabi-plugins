@@ -2,19 +2,21 @@ import { isDeepStrictEqual } from 'node:util'
 import { canonicalValueDigest, recordsOf } from '../dist/contracts.js'
 import type { CorrectionEffectResult } from './correction-execution-contract.ts'
 import type { FixRecord, PreparedFix } from './fix-contract.ts'
-import { admitDecisionExecution, type DefaultFixWorkflow } from './fix-execution-policy.ts'
+import { admitDecisionExecution, type DefaultFixWorkflow, executionCatalogues } from './fix-execution-policy.ts'
 import type { RecordInputRef } from './uw-action-contract.ts'
 
 export async function correctionObservationRefs(
   prepared: PreparedFix,
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'readHistory'>,
+  product: Pick<DefaultFixWorkflow, 'readHistory' | 'github'>,
 ): Promise<CorrectionEffectResult<{ request: RecordInputRef; decision: RecordInputRef }>> {
   try {
     const history = await product.readHistory()
     if (!history.source.complete)
       return { ok: false, kind: 'terminal', diagnostics: ['correction-observation-history-incomplete'] }
-    const admitted = admitDecisionExecution(decision, history)
+    const catalogues = await executionCatalogues(history, product.github)
+    if (!catalogues.ok) return { ok: false, kind: 'terminal', diagnostics: catalogues.diagnostics }
+    const admitted = admitDecisionExecution(decision, history, catalogues.value)
     if (!admitted.ok) return { ok: false, kind: 'terminal', diagnostics: admitted.diagnostics }
     const records = recordsOf(history)
     const request = records.find((item) => item.kind === 'fix-request' && item.recordId === prepared.requestId)
@@ -32,7 +34,13 @@ export async function correctionObservationRefs(
       digest: canonicalValueDigest(item.payload),
     })
     return { ok: true, value: { request: ref(request), decision: ref(storedDecision) } }
-  } catch {
-    return { ok: false, kind: 'terminal', diagnostics: ['correction-observation-history-unreadable'] }
+  } catch (error) {
+    return {
+      ok: false,
+      kind: 'terminal',
+      diagnostics: [
+        `correction-observation-history-unreadable:${error instanceof Error ? error.message : String(error)}`,
+      ],
+    }
   }
 }

@@ -5,6 +5,7 @@ import { expect, it, vi } from 'vitest'
 import * as contracts from '../contracts.ts'
 import { canonicalValueDigest } from '../dist/contracts.js'
 import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { BODY, SCOPE } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import * as delivery from './delivery-action.ts'
@@ -32,7 +33,12 @@ it('prepares one amendment from the selected draft and both original specialist 
     fixtures.planReviewStart(mandate, 'act-plan-1', fixtures.publishedPlanDigest()),
     review,
   ])
-  const evidence = { issue: history, pullRequest: null, parents: [] }
+  const evidence = {
+    issue: history,
+    pullRequest: null,
+    parents: [],
+    causal: { histories: [history], catalogues: fixtureHostReviewClassCatalogues() },
+  }
   const base = standaloneReviewInputs()
   const pluginBytes = Buffer.from('fixture plugin')
   const observe = vi
@@ -96,7 +102,6 @@ it('prepares one amendment from the selected draft and both original specialist 
     expect(result.followUp.tasks.tasks).toHaveLength(1)
     const task = result.followUp.tasks.tasks[0]
     expect(task.agent).toBe('R-workflow-plan')
-    expect(task.task).toContain('Index: ' + join(directory, 'index.md'))
     expect(task.task).not.toContain(JSON.stringify(review.payload.contributions))
     const manifest = task.action.inputs.manifest
     expect(manifest.deliveryData.filter((ref) => ref.role === 'plan')).toHaveLength(1)

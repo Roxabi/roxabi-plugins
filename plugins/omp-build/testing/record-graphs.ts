@@ -3,10 +3,10 @@ import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Label, Scope } from '../engine/record-values.ts'
 import { acceptedActionInputs } from './action-input-fixtures.ts'
+import { defaultEpicInputs } from './epic-review-input-fixture.ts'
 import { finding, reviewRoot, submission, synthesisInventory, TEST_HEAD, TEST_SCOPE } from './record-builders.ts'
 import { contribution, decision, finalReview } from './record-decisions.ts'
 import { history, operation } from './record-history.ts'
-import { createWorkflowFixtures } from './workflow-fixtures.ts'
 
 export function reviewGraph(
   options: {
@@ -30,7 +30,23 @@ export function reviewGraph(
     options.inputs?.manifest.spec.kind === 'accepted'
       ? options.inputs.manifest.spec.effective.own.uw
       : (options.scope ?? TEST_SCOPE)
-  const root = reviewRoot({ id: rootId, head, inputSnapshot: options.inputs, scope: options.scope })
+  const baseRoot = reviewRoot({ id: rootId, head, inputSnapshot: options.inputs, scope: options.scope })
+  if (baseRoot.payload.stage !== 'initial' || baseRoot.payload.purpose !== 'review')
+    throw new Error('Expected initial review inventory')
+  const snapshot = baseRoot.payload.inputSnapshot
+  const actions = new Map(
+    baseRoot.payload.slots.map((slot) => [slot.slotId, { actionId: `${rootId}-${slot.slotId}`, inputs: snapshot }]),
+  )
+  const root = {
+    ...baseRoot,
+    payload: {
+      ...baseRoot.payload,
+      slots: baseRoot.payload.slots.map((slot) => ({
+        ...slot,
+        action: actions.get(slot.slotId),
+      })),
+    },
+  }
   const specStructured = { findings: [], specRows: [] }
   const spec = contribution({
     id: `${prefix}-spec`,
@@ -63,7 +79,17 @@ export function reviewGraph(
           }),
         },
       ]
-  const panel = contribution({ id: panelId, inventoryId: rootId, findings: panelFindings, scope: options.scope })
+  const basePanel = contribution({ id: panelId, inventoryId: rootId, findings: panelFindings, scope: options.scope })
+  const panel = {
+    ...basePanel,
+    payload: {
+      ...basePanel.payload,
+      host: {
+        ...basePanel.payload.host,
+        action: actions.get('panel-0'),
+      },
+    },
+  }
   const synthesis = synthesisInventory({
     id: synthesisId,
     rootId,
@@ -183,45 +209,6 @@ export function acceptedPullRequestReviewGraph(options: {
   }
 }
 
-function defaultEpicInputs(scope: Scope, range: string): ActionInputs {
-  const fixtures = createWorkflowFixtures({
-    productVersion: '0.13.0',
-    config: {
-      version: 'omp-build-workflow/1',
-      digest: 'a'.repeat(64),
-      effective: {
-        graph: {
-          version: 1,
-          productVersion: '0.13.0',
-          configVersion: 'omp-build-workflow/1',
-          edgeOrder: 'array',
-          nodes: [{ id: 'stop', action: 'stop' }],
-          edges: [],
-          initial: 'stop',
-        },
-      },
-    },
-    head: null,
-    editedAt: '2026-10-21T00:00:00Z',
-  })
-  const mandate = fixtures.epicMandate(scope, [])
-  const inputs = acceptedActionInputs(mandate, 'review')
-  const [base, head] = range.split('..')
-  const manifest = {
-    ...inputs.manifest,
-    code: { ...inputs.manifest.code, repository: scope.repository, base, head },
-    acceptedSources: [
-      {
-        source: 'record' as const,
-        record: { scope, recordId: mandate.recordId, kind: mandate.kind },
-        selector: '/payload',
-        digest: canonicalValueDigest(mandate.payload),
-      },
-    ],
-  }
-  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
-}
-
 export function epicReviewGraph(
   options: {
     prefix?: string
@@ -247,6 +234,7 @@ export function epicReviewGraph(
     scope,
     head: options.head,
     inputSnapshot: inputs,
+    slots: graph.root.payload.slots,
     subject: {
       kind: 'epic-range',
       range,

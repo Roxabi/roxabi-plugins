@@ -3,7 +3,6 @@ import type { GitHubOptions } from '../dist/contracts.js'
 import {
   type CanonicalRecord,
   decodeHistory,
-  gh as githubClient,
   githubScope,
   parseRecord,
   readGitHubHistory,
@@ -31,9 +30,9 @@ import {
   slotsForInitial,
 } from './review-records'
 import { buildReviewContribution } from './review-runner-contribution.ts'
+import { reviewEvidenceReaders } from './review-runner-evidence.ts'
 import { publishReviewInventory } from './review-runner-inventory'
 import { advanceReviewStage, createSynthesisBatch, finalizeReview } from './review-runner-outcomes'
-import { readReviewInputHistories } from './uw-input-readers.ts'
 
 export type { PreparedReviewInputs }
 
@@ -58,11 +57,8 @@ export class CanonicalReviewRunner implements ReviewPublisher {
   ) {
     this.#scope = githubScope(input.context.repository, input.context.number)
     this.#options = withRoxabiGitHubPolicy(options)
-    const projectionConfig = {
-      taxonomy: input.canonicalClasses,
-      acceptedPolicy: input.policy.version === 'evidence-v1' ? input.policy.acceptanceRef : null,
-    }
-    this.#publisher = createGitHubRecordPublisher(this.#scope, this.#options, projectionConfig)
+    const acceptedPolicy = input.policy.version === 'evidence-v1' ? input.policy.acceptanceRef : null
+    this.#publisher = createGitHubRecordPublisher(this.#scope, this.#options, acceptedPolicy)
     this.#identity = createReviewIdentity(input.context)
   }
 
@@ -243,6 +239,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
       sourceContributions: this.#sourceContributions,
       knownSlots: this.#slots,
       readHistory: () => this.#history(),
+      loadCatalogues: (history) => reviewEvidenceReaders(this.input, this.#options).loadCatalogues([history]),
       createSynthesis: (rootAttemptId) => this.#synthesis(rootAttemptId),
     })
   }
@@ -278,12 +275,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         if (!saved.ok) throw new Error(`${failurePrefix}:${saved.diagnostics.join(',')}`)
       },
       ...reviewDispositionHandlers(this.input, this.#options, this.#identity, this.#inventories),
-      readExternalHistories: (history) =>
-        readReviewInputHistories(history, {
-          cwd: this.#options.cwd,
-          gh: githubClient(this.#options),
-          readAuthor: this.#options.readAuthor,
-        }),
+      ...reviewEvidenceReaders(this.input, this.#options),
       onDecisionConfirmed: (decisionId) => {
         this.#confirmedDecisionId = decisionId
       },

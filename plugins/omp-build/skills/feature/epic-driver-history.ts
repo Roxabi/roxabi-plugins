@@ -7,8 +7,8 @@ import {
   validateRecordGraph,
 } from '../../dist/contracts.js'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
-import { loadReviewConfig } from '../../roxabi/review-assets.ts'
-import { citedReviewHistories, diagnosticsText } from './epic-driver-github'
+import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
+import { adapterOptions, citedReviewHistories, diagnosticsText } from './epic-driver-github'
 import { Refused } from './epic-driver-runtime'
 import { parseEpicEvent } from './epic-events'
 import type { ChildFacts, Facts } from './epic-types'
@@ -161,7 +161,11 @@ export async function reviewsFromEvents(repo: string, history: DecodedHistory): 
   const graph = validateRecordGraph(authorityHistory)
   if (!graph.ok) throw new Refused(`Epic review history is not admissible: ${diagnosticsText(graph.diagnostics)}`)
   const records = new Map(graph.value.map((record) => [record.recordId, record]))
-  const taxonomy = loadReviewConfig().canonicalClasses
+  const catalogues = await loadReviewClassCatalogues({
+    histories: [history, ...externalHistories],
+    cwd: repo,
+    gh: adapterOptions(repo).gh,
+  })
   const reviews: Facts['reviews'] = []
   for (const event of events) {
     const { run, range, decisionId, inventoryIds } = reviewReferences(event)
@@ -170,7 +174,7 @@ export async function reviewsFromEvents(repo: string, history: DecodedHistory): 
     assertExactInventories(records, event, decisionId, inventoryIds, root)
     // Workflow receipts are accounted separately from review authority, but delivery
     // selection still needs the authenticated, complete same-scope history.
-    const assessment = validateDecision(decision, authorityHistory, taxonomy, null, externalHistories, history)
+    const assessment = validateDecision(decision, authorityHistory, catalogues, null, externalHistories, history)
     if (!assessment.admissible || assessment.verdict === null) {
       throw new Refused(
         `Epic review event ${event.record.recordId} decision is not admissible: ${diagnosticsText(assessment.diagnostics)}`,

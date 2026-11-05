@@ -5,6 +5,7 @@ import { observeCauseParent } from './uw-cause-parent.ts'
 import { readAuthenticatedCause, readAuthenticatedReport } from './uw-cause-read.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
+import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
 import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
 
 export async function loadCauseCreationSource(
@@ -24,7 +25,8 @@ export async function loadCauseCreationSource(
   const parentIssue =
     mode === 'sister' ? originalObserved.parent : (request as ReportPromotionInput).create.writes.relations.parent
   const parentScope = parentIssue == null ? null : githubScope(parentIssue.repository, parentIssue.number)
-  const parent = parentScope === null ? null : await observeCauseParent(parentScope, input.nativeReader, input.github)
+  const parent =
+    parentScope === null ? null : await observeCauseParent(parentScope, createParentEngagementReadPort(input.github))
   if (parent !== null && parent.state !== 'inactive') throw new Error(`cause-parent-${parent.state}`)
   return { source, originalDigest, parentScope, parent }
 }

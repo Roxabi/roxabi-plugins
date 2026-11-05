@@ -1,13 +1,15 @@
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
-import { readCauseDispositionHeads } from './cause-heads.ts'
+import { discoverCauseDispositionHeads } from './cause-heads.ts'
 import { causeDispositionLineage } from './cause-lineage.ts'
 import { validateCauseDispositionRecords } from './cause-record-validation.ts'
 import { observationRefDiagnostics } from './delivery-observation-authentication.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
+import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { sameOwnSpecRef } from './spec-effective.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { bindExternalRef, recordsOf } from './workflow-control.ts'
@@ -20,8 +22,11 @@ type Context = {
   decision: Decision
   own: OwnSpecRef
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
   selected: Selection
   pins: Selection
+  historical: boolean
+  validations: Map<DecodedHistory, readonly Diagnostic[]>
 }
 
 function validateMemberPin(member: Member, context: Context): Result<readonly string[]> {
@@ -112,9 +117,7 @@ function collectMatches(
   return { ok: true, value: [...rejected] }
 }
 
-function historicalPin(disposition: Disposition, history: DecodedHistory, context: Context): Result<readonly string[]> {
-  const validation = validateCauseDispositionRecords({ records: recordsOf(history), histories: context.histories })
-  if (validation.length) return { ok: false, diagnostics: validation }
+function historicalPin(disposition: Disposition): Result<readonly string[]> {
   if (disposition.payload.outcome.state === 'final' && disposition.payload.outcome.disposition === 'report')
     return { ok: true, value: [] }
   return {
@@ -133,25 +136,38 @@ function evaluatePin(pin: Selection[number], context: Context): Result<readonly 
       ok: false,
       diagnostics: [diagnostic('cause-adjudication-unconfirmed', 'Selected disposition is not authenticated')],
     }
+  let validation = context.validations.get(history)
+  if (validation === undefined) {
+    validation = validateCauseDispositionRecords({
+      records: recordsOf(history),
+      histories: context.histories,
+      catalogues: context.catalogues,
+    })
+    context.validations.set(history, validation)
+  }
+  if (validation.length) return { ok: false, diagnostics: [...validation] }
   const disposition = bound.value
-  if (!sameOwnSpecRef(disposition.payload.origin, context.own)) return historicalPin(disposition, history, context)
+  if (!sameOwnSpecRef(disposition.payload.origin, context.own)) return historicalPin(disposition)
   if (disposition.payload.subject.kind !== 'cause' || disposition.payload.adjudication === null)
     return { ok: true, value: [] }
-  const heads = readCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories })
-  if (!heads.ok) return heads
-  if (!heads.value.some((head) => head.recordId === disposition.recordId)) return { ok: true, value: [] }
+  if (!context.historical) {
+    const heads = discoverCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories })
+    if (!heads.ok) return heads
+    if (!heads.value.some((head) => head.recordId === disposition.recordId)) return { ok: true, value: [] }
+  }
   const rejected = lineageRejected(disposition, history, context)
   if (!rejected.ok) return rejected
-  const validation = validateCauseDispositionRecords({ records: recordsOf(history), histories: context.histories })
-  if (validation.length) return { ok: false, diagnostics: validation }
   return collectMatches(disposition, rejected.value, context)
 }
 
-export function effectiveRejectedFindingIds(input: {
+type EffectiveFindingInput = {
   decision: Decision
   action: ActionInputs
   histories: readonly DecodedHistory[]
-}): Result<readonly string[]> {
+  catalogues: ReviewClassCatalogues
+}
+
+function selectedRejectedFindingIds(input: EffectiveFindingInput, historical: boolean): Result<readonly string[]> {
   if (
     !validateActionInputs(input.action).ok ||
     input.action.manifest.purpose !== 'review' ||
@@ -167,8 +183,11 @@ export function effectiveRejectedFindingIds(input: {
     decision: input.decision,
     own: input.action.manifest.spec.effective.own,
     histories: input.histories,
+    catalogues: input.catalogues,
     selected,
     pins,
+    historical,
+    validations: new Map(),
   }
   const rejected = new Set<string>()
   for (const pin of pins) {
@@ -177,4 +196,12 @@ export function effectiveRejectedFindingIds(input: {
     for (const id of result.value) rejected.add(id)
   }
   return { ok: true, value: [...rejected] }
+}
+
+export function effectiveRejectedFindingIds(input: EffectiveFindingInput): Result<readonly string[]> {
+  return selectedRejectedFindingIds(input, false)
+}
+
+export function historicalRejectedFindingIds(input: EffectiveFindingInput): Result<readonly string[]> {
+  return selectedRejectedFindingIds(input, true)
 }

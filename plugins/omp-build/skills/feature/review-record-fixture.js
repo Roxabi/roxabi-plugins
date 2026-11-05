@@ -81,9 +81,12 @@ function reviewPayload(record, input, inputs) {
 
 function reviewSet(index, { head, verdict, input = null, inputs = null }) {
   const bound = boundInputs(input, inputs)
+  const snapshot = bound ?? reviewInputsForPullRequest(STANDALONE_INPUTS, head)
   const graph = reviewGraph({
     prefix: `review-${index}`,
     head,
+    scope: SCOPE,
+    inputs: snapshot,
     empty: false,
     label: verdict === 'Request changes' ? 'issue(blocking)' : 'praise',
   })

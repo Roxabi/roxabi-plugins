@@ -5,7 +5,9 @@ import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { type Result, type ReviewFacts, type ReviewState, type ReviewSummary, recordMap } from './result.ts'
-import { validateDecision, validateFreshDecision } from './review-decision.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
+import { validateDecision } from './review-decision.ts'
+import { validateHistoricalReviewDecision } from './review-fresh-decision.ts'
 import { spentBeforeCurrentPullRequestAttempt, spentInCompleteHistory } from './review-history.ts'
 import { analyzeReviewIdentity, reviewOperations } from './review-identity.ts'
 import { readReviewRecovery } from './review-recovery.ts'
@@ -14,13 +16,13 @@ import { nextReviewState, requiredReviewStop } from './review-state-transition.t
 
 export function summarizeReviews(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[] = [],
 ): Result<ReviewSummary> {
   return summarizeAuthorityReviews(
     classifyHistory(history).authorityHistory,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     externalHistories,
     history,
@@ -48,7 +50,7 @@ function latestReviewSummary(
   at: ReviewSummary['at'],
   records: ReadonlyMap<string, CanonicalRecord>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   knownReviews: number,
   spent: boolean,
@@ -68,10 +70,10 @@ function latestReviewSummary(
       true,
       spent,
     )
-  const assessed = validateFreshDecision(
+  const assessed = validateHistoricalReviewDecision(
     decision,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     externalHistories,
     deliveryHistory,
@@ -98,7 +100,7 @@ function validateAuthorityReviewSpend(
   reviews: DecodedHistory['operations'],
   records: ReadonlyMap<string, CanonicalRecord>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   initialSpent: boolean,
   externalHistories: readonly DecodedHistory[],
@@ -118,12 +120,19 @@ function validateAuthorityReviewSpend(
       record.payload.causeDispositionRefs === undefined
         ? {
             ok: true as const,
-            value: validateDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory),
+            value: validateDecision(
+              decision,
+              history,
+              catalogues,
+              acceptedPolicyRef,
+              externalHistories,
+              deliveryHistory,
+            ),
           }
-        : validateFreshDecision(
+        : validateHistoricalReviewDecision(
             decision,
             history,
-            taxonomy,
+            catalogues,
             acceptedPolicyRef,
             externalHistories,
             deliveryHistory,
@@ -139,7 +148,7 @@ function validateAuthorityReviewSpend(
 
 function summarizeAuthorityReviews(
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[],
   deliveryHistory: DecodedHistory,
@@ -148,8 +157,8 @@ function summarizeAuthorityReviews(
   const reviews = identity.reviews
   const knownReviews = identity.knownReviews
   const preservedSpent =
-    spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory) ??
-    spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
+    spentInCompleteHistory(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) ??
+    spentBeforeCurrentPullRequestAttempt(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
   const uncertainSpent: boolean | null = preservedSpent === true ? true : reviews.length >= 3 ? null : false
   const transportDiagnostics = reviewTransportDiagnostics(identity.transportDiagnostics, identity.incompleteFinal)
   if (transportDiagnostics !== null)
@@ -170,7 +179,7 @@ function summarizeAuthorityReviews(
     reviews,
     records,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     preservedSpent === true,
     externalHistories,
@@ -199,7 +208,7 @@ function summarizeAuthorityReviews(
     at,
     records,
     history,
-    taxonomy,
+    catalogues,
     acceptedPolicyRef,
     knownReviews,
     reviewSpend.spent,
@@ -220,7 +229,7 @@ function reviewStateFailure(
 export function deriveReviewState(
   history: DecodedHistory,
   facts: ReviewFacts,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   externalHistories: readonly DecodedHistory[] = [],
 ): ReviewState {
   if (!equalScope(history.source.scope, facts))
@@ -228,7 +237,7 @@ export function deriveReviewState(
   const authorityHistory = classifyHistory(history).authorityHistory
   const summary = summarizeAuthorityReviews(
     authorityHistory,
-    taxonomy,
+    catalogues,
     facts.acceptedEvidencePolicyRef,
     externalHistories,
     history,
@@ -253,7 +262,7 @@ export function deriveReviewState(
     orderedReviews,
     records,
     authorityHistory,
-    taxonomy,
+    catalogues,
     facts.acceptedEvidencePolicyRef,
     externalHistories,
     history,

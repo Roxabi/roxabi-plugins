@@ -2,6 +2,7 @@ import { assessUwAdmission, effectiveMandateRole } from '../dist/contracts.js'
 import type { CurrentChildrenProjection } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { NativeSelector, SpecializedDecisions, WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
@@ -28,15 +29,13 @@ function unavailable(diagnostics: readonly UwDiagnostic[]): CurrentSpecObservati
   return { currentSpec: null, identityAllocations: null, deliveryAdmission: { diagnostics } }
 }
 
-async function currentSpecFacts(selected: SelectedFeature): Promise<CurrentSpecObservation> {
-  if (selected.reader === null) return { currentSpec: null, identityAllocations: null, deliveryAdmission: null }
-  let read: UwRead
-  try {
-    read = await selected.reader.readUw(selected.authority.scope)
-  } catch (error) {
-    if (error instanceof UwGraphUnavailableError) return unavailable(error.diagnostics)
-    throw error
-  }
+async function currentSpecFacts(
+  selected: SelectedFeature,
+  read: UwRead | null,
+  causal: WorkflowCausalContext,
+): Promise<CurrentSpecObservation> {
+  if (selected.reader === null || read === null)
+    return { currentSpec: null, identityAllocations: null, deliveryAdmission: null }
   if (!read.identity.ok) return unavailable(read.identity.diagnostics)
   const facts = await readCurrentOwnSpecFacts({ uw: selected.authority.scope, read, reader: selected.reader })
   const currentChildren: CurrentChildrenProjection = facts.ok
@@ -51,7 +50,8 @@ async function currentSpecFacts(selected: SelectedFeature): Promise<CurrentSpecO
     proposed: read.proposed,
     accepted: read.accepted,
     identities: read.identity.value,
-    histories: read.histories,
+    histories: causal.histories,
+    catalogues: causal.catalogues,
     phase: 'delivery-transition',
     currentChildren,
   })
@@ -77,30 +77,49 @@ export async function readFeatureObservation(
     reviewId: decisions.reviewId,
   }
 }
+async function readObservationUw(selected: SelectedFeature): Promise<UwRead | null | ContinueFeatureResult> {
+  if (selected.reader === null) return null
+  try {
+    return await selected.reader.readUw(selected.authority.scope)
+  } catch (error) {
+    if (error instanceof UwGraphUnavailableError)
+      return { kind: 'blocked', reason: 'uw-graph-unavailable', diagnostics: error.diagnostics }
+    throw error
+  }
+}
+
+function isOrdinaryMergedDelivery(selected: SelectedFeature, merged: boolean): boolean {
+  const { mandate, acceptedSpec } = selected
+  return (
+    merged &&
+    mandate?.kind === 'mandate' &&
+    acceptedSpec !== null &&
+    effectiveMandateRole(mandate.payload.role, acceptedSpec) === 'feature' &&
+    !isRecord(mandate.payload.parent)
+  )
+}
+
 async function assembleObservationBase(
   control: FeatureControl,
   selected: SelectedFeature,
 ): Promise<ObservationBase | ContinueFeatureResult> {
   const { authority, mandate, acceptedSpec } = selected
   const { context, target, history, scope, onPrincipal, identity } = authority
-  const assembled = await assembleChantier(context.engine, target, history, mandate, acceptedSpec, {
+  const uwRead = await readObservationUw(selected)
+  if (uwRead !== null && 'kind' in uwRead) return uwRead
+  const assembled = await assembleChantier(context.engine, target, history, mandate, acceptedSpec, uwRead, {
     cwd: context.cwd,
     gh: context.gh,
   })
-  if (!assembled.ok) return { kind: 'blocked', reason: assembled.reason }
+  if (!assembled.ok) return { kind: 'blocked', reason: assembled.reason, diagnostics: assembled.diagnostics }
   const { evidence, delivery } = assembled
   const head = delivery?.head ?? null
   const requirements = mandateRequirements(mandate?.payload.config)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
-  const ordinaryMergedDelivery =
-    merged &&
-    mandate?.kind === 'mandate' &&
-    acceptedSpec !== null &&
-    effectiveMandateRole(mandate.payload.role, acceptedSpec) === 'feature' &&
-    !isRecord(mandate.payload.parent)
+  const ordinaryMergedDelivery = isOrdinaryMergedDelivery(selected, merged)
   const sessionCwd = identity.ok ? identity.sessionTop : null
-  const currentFacts = await currentSpecFacts(selected)
+  const currentFacts = await currentSpecFacts(selected, uwRead, evidence.causal)
   return {
     evidence,
     delivery,

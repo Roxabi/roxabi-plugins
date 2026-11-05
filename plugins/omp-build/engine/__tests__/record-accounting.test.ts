@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { finalReview } from '../../testing/record-decisions.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
@@ -10,7 +10,7 @@ import type { CanonicalRecord } from '../record-schema.ts'
 import type { Result } from '../result.ts'
 import { readReviewRecovery } from '../review-recovery.ts'
 import { deriveReviewState, summarizeReviews } from '../review-state.ts'
-import { refusalCodes, reviewFacts, TAXONOMY } from './record-test-support.ts'
+import { refusalCodes, reviewFacts } from './record-test-support.ts'
 import { binding, mandate } from './workflow-test-support.ts'
 
 describe('review accounting and stops', () => {
@@ -24,7 +24,7 @@ describe('review accounting and stops', () => {
     })
     const summary = summarizeReviews(
       { ...green.history, operations: [...green.history.operations, partial] },
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
       null,
     )
 
@@ -35,7 +35,7 @@ describe('review accounting and stops', () => {
   test('refuses an unresolved older initial review root despite a later clean approval', () => {
     const unresolved = reviewRoot({ id: 'older-unresolved', head: TEST_HEAD })
     const later = reviewGraph({ prefix: 'later-clean', empty: true })
-    const summary = summarizeReviews(history([unresolved, ...later.records]), TAXONOMY, null)
+    const summary = summarizeReviews(history([unresolved, ...later.records]), fixtureReviewClassCatalogues(), null)
 
     expect(summary).toMatchObject({
       ok: false,
@@ -64,21 +64,21 @@ describe('review accounting and stops', () => {
     })
     const staleFinal = history([...older.records, abandoned, delayedOlderFinal])
 
-    expect(summarizeReviews(interrupted, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(interrupted, fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: false,
       knownReviews: 1,
       countExact: true,
       spent: false,
     })
-    expect(refusalCodes(summarizeReviews(interrupted, TAXONOMY, null))).toContain('incomplete')
-    expect(deriveReviewState(interrupted, reviewFacts(), TAXONOMY)).toMatchObject({
+    expect(refusalCodes(summarizeReviews(interrupted, fixtureReviewClassCatalogues(), null))).toContain('incomplete')
+    expect(deriveReviewState(interrupted, reviewFacts(), fixtureReviewClassCatalogues())).toMatchObject({
       ok: false,
       next: 'stop',
       knownReviews: 1,
       countExact: true,
       spent: false,
     })
-    expect(summarizeReviews(staleFinal, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(staleFinal, fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: false,
       knownReviews: 2,
       countExact: true,
@@ -99,7 +99,7 @@ describe('review accounting and stops', () => {
     })
     const deduplicated = summarizeReviews(
       { ...green.history, operations: [...green.history.operations, duplicate] },
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
       null,
     )
     const conflict = operation(green.review, {
@@ -114,7 +114,7 @@ describe('review accounting and stops', () => {
         operations: [...green.history.operations, conflict],
         diagnostics: [{ code: 'conflict', message: 'Two records claim one review operation.' }],
       },
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
       null,
     )
 
@@ -124,7 +124,7 @@ describe('review accounting and stops', () => {
     })
     expect(conflicted).toMatchObject({ ok: false, knownReviews: 2, countExact: true, spent: false })
     expect(refusalCodes(conflicted)).toContain('conflict')
-    expect(summarizeReviews(history([]), TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(history([]), fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: true,
       value: { reviews: 0, reviewId: null },
     })
@@ -137,7 +137,7 @@ describe('review accounting and stops', () => {
     const state = deriveReviewState(
       history([...first.records, ...second.records, ...third.records]),
       reviewFacts('2222222222222222222222222222222222222222'),
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
     )
 
     expect(state).toMatchObject({
@@ -155,7 +155,7 @@ describe('review accounting and stops', () => {
     const state = deriveReviewState(
       history([...first.records, ...second.records, ...third.records]),
       reviewFacts(TEST_HEAD, 'red'),
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
     )
 
     expect(state).toMatchObject({
@@ -174,12 +174,14 @@ describe('review accounting and stops', () => {
     const fourth = reviewGraph({ prefix: 'foreign-fourth', empty: true, head: foreignHead })
     const records = history([...first.records, ...second.records, ...third.records, ...fourth.records])
 
-    expect(deriveReviewState(records, reviewFacts(TEST_HEAD, 'red'), TAXONOMY)).toMatchObject({
+    expect(deriveReviewState(records, reviewFacts(TEST_HEAD, 'red'), fixtureReviewClassCatalogues())).toMatchObject({
       ok: true,
       next: 'review',
       requiredStop: null,
     })
-    expect(deriveReviewState(records, { ...reviewFacts(foreignHead, 'red'), input: null }, TAXONOMY)).toMatchObject({
+    expect(
+      deriveReviewState(records, { ...reviewFacts(foreignHead, 'red'), input: null }, fixtureReviewClassCatalogues()),
+    ).toMatchObject({
       ok: true,
       next: 'stop',
       requiredStop: { reason: 'ci-failed', reviewId: 'foreign-fourth-final' },
@@ -189,7 +191,9 @@ describe('review accounting and stops', () => {
   test('waits on fresh red CI before a matching third-review stop exists', () => {
     const green = reviewGraph({ prefix: 'fresh-red-ci', empty: true })
 
-    expect(deriveReviewState(green.history, reviewFacts(TEST_HEAD, 'red'), TAXONOMY)).toMatchObject({
+    expect(
+      deriveReviewState(green.history, reviewFacts(TEST_HEAD, 'red'), fixtureReviewClassCatalogues()),
+    ).toMatchObject({
       ok: true,
       next: 'wait',
       requiredStop: null,
@@ -332,7 +336,7 @@ describe('review accounting and stops', () => {
       ok: true,
       value: { normalProgression: 'eligible', replacementGrant: null },
     })
-    expect(summarizeReviews(recoveredHistory, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(recoveredHistory, fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: true,
       value: {
         reviews: 1,

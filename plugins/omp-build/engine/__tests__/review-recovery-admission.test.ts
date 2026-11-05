@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { freshReviewInputs } from '../../testing/action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, freshReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { history, operation } from '../../testing/record-history.ts'
 import { buildRecord, type RecordDraft } from '../record-construction.ts'
@@ -13,7 +13,6 @@ import {
   reviewReplacementInventoryRecordId,
 } from '../review-recovery-records.ts'
 import { summarizeReviews } from '../review-state.ts'
-import { TAXONOMY } from './record-test-support.ts'
 import { binding, mandate } from './workflow-test-support.ts'
 
 type WorkflowBinding = Extract<CanonicalRecord, { kind: 'workflow-binding' }>
@@ -66,7 +65,7 @@ describe('review recovery admission', () => {
       ok: true,
       value: { normalProgression: 'stopped', replacementGrant: null },
     })
-    expect(summarizeReviews(terminalHistory, TAXONOMY, null)).toMatchObject({ ok: false })
+    expect(summarizeReviews(terminalHistory, fixtureReviewClassCatalogues(), null)).toMatchObject({ ok: false })
 
     const forged = {
       ...terminalHistory,

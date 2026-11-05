@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { workflowEvidence } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { parseRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
@@ -57,7 +58,7 @@ describe('workflow material acceptance scenarios', () => {
     )
     expect(
       reconstructWorkflow({
-        evidence: { issue: history([mandated, unknown.start, unknown.result]), pullRequest: null, parents: [] },
+        evidence: workflowEvidence(history([mandated, unknown.start, unknown.result]), null, [], []),
         facts: currentFacts(mandated, unknown.proposed),
         decisions: decisions(),
       }),

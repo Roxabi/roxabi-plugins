@@ -16,6 +16,7 @@ import {
   resolveAcceptedSpec,
   resolveBoundWork,
 } from '../dist/contracts.js'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import {
@@ -58,6 +59,7 @@ export function boundCorrection(
   input: { target: FixTarget; branch: string | null; base: string | null },
   histories: readonly DecodedHistory[],
   currentSpec: AssessSpecExact['proposed'] | null,
+  causal: WorkflowCausalContext,
 ): FixActionResult<
   { status: 'standalone' } | { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
 > {
@@ -68,6 +70,7 @@ export function boundCorrection(
     explicitSelection: true,
     pullRequest: { repository: input.target.repository, target: input.target.target },
     histories,
+    causal,
     native: { branch: input.branch, base: input.base },
     currentSpec,
   })
@@ -91,6 +94,7 @@ type CorrectionMandateInput = {
   linkedIssueHistory: DecodedHistory | null
   linkedIssueScopes: readonly Scope[]
   externalHistories?: readonly DecodedHistory[]
+  causal: WorkflowCausalContext
   branch: string | null
   base: string | null
   currentSpec: AssessSpecExact['proposed'] | null
@@ -127,6 +131,7 @@ function selectCorrectionMandate(
     linkedIssueHistory: input.linkedIssueHistory,
     linkedIssueScopes: input.target.kind === 'pull-request' ? [] : input.linkedIssueScopes,
     externalHistories: input.externalHistories ?? [],
+    causal: input.causal,
     evidenceDigest: input.evidenceDigest ?? null,
   })
   if (assessed.status === 'refused' && assessed.reason === 'missing' && publishableMissing(input, assessed.evidence)) {
@@ -194,10 +199,10 @@ export async function resolveCorrectionMandate(
   if (input.linkedIssueHistory && !input.linkedIssueHistory.source.complete)
     return failure('fix-parent-history-incomplete')
   const histories = correctionHistories(input)
-  const bound = boundCorrection(input, histories, input.currentSpec)
+  const bound = boundCorrection(input, histories, input.currentSpec, input.causal)
   if (!bound.ok) return failure(...bound.diagnostics)
   const selected = selectCorrectionMandate(input, bound.value)
-  return resolveSelectedCorrectionMandate(input, histories, bound.value, selected)
+  return resolveSelectedCorrectionMandate(input, input.causal.histories, bound.value, selected)
 }
 
 export function publishableMissing(

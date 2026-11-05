@@ -1,20 +1,20 @@
 import { findingTargetSchema } from './finding-target-schema.ts'
-import { inspectFinding } from './producer-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import { type Diagnostic, findingSchema, type Json } from './record-values.ts'
-import { unique } from './result.ts'
+import type { Diagnostic, Json } from './record-values.ts'
+import { type FindingInspection, unique } from './result.ts'
 import { causeSchema } from './review-schema.ts'
 export function validateFinalFindingReferences(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
   originals: ReadonlyMap<string, Json>,
+  inspections: ReadonlyMap<string, FindingInspection>,
   diagnostics: Diagnostic[],
 ): Set<string> {
   const covered = new Set<string>()
   const findings = record.payload.judgment.findings
   if (!unique(findings.map((finding) => finding.id)))
     diagnostics.push(diagnostic('duplicate-reference', 'Decision repeats final finding IDs'))
-  for (const finalFinding of findings) validateFinalFinding(finalFinding, originals, covered, diagnostics)
+  for (const finalFinding of findings) validateFinalFinding(finalFinding, originals, inspections, covered, diagnostics)
   return covered
 }
 
@@ -23,6 +23,7 @@ type Judgment = Extract<CanonicalRecord, { kind: 'decision' }>['payload']['judgm
 function validateFinalFinding(
   finalFinding: Judgment['findings'][number],
   originals: ReadonlyMap<string, Json>,
+  inspections: ReadonlyMap<string, FindingInspection>,
   covered: Set<string>,
   diagnostics: Diagnostic[],
 ): void {
@@ -35,13 +36,14 @@ function validateFinalFinding(
   )
     diagnostics.push(diagnostic('malformed', `Merged finding ${finalFinding.id} lacks merge reason`))
   for (const sourceId of finalFinding.sourceFindingIds)
-    validateFindingSource(finalFinding, sourceId, originals, covered, diagnostics)
+    validateFindingSource(finalFinding, sourceId, originals, inspections, covered, diagnostics)
 }
 
 function validateFindingSource(
   finalFinding: Judgment['findings'][number],
   sourceId: string,
   originals: ReadonlyMap<string, Json>,
+  inspections: ReadonlyMap<string, FindingInspection>,
   covered: Set<string>,
   diagnostics: Diagnostic[],
 ): void {
@@ -51,9 +53,8 @@ function validateFindingSource(
   }
   const original = originals.get(sourceId)
   if (finalFinding.state === 'usable' && original !== undefined) {
-    const parsed = findingSchema.safeParse(original)
-    const inspection = inspectFinding(original, parsed.success ? (parsed.data.classes ?? []) : [])
-    if (!inspection.usable) diagnostics.push(...inspection.diagnostics)
+    const inspection = inspections.get(sourceId)
+    if (inspection !== undefined && !inspection.usable) diagnostics.push(...inspection.diagnostics)
   }
   const rawTarget =
     original !== null && typeof original === 'object' && !Array.isArray(original) ? original.target : undefined

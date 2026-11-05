@@ -10,7 +10,7 @@ import {
 import { mandateParentHistories } from '../../roxabi/feature-context.ts'
 import { loadContracts } from '../../roxabi/feature-engine.ts'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
-import { loadReviewConfig } from '../../roxabi/review-assets.ts'
+import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
 import { type CheckNode, classifyBaseCi } from './epic-ci'
 import { refuseForeignCommits, ticketOfBranch, ticketOfSubject } from './epic-claims'
@@ -85,12 +85,15 @@ export function adapterOptions(repo: string) {
     if (!login || /\s/.test(login)) throw new Error('gh api user returned no login')
     adapterViewerLogin = login
   }
-  return withRoxabiGitHubPolicy({
-    cwd: repo,
+  return {
+    ...withRoxabiGitHubPolicy({
+      cwd: repo,
+      gh: transport,
+      automationLogin: adapterViewerLogin,
+      writerLogin: adapterViewerLogin,
+    }),
     gh: transport,
-    automationLogin: adapterViewerLogin,
-    writerLogin: adapterViewerLogin,
-  })
+  }
 }
 
 export async function issueHistory(repo: string, repository: string, issue: number): Promise<DecodedHistory> {
@@ -126,10 +129,12 @@ export async function citedReviewHistories(repo: string, history: DecodedHistory
 
 /** The canonical review graph is the only source of review-bound disposition. */
 export async function stoppedReviews(repo: string, repository: string, numbers: number[]): Promise<Set<number>> {
-  const taxonomy = loadReviewConfig().canonicalClasses
   const states = await readHistoryPairs(numbers, async (number) => {
     const history = await issueHistory(repo, repository, number)
-    const summary = summarizeReviews(history, taxonomy, null, await citedReviewHistories(repo, history))
+    const external = await citedReviewHistories(repo, history)
+    const options = adapterOptions(repo)
+    const catalogues = await loadReviewClassCatalogues({ histories: [history, ...external], cwd: repo, gh: options.gh })
+    const summary = summarizeReviews(history, catalogues, null, external)
     if (!summary.ok)
       throw new Refused(`PR #${number} review history is not admissible: ${diagnosticsText(summary.diagnostics)}`)
     return summary.value.spent ? number : null

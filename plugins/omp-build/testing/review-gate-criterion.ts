@@ -1,8 +1,15 @@
+import { execFileSync } from 'node:child_process'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
+import {
+  catalogueForAction,
+  createReviewClassCatalogues,
+  reviewClassCatalogueRef,
+} from '../engine/review-class-catalogue.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import { fixtureReviewCatalogueReads } from './action-input-fixtures.ts'
 import { criterionReviewGraph } from './criterion-approval.ts'
 import { type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, PR_EDITED, SCOPE } from './review-gate-gh.ts'
@@ -38,6 +45,19 @@ export function boundReviewBodies(
       updatedAt: comment.updated_at,
     })),
   })
+  const ref = reviewClassCatalogueRef(inputs)
+  if (!ref.ok) throw new Error(`Cannot select fixture catalogue: ${JSON.stringify(ref.diagnostics)}`)
+  if (ref.value.repository !== 'Roxabi/roxabi-plugins' || ref.value.commit !== fixture.pin)
+    throw new Error('Fixture action catalogue does not belong to the committed tooling checkout')
+  const bytes = execFileSync('git', ['-C', fixture.tools, 'show', `${ref.value.commit}:${ref.value.path}`], {
+    env: fixture.env,
+  })
+  const catalogues = createReviewClassCatalogues([
+    ...fixtureReviewCatalogueReads(),
+    { ref: ref.value, contents: { ok: true, value: bytes } },
+  ])
+  const catalogue = catalogueForAction(inputs, catalogues)
+  if (!catalogue.ok) throw new Error(`Cannot load fixture catalogue: ${JSON.stringify(catalogue.diagnostics)}`)
   const review = criterionReviewGraph({
     ...details,
     issueHistory,
@@ -47,7 +67,7 @@ export function boundReviewBodies(
     prefix,
     verdict,
     author: AUTOMATION,
-    projection: roxabiRecordFixtures().projection,
+    projection: { ...roxabiRecordFixtures().projection, catalogues },
   })
   for (const comment of review.issueComments) {
     issue.comments.push({

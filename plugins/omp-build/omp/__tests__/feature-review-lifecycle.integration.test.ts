@@ -1,14 +1,16 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { reviewClassCatalogueRef } from '../../dist/contracts.js'
 import { resolveAdmittedCorrectionCriterionSource } from '../../engine/correction-criterion-source.ts'
 import { assessCriterionDeclarations } from '../../engine/criterion-admission.ts'
 import { criterionDeclarationSchema } from '../../engine/criterion-evidence-schema.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { fixtureSourceReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
@@ -220,6 +222,17 @@ function assertCorrectionReceipt(
   if (source?.kind !== 'contribution' || !source.payload.host.action || !observed.commit || !observed.priorHead)
     throw new Error('fixture-correction-source-missing')
   const manifest = source.payload.host.action.inputs.manifest
+  const catalogueRef = reviewClassCatalogueRef(source.payload.host.action.inputs)
+  if (!catalogueRef.ok) throw new Error('fixture-catalogue-ref-missing')
+  const catalogues = fixtureSourceReviewClassCatalogues([
+    {
+      ref: catalogueRef.value,
+      contents: {
+        ok: true,
+        value: readFileSync(new URL('../../skills/dev-review/review-classes.yml', import.meta.url)),
+      },
+    },
+  ])
   if (manifest.spec.kind !== 'accepted') throw new Error('fixture-correction-spec-missing')
   const planRef = manifest.deliveryData.find((ref) => ref.role === 'plan')
   const plan = issueRecords.find(
@@ -234,27 +247,37 @@ function assertCorrectionReceipt(
     mandate: plan.payload.mandate,
     ownSpec: manifest.spec.effective.own,
   }
-  const admitted = resolveAdmittedCorrectionCriterionSource(result, histories, context)
-  expect(admitted?.contribution.recordId).toBe(receipt.sourceContributionId)
+  const admitted = resolveAdmittedCorrectionCriterionSource(result, histories, context, catalogues)
+  expect(admitted).toMatchObject({ ok: true, value: { contribution: { recordId: receipt.sourceContributionId } } })
   expect(
-    resolveAdmittedCorrectionCriterionSource(result, histories, { ...context, head: observed.priorHead }),
-  ).toBeNull()
-  expect(resolveAdmittedCorrectionCriterionSource(result, [issue], context)).toBeNull()
+    resolveAdmittedCorrectionCriterionSource(result, histories, { ...context, head: observed.priorHead }, catalogues),
+  ).toEqual({ ok: true, value: null })
+  expect(resolveAdmittedCorrectionCriterionSource(result, [issue], context, catalogues)).toMatchObject({ ok: false })
   expect(
-    resolveAdmittedCorrectionCriterionSource(result, histories, {
-      ...context,
-      ownSpec: {
-        ...context.ownSpec,
-        sourceAccepted: { ...context.ownSpec.sourceAccepted, recordId: 'wrong-acceptance-source' },
+    resolveAdmittedCorrectionCriterionSource(
+      result,
+      histories,
+      {
+        ...context,
+        ownSpec: {
+          ...context.ownSpec,
+          sourceAccepted: { ...context.ownSpec.sourceAccepted, recordId: 'wrong-acceptance-source' },
+        },
       },
-    }),
-  ).toBeNull()
+      catalogues,
+    ),
+  ).toMatchObject({ ok: false })
   expect(
-    resolveAdmittedCorrectionCriterionSource(result, histories, {
-      ...context,
-      mandate: { ...context.mandate, scope: { ...context.mandate.scope, target: 'wrong-owner-scope' } },
-    }),
-  ).toBeNull()
+    resolveAdmittedCorrectionCriterionSource(
+      result,
+      histories,
+      {
+        ...context,
+        mandate: { ...context.mandate, scope: { ...context.mandate.scope, target: 'wrong-owner-scope' } },
+      },
+      catalogues,
+    ),
+  ).toMatchObject({ ok: false })
   const implementation = issueRecords.find(
     (record) =>
       record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',

@@ -14,11 +14,15 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import { defaultGh } from './feature-engine.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwReadPort } from './uw-contract.ts'
 
 export type AdjudicationRead = {
   disposition: Extract<CanonicalRecord, { kind: 'cause-disposition' }>
   histories: DecodedHistory[]
+  catalogues: ReviewClassCatalogues
   context: CauseContext
 }
 const same = (a: Scope, b: Scope) => a.repository === b.repository && a.target === b.target
@@ -76,6 +80,7 @@ export async function readAdjudicationPending(
   )
   if (!closure.ok) failure(closure.diagnostics)
   const histories = closure.histories
+  const catalogues = await loadReviewClassCatalogues({ histories, cwd: github.cwd, gh: github.gh ?? defaultGh() })
   const rebound = bindExternalRef(ref, home(histories, ref.scope))
   if (!rebound.ok || JSON.stringify(rebound.value) !== JSON.stringify(disposition))
     throw new Error('cause-disposition-stale')
@@ -85,10 +90,10 @@ export async function readAdjudicationPending(
   const records = own.operations.flatMap((item) =>
     item.status === 'complete' && item.authority !== 'foreign' && item.record !== null ? [item.record] : [],
   )
-  const validation = validateCauseDispositionRecords({ records, histories })
+  const validation = validateCauseDispositionRecords({ records, histories, catalogues })
   if (validation.length) failure(validation)
-  const heads = readCauseDispositionHeads({ uw: ref.scope, histories })
+  const heads = readCauseDispositionHeads({ uw: ref.scope, histories, catalogues })
   if (!heads.ok) failure(heads.diagnostics)
   if (!heads.value.some((item) => item.recordId === ref.recordId)) throw new Error('cause-disposition-stale')
-  return { disposition, histories, context }
+  return { disposition, histories, context, catalogues }
 }

@@ -9,6 +9,8 @@ import {
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
+import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { matchesRequestedSubject } from './uw-action-subject.ts'
 import { priorCorrectionDecision } from './uw-correction-stage-decision.ts'
@@ -39,18 +41,23 @@ function anchoredDecision(
   inventory: Inventory,
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
-): boolean {
+  catalogues: ReviewClassCatalogues,
+): Result<boolean> {
   const slot = inventory.payload.slots.find((item) => item.slotId === entry.payload.host.slotId)
   const binding = slot?.action
-  if (binding === undefined) return false
-  if (!matchesRequestedSubject(binding.inputs.manifest.subject, request.subject)) return false
-  return request.stageSources.some(
-    (decision) =>
-      decision.record.kind === 'decision' &&
-      inventory.inputs.includes(decision.record.recordId) &&
-      binding.inputs.stageSources.some((source) => canonicalValueDigest(source) === canonicalValueDigest(decision)) &&
-      priorCorrectionDecision(decision, request, histories),
-  )
+  if (binding === undefined || !matchesRequestedSubject(binding.inputs.manifest.subject, request.subject))
+    return { ok: true, value: false }
+  for (const decision of request.stageSources) {
+    if (
+      decision.record.kind !== 'decision' ||
+      !inventory.inputs.includes(decision.record.recordId) ||
+      !binding.inputs.stageSources.some((source) => canonicalValueDigest(source) === canonicalValueDigest(decision))
+    )
+      continue
+    const result = priorCorrectionDecision(decision, request, histories, catalogues)
+    if (!result.ok || result.value) return result
+  }
+  return { ok: true, value: false }
 }
 
 /** Authenticated prior correction output is stage data, never dispatch authority. */
@@ -58,9 +65,10 @@ export function priorCorrectionContribution(
   ref: RecordInputRef,
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
-): boolean {
+  catalogues: ReviewClassCatalogues,
+): Result<boolean> {
   if (request.purpose !== 'correction' || ref.record.kind !== 'contribution' || ref.selector !== '/payload')
-    return false
+    return { ok: true, value: false }
   const scope = request.subject.pullRequest
   if (
     scope === null ||
@@ -68,9 +76,9 @@ export function priorCorrectionContribution(
     scope.target !== ref.record.scope.target ||
     request.code.repository !== scope.repository
   )
-    return false
+    return { ok: true, value: false }
   const history = historyFor(scope, histories)
-  if (history === null || workflowOperationProblem(history) !== null) return false
+  if (history === null || workflowOperationProblem(history) !== null) return { ok: true, value: false }
   const records = recordsOf(history)
   const entries = records.filter(
     (record): record is Contribution => record.kind === 'contribution' && record.recordId === ref.record.recordId,
@@ -83,7 +91,7 @@ export function priorCorrectionContribution(
     !accounted(history, entry) ||
     entry.payload.inventoryId === null
   )
-    return false
+    return { ok: true, value: false }
   const inventories = records.filter(
     (record): record is Inventory => record.kind === 'review-attempt' && record.recordId === entry.payload.inventoryId,
   )
@@ -95,14 +103,13 @@ export function priorCorrectionContribution(
     !entry.inputs.includes(inventory.recordId) ||
     !accounted(history, inventory)
   )
-    return false
+    return { ok: true, value: false }
   const peers = records.filter(
     (record) =>
       record.kind === 'contribution' &&
       record.payload.inventoryId === inventory.recordId &&
       record.payload.host.slotId === entry.payload.host.slotId,
   )
-  return (
-    peers.length === 1 && validSlot(entry, inventory, request) && anchoredDecision(entry, inventory, request, histories)
-  )
+  if (peers.length !== 1 || !validSlot(entry, inventory, request)) return { ok: true, value: false }
+  return anchoredDecision(entry, inventory, request, histories, catalogues)
 }

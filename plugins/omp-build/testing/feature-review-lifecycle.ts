@@ -141,6 +141,7 @@ function driverDiagnostic(driver: ReviewDriver | undefined) {
     callbacks: driver.diagnostics,
     messages: driver.messages.map((message) => {
       if (message.includes('OMP_BUILD_NATIVE_BATCH')) return 'OMP_BUILD_NATIVE_BATCH'
+      if (message.startsWith('feature-stopped:')) return message
       return message.split(':', 1)[0]
     }),
     active:
@@ -172,16 +173,19 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
   let failed = false
   let outcome: object | undefined
   let stage = 'initial-review'
+  const nextStage = (next: string) => {
+    stage = next
+  }
   const applyTasks: Array<{ agent: string; proof: NativeTask['proofEvidence'] }> = []
   try {
     await driver.settle(mixed ? mixedReviewInitialData : reviewInitialData)
-    stage = 'initial-synthesis'
+    nextStage('initial-synthesis')
     await driver.settle((task) => (mixed ? mixedReviewDecision(task.task) : reviewDecision(task.task)))
     const transition = driver.fixTransition(driver.messages.length)
     const stateFile = process.env.GH_SIM_STATE
     if (stateFile === undefined) throw new Error('gh-state-missing')
     let commit: string | null = null
-    stage = 'correction-apply'
+    nextStage('correction-apply')
     await driver.settleAction(
       (task) => {
         applyTasks.push({ agent: task.agent, proof: task.proofEvidence })
@@ -222,12 +226,12 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
         },
       },
     )
-    stage = 'correction-transition'
+    nextStage('correction-transition')
     const transitionOutcome = await transition
     const falsifyActive = driver.controller.active()
     const appliedHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
     if (commit !== appliedHead || appliedHead === priorHead) throw new Error('correction-fixture-head-mismatch')
-    stage = 'falsification-and-restoration'
+    nextStage('falsification-and-restoration')
     const { terminal, snapshots, reviewAfter } = await settleOwnedCorrectionFalsification(
       driver,
       cwd,
@@ -236,10 +240,10 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
     )
     if (terminal.status !== 'complete')
       throw new Error(`correction-fixture-terminal-refused: ${JSON.stringify(terminal)}`)
-    stage = 'automatic-final-review-start'
+    nextStage('automatic-final-review-start')
     await driver.nextBatch(reviewAfter)
     const reviewSnapshots: Array<{ head: string; index: string; fingerprint: string; sourceRecordId: string }> = []
-    stage = 'final-review-initial'
+    nextStage('final-review-initial')
     await driver.settle((task) => {
       if (task.name !== 'spec') return { findings: [] }
       const manifest = task.action.inputs.manifest
@@ -256,12 +260,13 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
       })
       return { findings: [], specRows: [fixtureSpecRow(task.action)] }
     })
-    stage = 'final-review-synthesis'
+    nextStage('final-review-synthesis')
     await driver.settle((task) => cleanReviewDecision(task.task))
-    stage = 'remote-review-replay'
+    nextStage('remote-review-replay')
     const replay = await requiredReviewRecords(cwd, 7)
     if (replay.head !== appliedHead || replay.verdict !== 'Approve (clean)')
       throw new Error(`correction-fixture-remote-review-refused: ${JSON.stringify(replay)}`)
+    nextStage('complete')
     outcome = {
       active: driver.controller.active(),
       comments: readComments(stateFile),

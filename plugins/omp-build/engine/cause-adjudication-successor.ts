@@ -10,11 +10,18 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { bindExternalRef } from './workflow-control.ts'
 
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
 type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>
-type Input = { pending: Disposition; operation: Operation; histories: readonly DecodedHistory[]; context: CauseContext }
+type Input = {
+  pending: Disposition
+  operation: Operation
+  histories: readonly DecodedHistory[]
+  context: CauseContext
+  catalogues: ReviewClassCatalogues
+}
 const failure = (message: string): Result<never> => ({
   ok: false,
   diagnostics: [diagnostic('cause-chain-invalid', message)],
@@ -70,6 +77,7 @@ function assessCause(
       context: input.context,
       source: { kind: 'decision', decision: decision.value },
       histories: input.histories,
+      catalogues: frame.catalogues,
       adjudications: [input.operation],
     },
     historical,
@@ -156,7 +164,7 @@ function assessSuccessor(
 }
 
 export function assessAdjudicationSuccessor(input: Input): Result<CauseDispositionPayload> {
-  return assessSuccessor(input, false, causeValidationFrame(input.histories))
+  return assessSuccessor(input, false, causeValidationFrame(input.histories, input.catalogues))
 }
 
 export function assessHistoricalAdjudicationSuccessor(

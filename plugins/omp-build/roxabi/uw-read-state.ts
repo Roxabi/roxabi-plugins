@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { AcceptedOwnSpecResult, ProposedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
@@ -45,6 +46,7 @@ function coldAccepted(
   contracts: InstalledUwContracts,
   uw: Scope,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   assessmentReplay?: { actionId: string; fingerprint: string },
 ): AcceptedOwnSpecResult {
   const own = histories.find(
@@ -55,6 +57,7 @@ function coldAccepted(
   const resolved = contracts.resolveOwnSpecAuthority(
     own,
     histories.filter((history) => history !== own),
+    { histories, catalogues },
     undefined,
     assessmentReplay,
   )
@@ -83,6 +86,7 @@ function bindEligibleHistoricalProjection(
   const selection = contracts.selectApplicableMandate(
     own,
     histories.filter((entry) => entry !== own),
+    { histories, catalogues: result.catalogues },
   )
   if (
     result.accepted.status !== 'refused' ||
@@ -107,6 +111,7 @@ function assembleUwRead(
     uw: Scope
     graph: UwGraphObservation
     history: HistoryObservation
+    catalogues: ReviewClassCatalogues
     observedReader?: UwReadPort
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
@@ -129,6 +134,8 @@ function assembleUwRead(
       parsed,
       graph,
       histories: [],
+      catalogues: input.catalogues,
+      causalObservation: { status: 'unavailable' },
       proposed,
       accepted: { status: 'refused', diagnostics },
       identity: { ok: false, diagnostics },
@@ -139,7 +146,7 @@ function assembleUwRead(
     input.assessmentReplay?.uw.repository === uw.repository && input.assessmentReplay.uw.target === uw.target
       ? input.assessmentReplay
       : undefined
-  const accepted = coldAccepted(contracts, uw, history.histories, replay)
+  const accepted = coldAccepted(contracts, uw, history.histories, input.catalogues, replay)
   const own = history.histories.find(
     (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
   )
@@ -151,6 +158,8 @@ function assembleUwRead(
       graph,
       proposed,
       histories: history.histories,
+      catalogues: input.catalogues,
+      causalObservation: { status: 'unavailable' },
       accepted,
       identity: { ok: false, diagnostics },
       admission: admissionUnavailable(diagnostics),
@@ -168,6 +177,8 @@ function assembleUwRead(
     parsed,
     graph,
     histories: history.histories,
+    catalogues: input.catalogues,
+    causalObservation: { status: 'unavailable' },
     proposed,
     accepted,
     identity,
@@ -180,6 +191,7 @@ function assembleUwRead(
           accepted,
           identities: identity.value,
           histories: history.histories,
+          catalogues: input.catalogues,
           phase: 'initial-selection',
         })
       : admissionUnavailable(identity.diagnostics),

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureCausal } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { buildRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
@@ -19,11 +20,13 @@ describe('workflow bound work behavior', () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
     const native = { branch: 'feature/bounded', base: 'main' }
     const issue = history([mandated, assessment.start, assessment.result])
+    const boundHistories = [issue, history([binding(mandated, pr)], pr)]
     const bound = resolveBoundWork({
       use: 'review',
       explicitSelection: true,
       pullRequest: pr,
-      histories: [issue, history([binding(mandated, pr)], pr)],
+      histories: boundHistories,
+      causal: fixtureCausal(boundHistories),
       native,
       currentSpec: proposed,
     })
@@ -44,12 +47,14 @@ describe('workflow bound work behavior', () => {
         chain: [{ kind: 'mandate' }, { kind: 'editorial', source: { recordId: 'assess-1' } }],
       },
     })
+    const emptyPull = history([], pr)
     expect(
       resolveBoundWork({
         use: 'review',
         explicitSelection: true,
         pullRequest: pr,
-        histories: [history([], pr)],
+        histories: [emptyPull],
+        causal: fixtureCausal([emptyPull]),
         native,
       }),
     ).toEqual({
@@ -61,19 +66,22 @@ describe('workflow bound work behavior', () => {
         use: 'landing',
         explicitSelection: true,
         pullRequest: pr,
-        histories: [history([], pr)],
+        histories: [emptyPull],
+        causal: fixtureCausal([emptyPull]),
         native,
       }),
     ).toMatchObject({
       status: 'refused',
       reason: 'missing',
     })
+    const incompleteBinding = history([binding(mandated, pr)], pr)
     expect(
       resolveBoundWork({
         use: 'review',
         explicitSelection: true,
         pullRequest: pr,
-        histories: [history([binding(mandated, pr)], pr)],
+        histories: [incompleteBinding],
+        causal: fixtureCausal([incompleteBinding]),
         native,
       }),
     ).toMatchObject({
@@ -81,12 +89,14 @@ describe('workflow bound work behavior', () => {
       reason: 'incomplete',
     })
     const fixOnly = mandate()
+    const fixHistories = [history([fixOnly]), history([binding(fixOnly, pr)], pr)]
     expect(
       resolveBoundWork({
         use: 'landing',
         explicitSelection: false,
         pullRequest: pr,
-        histories: [history([fixOnly]), history([binding(fixOnly, pr)], pr)],
+        histories: fixHistories,
+        causal: fixtureCausal(fixHistories),
         native,
       }),
     ).toMatchObject({ status: 'refused', reason: 'fix-only' })
@@ -101,15 +111,22 @@ describe('workflow bound work behavior', () => {
     const foreign = { ...authentic, authority: 'foreign' as const, status: 'incomplete' as const, record: null }
     const noisy = { ...boundHistory, operations: [authentic, foreign] }
     const input = { explicitSelection: true, pullRequest: pr, native }
-    expect(resolveBoundWork({ ...input, use: 'review', histories: [history([mandated]), noisy] })).toMatchObject({
+    const noisyHistories = [history([mandated]), noisy]
+    expect(
+      resolveBoundWork({ ...input, use: 'review', histories: noisyHistories, causal: fixtureCausal(noisyHistories) }),
+    ).toMatchObject({
       status: 'applicable',
     })
     const foreignOnly = { ...boundHistory, operations: [foreign] }
-    expect(resolveBoundWork({ ...input, use: 'review', histories: [foreignOnly] })).toEqual({
+    expect(
+      resolveBoundWork({ ...input, use: 'review', histories: [foreignOnly], causal: fixtureCausal([foreignOnly]) }),
+    ).toEqual({
       status: 'standalone',
       binding: 'absent',
     })
-    expect(resolveBoundWork({ ...input, use: 'landing', histories: [foreignOnly] })).toMatchObject({
+    expect(
+      resolveBoundWork({ ...input, use: 'landing', histories: [foreignOnly], causal: fixtureCausal([foreignOnly]) }),
+    ).toMatchObject({
       status: 'refused',
       reason: 'missing',
     })
@@ -166,11 +183,13 @@ describe('workflow bound work behavior', () => {
     const commitment = accepted.children[0]
     if (commitment === undefined) throw new Error('fixture epic has no child commitment')
     const pr: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
+    const histories = [history([mandated]), history([binding(mandated, pr)], pr)]
     const input = {
       use: 'review' as const,
       explicitSelection: true,
       pullRequest: pr,
-      histories: [history([mandated]), history([binding(mandated, pr)], pr)],
+      histories,
+      causal: fixtureCausal(histories),
       native: { branch: 'feature/bounded', base: 'main' },
     }
     const datedOnly = proposedAssessmentState(accepted, {

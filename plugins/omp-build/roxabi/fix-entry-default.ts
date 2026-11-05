@@ -149,6 +149,7 @@ export async function runDefaultFix(
         publisher,
         dispositionStore: createFixDispositionStore(mandate.value.uw, github),
         readHistory,
+        github,
         workflow: input.workflow,
         native: input.native,
         runtime,

@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { PlanOutput } from '../engine/workflow-output-schema.ts'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
-import { loadReviewConfig } from '../roxabi/review-assets.ts'
 import { configPinDigest, effectiveWorkflowConfig, shippedProductVersion } from '../roxabi/workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from '../roxabi/workflow-graph.ts'
 import { encodedAdmissionReviewGraph } from './record-admission.ts'
@@ -15,7 +14,7 @@ import { createWorkflowFixtures } from './workflow-fixtures.ts'
  * as an explicit argument and never load Roxabi configuration themselves.
  */
 export function roxabiRecordFixtures() {
-  const projection = projectionConfig(loadReviewConfig().canonicalClasses)
+  const projection = projectionConfig()
   return {
     projection,
     encodedAdmissionReviewGraph: (options: Parameters<typeof encodedAdmissionReviewGraph>[1] = {}) =>

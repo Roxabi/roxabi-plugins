@@ -3,16 +3,9 @@ import { canonicalValueDigest } from '../engine/action-input.ts'
 import { parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { encodedAdmissionReviewGraph } from '../testing/record-admission.ts'
-import {
-  finding,
-  projectionConfig,
-  reviewRoot,
-  SYNTHETIC_TAXONOMY,
-  submission,
-  TEST_HEAD,
-  TEST_SCOPE,
-} from '../testing/record-builders.ts'
+import { finding, projectionConfig, reviewRoot, submission, TEST_HEAD, TEST_SCOPE } from '../testing/record-builders.ts'
 import { contribution } from '../testing/record-decisions.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs } from './uw-action-closure.ts'
@@ -64,17 +57,23 @@ it('walks a schema-valid expanded wrapper citing a current output', () => {
     }),
   )
   const history = fixtures.historyFrom([root, output, wrapper])
-  const closed = assertCurrentOutputClosure(request([ref(wrapper)]), [history], [], {
-    scope: TEST_SCOPE,
-    kind: 'review-attempt',
-    recordId: root.recordId,
-  })
+  const closed = assertCurrentOutputClosure(
+    request([ref(wrapper)]),
+    [history],
+    fixtureHostReviewClassCatalogues(),
+    [],
+    {
+      scope: TEST_SCOPE,
+      kind: 'review-attempt',
+      recordId: root.recordId,
+    },
+  )
   expect(closed.ok).toBe(false)
   if (!closed.ok) expect(closed.diagnostics.some((item) => item.code === 'self-output')).toBe(true)
 })
 
 it('includes a decision and review owned through the current contribution', () => {
-  const graph = encodedAdmissionReviewGraph(projectionConfig(SYNTHETIC_TAXONOMY), { prefix: 'owned' })
+  const graph = encodedAdmissionReviewGraph(projectionConfig(), { prefix: 'owned' })
   const refs = currentRootOutputRefs({ ...request(), actionId: graph.root.recordId }, [graph.history], {
     scope: TEST_SCOPE,
     kind: 'review-attempt',
@@ -86,7 +85,7 @@ it('includes a decision and review owned through the current contribution', () =
 })
 
 it('admits an authenticated prior decision across correction head progression', () => {
-  const graph = encodedAdmissionReviewGraph(projectionConfig(SYNTHETIC_TAXONOMY), {
+  const graph = encodedAdmissionReviewGraph(projectionConfig(), {
     prefix: 'prior-correction',
     verdict: 'Request changes',
   })
@@ -98,11 +97,12 @@ it('admits an authenticated prior decision across correction head progression', 
     code: { ...request().code, head: TEST_HEAD },
     stageSources: [decision],
   }
-  expect(assertCurrentOutputClosure(correction, [graph.history], []).ok).toBe(true)
+  expect(assertCurrentOutputClosure(correction, [graph.history], fixtureHostReviewClassCatalogues(), []).ok).toBe(true)
   expect(
     assertCurrentOutputClosure(
       { ...correction, code: { ...correction.code, head: 'c'.repeat(40) } },
       [graph.history],
+      fixtureHostReviewClassCatalogues(),
       [],
     ).ok,
   ).toBe(true)
@@ -110,6 +110,7 @@ it('admits an authenticated prior decision across correction head progression', 
     assertCurrentOutputClosure(
       { ...correction, stageSources: [{ ...decision, digest: '0'.repeat(64) }] },
       [graph.history],
+      fixtureHostReviewClassCatalogues(),
       [],
     ).ok,
   ).toBe(false)

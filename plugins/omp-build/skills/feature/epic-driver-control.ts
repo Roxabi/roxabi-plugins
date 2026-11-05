@@ -1,9 +1,11 @@
 import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
+import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
+import { readFixUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
 import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
 import { discoverAcceptedChildPrs, discoverOwnPrs, readChildPrInventory } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
-import { issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
+import { adapterOptions, issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
 import { type Disarm, disarm } from './epic-driver-publication'
 import { Assisted, Refused } from './epic-driver-runtime'
 import { nextStep } from './epic-next-step'
@@ -60,9 +62,10 @@ function namedTerminalMandate(history: DecodedHistory, control: 'abandoned' | 'r
 function selectedControlTarget(
   history: DecodedHistory,
   external: DecodedHistory[],
+  causal: WorkflowCausalContext,
   epic: number,
 ): { mandate: MandateRecord; control: EpicControlState } {
-  const selected = selectApplicableMandate(history, external)
+  const selected = selectApplicableMandate(history, external, causal)
   if (selected.status === 'applicable') {
     const inhibit = localInhibit(history, selected.mandate.recordId)
     const control = inhibit === 'abandon' ? 'abandoned' : inhibit === 'pause' ? 'paused' : 'active'
@@ -92,8 +95,10 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
   const history = await issueHistory(repo, full, epic)
   if (!history.source.complete) throw new Refused(`epic #${epic} history is incomplete; continuation is not confirmed`)
   const external = await parentMandateHistories(repo, history)
-  const target = selectedControlTarget(history, external, epic)
-  const accepted = resolveAcceptedSpec(target.mandate, [history, ...external])
+  const causal = await readFixUwCausalContext([history, ...external], [], adapterOptions(repo))
+  if (!causal.ok) throw new Refused(`epic causal history unavailable: ${causal.diagnostics.join(',')}`)
+  const target = selectedControlTarget(history, external, causal.value, epic)
+  const accepted = resolveAcceptedSpec(target.mandate, causal.value.histories)
   if (!accepted.ok) {
     throw new Refused(`epic parent accepted Spec ${accepted.reason}: ${evidenceText(accepted.evidence)}`)
   }

@@ -2,6 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Scope } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import {
   historyFor,
   type MandateRecord,
@@ -13,6 +14,7 @@ import {
 import type { FixMandateAssessment } from './workflow-correction-mandate.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { ciAttributionSchema } from './workflow-output-schema.ts'
+import type { WorkflowCausalContext } from './workflow-plan.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
 
 export type FixMandateInput = {
@@ -21,6 +23,7 @@ export type FixMandateInput = {
   history: DecodedHistory
   linkedIssueHistory: DecodedHistory | null
   externalHistories?: readonly DecodedHistory[]
+  causal: WorkflowCausalContext
   evidenceDigest?: string | null
 }
 
@@ -85,10 +88,11 @@ function boundPullRequestAdmission(
   const applicableMandate = selectApplicableMandate(
     home,
     histories.filter((item) => item !== home),
+    input.causal,
   )
   if (applicableMandate.status === 'refused') return applicableMandate
   const authority = correctionAuthority(applicableMandate.mandate, histories, input.history, input.evidenceDigest)
-  return authority ?? applicable(applicableMandate.mandate, histories)
+  return authority ?? applicable(applicableMandate.mandate, input.causal.histories)
 }
 
 function unboundPullRequestAdmission(): FixMandateAssessment {
@@ -114,7 +118,7 @@ function pullRequestAdmission(input: FixMandateInput, extra: readonly DecodedHis
 
 function issueAdmission(input: FixMandateInput, extra: readonly DecodedHistory[]): FixMandateAssessment {
   const histories = input.linkedIssueHistory === null ? extra : [input.linkedIssueHistory, ...extra]
-  const selected = selectApplicableMandate(input.history, histories)
+  const selected = selectApplicableMandate(input.history, histories, input.causal)
   if (selected.status === 'refused') return selected
   const mandate = selected.mandate
   const pause = outstandingPauseInAuthority(mandate, [input.history, ...histories])
@@ -128,10 +132,13 @@ function issueAdmission(input: FixMandateInput, extra: readonly DecodedHistory[]
     return refused('incompatible', [diagnostic('incompatible', 'Mandate does not permit correction')])
   if (ciAttributionUnsafe(input.history, input.evidenceDigest))
     return refused('unsafe', [diagnostic('unsafe', 'CI attribution is not the change')])
-  return applicable(mandate, [input.history, ...histories])
+  return applicable(mandate, input.causal.histories)
 }
 
 export function assessFixMandate(input: FixMandateInput): FixMandateAssessment {
   const extra = input.externalHistories ?? []
+  const selected = [input.history, ...(input.linkedIssueHistory === null ? [] : [input.linkedIssueHistory]), ...extra]
+  const causalDiagnostics = workflowCausalDiagnostics(selected, input.causal)
+  if (causalDiagnostics.length > 0) return refused('incomplete', causalDiagnostics)
   return input.target.kind === 'pull-request' ? pullRequestAdmission(input, extra) : issueAdmission(input, extra)
 }

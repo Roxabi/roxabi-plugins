@@ -1,4 +1,5 @@
 import type { Gh } from '../adapters/github/types.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import { landPr } from '../skills/feature/workflow-landing.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import type { Contracts, History, Scope } from './feature-engine.ts'
@@ -22,6 +23,7 @@ export async function landFeature(input: {
   loaded: Contracts
   history: History
   parents: readonly History[]
+  causal: WorkflowCausalContext
   delivery: Delivery | null
   gh: Gh
   git: GitRunner
@@ -30,7 +32,7 @@ export async function landFeature(input: {
   pluginPin?: import('./uw-action-contract.ts').TrustedHostPluginPin
 }): Promise<ContinueFeatureResult | NativeLanding> {
   if (input.delivery === null) return { kind: 'blocked', reason: 'land-requires-pull-request' }
-  const selected = input.loaded.selectApplicableMandate(input.history, input.parents)
+  const selected = input.loaded.selectApplicableMandate(input.history, input.parents, input.causal)
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return {
       kind: 'blocked',

@@ -1,11 +1,12 @@
 import { canonicalValueDigest } from './action-input.ts'
-import { blockingLabels } from './cause-assessment.ts'
 import { causeDispositionLineage } from './cause-lineage.ts'
+import { validateCauseDispositionRecords } from './cause-record-validation.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { bindExternalRef, recordsOf, workflowOperationProblem } from './workflow-control.ts'
 
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
@@ -42,40 +43,6 @@ function validateMotivation(record: Disposition, operation: Operation, diagnosti
     )
 }
 
-function validateSurvivors(
-  record: Disposition,
-  lineage: readonly { disposition: Disposition; adjudication: Operation | null }[],
-  diagnostics: Diagnostic[],
-): void {
-  const subject = record.payload.subject
-  if (subject.kind !== 'cause') return
-  const rejected = new Set<string>()
-  let judgment = subject.cause.judgment
-  for (const member of lineage) {
-    const proposal = member.adjudication?.payload.proposal
-    if (proposal?.operation !== 'adjudicate-cause') continue
-    for (const id of proposal.rejectedFindingIds) rejected.add(id)
-    judgment = proposal.judgment ?? judgment
-  }
-  const blocking = subject.findings.some(
-    (finding) => !rejected.has(finding.id) && (finding.label === null || blockingLabels.has(finding.label)),
-  )
-  const supported = [judgment.necessary, judgment.urgent, judgment.tooLarge].every(
-    (value) => value.state === 'supported' && value.reason.trim() !== '' && value.references.length > 0,
-  )
-  if (
-    blocking &&
-    record.payload.outcome.state === 'final' &&
-    (!supported ||
-      judgment.necessary.value !== true ||
-      judgment.urgent.value !== true ||
-      record.payload.outcome.disposition !== (judgment.tooLarge.value ? 'sister-blocking' : 'fix-original'))
-  )
-    diagnostics.push(
-      diagnostic('cause-outcome-mismatch', `Disposition ${record.recordId} cannot clear a surviving blocking member`),
-    )
-}
-
 function validateSuccessor(record: Disposition, state: State): void {
   const previous = record.payload.previous
   if (previous === null) return
@@ -97,7 +64,6 @@ function validateSuccessor(record: Disposition, state: State): void {
   }
   const last = lineage.value[lineage.value.length - 1]
   if (last?.adjudication) validateMotivation(record, last.adjudication, state.diagnostics)
-  validateSurvivors(record, lineage.value, state.diagnostics)
 }
 
 function validateRecord(record: Disposition, state: State): void {
@@ -122,7 +88,7 @@ function validateRecord(record: Disposition, state: State): void {
     )
 }
 
-export function readCauseDispositionHeads(input: {
+export function discoverCauseDispositionHeads(input: {
   uw: Scope
   histories: readonly DecodedHistory[]
 }): Result<readonly Disposition[]> {
@@ -146,4 +112,31 @@ export function readCauseDispositionHeads(input: {
   return state.diagnostics.length
     ? { ok: false, diagnostics: state.diagnostics }
     : { ok: true, value: dispositions.filter((record) => !state.successors.has(record.recordId)) }
+}
+
+/** Retained UW ledger only. These heads are not semantic proof for holds, execution, or admission. */
+export function readRetainedCauseDispositionLedger(input: {
+  uw: Scope
+  history: DecodedHistory
+}): Result<{ heads: readonly Disposition[] }> {
+  const heads = discoverCauseDispositionHeads({ uw: input.uw, histories: [input.history] })
+  return heads.ok ? { ok: true, value: { heads: heads.value } } : heads
+}
+
+export function readCauseDispositionHeads(input: {
+  uw: Scope
+  histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
+}): Result<readonly Disposition[]> {
+  const heads = discoverCauseDispositionHeads(input)
+  if (!heads.ok) return heads
+  const history = input.histories.find((item) => equalScope(item.source.scope, input.uw))
+  if (history === undefined)
+    return { ok: false, diagnostics: [diagnostic('cause-history-unconfirmed', 'UW history is missing')] }
+  const diagnostics = validateCauseDispositionRecords({
+    records: recordsOf(history),
+    histories: input.histories,
+    catalogues: input.catalogues,
+  })
+  return diagnostics.length === 0 ? heads : { ok: false, diagnostics }
 }

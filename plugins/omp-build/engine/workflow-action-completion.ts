@@ -153,12 +153,7 @@ function assessSpecCompletion(
   if (facts === null || mandate === null || facts.currentSpec === null || facts.identityAllocations === null) {
     return { status: 'not-started', evidence: [] }
   }
-  const histories = [
-    evidence.issue,
-    ...(evidence.pullRequest === null ? [] : [evidence.pullRequest]),
-    ...evidence.parents,
-  ]
-  const accepted = resolveAcceptedSpec(mandate, histories)
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (!accepted.ok) return { status: 'uncertain', evidence: accepted.evidence }
   const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
   const exactInputs: AssessSpecExact = {
@@ -201,7 +196,7 @@ function assessSpecCompletion(
   if (result === undefined) {
     return { status: 'uncertain', evidence: [diagnostic('unconfirmed', 'Current spec assessment is missing')] }
   }
-  const authenticated = authenticatedAssessResult(result, histories, mandateRef)
+  const authenticated = authenticatedAssessResult(result, evidence.causal.histories, mandateRef)
   return authenticated.ok
     ? { status: 'confirmed', evidence: [] }
     : { status: 'uncertain', evidence: authenticated.evidence }

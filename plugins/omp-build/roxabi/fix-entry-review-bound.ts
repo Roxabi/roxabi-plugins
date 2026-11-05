@@ -12,7 +12,7 @@ import type {
 import { createFixDispositionStore } from './fix-disposition-store.ts'
 import type { DefaultFixEntry } from './fix-entry-input.ts'
 import { fail } from './fix-entry-target-core.ts'
-import type { DefaultFixRequest } from './fix-execution-policy.ts'
+import { type DefaultFixRequest, executionCatalogues } from './fix-execution-policy.ts'
 import { runReviewBoundFixWorkflow } from './fix-execution-runner.ts'
 import { confirmFixContinuation } from './fix-mandate-authority.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
@@ -67,7 +67,14 @@ async function confirmReviewBoundContinuation(
 ): Promise<FixActionResult<void>> {
   const history = await readHistory()
   if (!history.source.complete) return fail('review-history-or-head-incomplete')
-  if (!validateReviewDecisionBindings(review, history).ok) return fail('review-decision-bindings-invalid')
+  const catalogues = await executionCatalogues(history, options)
+  if (!catalogues.ok) return catalogues
+  const bindings = validateReviewDecisionBindings(review, history, catalogues.value)
+  if (!bindings.ok)
+    return fail(
+      'review-decision-bindings-invalid',
+      ...bindings.diagnostics.map((item) => `${item.code}:${item.message}`),
+    )
   return confirmFixContinuation({
     target,
     options,
@@ -104,6 +111,7 @@ async function loadBoundReview(
   target: FixTarget,
   readHistory: () => Promise<DecodedHistory>,
   reviewId: string,
+  github: GitHubOptions,
 ): Promise<
   FixActionResult<{
     history: DecodedHistory
@@ -119,7 +127,14 @@ async function loadBoundReview(
   if (decision === null) return fail('review-decision-unconfirmed-or-stale')
   const reviewRecord = confirmedRecord(history, reviewId, 'review')
   if (reviewRecord?.kind !== 'review') return fail('review-decision-unconfirmed-or-stale')
-  if (!validateReviewDecisionBindings(reviewRecord, history).ok) return fail('review-decision-bindings-invalid')
+  const catalogues = await executionCatalogues(history, github)
+  if (!catalogues.ok) return catalogues
+  const bindings = validateReviewDecisionBindings(reviewRecord, history, catalogues.value)
+  if (!bindings.ok)
+    return fail(
+      'review-decision-bindings-invalid',
+      ...bindings.diagnostics.map((item) => `${item.code}:${item.message}`),
+    )
   const freshInput = await validateReviewInput(input.cwd, target.number, candidate, reviewRecord.payload.input, {
     ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
     selectedReviewId: reviewRecord.recordId,
@@ -143,7 +158,7 @@ export async function runReviewBoundDefaultFix(
 ): Promise<FixActionResult<FixRecord>> {
   if (target.kind !== 'pull-request') return fail('review-fix-requires-pull-request')
   try {
-    const bound = await loadBoundReview(input, target, readHistory, reviewId)
+    const bound = await loadBoundReview(input, target, readHistory, reviewId, github)
     if (!bound.ok) return bound
     const { history, decision, reviewRecord, candidate } = bound.value
     const origin = await resolveFixOrigin(request.uw, input.operations)
@@ -193,6 +208,7 @@ export async function runReviewBoundDefaultFix(
         publisher,
         dispositionStore: createFixDispositionStore(prepared.value.causeContext.original, github),
         runtime,
+        github,
         readHistory,
       },
       id,

@@ -11,6 +11,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { type Diagnostic, specReportSchema } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { reviewInputsFromInventory } from './review-inventory-input.ts'
 import type { Decision } from './review-schema.ts'
 import { sameOwnSpecRef } from './spec-effective.ts'
@@ -126,6 +127,7 @@ export function authenticatedCriterionFacts(
   decision: ReviewDecision,
   history: DecodedHistory,
   originalContributionId: string,
+  catalogues: ReviewClassCatalogues,
   externalHistories: readonly DecodedHistory[] = [],
   deliveryHistory: DecodedHistory = history,
 ): CriterionDecisionFacts {
@@ -135,7 +137,7 @@ export function authenticatedCriterionFacts(
   const selected =
     inputs === null
       ? { declarations: [], evidence: [] }
-      : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics)
+      : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics, catalogues)
   const bound = new Set(decision.sourceContributionIds)
   if (originalContributionId !== null) bound.add(originalContributionId)
   const verdicts: CriterionVerdict[] = []

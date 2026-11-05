@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { causeAdjudicationProposalSchema, parseRecord } from '../../dist/contracts.js'
 import type { RecordDraft } from '../../engine/record-construction.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { fixture } from '../../testing/uw-operations-fixture.ts'
 import { createCauseAdjudication } from '../uw-cause-adjudication.ts'
 import { createUwOperations } from '../uw-operations.ts'
@@ -62,6 +63,7 @@ function setup(options: { confirm?: boolean; changed?: boolean; invalid?: boolea
   boundary.read.mockImplementation(async () => ({
     disposition: options.changed && ++calls > 1 ? { ...source, recordId: 'different' } : source,
     histories: [history],
+    catalogues: fixtureHostReviewClassCatalogues(),
     context,
   }))
   boundary.validate.mockReturnValue(options.invalid ? [{ code: 'cause-evidence-invalid' }] : [])

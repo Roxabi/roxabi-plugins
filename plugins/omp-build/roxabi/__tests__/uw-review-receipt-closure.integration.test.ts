@@ -1,9 +1,16 @@
 import { expect, it } from 'vitest'
 import { nativeComment, wire } from '../../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../../adapters/github/types.ts'
-import { readComposedWorkflowHistory, recordsOf, validateCauseDispositionRecords } from '../../dist/contracts.js'
+import {
+  readComposedWorkflowHistory,
+  recordsOf,
+  summarizeReviews,
+  validateCauseDispositionRecords,
+} from '../../dist/contracts.js'
 import { sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
+import { operation as observedOperation } from '../../testing/record-history.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { persistCauseDispositions } from '../fix-disposition-execution.ts'
 import type { FixDispositionStore } from '../fix-disposition-store.ts'
@@ -46,11 +53,15 @@ it('loads a confirmed sister identity through the review input causal closure', 
     validateCauseDispositionRecords({
       records: [held, operation, receipt],
       histories: [graph.history, ...result.value],
+      catalogues: fixtureHostReviewClassCatalogues(),
     }),
   ).toEqual([])
   if (graph.inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted origin')
   const effective = graph.inputs.manifest.spec.effective
   const store: FixDispositionStore = {
+    async catalogues() {
+      return fixtureHostReviewClassCatalogues()
+    },
     async read(scopes) {
       const loaded = await readComposedWorkflowHistory(scopes, { cwd: '/fixture', gh, readAuthor: 'automation' })
       return loaded.ok ? { ok: true, value: loaded.histories } : { ok: false, diagnostics: loaded.diagnostics }
@@ -76,4 +87,81 @@ it('loads a confirmed sister identity through the review input causal closure', 
   comments.set(43, [nativeComment(10, wire({ ...identity, operationId: 'forged-operation' }))])
   const forged = await persist()
   expect(forged.ok).toBe(false)
+
+  // The primary observation belongs to review accounting, not the strict
+  // external closure. Its incomplete status must survive dependency loading.
+  comments.set(43, [nativeComment(10, wire(identity))])
+  const incompleteRoot = { ...graph.history, source: { ...graph.history.source, complete: false } }
+  requested.length = 0
+  const incomplete = await readReviewInputHistories(incompleteRoot, {
+    cwd: '/fixture',
+    gh,
+    readAuthor: 'automation',
+  })
+  expect(incomplete.ok, JSON.stringify(incomplete)).toBe(true)
+  if (!incomplete.ok) throw new Error('external history closure refused an incomplete primary observation')
+  expect(incompleteRoot.source.complete).toBe(false)
+  expect(requested).toContain(43)
+  // The receipt points back into the primary scope; closure must not reload it.
+  expect(requested).not.toContain(44)
+  expect(
+    validateCauseDispositionRecords({
+      records: [held, operation, receipt],
+      histories: [incompleteRoot, ...incomplete.value],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }).length,
+  ).toBeGreaterThan(0)
+  expect(summarizeReviews(incompleteRoot, fixtureHostReviewClassCatalogues(), null, incomplete.value).ok).toBe(false)
+
+  const interruptedRoot = {
+    ...graph.history,
+    operations: [
+      ...graph.history.operations,
+      observedOperation(graph.review, {
+        operationId: 'partial-new-review',
+        recordId: 'partial-new-review-record',
+        status: 'incomplete',
+        record: null,
+      }),
+    ],
+  }
+  expect(interruptedRoot.source.complete).toBe(true)
+  const interrupted = await readReviewInputHistories(interruptedRoot, {
+    cwd: '/fixture',
+    gh,
+    readAuthor: 'automation',
+  })
+  expect(interrupted.ok, JSON.stringify(interrupted)).toBe(true)
+  if (!interrupted.ok) throw new Error('external history closure refused an interrupted primary operation')
+  expect(summarizeReviews(interruptedRoot, fixtureHostReviewClassCatalogues(), null, interrupted.value)).toMatchObject({
+    ok: false,
+    diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'incomplete' })]),
+  })
+
+  // A missing or forged external identity remains invalid for either primary
+  // observation. An incomplete primary does not relax external authentication.
+  for (const root of [graph.history, incompleteRoot]) {
+    for (const invalid of [[], [nativeComment(10, wire({ ...identity, operationId: 'forged-operation' }))]]) {
+      comments.set(43, invalid)
+      const loaded = await readReviewInputHistories(root, { cwd: '/fixture', gh, readAuthor: 'automation' })
+      if (!loaded.ok) continue
+      expect(
+        validateCauseDispositionRecords({
+          records: [held, operation, receipt],
+          histories: [root, ...loaded.value],
+          catalogues: fixtureHostReviewClassCatalogues(),
+        }).length,
+      ).toBeGreaterThan(0)
+    }
+  }
+  comments.set(43, [nativeComment(10, wire(identity))])
+  const unavailable: Gh = async (cwd, args) => {
+    if (args.some((arg) => arg.includes('issues/43/comments'))) throw new Error('sister history unavailable')
+    return gh(cwd, args)
+  }
+  for (const root of [graph.history, incompleteRoot]) {
+    const loaded = await readReviewInputHistories(root, { cwd: '/fixture', gh: unavailable, readAuthor: 'automation' })
+    expect(loaded.ok).toBe(false)
+    if (!loaded.ok) expect(loaded.diagnostics.map((item) => item.code)).toContain('github-read-failed')
+  }
 })

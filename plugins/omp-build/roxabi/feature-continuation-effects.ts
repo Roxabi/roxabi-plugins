@@ -94,6 +94,7 @@ async function coordinateLanding(
     loaded: context.engine,
     history: observation.evidence.issue,
     parents: observation.evidence.parents,
+    causal: observation.evidence.causal,
     delivery: observation.delivery,
     gh: context.gh,
     git: context.git,
@@ -182,15 +183,16 @@ async function coordinateHook(
   continueAtTarget: ContinueAtTarget,
 ): Promise<ContinueFeatureResult> {
   const { context } = authority
-  const selected = context.engine.selectApplicableMandate(observation.evidence.issue, observation.evidence.parents)
+  const selected = context.engine.selectApplicableMandate(
+    observation.evidence.issue,
+    observation.evidence.parents,
+    observation.evidence.causal,
+  )
   if (selected.status !== 'applicable' || selected.mandate === null || selected.mandate.kind !== 'mandate')
     return { kind: 'blocked', reason: 'hook-mandate-missing' }
   const mandate = selected.mandate
   const parent = payload(mandate).parent
-  const accepted = context.engine.resolveAcceptedSpec(mandate, [
-    observation.evidence.issue,
-    ...observation.evidence.parents,
-  ])
+  const accepted = context.engine.resolveAcceptedSpec(mandate, observation.evidence.causal.histories)
   if (!accepted.ok) return { kind: 'blocked', reason: 'hook-spec-unreadable', diagnostics: accepted.evidence }
   const role = context.engine.effectiveMandateRole(mandate.payload.role, accepted.spec)
   if (role === 'feature') {

@@ -10,6 +10,7 @@ import { mandateParentHistories } from './feature-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type ControlTarget, disarmKnownTarget } from './feature-disarm.ts'
 import { type Contracts, type History, isRecord, payload, publishRecord, type Scope } from './feature-engine.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
 
 type PausedContinuation = Extract<ContinueFeatureResult, { kind: 'paused' }>
 
@@ -166,9 +167,13 @@ async function publishPause(input: PausePublicationInput): Promise<PausedContinu
     return { kind: 'paused', confirmed: false, reason: requested.ok ? 'pause-unconfirmed' : 'pause-uncertain' }
   }
   if (!isJson(evidence.evidence)) return { kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }
+  const refreshed = await input.loaded.readComposedWorkflowHistory([input.scope], input.options)
+  if (!refreshed.ok || refreshed.histories[0] === undefined) {
+    return { kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }
+  }
   await publishRecord(
     input.loaded,
-    history,
+    refreshed.histories[0],
     {
       repository: input.scope.repository,
       target: input.scope.target,
@@ -207,7 +212,9 @@ async function admitPausePublication(
   if (!parentResult.ok || !input.loaded.bindExternalRef(input.mandate, history).ok) {
     return { kind: 'paused', confirmed: false, reason: 'pause-uncertain' }
   }
-  const selection = input.loaded.selectApplicableMandate(history, parentResult.parents)
+  const causal = await readFixUwCausalContext([history, ...parentResult.parents], [], input.options)
+  if (!causal.ok) return { kind: 'paused', confirmed: false, reason: 'pause-uncertain' }
+  const selection = input.loaded.selectApplicableMandate(history, parentResult.parents, causal.value)
   if (bindsOwnPause(input.loaded, selection, history, input.scope, input.mandate)) {
     return { kind: 'paused', confirmed: true, reason: 'paused' }
   }

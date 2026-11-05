@@ -10,6 +10,7 @@ import type { ObservationRef } from '../engine/criterion-evidence-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Json, Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { ActionSubject, DeliveryDataRef, RecordInputRef } from './uw-action-contract.ts'
 import { type ActionFactSource, authenticate, readHistories } from './uw-action-observe.ts'
 import { actionFailure, jsonPointer, sha256Bytes } from './uw-action-result.ts'
@@ -21,6 +22,12 @@ export type EvidenceObservation = {
   histories: Map<string, Promise<Result<DecodedHistory[]>>>
   files: Map<string, Promise<Result<Uint8Array>>>
 }
+
+export type CausalFactObservation = {
+  causal: WorkflowCausalContext
+  evidence: EvidenceObservation
+}
+export type ObserveCausalFacts = () => Promise<Result<CausalFactObservation>>
 
 export function createEvidenceObservation(): EvidenceObservation {
   return { histories: new Map(), files: new Map() }

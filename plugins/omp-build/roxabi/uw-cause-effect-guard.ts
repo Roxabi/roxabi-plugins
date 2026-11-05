@@ -7,6 +7,7 @@ import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import { assertCauseParentUnchanged } from './uw-cause-parent.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
+import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
 import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
 
 type Parent = NonNullable<Extract<CreationContext, { kind: 'sister' }>['parentObservation']>
@@ -30,7 +31,7 @@ export function causeEffectGuard(
   originalDigest: string,
 ): CauseEffectGuard {
   return async ({ created }) => {
-    if (parent !== null) await assertCauseParentUnchanged(parent, input.reader, input.github, created)
+    if (parent !== null) await assertCauseParentUnchanged(parent, createParentEngagementReadPort(input.github), created)
     const current = rootObservation(uw, await input.reader.readUw(uw))
     const normalized =
       created === null ? current : withoutCreated(current, created, parentScope !== null && same(parentScope, uw))

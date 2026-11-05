@@ -1,6 +1,8 @@
-import type { DecodedHistory } from '../dist/contracts.js'
+import type { DecodedHistory, GitHubOptions } from '../dist/contracts.js'
 import { validateDecisionBindings, validateRecordGraph } from '../dist/contracts.js'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
+import { defaultGh } from './feature-engine.ts'
 import type {
   FixActionResult,
   FixRecord,
@@ -15,6 +17,8 @@ import type { FixDispositionStore } from './fix-disposition-store.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { actionTask } from './fix-native-dispatch.ts'
 import { nativeFixProfileByAction } from './native-review-profiles'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
+import { readReviewInputHistories } from './uw-input-readers.ts'
 export type DefaultFixRequest = Omit<FixRequestInput, 'nativeTasks'>
 
 export type DefaultFixWorkflow = {
@@ -22,6 +26,7 @@ export type DefaultFixWorkflow = {
   publisher: RecordPublisher
   dispositionStore: FixDispositionStore
   readHistory(): Promise<DecodedHistory>
+  github: GitHubOptions
   workflow?: ReviewAuthority
   native: NativePort
   runtime: FixWorkflowRuntime
@@ -30,18 +35,31 @@ export type DefaultFixWorkflow = {
 export function admitDecisionExecution(
   decision: Extract<FixRecord, { kind: 'decision' }>,
   history: DecodedHistory,
+  catalogues: ReviewClassCatalogues,
 ): FixActionResult<void> {
   const graph = validateRecordGraph(history)
   if (!graph.ok)
     return failure(
       `correction-execution-admission-invalid:${graph.diagnostics.map((diagnostic) => diagnostic.code).join(',')}`,
     )
-  const bindings = validateDecisionBindings(decision, history)
+  const bindings = validateDecisionBindings(decision, history, catalogues)
   if (!bindings.admissible)
     return failure(
-      `correction-synthesis-bindings-invalid:${bindings.diagnostics.map((diagnostic) => diagnostic.code).join(',')}`,
+      `correction-synthesis-bindings-invalid:${bindings.diagnostics.map((diagnostic) => `${diagnostic.code}:${diagnostic.message}`).join(',')}`,
     )
   return { ok: true, value: undefined }
+}
+
+/** Load evidence for this exact root and its typed external closure. */
+export async function executionCatalogues(
+  history: DecodedHistory,
+  github: GitHubOptions,
+): Promise<FixActionResult<ReviewClassCatalogues>> {
+  const gh = github.gh ?? defaultGh()
+  const external = await readReviewInputHistories(history, { cwd: github.cwd, gh, readAuthor: github.readAuthor })
+  if (!external.ok) return failure(...external.diagnostics.map((item) => `${item.code}:${item.message}`))
+  const catalogues = await loadReviewClassCatalogues({ histories: [history, ...external.value], cwd: github.cwd, gh })
+  return { ok: true, value: catalogues }
 }
 
 export function defaultIntakeTask(input: DefaultFixRequest): Omit<NativeTask, 'action'> {

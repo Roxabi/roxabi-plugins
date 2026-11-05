@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { decodeHistory, encodeRecord } from '../../adapters/github/history-codec.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { encodedAdmissionReviewGraph } from '../../testing/record-admission.ts'
 import { finding, NATIVE_AUTHOR, submission, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
@@ -13,7 +14,7 @@ import { projectRecord } from '../record-projection.ts'
 import { validateDecision } from '../review-decision.ts'
 import type { ObservedComment } from '../review-schema.ts'
 import { deriveReviewState, summarizeReviews } from '../review-state.ts'
-import { assessmentCodes, PROJECTION_CONFIG, refusalCodes, reviewFacts, TAXONOMY } from './record-test-support.ts'
+import { assessmentCodes, PROJECTION_CONFIG, refusalCodes, reviewFacts } from './record-test-support.ts'
 
 function correctionHistorySource(comments: ObservedComment[]) {
   return {
@@ -114,7 +115,7 @@ describe('immutable admission facts', () => {
     const changedInput = deriveReviewState(
       left.history,
       { ...reviewFacts(), input: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
     )
     const substituted = {
       ...left.review,
@@ -127,13 +128,15 @@ describe('immutable admission facts', () => {
 
     expect(refusalCodes(validateRecordGraph(history(combined)))).toContain('unbound')
     expect(changedInput).toMatchObject({ ok: true, next: 'review' })
-    expect(projectRecord(left.review, left.history, { taxonomy: TAXONOMY, acceptedPolicy: null })).toMatchObject({
+    expect(projectRecord(left.review, left.history, PROJECTION_CONFIG)).toMatchObject({
       ok: true,
     })
-    expect(projectRecord(substituted, left.history, { taxonomy: TAXONOMY, acceptedPolicy: null })).toMatchObject({
+    expect(projectRecord(substituted, left.history, PROJECTION_CONFIG)).toMatchObject({
       ok: false,
     })
-    expect(assessmentCodes(validateDecision(unobservedDecision, left.history, TAXONOMY, null))).toContain('unbound')
+    expect(
+      assessmentCodes(validateDecision(unobservedDecision, left.history, fixtureReviewClassCatalogues(), null)),
+    ).toContain('unbound')
   })
 
   test('keeps a persisted CI stop after a later green interpretation', () => {
@@ -148,7 +151,11 @@ describe('immutable admission facts', () => {
       kind: 'stop' as const,
       payload: { reason: 'ci-failed' as const, reviewId: green.review.recordId, detail: { ci: 'red' } },
     }
-    const state = deriveReviewState(history([...green.records, stop]), reviewFacts(TEST_HEAD, 'green'), TAXONOMY)
+    const state = deriveReviewState(
+      history([...green.records, stop]),
+      reviewFacts(TEST_HEAD, 'green'),
+      fixtureReviewClassCatalogues(),
+    )
 
     expect(state).toMatchObject({
       ok: true,
@@ -196,7 +203,7 @@ describe('immutable admission facts', () => {
 describe('native history trust and chronology', () => {
   test('ignores a foreign partial frame that reuses a trusted review operation', () => {
     const trusted = encodedAdmissionReviewGraph(PROJECTION_CONFIG, { prefix: 'foreign-partial' })
-    const baseline = summarizeReviews(trusted.history, TAXONOMY, null)
+    const baseline = summarizeReviews(trusted.history, fixtureReviewClassCatalogues(), null)
     const review = trusted.history.operations.find((operation) => operation.record?.kind === 'review')
     if (review?.operationId === null || review?.operationId === undefined) throw new Error('Fixture requires a review')
     const source = {
@@ -212,7 +219,7 @@ describe('native history trust and chronology', () => {
       ],
     }
 
-    expect(summarizeReviews(decodeHistory(source), TAXONOMY, null)).toEqual(baseline)
+    expect(summarizeReviews(decodeHistory(source), fixtureReviewClassCatalogues(), null)).toEqual(baseline)
   })
 
   test('refuses an approving review whose native comment was edited after creation', () => {
@@ -233,7 +240,7 @@ describe('native history trust and chronology', () => {
       ),
     }
 
-    expect(summarizeReviews(revised, TAXONOMY, null)).toMatchObject({ ok: false })
+    expect(summarizeReviews(revised, fixtureReviewClassCatalogues(), null)).toMatchObject({ ok: false })
     expect(refusalCodes(validateRecordGraph(revised))).toContain('record-edited')
   })
 })
@@ -260,7 +267,7 @@ describe('history authority classification', () => {
       authority: 'accounted',
     })
     expect(classification.authorityHistory.operations.some((entry) => entry.recordId === event.recordId)).toBe(false)
-    expect(summarizeReviews(accounted, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(accounted, fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: true,
       value: { verdict: 'Approve (clean)', reviews: 1 },
     })
@@ -276,7 +283,12 @@ describe('history authority classification', () => {
       ),
     ).toBe(false)
     expect(
-      validateDecision(graph.decision, classifyHistory(foreignPanel).authorityHistory, TAXONOMY, null),
+      validateDecision(
+        graph.decision,
+        classifyHistory(foreignPanel).authorityHistory,
+        fixtureReviewClassCatalogues(),
+        null,
+      ),
     ).toMatchObject({ admissible: false })
   })
 
@@ -315,7 +327,7 @@ describe('history authority classification', () => {
     }
     const missing = history(graph.records.map((record) => (record.recordId === root.recordId ? root : record)))
 
-    expect(summarizeReviews(accounted, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(accounted, fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: true,
       value: { reviews: 1, verdict: 'Approve (clean)' },
     })
@@ -324,8 +336,8 @@ describe('history authority classification', () => {
         (entry) => entry.recordId === eventResult.value.recordId,
       ),
     ).toBe(true)
-    expect(summarizeReviews(foreign, TAXONOMY, null).ok).toBe(false)
-    expect(summarizeReviews(missing, TAXONOMY, null).ok).toBe(false)
+    expect(summarizeReviews(foreign, fixtureReviewClassCatalogues(), null).ok).toBe(false)
+    expect(summarizeReviews(missing, fixtureReviewClassCatalogues(), null).ok).toBe(false)
   })
   test('keeps a complete independent accounted correction graph out of green review accounting', () => {
     const correction = correctionFixtureRecords()
@@ -345,12 +357,12 @@ describe('history authority classification', () => {
     expect(withoutRequest.operations.some((entry) => entry.recordId === request.recordId)).toBe(false)
     expect(ambiguous.operations.filter((entry) => entry.recordId === request.recordId).length).toBe(2)
 
-    expect(summarizeReviews(mixed, TAXONOMY, null)).toMatchObject({
+    expect(summarizeReviews(mixed, fixtureReviewClassCatalogues(), null)).toMatchObject({
       ok: true,
       value: { reviews: 1, verdict: 'Approve (clean)' },
     })
-    expect(summarizeReviews(withoutRequest, TAXONOMY, null).ok).toBe(false)
-    expect(summarizeReviews(ambiguous, TAXONOMY, null).ok).toBe(false)
+    expect(summarizeReviews(withoutRequest, fixtureReviewClassCatalogues(), null).ok).toBe(false)
+    expect(summarizeReviews(ambiguous, fixtureReviewClassCatalogues(), null).ok).toBe(false)
   })
 
   test('keeps trusted unknown and incomplete final operations authoritative and refusing', () => {
@@ -374,8 +386,8 @@ describe('history authority classification', () => {
       operationId: 'trusted-unknown',
       authority: 'authority',
     })
-    expect(summarizeReviews(unknownHistory, TAXONOMY, null).ok).toBe(false)
-    expect(summarizeReviews(incompleteFinal, TAXONOMY, null).ok).toBe(false)
+    expect(summarizeReviews(unknownHistory, fixtureReviewClassCatalogues(), null).ok).toBe(false)
+    expect(summarizeReviews(incompleteFinal, fixtureReviewClassCatalogues(), null).ok).toBe(false)
   })
 
   test('refuses an operation whose runtime authority stamp is absent', () => {
@@ -388,6 +400,6 @@ describe('history authority classification', () => {
     const classified = classifyHistory(unstamped)
 
     expect(classified.authorityHistory.diagnostics.map(({ code }) => code)).toContain('unclassified')
-    expect(summarizeReviews(unstamped, TAXONOMY, null).ok).toBe(false)
+    expect(summarizeReviews(unstamped, fixtureReviewClassCatalogues(), null).ok).toBe(false)
   })
 })

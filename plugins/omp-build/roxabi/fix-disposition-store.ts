@@ -5,15 +5,20 @@ import {
   type GitHubOptions,
   publishGitHubRecord,
   type Result,
+  type ReviewClassCatalogues,
   readGitHubHistory,
   type Scope,
   validateCauseDispositionRecords,
   type WorkflowPublication,
 } from '../dist/contracts.js'
+import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
+import { createPublicationContextResolver } from './publication-context.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 
 export type FixDispositionStore = {
   read(scopes: readonly Scope[]): Promise<Result<readonly DecodedHistory[]>>
+  catalogues(histories: readonly DecodedHistory[]): Promise<ReviewClassCatalogues>
   publish(
     record: Extract<CanonicalRecord, { kind: 'cause-disposition' }>,
     histories: readonly DecodedHistory[],
@@ -24,6 +29,9 @@ export type FixDispositionStore = {
 export function createFixDispositionStore(original: Scope, supplied: GitHubOptions): FixDispositionStore {
   const options = withRoxabiGitHubPolicy(supplied)
   return {
+    catalogues(histories) {
+      return loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() })
+    },
     async read(scopes) {
       try {
         const histories = await Promise.all(
@@ -60,32 +68,33 @@ export function createFixDispositionStore(original: Scope, supplied: GitHubOptio
           history,
           diagnostics: [{ code: 'correction-origin-mismatch', message: 'Disposition is not on the original UW' }],
         }
+      const resolver = createPublicationContextResolver(options, null)
+      const context = await resolver({ record, history, externalHistories: histories })
+      if (!context.ok) return { status: 'refused', history, diagnostics: context.diagnostics }
+      if (context.value.config === null)
+        return {
+          status: 'refused',
+          history,
+          diagnostics: [
+            {
+              code: 'correction-disposition-catalogue-missing',
+              message: 'Disposition publication requires catalogue evidence',
+            },
+          ],
+        }
+      const linked = [history, ...context.value.externalHistories]
       const records = history.operations.flatMap((operation) =>
         operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
           ? [operation.record]
           : [],
       )
-      const linked = [
-        history,
-        ...histories.filter(
-          (external) =>
-            external.source.scope.repository !== original.repository ||
-            external.source.scope.target !== original.target,
-        ),
-      ]
-      const diagnostics = validateCauseDispositionRecords({ records: [...records, record], histories: linked })
+      const diagnostics = validateCauseDispositionRecords({
+        records: [...records, record],
+        histories: linked,
+        catalogues: context.value.config.catalogues,
+      })
       if (diagnostics.length > 0) return { status: 'refused', history, diagnostics }
-      return publishGitHubRecord(
-        record,
-        history,
-        options,
-        null,
-        histories.filter(
-          (external) =>
-            external.source.scope.repository !== original.repository ||
-            external.source.scope.target !== original.target,
-        ),
-      )
+      return publishGitHubRecord(record, options, resolver, context.value.externalHistories)
     },
   }
 }

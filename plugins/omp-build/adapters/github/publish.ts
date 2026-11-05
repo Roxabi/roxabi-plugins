@@ -1,7 +1,7 @@
 import type { DecodedHistory, History, OperationRead } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
-import type { RecordProjectionConfig } from '../../engine/result.ts'
 import { encodeRecord } from './history-codec.ts'
+import type { PublicationContextResolver } from './publication-context.ts'
 import { freshHistory, publishMissingBodies } from './publication-writer.ts'
 import {
   operationConflictDiagnostics,
@@ -14,15 +14,71 @@ import {
 } from './publisher-validation.ts'
 import { diagnostic, expectedReadAuthor, type GitHubOptions, viewer } from './types.ts'
 
+async function confirmReadBack(
+  record: CanonicalRecord,
+  current: DecodedHistory,
+  resolveContext: PublicationContextResolver,
+  externalHistories: readonly DecodedHistory[],
+): Promise<{ status: 'confirmed'; operation: OperationRead } | PublicationFailure> {
+  const readBack = current.operations.find((operation) => sameOperation(record, operation))
+  if (readBack === undefined)
+    return publicationFailure('uncertain', current, [
+      diagnostic(
+        'publication-unconfirmed',
+        `Operation ${record.operationId} was not completely confirmed by native read-back`,
+      ),
+    ])
+  try {
+    const latest = await resolveContext({ record, history: current, externalHistories })
+    if (!latest.ok) return publicationFailure('uncertain', current, latest.diagnostics)
+    const ownLocators = new Set(readBack.parts.map((part) => part.locator))
+    const beforeRecord: History = {
+      ...current.source,
+      comments: current.source.comments.filter((comment) => !ownLocators.has(comment.locator)),
+    }
+    const checked = encodeRecord(record, beforeRecord, latest.value.config, latest.value.externalHistories)
+    if (!checked.ok) return publicationFailure('uncertain', current, checked.diagnostics)
+  } catch (error) {
+    return publicationFailure('uncertain', current, publicationReadDiagnostics(error))
+  }
+  return { status: 'confirmed', operation: readBack }
+}
+async function encodePublication(
+  record: CanonicalRecord,
+  current: DecodedHistory,
+  ownParts: readonly OperationRead[],
+  resolveContext: PublicationContextResolver,
+  externalHistories: readonly DecodedHistory[],
+): Promise<{ status: 'ready'; bodies: string[] } | PublicationFailure> {
+  let resolved: Awaited<ReturnType<PublicationContextResolver>>
+  try {
+    resolved = await resolveContext({ record, history: current, externalHistories })
+  } catch (error) {
+    return publicationFailure('uncertain', current, publicationReadDiagnostics(error))
+  }
+  if (!resolved.ok) return publicationFailure('refused', current, resolved.diagnostics)
+  const knownPartLocators = new Set(ownParts.flatMap((operation) => operation.parts.map((part) => part.locator)))
+  const encodingHistory: History =
+    knownPartLocators.size === 0
+      ? current.source
+      : {
+          ...current.source,
+          comments: current.source.comments.filter((comment) => !knownPartLocators.has(comment.locator)),
+        }
+  const encoded = encodeRecord(record, encodingHistory, resolved.value.config, resolved.value.externalHistories)
+  return encoded.ok
+    ? { status: 'ready', bodies: encoded.value }
+    : publicationFailure('refused', current, encoded.diagnostics)
+}
+
 /**
  * Publish idempotently: a fresh native read decides existing parts, and every
  * successful write is accepted only after a complete native read-back.
  */
 export async function publishGitHubRecord(
   record: CanonicalRecord,
-  history: DecodedHistory,
   options: GitHubOptions,
-  config: RecordProjectionConfig | null,
+  resolveContext: PublicationContextResolver,
   externalHistories: readonly DecodedHistory[] = [],
 ): Promise<{ status: 'confirmed'; operation: OperationRead } | PublicationFailure> {
   let expectedAuthor: string
@@ -32,7 +88,7 @@ export async function publishGitHubRecord(
     expectedAuthor = await expectedReadAuthor(options)
     writer = options.writerLogin ?? (await viewer(options))
   } catch (error) {
-    return publicationFailure('uncertain', history, publicationReadDiagnostics(error))
+    return publicationFailure('uncertain', null, publicationReadDiagnostics(error))
   }
 
   const authorizationDiagnostics = publicationAuthorizationDiagnostics(
@@ -42,13 +98,13 @@ export async function publishGitHubRecord(
     writer,
     stopAuthor,
   )
-  if (authorizationDiagnostics !== null) return publicationFailure('refused', history, authorizationDiagnostics)
+  if (authorizationDiagnostics !== null) return publicationFailure('refused', null, authorizationDiagnostics)
 
   let current: DecodedHistory
   try {
     current = await freshHistory(record, options, expectedAuthor, stopAuthor)
   } catch (error) {
-    return publicationFailure('uncertain', history, publicationReadDiagnostics(error))
+    return publicationFailure('uncertain', null, publicationReadDiagnostics(error))
   }
 
   const sameId = current.operations.filter(
@@ -56,28 +112,22 @@ export async function publishGitHubRecord(
   )
   const confirmed = sameId.find((operation) => sameOperation(record, operation))
   const incomplete = sameId.filter((operation) => operation.status === 'incomplete')
-  if (confirmed !== undefined && sameId.length === 1) return { status: 'confirmed', operation: confirmed }
 
-  const conflictDiagnostics = operationConflictDiagnostics(record, sameId, incomplete)
+  const conflictDiagnostics =
+    confirmed !== undefined && sameId.length === 1 ? null : operationConflictDiagnostics(record, sameId, incomplete)
   if (conflictDiagnostics !== null) return publicationFailure('refused', current, conflictDiagnostics)
 
-  const knownPartLocators = new Set(incomplete.flatMap((operation) => operation.parts.map((part) => part.locator)))
-  const encodingHistory: History =
-    knownPartLocators.size === 0
-      ? current.source
-      : {
-          ...current.source,
-          comments: current.source.comments.filter((comment) => !knownPartLocators.has(comment.locator)),
-        }
-  const encoded = encodeRecord(record, encodingHistory, config, externalHistories)
-  if (!encoded.ok) return publicationFailure('refused', current, encoded.diagnostics)
+  const ownParts = confirmed === undefined ? incomplete : [...incomplete, confirmed]
+  const encoded = await encodePublication(record, current, ownParts, resolveContext, externalHistories)
+  if (encoded.status !== 'ready') return encoded
+  if (confirmed !== undefined && sameId.length === 1) return { status: 'confirmed', operation: confirmed }
 
-  const retainedDiagnostics = retainedPartConflictDiagnostics(record, incomplete, new Set(encoded.value))
+  const retainedDiagnostics = retainedPartConflictDiagnostics(record, incomplete, new Set(encoded.bodies))
   if (retainedDiagnostics !== null) return publicationFailure('refused', current, retainedDiagnostics)
 
   const writeResult = await publishMissingBodies(
     record,
-    encoded.value,
+    encoded.bodies,
     current,
     options,
     expectedAuthor,
@@ -89,15 +139,7 @@ export async function publishGitHubRecord(
   try {
     current = await freshHistory(record, options, expectedAuthor, stopAuthor)
   } catch (error) {
-    return publicationFailure('uncertain', history, publicationReadDiagnostics(error))
+    return publicationFailure('uncertain', current, publicationReadDiagnostics(error))
   }
-  const readBack = current.operations.find((operation) => sameOperation(record, operation))
-  return readBack === undefined
-    ? publicationFailure('uncertain', current, [
-        diagnostic(
-          'publication-unconfirmed',
-          `Operation ${record.operationId} was not completely confirmed by native read-back`,
-        ),
-      ])
-    : { status: 'confirmed', operation: readBack }
+  return confirmReadBack(record, current, resolveContext, externalHistories)
 }

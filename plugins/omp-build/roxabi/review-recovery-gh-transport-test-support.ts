@@ -1,5 +1,6 @@
 import { fakeGh } from '../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../adapters/github/types.ts'
+import { fixtureCatalogueGhResponse } from '../testing/action-input-fixtures.ts'
 
 type NativeComment = {
   id: number
@@ -44,6 +45,8 @@ function postComment(input: RecoveryGhTransportInput, args: string[], endpoint: 
 export function recoveryGhTransport(input: RecoveryGhTransportInput): Gh {
   return fakeGh([
     (args) => {
+      const catalogue = fixtureCatalogueGhResponse(args)
+      if (catalogue !== null) return catalogue
       if (args.join(' ') === 'repo view --json nameWithOwner -q .nameWithOwner') return repository
       if (args[0] === 'api' && args[1] === 'user') return 'automation'
       const endpoint = issueCommentsEndpoint(args)

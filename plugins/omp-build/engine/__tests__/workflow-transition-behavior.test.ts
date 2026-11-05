@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { fixtureCausal, workflowEvidence } from '../../testing/action-input-fixtures.ts'
 import { observedComment } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import type { DecodedHistory } from '../history-schema.ts'
@@ -67,8 +68,11 @@ function landingInput(
 ) {
   const ownSpec = mandate.payload.ownSpec
   const config = mandate.payload.config
+  const observed = withConfirmedIdentities(histories)
   return {
-    histories: withConfirmedIdentities(histories),
+    histories: observed,
+    authorityHistories: observed,
+    catalogues: fixtureCausal(observed).catalogues,
     native: { branch: 'feature/bounded', base: 'main', pullRequest, linkedIssueScopes: [SCOPE] },
     parentScopes,
     uwGraph: {
@@ -105,7 +109,7 @@ function landingInput(
 describe('workflow transition behavior', () => {
   test('blocks the first mandate when the session is not in the prepared worktree', () => {
     const decision = reconstructWorkflow({
-      evidence: { issue: history([]), pullRequest: null, parents: [] },
+      evidence: workflowEvidence(history([]), null, [], []),
       facts: facts({ explicitSelection: true, sessionCwd: '/principal', preparedWorktree: '/work' }),
       decisions: {
         reviewStep: null,
@@ -226,6 +230,7 @@ describe('workflow transition behavior', () => {
         linkedIssueScopes: [],
         history: history([mandate()]),
         linkedIssueHistory: null,
+        causal: fixtureCausal([history([mandate()])]),
       }),
     ).toMatchObject({
       status: 'refused',
@@ -238,6 +243,7 @@ describe('workflow transition behavior', () => {
         linkedIssueScopes: [],
         history: history([]),
         linkedIssueHistory: null,
+        causal: fixtureCausal([history([])]),
       }),
     ).toMatchObject({ status: 'refused', reason: 'unknown-binding' })
     expect(
@@ -246,6 +252,7 @@ describe('workflow transition behavior', () => {
         linkedIssueScopes: [SCOPE],
         history: history([feature]),
         linkedIssueHistory: null,
+        causal: fixtureCausal([history([feature])]),
       }),
     ).toMatchObject({ status: 'refused', reason: 'unknown-binding' })
   })
@@ -263,14 +270,22 @@ describe('workflow transition behavior', () => {
       watch: { status: 'absent', evidence: [] },
     }
     const bound = (histories: DecodedHistory[], use: 'review' | 'correction') =>
-      resolveBoundWork({ use, explicitSelection: true, pullRequest: pr, histories, native })
+      resolveBoundWork({
+        use,
+        explicitSelection: true,
+        pullRequest: pr,
+        histories,
+        native,
+        causal: fixtureCausal(histories),
+      })
     const landing = (histories: DecodedHistory[], parentScopes: Scope[] = [], mandate: MandateRecord = feature) =>
       requireLandingMandate(landingInput(mandate, histories, pr, parentScopes))
     const reconstruct = (
       issue: DecodedHistory,
       parents: DecodedHistory[] = [],
       overrides: Partial<WorkflowFacts> = {},
-    ) => reconstructWorkflow({ evidence: { issue, pullRequest: null, parents }, facts: facts(overrides), decisions })
+    ) =>
+      reconstructWorkflow({ evidence: workflowEvidence(issue, null, parents, []), facts: facts(overrides), decisions })
 
     const ownFirstPause = pauseControls(feature, 'feature-first-pause')
     const ownResumed = [
@@ -424,6 +439,10 @@ describe('workflow transition behavior', () => {
         linkedIssueScopes: [SCOPE],
         history: history([binding(standaloneFix, pr)], pr),
         linkedIssueHistory: history([standaloneFix, standalonePause.requested]),
+        causal: fixtureCausal([
+          history([binding(standaloneFix, pr)], pr),
+          history([standaloneFix, standalonePause.requested]),
+        ]),
       }),
     ).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
   })
@@ -475,13 +494,14 @@ describe('workflow transition behavior', () => {
           explicitSelection: true,
           pullRequest: pr,
           histories: pendingHistories,
+          causal: fixtureCausal(pendingHistories),
           native: { branch: 'feature/bounded', base: 'main' },
         }),
       ).toMatchObject({ status: 'refused' })
     expect(requireLandingMandate(landingInput(child, pendingHistories, pr, [PARENT]))).toMatchObject({ ok: false })
     expect(
       reconstructWorkflow({
-        evidence: { issue: history([child]), pullRequest: null, parents: [parentPending] },
+        evidence: workflowEvidence(history([child]), null, [parentPending], []),
         facts: childFacts,
         decisions,
       }),
@@ -516,13 +536,14 @@ describe('workflow transition behavior', () => {
         explicitSelection: true,
         pullRequest: pr,
         histories: pausedHistories,
+        causal: fixtureCausal(pausedHistories),
         native: { branch: 'feature/bounded', base: 'main' },
       }),
     ).toMatchObject({ status: 'refused' })
     expect(requireLandingMandate(landingInput(child, pausedHistories, pr, [PARENT]))).toMatchObject({ ok: false })
     expect(
       reconstructWorkflow({
-        evidence: { issue: history([child]), pullRequest: null, parents: [parentPaused] },
+        evidence: workflowEvidence(history([child]), null, [parentPaused], []),
         facts: { ...childFacts, explicitResume: true },
         decisions,
       }),

@@ -7,6 +7,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { workflowOperationProblem } from './workflow-control.ts'
 
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
@@ -39,6 +40,7 @@ function validateOrigin(record: Disposition, frame: CauseValidationFrame, diagno
 export function validateCauseDispositionRecords(input: {
   records: readonly CanonicalRecord[]
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
 }): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
   const dispositions = input.records.filter((record): record is Disposition => record.kind === 'cause-disposition')
@@ -47,7 +49,7 @@ export function validateCauseDispositionRecords(input: {
   )
   const subjects = new Map<string, string>()
   const successors = new Set<string>()
-  const frame = causeValidationFrame(input.histories)
+  const frame = causeValidationFrame(input.histories, input.catalogues)
   validateHistories(input.histories, diagnostics)
   validateCauseOperations(operations, input.histories, diagnostics, frame)
   for (const record of dispositions) {

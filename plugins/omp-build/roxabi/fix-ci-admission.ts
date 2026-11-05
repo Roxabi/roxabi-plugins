@@ -12,6 +12,7 @@ import {
   completeRecord,
   objectValue,
 } from './fix-mandate-types.ts'
+import { readFixUwCausalContext } from './fix-uw-histories.ts'
 
 export function confirmedChangeAttribution(
   history: DecodedHistory,
@@ -92,23 +93,25 @@ async function admitBoundCiCorrection(
   const head = input.target.candidateGitSHA
   const live = await readLiveCiEvidence(input, head)
   if (!live.ok) return live
+  const causal = await readFixUwCausalContext(
+    linked.value.currentSpec.causal.histories,
+    [history, ...(linked.value.history === null ? [] : [linked.value.history]), ...linked.value.externalHistories],
+    input.options,
+  )
+  if (!causal.ok) return causal
   const mandate = await resolveCorrectionMandate({
     target: input.target,
     history,
     linkedIssueHistory: linked.value.history,
     linkedIssueScopes: [],
     externalHistories: linked.value.externalHistories,
+    causal: causal.value,
     branch: linked.value.branch ?? input.branch,
     base: linked.value.base ?? input.base,
     currentSpec: linked.value.currentSpec,
     evidenceDigest: live.value.evidenceDigest,
   })
-  if (!mandate.ok) {
-    if (mandate.diagnostics.some((item) => item.includes('unsafe'))) {
-      return { ok: true, value: { status: 'unsafe', reason: 'unsafe', reviews: classified.reviews } }
-    }
-    return mandate
-  }
+  if (!mandate.ok) return correctionMandateFailure(mandate, classified)
   if (mandate.value.status !== 'applicable' || mandate.value.execution.landing !== false) {
     return failure('ci-correction-mandate-denied')
   }
@@ -146,6 +149,15 @@ async function admitBoundCiCorrection(
       failedChecks: authorized.value,
     },
   }
+}
+
+function correctionMandateFailure(
+  mandate: Extract<Awaited<ReturnType<typeof resolveCorrectionMandate>>, { ok: false }>,
+  classified: AttributedCiStep,
+): FixActionResult<CiCorrectionBound> {
+  if (mandate.diagnostics.some((item) => item.includes('unsafe')))
+    return { ok: true, value: { status: 'unsafe', reason: 'unsafe', reviews: classified.reviews } }
+  return mandate
 }
 
 async function admitCiCorrection(

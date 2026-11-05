@@ -1,31 +1,20 @@
-import {
-  readCauseDispositionHeads,
-  resolveCauseSisterReceipt,
-  validateCauseDispositionRecords,
-} from './cause-disposition.ts'
+import { readCauseDispositionHeads, resolveCauseSisterReceipt } from './cause-disposition.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { isCompletedUw, sameScope, type UwGraphObservation } from './uw-graph.ts'
-import { recordsOf } from './workflow-control.ts'
 
 /** Durable cause state is a delivery veto, not a replacement for mandate authority. */
 export function assessCauseHolds(input: {
   uw: Scope
   histories: readonly DecodedHistory[]
   graph: UwGraphObservation
+  catalogues: ReviewClassCatalogues
 }): Diagnostic[] {
   const heads = readCauseDispositionHeads(input)
   if (!heads.ok) return heads.diagnostics
-  const own = input.histories.find(
-    (history) =>
-      history.source.scope.repository === input.uw.repository && history.source.scope.target === input.uw.target,
-  )
-  if (own === undefined) return [diagnostic('cause-history-unconfirmed', 'Original UW history is missing')]
-  const diagnostics: Diagnostic[] = validateCauseDispositionRecords({
-    records: recordsOf(own),
-    histories: input.histories,
-  })
+  const diagnostics: Diagnostic[] = []
   for (const disposition of heads.value) {
     const outcome = disposition.payload.outcome
     if (outcome.state === 'pending-blocking') {

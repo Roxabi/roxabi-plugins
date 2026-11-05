@@ -5,6 +5,7 @@ import { causeCreationProposalSchema } from '../engine/cause-disposition-schema.
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import { fixtureReviewClassCatalogues } from './action-input-fixtures.ts'
 import { submission } from './record-builders.ts'
 import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
 import { observedComment, operation as observedOperation } from './record-history.ts'
@@ -35,7 +36,7 @@ function ref<K extends CanonicalRecord>(record: K): { scope: Scope; recordId: st
     kind: record.kind,
   }
 }
-function originalHistory(records: CanonicalRecord[] = []) {
+export function causeOriginalHistory(records: CanonicalRecord[] = []) {
   const baseline = fixtures.historyFrom([mandate])
   return {
     ...baseline,
@@ -115,7 +116,8 @@ export function sisterRecords() {
     assessCauseDispositions({
       context,
       source: { kind: 'decision', decision: graph.decision },
-      histories: [originalHistory(), graph.history],
+      histories: [causeOriginalHistory(), graph.history],
+      catalogues: fixtureReviewClassCatalogues(),
       adjudications: [],
     }),
   )

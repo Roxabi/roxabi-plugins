@@ -7,6 +7,14 @@ export type {
   ReviewState,
   ReviewSummary,
 } from './engine/result.ts'
+export {
+  catalogueForAction,
+  createReviewClassCatalogues,
+  parseReviewClassCatalogue,
+  type ReviewCatalogueRead,
+  type ReviewClassCatalogues,
+  reviewClassCatalogueRef,
+} from './engine/review-class-catalogue.ts'
 export { deriveRecallPlan } from './engine/review-conservation.ts'
 export {
   type DecisionBindings,

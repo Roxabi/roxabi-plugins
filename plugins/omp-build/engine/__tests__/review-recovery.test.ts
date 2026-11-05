@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { freshReviewInputs } from '../../testing/action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, freshReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, TEST_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { history } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -9,7 +9,6 @@ import type { Result } from '../result.ts'
 import * as reviewRecovery from '../review-recovery.ts'
 import { readReviewRecovery } from '../review-recovery.ts'
 import { summarizeReviews } from '../review-state.ts'
-import { TAXONOMY } from './record-test-support.ts'
 import {
   binding,
   featureMandate,
@@ -79,7 +78,11 @@ describe('review recovery', () => {
       value: { normalProgression: 'stopped', replacementGrant: null },
     })
 
-    const ordinary = summarizeReviews(history([root, historicalBinding, disposition.value]), TAXONOMY, null)
+    const ordinary = summarizeReviews(
+      history([root, historicalBinding, disposition.value]),
+      fixtureReviewClassCatalogues(),
+      null,
+    )
     expect(ordinary).toMatchObject({ ok: false })
     if (!ordinary.ok)
       expect(ordinary.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'incomplete' })]))
@@ -160,7 +163,7 @@ describe('review recovery', () => {
 
     const ordinary = summarizeReviews(
       history([root, historicalBinding, disposition.value, freshBinding.value, grant.value]),
-      TAXONOMY,
+      fixtureReviewClassCatalogues(),
       null,
     )
     expect(ordinary).toMatchObject({ ok: false })

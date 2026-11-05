@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { actionCompletion } from '../../engine/workflow-action-completion.ts'
 import { planMacro } from '../../engine/workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
+import { workflowEvidence } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import {
   BODY,
@@ -33,7 +34,7 @@ describe('workflow completion decisions', () => {
   it('does not treat a bound draft as complete before its review', () => {
     const mandate = featureMandate(SCOPE, { body: BODY })
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const evidence = { issue: historyFrom([mandate, ...planDraftRecords(mandate)]), pullRequest: null, parents: [] }
+    const evidence = workflowEvidence(historyFrom([mandate, ...planDraftRecords(mandate)]), null, [], [])
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('needs-review')
     expect(macro.phase).not.toBe('eligible')
@@ -48,11 +49,12 @@ describe('workflow completion decisions', () => {
       blockingPlanContribution('slot-architect', 'R-workflow-plan-architect', 'plan-block-1'),
       clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
     ])
-    const evidence = {
-      issue: historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()), review]),
-      pullRequest: null,
-      parents: [],
-    }
+    const evidence = workflowEvidence(
+      historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()), review]),
+      null,
+      [],
+      [],
+    )
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('needs-amendment')
     expect(macro.blockers).toEqual([
@@ -69,11 +71,12 @@ describe('workflow completion decisions', () => {
       clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
       clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
     ])
-    const evidence = {
-      issue: historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()), review]),
-      pullRequest: null,
-      parents: [],
-    }
+    const evidence = workflowEvidence(
+      historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()), review]),
+      null,
+      [],
+      [],
+    )
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('eligible')
     expect(macro.amendmentActionId).toBeNull()
@@ -90,17 +93,18 @@ describe('workflow completion decisions', () => {
     ])
     const missed = planAmendmentRecords(mandate, 'act-plan-review-1', [], [])
     const macro = planMacro(
-      {
-        issue: historyFrom([
+      workflowEvidence(
+        historyFrom([
           mandate,
           ...draft,
           planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
           review,
           ...missed,
         ]),
-        pullRequest: null,
-        parents: [],
-      },
+        null,
+        [],
+        [],
+      ),
       mandate,
     )
     expect(macro.phase).toBe('blocked')
@@ -125,17 +129,18 @@ describe('workflow completion decisions', () => {
       [blocker],
       [{ blocker, stepIds: ['step-1'], reason: 'the stale-region path is now mapped' }],
     )
-    const evidence = {
-      issue: historyFrom([
+    const evidence = workflowEvidence(
+      historyFrom([
         mandate,
         ...draft,
         planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
         review,
         ...covered,
       ]),
-      pullRequest: null,
-      parents: [],
-    }
+      null,
+      [],
+      [],
+    )
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('eligible')
     expect(macro.amendmentActionId).toBe('act-plan-2')
@@ -151,11 +156,12 @@ describe('workflow completion decisions', () => {
       clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
     ])
     const macro = planMacro(
-      {
-        issue: historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', 'ab'.repeat(32)), review]),
-        pullRequest: null,
-        parents: [],
-      },
+      workflowEvidence(
+        historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', 'ab'.repeat(32)), review]),
+        null,
+        [],
+        [],
+      ),
       mandate,
     )
     expect(macro.phase).not.toBe('eligible')
@@ -181,11 +187,12 @@ describe('workflow completion decisions', () => {
       ...review.payload.contributions[1],
       structured: { outcome: 'not-a-review' },
     }
-    const evidence = {
-      issue: historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()), review]),
-      pullRequest: null,
-      parents: [],
-    }
+    const evidence = workflowEvidence(
+      historyFrom([mandate, ...draft, planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()), review]),
+      null,
+      [],
+      [],
+    )
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('blocked')
     const decision = reconstructWorkflow({ evidence, facts: shippedFacts(mandate), decisions: decisions() })
@@ -196,15 +203,16 @@ describe('workflow completion decisions', () => {
   it('does not dispatch another plan review when the review start has no result', () => {
     const mandate = shippedMandate()
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const evidence = {
-      issue: historyFrom([
+    const evidence = workflowEvidence(
+      historyFrom([
         mandate,
         ...planDraftRecords(mandate),
         planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
       ]),
-      pullRequest: null,
-      parents: [],
-    }
+      null,
+      [],
+      [],
+    )
     expect(planMacro(evidence, mandate).phase).toBe('uncertain')
     const decision = reconstructWorkflow({ evidence, facts: shippedFacts(mandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
@@ -214,11 +222,7 @@ describe('workflow completion decisions', () => {
   it('does not replay an implement start or a rejected implement result', () => {
     const mandate = shippedMandate()
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const started = {
-      issue: historyFrom([...eligiblePlan(mandate), implementStart(mandate)]),
-      pullRequest: null,
-      parents: [],
-    }
+    const started = workflowEvidence(historyFrom([...eligiblePlan(mandate), implementStart(mandate)]), null, [], [])
     const startedDecision = reconstructWorkflow({
       evidence: started,
       facts: shippedFacts(mandate),
@@ -226,11 +230,12 @@ describe('workflow completion decisions', () => {
     })
     expect(startedDecision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     expect(startedDecision).not.toMatchObject({ status: 'action' })
-    const rejected = {
-      issue: historyFrom([...eligiblePlan(mandate), implementStart(mandate), rejectedImplementResult(mandate)]),
-      pullRequest: null,
-      parents: [],
-    }
+    const rejected = workflowEvidence(
+      historyFrom([...eligiblePlan(mandate), implementStart(mandate), rejectedImplementResult(mandate)]),
+      null,
+      [],
+      [],
+    )
     const rejectedDecision = reconstructWorkflow({
       evidence: rejected,
       facts: shippedFacts(mandate),
@@ -239,13 +244,12 @@ describe('workflow completion decisions', () => {
     expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
     expect(rejectedDecision).not.toMatchObject({ status: 'action' })
     const pull = { scope: PR, head: BRANCH, base: 'main', associatedIssue: SCOPE }
-    const rejectedBound = {
-      issue: rejected.issue,
-      pullRequest: historyFrom([workflowBinding(PR, mandate, 'feat/42-save', 'main')], 'operator', 'operator', [
-        rejected.issue,
-      ]),
-      parents: [],
-    }
+    const rejectedBound = workflowEvidence(
+      rejected.issue,
+      historyFrom([workflowBinding(PR, mandate, 'feat/42-save', 'main')], 'operator', 'operator', [rejected.issue]),
+      [],
+      [],
+    )
     const rejectedBoundDecision = reconstructWorkflow({
       evidence: rejectedBound,
       facts: shippedFacts(mandate, pull),

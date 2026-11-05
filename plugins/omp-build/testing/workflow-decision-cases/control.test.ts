@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
+import { workflowEvidence } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import { BODY, decisions, factsForMandate, graphConfig, SCOPE } from './support/workflow-decision-fixtures.ts'
 
@@ -9,7 +10,7 @@ describe('workflow control decisions', () => {
   it('blocks native work when the session cwd is absent', () => {
     const mandate = featureMandate(SCOPE, { body: BODY })
     const decision = reconstructWorkflow({
-      evidence: { issue: historyFrom([mandate]), pullRequest: null, parents: [] },
+      evidence: workflowEvidence(historyFrom([mandate]), null, [], []),
       facts: factsForMandate(mandate, { sessionCwd: null }),
       decisions: decisions(),
     })
@@ -22,7 +23,7 @@ describe('workflow control decisions', () => {
     const request = pauseRequested(mandate)
     const confirmed = pauseConfirmed(mandate, request)
     const decision = reconstructWorkflow({
-      evidence: { issue: historyFrom([mandate, request, confirmed]), pullRequest: null, parents: [] },
+      evidence: workflowEvidence(historyFrom([mandate, request, confirmed]), null, [], []),
       facts: factsForMandate(mandate),
       decisions: decisions(),
     })
@@ -34,7 +35,7 @@ describe('workflow control decisions', () => {
     const mandate = featureMandate(SCOPE, { body: BODY, config: graphConfig('implement') })
     const start = implementStart(mandate)
     const decision = reconstructWorkflow({
-      evidence: { issue: historyFrom([mandate, start]), pullRequest: null, parents: [] },
+      evidence: workflowEvidence(historyFrom([mandate, start]), null, [], []),
       facts: factsForMandate(mandate),
       decisions: decisions(),
     })

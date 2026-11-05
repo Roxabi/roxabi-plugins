@@ -139,7 +139,12 @@ export function appendBoundReview(options: {
     (record) => record.kind === 'decision' && record.recordId === decision.recordId,
   )
   if (decisionRecord?.kind !== 'decision') throw new Error('Review decision was not authenticated')
-  const { original, dispositions } = criterionDispositionRecords(inputs, decisionRecord, [issueHistory, before.history])
+  const { original, dispositions } = criterionDispositionRecords(
+    inputs,
+    decisionRecord,
+    [issueHistory, before.history],
+    projection.catalogues,
+  )
   const persisted = encodeCriterionRecords(dispositions, original, projection, ME, [before.history], issueHistory)
   const refs = dispositions.map((record) => ({
     scope: original,

@@ -3,6 +3,7 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { DeliveryDataRef, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { sourceRef } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
@@ -65,10 +66,11 @@ export function causeActionData(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
   currentOutputs: readonly RecordInputRef[],
+  catalogues: ReviewClassCatalogues,
 ): Result<DeliveryDataRef[]> {
   if (request.subject.kind !== 'uw' || (request.purpose !== 'review' && request.purpose !== 'correction'))
     return { ok: true, value: [] }
-  const heads = readCauseDispositionHeads({ uw: request.subject.uw, histories })
+  const heads = readCauseDispositionHeads({ uw: request.subject.uw, histories, catalogues })
   if (!heads.ok) return heads
   const refs: DeliveryDataRef[] = []
   const own = historyFor(request.subject.uw, histories)

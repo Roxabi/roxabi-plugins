@@ -16,7 +16,10 @@ export {
   readLandingFacts,
   readWorkflowBinding,
 } from './adapters/github-workflow/binding.ts'
-export { readCauseHistoryClosure } from './adapters/github-workflow/cause-history-closure.ts'
+export {
+  readCauseHistoryClosure,
+  readCauseHistoryClosureFromPrimary,
+} from './adapters/github-workflow/cause-history-closure.ts'
 export { observeCauseSisters } from './adapters/github-workflow/cause-sister-graph.ts'
 export { readComposedWorkflowHistory } from './adapters/github-workflow/history.ts'
 export {
@@ -54,6 +57,7 @@ export {
   operationAuthoritySchema,
   operationReadSchema,
 } from './engine/history-schema.ts'
+export { assessParentInsertionEngagement, type ParentEngagementEvidence } from './engine/parent-insertion-engagement.ts'
 export { inspectFinding, PRODUCER_OUTPUTS, type ProducerOutput, producerJsonSchema } from './engine/producer-schema.ts'
 export { buildRecord, parseRecord, type RecordDraft } from './engine/record-construction.ts'
 export { equalScope } from './engine/record-diagnostics.ts'

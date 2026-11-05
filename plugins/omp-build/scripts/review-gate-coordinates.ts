@@ -14,7 +14,6 @@ export type GateContext = {
   gh: Gh
   git: Git
   scope: ReturnType<typeof githubScope>
-  taxonomy: string[]
   summary: AcceptedSummary
   coordinates: Coordinates
   baseTip: string

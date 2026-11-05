@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { assessUwAdmission } from '../../engine/uw-admission.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { githubScope } from '../github/transport.ts'
 import type { Gh } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph.ts'
@@ -90,6 +91,7 @@ function admission(graph: UwGraphObservation) {
       retired: new Map(),
     },
     histories: [],
+    catalogues: fixtureReviewClassCatalogues(),
     phase: 'initial-selection',
   })
 }

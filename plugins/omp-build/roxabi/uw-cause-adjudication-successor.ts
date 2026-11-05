@@ -5,12 +5,16 @@ import {
   buildRecord,
   type GitHubOptions,
   publishConfirmedWorkflowRecord,
+  readCauseHistoryClosure,
   readComposedWorkflowHistory,
 } from '../dist/contracts.js'
 import type { CauseAdjudicationInput, CauseAdjudicationProposal } from '../engine/cause-disposition-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import { defaultGh } from './feature-engine.ts'
+import { createPublicationContextResolver } from './publication-context.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { AdjudicationRead } from './uw-cause-adjudication-read.ts'
 import type { CauseOperationResult } from './uw-contract.ts'
 
@@ -38,7 +42,17 @@ export async function publishAdjudicationSuccessor(args: {
     input.github,
   )
   if (!loaded.ok) return { status: 'partial', uw, diagnostics: diagnostics(uw, loaded.diagnostics) }
-  const newHome = loaded.histories.find(
+  const closure = await readCauseHistoryClosure(loaded.histories, (needed) =>
+    readComposedWorkflowHistory(needed, input.github),
+  )
+  if (!closure.ok) return { status: 'partial', uw, diagnostics: diagnostics(uw, closure.diagnostics) }
+  const histories = closure.histories
+  const catalogues = await loadReviewClassCatalogues({
+    histories,
+    cwd: input.github.cwd,
+    gh: input.github.gh ?? defaultGh(),
+  })
+  const newHome = histories.find(
     (history) => history.source.scope.repository === uw.repository && history.source.scope.target === uw.target,
   )
   if (!newHome) return { status: 'partial', uw, diagnostics: diagnostics(uw, [{ code: 'cause-history-missing' }]) }
@@ -50,7 +64,8 @@ export async function publishAdjudicationSuccessor(args: {
     pending: fresh.disposition,
     operation: bound.value,
     context: fresh.context,
-    histories: loaded.histories,
+    histories,
+    catalogues,
   })
   if (!assessed.ok) return { status: 'partial', uw, diagnostics: diagnostics(uw, assessed.diagnostics) }
   const record = buildRecord({
@@ -65,10 +80,9 @@ export async function publishAdjudicationSuccessor(args: {
   if (!record.ok) return { status: 'partial', uw, diagnostics: diagnostics(uw, record.diagnostics) }
   const written = await publishConfirmedWorkflowRecord(
     record.value,
-    newHome,
     input.github,
-    null,
-    loaded.histories.filter((history) => history !== newHome),
+    createPublicationContextResolver(input.github, null),
+    histories.filter((history) => history !== newHome),
   )
   if (written.status !== 'confirmed')
     return { status: 'partial', uw, diagnostics: diagnostics(uw, written.diagnostics) }

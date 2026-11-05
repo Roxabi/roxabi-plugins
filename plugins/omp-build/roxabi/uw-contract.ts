@@ -16,6 +16,7 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { AcceptedOwnSpecResult, ProposedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
 import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
@@ -104,6 +105,12 @@ export type UwRead = {
   admission: UwAdmission
   /** Canonically decoded histories used to compute this admission, retained for consumers. */
   histories: readonly DecodedHistory[]
+  /** Immutable catalogue evidence loaded for these exact observed histories. */
+  catalogues: ReviewClassCatalogues
+  /** Whether this lexical observation completed typed closure and catalogue loading. */
+  causalObservation:
+    | { status: 'complete'; histories: readonly DecodedHistory[]; catalogues: ReviewClassCatalogues }
+    | { status: 'unavailable' }
   graph: UwGraphObservation
   /** Reuses the complete graph/history observation for sibling current-child facts. */
   observedReader?: UwReadPort

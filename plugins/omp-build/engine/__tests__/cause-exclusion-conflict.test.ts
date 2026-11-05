@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { operation } from '../../testing/record-history.ts'
@@ -216,6 +217,7 @@ function assess(
       context,
       source: { kind: 'decision', decision },
       histories: [fixtures.historyFrom([mandate]), source],
+      catalogues: fixtureReviewClassCatalogues(),
       adjudications: [],
     }),
   )

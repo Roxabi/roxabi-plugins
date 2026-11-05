@@ -1,15 +1,17 @@
 import { readCauseDispositionHeads, resolveCauseSisterReceipt } from '../../engine/cause-disposition.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
+import type { ReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
 import { sameScope, scopeKey, type UwGraphObservation } from '../../engine/uw-graph.ts'
 
 function collectMissingSisters(
   scope: Scope,
   histories: readonly DecodedHistory[],
   nodes: ReadonlySet<string>,
+  catalogues: ReviewClassCatalogues,
   needed: Map<string, Scope>,
 ): void {
-  const heads = readCauseDispositionHeads({ uw: scope, histories })
+  const heads = readCauseDispositionHeads({ uw: scope, histories, catalogues })
   if (!heads.ok) return
   for (const disposition of heads.value) {
     const outcome = disposition.payload.outcome
@@ -21,10 +23,14 @@ function collectMissingSisters(
   }
 }
 
-function missingSisters(graph: UwGraphObservation, histories: readonly DecodedHistory[]): Map<string, Scope> {
+function missingSisters(
+  graph: UwGraphObservation,
+  histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
+): Map<string, Scope> {
   const nodes = new Set(graph.nodes.map((node) => scopeKey(node.uw)))
   const needed = new Map<string, Scope>()
-  for (const node of graph.nodes) collectMissingSisters(node.uw, histories, nodes, needed)
+  for (const node of graph.nodes) collectMissingSisters(node.uw, histories, nodes, catalogues, needed)
   return needed
 }
 
@@ -33,9 +39,10 @@ export async function observeCauseSisters(
   graph: UwGraphObservation,
   histories: readonly DecodedHistory[],
   read: (scope: Scope) => Promise<UwGraphObservation>,
+  catalogues: ReviewClassCatalogues,
 ): Promise<UwGraphObservation> {
   const nodes = new Map(graph.nodes.map((node) => [scopeKey(node.uw), node]))
-  const needed = missingSisters(graph, histories)
+  const needed = missingSisters(graph, histories, catalogues)
   const diagnostics = graph.status === 'incomplete' ? [...graph.diagnostics] : []
   let incomplete = graph.status === 'incomplete'
   for (const scope of needed.values()) {

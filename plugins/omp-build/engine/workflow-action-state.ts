@@ -1,16 +1,26 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import { implementationCompletion } from './workflow-implementation-completion.ts'
-import type { ActionCompletion } from './workflow-plan.ts'
+import type { ActionCompletion, WorkflowCausalContext } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { WorkflowBlockReason, WorkflowFacts } from './workflow-reconstruction-types.ts'
 
-export function planConfirmed(history: DecodedHistory, mandate: MandateRecord | null): boolean {
-  return planMacro({ issue: history, pullRequest: null, parents: [] }, mandate).phase === 'eligible'
+export function planConfirmed(
+  history: DecodedHistory,
+  mandate: MandateRecord | null,
+  causal: WorkflowCausalContext,
+): boolean {
+  return planMacro({ issue: history, pullRequest: null, parents: [], causal }, mandate).phase === 'eligible'
 }
-export function implementConfirmed(history: DecodedHistory, mandate: MandateRecord | null): boolean {
-  return implementationCompletion({ issue: history, pullRequest: null, parents: [] }, mandate).status === 'confirmed'
+export function implementConfirmed(
+  history: DecodedHistory,
+  mandate: MandateRecord | null,
+  causal: WorkflowCausalContext,
+): boolean {
+  return (
+    implementationCompletion({ issue: history, pullRequest: null, parents: [], causal }, mandate).status === 'confirmed'
+  )
 }
 export function prePrStartsAbsent(history: DecodedHistory): boolean {
   return !recordsOf(history).some(
@@ -21,8 +31,12 @@ export function prePrStartsAbsent(history: DecodedHistory): boolean {
         record.payload.action === 'implement'),
   )
 }
-export function adoptedOrConfirmed(history: DecodedHistory, mandate: MandateRecord | null): boolean {
-  return prePrStartsAbsent(history) || implementConfirmed(history, mandate)
+export function adoptedOrConfirmed(
+  history: DecodedHistory,
+  mandate: MandateRecord | null,
+  causal: WorkflowCausalContext,
+): boolean {
+  return prePrStartsAbsent(history) || implementConfirmed(history, mandate, causal)
 }
 
 export function workflowBound(

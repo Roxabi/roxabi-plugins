@@ -6,12 +6,12 @@ import {
   validateRecordGraph,
 } from '../../dist/contracts.js'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
-import { loadReviewConfig } from '../../roxabi/review-assets.ts'
+import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { assertChildGrant, type EpicAuthority, evidenceText, readEpicAuthority } from './epic-driver-authority'
 import { readChildPrInventory } from './epic-driver-containment'
 import { disarmEpicControlTarget } from './epic-driver-control'
 import { gather } from './epic-driver-gather'
-import { citedReviewHistories, diagnosticsText } from './epic-driver-github'
+import { adapterOptions, citedReviewHistories, diagnosticsText } from './epic-driver-github'
 import { epicEvents } from './epic-driver-history'
 import { type Disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
 import { reportPayload, reportText } from './epic-driver-report'
@@ -105,14 +105,14 @@ export async function review(
         record.kind === 'review-attempt' && record.payload.rootAttemptId === root.recordId,
     )
     .map((record) => record.recordId)
-  const assessment = validateDecision(
-    decision,
-    authorityHistory,
-    loadReviewConfig().canonicalClasses,
-    null,
-    await citedReviewHistories(repo, authorityHistory),
-    epicHistory,
-  )
+  const externalHistories = await citedReviewHistories(repo, authorityHistory)
+  const options = adapterOptions(repo)
+  const catalogues = await loadReviewClassCatalogues({
+    histories: [epicHistory, ...externalHistories],
+    cwd: options.cwd,
+    gh: options.gh,
+  })
+  const assessment = validateDecision(decision, authorityHistory, catalogues, null, externalHistories, epicHistory)
   if (!assessment.admissible) {
     throw new Refused(
       `--decision-record ${decisionRecord} is not admissible: ${diagnosticsText(assessment.diagnostics)}`,

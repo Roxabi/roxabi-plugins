@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, workflowEvidence } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest } from '../action-input.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
@@ -59,9 +59,7 @@ describe('workflow CI attribution behavior', () => {
         ],
       }).success,
     ).toBe(false)
-    expect(planMacro({ issue: history([mandated]), pullRequest: null, parents: [] }, mandated).phase).toBe(
-      'needs-draft',
-    )
+    expect(planMacro(workflowEvidence(history([mandated]), null, [], []), mandated).phase).toBe('needs-draft')
     const failure = {
       name: 'test',
       source: 'ci',
@@ -153,7 +151,7 @@ describe('workflow CI attribution behavior', () => {
       watch: { status: 'not-applicable' as const, evidence: [] },
     }
     const shared = {
-      evidence: { issue: history([mandated, binding(mandated)]), pullRequest: history([receipt], pr), parents: [] },
+      evidence: workflowEvidence(history([mandated, binding(mandated)]), history([receipt], pr), [], []),
       facts: facts({
         candidateGitSHA: 'abc',
         pullRequest: { scope: pr, head: 'abc', base: 'main', associatedIssue: SCOPE },
@@ -173,7 +171,7 @@ describe('workflow CI attribution behavior', () => {
     expect(
       reconstructWorkflow({
         ...shared,
-        evidence: { ...shared.evidence, pullRequest: history([unknownReceipt], pr) },
+        evidence: workflowEvidence(shared.evidence.issue, history([unknownReceipt], pr), [], []),
         decisions,
       }),
     ).toMatchObject({ status: 'terminal', reason: 'ci-attribution-refused' })
@@ -213,7 +211,7 @@ describe('workflow CI attribution behavior', () => {
     expect(
       reconstructWorkflow({
         ...shared,
-        evidence: { ...shared.evidence, pullRequest: history([rerunStart], pr) },
+        evidence: workflowEvidence(shared.evidence.issue, history([rerunStart], pr), [], []),
         facts: facts({ ...shared.facts, failedChecks: ['test'], evidenceDigest: rerunDigest }),
         decisions,
       }),

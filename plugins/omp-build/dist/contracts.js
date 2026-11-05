@@ -8413,23 +8413,26 @@ function stageOverlap(input, diagnostics) {
       });
   }
 }
-function validateActionInputs(input) {
-  const parsed = actionInputsSchema.safeParse(input);
-  if (!parsed.success)
-    return { ok: false, diagnostics: [{ code: "malformed", message: "action inputs are not binding/1" }] };
+function validateParsedActionInputs(input) {
   const diagnostics = [];
-  const manifest = parsed.data.manifest;
+  const manifest = input.manifest;
   duplicate(manifest.acceptedSources, "accepted source", diagnostics);
   duplicate(manifest.deliveryData, "delivery data", diagnostics);
   duplicate(manifest.repositoryReferences, "repository reference", diagnostics);
   duplicate(manifest.plugin.files, "plugin file", diagnostics);
   duplicate(manifest.expandedContext, "expanded context", diagnostics);
-  duplicate(parsed.data.stageSources, "stage source", diagnostics);
-  stageOverlap(parsed.data, diagnostics);
-  if (parsed.data.fingerprint !== actionInputDigest(manifest)) {
+  duplicate(input.stageSources, "stage source", diagnostics);
+  stageOverlap(input, diagnostics);
+  if (input.fingerprint !== actionInputDigest(manifest)) {
     diagnostics.push({ code: "mismatch", message: "action input fingerprint does not match the canonical manifest" });
   }
-  return diagnostics.length === 0 ? { ok: true, value: parsed.data } : { ok: false, diagnostics };
+  return diagnostics.length === 0 ? { ok: true, value: input } : { ok: false, diagnostics };
+}
+function validateActionInputs(input) {
+  const parsed = actionInputsSchema.safeParse(input);
+  if (!parsed.success)
+    return { ok: false, diagnostics: [{ code: "malformed", message: "action inputs are not binding/1" }] };
+  return validateParsedActionInputs(parsed.data);
 }
 
 // plugins/omp-build/engine/review-cause-schema.ts
@@ -8497,7 +8500,7 @@ var observedCommentSchema = strictObject({
   updatedAt: string2().min(1).nullable()
 });
 function bindActionSnapshot(value, context) {
-  const validated = validateActionInputs(value.inputSnapshot);
+  const validated = validateParsedActionInputs(value.inputSnapshot);
   if (!validated.ok) {
     context.addIssue({
       code: "custom",
@@ -9225,7 +9228,7 @@ function refineMandatedReceipt(receipt, context) {
   refuseUndeclaredSlots(receipt, context);
 }
 function refineActionReceipt(receipt, context) {
-  const checked = validateActionInputs(receipt.inputs);
+  const checked = validateParsedActionInputs(receipt.inputs);
   if (receipt.action === "assess-spec" || receipt.action === "attribute-ci") {
     const operands = receipt.inputs.manifest.operands;
     if (operands?.action !== receipt.action || canonicalValueDigest(operands.exactInputs) !== canonicalValueDigest(receipt.exactInputs)) {
@@ -9320,23 +9323,18 @@ var [implementStart, implementResult] = actionReceipt("implement", implementExac
 ]), mandated);
 var [ciStart, ciResult] = actionReceipt("attribute-ci", ciExactSchema, union([ciAttributionSchema, missingContextOutputSchema]), mandated);
 var [normalizeStart, normalizeResult] = actionReceipt("normalize", normalizeExactSchema, union([normalizationJudgementSchema, missingContextOutputSchema]), preMandateRefSchema);
+var taggedActionReceipts = discriminatedUnion("action", [
+  discriminatedUnion("phase", [assessStart, assessResult]),
+  discriminatedUnion("phase", [planStart, planResult]),
+  discriminatedUnion("phase", [planReviewStart, planReviewResult]),
+  discriminatedUnion("phase", [implementStart, implementResult]),
+  discriminatedUnion("phase", [ciStart, ciResult]),
+  discriminatedUnion("phase", [normalizeStart, normalizeResult])
+]);
 var actionReceiptPayloadSchema = union([
-  frameStart,
-  frameResult,
-  frameUnmandatedStart,
-  frameUnmandatedResult,
-  assessStart,
-  assessResult,
-  planStart,
-  planResult,
-  planReviewStart,
-  planReviewResult,
-  implementStart,
-  implementResult,
-  ciStart,
-  ciResult,
-  normalizeStart,
-  normalizeResult
+  taggedActionReceipts,
+  discriminatedUnion("phase", [frameStart, frameResult]),
+  discriminatedUnion("phase", [frameUnmandatedStart, frameUnmandatedResult])
 ]).superRefine(refineActionReceipt);
 
 // plugins/omp-build/engine/record-schema.ts
@@ -9596,6 +9594,11 @@ function recordIntegrity(parts, { kind, recordId }) {
       return { reason: "record-edited", detail: `${identity} was revised after publication` };
   }
   return null;
+}
+
+// plugins/omp-build/engine/cause-publication-role.ts
+function isRetainedReportPublication(record) {
+  return record.kind === "report-promotion" || record.kind === "cause-operation" && record.payload.proposal.operation === "create" && record.payload.proposal.creation.kind === "report-promotion";
 }
 
 // plugins/omp-build/engine/history-graph-operation.ts
@@ -9925,57 +9928,282 @@ function validateCauseEffects(input, dispositions) {
 }
 
 // plugins/omp-build/engine/cause-record-operation-validation.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-adjudication.ts
+import { createHash as createHash4 } from "node:crypto";
+
+// plugins/omp-build/engine/producer-schema.ts
+var PRODUCER_OUTPUTS = [
+  "spec",
+  "findings",
+  "decision",
+  "action-result",
+  "spec-assessment",
+  "plan",
+  "plan-review",
+  "implementation",
+  "ci-attribution",
+  "uw-normalization"
+];
+var producerSchemas = {
+  spec: union([specReportSchema, missingContextOutputSchema]),
+  findings: union([findingReportSchema, missingContextOutputSchema]),
+  decision: union([decisionSchema, missingContextOutputSchema]),
+  "action-result": union([actionResultSchema, missingContextOutputSchema]),
+  "spec-assessment": union([specAssessmentSchema, missingContextOutputSchema]),
+  plan: union([planOutputSchema, missingContextOutputSchema]),
+  "plan-review": union([planReviewSchema, missingContextOutputSchema]),
+  implementation: producerImplementationOutputSchema,
+  "ci-attribution": union([ciAttributionSchema, missingContextOutputSchema]),
+  "uw-normalization": union([normalizationJudgementSchema, missingContextOutputSchema])
+};
+function producerOutputValid(output, value) {
+  return Object.hasOwn(producerSchemas, output) && producerSchemas[output].safeParse(value).success;
+}
+function producerJsonSchema(output) {
+  if (!Object.hasOwn(producerSchemas, output)) {
+    throw new Error(`producerJsonSchema has no output ${output}`);
+  }
+  const schema = producerSchemas[output];
+  return JSON.parse(JSON.stringify(toJSONSchema(schema, { target: "draft-2020-12" })));
+}
+function knownLabelFromMalformedFinding(data) {
+  if (data === null || typeof data !== "object" || Array.isArray(data) || typeof data.label !== "string")
+    return null;
+  return labelIsKnown(data.label) ? data.label : null;
+}
+function inspectFinding(data, taxonomy) {
+  const parsed = findingSchema.safeParse(data);
+  if (!parsed.success) {
+    return {
+      usable: false,
+      knownLabel: knownLabelFromMalformedFinding(data),
+      diagnostics: [diagnostic2("unusable-finding", "Original finding is not a strict canonical finding")]
+    };
+  }
+  const diagnostics = [];
+  const candidateClasses = (parsed.data.classes ?? []).filter((findingClass) => findingClass.startsWith("candidate/"));
+  if (candidateClasses.length > 1)
+    diagnostics.push(diagnostic2("unusable-finding", "Finding has more than one advisory candidate class"));
+  for (const findingClass of candidateClasses)
+    if (!/^candidate\/[a-z][a-z0-9-]{1,48}$/.test(findingClass))
+      diagnostics.push(diagnostic2("unknown-reference", `Candidate class ${findingClass} is malformed`));
+  for (const findingClass of parsed.data.classes ?? []) {
+    if (!findingClass.startsWith("candidate/") && !taxonomy.includes(findingClass))
+      diagnostics.push(diagnostic2("unknown-reference", `Finding class ${findingClass} is not in the canonical taxonomy`));
+  }
+  if ((parsed.data.classes?.length ?? 0) > 0 && (parsed.data.rawCallsites?.length ?? 0) === 0)
+    diagnostics.push(diagnostic2("unusable-finding", "Classified finding is missing raw callsites"));
+  return { usable: diagnostics.length === 0, knownLabel: parsed.data.label, diagnostics };
+}
+function labelIsKnown(value) {
+  return [
+    "issue",
+    "issue(blocking)",
+    "todo",
+    "suggestion(blocking)",
+    "suggestion",
+    "suggestion(non-blocking)",
+    "nitpick",
+    "thought",
+    "question",
+    "praise"
+  ].includes(value);
+}
+
+// plugins/omp-build/engine/review-class-catalogue.ts
 import { createHash as createHash3 } from "node:crypto";
+class CatalogueTable {
+  #values;
+  constructor(values) {
+    this.#values = values;
+    Object.freeze(this);
+  }
+  lookup(id) {
+    const result = this.#values.get(id);
+    if (result === undefined)
+      return;
+    return result.ok ? { ok: true, value: result.value } : { ok: false, diagnostics: result.diagnostics.map((item) => ({ ...item })) };
+  }
+}
+var key = (ref) => JSON.stringify([ref.repository, ref.commit, ref.path, ref.digest]);
+var coordinates = (ref) => JSON.stringify([ref.repository, ref.commit, ref.path]);
+var failure2 = (message) => ({ ok: false, diagnostics: [{ code: "unreadable", message }] });
+function parseReviewClassCatalogue(contents) {
+  const classes = [...contents.matchAll(/^\s*- class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1]);
+  if (classes.length === 0 || new Set(classes).size !== classes.length)
+    return failure2("Review class catalogue is empty or contains duplicate classes");
+  return { ok: true, value: Object.freeze(classes) };
+}
+function parseRead(read) {
+  if (!read.contents.ok)
+    return { ok: false, diagnostics: read.contents.diagnostics.map((item) => ({ ...item })) };
+  if (createHash3("sha256").update(read.contents.value).digest("hex") !== read.ref.digest)
+    return failure2("Review class catalogue digest does not match its pinned bytes");
+  try {
+    return parseReviewClassCatalogue(new TextDecoder("utf-8", { fatal: true }).decode(read.contents.value));
+  } catch {
+    return failure2("Review class catalogue is not valid UTF-8");
+  }
+}
+function createReviewClassCatalogues(reads) {
+  const coordinateDigests = new Map;
+  for (const read of reads) {
+    const id = coordinates(read.ref);
+    const digests = coordinateDigests.get(id) ?? new Set;
+    digests.add(read.ref.digest);
+    coordinateDigests.set(id, digests);
+  }
+  const values = new Map;
+  for (const read of reads) {
+    const id = key(read.ref);
+    if ((coordinateDigests.get(coordinates(read.ref))?.size ?? 0) > 1)
+      values.set(id, failure2("Conflicting review class catalogue digests for the same Git coordinates"));
+    else {
+      const previous = values.get(id);
+      if (previous?.ok === false)
+        continue;
+      const result = parseRead(read);
+      if (!result.ok || previous === undefined)
+        values.set(id, result);
+    }
+  }
+  return new CatalogueTable(values);
+}
+function reviewClassCatalogueRef(inputs) {
+  const valid = validateActionInputs(inputs);
+  if (!valid.ok)
+    return valid;
+  const plugin = valid.value.manifest.plugin;
+  const path = `${plugin.root}/skills/dev-review/review-classes.yml`;
+  const refs = plugin.files.filter((ref) => ref.path === path);
+  const ref = refs[0];
+  if (refs.length !== 1 || ref === undefined || ref.repository !== plugin.repository || ref.commit !== plugin.commit)
+    return {
+      ok: false,
+      diagnostics: [
+        { code: "unbound", message: "Action does not contain exactly one catalogue file pinned to its plugin" }
+      ]
+    };
+  return { ok: true, value: ref };
+}
+function catalogueForAction(inputs, catalogues) {
+  const ref = reviewClassCatalogueRef(inputs);
+  if (!ref.ok)
+    return ref;
+  return catalogues.lookup(key(ref.value)) ?? failure2("Pinned review class catalogue is unavailable");
+}
+
+// plugins/omp-build/engine/review-context-authentication.ts
+var same = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
+function accounted(history, record) {
+  const matches = history.operations.filter((operation) => operation.authority !== "foreign" && (operation.recordId === record.recordId || operation.operationId === record.operationId));
+  if (matches.length !== 1)
+    return false;
+  const operation = matches[0];
+  return operation.status === "complete" && operation.authority !== "foreign" && operation.recordId === record.recordId && operation.operationId === record.operationId && operation.kind === record.kind && operation.record !== null && (operation.record === record || same(operation.record, record)) && equalScope(record, history.source.scope) && operation.parts.every((part) => part.author === history.source.expectedAuthor) && recordIntegrity(operation.parts, record) === null;
+}
+function negativeFor(history, root, entry) {
+  if (root.payload.purpose !== "review" || !accounted(history, root) || !accounted(history, entry))
+    return false;
+  const payload = entry.payload;
+  const binding = payload.host.action;
+  const slot = root.payload.slots.find((candidate) => candidate.slotId === payload.host.slotId);
+  return payload.inventoryId === root.recordId && slot !== undefined && binding !== undefined && matchesContributionSlot(entry, slot, root.recordId) && binding.inputs.fingerprint === root.payload.actionInputDigest && binding.inputs.manifest.code.head === root.payload.candidateGitSHA && (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) && payload.native?.completion === "completed" && payload.native.strict === "valid" && missingContextOutputSchema.safeParse(payload.structured).success && payload.rawAttempts.some((attempt) => same(attempt.data, payload.structured));
+}
+function unresolvedStepValid(history, current, entry, contributions, records, seen) {
+  if (seen.has(current.recordId) || records.some((record) => record.kind === "review" && record.payload.inventoryIds.includes(current.recordId)))
+    return false;
+  seen.add(current.recordId);
+  return contributions.filter((candidate) => negativeFor(history, current, candidate)).length === 1 && contributions.filter((candidate) => candidate.payload.inventoryId === current.recordId && candidate.payload.host.slotId === entry.payload.host.slotId).length === 1;
+}
+function successorSlotEntry(history, root, contributions, slotId) {
+  const entries = contributions.filter((candidate) => candidate.payload.inventoryId === root.recordId && candidate.payload.host.slotId === slotId);
+  const next = entries[0];
+  const slot = root.payload.slots.find((candidate) => candidate.slotId === slotId);
+  if (entries.length !== 1 || next === undefined || slot === undefined || !accounted(history, next))
+    return;
+  return { next, slot };
+}
+function resolvedOutputValid(next, slot, rootId, snapshot) {
+  const binding = slot.action;
+  return matchesContributionSlot(next, slot, rootId) && binding !== undefined && same(binding.inputs, snapshot) && next.payload.native?.completion === "completed" && next.payload.native.strict === "valid" && producerOutputValid(slot.output, next.payload.structured) && next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured));
+}
+
+// plugins/omp-build/engine/review-original-action.ts
+function matchesContributionSlot(source, slot, inventoryId) {
+  return source.inputs.includes(inventoryId) && source.payload.host.origin === "native" && source.payload.host.childId !== null && source.payload.host.slotId === slot.slotId && source.payload.host.phase === slot.phase && source.payload.host.role === slot.role && source.payload.host.chunk === slot.chunk && slot.action !== undefined && (source.payload.host.action === undefined || canonicalValueDigest(source.payload.host.action) === canonicalValueDigest(slot.action)) && validateActionInputs(slot.action.inputs).ok;
+}
+var unavailable = () => ({
+  ok: false,
+  diagnostics: [diagnostic2("cause-source-unconfirmed", "Original contribution action provenance is not authenticated")]
+});
+function originalContributionAction(source, history) {
+  if (!accounted(history, source) || source.payload.inventoryId === null || !source.inputs.includes(source.payload.inventoryId))
+    return unavailable();
+  const inventories = history.operations.flatMap((operation) => operation.authority !== "foreign" && operation.record?.kind === "review-attempt" && operation.record.recordId === source.payload.inventoryId ? [operation.record] : []);
+  const inventory = inventories[0];
+  if (inventories.length !== 1 || inventory === undefined || !accounted(history, inventory))
+    return unavailable();
+  const slots = inventory.payload.slots.filter((slot) => slot.slotId === source.payload.host.slotId);
+  const slot = slots[0];
+  if (slots.length !== 1 || slot === undefined || slot.action === undefined || !matchesContributionSlot(source, slot, inventory.recordId) || slot.action.inputs.fingerprint !== inventory.payload.actionInputDigest || slot.action.inputs.manifest.code.head !== inventory.payload.candidateGitSHA || inventory.payload.stage === "initial" && inventory.payload.purpose === "review" && canonicalValueDigest(slot.action.inputs) !== canonicalValueDigest(inventory.payload.inputSnapshot))
+    return unavailable();
+  return { ok: true, value: slot.action.inputs };
+}
+function inspectContributionFindings(source, history, catalogues) {
+  const inspections = new Map;
+  const action = originalContributionAction(source, history);
+  const catalogue = action.ok ? catalogueForAction(action.value, catalogues) : action;
+  for (const original of source.payload.findings ?? []) {
+    const inspection = inspectFinding(original.data, catalogue.ok ? catalogue.value : []);
+    inspections.set(original.id, catalogue.ok ? inspection : {
+      ...inspection,
+      usable: false,
+      diagnostics: [...inspection.diagnostics, ...catalogue.diagnostics]
+    });
+  }
+  return inspections;
+}
 
 // plugins/omp-build/engine/cause-adjudication-sources.ts
-var unavailable = () => ({
+var unavailable2 = () => ({
   ok: false,
   diagnostics: [diagnostic2("cause-source-unconfirmed", "Retained source provenance is not authenticated")]
 });
 function contributionInputs(source, histories, context) {
-  if (source.payload.inventoryId === null)
-    return { ok: true, value: [] };
   const scope = { repository: source.repository, target: source.target };
   const history = histories.find((item) => equalScope(item.source.scope, scope));
-  if (!history || !source.inputs.includes(source.payload.inventoryId))
-    return unavailable();
-  const inventory = bindExternalRef({ scope, recordId: source.payload.inventoryId, kind: "review-attempt" }, history);
-  if (!inventory.ok || inventory.value.kind !== "review-attempt")
-    return unavailable();
-  const slots = inventory.value.payload.slots.filter((slot) => slot.slotId === source.payload.host.slotId);
-  const slot = slots[0];
-  if (slots.length !== 1 || !slot || slot.phase !== source.payload.host.phase || slot.role !== source.payload.host.role || slot.chunk !== source.payload.host.chunk)
-    return unavailable();
-  const binding = slot.action;
-  if (!binding)
-    return source.payload.host.action === undefined ? { ok: true, value: [] } : unavailable();
-  const inputs = binding.inputs;
-  if (source.payload.host.action !== undefined && canonicalValueDigest(source.payload.host.action) !== canonicalValueDigest(binding) || !validateActionInputs(inputs).ok || inputs.fingerprint !== inventory.value.payload.actionInputDigest || inputs.manifest.code.head !== inventory.value.payload.candidateGitSHA || inputs.manifest.spec.kind !== "accepted" || !sameOwnSpecRef(inputs.manifest.spec.effective.own, context.effective.own) || canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(context.effective))
-    return unavailable();
+  if (!history)
+    return unavailable2();
+  const action = originalContributionAction(source, history);
+  if (!action.ok)
+    return action;
+  const inputs = action.value;
+  if (inputs.manifest.spec.kind !== "accepted" || !sameOwnSpecRef(inputs.manifest.spec.effective.own, context.effective.own) || canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(context.effective))
+    return unavailable2();
   return { ok: true, value: [inputs] };
 }
 function resolveAdjudicationSources(input) {
   if (!equalScope(input.pending.payload.origin.uw, input.context.original) || !sameOwnSpecRef(input.pending.payload.origin, input.context.effective.own))
-    return unavailable();
+    return unavailable2();
   const subject = input.pending.payload.subject;
   const ref = subject.kind === "cause" ? subject.decision : subject.kind === "retained-finding" ? subject.contribution : subject.source;
   const history = input.histories.find((item) => equalScope(item.source.scope, ref.scope));
   if (!history)
-    return unavailable();
+    return unavailable2();
   const source = bindExternalRef(ref, history);
   if (!source.ok)
     return source;
   if (source.value.kind === "decision")
     return resolveCauseActionInputs({ decision: source.value, history, context: input.context });
   if (source.value.kind !== "contribution" || subject.kind === "cause")
-    return unavailable();
+    return unavailable2();
   if (subject.kind === "retained-finding") {
     const finding = source.value.payload.findings?.find((item) => item.id === subject.finding.id);
     if (!finding || canonicalValueDigest(finding) !== canonicalValueDigest(subject.finding))
-      return unavailable();
+      return unavailable2();
   }
   return contributionInputs(source.value, input.histories, input.context);
 }
@@ -10182,7 +10410,7 @@ function validatePendingMembers(input) {
   const diagnostics = [];
   if (!equalScope(proposal.uw, pending) || !sameRef2(proposal.pending, { scope: proposal.uw, kind: "cause-disposition", recordId: pending.recordId }) || pending.payload.outcome.state !== "pending-blocking")
     diagnostics.push(diagnostic2("cause-adjudication-pending-mismatch", "Adjudication must name the exact pending disposition"));
-  if (proposal.pendingDigest !== createHash3("sha256").update(JSON.stringify(pending)).digest("hex"))
+  if (proposal.pendingDigest !== createHash4("sha256").update(JSON.stringify(pending)).digest("hex"))
     diagnostics.push(diagnostic2("cause-adjudication-pending-mismatch", "Pending disposition digest changed"));
   const subject = pending.payload.subject;
   if (subject.kind === "rule-error") {
@@ -10336,85 +10564,6 @@ function implementationStartPaired(history, result) {
       return false;
     return record.payload.actionId === result.payload.actionId && record.payload.exactInputs.mandateId === resultExact.mandateId && record.payload.exactInputs.planActionId === resultExact.planActionId;
   });
-}
-
-// plugins/omp-build/engine/producer-schema.ts
-var PRODUCER_OUTPUTS = [
-  "spec",
-  "findings",
-  "decision",
-  "action-result",
-  "spec-assessment",
-  "plan",
-  "plan-review",
-  "implementation",
-  "ci-attribution",
-  "uw-normalization"
-];
-var producerSchemas = {
-  spec: union([specReportSchema, missingContextOutputSchema]),
-  findings: union([findingReportSchema, missingContextOutputSchema]),
-  decision: union([decisionSchema, missingContextOutputSchema]),
-  "action-result": union([actionResultSchema, missingContextOutputSchema]),
-  "spec-assessment": union([specAssessmentSchema, missingContextOutputSchema]),
-  plan: union([planOutputSchema, missingContextOutputSchema]),
-  "plan-review": union([planReviewSchema, missingContextOutputSchema]),
-  implementation: producerImplementationOutputSchema,
-  "ci-attribution": union([ciAttributionSchema, missingContextOutputSchema]),
-  "uw-normalization": union([normalizationJudgementSchema, missingContextOutputSchema])
-};
-function producerOutputValid(output, value) {
-  return Object.hasOwn(producerSchemas, output) && producerSchemas[output].safeParse(value).success;
-}
-function producerJsonSchema(output) {
-  if (!Object.hasOwn(producerSchemas, output)) {
-    throw new Error(`producerJsonSchema has no output ${output}`);
-  }
-  const schema = producerSchemas[output];
-  return JSON.parse(JSON.stringify(toJSONSchema(schema, { target: "draft-2020-12" })));
-}
-function knownLabelFromMalformedFinding(data) {
-  if (data === null || typeof data !== "object" || Array.isArray(data) || typeof data.label !== "string")
-    return null;
-  return labelIsKnown(data.label) ? data.label : null;
-}
-function inspectFinding(data, taxonomy) {
-  const parsed = findingSchema.safeParse(data);
-  if (!parsed.success) {
-    return {
-      usable: false,
-      knownLabel: knownLabelFromMalformedFinding(data),
-      diagnostics: [diagnostic2("unusable-finding", "Original finding is not a strict canonical finding")]
-    };
-  }
-  const diagnostics = [];
-  const candidateClasses = (parsed.data.classes ?? []).filter((findingClass) => findingClass.startsWith("candidate/"));
-  if (candidateClasses.length > 1)
-    diagnostics.push(diagnostic2("unusable-finding", "Finding has more than one advisory candidate class"));
-  for (const findingClass of candidateClasses)
-    if (!/^candidate\/[a-z][a-z0-9-]{1,48}$/.test(findingClass))
-      diagnostics.push(diagnostic2("unknown-reference", `Candidate class ${findingClass} is malformed`));
-  for (const findingClass of parsed.data.classes ?? []) {
-    if (!findingClass.startsWith("candidate/") && !taxonomy.includes(findingClass))
-      diagnostics.push(diagnostic2("unknown-reference", `Finding class ${findingClass} is not in the canonical taxonomy`));
-  }
-  if ((parsed.data.classes?.length ?? 0) > 0 && (parsed.data.rawCallsites?.length ?? 0) === 0)
-    diagnostics.push(diagnostic2("unusable-finding", "Classified finding is missing raw callsites"));
-  return { usable: diagnostics.length === 0, knownLabel: parsed.data.label, diagnostics };
-}
-function labelIsKnown(value) {
-  return [
-    "issue",
-    "issue(blocking)",
-    "todo",
-    "suggestion(blocking)",
-    "suggestion",
-    "suggestion(non-blocking)",
-    "nitpick",
-    "thought",
-    "question",
-    "praise"
-  ].includes(value);
 }
 
 // plugins/omp-build/engine/workflow-context-lineage.ts
@@ -11498,12 +11647,14 @@ function resolveAcceptedSpecPrefixes(mandate, histories) {
 }
 
 // plugins/omp-build/engine/cause-validation-frame.ts
-function causeValidationFrame(histories) {
+function causeValidationFrame(histories, catalogues) {
   return {
     histories,
+    catalogues,
     chains: new Map,
     contexts: new Map,
     transitions: new Map,
+    bindings: new Map,
     authorities: new Map,
     adjudications: new Map,
     confirmations: new Set
@@ -11567,7 +11718,7 @@ function currentCauseContext(frame, origin) {
 // plugins/omp-build/engine/cause-record-operation-validation.ts
 function validateConfirmation(operation, confirmations, diagnostics) {
   const payload = operation.payload;
-  const digest = createHash4("sha256").update(JSON.stringify(payload.proposal)).digest("hex");
+  const digest = createHash5("sha256").update(JSON.stringify(payload.proposal)).digest("hex");
   if (payload.proposalDigest !== digest || payload.confirmation.proposalDigest !== digest || payload.confirmation.operationId !== payload.proposal.operationId)
     diagnostics.push(diagnostic2("cause-operation-confirmation-mismatch", `Operation ${operation.recordId} does not bind the exact confirmed proposal`));
   const key = payload.confirmation.operationId;
@@ -11603,7 +11754,7 @@ function sisterMatches(creation, disposition) {
 function validateCreation2(operation, proposal, disposition, diagnostics) {
   const creation = proposal.creation;
   const expectedDigest = creation.kind === "sister" ? creation.dispositionDigest : creation.reportDigest;
-  if (createHash4("sha256").update(JSON.stringify(disposition)).digest("hex") !== expectedDigest || disposition.payload.outcome.state !== "final" || (creation.kind === "sister" ? !sisterMatches(creation, disposition) : disposition.payload.outcome.disposition !== "report"))
+  if (createHash5("sha256").update(JSON.stringify(disposition)).digest("hex") !== expectedDigest || disposition.payload.outcome.state !== "final" || (creation.kind === "sister" ? !sisterMatches(creation, disposition) : disposition.payload.outcome.disposition !== "report"))
     diagnostics.push(diagnostic2("cause-operation-source-mismatch", `Operation ${operation.recordId} does not match its final disposition`));
 }
 function validateCauseOperations(operations, histories, diagnostics, frame) {
@@ -11668,7 +11819,7 @@ function validateCauseCycles(dispositions, diagnostics) {
 }
 
 // plugins/omp-build/engine/cause-adjudication-successor.ts
-import { createHash as createHash10 } from "node:crypto";
+import { createHash as createHash11 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-assessment-authority.ts
 function authenticateContext(context, histories, historical) {
@@ -11741,10 +11892,10 @@ function authenticateBoundFrameContext(frame, context, historical) {
 }
 
 // plugins/omp-build/engine/cause-adjudication-assessment.ts
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-lineage.ts
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 function causeDispositionLineage(input) {
   const chain = [];
   const seen = new Set;
@@ -11792,7 +11943,7 @@ function confirmedPredecessor(cursor, history) {
     };
   const payload = operation.value.payload;
   const proposal = payload.proposal;
-  if (proposal.operation !== "adjudicate-cause" || !sameRef2(proposal.pending, previous) || !equalScope(proposal.uw, history.source.scope) || proposal.pendingDigest !== createHash5("sha256").update(JSON.stringify(predecessor.value)).digest("hex") || payload.proposalDigest !== createHash5("sha256").update(JSON.stringify(proposal)).digest("hex") || payload.confirmation.proposalDigest !== payload.proposalDigest || payload.confirmation.operationId !== proposal.operationId || predecessor.value.payload.outcome.state !== "pending-blocking" || canonicalValueDigest(predecessor.value.payload.subject) !== canonicalValueDigest(cursor.payload.subject) || canonicalValueDigest(predecessor.value.payload.origin) !== canonicalValueDigest(cursor.payload.origin))
+  if (proposal.operation !== "adjudicate-cause" || !sameRef2(proposal.pending, previous) || !equalScope(proposal.uw, history.source.scope) || proposal.pendingDigest !== createHash6("sha256").update(JSON.stringify(predecessor.value)).digest("hex") || payload.proposalDigest !== createHash6("sha256").update(JSON.stringify(proposal)).digest("hex") || payload.confirmation.proposalDigest !== payload.proposalDigest || payload.confirmation.operationId !== proposal.operationId || predecessor.value.payload.outcome.state !== "pending-blocking" || canonicalValueDigest(predecessor.value.payload.subject) !== canonicalValueDigest(cursor.payload.subject) || canonicalValueDigest(predecessor.value.payload.origin) !== canonicalValueDigest(cursor.payload.origin))
     return {
       ok: false,
       diagnostics: [diagnostic2("cause-chain-invalid", "Successor differs from its confirmed predecessor")]
@@ -11823,7 +11974,7 @@ function authenticateOperation(input, operation, history) {
   if (pending.ok && pending.value.kind === "cause-disposition" && input.validationFrame?.confirmations.has(canonicalValueDigest([pending.value, operation, input.context])))
     return { ok: true, value: { pending: pending.value, proposal, opRef } };
   const authenticated = bindExternalRef(opRef, history);
-  const digest = createHash6("sha256").update(JSON.stringify(proposal)).digest("hex");
+  const digest = createHash7("sha256").update(JSON.stringify(proposal)).digest("hex");
   if (!authenticated.ok || JSON.stringify(authenticated.value) !== JSON.stringify(operation) || !pending.ok || pending.value.kind !== "cause-disposition" || operation.payload.proposalDigest !== digest || operation.payload.confirmation.proposalDigest !== digest || operation.payload.confirmation.operationId !== proposal.operationId)
     return {
       ok: false,
@@ -12230,7 +12381,7 @@ function appendSourceFindings(input, sourceId, entry) {
     const original = source.payload.findings?.find((item) => item.id === sourceId);
     if (!original)
       continue;
-    const inspection = inspectFinding(original.data, []);
+    const inspection = input.bindings.inspections.get(sourceId) ?? inspectFinding(original.data, []);
     const blocking = inspection.knownLabel === null || blockingLabels.has(inspection.knownLabel);
     const sourceDiagnostics = [...inspection.diagnostics, ...entry?.diagnostics ?? []];
     outcomes.push({
@@ -12292,7 +12443,7 @@ function appendUnassignedOutcomes(input) {
 }
 
 // plugins/omp-build/engine/criterion-admission.ts
-import { createHash as createHash7 } from "node:crypto";
+import { createHash as createHash8 } from "node:crypto";
 
 // plugins/omp-build/engine/criterion-declaration-projection.ts
 function ordered2(value) {
@@ -12378,7 +12529,7 @@ function ordered3(value) {
   return value;
 }
 function evidenceDigest(value) {
-  return createHash7("sha256").update(JSON.stringify(ordered3(value)), "utf8").digest("hex");
+  return createHash8("sha256").update(JSON.stringify(ordered3(value)), "utf8").digest("hex");
 }
 function owns(spec, target) {
   return sameOwnSpecRef(target.spec, spec.own) && spec.spec.criteria.some((item) => item.id === target.id);
@@ -12601,44 +12752,8 @@ function correctionCurrentPlan(manifest, histories, context) {
   });
 }
 
-// plugins/omp-build/engine/review-context-authentication.ts
-var same = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
-function accounted(history, record) {
-  const matches = history.operations.filter((operation) => operation.authority !== "foreign" && (operation.recordId === record.recordId || operation.operationId === record.operationId));
-  if (matches.length !== 1)
-    return false;
-  const operation = matches[0];
-  return operation.status === "complete" && operation.authority !== "foreign" && operation.recordId === record.recordId && operation.operationId === record.operationId && operation.kind === record.kind && operation.record !== null && same(operation.record, record) && equalScope(record, history.source.scope) && operation.parts.every((part) => part.author === history.source.expectedAuthor) && recordIntegrity(operation.parts, record) === null;
-}
-function negativeFor(history, root, entry) {
-  if (root.payload.purpose !== "review" || !accounted(history, root) || !accounted(history, entry))
-    return false;
-  const payload = entry.payload;
-  const binding = payload.host.action;
-  const slot = root.payload.slots.find((candidate) => candidate.slotId === payload.host.slotId);
-  return payload.inventoryId === root.recordId && entry.inputs.includes(root.recordId) && slot !== undefined && payload.host.origin === "native" && payload.host.childId !== null && payload.host.phase === slot.phase && payload.host.role === slot.role && payload.host.chunk === slot.chunk && binding !== undefined && slot.action !== undefined && same(slot.action, binding) && validateActionInputs(binding.inputs).ok && binding.inputs.fingerprint === root.payload.actionInputDigest && binding.inputs.manifest.code.head === root.payload.candidateGitSHA && (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) && payload.native?.completion === "completed" && payload.native.strict === "valid" && missingContextOutputSchema.safeParse(payload.structured).success && payload.rawAttempts.some((attempt) => same(attempt.data, payload.structured));
-}
-function unresolvedStepValid(history, current, entry, contributions, records, seen) {
-  if (seen.has(current.recordId) || records.some((record) => record.kind === "review" && record.payload.inventoryIds.includes(current.recordId)))
-    return false;
-  seen.add(current.recordId);
-  return contributions.filter((candidate) => negativeFor(history, current, candidate)).length === 1 && contributions.filter((candidate) => candidate.payload.inventoryId === current.recordId && candidate.payload.host.slotId === entry.payload.host.slotId).length === 1;
-}
-function successorSlotEntry(history, root, contributions, slotId) {
-  const entries = contributions.filter((candidate) => candidate.payload.inventoryId === root.recordId && candidate.payload.host.slotId === slotId);
-  const next = entries[0];
-  const slot = root.payload.slots.find((candidate) => candidate.slotId === slotId);
-  if (entries.length !== 1 || next === undefined || slot === undefined || !accounted(history, next))
-    return;
-  return { next, slot };
-}
-function resolvedOutputValid(next, slot, rootId, snapshot) {
-  const binding = slot.action;
-  return next.inputs.includes(rootId) && next.payload.host.origin === "native" && next.payload.host.childId !== null && next.payload.host.phase === slot.phase && next.payload.host.role === slot.role && next.payload.host.chunk === slot.chunk && binding !== undefined && (next.payload.host.action === undefined || same(binding, next.payload.host.action)) && validateActionInputs(binding.inputs).ok && same(binding.inputs, snapshot) && next.payload.native?.completion === "completed" && next.payload.native.strict === "valid" && producerOutputValid(slot.output, next.payload.structured) && next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured));
-}
-
 // plugins/omp-build/engine/correction-request-basis.ts
-var failure2 = () => ({
+var failure3 = () => ({
   ok: false,
   diagnostics: [diagnostic2("record-unreadable", "Correction historical basis is missing or inconsistent")]
 });
@@ -12681,15 +12796,18 @@ function operatorBasis(history, fix) {
     base: pr.baseRefName
   };
 }
-function resolveCorrectionRequestBasis(history, fix, decision) {
-  if (!accounted(history, fix) || !accounted(history, decision) || !validateDecisionBindings(decision, history).admissible)
-    return failure2();
+function resolveCorrectionRequestBasis(history, fix, decision, catalogues) {
+  if (!accounted(history, fix) || !accounted(history, decision))
+    return failure3();
+  const bindings = validateDecisionBindings(decision, history, catalogues);
+  if (!bindings.admissible)
+    return { ok: false, diagnostics: bindings.diagnostics };
   const basis = operatorBasis(history, fix);
-  return basis !== null && originalDecisionMatches(history, fix, decision, basis.originalCandidate) ? { ok: true, value: basis } : failure2();
+  return basis !== null && originalDecisionMatches(history, fix, decision, basis.originalCandidate) ? { ok: true, value: basis } : failure3();
 }
 
 // plugins/omp-build/engine/correction-historical-basis.ts
-var failure3 = () => ({
+var failure4 = () => ({
   ok: false,
   diagnostics: [diagnostic2("record-unreadable", "Correction historical basis is missing or inconsistent")]
 });
@@ -12703,42 +12821,45 @@ var ref2 = (record) => ({
   selector: "/payload",
   digest: canonicalValueDigest(record.payload)
 });
-function correctionDecision(history, records, source, inventory, inputs) {
+function correctionDecision(history, records, source, inventory, inputs, catalogues) {
   const decisions = inputs.stageSources.filter((item) => item.record.kind === "decision" && item.selector === "/payload");
   const decisionRef = decisions[0];
   if (decisions.length !== 1 || decisionRef === undefined)
-    return failure3();
+    return failure4();
   const matching = records.filter((record) => record.kind === "decision" && record.recordId === decisionRef.record.recordId);
   const decision = matching[0];
-  if (matching.length !== 1 || decision?.kind !== "decision" || !accounted(history, decision) || canonicalValueDigest(ref2(decision)) !== canonicalValueDigest(decisionRef) || !inventory.inputs.includes(decision.recordId) || !source.inputs.includes(decision.recordId) || !validateDecisionBindings(decision, history).admissible)
-    return failure3();
+  if (matching.length !== 1 || decision?.kind !== "decision" || !accounted(history, decision) || canonicalValueDigest(ref2(decision)) !== canonicalValueDigest(decisionRef) || !inventory.inputs.includes(decision.recordId) || !source.inputs.includes(decision.recordId))
+    return failure4();
+  const bindings = validateDecisionBindings(decision, history, catalogues);
+  if (!bindings.admissible)
+    return { ok: false, diagnostics: bindings.diagnostics };
   return { ok: true, value: { decision, decisionRef } };
 }
 function correctionBinding(subject, histories, basis) {
   const bindingRef = subject.kind === "uw" ? subject.binding : null;
   if (subject.kind === "uw" && bindingRef === null)
-    return failure3();
+    return failure4();
   if (bindingRef === null)
     return { ok: true, value: { bindingRef, bindingRecord: null } };
   const history = historyFor(bindingRef.record.scope, histories);
   if (history === null)
-    return failure3();
+    return failure4();
   const bindings = recordsOf(history).filter((record) => record.kind === "workflow-binding" && record.recordId === bindingRef.record.recordId);
   const binding = bindings[0];
   if (bindings.length !== 1 || binding?.kind !== "workflow-binding" || !accounted(history, binding) || canonicalValueDigest(ref2(binding)) !== canonicalValueDigest(bindingRef) || binding.payload.branch !== basis.branch || binding.payload.base !== basis.base)
-    return failure3();
+    return failure4();
   return { ok: true, value: { bindingRef, bindingRecord: binding } };
 }
 function correctionInventory(history, records, source) {
   const inventories = records.filter((record) => record.kind === "review-attempt" && record.recordId === source.payload.inventoryId);
   const inventory = inventories[0];
   if (inventories.length !== 1 || inventory?.kind !== "review-attempt" || inventory.payload.stage !== "initial" || inventory.payload.purpose !== "correction" || !accounted(history, inventory) || !source.inputs.includes(inventory.recordId))
-    return failure3();
+    return failure4();
   const requestId = inventory.payload.requestId;
   const slots = inventory.payload.slots.filter((slot) => slot.slotId === source.payload.host.slotId);
   const slot = slots[0];
   if (slots.length !== 1 || slot?.action === undefined || !resolvedOutputValid(source, slot, inventory.recordId, slot.action.inputs) || !validateActionInputs(slot.action.inputs).ok || slot.action.inputs.manifest.purpose !== "correction" || slot.action.inputs.fingerprint !== inventory.payload.actionInputDigest || slot.action.inputs.manifest.code.head !== inventory.payload.candidateGitSHA)
-    return failure3();
+    return failure4();
   return { ok: true, value: { inventory, requestId, inputs: slot.action.inputs } };
 }
 function historicalSubjectMatches(inputs, source, expectedSubject) {
@@ -12752,7 +12873,7 @@ function resolveHistoricalCorrectionBasis(input) {
   const scope = { repository: source.repository, target: source.target };
   const history = historyFor(scope, input.histories);
   if (history === null || workflowOperationProblem(history) !== null || !accounted(history, source) || source.payload.inventoryId === null)
-    return failure3();
+    return failure4();
   const records = recordsOf(history);
   const selectedInventory = correctionInventory(history, records, source);
   if (!selectedInventory.ok)
@@ -12761,28 +12882,28 @@ function resolveHistoricalCorrectionBasis(input) {
   const requests = records.filter((r) => r.kind === "fix-request" && r.recordId === requestId);
   const fix = requests[0];
   if (requests.length !== 1 || fix?.kind !== "fix-request" || !accounted(history, fix) || !inventory.inputs.includes(fix.recordId) || !source.inputs.includes(fix.recordId))
-    return failure3();
-  const selectedDecision = correctionDecision(history, records, source, inventory, inputs);
+    return failure4();
+  const selectedDecision = correctionDecision(history, records, source, inventory, inputs, input.catalogues);
   if (!selectedDecision.ok)
     return selectedDecision;
   const { decision, decisionRef } = selectedDecision.value;
-  const resolved = resolveCorrectionRequestBasis(history, fix, decision);
+  const resolved = resolveCorrectionRequestBasis(history, fix, decision, input.catalogues);
   if (!resolved.ok)
     return resolved;
   const basis = resolved.value;
   const subject = inputs.manifest.subject;
   if (!historicalSubjectMatches(inputs, source, input.expectedSubject))
-    return failure3();
+    return failure4();
   const selectedBinding = correctionBinding(subject, input.histories, basis);
   if (!selectedBinding.ok)
     return selectedBinding;
   const { bindingRef, bindingRecord } = selectedBinding.value;
   const original = records.find((r) => r.kind === "contribution" && r.recordId === decision.payload.originalContributionId);
   if (original?.kind !== "contribution" || original.payload.inventoryId === null)
-    return failure3();
+    return failure4();
   const origin = records.find((r) => r.kind === "review-attempt" && r.recordId === original.payload.inventoryId);
   if (origin?.kind !== "review-attempt")
-    return failure3();
+    return failure4();
   const ids = new Set([
     fix.payload.requestContributionId,
     original.recordId,
@@ -12911,76 +13032,95 @@ function validObservation(input, applied) {
   return output.success && output.data.outcome === "applied" && output.data.commitSHAs.length === 0 && output.data.guardInventory.length === 0 && output.data.proofPaths.length === 0;
 }
 function admitAppliedCorrection(input) {
+  const invalid = () => ({
+    ok: false,
+    diagnostics: [diagnostic2("unconfirmed", "Selected applied correction is not authenticated")]
+  });
   const applied = correctionRecord(input.fix, input.histories, input.lineage.appliedId, "contribution");
   if (!applied || applied.payload.inventoryId === null)
-    return null;
+    return invalid();
   const basis = resolveHistoricalCorrectionBasis({
     contribution: applied,
     histories: input.histories,
+    catalogues: input.catalogues,
     expectedSubject: input.historical.inputs.manifest.subject
   });
-  if (!basis.ok || basis.value.requestRef.record.recordId !== input.historical.requestRef.record.recordId || basis.value.decisionRef.record.recordId !== input.decision.recordId || basis.value.originalCandidate !== input.historical.originalCandidate)
-    return null;
+  if (!basis.ok)
+    return basis;
+  if (basis.value.requestRef.record.recordId !== input.historical.requestRef.record.recordId || basis.value.decisionRef.record.recordId !== input.decision.recordId || basis.value.originalCandidate !== input.historical.originalCandidate)
+    return invalid();
   const inventory = correctionRecord(input.fix, input.histories, applied.payload.inventoryId, "review-attempt");
   if (!inventory || !validApplied(input, applied, inventory, basis.value) || !validObservation(input, applied))
-    return null;
-  return { applied, inventory, basis: basis.value };
+    return invalid();
+  return { ok: true, value: { applied, inventory, basis: basis.value } };
 }
 
 // plugins/omp-build/engine/correction-source-binding.ts
-function correctionIdentity(fix, histories, context) {
+var invalid = () => ({
+  ok: false,
+  diagnostics: [diagnostic2("unconfirmed", "Selected correction source is not authenticated")]
+});
+function correctionIdentity(fix, histories, context, catalogues) {
   const receipt = fix.payload.criterionReceipt;
   if (!receipt || fix.payload.candidateGitSHA !== context.head || !fix.inputs.includes(receipt.sourceContributionId) || correctionRecord(fix, histories, fix.recordId, "fix-result") === null)
-    return null;
+    return invalid();
   const request = correctionRecord(fix, histories, fix.payload.requestId, "fix-request");
   const decision = correctionRecord(fix, histories, fix.payload.decisionId, "decision");
   const contribution = correctionRecord(fix, histories, receipt.sourceContributionId, "contribution");
   if (!request || !decision || !contribution || !fix.inputs.includes(request.recordId) || !fix.inputs.includes(decision.recordId))
-    return null;
+    return invalid();
   const review = request.payload.existingReviewId === null ? null : correctionRecord(fix, histories, request.payload.existingReviewId, "review");
   if (request.payload.existingReviewId === null) {
     if (decision.payload.judgment.purpose !== "correction")
-      return null;
+      return invalid();
   } else if (review?.payload.decisionId !== decision.recordId || decision.payload.judgment.purpose !== "review")
-    return null;
-  const historical = resolveHistoricalCorrectionBasis({ contribution, histories });
-  if (!historical.ok || historical.value.requestRef.record.recordId !== request.recordId || historical.value.decisionRef.record.recordId !== decision.recordId)
-    return null;
-  return { receipt, request, decision, contribution, review, historical: historical.value };
+    return invalid();
+  const historical = resolveHistoricalCorrectionBasis({ contribution, histories, catalogues });
+  if (!historical.ok)
+    return historical;
+  if (historical.value.requestRef.record.recordId !== request.recordId || historical.value.decisionRef.record.recordId !== decision.recordId)
+    return invalid();
+  return {
+    ok: true,
+    value: { receipt, request, decision, contribution, review, historical: historical.value }
+  };
 }
-function admitCorrectionSourceBinding(fix, histories, context) {
-  const identity = correctionIdentity(fix, histories, context);
-  if (identity === null)
-    return null;
-  const { receipt, request, decision, contribution, review, historical } = identity;
+function admitCorrectionSourceBinding(fix, histories, context, catalogues) {
+  const identity = correctionIdentity(fix, histories, context, catalogues);
+  if (!identity.ok)
+    return identity;
+  const { receipt, request, decision, contribution, review, historical } = identity.value;
   const source = contribution.payload;
   const native = source.native;
   const observation = native?.observation;
   const action = source.host.action;
   if (!native || !observation || !action || !genuineCorrectionSource(contribution))
-    return null;
+    return invalid();
   const manifest = action.inputs.manifest;
   if (!currentCorrectionContext(action.inputs, fix, histories, context) || !correctionCurrentPlan(manifest, histories, context))
-    return null;
+    return invalid();
   const inventory = source.inventoryId === null ? null : correctionRecord(fix, histories, source.inventoryId, "review-attempt");
   if (inventory?.payload.stage !== "initial" || inventory.payload.purpose !== "correction" || inventory.payload.requestId !== request.recordId || inventory.payload.actionInputDigest !== action.inputs.fingerprint || !inventory.inputs.includes(decision.recordId) || !contribution.inputs.includes(inventory.recordId))
-    return null;
+    return invalid();
   const slots = inventory.payload.slots.filter((slot) => slot.slotId === source.host.slotId && slot.phase === source.host.phase && slot.role === source.host.role);
   const slot = slots.find((item) => item.output === "action-result" && item.action?.actionId === action.actionId && canonicalValueDigest(item.action.inputs) === canonicalValueDigest(action.inputs));
   if (slots.length !== 1 || !slot?.correction || !decision.payload.judgment.causes.some((cause) => cause.id === slot.correction?.causeId))
-    return null;
+    return invalid();
   return {
-    receipt,
-    request,
-    decision,
-    contribution,
-    review,
-    historical,
-    source,
-    native,
-    observation,
-    inventory,
-    correction: slot.correction
+    ok: true,
+    value: {
+      receipt,
+      request,
+      decision,
+      contribution,
+      review,
+      historical,
+      source,
+      native,
+      observation,
+      inventory,
+      correction: slot.correction
+    }
   };
 }
 
@@ -13088,10 +13228,17 @@ function capturedRun(toolCallId, runs) {
 }
 
 // plugins/omp-build/engine/correction-criterion-source.ts
-function resolveAdmittedCorrectionCriterionSource(fix, histories, context) {
-  const binding = admitCorrectionSourceBinding(fix, histories, context);
-  if (binding === null)
-    return null;
+var invalid2 = () => ({
+  ok: false,
+  diagnostics: [diagnostic2("unconfirmed", "Selected correction criterion source is not authenticated")]
+});
+function resolveAdmittedCorrectionCriterionSource(fix, histories, context, catalogues) {
+  if (!fix.payload.criterionReceipt || fix.payload.candidateGitSHA !== context.head)
+    return { ok: true, value: null };
+  const resolved = admitCorrectionSourceBinding(fix, histories, context, catalogues);
+  if (!resolved.ok)
+    return resolved;
+  const binding = resolved.value;
   const {
     receipt,
     request,
@@ -13107,12 +13254,13 @@ function resolveAdmittedCorrectionCriterionSource(fix, histories, context) {
   } = binding;
   const lineage = admitCorrectionLineage(fix, histories, decision.recordId, correction.causeId);
   if (lineage === null)
-    return null;
+    return invalid2();
   const { corrections, falsifications } = lineage;
   const appliedAdmission = admitAppliedCorrection({
     fix,
     histories,
     context,
+    catalogues,
     historical,
     decision,
     contribution,
@@ -13120,12 +13268,12 @@ function resolveAdmittedCorrectionCriterionSource(fix, histories, context) {
     phase: correction.phase,
     lineage
   });
-  if (appliedAdmission === null)
-    return null;
-  const { applied, inventory: appliedInventory, basis: appliedBasis } = appliedAdmission;
+  if (!appliedAdmission.ok)
+    return appliedAdmission;
+  const { applied, inventory: appliedInventory, basis: appliedBasis } = appliedAdmission.value;
   const data = correctionObject(source.structured);
   if (!data || !Array.isArray(data.criteria))
-    return null;
+    return invalid2();
   const completed = completeCriterionDeclarations(data.criteria, {
     commandRuns: native.commandRuns,
     nativeProvenance: native.commandProvenance,
@@ -13138,26 +13286,29 @@ function resolveAdmittedCorrectionCriterionSource(fix, histories, context) {
     }
   });
   if (canonicalValueDigest(completed) !== canonicalValueDigest(receipt.criteria))
-    return null;
+    return invalid2();
   return {
-    criteria: receipt.criteria,
-    contribution,
-    lineage: [
-      ...new Map([
-        fix,
-        request,
-        decision,
-        ...review === null ? [] : [review],
-        inventory,
-        contribution,
-        applied,
-        appliedInventory,
-        ...historical.lineage,
-        ...appliedBasis.lineage,
-        ...corrections,
-        ...falsifications
-      ].map((item) => [`${item.repository}\x00${item.target}\x00${item.recordId}`, item])).values()
-    ]
+    ok: true,
+    value: {
+      criteria: receipt.criteria,
+      contribution,
+      lineage: [
+        ...new Map([
+          fix,
+          request,
+          decision,
+          ...review === null ? [] : [review],
+          inventory,
+          contribution,
+          applied,
+          appliedInventory,
+          ...historical.lineage,
+          ...appliedBasis.lineage,
+          ...corrections,
+          ...falsifications
+        ].map((item) => [`${item.repository}\x00${item.target}\x00${item.recordId}`, item])).values()
+      ]
+    }
   };
 }
 
@@ -13250,25 +13401,7 @@ function pointer2(value, selector) {
 function pinnedLineage(records, inputs) {
   return records.every((item) => inputs.manifest.deliveryData.some((pin) => pin.role === "correction-lineage" && pin.selector === "/payload" && pin.record.recordId === item.recordId && pin.record.kind === item.kind && pin.record.scope.repository === item.repository && pin.record.scope.target === item.target && pin.digest === canonicalValueDigest(item.payload)));
 }
-function appendCorrectionSelection(ref, histories, inputs, planActionId, mandate, ownSpec, pins, diagnostics, selected) {
-  const history = historyFor(ref.record.scope, histories);
-  const bound = history === null ? null : bindExternalRef(ref.record, history);
-  const fix = bound?.ok && bound.value.kind === "fix-result" ? bound.value : null;
-  const source = fix === null ? null : resolveAdmittedCorrectionCriterionSource(fix, histories, {
-    head: inputs.manifest.code.head,
-    planActionId,
-    mandate,
-    ownSpec
-  });
-  const value = fix === null ? undefined : pointer2(fix, ref.selector);
-  if (source === null || value === undefined || canonicalValueDigest(value) !== ref.digest) {
-    diagnostics.push(diagnostic2("unconfirmed", `Correction delivery ${ref.record.recordId} is not an authenticated current source`));
-    return;
-  }
-  if (!pinnedLineage(source.lineage, inputs)) {
-    diagnostics.push(diagnostic2("mismatch", `Correction delivery ${ref.record.recordId} lacks its authenticated lineage pins`));
-    return;
-  }
+function appendCorrectionDeclaration(value, ref, histories, inputs, pins, diagnostics, selected, contribution) {
   if (ref.role !== "implementation")
     return;
   const declaration = criterionDeclarationSchema.safeParse(value);
@@ -13282,12 +13415,38 @@ function appendCorrectionSelection(ref, histories, inputs, planActionId, mandate
       diagnostics.push(diagnostic2("mismatch", `Evidence ${item.id} is not the admitted current head`));
       continue;
     }
-    diagnostics.push(...correctionObservationAuthenticationDiagnostics(item, histories, pins, source.contribution));
+    diagnostics.push(...correctionObservationAuthenticationDiagnostics(item, histories, pins, contribution));
     selected.evidence.push({
       ref: { receipt: ref.record, evidenceId: item.id, digest: evidenceDigest(item) },
       value: item
     });
   }
+}
+function appendCorrectionSelection(ref, histories, inputs, planActionId, mandate, ownSpec, pins, diagnostics, selected, catalogues) {
+  const history = historyFor(ref.record.scope, histories);
+  const bound = history === null ? null : bindExternalRef(ref.record, history);
+  const fix = bound?.ok && bound.value.kind === "fix-result" ? bound.value : null;
+  const source = fix === null ? null : resolveAdmittedCorrectionCriterionSource(fix, histories, {
+    head: inputs.manifest.code.head,
+    planActionId,
+    mandate,
+    ownSpec
+  }, catalogues);
+  if (source !== null && !source.ok) {
+    diagnostics.push(...source.diagnostics);
+    return;
+  }
+  const admitted = source?.value ?? null;
+  const value = fix === null ? undefined : pointer2(fix, ref.selector);
+  if (admitted === null || value === undefined || canonicalValueDigest(value) !== ref.digest) {
+    diagnostics.push(diagnostic2("unconfirmed", `Correction delivery ${ref.record.recordId} is not an authenticated current source`));
+    return;
+  }
+  if (!pinnedLineage(admitted.lineage, inputs)) {
+    diagnostics.push(diagnostic2("mismatch", `Correction delivery ${ref.record.recordId} lacks its authenticated lineage pins`));
+    return;
+  }
+  appendCorrectionDeclaration(value, ref, histories, inputs, pins, diagnostics, selected, admitted.contribution);
 }
 
 // plugins/omp-build/engine/criterion-decision-selection.ts
@@ -13415,7 +13574,7 @@ function currentPlan(histories, version, mandate, diagnostics) {
     return null;
   return current.value;
 }
-function selectedDeclarations(histories, inputs, diagnostics) {
+function selectedDeclarations(histories, inputs, diagnostics, catalogues) {
   const declarations = [];
   const evidence = [];
   if (inputs.manifest.spec.kind !== "accepted")
@@ -13439,10 +13598,7 @@ function selectedDeclarations(histories, inputs, diagnostics) {
     if (ref.role === "correction-lineage" || ref.role === "cause-state")
       continue;
     if (ref.record.kind === "fix-result") {
-      appendCorrectionSelection(ref, histories, inputs, current.payload.actionId, mandate, ownSpec, pins, diagnostics, {
-        declarations,
-        evidence
-      });
+      appendCorrectionSelection(ref, histories, inputs, current.payload.actionId, mandate, ownSpec, pins, diagnostics, { declarations, evidence }, catalogues);
       continue;
     }
     appendDelivery(ref, histories, current.recordId, inputs.manifest.code.head, current.payload.actionId, mandate, pins, diagnostics, declarations, evidence);
@@ -13613,11 +13769,11 @@ function retainExclusions(decision, inputs, records, bound, diagnostics) {
   for (const errors of claims.values())
     diagnostics.push(...errors);
 }
-function authenticatedCriterionFacts(decision, history, originalContributionId, externalHistories = [], deliveryHistory = history) {
+function authenticatedCriterionFacts(decision, history, originalContributionId, catalogues, externalHistories = [], deliveryHistory = history) {
   const records = recordsOf(history);
   const diagnostics = [];
   const inputs = reviewInputsFromInventory(decision, history);
-  const selected = inputs === null ? { declarations: [], evidence: [] } : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics);
+  const selected = inputs === null ? { declarations: [], evidence: [] } : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics, catalogues);
   const bound = new Set(decision.sourceContributionIds);
   if (originalContributionId !== null)
     bound.add(originalContributionId);
@@ -14766,33 +14922,32 @@ function analyzeReviewIdentity(history, records) {
 }
 
 // plugins/omp-build/engine/review-partition.ts
-function validateFinalFindingReferences(record, originals, diagnostics) {
+function validateFinalFindingReferences(record, originals, inspections, diagnostics) {
   const covered = new Set;
   const findings = record.payload.judgment.findings;
   if (!unique2(findings.map((finding) => finding.id)))
     diagnostics.push(diagnostic2("duplicate-reference", "Decision repeats final finding IDs"));
   for (const finalFinding of findings)
-    validateFinalFinding(finalFinding, originals, covered, diagnostics);
+    validateFinalFinding(finalFinding, originals, inspections, covered, diagnostics);
   return covered;
 }
-function validateFinalFinding(finalFinding, originals, covered, diagnostics) {
+function validateFinalFinding(finalFinding, originals, inspections, covered, diagnostics) {
   if (!unique2(finalFinding.sourceFindingIds))
     diagnostics.push(diagnostic2("duplicate-reference", `Final finding ${finalFinding.id} repeats a source`));
   if (finalFinding.state === "usable" && finalFinding.sourceFindingIds.length > 1 && finalFinding.mergeReason === undefined)
     diagnostics.push(diagnostic2("malformed", `Merged finding ${finalFinding.id} lacks merge reason`));
   for (const sourceId of finalFinding.sourceFindingIds)
-    validateFindingSource(finalFinding, sourceId, originals, covered, diagnostics);
+    validateFindingSource(finalFinding, sourceId, originals, inspections, covered, diagnostics);
 }
-function validateFindingSource(finalFinding, sourceId, originals, covered, diagnostics) {
+function validateFindingSource(finalFinding, sourceId, originals, inspections, covered, diagnostics) {
   if (!originals.has(sourceId)) {
     diagnostics.push(diagnostic2("unknown-reference", `Final finding ${finalFinding.id} references ${sourceId}`));
     return;
   }
   const original = originals.get(sourceId);
   if (finalFinding.state === "usable" && original !== undefined) {
-    const parsed = findingSchema.safeParse(original);
-    const inspection = inspectFinding(original, parsed.success ? parsed.data.classes ?? [] : []);
-    if (!inspection.usable)
+    const inspection = inspections.get(sourceId);
+    if (inspection !== undefined && !inspection.usable)
       diagnostics.push(...inspection.diagnostics);
   }
   const rawTarget = original !== null && typeof original === "object" && !Array.isArray(original) ? original.target : undefined;
@@ -15103,25 +15258,6 @@ function validateMotivation(record, operation, diagnostics) {
   if (proposal.reason.trim() === "" || proposal.references.length === 0 || invalidMembers)
     diagnostics.push(diagnostic2("cause-adjudication-motivation", `Disposition ${record.recordId} has an invalid motivated adjudication`));
 }
-function validateSurvivors(record, lineage, diagnostics) {
-  const subject = record.payload.subject;
-  if (subject.kind !== "cause")
-    return;
-  const rejected = new Set;
-  let judgment = subject.cause.judgment;
-  for (const member of lineage) {
-    const proposal = member.adjudication?.payload.proposal;
-    if (proposal?.operation !== "adjudicate-cause")
-      continue;
-    for (const id of proposal.rejectedFindingIds)
-      rejected.add(id);
-    judgment = proposal.judgment ?? judgment;
-  }
-  const blocking = subject.findings.some((finding) => !rejected.has(finding.id) && (finding.label === null || blockingLabels.has(finding.label)));
-  const supported = [judgment.necessary, judgment.urgent, judgment.tooLarge].every((value) => value.state === "supported" && value.reason.trim() !== "" && value.references.length > 0);
-  if (blocking && record.payload.outcome.state === "final" && (!supported || judgment.necessary.value !== true || judgment.urgent.value !== true || record.payload.outcome.disposition !== (judgment.tooLarge.value ? "sister-blocking" : "fix-original")))
-    diagnostics.push(diagnostic2("cause-outcome-mismatch", `Disposition ${record.recordId} cannot clear a surviving blocking member`));
-}
 function validateSuccessor(record, state) {
   const previous = record.payload.previous;
   if (previous === null)
@@ -15143,7 +15279,6 @@ function validateSuccessor(record, state) {
   const last = lineage.value[lineage.value.length - 1];
   if (last?.adjudication)
     validateMotivation(record, last.adjudication, state.diagnostics);
-  validateSurvivors(record, lineage.value, state.diagnostics);
 }
 function validateRecord(record, state) {
   const bound = bindExternalRef({ scope: state.scope, kind: "cause-disposition", recordId: record.recordId }, state.history);
@@ -15162,7 +15297,7 @@ function validateRecord(record, state) {
   if (record.payload.adjudication !== null)
     state.diagnostics.push(diagnostic2("cause-chain-invalid", `Initial disposition ${record.recordId} has an adjudication`));
 }
-function readCauseDispositionHeads(input) {
+function discoverCauseDispositionHeads(input) {
   const histories = input.histories.filter((history) => equalScope(history.source.scope, input.uw));
   const history = histories[0];
   if (histories.length !== 1 || history === undefined || workflowOperationProblem(history) !== null)
@@ -15182,6 +15317,24 @@ function readCauseDispositionHeads(input) {
   for (const record of dispositions)
     validateRecord(record, state);
   return state.diagnostics.length ? { ok: false, diagnostics: state.diagnostics } : { ok: true, value: dispositions.filter((record) => !state.successors.has(record.recordId)) };
+}
+function readRetainedCauseDispositionLedger(input) {
+  const heads = discoverCauseDispositionHeads({ uw: input.uw, histories: [input.history] });
+  return heads.ok ? { ok: true, value: { heads: heads.value } } : heads;
+}
+function readCauseDispositionHeads(input) {
+  const heads = discoverCauseDispositionHeads(input);
+  if (!heads.ok)
+    return heads;
+  const history = input.histories.find((item) => equalScope(item.source.scope, input.uw));
+  if (history === undefined)
+    return { ok: false, diagnostics: [diagnostic2("cause-history-unconfirmed", "UW history is missing")] };
+  const diagnostics = validateCauseDispositionRecords({
+    records: recordsOf(history),
+    histories: input.histories,
+    catalogues: input.catalogues
+  });
+  return diagnostics.length === 0 ? heads : { ok: false, diagnostics };
 }
 
 // plugins/omp-build/engine/cause-effective-findings.ts
@@ -15249,10 +15402,7 @@ function collectMatches(disposition, rejectedIds, context) {
   }
   return { ok: true, value: [...rejected] };
 }
-function historicalPin(disposition, history, context) {
-  const validation = validateCauseDispositionRecords({ records: recordsOf(history), histories: context.histories });
-  if (validation.length)
-    return { ok: false, diagnostics: validation };
+function historicalPin(disposition) {
   if (disposition.payload.outcome.state === "final" && disposition.payload.outcome.disposition === "report")
     return { ok: true, value: [] };
   return {
@@ -15271,25 +15421,35 @@ function evaluatePin(pin, context) {
       ok: false,
       diagnostics: [diagnostic2("cause-adjudication-unconfirmed", "Selected disposition is not authenticated")]
     };
+  let validation = context.validations.get(history);
+  if (validation === undefined) {
+    validation = validateCauseDispositionRecords({
+      records: recordsOf(history),
+      histories: context.histories,
+      catalogues: context.catalogues
+    });
+    context.validations.set(history, validation);
+  }
+  if (validation.length)
+    return { ok: false, diagnostics: [...validation] };
   const disposition = bound.value;
   if (!sameOwnSpecRef(disposition.payload.origin, context.own))
-    return historicalPin(disposition, history, context);
+    return historicalPin(disposition);
   if (disposition.payload.subject.kind !== "cause" || disposition.payload.adjudication === null)
     return { ok: true, value: [] };
-  const heads = readCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories });
-  if (!heads.ok)
-    return heads;
-  if (!heads.value.some((head) => head.recordId === disposition.recordId))
-    return { ok: true, value: [] };
+  if (!context.historical) {
+    const heads = discoverCauseDispositionHeads({ uw: disposition.payload.origin.uw, histories: context.histories });
+    if (!heads.ok)
+      return heads;
+    if (!heads.value.some((head) => head.recordId === disposition.recordId))
+      return { ok: true, value: [] };
+  }
   const rejected = lineageRejected(disposition, history, context);
   if (!rejected.ok)
     return rejected;
-  const validation = validateCauseDispositionRecords({ records: recordsOf(history), histories: context.histories });
-  if (validation.length)
-    return { ok: false, diagnostics: validation };
   return collectMatches(disposition, rejected.value, context);
 }
-function effectiveRejectedFindingIds(input) {
+function selectedRejectedFindingIds(input, historical) {
   if (!validateActionInputs(input.action).ok || input.action.manifest.purpose !== "review" || input.action.manifest.spec.kind !== "accepted")
     return {
       ok: false,
@@ -15301,8 +15461,11 @@ function effectiveRejectedFindingIds(input) {
     decision: input.decision,
     own: input.action.manifest.spec.effective.own,
     histories: input.histories,
+    catalogues: input.catalogues,
     selected,
-    pins
+    pins,
+    historical,
+    validations: new Map
   };
   const rejected = new Set;
   for (const pin of pins) {
@@ -15313,6 +15476,12 @@ function effectiveRejectedFindingIds(input) {
       rejected.add(id);
   }
   return { ok: true, value: [...rejected] };
+}
+function effectiveRejectedFindingIds(input) {
+  return selectedRejectedFindingIds(input, false);
+}
+function historicalRejectedFindingIds(input) {
+  return selectedRejectedFindingIds(input, true);
 }
 // plugins/omp-build/engine/cause-history-references.ts
 function addJudgment(judgment, add) {
@@ -15378,10 +15547,10 @@ function causeHistoryReferences(records) {
   return [...found.values()];
 }
 // plugins/omp-build/engine/cause-reports.ts
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-report-validation.ts
-import { createHash as createHash8 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 function validateInitialDisposition(record, initialSubjects, diagnostics) {
   const identity = canonicalValueDigest([record.payload.origin, record.payload.subject]);
   if (initialSubjects.has(identity))
@@ -15415,7 +15584,7 @@ function validateReportPromotion(promotion, record, scope, history, diagnostics)
   if (!bound.ok)
     diagnostics.push(...bound.diagnostics);
   const operation = bindExternalRef(promotion.payload.operation, history);
-  if (!operation.ok || operation.value.kind !== "cause-operation" || operation.value.payload.proposal.operation !== "create" || operation.value.payload.proposal.creation.kind !== "report-promotion" || !sameRef2(operation.value.payload.proposal.creation.report, promotion.payload.report) || operation.value.payload.proposal.creation.reportDigest !== createHash8("sha256").update(JSON.stringify(record)).digest("hex") || operation.value.payload.proposalDigest !== createHash8("sha256").update(JSON.stringify(operation.value.payload.proposal)).digest("hex") || operation.value.payload.confirmation.proposalDigest !== operation.value.payload.proposalDigest || operation.value.payload.confirmation.operationId !== operation.value.payload.proposal.operationId || !equalScope(promotion.payload.created, promotion.payload.identity.scope))
+  if (!operation.ok || operation.value.kind !== "cause-operation" || operation.value.payload.proposal.operation !== "create" || operation.value.payload.proposal.creation.kind !== "report-promotion" || !sameRef2(operation.value.payload.proposal.creation.report, promotion.payload.report) || operation.value.payload.proposal.creation.reportDigest !== createHash9("sha256").update(JSON.stringify(record)).digest("hex") || operation.value.payload.proposalDigest !== createHash9("sha256").update(JSON.stringify(operation.value.payload.proposal)).digest("hex") || operation.value.payload.confirmation.proposalDigest !== operation.value.payload.proposalDigest || operation.value.payload.confirmation.operationId !== operation.value.payload.proposal.operationId || !equalScope(promotion.payload.created, promotion.payload.identity.scope))
     diagnostics.push(diagnostic2("cause-effect-unconfirmed", `Promotion ${promotion.recordId} lacks its matching local confirmed intent`));
 }
 
@@ -15467,7 +15636,7 @@ function resolveCauseSisterReceipt(input) {
     const identity = bindExternalRef(receipt.payload.identity, sisterHistory);
     const op = operation.value.payload;
     const proposal = op.proposal;
-    if (!identity.ok || identity.value.kind !== "spec-identity" || identity.value.payload.event !== "allocate" || proposal.operation !== "create" || proposal.creation.kind !== "sister" || !equalScope(receipt.payload.identity.scope, receipt.payload.sister) || !equalScope(receipt.payload.original, uw) || !sameRef2(receipt.payload.decision, subject.decision) || receipt.payload.causeId !== subject.cause.id || !sameRef2(proposal.creation.disposition, ref) || !equalScope(proposal.creation.original, uw) || proposal.creation.dispositionDigest !== createHash9("sha256").update(JSON.stringify(disposition)).digest("hex") || proposal.creation.relation !== receipt.payload.relation || receipt.payload.relation !== (outcome.disposition === "sister-blocking" ? "original-blocked-by-sister" : "sister-blocked-by-original") || canonicalValueDigest(proposal.creation.parent) !== canonicalValueDigest(receipt.payload.parent) || op.proposalDigest !== createHash9("sha256").update(JSON.stringify(proposal)).digest("hex") || op.confirmation.proposalDigest !== op.proposalDigest || op.confirmation.operationId !== proposal.operationId || identity.value.operationId !== proposal.operationId || identity.value.payload.proposalDigest !== op.proposalDigest || canonicalValueDigest(identity.value.payload.confirmation) !== canonicalValueDigest(op.confirmation) || canonicalValueDigest(identity.value.payload.allocations) !== canonicalValueDigest(proposal.allocation.assignments))
+    if (!identity.ok || identity.value.kind !== "spec-identity" || identity.value.payload.event !== "allocate" || proposal.operation !== "create" || proposal.creation.kind !== "sister" || !equalScope(receipt.payload.identity.scope, receipt.payload.sister) || !equalScope(receipt.payload.original, uw) || !sameRef2(receipt.payload.decision, subject.decision) || receipt.payload.causeId !== subject.cause.id || !sameRef2(proposal.creation.disposition, ref) || !equalScope(proposal.creation.original, uw) || proposal.creation.dispositionDigest !== createHash10("sha256").update(JSON.stringify(disposition)).digest("hex") || proposal.creation.relation !== receipt.payload.relation || receipt.payload.relation !== (outcome.disposition === "sister-blocking" ? "original-blocked-by-sister" : "sister-blocked-by-original") || canonicalValueDigest(proposal.creation.parent) !== canonicalValueDigest(receipt.payload.parent) || op.proposalDigest !== createHash10("sha256").update(JSON.stringify(proposal)).digest("hex") || op.confirmation.proposalDigest !== op.proposalDigest || op.confirmation.operationId !== proposal.operationId || identity.value.operationId !== proposal.operationId || identity.value.payload.proposalDigest !== op.proposalDigest || canonicalValueDigest(identity.value.payload.confirmation) !== canonicalValueDigest(op.confirmation) || canonicalValueDigest(identity.value.payload.allocations) !== canonicalValueDigest(proposal.allocation.assignments))
       return {
         ok: false,
         diagnostics: [
@@ -15476,6 +15645,46 @@ function resolveCauseSisterReceipt(input) {
       };
     return { ok: true, value: receipt };
   }
+}
+function validateReportLineage(record, state) {
+  const { scope, history, diagnostics, initialSubjects, ids, dispositions, successorCount } = state;
+  const ref = { scope, recordId: record.recordId, kind: "cause-disposition" };
+  const bound = bindExternalRef(ref, history);
+  if (!bound.ok)
+    diagnostics.push(...bound.diagnostics);
+  if (!equalScope(record.payload.origin.uw, scope))
+    diagnostics.push(diagnostic2("cause-origin-mismatch", `Disposition ${record.recordId} is not stored on its origin`));
+  const previous = record.payload.previous;
+  if (previous === null)
+    validateInitialDisposition(record, initialSubjects, diagnostics);
+  if (previous !== null)
+    validateDispositionSuccessor(record, previous, scope, ids, dispositions, successorCount, diagnostics);
+}
+function collectRetainedReport(record, state) {
+  const { scope, history, dispositions, promotions, successorCount, diagnostics, reports } = state;
+  diagnoseDispositionCycle(record, dispositions, diagnostics);
+  if (successorCount.has(record.recordId) || record.payload.outcome.state !== "final" || record.payload.outcome.disposition !== "report")
+    return;
+  const matches = promotions.filter((item) => equalScope(item.payload.report.scope, scope) && item.payload.report.recordId === record.recordId);
+  if (matches.length > 1)
+    diagnostics.push(diagnostic2("ambiguous", `Report ${record.recordId} has multiple promotions`));
+  const promotion = matches[0];
+  if (promotion)
+    validateReportPromotion(promotion, record, scope, history, diagnostics);
+  reports.push({
+    ref: { scope, recordId: record.recordId, kind: "cause-disposition" },
+    record,
+    promotion: promotion ? { scope, recordId: promotion.recordId, kind: "report-promotion" } : null
+  });
+}
+function retainedScopeHeads(scope, history, diagnostics) {
+  const heads = readRetainedCauseDispositionLedger({ uw: scope, history });
+  if (!heads.ok)
+    diagnostics.push(...heads.diagnostics);
+  const problem = workflowOperationProblem(history);
+  if (problem !== null)
+    diagnostics.push(diagnostic2(problem, `Workflow history is not complete and authoritative for ${scope.target}`));
+  return heads;
 }
 function readCauseReports(input) {
   const diagnostics = [];
@@ -15493,53 +15702,28 @@ function readCauseReports(input) {
       return;
     }
     const completeHistory = history;
-    const heads = readCauseDispositionHeads({ uw: scope, histories });
-    if (!heads.ok)
-      diagnostics.push(...heads.diagnostics);
-    const problem = workflowOperationProblem(history);
-    if (problem !== null)
-      diagnostics.push(diagnostic2(problem, `Workflow history is not complete and authoritative for ${scope.target}`));
+    const heads = retainedScopeHeads(scope, history, diagnostics);
     const records = recordsOf(history);
     const dispositions = records.filter((record) => record.kind === "cause-disposition");
     const promotions = records.filter((record) => record.kind === "report-promotion");
-    const ids = new Set(dispositions.map((record) => record.recordId));
-    const successorCount = new Map;
-    const initialSubjects = new Set;
-    function validateLineage(record) {
-      const ref = { scope, recordId: record.recordId, kind: "cause-disposition" };
-      const bound = bindExternalRef(ref, completeHistory);
-      if (!bound.ok)
-        diagnostics.push(...bound.diagnostics);
-      if (!equalScope(record.payload.origin.uw, scope))
-        diagnostics.push(diagnostic2("cause-origin-mismatch", `Disposition ${record.recordId} is not stored on its origin`));
-      const previous = record.payload.previous;
-      if (previous === null)
-        validateInitialDisposition(record, initialSubjects, diagnostics);
-      if (previous !== null)
-        validateDispositionSuccessor(record, previous, scope, ids, dispositions, successorCount, diagnostics);
-    }
+    const state = {
+      scope,
+      history: completeHistory,
+      dispositions,
+      promotions,
+      ids: new Set(dispositions.map((record) => record.recordId)),
+      successorCount: new Map,
+      initialSubjects: new Set,
+      diagnostics,
+      reports
+    };
     for (const record of dispositions)
-      validateLineage(record);
-    if ([...successorCount.values()].some((count) => count !== 1))
+      validateReportLineage(record, state);
+    if ([...state.successorCount.values()].some((count) => count !== 1))
       diagnostics.push(diagnostic2("ambiguous", "Disposition chain has competing successors"));
-    function collectReport(record) {
-      diagnoseDispositionCycle(record, dispositions, diagnostics);
-      if (successorCount.has(record.recordId) || record.payload.outcome.state !== "final" || record.payload.outcome.disposition !== "report")
-        return;
-      const matches = promotions.filter((item) => equalScope(item.payload.report.scope, scope) && item.payload.report.recordId === record.recordId);
-      if (matches.length > 1)
-        diagnostics.push(diagnostic2("ambiguous", `Report ${record.recordId} has multiple promotions`));
-      const promotion = matches[0];
-      if (promotion)
-        validateReportPromotion(promotion, record, scope, completeHistory, diagnostics);
-      reports.push({
-        ref: { scope, recordId: record.recordId, kind: "cause-disposition" },
-        record,
-        promotion: promotion ? { scope, recordId: promotion.recordId, kind: "report-promotion" } : null
-      });
-    }
-    for (const record of dispositions)
-      collectReport(record);
+    if (heads.ok)
+      for (const record of heads.value.heads)
+        collectRetainedReport(record, state);
   }
   for (const scope of input.subtree)
     collectScope(scope);
@@ -15577,7 +15761,7 @@ function bindReviewDispositions(refs, origin, spec, decision) {
   }
   return { ok: true, value: relevant };
 }
-function validateBoundAssessment(record, spec, refs, histories, assessment) {
+function validateBoundAssessment(record, spec, refs, histories, catalogues, assessment, historical) {
   const uw = spec.effective.own.uw;
   const origin = histories.find((entry) => equalScope(entry.source.scope, uw));
   if (!origin)
@@ -15586,13 +15770,14 @@ function validateBoundAssessment(record, spec, refs, histories, assessment) {
   if (!bound.ok)
     return bound;
   const relevant = bound.value;
-  const validation = validateCauseDispositionRecords({ records: recordsOf(origin), histories });
+  const validation = validateCauseDispositionRecords({ records: recordsOf(origin), histories, catalogues });
   if (validation.length)
     return fail(validation);
-  const expected = assessCauseDispositions({
+  const expected = (historical ? assessHistoricalCauseDispositions : assessCauseDispositions)({
     context: { original: uw, effective: spec.effective },
     source: { kind: "decision", decision: record },
     histories,
+    catalogues,
     adjudications: []
   });
   if (!expected.ok)
@@ -15606,7 +15791,7 @@ function validateBoundAssessment(record, spec, refs, histories, assessment) {
   const veto = relevant.some((entry) => entry.payload.outcome.state === "pending-blocking" || entry.payload.outcome.state === "final" && (entry.payload.outcome.disposition === "fix-original" || entry.payload.outcome.disposition === "sister-blocking"));
   return { ok: true, value: veto ? { ...assessment, verdict: "Request changes" } : assessment };
 }
-function validateFreshDecision(record, history, taxonomy, acceptedPolicyRef, externalHistories = [], deliveryHistory = history, reviewDispositionRefs) {
+function validateDecisionAtObservation(record, history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history, reviewDispositionRefs, historical = false) {
   if (reviewDispositionRefs === undefined)
     return fail([
       diagnostic2("cause-disposition-incomplete", "Live review must bind its complete disposition assessment")
@@ -15620,21 +15805,32 @@ function validateFreshDecision(record, history, taxonomy, acceptedPolicyRef, ext
   let rejected = [];
   const histories = [deliveryHistory, ...externalHistories];
   if (selected.some((item) => item.record.kind === "cause-disposition")) {
-    const effective = effectiveRejectedFindingIds({ decision: record, action: inputs, histories });
+    const effective = (historical ? historicalRejectedFindingIds : effectiveRejectedFindingIds)({
+      decision: record,
+      action: inputs,
+      histories,
+      catalogues
+    });
     if (!effective.ok)
       return effective;
     rejected = effective.value;
   }
-  const assessment = assessDecision(record, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, new Set(rejected));
+  const assessment = assessDecision(record, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, new Set(rejected));
   if (!assessment.admissible)
     return { ok: true, value: assessment };
   if (inputs.manifest.spec.kind !== "accepted")
     return reviewDispositionRefs.length === 0 ? { ok: true, value: assessment } : fail([diagnostic2("cause-origin-mismatch", "Standalone review cannot select UW dispositions")]);
-  return validateBoundAssessment(record, inputs.manifest.spec, reviewDispositionRefs, histories, assessment);
+  return validateBoundAssessment(record, inputs.manifest.spec, reviewDispositionRefs, histories, catalogues, assessment, historical);
+}
+function validateFreshDecision(record, history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history, reviewDispositionRefs) {
+  return validateDecisionAtObservation(record, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, reviewDispositionRefs);
+}
+function validateHistoricalReviewDecision(record, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, reviewDispositionRefs) {
+  return validateDecisionAtObservation(record, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, reviewDispositionRefs, true);
 }
 
 // plugins/omp-build/engine/review-decision.ts
-function validateDecisionBindingsFromGraph(record, history, graph) {
+function validateDecisionBindingsFromGraph(record, history, catalogues, graph) {
   const diagnostics = graph.ok ? [] : [...graph.diagnostics];
   const records = graph.ok ? new Map(graph.value.map((entry) => [entry.recordId, entry])) : recordMap(history);
   const observed = records.get(record.recordId);
@@ -15644,15 +15840,23 @@ function validateDecisionBindingsFromGraph(record, history, graph) {
   if (!unique2(decision.sourceContributionIds))
     diagnostics.push(diagnostic2("duplicate-reference", `Decision ${record.recordId} repeats a source contribution`));
   const originals = collectOriginals(record, records, diagnostics);
-  const covered = validateFinalFindingReferences(record, originals, diagnostics);
+  const inspections = new Map;
+  for (const sourceId of decision.sourceContributionIds) {
+    const source = records.get(sourceId);
+    if (source?.kind !== "contribution" || source.payload.findings === null)
+      continue;
+    for (const [id, inspection] of inspectContributionFindings(source, history, catalogues))
+      inspections.set(id, inspection);
+  }
+  const covered = validateFinalFindingReferences(record, originals, inspections, diagnostics);
   for (const sourceId of originals.keys())
     if (!covered.has(sourceId))
       diagnostics.push(diagnostic2("missing-contribution", `Original finding ${sourceId} is not represented in decision`));
   validateCauseReferences(record, diagnostics);
-  return { admissible: diagnostics.length === 0, diagnostics, records, originals };
+  return { admissible: diagnostics.length === 0, diagnostics, records, originals, inspections };
 }
-function validateDecisionBindings(record, history) {
-  return validateDecisionBindingsFromGraph(record, history, validateRecordGraph(history));
+function validateDecisionBindings(record, history, catalogues) {
+  return validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history));
 }
 function validateRetainedUnusableLabels(record, bindings) {
   const diagnostics = [];
@@ -15660,17 +15864,16 @@ function validateRetainedUnusableLabels(record, bindings) {
     if (finalFinding.state !== "unusable")
       continue;
     for (const sourceId of finalFinding.sourceFindingIds) {
-      const original = bindings.originals.get(sourceId);
-      if (original === undefined)
+      const knownLabel = bindings.inspections.get(sourceId)?.knownLabel;
+      if (knownLabel === undefined)
         continue;
-      const knownLabel = inspectFinding(original, []).knownLabel;
       if (knownLabel !== finalFinding.label)
         diagnostics.push(diagnostic2("malformed", `Unusable finding ${finalFinding.id} does not retain a known source label`));
     }
   }
   return diagnostics.length === 0 ? { ok: true, value: null } : fail(diagnostics);
 }
-function validateReviewDecisionBindings(review, history) {
+function validateReviewDecisionBindings(review, history, catalogues) {
   const recovery = readReviewRecovery(history);
   if (!recovery.ok)
     return fail(recovery.diagnostics);
@@ -15685,7 +15888,7 @@ function validateReviewDecisionBindings(review, history) {
   const candidateDecision = recordMap(authorityHistory).get(review.payload.decisionId);
   if (candidateDecision?.kind !== "decision")
     return fail([diagnostic2("unknown-reference", `Review ${review.recordId} lacks its decision`)]);
-  const bindings = validateDecisionBindingsFromGraph(candidateDecision, authorityHistory, admissionGraph);
+  const bindings = validateDecisionBindingsFromGraph(candidateDecision, authorityHistory, catalogues, admissionGraph);
   if (!bindings.admissible)
     return fail(bindings.diagnostics);
   const identity = analyzeReviewIdentity(authorityHistory, bindings.records);
@@ -15718,17 +15921,16 @@ function validateDecisionPolicy(record, bindings, acceptedPolicyRef, diagnostics
   if (policy.version === "evidence-v1" && policy.acceptanceRef !== acceptedPolicyRef)
     diagnostics.push(diagnostic2("policy-not-accepted", "Evidence policy is not independently accepted"));
 }
-function inspectDecisionFindings(record, bindings, taxonomy, diagnostics, rejected) {
+function inspectDecisionFindings(record, bindings, diagnostics, rejected) {
   const groups = { Blockers: [], Warnings: [], Suggestions: [], Praise: [] };
   const findings = [];
   for (const finalFinding of record.payload.judgment.findings) {
     if (finalFinding.state === "usable" && finalFinding.label === null)
       diagnostics.push(diagnostic2("malformed", `Usable finding ${finalFinding.id} has no model label`));
     for (const sourceId of finalFinding.sourceFindingIds) {
-      const original = bindings.originals.get(sourceId);
-      if (original === undefined)
+      const inspection = bindings.inspections.get(sourceId);
+      if (inspection === undefined)
         continue;
-      const inspection = inspectFinding(original, taxonomy);
       findings.push({ id: sourceId, inspection });
       if (!inspection.usable)
         diagnostics.push(...inspection.diagnostics);
@@ -15747,16 +15949,16 @@ function decisionVerdict(groups, hasUnusable, diagnostics, findingsCount) {
     return "Approve with comments";
   return findingsCount > 0 ? "Approve" : "Approve (clean)";
 }
-function assessDecision(record, history, taxonomy, acceptedPolicyRef, externalHistories = [], deliveryHistory = history, rejected = new Set) {
-  const bindings = validateDecisionBindingsFromGraph(record, history, validateRecordGraph(history));
+function assessDecision(record, history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history, rejected = new Set) {
+  const bindings = validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history));
   const diagnostics = [...bindings.diagnostics];
   validateDecisionPolicy(record, bindings, acceptedPolicyRef, diagnostics);
-  const inspected = inspectDecisionFindings(record, bindings, taxonomy, diagnostics, rejected);
+  const inspected = inspectDecisionFindings(record, bindings, diagnostics, rejected);
   const hasUnusable = record.payload.judgment.findings.some((finding) => finding.state === "unusable") || inspected.findings.some(({ inspection }) => !inspection.usable);
   const findingVerdict = decisionVerdict(inspected.groups, hasUnusable, diagnostics, record.payload.judgment.findings.length);
   const review = record.payload.judgment.purpose === "review" ? record.payload.judgment : null;
   const inputs = review === null ? null : reviewInputsFromInventory(review, history);
-  const facts = review === null ? { declarations: [], evidence: [], verdicts: [], diagnostics: [] } : authenticatedCriterionFacts(review, history, record.payload.originalContributionId, externalHistories, deliveryHistory);
+  const facts = review === null ? { declarations: [], evidence: [], verdicts: [], diagnostics: [] } : authenticatedCriterionFacts(review, history, record.payload.originalContributionId, catalogues, externalHistories, deliveryHistory);
   const criterion = criterionAssessmentForDecision(record.payload.judgment, inputs, facts, review === null ? null : reviewCandidateCode(review, history), [deliveryHistory, ...externalHistories]);
   diagnostics.push(...criterion.diagnostics);
   const structural = criterion.diagnostics.some((item) => item.code === "malformed" || item.code === "spec-not-accepted" || item.code === "duplicate-reference" || item.code === "missing-history" || item.code === "incomplete" || item.code === "foreign" || item.code === "conflict" || item.code === "unconfirmed");
@@ -15769,8 +15971,8 @@ function assessDecision(record, history, taxonomy, acceptedPolicyRef, externalHi
     diagnostics
   };
 }
-function validateDecision2(record, history, taxonomy, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
-  return assessDecision(record, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory);
+function validateDecision2(record, history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
+  return assessDecision(record, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory);
 }
 
 // plugins/omp-build/engine/cause-assessment.ts
@@ -15802,7 +16004,12 @@ function assess(input, historical, validatedPrefix, frame) {
     return bound;
   if (JSON.stringify(bound.value) !== JSON.stringify(decision))
     return { ok: false, diagnostics: [diagnostic2("unbound", "Decision differs from its authenticated record")] };
-  const bindings = validateDecisionBindings(decision, history);
+  const bindingKey = canonicalValueDigest([decisionScope, decision]);
+  let bindings = frame?.bindings.get(bindingKey);
+  if (bindings === undefined) {
+    bindings = validateDecisionBindings(decision, history, frame?.catalogues ?? input.catalogues);
+    frame?.bindings.set(bindingKey, bindings);
+  }
   diagnostics.push(...bindings.diagnostics);
   const resolvedInputs = resolveCauseActionInputs({ decision, history, context });
   if (!resolvedInputs.ok)
@@ -15852,7 +16059,7 @@ function assessValidatedCauseDispositions(input, historical, validatedPrefix, fr
 }
 
 // plugins/omp-build/engine/cause-adjudication-successor.ts
-var failure4 = (message) => ({
+var failure5 = (message) => ({
   ok: false,
   diagnostics: [diagnostic2("cause-chain-invalid", message)]
 });
@@ -15863,14 +16070,14 @@ function authenticated(input, frame) {
     return { ok: true, value: null };
   const history = histories.find((item) => equalScope(item.source.scope, context.original));
   if (!history || !equalScope(pending, context.original) || !equalScope(operation, context.original))
-    return failure4("Adjudication scope is not authenticated");
+    return failure5("Adjudication scope is not authenticated");
   const op = bindExternalRef({ scope: context.original, kind: "cause-operation", recordId: operation.recordId }, history);
   const proposal = operation.payload.proposal;
   if (!op.ok || canonicalValueDigest(op.value) !== canonicalValueDigest(operation) || proposal.operation !== "adjudicate-cause")
-    return failure4("Adjudication operation is not authenticated");
-  const digest = createHash10("sha256").update(JSON.stringify(proposal)).digest("hex");
+    return failure5("Adjudication operation is not authenticated");
+  const digest = createHash11("sha256").update(JSON.stringify(proposal)).digest("hex");
   if (operation.payload.proposalDigest !== digest || operation.payload.confirmation.proposalDigest !== digest || operation.payload.confirmation.operationId !== proposal.operationId)
-    return failure4("Adjudication confirmation is not bound");
+    return failure5("Adjudication confirmation is not bound");
   const evidenceKey = canonicalValueDigest([proposal, pending, context]);
   const errors = frame.adjudications.get(evidenceKey) ?? validateCauseAdjudication({ proposal, pending, histories, context });
   frame.adjudications.set(evidenceKey, errors);
@@ -15882,26 +16089,27 @@ function authenticated(input, frame) {
 function assessCause2(input, historical, prefix, frame) {
   const subject = input.pending.payload.subject;
   if (subject.kind !== "cause")
-    return failure4("Cause subject is unavailable");
+    return failure5("Cause subject is unavailable");
   const history = input.histories.find((item) => equalScope(item.source.scope, subject.decision.scope));
   const decision = history && bindExternalRef(subject.decision, history);
   if (!decision?.ok || decision.value.kind !== "decision")
-    return failure4("Cause decision is not authenticated");
+    return failure5("Cause decision is not authenticated");
   const assessed = assessValidatedCauseDispositions({
     context: input.context,
     source: { kind: "decision", decision: decision.value },
     histories: input.histories,
+    catalogues: frame.catalogues,
     adjudications: [input.operation]
   }, historical, prefix, frame);
   if (!assessed.ok)
     return assessed;
   const matches = assessed.value.outcomes.filter((outcome) => outcome.previous?.recordId === input.pending.recordId && outcome.adjudication?.recordId === input.operation.recordId);
-  return matches.length === 1 && matches[0] !== undefined ? { ok: true, value: matches[0] } : failure4("Exact adjudication successor could not be assessed");
+  return matches.length === 1 && matches[0] !== undefined ? { ok: true, value: matches[0] } : failure5("Exact adjudication successor could not be assessed");
 }
 function assessAuthenticatedTransition(input, historical, prefix, frame) {
   const proposal = input.operation.payload.proposal;
   if (proposal.operation !== "adjudicate-cause")
-    return failure4("Operation is not an adjudication");
+    return failure5("Operation is not an adjudication");
   if (input.pending.payload.subject.kind === "cause")
     return assessCause2(input, historical, prefix, frame);
   return {
@@ -15935,7 +16143,7 @@ function assessSuccessor(input, historical, frame) {
     return cached;
   const history = input.histories.find((item) => equalScope(item.source.scope, input.context.original));
   if (!history)
-    return failure4("Adjudication history is missing");
+    return failure5("Adjudication history is missing");
   const lineage = causeDispositionLineage({ head: input.pending, history });
   if (!lineage.ok)
     return lineage;
@@ -15944,22 +16152,22 @@ function assessSuccessor(input, historical, frame) {
     const current = lineage.value[index];
     const previous = lineage.value[index - 1];
     if (!current?.adjudication || !previous)
-      return failure4("Prior transition is missing");
+      return failure5("Prior transition is missing");
     const transition = { ...input, pending: previous.disposition, operation: current.adjudication };
     const assessed = assessTransition(transition, historical, prefix, frame);
     if (!assessed.ok)
       return assessed;
     if (canonicalValueDigest(assessed.value) !== canonicalValueDigest(current.disposition.payload))
-      return failure4("Prior successor differs from its assessment");
+      return failure5("Prior successor differs from its assessment");
     const proposal = current.adjudication.payload.proposal;
     if (proposal.operation !== "adjudicate-cause")
-      return failure4("Prior operation is not an adjudication");
+      return failure5("Prior operation is not an adjudication");
     prefix.push(proposal);
   }
   return assessTransition(input, historical, prefix, frame);
 }
 function assessAdjudicationSuccessor(input) {
-  return assessSuccessor(input, false, causeValidationFrame(input.histories));
+  return assessSuccessor(input, false, causeValidationFrame(input.histories, input.catalogues));
 }
 function assessHistoricalAdjudicationSuccessor(input, frame) {
   return assessSuccessor(input, true, frame);
@@ -16016,6 +16224,7 @@ function validateCause2(record, operations, histories, diagnostics, frame) {
     context: context.value,
     source: { kind: "decision", decision: source.value },
     histories,
+    catalogues: frame.catalogues,
     adjudications
   }, frame);
   if (!assessed.ok)
@@ -16044,6 +16253,7 @@ function validateSuccessor2(record, operations, histories, diagnostics, frame) {
     pending: previous.value,
     operation,
     histories,
+    catalogues: frame.catalogues,
     context: context.value
   }, frame);
   if (!assessed.ok)
@@ -16081,7 +16291,7 @@ function validateCauseDispositionRecords(input) {
   const operations = input.records.filter((record) => record.kind === "cause-operation");
   const subjects = new Map;
   const successors = new Set;
-  const frame = causeValidationFrame(input.histories);
+  const frame = causeValidationFrame(input.histories, input.catalogues);
   validateHistories(input.histories, diagnostics);
   validateCauseOperations(operations, input.histories, diagnostics, frame);
   for (const record of dispositions) {
@@ -16096,7 +16306,7 @@ function validateCauseDispositionRecords(input) {
 
 // plugins/omp-build/engine/cause-publication-validation.ts
 function isPromotionIntent(record) {
-  return record.kind === "cause-operation" && record.payload.proposal.operation === "create" && record.payload.proposal.creation.kind === "report-promotion";
+  return record.kind === "cause-operation" && isRetainedReportPublication(record);
 }
 function promotionReport(input, record) {
   const history = input.history;
@@ -16168,11 +16378,13 @@ function historicalPublication(input, record) {
     validatePromotionReceipt(input, record, existing, report.record, diagnostics);
   return diagnostics;
 }
+function validateRetainedReportPublication(input) {
+  return isRetainedReportPublication(input.record) && (input.record.kind === "cause-operation" || input.record.kind === "report-promotion") ? historicalPublication(input, input.record) : [diagnostic2("cause-operation-source-unconfirmed", "Record is not a report promotion")];
+}
 function validateCausePublication(input) {
-  if (isPromotionIntent(input.record) || input.record.kind === "report-promotion")
-    return historicalPublication(input, input.record);
   return validateCauseDispositionRecords({
     histories: [input.history, ...input.externalHistories],
+    catalogues: input.catalogues,
     records: [
       ...recordsOf(input.history).filter((item) => item.recordId !== input.record.recordId),
       ...input.externalHistories.flatMap(recordsOf),
@@ -16341,7 +16553,16 @@ function workflowReferenceDiagnostic(record, records, externalHistories) {
   }
   return null;
 }
-function projectWorkflowRecord(record, history, externalHistories) {
+function workflowPublicationDiagnostics(record, history, externalHistories, config) {
+  if (isRetainedReportPublication(record))
+    return validateRetainedReportPublication({ record, history, externalHistories });
+  if (record.kind !== "cause-disposition" && record.kind !== "cause-operation" && record.kind !== "report-promotion")
+    return [];
+  if (config === null || typeof config.catalogues !== "object" || config.catalogues === null)
+    return [diagnostic2("unbound", `Record ${record.recordId} has no catalogue context`)];
+  return validateCausePublication({ record, history, externalHistories, catalogues: config.catalogues });
+}
+function projectWorkflowRecord(record, history, externalHistories, config) {
   const meaning = workflowInputMeaning(record);
   if (meaning !== null)
     return fail([meaning]);
@@ -16361,11 +16582,9 @@ function projectWorkflowRecord(record, history, externalHistories) {
   const referenceDiagnostic = workflowReferenceDiagnostic(record, records, externalHistories);
   if (referenceDiagnostic !== null)
     return fail([referenceDiagnostic]);
-  if (record.kind === "cause-disposition" || record.kind === "cause-operation" || record.kind === "report-promotion") {
-    const diagnostics = validateCausePublication({ record, history, externalHistories });
-    if (diagnostics.length)
-      return fail(diagnostics);
-  }
+  const publicationDiagnostics = workflowPublicationDiagnostics(record, history, externalHistories, config);
+  if (publicationDiagnostics.length)
+    return fail(publicationDiagnostics);
   return {
     ok: true,
     value: `# OMP build record
@@ -16383,9 +16602,9 @@ function projectReviewRecord(record, history, records, config, externalHistories
   const decision = records.get(record.payload.decisionId);
   if (decision?.kind !== "decision")
     return fail([diagnostic2("unknown-reference", `Review ${record.recordId} lacks its decision`)]);
-  if (config === null || typeof config !== "object" || !Array.isArray(Reflect.get(config, "taxonomy")) || Reflect.get(config, "taxonomy").some((classId) => typeof classId !== "string") || Reflect.get(config, "acceptedPolicy") !== null && typeof Reflect.get(config, "acceptedPolicy") !== "string")
+  if (config === null || typeof config !== "object" || typeof config.catalogues !== "object" || config.catalogues === null || Reflect.get(config, "acceptedPolicy") !== null && typeof Reflect.get(config, "acceptedPolicy") !== "string")
     return fail([diagnostic2("unbound", `Review ${record.recordId} has no valid projection policy context`)]);
-  const fresh = validateFreshDecision(decision, history, config.taxonomy, config.acceptedPolicy, externalHistories, deliveryHistory, record.payload.causeDispositionRefs);
+  const fresh = validateFreshDecision(decision, history, config.catalogues, config.acceptedPolicy, externalHistories, deliveryHistory, record.payload.causeDispositionRefs);
   if (!fresh.ok)
     return fail(fresh.diagnostics);
   const assessment = fresh.value;
@@ -16454,9 +16673,11 @@ function correctionReferenceDiagnostics(record, history, externalHistories) {
   }
   return null;
 }
-function projectionReferenceDiagnostics(record, history, externalHistories) {
+function projectionReferenceDiagnostics(record, history, externalHistories, config) {
   if (record.kind === "debt-receipt") {
-    const diagnostics = validateCausePublication({ record, history, externalHistories });
+    if (config === null || typeof config.catalogues !== "object" || config.catalogues === null)
+      return [diagnostic2("unbound", `Record ${record.recordId} has no catalogue context`)];
+    const diagnostics = validateCausePublication({ record, history, externalHistories, catalogues: config.catalogues });
     if (diagnostics.length)
       return diagnostics;
   }
@@ -16469,7 +16690,7 @@ function projectRecord(record, history, config, externalHistories = []) {
   if (prospective.length > 0)
     return fail(prospective);
   if (isWorkflowKind(record.kind))
-    return projectWorkflowRecord(record, history, externalHistories);
+    return projectWorkflowRecord(record, history, externalHistories, config);
   const closure = projectionClosure(record, history, classifyHistory(history));
   if (!closure.ok)
     return fail(closure.diagnostics);
@@ -16482,7 +16703,7 @@ function projectRecord(record, history, config, externalHistories = []) {
       diagnostic2("unbound", `Record ${record.recordId} cannot be projected outside a complete bound history`)
     ]);
   const records = new Map(graph.value.map((entry) => [entry.recordId, entry]));
-  const referenceDiagnostics = projectionReferenceDiagnostics(record, history, externalHistories);
+  const referenceDiagnostics = projectionReferenceDiagnostics(record, history, externalHistories, config);
   if (referenceDiagnostics !== null)
     return fail(referenceDiagnostics);
   if (record.kind === "review")
@@ -16710,7 +16931,7 @@ function operationAuthority(operation, history, clues) {
 }
 
 // plugins/omp-build/adapters/github/history-encoder.ts
-function failure5(diagnostics) {
+function failure6(diagnostics) {
   return { ok: false, diagnostics };
 }
 function header(record, part, total, data) {
@@ -16732,16 +16953,16 @@ function textPrefix(value, offset, byteLimit) {
 }
 function encodeParts(record, projection, maxCommentBytes) {
   if (!Number.isSafeInteger(maxCommentBytes) || maxCommentBytes < 1)
-    return failure5([diagnostic3("invalid-limit", "Comment byte limit must be a positive safe integer")]);
+    return failure6([diagnostic3("invalid-limit", "Comment byte limit must be a positive safe integer")]);
   try {
     encodeURIComponent(record.recordId);
     encodeURIComponent(record.operationId);
   } catch {
-    return failure5([diagnostic3("invalid-framing", "Record and operation IDs must be valid Unicode identifiers")]);
+    return failure6([diagnostic3("invalid-framing", "Record and operation IDs must be valid Unicode identifiers")]);
   }
   const serialized = JSON.stringify(record);
   if (!canonicalUtf8(serialized) || !canonicalUtf8(projection))
-    return failure5([diagnostic3("invalid-encoding", "Record projection is not canonical UTF-8")]);
+    return failure6([diagnostic3("invalid-encoding", "Record projection is not canonical UTF-8")]);
   const encoded = base64url2(utf8(serialized));
   const maximumParts = encoded.length + utf8Bytes(projection) + 1;
   for (let total = 1;total <= maximumParts; total += 1) {
@@ -16767,7 +16988,7 @@ ${text.text}`);
     if (valid && dataOffset === encoded.length && projectionOffset === projection.length)
       return { ok: true, value: parts };
   }
-  return failure5([
+  return failure6([
     diagnostic3("comment-too-large", "The record and complete human projection cannot fit the requested comment byte limit")
   ]);
 }
@@ -16821,7 +17042,7 @@ function legacyKind(body) {
 function withOperationId(diagnostics, operationId) {
   return operationId === null ? diagnostics : diagnostics.map((entry) => ({ ...entry, operationId }));
 }
-function invalid(operationId, first, status, parts, diagnostics, parsedKind) {
+function invalid3(operationId, first, status, parts, diagnostics, parsedKind) {
   return {
     operation: {
       operationId,
@@ -16882,25 +17103,25 @@ function decodeParts(scope, expectedAuthor, stopAuthor, operationId, frames) {
   if (first === undefined)
     throw new Error("decodeParts requires a frame");
   if (hasConflictingMetadata(frames, first)) {
-    return invalid(operationId, first, "conflict", parts, [
+    return invalid3(operationId, first, "conflict", parts, [
       diagnostic3("conflicting-duplicate", `Operation ${operationId} repeats conflicting metadata`)
     ]);
   }
   const author = nativeWriter(frames, first);
   const frameParts = collectPartFrames(frames);
   if (frameParts.conflict !== null) {
-    return invalid(operationId, first, "conflict", parts, [
+    return invalid3(operationId, first, "conflict", parts, [
       diagnostic3("conflicting-duplicate", `Operation ${operationId} has conflicting part ${frameParts.conflict}`)
     ]);
   }
   if (missingPart(frameParts.frames, first.total)) {
-    return invalid(operationId, first, "incomplete", parts, [
+    return invalid3(operationId, first, "incomplete", parts, [
       diagnostic3("incomplete", `Operation ${operationId} is missing required publication parts`)
     ]);
   }
   const text = decodeData(frameParts.frames);
   if (text === null) {
-    return invalid(operationId, first, "invalid", parts, [
+    return invalid3(operationId, first, "invalid", parts, [
       diagnostic3("invalid-encoding", `Operation ${operationId} has non-canonical UTF-8/base64url data`)
     ]);
   }
@@ -16908,25 +17129,25 @@ function decodeParts(scope, expectedAuthor, stopAuthor, operationId, frames) {
   try {
     raw = JSON.parse(text);
   } catch {
-    return invalid(operationId, first, "invalid", parts, [
+    return invalid3(operationId, first, "invalid", parts, [
       diagnostic3("invalid-json", `Operation ${operationId} data is not JSON`)
     ]);
   }
   const parsed = parseRecord(raw);
   const headerAuthorized = author !== null && nativeAuthorMatches(author, expectedAuthor, stopAuthor, first.kind, frames);
   if (!parsed.ok) {
-    return !headerAuthorized ? invalid(operationId, first, "invalid", parts, [
+    return !headerAuthorized ? invalid3(operationId, first, "invalid", parts, [
       diagnostic3("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)
-    ]) : invalid(operationId, first, "invalid", parts, parsed.diagnostics);
+    ]) : invalid3(operationId, first, "invalid", parts, parsed.diagnostics);
   }
   if (JSON.stringify(parsed.value) !== text) {
-    return invalid(operationId, first, "invalid", parts, [diagnostic3("non-canonical-json", `Operation ${operationId} data is not canonical JSON`)], parsed.value.kind);
+    return invalid3(operationId, first, "invalid", parts, [diagnostic3("non-canonical-json", `Operation ${operationId} data is not canonical JSON`)], parsed.value.kind);
   }
   if (author === null || !nativeAuthorMatches(author, expectedAuthor, stopAuthor, parsed.value.kind, frames)) {
-    return invalid(operationId, first, "invalid", parts, [diagnostic3("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)], parsed.value.kind);
+    return invalid3(operationId, first, "invalid", parts, [diagnostic3("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)], parsed.value.kind);
   }
   if (!headerMatchesRecord(scope, operationId, first, parsed.value)) {
-    return invalid(operationId, first, "invalid", parts, [diagnostic3("header-metadata-mismatch", `Operation ${operationId} header metadata does not bind its record`)], parsed.value.kind);
+    return invalid3(operationId, first, "invalid", parts, [diagnostic3("header-metadata-mismatch", `Operation ${operationId} header metadata does not bind its record`)], parsed.value.kind);
   }
   return {
     operation: {
@@ -17246,7 +17467,47 @@ async function publishMissingBodies(record, bodies, current, options, expectedAu
 }
 
 // plugins/omp-build/adapters/github/publish.ts
-async function publishGitHubRecord(record, history, options, config, externalHistories = []) {
+async function confirmReadBack(record, current, resolveContext, externalHistories) {
+  const readBack = current.operations.find((operation) => sameOperation(record, operation));
+  if (readBack === undefined)
+    return publicationFailure("uncertain", current, [
+      diagnostic3("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
+    ]);
+  try {
+    const latest = await resolveContext({ record, history: current, externalHistories });
+    if (!latest.ok)
+      return publicationFailure("uncertain", current, latest.diagnostics);
+    const ownLocators = new Set(readBack.parts.map((part) => part.locator));
+    const beforeRecord = {
+      ...current.source,
+      comments: current.source.comments.filter((comment) => !ownLocators.has(comment.locator))
+    };
+    const checked = encodeRecord(record, beforeRecord, latest.value.config, latest.value.externalHistories);
+    if (!checked.ok)
+      return publicationFailure("uncertain", current, checked.diagnostics);
+  } catch (error) {
+    return publicationFailure("uncertain", current, publicationReadDiagnostics(error));
+  }
+  return { status: "confirmed", operation: readBack };
+}
+async function encodePublication(record, current, ownParts, resolveContext, externalHistories) {
+  let resolved;
+  try {
+    resolved = await resolveContext({ record, history: current, externalHistories });
+  } catch (error) {
+    return publicationFailure("uncertain", current, publicationReadDiagnostics(error));
+  }
+  if (!resolved.ok)
+    return publicationFailure("refused", current, resolved.diagnostics);
+  const knownPartLocators = new Set(ownParts.flatMap((operation) => operation.parts.map((part) => part.locator)));
+  const encodingHistory = knownPartLocators.size === 0 ? current.source : {
+    ...current.source,
+    comments: current.source.comments.filter((comment) => !knownPartLocators.has(comment.locator))
+  };
+  const encoded = encodeRecord(record, encodingHistory, resolved.value.config, resolved.value.externalHistories);
+  return encoded.ok ? { status: "ready", bodies: encoded.value } : publicationFailure("refused", current, encoded.diagnostics);
+}
+async function publishGitHubRecord(record, options, resolveContext, externalHistories = []) {
   let expectedAuthor;
   let writer;
   const stopAuthor = options.stopAuthor ?? null;
@@ -17254,48 +17515,41 @@ async function publishGitHubRecord(record, history, options, config, externalHis
     expectedAuthor = await expectedReadAuthor(options);
     writer = options.writerLogin ?? await viewer(options);
   } catch (error) {
-    return publicationFailure("uncertain", history, publicationReadDiagnostics(error));
+    return publicationFailure("uncertain", null, publicationReadDiagnostics(error));
   }
   const authorizationDiagnostics = publicationAuthorizationDiagnostics(record, options, expectedAuthor, writer, stopAuthor);
   if (authorizationDiagnostics !== null)
-    return publicationFailure("refused", history, authorizationDiagnostics);
+    return publicationFailure("refused", null, authorizationDiagnostics);
   let current;
   try {
     current = await freshHistory(record, options, expectedAuthor, stopAuthor);
   } catch (error) {
-    return publicationFailure("uncertain", history, publicationReadDiagnostics(error));
+    return publicationFailure("uncertain", null, publicationReadDiagnostics(error));
   }
   const sameId = current.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
   const confirmed = sameId.find((operation) => sameOperation(record, operation));
   const incomplete = sameId.filter((operation) => operation.status === "incomplete");
-  if (confirmed !== undefined && sameId.length === 1)
-    return { status: "confirmed", operation: confirmed };
-  const conflictDiagnostics = operationConflictDiagnostics(record, sameId, incomplete);
+  const conflictDiagnostics = confirmed !== undefined && sameId.length === 1 ? null : operationConflictDiagnostics(record, sameId, incomplete);
   if (conflictDiagnostics !== null)
     return publicationFailure("refused", current, conflictDiagnostics);
-  const knownPartLocators = new Set(incomplete.flatMap((operation) => operation.parts.map((part) => part.locator)));
-  const encodingHistory = knownPartLocators.size === 0 ? current.source : {
-    ...current.source,
-    comments: current.source.comments.filter((comment) => !knownPartLocators.has(comment.locator))
-  };
-  const encoded = encodeRecord(record, encodingHistory, config, externalHistories);
-  if (!encoded.ok)
-    return publicationFailure("refused", current, encoded.diagnostics);
-  const retainedDiagnostics = retainedPartConflictDiagnostics(record, incomplete, new Set(encoded.value));
+  const ownParts = confirmed === undefined ? incomplete : [...incomplete, confirmed];
+  const encoded = await encodePublication(record, current, ownParts, resolveContext, externalHistories);
+  if (encoded.status !== "ready")
+    return encoded;
+  if (confirmed !== undefined && sameId.length === 1)
+    return { status: "confirmed", operation: confirmed };
+  const retainedDiagnostics = retainedPartConflictDiagnostics(record, incomplete, new Set(encoded.bodies));
   if (retainedDiagnostics !== null)
     return publicationFailure("refused", current, retainedDiagnostics);
-  const writeResult = await publishMissingBodies(record, encoded.value, current, options, expectedAuthor, writer, stopAuthor);
+  const writeResult = await publishMissingBodies(record, encoded.bodies, current, options, expectedAuthor, writer, stopAuthor);
   if (writeResult !== null)
     return writeResult;
   try {
     current = await freshHistory(record, options, expectedAuthor, stopAuthor);
   } catch (error) {
-    return publicationFailure("uncertain", history, publicationReadDiagnostics(error));
+    return publicationFailure("uncertain", current, publicationReadDiagnostics(error));
   }
-  const readBack = current.operations.find((operation) => sameOperation(record, operation));
-  return readBack === undefined ? publicationFailure("uncertain", current, [
-    diagnostic3("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
-  ]) : { status: "confirmed", operation: readBack };
+  return confirmReadBack(record, current, resolveContext, externalHistories);
 }
 // plugins/omp-build/adapters/github/record-integrity.ts
 function recordOperation(histories, record) {
@@ -17810,10 +18064,10 @@ async function page(scope, options, cursors) {
 }
 
 // plugins/omp-build/adapters/github-native/uw-spec-parser.ts
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13 } from "node:crypto";
 
 // plugins/omp-build/engine/uw-spec.ts
-import { createHash as createHash11 } from "node:crypto";
+import { createHash as createHash12 } from "node:crypto";
 function normalized(value) {
   return value.replace(/\r\n?/g, `
 `).replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
@@ -17833,7 +18087,7 @@ function contentOf(content) {
   };
 }
 function specVersion(content) {
-  return createHash11("sha256").update(JSON.stringify(contentOf(content)), "utf8").digest("hex");
+  return createHash12("sha256").update(JSON.stringify(contentOf(content)), "utf8").digest("hex");
 }
 function location(uw, path, id) {
   return { kind: "spec", uw, path, ...id === undefined ? {} : { id } };
@@ -18414,7 +18668,7 @@ function scanMany(uw, sections, expected, legacyCriteria = false) {
 
 // plugins/omp-build/adapters/github-native/uw-spec-parser.ts
 function sha256(value) {
-  return createHash12("sha256").update(value).digest("hex");
+  return createHash13("sha256").update(value).digest("hex");
 }
 function duplicateDiagnostics(uw, blocks) {
   const firstById = new Map;
@@ -18987,10 +19241,10 @@ async function readComposedWorkflowHistory(scopes, options) {
 }
 
 // plugins/omp-build/adapters/github-workflow/cause-history-closure.ts
-var key = (scope) => `${scope.repository}\x00${scope.target}`;
+var key2 = (scope) => `${scope.repository}\x00${scope.target}`;
 function appendHistories(histories, observed, pending) {
   for (const history of observed) {
-    const id = key(history.source.scope);
+    const id = key2(history.source.scope);
     const requested = pending === undefined || pending.delete(id);
     if (histories.has(id) || !requested)
       return {
@@ -19013,23 +19267,26 @@ function appendHistories(histories, observed, pending) {
 function missingScopes(records, histories) {
   const pending = new Map;
   for (const ref of causeHistoryReferences(records)) {
-    const id = key(ref.scope);
+    const id = key2(ref.scope);
     if (!histories.has(id))
       pending.set(id, ref.scope);
   }
   return pending;
 }
-async function readCauseHistoryClosure(initial, read) {
+async function expandCauseHistoryClosure(seed, read) {
+  const initial = seed.kind === "strict" ? seed.histories : [seed.primary, ...seed.external];
   const histories = new Map;
   const initialFailure = appendHistories(histories, initial);
   if (initialFailure !== null)
     return initialFailure;
   while (true) {
     const current = [...histories.values()];
-    const validated = validateComposedWorkflowHistories(current);
+    const strictHistories = seed.kind === "strict" ? current : current.filter((history) => history !== seed.primary);
+    const validated = validateComposedWorkflowHistories(strictHistories);
     if (!validated.ok)
       return { ...validated, histories: current };
-    const pending = missingScopes(validated.records, histories);
+    const primaryRecords = seed.kind === "strict" ? [] : seed.primary.operations.flatMap((operation) => operation.status === "complete" && operation.authority !== "foreign" && operation.record !== null ? [operation.record] : []);
+    const pending = missingScopes([...primaryRecords, ...validated.records], histories);
     if (pending.size === 0)
       return {
         ok: true,
@@ -19045,10 +19302,16 @@ async function readCauseHistoryClosure(initial, read) {
       return failure;
   }
 }
+function readCauseHistoryClosure(initial, read) {
+  return expandCauseHistoryClosure({ kind: "strict", histories: initial }, read);
+}
+function readCauseHistoryClosureFromPrimary(primary, external, read) {
+  return expandCauseHistoryClosure({ kind: "primary-observation", primary, external }, read);
+}
 
 // plugins/omp-build/adapters/github-workflow/cause-sister-graph.ts
-function collectMissingSisters(scope, histories, nodes, needed) {
-  const heads = readCauseDispositionHeads({ uw: scope, histories });
+function collectMissingSisters(scope, histories, nodes, catalogues, needed) {
+  const heads = readCauseDispositionHeads({ uw: scope, histories, catalogues });
   if (!heads.ok)
     return;
   for (const disposition of heads.value) {
@@ -19063,16 +19326,16 @@ function collectMissingSisters(scope, histories, nodes, needed) {
       needed.set(scopeKey(sister), sister);
   }
 }
-function missingSisters(graph, histories) {
+function missingSisters(graph, histories, catalogues) {
   const nodes = new Set(graph.nodes.map((node) => scopeKey(node.uw)));
   const needed = new Map;
   for (const node of graph.nodes)
-    collectMissingSisters(node.uw, histories, nodes, needed);
+    collectMissingSisters(node.uw, histories, nodes, catalogues, needed);
   return needed;
 }
-async function observeCauseSisters(graph, histories, read) {
+async function observeCauseSisters(graph, histories, read, catalogues) {
   const nodes = new Map(graph.nodes.map((node) => [scopeKey(node.uw), node]));
-  const needed = missingSisters(graph, histories);
+  const needed = missingSisters(graph, histories, catalogues);
   const diagnostics = graph.status === "incomplete" ? [...graph.diagnostics] : [];
   let incomplete = graph.status === "incomplete";
   for (const scope of needed.values()) {
@@ -19194,7 +19457,7 @@ async function completeLandingHistories(bound, options) {
   const closure = await readCauseHistoryClosure(histories, (scopes) => readComposedWorkflowHistory(scopes, options));
   return closure.ok ? { ok: true, histories: closure.histories } : landingRefusal(closure.reason, closure.diagnostics);
 }
-async function readLandingFacts(prScope, options) {
+async function readLandingFacts(prScope, options, loadCatalogues) {
   const bound = await readWorkflowBinding(prScope, options);
   if (!bound.ok) {
     return {
@@ -19207,10 +19470,13 @@ async function readLandingFacts(prScope, options) {
   const complete = await completeLandingHistories(bound.value, options);
   if (!complete.ok)
     return complete;
-  const uwGraph = await observeCauseSisters(bound.value.uwGraph, complete.histories, (scope) => readUwGraph(scope, options));
+  const catalogues = await loadCatalogues(complete.histories);
+  const uwGraph = await observeCauseSisters(bound.value.uwGraph, complete.histories, (scope) => readUwGraph(scope, options), catalogues);
   return {
     ok: true,
     histories: complete.histories,
+    authorityHistories: bound.value.histories,
+    catalogues,
     native: bound.value.native,
     observed: bound.value.observed,
     uwGraph,
@@ -19218,8 +19484,8 @@ async function readLandingFacts(prScope, options) {
     binding: bound.value.binding
   };
 }
-async function publishConfirmedWorkflowRecord(record, history, options, config, externalHistories = []) {
-  return publishGitHubRecord(record, history, options, config, externalHistories);
+async function publishConfirmedWorkflowRecord(record, options, resolveContext, externalHistories = []) {
+  return publishGitHubRecord(record, options, resolveContext, externalHistories);
 }
 // node_modules/@oh-my-pi/pi-ai/src/error/classes.ts
 var MAX_ANTHROPIC_ERROR_BODY_BYTES = 64 * 1024;
@@ -19344,7 +19610,7 @@ function originalEntriesForRoot(records, rootAttemptId) {
     if (inventory?.kind !== "review-attempt" || inventory.payload.rootAttemptId !== rootAttemptId)
       continue;
     for (const original of record.payload.findings)
-      entries.push({ id: original.id, data: original.data, contribution: record.payload });
+      entries.push({ id: original.id, data: original.data, contribution: record });
   }
   return entries;
 }
@@ -19354,27 +19620,44 @@ function indexRecallClass(classes, classId, entry, callsites) {
     callsites: new Map,
     sourceFindingIds: new Set
   };
-  if (entry.contribution.host.chunk !== null)
-    indexed.chunks.add(entry.contribution.host.chunk);
+  if (entry.contribution.payload.host.chunk !== null)
+    indexed.chunks.add(entry.contribution.payload.host.chunk);
   for (const callsite of callsites)
     indexed.callsites.set(`${callsite.file}:${callsite.line}`, callsite);
   indexed.sourceFindingIds.add(entry.id);
   classes.set(classId, indexed);
 }
-function recallClasses(entries, canonicalClasses) {
+function inspectRecallContribution(contribution, history, catalogues) {
+  const action = originalContributionAction(contribution, history);
+  if (!action.ok)
+    return action;
+  const catalogue = catalogueForAction(action.value, catalogues);
+  if (!catalogue.ok)
+    return catalogue;
+  return { ok: true, value: inspectContributionFindings(contribution, history, catalogues) };
+}
+function recallClasses(entries, history, catalogues) {
   const classes = new Map;
+  const inspected = new Map;
   for (const entry of entries) {
-    const inspected = inspectFinding(entry.data, canonicalClasses);
-    if (!inspected.usable)
+    let findings = inspected.get(entry.contribution.recordId);
+    if (findings === undefined) {
+      const result = inspectRecallContribution(entry.contribution, history, catalogues);
+      if (!result.ok)
+        return result;
+      findings = result.value;
+      inspected.set(entry.contribution.recordId, findings);
+    }
+    if (!findings.get(entry.id)?.usable)
       continue;
     const finding = findingSchema.parse(entry.data);
     for (const classId of finding.classes ?? []) {
-      if (!canonicalClasses.includes(classId) || classId.startsWith("candidate/"))
+      if (classId.startsWith("candidate/"))
         continue;
       indexRecallClass(classes, classId, entry, finding.rawCallsites ?? []);
     }
   }
-  return classes;
+  return { ok: true, value: classes };
 }
 function recallIndex(classes) {
   return [...classes.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([classId, value]) => ({
@@ -19384,7 +19667,7 @@ function recallIndex(classes) {
     sourceFindingIds: [...value.sourceFindingIds].sort()
   }));
 }
-function deriveRecallPlan(history, rootAttemptId, canonicalClasses) {
+function deriveRecallPlan(history, rootAttemptId, catalogues) {
   const graph = validateRecordGraph(history);
   if (!graph.ok)
     return fail(graph.diagnostics);
@@ -19396,7 +19679,10 @@ function deriveRecallPlan(history, rootAttemptId, canonicalClasses) {
   requiredSlotsComplete(records, root, closureDiagnostics, true);
   if (closureDiagnostics.length > 0)
     return fail(closureDiagnostics);
-  const index = recallIndex(recallClasses(originalEntriesForRoot(records, rootAttemptId), canonicalClasses));
+  const classes = recallClasses(originalEntriesForRoot(records, rootAttemptId), history, catalogues);
+  if (!classes.ok)
+    return classes;
+  const index = recallIndex(classes.value);
   return {
     ok: true,
     value: {
@@ -19614,15 +19900,15 @@ function prepareReviewReplacementInventoryPublication(input) {
   });
 }
 // plugins/omp-build/engine/review-history.ts
-function assessHistoricalDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, refs) {
+function assessHistoricalDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, refs) {
   if (refs !== undefined)
-    return validateFreshDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, refs);
+    return validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, refs);
   return {
     ok: true,
-    value: validateDecision2(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
+    value: validateDecision2(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
   };
 }
-function spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
+function spentBeforeCurrentPullRequestAttempt(history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
   const records = recordMap(history);
   const root = latestUnfinishedPullRequestRoot(records, reviewContextLineage(history, records).superseded);
   if (root === null)
@@ -19643,9 +19929,9 @@ function spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyR
     ...deliveryHistory,
     operations: deliveryHistory.operations.slice(0, deliveryRootIndex)
   };
-  return spentInCompleteHistory(prefix, taxonomy, acceptedPolicyRef, externalHistories, deliveryPrefix);
+  return spentInCompleteHistory(prefix, catalogues, acceptedPolicyRef, externalHistories, deliveryPrefix);
 }
-function spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
+function spentInCompleteHistory(history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
   const completedHistory = {
     ...history,
     source: { ...history.source, complete: true, diagnostics: [] },
@@ -19665,7 +19951,7 @@ function spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHi
     const decision = records.get(operation.record.payload.decisionId);
     if (decision?.kind !== "decision")
       return null;
-    const assessed = assessHistoricalDecision(decision, completedHistory, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, operation.record.payload.causeDispositionRefs);
+    const assessed = assessHistoricalDecision(decision, completedHistory, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, operation.record.payload.causeDispositionRefs);
     if (!assessed.ok)
       return null;
     const assessment = assessed.value;
@@ -19678,7 +19964,7 @@ function spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHi
 }
 
 // plugins/omp-build/engine/review-spend.ts
-function spentReviewFor(reviews, records, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory) {
+function spentReviewFor(reviews, records, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) {
   let spentReview = null;
   for (const [index, review] of reviews.entries()) {
     const decision = records.get(review.payload.decisionId);
@@ -19686,8 +19972,8 @@ function spentReviewFor(reviews, records, history, taxonomy, acceptedPolicyRef, 
       return fail([diagnostic2("unknown-reference", `Review ${review.recordId} lacks its decision`)]);
     const assessed = review.payload.causeDispositionRefs === undefined ? {
       ok: true,
-      value: validateDecision2(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
-    } : validateFreshDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, review.payload.causeDispositionRefs);
+      value: validateDecision2(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
+    } : validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, review.payload.causeDispositionRefs);
     if (!assessed.ok)
       return fail(assessed.diagnostics);
     const assessment = assessed.value;
@@ -19777,8 +20063,8 @@ function selectedReviewOperations(history, summary) {
 }
 
 // plugins/omp-build/engine/review-state.ts
-function summarizeReviews(history, taxonomy, acceptedPolicyRef, externalHistories = []) {
-  return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, taxonomy, acceptedPolicyRef, externalHistories, history);
+function summarizeReviews(history, catalogues, acceptedPolicyRef, externalHistories = []) {
+  return summarizeAuthorityReviews(classifyHistory(history).authorityHistory, catalogues, acceptedPolicyRef, externalHistories, history);
 }
 function summaryFailure(diagnostics, knownReviews, countExact, spent) {
   return fail(diagnostics, { knownReviews, countExact, spent });
@@ -19788,7 +20074,7 @@ function reviewTransportDiagnostics(transportDiagnostics, incompleteFinal) {
     return transportDiagnostics;
   return incompleteFinal ? [diagnostic2("incomplete", "A final review operation is not complete")] : null;
 }
-function latestReviewSummary(latest, at, records, history, taxonomy, acceptedPolicyRef, knownReviews, spent, externalHistories, deliveryHistory) {
+function latestReviewSummary(latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, spent, externalHistories, deliveryHistory) {
   if (latest === null)
     return {
       ok: true,
@@ -19797,7 +20083,7 @@ function latestReviewSummary(latest, at, records, history, taxonomy, acceptedPol
   const decision = records.get(latest.payload.decisionId);
   if (decision?.kind !== "decision")
     return summaryFailure([diagnostic2("unknown-reference", `Review ${latest.recordId} lacks its decision`)], knownReviews, true, spent);
-  const assessed = validateFreshDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, latest.payload.causeDispositionRefs);
+  const assessed = validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, latest.payload.causeDispositionRefs);
   if (!assessed.ok)
     return summaryFailure(assessed.diagnostics, knownReviews, true, spent);
   const assessment = assessed.value;
@@ -19816,7 +20102,7 @@ function latestReviewSummary(latest, at, records, history, taxonomy, acceptedPol
     }
   };
 }
-function validateAuthorityReviewSpend(reviews, records, history, taxonomy, acceptedPolicyRef, initialSpent, externalHistories, deliveryHistory) {
+function validateAuthorityReviewSpend(reviews, records, history, catalogues, acceptedPolicyRef, initialSpent, externalHistories, deliveryHistory) {
   let spent = initialSpent;
   for (const [index, review] of reviews.entries()) {
     const record = review.record;
@@ -19830,8 +20116,8 @@ function validateAuthorityReviewSpend(reviews, records, history, taxonomy, accep
       };
     const assessed = record.payload.causeDispositionRefs === undefined ? {
       ok: true,
-      value: validateDecision2(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory)
-    } : validateFreshDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory, record.payload.causeDispositionRefs);
+      value: validateDecision2(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
+    } : validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, record.payload.causeDispositionRefs);
     if (!assessed.ok)
       return { diagnostics: assessed.diagnostics, spent };
     const assessment = assessed.value;
@@ -19842,11 +20128,11 @@ function validateAuthorityReviewSpend(reviews, records, history, taxonomy, accep
   }
   return { diagnostics: null, spent };
 }
-function summarizeAuthorityReviews(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory) {
+function summarizeAuthorityReviews(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) {
   const identity = analyzeReviewIdentity(history, recordMap(history));
   const reviews = identity.reviews;
   const knownReviews = identity.knownReviews;
-  const preservedSpent = spentInCompleteHistory(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory) ?? spentBeforeCurrentPullRequestAttempt(history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory);
+  const preservedSpent = spentInCompleteHistory(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) ?? spentBeforeCurrentPullRequestAttempt(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory);
   const uncertainSpent = preservedSpent === true ? true : reviews.length >= 3 ? null : false;
   const transportDiagnostics = reviewTransportDiagnostics(identity.transportDiagnostics, identity.incompleteFinal);
   if (transportDiagnostics !== null)
@@ -19860,7 +20146,7 @@ function summarizeAuthorityReviews(history, taxonomy, acceptedPolicyRef, externa
   if (!graph.ok)
     return summaryFailure(graph.diagnostics, knownReviews, history.source.complete, uncertainSpent);
   const records = new Map(graph.value.map((record) => [record.recordId, record]));
-  const reviewSpend = validateAuthorityReviewSpend(reviews, records, history, taxonomy, acceptedPolicyRef, preservedSpent === true, externalHistories, deliveryHistory);
+  const reviewSpend = validateAuthorityReviewSpend(reviews, records, history, catalogues, acceptedPolicyRef, preservedSpent === true, externalHistories, deliveryHistory);
   if (reviewSpend.diagnostics !== null)
     return summaryFailure(reviewSpend.diagnostics, knownReviews, true, reviewSpend.spent);
   if (identity.lineageDiagnostics.length > 0)
@@ -19870,16 +20156,16 @@ function summarizeAuthorityReviews(history, taxonomy, acceptedPolicyRef, externa
       diagnostic2("incomplete", `Pull-request review inventory ${identity.pendingRoot.recordId} is pending completion by its own final review`, { rootId: identity.pendingRoot.recordId, pendingRoot: true })
     ], knownReviews, true, reviewSpend.spent);
   const at = identity.latestOperation?.parts.map((part) => part.createdAt).find((value) => value !== null) ?? null;
-  return latestReviewSummary(identity.latest, at, records, history, taxonomy, acceptedPolicyRef, knownReviews, reviewSpend.spent, externalHistories, deliveryHistory);
+  return latestReviewSummary(identity.latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, reviewSpend.spent, externalHistories, deliveryHistory);
 }
 function reviewStateFailure(diagnostics, knownReviews, countExact, spent) {
   return { ok: false, next: "stop", knownReviews, countExact, spent, diagnostics };
 }
-function deriveReviewState(history, facts, taxonomy, externalHistories = []) {
+function deriveReviewState(history, facts, catalogues, externalHistories = []) {
   if (!equalScope(history.source.scope, facts))
     return reviewStateFailure([diagnostic2("unbound", "Fresh facts have another review scope")], 0, false, null);
   const authorityHistory = classifyHistory(history).authorityHistory;
-  const summary = summarizeAuthorityReviews(authorityHistory, taxonomy, facts.acceptedEvidencePolicyRef, externalHistories, history);
+  const summary = summarizeAuthorityReviews(authorityHistory, catalogues, facts.acceptedEvidencePolicyRef, externalHistories, history);
   if (!summary.ok)
     return reviewStateFailure(summary.diagnostics, summary.knownReviews ?? 0, summary.countExact ?? false, summary.spent ?? null);
   const orderedReviews = reviewOperations(authorityHistory).flatMap((operation) => operation.record?.kind === "review" ? [operation.record] : []);
@@ -19887,7 +20173,7 @@ function deriveReviewState(history, facts, taxonomy, externalHistories = []) {
   const persistedStop = [...records.values()].find((record) => record.kind === "stop");
   if (persistedStop !== undefined)
     return { ok: true, summary: { ...summary.value, spent: true }, next: "stop", requiredStop: persistedStop.payload };
-  const reviewSpend = spentReviewFor(orderedReviews, records, authorityHistory, taxonomy, facts.acceptedEvidencePolicyRef, externalHistories, history);
+  const reviewSpend = spentReviewFor(orderedReviews, records, authorityHistory, catalogues, facts.acceptedEvidencePolicyRef, externalHistories, history);
   if (!reviewSpend.ok)
     return reviewStateFailure(reviewSpend.diagnostics, summary.value.reviews, true, null);
   const latestReview = orderedReviews.length === 0 ? undefined : orderedReviews[orderedReviews.length - 1];
@@ -19903,13 +20189,7 @@ function assessCauseHolds(input) {
   const heads = readCauseDispositionHeads(input);
   if (!heads.ok)
     return heads.diagnostics;
-  const own = input.histories.find((history) => history.source.scope.repository === input.uw.repository && history.source.scope.target === input.uw.target);
-  if (own === undefined)
-    return [diagnostic2("cause-history-unconfirmed", "Original UW history is missing")];
-  const diagnostics = validateCauseDispositionRecords({
-    records: recordsOf(own),
-    histories: input.histories
-  });
+  const diagnostics = [];
   for (const disposition of heads.value) {
     const outcome = disposition.payload.outcome;
     if (outcome.state === "pending-blocking") {
@@ -19969,6 +20249,427 @@ var decodedHistorySchema = strictObject({
   operations: array(operationReadSchema),
   diagnostics: array(diagnosticSchema)
 });
+// plugins/omp-build/engine/workflow-graph.ts
+var workflowGraphActionSchema = _enum([
+  "frame",
+  "assess-spec",
+  "plan",
+  "implement",
+  "publish",
+  "review",
+  "fix",
+  "attribute-ci",
+  "land",
+  "watch",
+  "epic-next",
+  "epic-final",
+  "mark-fix",
+  "hook",
+  "report",
+  "stop",
+  "done"
+]);
+var workflowConditionSchema = _enum([
+  "always",
+  "no-mandate",
+  "mandate-ready",
+  "spec-differs",
+  "spec-settled",
+  "plan-confirmed",
+  "implement-confirmed",
+  "pr-open",
+  "review-step-review",
+  "review-step-fix",
+  "review-step-land",
+  "review-step-stop",
+  "fix-confirmed",
+  "ci-red",
+  "ci-attributed-change",
+  "ci-attribution-refused",
+  "merged",
+  "end-obligations-met",
+  "epic-start",
+  "epic-resume",
+  "epic-stop",
+  "epic-final-review",
+  "epic-fix-ticket",
+  "epic-post-merge",
+  "epic-complete",
+  "epic-drop"
+]);
+var workflowGraphSchema = strictObject({
+  version: literal(1),
+  productVersion: string2().min(1),
+  configVersion: string2().min(1),
+  edgeOrder: literal("array"),
+  nodes: array(strictObject({ id: string2().min(1), action: workflowGraphActionSchema })).min(1),
+  edges: array(strictObject({
+    from: string2().min(1),
+    to: string2().min(1),
+    when: workflowConditionSchema
+  })),
+  initial: string2().min(1)
+});
+function validateWorkflowGraph(graph) {
+  const parsed = workflowGraphSchema.safeParse(graph);
+  if (!parsed.success)
+    return fail([
+      diagnostic2("unsupported-graph", "Workflow graph is not in the closed schema", parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })))
+    ]);
+  const ids = parsed.data.nodes.map((node) => node.id);
+  if (new Set(ids).size !== ids.length)
+    return fail([diagnostic2("unsupported-graph", "Workflow graph repeats a node id")]);
+  if (!ids.includes(parsed.data.initial))
+    return fail([diagnostic2("unsupported-graph", "Workflow graph initial node is missing")]);
+  const seenEdges = new Set;
+  for (const edge of parsed.data.edges) {
+    if (!ids.includes(edge.from) || !ids.includes(edge.to))
+      return fail([diagnostic2("unsupported-graph", "Workflow graph edge names a missing node")]);
+    if (edge.from === edge.to)
+      return fail([diagnostic2("unsupported-graph", "Workflow graph edge loops on one node")]);
+    const key = `${edge.from}\x00${edge.to}\x00${edge.when}`;
+    if (seenEdges.has(key))
+      return fail([diagnostic2("unsupported-graph", "Workflow graph repeats an edge")]);
+    seenEdges.add(key);
+  }
+  return { ok: true, value: parsed.data };
+}
+function executableGraph(mandate) {
+  const effective = mandate.payload.config.effective;
+  if (typeof effective !== "object" || effective === null || Array.isArray(effective))
+    return fail([diagnostic2("unsupported-graph", "Mandate effective config has no graph")]);
+  const parsed = validateWorkflowGraph(Reflect.get(effective, "graph"));
+  if (!parsed.ok)
+    return parsed;
+  if (parsed.value.productVersion !== mandate.payload.config.productVersion)
+    return fail([diagnostic2("config-drift", "Mandate graph product version differs from the mandate")]);
+  if (parsed.value.configVersion !== mandate.payload.config.version)
+    return fail([diagnostic2("config-drift", "Mandate graph config version differs from the mandate")]);
+  return parsed;
+}
+
+// plugins/omp-build/engine/workflow-chantier.ts
+function workflowCausalDiagnostics(selected, causal) {
+  const observed = new Map;
+  for (const history of causal.histories) {
+    const key = `${history.source.scope.repository}\x00${history.source.scope.target}`;
+    if (observed.has(key) || !history.source.complete)
+      return [diagnostic2("fix-history-observation-drift", "Causal histories must be complete and unique by scope")];
+    observed.set(key, history);
+  }
+  for (const history of selected) {
+    const key = `${history.source.scope.repository}\x00${history.source.scope.target}`;
+    if (JSON.stringify(observed.get(key)) !== JSON.stringify(history))
+      return [diagnostic2("fix-history-observation-drift", "Selected workflow history differs from causal observation")];
+  }
+  return [];
+}
+function composeChantier(input) {
+  const histories = [input.issue, ...input.pullRequest === null ? [] : [input.pullRequest], ...input.parents];
+  for (const history of histories) {
+    const problem = workflowOperationProblem(history);
+    if (problem !== null)
+      return fail([diagnostic2(problem, "Workflow history cannot be composed")]);
+  }
+  const causalDiagnostics = workflowCausalDiagnostics(histories, input.causal);
+  if (causalDiagnostics.length)
+    return fail(causalDiagnostics);
+  return {
+    ok: true,
+    value: { issue: input.issue, pullRequest: input.pullRequest, parents: [...input.parents], causal: input.causal }
+  };
+}
+
+// plugins/omp-build/engine/workflow-parent.ts
+function parentListings(mandate, histories, causal) {
+  const scope = mandateScope(mandate);
+  const refs = [];
+  for (const history of histories) {
+    const active = mandatesOf(history).filter((record) => !abandoned(history, record) && successorOf(history, record) === null);
+    if (active.length !== 1)
+      continue;
+    const parent = active[0];
+    if (parent === undefined)
+      continue;
+    const accepted = resolveAcceptedSpec(parent, causal.histories);
+    if (!accepted.ok || !accepted.spec.children.some((child) => equalScope(child.scope, scope)))
+      continue;
+    refs.push({ scope: mandateScope(parent), recordId: parent.recordId, kind: "mandate" });
+  }
+  return refs;
+}
+function epicParentProblem(mandate, histories, causal) {
+  const drift = workflowCausalDiagnostics(histories, causal);
+  if (drift.length)
+    return { reason: "incompatible", evidence: drift };
+  const listings = parentListings(mandate, histories, causal);
+  if (listings.length > 1) {
+    return { reason: "ambiguous", evidence: [diagnostic2("ambiguous", "More than one parent lists this child")] };
+  }
+  const listing = listings[0];
+  if (listing === undefined)
+    return null;
+  if (mandate.payload.parent === null) {
+    return { reason: "missing", evidence: [diagnostic2("missing", "Parent-created child omitted its parent")] };
+  }
+  if (!sameRef2(mandate.payload.parent, listing)) {
+    return {
+      reason: "incompatible",
+      evidence: [diagnostic2("incompatible", "Child parent ref does not name the listing parent")]
+    };
+  }
+  return null;
+}
+
+// plugins/omp-build/engine/workflow-mandate-admission.ts
+function cycleRefusal(history, seen) {
+  const scopeKey = `${history.source.scope.repository}\x00${history.source.scope.target}`;
+  return seen.has(scopeKey) ? refused2("ambiguous", [diagnostic2("ambiguous", "Mandate parent chain cycles")]) : null;
+}
+function historyRefusal(history) {
+  const problem = workflowOperationProblem(history);
+  if (problem !== null && mandatesOf(history).length === 0 && problem === "incomplete")
+    return refused2("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
+  if (problem === "ambiguous")
+    return refused2("ambiguous", [diagnostic2("ambiguous", "Workflow history conflicts")]);
+  if (problem === incompatibleFormat) {
+    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem);
+    return refused2(problem, [formatDiagnostic ?? diagnostic2(problem, "Mandate uses an incompatible format")]);
+  }
+  if (problem === "unconfirmed")
+    return refused2("unconfirmed", [diagnostic2("unconfirmed", "Workflow history has an incomplete operation")]);
+  if (problem === "incomplete")
+    return refused2("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
+  return null;
+}
+function noMandateRefusal(history) {
+  const claimed = history.operations.some((operation) => operation.kind === "mandate" || operation.claimedKinds.includes("mandate"));
+  return claimed ? refused2("unconfirmed", [diagnostic2("unconfirmed", "A mandate was claimed but not confirmed")]) : refused2("missing", [diagnostic2("missing", "No mandate record exists")]);
+}
+function selectedMandate(history) {
+  const mandates = mandatesOf(history);
+  if (mandates.length === 0)
+    return noMandateRefusal(history);
+  const active = mandates.filter((mandate) => !abandoned(history, mandate) && successorOf(history, mandate) === null);
+  if (active.length === 0) {
+    const last = mandates[mandates.length - 1];
+    if (last !== undefined && abandoned(history, last))
+      return refused2("abandoned", [diagnostic2("abandoned", `Mandate ${last.recordId} is abandoned`)]);
+    return refused2("revoked", [diagnostic2("revoked", "The mandate was superseded")]);
+  }
+  if (active.length > 1)
+    return refused2("ambiguous", [diagnostic2("ambiguous", "More than one mandate is active")]);
+  const mandate = active[0];
+  if (mandate === undefined)
+    return refused2("missing", [diagnostic2("missing", "No mandate record exists")]);
+  if (abandoned(history, mandate))
+    return refused2("abandoned", [diagnostic2("abandoned", `Mandate ${mandate.recordId} is abandoned`)]);
+  return mandate;
+}
+function pauseRefusal(mandate, pause) {
+  return {
+    status: "refused",
+    reason: "paused",
+    evidence: [diagnostic2("paused", `Mandate ${mandate.recordId} is paused`)],
+    pause: {
+      mandate: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" },
+      confirmation: {
+        scope: { repository: pause.repository, target: pause.target },
+        recordId: pause.recordId,
+        kind: "operator-control"
+      }
+    }
+  };
+}
+function acceptedRefusal(result) {
+  return refused2(result.reason === "ambiguous" ? "ambiguous" : result.reason === "missing-history" ? "missing-history" : "incomplete", result.evidence);
+}
+function permissionRefusal(mandate, parent) {
+  if (mandate.payload.permissions.landing && !parent.payload.permissions.landing)
+    return refused2("incompatible", [diagnostic2("incompatible", "Child landing exceeds the parent")]);
+  if (mandate.payload.permissions.correct && !parent.payload.permissions.correct)
+    return refused2("incompatible", [diagnostic2("incompatible", "Child correction exceeds the parent")]);
+  return null;
+}
+function childCommitmentRefusal(mandate, parent, child) {
+  const approved = parent.children.find((commitment) => equalScope(commitment.scope, mandateScope(mandate)));
+  if (approved === undefined)
+    return refused2("unknown-binding", [
+      diagnostic2("unknown-binding", "Child scope is not approved by the current accepted parent Spec")
+    ]);
+  if (approved.specVersion !== child.ref.version || approved.tier !== child.tier)
+    return refused2("materially-changed", [
+      diagnostic2("materially-changed", "Child accepted Spec version or tier differs from the current parent commitment")
+    ]);
+  return null;
+}
+function parentPolicyRefusal(mandate, parent, causal) {
+  const permissions = permissionRefusal(mandate, parent);
+  if (permissions !== null)
+    return permissions;
+  const parentAccepted = resolveAcceptedSpec(parent, causal.histories);
+  if (!parentAccepted.ok)
+    return acceptedRefusal(parentAccepted);
+  const childAccepted = resolveAcceptedSpec(mandate, causal.histories);
+  if (!childAccepted.ok)
+    return acceptedRefusal(childAccepted);
+  return childCommitmentRefusal(mandate, parentAccepted.spec, childAccepted.spec);
+}
+function parentAdmission(mandate, externalHistories, causal, seen) {
+  if (mandate.payload.parent === null)
+    return null;
+  const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories);
+  if (parentHistory === null)
+    return refused2("incomplete", [diagnostic2("missing-history", "Parent mandate history is missing")]);
+  const parent = bindExternalRef(mandate.payload.parent, parentHistory);
+  if (!parent.ok)
+    return refused2("incomplete", parent.diagnostics);
+  if (parent.value.kind !== "mandate")
+    return refused2("unknown-binding", [diagnostic2("kind-mismatch", "Parent reference is not a mandate")]);
+  const selectedParent = selectedMandate(parentHistory);
+  if ("status" in selectedParent)
+    return selectedParent;
+  if (!sameRef2({ scope: mandateScope(selectedParent), recordId: selectedParent.recordId, kind: "mandate" }, mandate.payload.parent)) {
+    return refused2("revoked", [diagnostic2("revoked", "Child parent reference does not name the active parent mandate")]);
+  }
+  const parentSelection = selectApplicableMandate(parentHistory, externalHistories, causal, seen);
+  if (parentSelection.status === "refused")
+    return parentSelection;
+  const policy = parentPolicyRefusal(mandate, parentSelection.mandate, causal);
+  return policy;
+}
+function mandateAdmission(mandate, history, externalHistories, causal, seen) {
+  const pause = unliftedPause(history, mandate);
+  if (pause !== null)
+    return pauseRefusal(mandate, pause);
+  const graph = executableGraph(mandate);
+  if (!graph.ok)
+    return refused2("unsupported", graph.diagnostics);
+  const omission = epicParentProblem(mandate, [history, ...externalHistories], causal);
+  if (omission !== null)
+    return refused2(omission.reason, omission.evidence);
+  const parent = parentAdmission(mandate, externalHistories, causal, seen);
+  return parent ?? { status: "applicable", mandate };
+}
+function selectApplicableMandate(history, externalHistories, causal, seen = new Set) {
+  const cycle = cycleRefusal(history, seen);
+  if (cycle !== null)
+    return cycle;
+  const historyProblem = historyRefusal(history);
+  if (historyProblem !== null)
+    return historyProblem;
+  const drift = workflowCausalDiagnostics([history, ...externalHistories], causal);
+  if (drift.length)
+    return refused2("incomplete", drift);
+  const selected = selectedMandate(history);
+  if ("status" in selected)
+    return selected;
+  const nextSeen = new Set(seen);
+  nextSeen.add(`${history.source.scope.repository}\x00${history.source.scope.target}`);
+  return mandateAdmission(selected, history, externalHistories, causal, nextSeen);
+}
+function controlParentAuthority(mandate, externalHistories, causal, seen) {
+  if (mandate.payload.parent === null)
+    return { ok: true, value: undefined };
+  const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories);
+  if (parentHistory === null)
+    return fail([diagnostic2("missing-history", "Parent mandate history is missing")]);
+  const bound = bindExternalRef(mandate.payload.parent, parentHistory);
+  if (!bound.ok)
+    return bound;
+  if (bound.value.kind !== "mandate")
+    return fail([diagnostic2("kind-mismatch", "Parent reference is not a mandate")]);
+  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, causal, seen);
+  if (!parent.ok)
+    return parent;
+  if (!sameRef2({ scope: mandateScope(parent.value.mandate), recordId: parent.value.mandate.recordId, kind: "mandate" }, mandate.payload.parent))
+    return fail([diagnostic2("revoked", "Child parent reference does not name the active parent mandate")]);
+  if (mandate.payload.permissions.landing && !parent.value.mandate.payload.permissions.landing)
+    return fail([diagnostic2("incompatible", "Child landing exceeds the parent")]);
+  if (mandate.payload.permissions.correct && !parent.value.mandate.payload.permissions.correct)
+    return fail([diagnostic2("incompatible", "Child correction exceeds the parent")]);
+  return { ok: true, value: undefined };
+}
+function resolveOwnSpecAuthority(history, externalHistories, causal, seen = new Set, replayContext) {
+  const cycle = cycleRefusal(history, seen);
+  if (cycle !== null)
+    return fail(cycle.evidence);
+  const historyProblem = historyRefusal(history);
+  if (historyProblem !== null)
+    return fail(historyProblem.evidence);
+  const drift = workflowCausalDiagnostics([history, ...externalHistories], causal);
+  if (drift.length)
+    return fail(drift);
+  const selected = selectedMandate(history);
+  if ("status" in selected)
+    return fail(selected.evidence);
+  const pause = unliftedPause(history, selected);
+  if (pause !== null)
+    return fail(pauseRefusal(selected, pause).evidence);
+  const graph = executableGraph(selected);
+  if (!graph.ok)
+    return fail(graph.diagnostics);
+  const nextSeen = new Set(seen);
+  nextSeen.add(`${history.source.scope.repository}\x00${history.source.scope.target}`);
+  const parent = controlParentAuthority(selected, externalHistories, causal, nextSeen);
+  if (!parent.ok)
+    return parent;
+  const accepted = resolveAcceptedSpec(selected, causal.histories, replayContext);
+  if (!accepted.ok)
+    return fail(accepted.evidence);
+  return { ok: true, value: { mandate: selected, accepted: accepted.spec } };
+}
+
+// plugins/omp-build/engine/parent-insertion-engagement.ts
+var indeterminate = (message) => ({
+  state: "indeterminate",
+  diagnostics: [diagnostic2("incomplete", message)]
+});
+var key3 = (scope) => `${scope.repository}\x00${scope.target}`;
+function parentHistory(evidence) {
+  const { parent, graph, histories } = evidence;
+  if (!equalScope(parent, graph.root))
+    return indeterminate("Parent graph root does not match the requested parent");
+  const graphCheck = validateUwGraph(graph);
+  if (!graphCheck.ok)
+    return { state: "indeterminate", diagnostics: toDiagnostics(graphCheck.diagnostics) };
+  const nodes = new Set(graph.nodes.map((node) => key3(node.uw)));
+  if (nodes.size !== graph.nodes.length || !nodes.has(key3(parent)))
+    return indeterminate("Parent graph has missing or duplicate nodes");
+  const observed = new Map;
+  for (const history of histories) {
+    const id = key3(history.source.scope);
+    if (!nodes.has(id) || observed.has(id))
+      return indeterminate("Parent histories have unexpected or duplicate scopes");
+    observed.set(id, history);
+    const problem = historyRefusal(history);
+    if (problem !== null)
+      return { state: "indeterminate", diagnostics: problem.evidence };
+  }
+  if (observed.size !== nodes.size)
+    return indeterminate("Parent graph history is incomplete");
+  const own = observed.get(key3(parent));
+  return own === undefined ? indeterminate("Parent history is missing") : { own };
+}
+function assessParentInsertionEngagement(evidence) {
+  const found = parentHistory(evidence);
+  if (!("own" in found))
+    return found;
+  const own = found.own;
+  const selected = selectedMandate(own);
+  if ("status" in selected) {
+    if (selected.reason === "missing" && !own.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control"))))
+      return { state: "inactive", diagnostics: selected.evidence };
+    return { state: "indeterminate", diagnostics: selected.evidence };
+  }
+  const pause = unliftedPause(own, selected);
+  if (pause !== null)
+    return indeterminate("Parent mandate is paused");
+  const graphResult = executableGraph(selected);
+  if (!graphResult.ok)
+    return { state: "indeterminate", diagnostics: graphResult.diagnostics };
+  return { state: "active", diagnostics: [] };
+}
 // plugins/omp-build/engine/uw-child-admission.ts
 function diag2(uw, code, message, connection, related) {
   return {
@@ -20163,7 +20864,12 @@ function assessUwAdmission(input) {
     deliverable.push(...blockerDiagnostics(root, nodes), ...transitionDiagnostics(input, root, nodes));
   }
   if (input.accepted.status === "accepted") {
-    for (const hold of assessCauseHolds({ uw: input.uw, histories: input.histories, graph: input.graph })) {
+    for (const hold of assessCauseHolds({
+      uw: input.uw,
+      histories: input.histories,
+      graph: input.graph,
+      catalogues: input.catalogues
+    })) {
       deliverable.push(diag3(input.uw, hold.code, hold.recordId === undefined ? hold.message : `${hold.message} (${hold.recordId})`));
     }
   }
@@ -20494,7 +21200,7 @@ function planMacro(evidence, mandate, options) {
   const empty = emptyMacro(mandate, null);
   if (mandate === null)
     return empty("blocked", [diagnostic2("mandate-absent", "plan macro has no mandate")]);
-  const accepted = resolveAcceptedSpec(mandate, [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest], ...evidence.parents], options?.assessmentReplay);
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories, options?.assessmentReplay);
   if (!accepted.ok)
     return empty("blocked", accepted.evidence);
   const effective = resolveOwnSpecEffective(accepted.spec);
@@ -20745,11 +21451,7 @@ function admittedResult(mandate, receipts, planActionId, spec) {
   return coveredImplementation(selected.value, mandate, spec);
 }
 function mandatedCompletion(evidence, mandate, receipts) {
-  const accepted = resolveAcceptedSpec(mandate, [
-    evidence.issue,
-    ...evidence.pullRequest === null ? [] : [evidence.pullRequest],
-    ...evidence.parents
-  ]);
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories);
   if (!accepted.ok)
     return { status: "blocked", evidence: accepted.evidence };
   const effective = resolveOwnSpecEffective(accepted.spec);
@@ -20901,12 +21603,7 @@ function assessSpecCompletion(evidence, facts, mandate) {
   if (facts === null || mandate === null || facts.currentSpec === null || facts.identityAllocations === null) {
     return { status: "not-started", evidence: [] };
   }
-  const histories = [
-    evidence.issue,
-    ...evidence.pullRequest === null ? [] : [evidence.pullRequest],
-    ...evidence.parents
-  ];
-  const accepted = resolveAcceptedSpec(mandate, histories);
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories);
   if (!accepted.ok)
     return { status: "uncertain", evidence: accepted.evidence };
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
@@ -20942,7 +21639,7 @@ function assessSpecCompletion(evidence, facts, mandate) {
   if (result === undefined) {
     return { status: "uncertain", evidence: [diagnostic2("unconfirmed", "Current spec assessment is missing")] };
   }
-  const authenticated = authenticatedAssessResult(result, histories, mandateRef);
+  const authenticated = authenticatedAssessResult(result, evidence.causal.histories, mandateRef);
   return authenticated.ok ? { status: "confirmed", evidence: [] } : { status: "uncertain", evidence: authenticated.evidence };
 }
 function isMatchingAssessment(record, mandateRef, exactInputs) {
@@ -20984,336 +21681,6 @@ function ciAttribution(record, facts, mandate, digest) {
     return null;
   return parsed.data.attribution === "change" ? "change" : "refused";
 }
-// plugins/omp-build/engine/workflow-graph.ts
-var workflowGraphActionSchema = _enum([
-  "frame",
-  "assess-spec",
-  "plan",
-  "implement",
-  "publish",
-  "review",
-  "fix",
-  "attribute-ci",
-  "land",
-  "watch",
-  "epic-next",
-  "epic-final",
-  "mark-fix",
-  "hook",
-  "report",
-  "stop",
-  "done"
-]);
-var workflowConditionSchema = _enum([
-  "always",
-  "no-mandate",
-  "mandate-ready",
-  "spec-differs",
-  "spec-settled",
-  "plan-confirmed",
-  "implement-confirmed",
-  "pr-open",
-  "review-step-review",
-  "review-step-fix",
-  "review-step-land",
-  "review-step-stop",
-  "fix-confirmed",
-  "ci-red",
-  "ci-attributed-change",
-  "ci-attribution-refused",
-  "merged",
-  "end-obligations-met",
-  "epic-start",
-  "epic-resume",
-  "epic-stop",
-  "epic-final-review",
-  "epic-fix-ticket",
-  "epic-post-merge",
-  "epic-complete",
-  "epic-drop"
-]);
-var workflowGraphSchema = strictObject({
-  version: literal(1),
-  productVersion: string2().min(1),
-  configVersion: string2().min(1),
-  edgeOrder: literal("array"),
-  nodes: array(strictObject({ id: string2().min(1), action: workflowGraphActionSchema })).min(1),
-  edges: array(strictObject({
-    from: string2().min(1),
-    to: string2().min(1),
-    when: workflowConditionSchema
-  })),
-  initial: string2().min(1)
-});
-function validateWorkflowGraph(graph) {
-  const parsed = workflowGraphSchema.safeParse(graph);
-  if (!parsed.success)
-    return fail([
-      diagnostic2("unsupported-graph", "Workflow graph is not in the closed schema", parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })))
-    ]);
-  const ids = parsed.data.nodes.map((node) => node.id);
-  if (new Set(ids).size !== ids.length)
-    return fail([diagnostic2("unsupported-graph", "Workflow graph repeats a node id")]);
-  if (!ids.includes(parsed.data.initial))
-    return fail([diagnostic2("unsupported-graph", "Workflow graph initial node is missing")]);
-  const seenEdges = new Set;
-  for (const edge of parsed.data.edges) {
-    if (!ids.includes(edge.from) || !ids.includes(edge.to))
-      return fail([diagnostic2("unsupported-graph", "Workflow graph edge names a missing node")]);
-    if (edge.from === edge.to)
-      return fail([diagnostic2("unsupported-graph", "Workflow graph edge loops on one node")]);
-    const key = `${edge.from}\x00${edge.to}\x00${edge.when}`;
-    if (seenEdges.has(key))
-      return fail([diagnostic2("unsupported-graph", "Workflow graph repeats an edge")]);
-    seenEdges.add(key);
-  }
-  return { ok: true, value: parsed.data };
-}
-function executableGraph(mandate) {
-  const effective = mandate.payload.config.effective;
-  if (typeof effective !== "object" || effective === null || Array.isArray(effective))
-    return fail([diagnostic2("unsupported-graph", "Mandate effective config has no graph")]);
-  const parsed = validateWorkflowGraph(Reflect.get(effective, "graph"));
-  if (!parsed.ok)
-    return parsed;
-  if (parsed.value.productVersion !== mandate.payload.config.productVersion)
-    return fail([diagnostic2("config-drift", "Mandate graph product version differs from the mandate")]);
-  if (parsed.value.configVersion !== mandate.payload.config.version)
-    return fail([diagnostic2("config-drift", "Mandate graph config version differs from the mandate")]);
-  return parsed;
-}
-
-// plugins/omp-build/engine/workflow-parent.ts
-function parentListings(mandate, histories) {
-  const scope = mandateScope(mandate);
-  const refs = [];
-  for (const history of histories) {
-    const active = mandatesOf(history).filter((record) => !abandoned(history, record) && successorOf(history, record) === null);
-    if (active.length !== 1)
-      continue;
-    const parent = active[0];
-    if (parent === undefined)
-      continue;
-    const accepted = resolveAcceptedSpec(parent, [history, ...histories]);
-    if (!accepted.ok || !accepted.spec.children.some((child) => equalScope(child.scope, scope)))
-      continue;
-    refs.push({ scope: mandateScope(parent), recordId: parent.recordId, kind: "mandate" });
-  }
-  return refs;
-}
-function epicParentProblem(mandate, histories) {
-  const listings = parentListings(mandate, histories);
-  if (listings.length > 1) {
-    return { reason: "ambiguous", evidence: [diagnostic2("ambiguous", "More than one parent lists this child")] };
-  }
-  const listing = listings[0];
-  if (listing === undefined)
-    return null;
-  if (mandate.payload.parent === null) {
-    return { reason: "missing", evidence: [diagnostic2("missing", "Parent-created child omitted its parent")] };
-  }
-  if (!sameRef2(mandate.payload.parent, listing)) {
-    return {
-      reason: "incompatible",
-      evidence: [diagnostic2("incompatible", "Child parent ref does not name the listing parent")]
-    };
-  }
-  return null;
-}
-
-// plugins/omp-build/engine/workflow-mandate-admission.ts
-function cycleRefusal(history, seen) {
-  const scopeKey = `${history.source.scope.repository}\x00${history.source.scope.target}`;
-  return seen.has(scopeKey) ? refused2("ambiguous", [diagnostic2("ambiguous", "Mandate parent chain cycles")]) : null;
-}
-function historyRefusal(history) {
-  const problem = workflowOperationProblem(history);
-  if (problem !== null && mandatesOf(history).length === 0 && problem === "incomplete")
-    return refused2("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
-  if (problem === "ambiguous")
-    return refused2("ambiguous", [diagnostic2("ambiguous", "Workflow history conflicts")]);
-  if (problem === incompatibleFormat) {
-    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem);
-    return refused2(problem, [formatDiagnostic ?? diagnostic2(problem, "Mandate uses an incompatible format")]);
-  }
-  if (problem === "unconfirmed")
-    return refused2("unconfirmed", [diagnostic2("unconfirmed", "Workflow history has an incomplete operation")]);
-  if (problem === "incomplete")
-    return refused2("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
-  return null;
-}
-function noMandateRefusal(history) {
-  const claimed = history.operations.some((operation) => operation.kind === "mandate" || operation.claimedKinds.includes("mandate"));
-  return claimed ? refused2("unconfirmed", [diagnostic2("unconfirmed", "A mandate was claimed but not confirmed")]) : refused2("missing", [diagnostic2("missing", "No mandate record exists")]);
-}
-function selectedMandate(history) {
-  const mandates = mandatesOf(history);
-  if (mandates.length === 0)
-    return noMandateRefusal(history);
-  const active = mandates.filter((mandate) => !abandoned(history, mandate) && successorOf(history, mandate) === null);
-  if (active.length === 0) {
-    const last = mandates[mandates.length - 1];
-    if (last !== undefined && abandoned(history, last))
-      return refused2("abandoned", [diagnostic2("abandoned", `Mandate ${last.recordId} is abandoned`)]);
-    return refused2("revoked", [diagnostic2("revoked", "The mandate was superseded")]);
-  }
-  if (active.length > 1)
-    return refused2("ambiguous", [diagnostic2("ambiguous", "More than one mandate is active")]);
-  const mandate = active[0];
-  if (mandate === undefined)
-    return refused2("missing", [diagnostic2("missing", "No mandate record exists")]);
-  if (abandoned(history, mandate))
-    return refused2("abandoned", [diagnostic2("abandoned", `Mandate ${mandate.recordId} is abandoned`)]);
-  return mandate;
-}
-function pauseRefusal(mandate, pause) {
-  return {
-    status: "refused",
-    reason: "paused",
-    evidence: [diagnostic2("paused", `Mandate ${mandate.recordId} is paused`)],
-    pause: {
-      mandate: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" },
-      confirmation: {
-        scope: { repository: pause.repository, target: pause.target },
-        recordId: pause.recordId,
-        kind: "operator-control"
-      }
-    }
-  };
-}
-function acceptedRefusal(result) {
-  return refused2(result.reason === "ambiguous" ? "ambiguous" : result.reason === "missing-history" ? "missing-history" : "incomplete", result.evidence);
-}
-function permissionRefusal(mandate, parent) {
-  if (mandate.payload.permissions.landing && !parent.payload.permissions.landing)
-    return refused2("incompatible", [diagnostic2("incompatible", "Child landing exceeds the parent")]);
-  if (mandate.payload.permissions.correct && !parent.payload.permissions.correct)
-    return refused2("incompatible", [diagnostic2("incompatible", "Child correction exceeds the parent")]);
-  return null;
-}
-function childCommitmentRefusal(mandate, parent, child) {
-  const approved = parent.children.find((commitment) => equalScope(commitment.scope, mandateScope(mandate)));
-  if (approved === undefined)
-    return refused2("unknown-binding", [
-      diagnostic2("unknown-binding", "Child scope is not approved by the current accepted parent Spec")
-    ]);
-  if (approved.specVersion !== child.ref.version || approved.tier !== child.tier)
-    return refused2("materially-changed", [
-      diagnostic2("materially-changed", "Child accepted Spec version or tier differs from the current parent commitment")
-    ]);
-  return null;
-}
-function parentPolicyRefusal(mandate, parent, parentHistory, history, externalHistories) {
-  const permissions = permissionRefusal(mandate, parent);
-  if (permissions !== null)
-    return permissions;
-  const parentAccepted = resolveAcceptedSpec(parent, [parentHistory, history, ...externalHistories]);
-  if (!parentAccepted.ok)
-    return acceptedRefusal(parentAccepted);
-  const childAccepted = resolveAcceptedSpec(mandate, [history, parentHistory, ...externalHistories]);
-  if (!childAccepted.ok)
-    return acceptedRefusal(childAccepted);
-  return childCommitmentRefusal(mandate, parentAccepted.spec, childAccepted.spec);
-}
-function parentAdmission(mandate, history, externalHistories, seen) {
-  if (mandate.payload.parent === null)
-    return null;
-  const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories);
-  if (parentHistory === null)
-    return refused2("incomplete", [diagnostic2("missing-history", "Parent mandate history is missing")]);
-  const parent = bindExternalRef(mandate.payload.parent, parentHistory);
-  if (!parent.ok)
-    return refused2("incomplete", parent.diagnostics);
-  if (parent.value.kind !== "mandate")
-    return refused2("unknown-binding", [diagnostic2("kind-mismatch", "Parent reference is not a mandate")]);
-  const selectedParent = selectedMandate(parentHistory);
-  if ("status" in selectedParent)
-    return selectedParent;
-  if (!sameRef2({ scope: mandateScope(selectedParent), recordId: selectedParent.recordId, kind: "mandate" }, mandate.payload.parent)) {
-    return refused2("revoked", [diagnostic2("revoked", "Child parent reference does not name the active parent mandate")]);
-  }
-  const parentSelection = selectApplicableMandate(parentHistory, externalHistories, seen);
-  if (parentSelection.status === "refused")
-    return parentSelection;
-  const policy = parentPolicyRefusal(mandate, parentSelection.mandate, parentHistory, history, externalHistories);
-  return policy;
-}
-function mandateAdmission(mandate, history, externalHistories, seen) {
-  const pause = unliftedPause(history, mandate);
-  if (pause !== null)
-    return pauseRefusal(mandate, pause);
-  const graph = executableGraph(mandate);
-  if (!graph.ok)
-    return refused2("unsupported", graph.diagnostics);
-  const omission = epicParentProblem(mandate, [history, ...externalHistories]);
-  if (omission !== null)
-    return refused2(omission.reason, omission.evidence);
-  const parent = parentAdmission(mandate, history, externalHistories, seen);
-  return parent ?? { status: "applicable", mandate };
-}
-function selectApplicableMandate(history, externalHistories = [], seen = new Set) {
-  const cycle = cycleRefusal(history, seen);
-  if (cycle !== null)
-    return cycle;
-  const historyProblem = historyRefusal(history);
-  if (historyProblem !== null)
-    return historyProblem;
-  const selected = selectedMandate(history);
-  if ("status" in selected)
-    return selected;
-  const nextSeen = new Set(seen);
-  nextSeen.add(`${history.source.scope.repository}\x00${history.source.scope.target}`);
-  return mandateAdmission(selected, history, externalHistories, nextSeen);
-}
-function controlParentAuthority(mandate, externalHistories, seen) {
-  if (mandate.payload.parent === null)
-    return { ok: true, value: undefined };
-  const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories);
-  if (parentHistory === null)
-    return fail([diagnostic2("missing-history", "Parent mandate history is missing")]);
-  const bound = bindExternalRef(mandate.payload.parent, parentHistory);
-  if (!bound.ok)
-    return bound;
-  if (bound.value.kind !== "mandate")
-    return fail([diagnostic2("kind-mismatch", "Parent reference is not a mandate")]);
-  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, seen);
-  if (!parent.ok)
-    return parent;
-  if (!sameRef2({ scope: mandateScope(parent.value.mandate), recordId: parent.value.mandate.recordId, kind: "mandate" }, mandate.payload.parent))
-    return fail([diagnostic2("revoked", "Child parent reference does not name the active parent mandate")]);
-  if (mandate.payload.permissions.landing && !parent.value.mandate.payload.permissions.landing)
-    return fail([diagnostic2("incompatible", "Child landing exceeds the parent")]);
-  if (mandate.payload.permissions.correct && !parent.value.mandate.payload.permissions.correct)
-    return fail([diagnostic2("incompatible", "Child correction exceeds the parent")]);
-  return { ok: true, value: undefined };
-}
-function resolveOwnSpecAuthority(history, externalHistories = [], seen = new Set, replayContext) {
-  const cycle = cycleRefusal(history, seen);
-  if (cycle !== null)
-    return fail(cycle.evidence);
-  const historyProblem = historyRefusal(history);
-  if (historyProblem !== null)
-    return fail(historyProblem.evidence);
-  const selected = selectedMandate(history);
-  if ("status" in selected)
-    return fail(selected.evidence);
-  const pause = unliftedPause(history, selected);
-  if (pause !== null)
-    return fail(pauseRefusal(selected, pause).evidence);
-  const graph = executableGraph(selected);
-  if (!graph.ok)
-    return fail(graph.diagnostics);
-  const nextSeen = new Set(seen);
-  nextSeen.add(`${history.source.scope.repository}\x00${history.source.scope.target}`);
-  const parent = controlParentAuthority(selected, externalHistories, nextSeen);
-  if (!parent.ok)
-    return parent;
-  const accepted = resolveAcceptedSpec(selected, [history, ...externalHistories], replayContext);
-  if (!accepted.ok)
-    return fail(accepted.evidence);
-  return { ok: true, value: { mandate: selected, accepted: accepted.spec } };
-}
-
 // plugins/omp-build/engine/workflow-bound-work-resolution.ts
 function configIdentityOf(mandate) {
   const effective = mandate.payload.config.effective;
@@ -21398,7 +21765,7 @@ function authorizedBoundWork(input, mandate) {
       evidence: [diagnostic2("incompatible", "Mandate does not permit correction")]
     };
   }
-  const accepted = resolveAcceptedSpec(mandate, input.histories);
+  const accepted = resolveAcceptedSpec(mandate, input.causal.histories);
   if (!accepted.ok)
     return { status: "refused", reason: accepted.reason, evidence: accepted.evidence };
   const identity = configIdentityOf(mandate);
@@ -21407,6 +21774,9 @@ function authorizedBoundWork(input, mandate) {
   return applicableBoundWork(input, mandate, permissions, accepted.spec, identity.identity);
 }
 function resolveBoundWork(input) {
+  const causalDiagnostics = workflowCausalDiagnostics(input.histories, input.causal);
+  if (causalDiagnostics.length > 0)
+    return { status: "refused", reason: "incomplete", evidence: causalDiagnostics };
   const binding = selectWorkflowBinding(input);
   if (binding.status === "absent")
     return absentBinding(input);
@@ -21425,7 +21795,7 @@ function resolveBoundWork(input) {
       evidence: [diagnostic2("missing-history", "Bound mandate history is missing")]
     };
   }
-  const selected = selectApplicableMandate(mandateHistory, input.histories);
+  const selected = selectApplicableMandate(mandateHistory, input.histories, input.causal);
   if (selected.status === "refused")
     return { status: "refused", reason: selected.reason, evidence: selected.evidence };
   if (selected.mandate.recordId !== binding.mandateRecord.recordId) {
@@ -21436,16 +21806,6 @@ function resolveBoundWork(input) {
     };
   }
   return authorizedBoundWork(input, selected.mandate);
-}
-// plugins/omp-build/engine/workflow-chantier.ts
-function composeChantier(input) {
-  const histories = [input.issue, ...input.pullRequest === null ? [] : [input.pullRequest], ...input.parents];
-  for (const history of histories) {
-    const problem = workflowOperationProblem(history);
-    if (problem !== null)
-      return fail([diagnostic2(problem, "Workflow history cannot be composed")]);
-  }
-  return { ok: true, value: { issue: input.issue, pullRequest: input.pullRequest, parents: [...input.parents] } };
 }
 // plugins/omp-build/engine/workflow-correction-admission.ts
 function applicable(mandate, histories) {
@@ -21485,11 +21845,11 @@ function boundPullRequestAdmission(input, histories, selected) {
   const home = historyFor(selected.mandate.scope, histories);
   if (home === null)
     return refused2("incomplete", [diagnostic2("missing-history", "Bound mandate history is missing")]);
-  const applicableMandate = selectApplicableMandate(home, histories.filter((item) => item !== home));
+  const applicableMandate = selectApplicableMandate(home, histories.filter((item) => item !== home), input.causal);
   if (applicableMandate.status === "refused")
     return applicableMandate;
   const authority = correctionAuthority(applicableMandate.mandate, histories, input.history, input.evidenceDigest);
-  return authority ?? applicable(applicableMandate.mandate, histories);
+  return authority ?? applicable(applicableMandate.mandate, input.causal.histories);
 }
 function unboundPullRequestAdmission() {
   return refused2("unknown-binding", [
@@ -21514,7 +21874,7 @@ function pullRequestAdmission(input, extra) {
 }
 function issueAdmission(input, extra) {
   const histories = input.linkedIssueHistory === null ? extra : [input.linkedIssueHistory, ...extra];
-  const selected = selectApplicableMandate(input.history, histories);
+  const selected = selectApplicableMandate(input.history, histories, input.causal);
   if (selected.status === "refused")
     return selected;
   const mandate = selected.mandate;
@@ -21527,10 +21887,14 @@ function issueAdmission(input, extra) {
     return refused2("incompatible", [diagnostic2("incompatible", "Mandate does not permit correction")]);
   if (ciAttributionUnsafe(input.history, input.evidenceDigest))
     return refused2("unsafe", [diagnostic2("unsafe", "CI attribution is not the change")]);
-  return applicable(mandate, [input.history, ...histories]);
+  return applicable(mandate, input.causal.histories);
 }
 function assessFixMandate(input) {
   const extra = input.externalHistories ?? [];
+  const selected = [input.history, ...input.linkedIssueHistory === null ? [] : [input.linkedIssueHistory], ...extra];
+  const causalDiagnostics = workflowCausalDiagnostics(selected, input.causal);
+  if (causalDiagnostics.length > 0)
+    return refused2("incomplete", causalDiagnostics);
   return input.target.kind === "pull-request" ? pullRequestAdmission(input, extra) : issueAdmission(input, extra);
 }
 // plugins/omp-build/engine/workflow-correction-mandate.ts
@@ -21612,21 +21976,24 @@ function landingReason(reason) {
 function selectedCandidate(input) {
   const selected = selectWorkflowBinding({
     pullRequest: input.native.pullRequest,
-    histories: input.histories,
+    histories: input.authorityHistories,
     native: { branch: input.native.branch, base: input.native.base }
   });
   if (selected.status === "absent")
     return landingRefusal2("missing", [diagnostic2("missing", "No workflow binding exists on the pull request")]);
   if (selected.status !== "bound")
     return landingRefusal2(landingBindingReason(selected), selected.diagnostics);
-  const home = historyFor(mandateScope(selected.mandateRecord), input.histories);
+  const home = historyFor(mandateScope(selected.mandateRecord), input.authorityHistories);
   if (home === null)
     return landingRefusal2("missing-history", [diagnostic2("missing-history", "Mandate history is missing")]);
   return { mandate: selected.mandateRecord, home };
 }
 function directAuthority(candidate, input) {
   const { mandate, home } = candidate;
-  const omission = epicParentProblem(mandate, input.histories);
+  const omission = epicParentProblem(mandate, input.authorityHistories, {
+    histories: input.histories,
+    catalogues: input.catalogues
+  });
   if (omission !== null)
     return landingRefusal2(landingReason(omission.reason), omission.evidence);
   if (input.localInhibit !== null && confirmedPause(home, mandate) === null && !abandoned(home, mandate))
@@ -21658,7 +22025,7 @@ function parentAuthority(candidate, input) {
   const { mandate } = candidate;
   if (mandate.payload.parent === null)
     return null;
-  const parentHistory = historyFor(mandate.payload.parent.scope, input.histories);
+  const parentHistory = historyFor(mandate.payload.parent.scope, input.authorityHistories);
   if (parentHistory === null)
     return landingRefusal2("missing-history", [diagnostic2("missing-history", "Parent mandate history is missing")]);
   const parent = bindExternalRef(mandate.payload.parent, parentHistory);
@@ -21666,7 +22033,10 @@ function parentAuthority(candidate, input) {
     return landingRefusal2("incomplete", parent.diagnostics);
   if (parent.value.kind !== "mandate")
     return landingRefusal2("unknown-binding", [diagnostic2("kind-mismatch", "Parent reference is not a mandate")]);
-  const parentSelection = selectApplicableMandate(parentHistory, input.histories);
+  const parentSelection = selectApplicableMandate(parentHistory, input.authorityHistories, {
+    histories: input.histories,
+    catalogues: input.catalogues
+  });
   if (parentSelection.status === "refused")
     return landingRefusal2(landingReason(parentSelection.reason), parentSelection.evidence);
   if (!sameRef2({ scope: mandateScope(parentSelection.mandate), recordId: parentSelection.mandate.recordId, kind: "mandate" }, mandate.payload.parent)) {
@@ -21690,7 +22060,7 @@ function parentChildGrantRefusal(mandate, parent, histories) {
 }
 function currentAuthority(candidate, input) {
   const { mandate } = candidate;
-  const outstandingPause = outstandingPauseInAuthority(mandate, input.histories);
+  const outstandingPause = outstandingPauseInAuthority(mandate, input.authorityHistories);
   if (outstandingPause !== null)
     return landingRefusal2("unconfirmed", [outstandingPause]);
   if (input.current.supportedConfigVersions.length === 0 || !input.current.supportedConfigVersions.includes(mandate.payload.config.version))
@@ -21733,6 +22103,7 @@ function uwAdmissionAuthority(candidate, input) {
     accepted,
     identities: identities.value,
     histories: input.histories,
+    catalogues: input.catalogues,
     phase: "landing",
     currentChildren: input.current.currentChildren
   });
@@ -21741,7 +22112,13 @@ function uwAdmissionAuthority(candidate, input) {
   return null;
 }
 function requireLandingMandate(input) {
-  const listed = incompleteListedParent(input.parentScopes, input.histories);
+  const causalDiagnostics = workflowCausalDiagnostics(input.authorityHistories, {
+    histories: input.histories,
+    catalogues: input.catalogues
+  });
+  if (causalDiagnostics.length > 0)
+    return landingRefusal2("incomplete", causalDiagnostics);
+  const listed = incompleteListedParent(input.parentScopes, input.authorityHistories);
   if (listed !== null)
     return listed;
   const selected = selectedCandidate(input);
@@ -21966,17 +22343,17 @@ function sessionReady(facts) {
 }
 
 // plugins/omp-build/engine/workflow-action-state.ts
-function planConfirmed(history, mandate) {
-  return planMacro({ issue: history, pullRequest: null, parents: [] }, mandate).phase === "eligible";
+function planConfirmed(history, mandate, causal) {
+  return planMacro({ issue: history, pullRequest: null, parents: [], causal }, mandate).phase === "eligible";
 }
-function implementConfirmed(history, mandate) {
-  return implementationCompletion({ issue: history, pullRequest: null, parents: [] }, mandate).status === "confirmed";
+function implementConfirmed(history, mandate, causal) {
+  return implementationCompletion({ issue: history, pullRequest: null, parents: [], causal }, mandate).status === "confirmed";
 }
 function prePrStartsAbsent(history) {
   return !recordsOf(history).some((record) => record.kind === "action-receipt" && (record.payload.action === "plan" || record.payload.action === "plan-review" || record.payload.action === "implement"));
 }
-function adoptedOrConfirmed(history, mandate) {
-  return prePrStartsAbsent(history) || implementConfirmed(history, mandate);
+function adoptedOrConfirmed(history, mandate, causal) {
+  return prePrStartsAbsent(history) || implementConfirmed(history, mandate, causal);
 }
 function workflowBound(mandate, history, pullRequest, facts) {
   if (mandate === null || facts.pullRequest === null || pullRequest === null)
@@ -22006,7 +22383,7 @@ function unresolvedWork(evidence, facts, decisions, mandate) {
 }
 
 // plugins/omp-build/engine/workflow-condition-evaluation.ts
-function conditionHolds(when, history, facts, decisions, mandate, pullRequest, externalHistories = []) {
+function conditionHolds(when, history, facts, decisions, mandate, pullRequest, causal) {
   switch (when) {
     case "always":
       return true;
@@ -22015,15 +22392,15 @@ function conditionHolds(when, history, facts, decisions, mandate, pullRequest, e
     case "mandate-ready":
       return mandate !== null;
     case "spec-differs":
-      return specMatches(false, history, facts, mandate, externalHistories);
+      return specMatches(false, facts, mandate, causal.histories);
     case "spec-settled":
-      return specMatches(true, history, facts, mandate, externalHistories);
+      return specMatches(true, facts, mandate, causal.histories);
     case "plan-confirmed":
-      return planConfirmed(history, mandate);
+      return planConfirmed(history, mandate, causal);
     case "implement-confirmed":
-      return implementConfirmed(history, mandate);
+      return implementConfirmed(history, mandate, causal);
     case "pr-open":
-      return pullRequestIsOpen(history, facts, mandate, pullRequest);
+      return pullRequestIsOpen(history, facts, mandate, pullRequest, causal);
     case "review-step-review":
       return decisions.reviewStep === "review";
     case "review-step-fix":
@@ -22062,10 +22439,10 @@ function conditionHolds(when, history, facts, decisions, mandate, pullRequest, e
       return null;
   }
 }
-function specMatches(settled, history, facts, mandate, externalHistories) {
+function specMatches(settled, facts, mandate, histories) {
   if (mandate === null || facts.currentSpec === null)
     return false;
-  const accepted = resolveAcceptedSpec(mandate, [history, ...externalHistories]);
+  const accepted = resolveAcceptedSpec(mandate, histories);
   if (!accepted.ok)
     return false;
   const same = facts.currentSpec.snapshot.spec.version === accepted.spec.snapshot.spec.version && facts.currentSpec.tier === accepted.spec.tier && sameChildren(facts.currentSpec.children, accepted.spec.children);
@@ -22082,8 +22459,8 @@ function sameChildren(current, accepted) {
   }
   return true;
 }
-function pullRequestIsOpen(history, facts, mandate, pullRequest) {
-  return facts.pullRequest !== null && workflowBound(mandate, history, pullRequest, facts) && adoptedOrConfirmed(history, mandate);
+function pullRequestIsOpen(history, facts, mandate, pullRequest, causal) {
+  return facts.pullRequest !== null && workflowBound(mandate, history, pullRequest, facts) && adoptedOrConfirmed(history, mandate, causal);
 }
 function ciConditionHolds(when, history, facts, decisions, mandate, pullRequest) {
   if (decisions.ciWatchStatus !== "red" || decisions.reviewStep !== "fix")
@@ -22098,8 +22475,8 @@ function ciConditionHolds(when, history, facts, decisions, mandate, pullRequest)
 function blocked(reason, evidence) {
   return { status: "blocked", reason, evidence };
 }
-function terminalDecision(node, history, facts, decisions, mandate, pullRequest, externalHistories) {
-  if (node.action === "stop" && conditionHolds("ci-attribution-refused", history, facts, decisions, mandate, pullRequest, externalHistories) === true) {
+function terminalDecision(node, history, facts, decisions, mandate, pullRequest, causal) {
+  if (node.action === "stop" && conditionHolds("ci-attribution-refused", history, facts, decisions, mandate, pullRequest, causal) === true) {
     return {
       status: "terminal",
       reason: "ci-attribution-refused",
@@ -22112,8 +22489,8 @@ function terminalDecision(node, history, facts, decisions, mandate, pullRequest,
     return null;
   return facts.endObligationsMet ? { status: "terminal", reason: "done", evidence: [] } : blocked("unknown-outcome", [diagnostic2("unknown-outcome", "Merged work still has end obligations")]);
 }
-function nextNode(graph, current, node, history, facts, decisions, mandate, pullRequest, externalHistories) {
-  const matching = graph.edges.filter((edge) => edge.from === current && conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest, externalHistories) === true);
+function nextNode(graph, current, node, history, facts, decisions, mandate, pullRequest, causal) {
+  const matching = graph.edges.filter((edge) => edge.from === current && conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest, causal) === true);
   const exclusive = [
     ["spec-differs", "spec-settled"],
     ["review-step-review", "review-step-fix", "review-step-land", "review-step-stop"],
@@ -22149,11 +22526,10 @@ function walkWorkflowStep(graph, nodes, current, enteredByTransition, evidence, 
     return blocked("action-uncertain", completion.evidence);
   if (completion.status === "blocked")
     return blocked(completionBlockReason(completion), completion.evidence);
-  const externalHistories = [...evidence.parents, ...evidence.pullRequest === null ? [] : [evidence.pullRequest]];
-  const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest, externalHistories);
+  const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest, evidence.causal);
   if (terminal !== null)
     return terminal;
-  const next = nextNode(graph, current, node, evidence.issue, facts, decisions, mandate, evidence.pullRequest, externalHistories);
+  const next = nextNode(graph, current, node, evidence.issue, facts, decisions, mandate, evidence.pullRequest, evidence.causal);
   if (enteredByTransition && typeof next !== "string" && next.status === "blocked" && next.reason === "unknown-outcome" && completion.status === "not-started")
     return {
       status: "action",
@@ -22259,11 +22635,11 @@ function refusalDecision(selection) {
     return blocked3("unsafe-authority", selection.evidence);
   return blocked3(selection.reason === "unsupported" ? "unsupported-config" : "unconfirmed", selection.evidence);
 }
-function selectedMandate2(history, externalHistories, facts) {
-  const own = resolveOwnSpecAuthority(history, externalHistories);
+function selectedMandate2(history, externalHistories, causal, facts) {
+  const own = resolveOwnSpecAuthority(history, externalHistories, causal);
   if (own.ok)
     return { mandate: own.value.mandate };
-  const selection = selectApplicableMandate(history, externalHistories);
+  const selection = selectApplicableMandate(history, externalHistories, causal);
   if (selection.status === "applicable")
     return { mandate: selection.mandate };
   if (selection.reason === "missing")
@@ -22365,7 +22741,10 @@ function reconstructWorkflow(input) {
   const historyProblem = historyProblemDecision(history);
   if (historyProblem !== null)
     return historyProblem;
-  const selected = selectedMandate2(history, externalHistories, input.facts);
+  const drift = workflowCausalDiagnostics([history, ...externalHistories], input.evidence.causal);
+  if (drift.length)
+    return blocked3("missing-history", drift);
+  const selected = selectedMandate2(history, externalHistories, input.evidence.causal, input.facts);
   if (!("mandate" in selected))
     return selected;
   const local = localAuthorityDecision(selected.mandate, history, externalHistories, input.facts);
@@ -22373,8 +22752,7 @@ function reconstructWorkflow(input) {
     return local;
   if (!sessionReady(input.facts))
     return blocked3("session-cwd", sessionEvidence(input.facts));
-  const histories = [history, ...externalHistories];
-  const assessment = assessmentDecision(matchingAssessments2(history, selected.mandate, input.facts), selected.mandate, histories);
+  const assessment = assessmentDecision(matchingAssessments2(history, selected.mandate, input.facts), selected.mandate, input.evidence.causal.histories);
   if (assessment !== null)
     return assessment;
   const graph = executableGraph(selected.mandate);
@@ -22383,7 +22761,7 @@ function reconstructWorkflow(input) {
   const decision = walkWorkflow(graph.value, input.evidence, input.facts, input.decisions, selected.mandate);
   if (decision.status === "action" && decision.action === "assess-spec")
     return decision;
-  const delivery = selectApplicableMandate(history, externalHistories);
+  const delivery = selectApplicableMandate(history, externalHistories, input.evidence.causal);
   if (delivery.status !== "applicable")
     return refusalDecision(delivery);
   return bindingDecision(decision, input, history, externalHistories, selected.mandate) ?? decision;
@@ -22408,7 +22786,7 @@ async function readScopeIssueBody(scope, options) {
   return facts.body;
 }
 // plugins/omp-build/roxabi/workflow-config-digest.ts
-import { createHash as createHash13 } from "node:crypto";
+import { createHash as createHash14 } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22488,10 +22866,10 @@ function canonicalJson(value) {
   return JSON.stringify(value) ?? "null";
 }
 function configPinDigest(effective) {
-  return createHash13("sha256").update(canonicalJson(effective)).digest("hex");
+  return createHash14("sha256").update(canonicalJson(effective)).digest("hex");
 }
 function workflowConfigDigest() {
-  return createHash13("sha256").update(canonicalJson({ version: WORKFLOW_CONFIG_VERSION, ...workflowGraphData })).digest("hex");
+  return createHash14("sha256").update(canonicalJson({ version: WORKFLOW_CONFIG_VERSION, ...workflowGraphData })).digest("hex");
 }
 function shippedProductVersion() {
   const start = dirname(fileURLToPath(import.meta.url));
@@ -22626,6 +23004,7 @@ export {
   assessCriterionReview,
   assessExclusion,
   assessFixMandate,
+  assessParentInsertionEngagement,
   assessPlanCoverage,
   assessUwAdmission,
   authorizeReviewContextSuccessor,
@@ -22644,6 +23023,7 @@ export {
   canonicalActionOperands,
   canonicalSpec,
   canonicalValueDigest,
+  catalogueForAction,
   causeAdjudicationInputSchema,
   causeAdjudicationProposalSchema,
   causeCreationProposalSchema,
@@ -22673,6 +23053,7 @@ export {
   correctionResultSchema,
   createGhIssueWritePorts,
   createIssueWriter,
+  createReviewClassCatalogues,
   creationContextSchema,
   criterionDeclarationSchema,
   criterionEvidenceSchema,
@@ -22733,6 +23114,7 @@ export {
   invariantIdSchema,
   inventorySchema,
   isInitialPullRequestReviewInventory,
+  isRetainedReportPublication,
   isWayfinder,
   isWorkflowKind,
   issueSpecAnalysisSchema,
@@ -22771,6 +23153,7 @@ export {
   parentAdditionObservationSchema,
   parseIssueSpecBody,
   parseRecord,
+  parseReviewClassCatalogue,
   partitionScopedRefs,
   phaseSchema,
   pinnedFileRefSchema,
@@ -22803,6 +23186,7 @@ export {
   rawSource,
   readCauseDispositionHeads,
   readCauseHistoryClosure,
+  readCauseHistoryClosureFromPrimary,
   readCauseReports,
   readComposedWorkflowHistory,
   readEffectiveFixConfig,
@@ -22812,6 +23196,7 @@ export {
   readLinkedIssueAssociation,
   readNativeIssueFacts,
   readNativePullRequestFacts,
+  readRetainedCauseDispositionLedger,
   readReviewRecovery,
   readScopeIssueBody,
   readUwGraph,
@@ -22847,6 +23232,7 @@ export {
   resolveSpecIdentityLedger,
   resolvedOutputValid,
   reviewActionId,
+  reviewClassCatalogueRef,
   reviewInputSnapshotSchema,
   reviewInterruptionPayloadSchema,
   reviewInterruptionRecordId,
@@ -22910,6 +23296,7 @@ export {
   validateFreshDecision,
   validateLocalFindingTarget,
   validateRecordGraph,
+  validateRetainedReportPublication,
   validateRetainedUnusableLabels,
   validateReviewDecisionBindings,
   validateSpecIds,

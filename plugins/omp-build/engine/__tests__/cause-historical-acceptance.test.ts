@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest'
+import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { operation } from '../../testing/record-history.ts'
@@ -19,6 +20,7 @@ it.each(['editorial', 'material'] as const)(
   'authenticates a historical retained report after accepted %s Spec B',
   (classification) => {
     const { graph, context } = authenticatedReview()
+    const catalogues = fixtureReviewClassCatalogues()
     const fixtures = roxabiWorkflowFixtures()
     const mandate = fixtures.featureMandate(context.original, {
       recordId: 'mandate-42',
@@ -55,6 +57,7 @@ it.each(['editorial', 'material'] as const)(
         context,
         source: { kind: 'retained-output', contributions: [panel], diagnostics: [] },
         histories: [initial, source],
+        catalogues,
         adjudications: [],
       }),
     )
@@ -83,12 +86,13 @@ it.each(['editorial', 'material'] as const)(
       ok: true,
       spec: { ref: { sourceAccepted: { recordId: control?.recordId ?? amendment.result.recordId } } },
     })
-    expect(validateCauseDispositionRecords({ records: [report], histories: [before, source] })).toEqual([])
-    expect(validateCauseDispositionRecords({ records: [report], histories: [after, source] })).toEqual([])
+    expect(validateCauseDispositionRecords({ records: [report], histories: [before, source], catalogues })).toEqual([])
+    expect(validateCauseDispositionRecords({ records: [report], histories: [after, source], catalogues })).toEqual([])
     expect(
       assessCauseHolds({
         uw: context.original,
         histories: [after, source],
+        catalogues,
         graph: { status: 'complete', root: context.original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
       }),
     ).toEqual([])
@@ -103,6 +107,7 @@ it.each(['editorial', 'material'] as const)(
     expect(
       validateCauseDispositionRecords({
         records: [forged],
+        catalogues,
         histories: [
           history([mandate, forged, amendment.start, amendment.result, ...(control ? [control] : [])]),
           source,

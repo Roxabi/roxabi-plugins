@@ -7,6 +7,8 @@ import {
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
+import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'
 
@@ -40,8 +42,10 @@ export function priorCorrectionDecision(
   ref: RecordInputRef,
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
-): boolean {
-  if (request.purpose !== 'correction' || ref.record.kind !== 'decision' || ref.selector !== '/payload') return false
+  catalogues: ReviewClassCatalogues,
+): Result<boolean> {
+  if (request.purpose !== 'correction' || ref.record.kind !== 'decision' || ref.selector !== '/payload')
+    return { ok: true, value: false }
   const scope = request.subject.pullRequest
   if (
     scope === null ||
@@ -49,9 +53,9 @@ export function priorCorrectionDecision(
     scope.target !== ref.record.scope.target ||
     request.code.repository !== scope.repository
   )
-    return false
+    return { ok: true, value: false }
   const history = historyFor(scope, histories)
-  if (history === null || workflowOperationProblem(history) !== null) return false
+  if (history === null || workflowOperationProblem(history) !== null) return { ok: true, value: false }
   const records = recordsOf(history)
   const decisions = records.filter(
     (record): record is Extract<CanonicalRecord, { kind: 'decision' }> =>
@@ -63,8 +67,10 @@ export function priorCorrectionDecision(
     decision === undefined ||
     canonicalValueDigest(decision.payload) !== ref.digest ||
     !authenticate(decision, histories).ok ||
-    !validateDecisionBindings(decision, history).admissible
+    !hasAuthenticatedLineage(decision, records, histories)
   )
-    return false
-  return hasAuthenticatedLineage(decision, records, histories)
+    return { ok: true, value: false }
+  const bindings = validateDecisionBindings(decision, history, catalogues)
+  if (!bindings.admissible) return { ok: false, diagnostics: bindings.diagnostics }
+  return { ok: true, value: true }
 }

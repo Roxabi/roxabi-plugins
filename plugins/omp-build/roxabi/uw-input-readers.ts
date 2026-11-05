@@ -2,6 +2,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import {
   actionInputsSchema,
   readCauseHistoryClosure,
+  readCauseHistoryClosureFromPrimary,
   readComposedWorkflowHistory,
   recordIntegrity,
   recordOperation,
@@ -134,13 +135,14 @@ function citedScopes(root: DecodedHistory, inputs: ActionInputs): Scope[] {
     if (subject.pullRequest !== null) add(subject.pullRequest)
     if (subject.binding !== null) add(subject.binding.record.scope)
   } else add(subject.pullRequest)
-  for (const ref of [...inputs.manifest.acceptedSources, ...inputs.manifest.deliveryData]) add(ref.record.scope)
+  for (const ref of [...inputs.manifest.acceptedSources, ...inputs.manifest.deliveryData, ...inputs.stageSources])
+    add(ref.record.scope)
   for (const ref of inputs.manifest.expandedContext) if (ref.source === 'record') add(ref.record.scope)
   return scopes
 }
 
 function citedRefs(inputs: ActionInputs): RecordInputRef[] {
-  const refs = [...inputs.manifest.acceptedSources, ...inputs.manifest.deliveryData]
+  const refs = [...inputs.manifest.acceptedSources, ...inputs.manifest.deliveryData, ...inputs.stageSources]
   for (const ref of inputs.manifest.expandedContext) if (ref.source === 'record') refs.push(ref)
   if (inputs.manifest.subject.kind === 'uw' && inputs.manifest.subject.binding !== null)
     refs.push(inputs.manifest.subject.binding)
@@ -195,12 +197,28 @@ export async function readManifestCitedHistories(input: {
 }
 function assessedInputs(history: DecodedHistory): ActionInputs[] {
   const inputs: ActionInputs[] = []
-  for (const record of recordsOf(history)) {
-    if (record.kind !== 'review-attempt' || record.payload === null || typeof record.payload !== 'object') continue
-    const parsed = actionInputsSchema.safeParse((record.payload as { inputSnapshot?: unknown }).inputSnapshot)
+  const add = (value: unknown) => {
+    const parsed = actionInputsSchema.safeParse(value)
     if (parsed.success) inputs.push(parsed.data)
   }
+  for (const record of recordsOf(history)) addAssessedRecord(record, add)
   return inputs
+}
+
+function addAssessedRecord(record: ReturnType<typeof recordsOf>[number], add: (value: unknown) => void): void {
+  if (record.kind === 'review-attempt') {
+    if ('inputSnapshot' in record.payload) add(record.payload.inputSnapshot)
+    addAssessedSlots(record.payload.slots, add)
+  } else if (record.kind === 'contribution') {
+    if (record.payload.host.action !== undefined) add(record.payload.host.action.inputs)
+  } else if (record.kind === 'action-receipt') {
+    add(record.payload.inputs)
+    if ('slots' in record.payload) addAssessedSlots(record.payload.slots, add)
+  }
+}
+
+function addAssessedSlots(slots: readonly { action?: { inputs: unknown } }[], add: (value: unknown) => void): void {
+  for (const slot of slots) if (slot.action !== undefined) add(slot.action.inputs)
 }
 
 /** External histories only. Union of every assessed root's cited scopes. A failed cited read is not []. */
@@ -239,9 +257,13 @@ function confirmFetchedScopes(scopes: readonly Scope[], histories: readonly Deco
 export async function readReviewInputHistories(
   history: DecodedHistory,
   options: ProductionReaderOptions,
+  additionalScopes: readonly Scope[] = [],
 ): Promise<Result<readonly DecodedHistory[]>> {
-  if (!history.source.complete) return actionFailure('record-unreadable', 'Root review history is incomplete')
   const cited = gatherCited(history, assessedInputs(history))
+  for (const scope of additionalScopes) {
+    if (scope.repository !== history.source.scope.repository || scope.target !== history.source.scope.target)
+      addScope(cited.scopes, scope)
+  }
   const fetched =
     cited.scopes.length === 0
       ? { ok: true as const, histories: [] as DecodedHistory[] }
@@ -249,7 +271,7 @@ export async function readReviewInputHistories(
   if (!fetched.ok) return { ok: false, diagnostics: fetched.diagnostics }
   const scopes = confirmFetchedScopes(cited.scopes, fetched.histories)
   if (!scopes.ok) return scopes
-  const closure = await readCauseHistoryClosure([history, ...fetched.histories], (required) =>
+  const closure = await readCauseHistoryClosureFromPrimary(history, fetched.histories, (required) =>
     readComposedWorkflowHistory(required, options),
   )
   if (!closure.ok) return { ok: false, diagnostics: closure.diagnostics }

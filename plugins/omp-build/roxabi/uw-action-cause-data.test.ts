@@ -5,6 +5,8 @@ import { assessCauseDispositions, effectiveRejectedFindingIds } from '../engine/
 import { causeAdjudicationProposalSchema } from '../engine/cause-disposition-schema.ts'
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
+import { fixtureReviewClassCatalogues } from '../testing/action-input-fixtures.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { acceptedPullRequestReviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation as observedOperation } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
@@ -70,6 +72,7 @@ function actionFixture() {
       context,
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory(), graph.history],
+      catalogues: fixtureReviewClassCatalogues(),
       adjudications: [],
     }),
   )
@@ -127,6 +130,7 @@ function actionFixture() {
       context,
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory([pending, firstOperation]), graph.history],
+      catalogues: fixtureReviewClassCatalogues(),
       adjudications: [firstOperation],
     }),
   )
@@ -183,6 +187,7 @@ function actionFixture() {
       context,
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory([pending, firstOperation, middle, operation]), graph.history],
+      catalogues: fixtureReviewClassCatalogues(),
       adjudications: [operation],
     }),
   )
@@ -221,24 +226,41 @@ describe('cause state as action data', () => {
     const before = [originalHistory(), graph.history]
     const after = [originalHistory([pending]), graph.history]
     const root = ref(graph.root)
-    const beforeData = must(causeActionData(request, before, currentRootOutputRefs(request, before, root)))
+    const beforeData = must(
+      causeActionData(
+        request,
+        before,
+        currentRootOutputRefs(request, before, root),
+        fixtureHostReviewClassCatalogues(),
+      ),
+    )
     const outputs = currentRootOutputRefs(request, after, root)
     expect(
       outputs.some((item) => item.record.kind === 'decision' && item.record.recordId === graph.decision.recordId),
     ).toBe(true)
-    const afterData = must(causeActionData(request, after, outputs))
+    const afterData = must(causeActionData(request, after, outputs, fixtureHostReviewClassCatalogues()))
     expect(withData(inputs, afterData).fingerprint).toBe(withData(inputs, beforeData).fingerprint)
-    expect(assertCurrentOutputClosure(request, after, afterData, root)).toEqual({ ok: true, value: true })
+    expect(assertCurrentOutputClosure(request, after, fixtureHostReviewClassCatalogues(), afterData, root)).toEqual({
+      ok: true,
+      value: true,
+    })
   })
 
   it('refuses the selected review after a later adjudication and preserves its lineage for a new review', () => {
     const { graph, pending, firstOperation, middle, operation, head, request } = actionFixture()
     const histories = [originalHistory([pending, firstOperation, middle, operation, head]), graph.history]
-    const selected = causeActionData(request, histories, currentRootOutputRefs(request, histories, ref(graph.root)))
+    const selected = causeActionData(
+      request,
+      histories,
+      currentRootOutputRefs(request, histories, ref(graph.root)),
+      fixtureHostReviewClassCatalogues(),
+    )
     expect(selected.ok).toBe(false)
     if (!selected.ok) expect(selected.diagnostics.map((item) => item.code)).toContain('review-input-changed')
     const next = { ...request, actionId: 'new-review' }
-    const refs = must(causeActionData(next, histories, currentRootOutputRefs(next, histories)))
+    const refs = must(
+      causeActionData(next, histories, currentRootOutputRefs(next, histories), fixtureHostReviewClassCatalogues()),
+    )
     expect(refs.map((item) => item.record.recordId)).toEqual(
       expect.arrayContaining([
         pending.recordId,
@@ -269,7 +291,7 @@ describe('cause state as action data', () => {
     const outputs = currentRootOutputRefs(request, histories, ref(graph.root))
     expect(outputs.some((item) => item.record.recordId === graph.decision.recordId)).toBe(true)
     expect(outputs.some((item) => item.record.recordId === other.decision.recordId)).toBe(false)
-    const refs = must(causeActionData(request, histories, outputs))
+    const refs = must(causeActionData(request, histories, outputs, fixtureHostReviewClassCatalogues()))
     expect(refs.map((item) => item.record.recordId)).toContain(independent.recordId)
     expect(refs.map((item) => item.record.recordId)).not.toContain(pending.recordId)
     const withoutOther = withData(
@@ -283,7 +305,7 @@ describe('cause state as action data', () => {
     const { graph, inputs, pending, firstOperation, middle, operation, head, request } = actionFixture()
     const prior = [pending, firstOperation, middle, operation, head]
     const firstHistories = [originalHistory([pending]), graph.history]
-    const secondRefs = must(causeActionData(request, firstHistories, []))
+    const secondRefs = must(causeActionData(request, firstHistories, [], fixtureHostReviewClassCatalogues()))
     const secondManifest = {
       ...inputs.manifest,
       code: { ...inputs.manifest.code, head: '2'.repeat(40), referenceCommit: '2'.repeat(40) },
@@ -298,7 +320,7 @@ describe('cause state as action data', () => {
       inputs: secondInputs,
     })
     const histories = [originalHistory(prior), graph.history]
-    const thirdRefs = must(causeActionData(request, histories, []))
+    const thirdRefs = must(causeActionData(request, histories, [], fixtureHostReviewClassCatalogues()))
     const thirdManifest = {
       ...inputs.manifest,
       code: { ...inputs.manifest.code, head: '3'.repeat(40), referenceCommit: '3'.repeat(40) },
@@ -340,14 +362,23 @@ describe('cause state as action data', () => {
     const { graph, inputs, pending, firstOperation, middle, operation, head, request } = actionFixture()
     const histories = [originalHistory([pending, firstOperation, middle, operation, head]), graph.history]
     const next = { ...request, actionId: 'next-review-root' }
-    const refs = must(causeActionData(next, histories, currentRootOutputRefs(next, histories)))
+    const refs = must(
+      causeActionData(next, histories, currentRootOutputRefs(next, histories), fixtureHostReviewClassCatalogues()),
+    )
     const current = withData(inputs, refs)
     expect(current.fingerprint).not.toBe(inputs.fingerprint)
     const nextDecision = must(
       parseRecord({ ...graph.decision, recordId: 'next-decision', operationId: 'next-decision-op' }),
     )
     if (nextDecision.kind !== 'decision') throw new Error('Expected decision')
-    const rejected = must(effectiveRejectedFindingIds({ decision: nextDecision, action: current, histories }))
+    const rejected = must(
+      effectiveRejectedFindingIds({
+        decision: nextDecision,
+        action: current,
+        histories,
+        catalogues: fixtureReviewClassCatalogues(),
+      }),
+    )
     const finding = graph.decision.payload.judgment.findings[0]
     if (finding === undefined) throw new Error('Expected a finding in the prior review')
     expect(rejected).toEqual([finding.id])
@@ -357,7 +388,12 @@ describe('cause state as action data', () => {
         refs.filter((item) => item.record.recordId !== removed),
       )
       expect(incomplete.fingerprint).not.toBe(current.fingerprint)
-      const result = effectiveRejectedFindingIds({ decision: nextDecision, action: incomplete, histories })
+      const result = effectiveRejectedFindingIds({
+        decision: nextDecision,
+        action: incomplete,
+        histories,
+        catalogues: fixtureReviewClassCatalogues(),
+      })
       expect(result.ok).toBe(false)
       if (!result.ok) expect(result.diagnostics.map((item) => item.code)).toContain('cause-adjudication-unconfirmed')
     }
@@ -366,8 +402,20 @@ describe('cause state as action data', () => {
       refs.filter((item) => item.record.recordId !== head.recordId),
     )
     expect(withoutHead.fingerprint).not.toBe(current.fingerprint)
-    expect(must(effectiveRejectedFindingIds({ decision: nextDecision, action: withoutHead, histories }))).toEqual([])
-    expect(assertCurrentOutputClosure(next, histories, refs)).toEqual({ ok: true, value: true })
+    expect(
+      must(
+        effectiveRejectedFindingIds({
+          decision: nextDecision,
+          action: withoutHead,
+          histories,
+          catalogues: fixtureReviewClassCatalogues(),
+        }),
+      ),
+    ).toEqual([])
+    expect(assertCurrentOutputClosure(next, histories, fixtureHostReviewClassCatalogues(), refs)).toEqual({
+      ok: true,
+      value: true,
+    })
   })
 
   it.each(['foreign', 'edited'] as const)(
@@ -386,7 +434,12 @@ describe('cause state as action data', () => {
       }
       const next = { ...request, actionId: 'next-review-root' }
       const histories = [altered, graph.history]
-      const result = causeActionData(next, histories, currentRootOutputRefs(next, histories))
+      const result = causeActionData(
+        next,
+        histories,
+        currentRootOutputRefs(next, histories),
+        fixtureHostReviewClassCatalogues(),
+      )
       expect(result.ok).toBe(false)
       if (!result.ok) expect(result.diagnostics.map((item) => item.code)).toContain('cause-chain-invalid')
     },

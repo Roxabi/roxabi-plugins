@@ -5,6 +5,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { accounted, resolvedOutputValid } from './review-context-authentication.ts'
 import { validateDecisionBindings } from './review-decision.ts'
 import { historyFor, recordsOf, workflowOperationProblem } from './workflow-control.ts'
@@ -43,6 +44,7 @@ function correctionDecision(
   source: Contribution,
   inventory: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
   inputs: ActionInputs,
+  catalogues: ReviewClassCatalogues,
 ): Result<{ decision: Decision; decisionRef: RecordInputRef }> {
   const decisions = inputs.stageSources.filter(
     (item) => item.record.kind === 'decision' && item.selector === '/payload',
@@ -59,10 +61,11 @@ function correctionDecision(
     !accounted(history, decision) ||
     canonicalValueDigest(ref(decision)) !== canonicalValueDigest(decisionRef) ||
     !inventory.inputs.includes(decision.recordId) ||
-    !source.inputs.includes(decision.recordId) ||
-    !validateDecisionBindings(decision, history).admissible
+    !source.inputs.includes(decision.recordId)
   )
     return failure()
+  const bindings = validateDecisionBindings(decision, history, catalogues)
+  if (!bindings.admissible) return { ok: false, diagnostics: bindings.diagnostics }
   return { ok: true, value: { decision, decisionRef } }
 }
 
@@ -150,6 +153,7 @@ function historicalSubjectMatches(
 export function resolveHistoricalCorrectionBasis(input: {
   contribution: Contribution
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
   expectedSubject?: ActionSubject
 }): Result<HistoricalCorrectionBasis> {
   const source = input.contribution
@@ -176,10 +180,10 @@ export function resolveHistoricalCorrectionBasis(input: {
     !source.inputs.includes(fix.recordId)
   )
     return failure()
-  const selectedDecision = correctionDecision(history, records, source, inventory, inputs)
+  const selectedDecision = correctionDecision(history, records, source, inventory, inputs, input.catalogues)
   if (!selectedDecision.ok) return selectedDecision
   const { decision, decisionRef } = selectedDecision.value
-  const resolved = resolveCorrectionRequestBasis(history, fix, decision)
+  const resolved = resolveCorrectionRequestBasis(history, fix, decision, input.catalogues)
   if (!resolved.ok) return resolved
   const basis = resolved.value
   const subject = inputs.manifest.subject

@@ -7,14 +7,14 @@ import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate, freshOwnSpec } from './feature-initial-mandate.ts'
-import { resolveBase } from './feature-mandate.ts'
-import { linkedMove } from './feature-selection.ts'
-import { prepareRequestedSession } from './feature-selection-session.ts'
+import { prepareRequestedSession, prepareSuccessorCheckout } from './feature-selection-session.ts'
 import { publishSuccessorMandate } from './feature-succession.ts'
+import { composeObservedUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { NormalizationProposalRequest, UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
 import { markSuccessorNormalization } from './uw-normalization-internal.ts'
 import { readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
-import { prepareFeatureCheckout, runWorktreeBootstrap } from './workflow-checkout.ts'
+import { runWorktreeBootstrap } from './workflow-checkout.ts'
 
 export type SelectedFeature = {
   authority: FeatureAuthority
@@ -27,7 +27,7 @@ export type SelectedFeature = {
   mandateRef: ScopedRecordRef | null
 }
 
-type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'selection'>
+type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'>
 
 export async function selectFeatureMandate(
   control: FeatureControl,
@@ -54,24 +54,63 @@ export async function selectFeatureMandate(
   if ('kind' in updated) return updated
   const prepared = await prepareSelectionSession(control, authority, branch, sessionCwd, updated)
   if (prepared !== null) return prepared
-  const applicable =
-    exactMandateRef === undefined
-      ? context.engine.selectApplicableMandate(updated.history, updated.parentHistories)
-      : updated.selection
-  const own = context.engine.resolveOwnSpecAuthority(updated.history, updated.parentHistories)
+  return finishSelection(authority, updated, exactMandateRef, issue, number, uwRead, reader)
+}
+
+async function finishSelection(
+  authority: FeatureAuthority,
+  updated: SelectionState,
+  exactMandateRef: ScopedRecordRef | undefined,
+  issue: SelectionIssueSpec,
+  number: number,
+  uwRead: UwRead | null,
+  reader: UwReadPort | undefined,
+): Promise<SelectedFeature | ContinueFeatureResult> {
+  const { context, scope } = authority
+  const currentRead =
+    reader !== undefined && updated.history !== authority.history ? await reader.readUw(scope) : uwRead
+  const causal =
+    currentRead === null
+      ? updated.causal
+      : await composeObservedUwCausalContext(currentRead, [updated.history, ...updated.parentHistories], {
+          cwd: context.cwd,
+          gh: context.gh,
+        })
+  if ('ok' in causal && !causal.ok)
+    return {
+      kind: 'blocked',
+      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
+      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
+  const selectionCausal = 'ok' in causal ? causal.value : causal
+  const applicable = context.engine.selectApplicableMandate(updated.history, updated.parentHistories, selectionCausal)
+  const exactProblem = exactSelectionProblem(applicable, exactMandateRef)
+  if (exactProblem !== null) return exactProblem
+  const own = context.engine.resolveOwnSpecAuthority(updated.history, updated.parentHistories, selectionCausal)
   const mandate = own.ok ? own.value.mandate : null
   const mandateRef: ScopedRecordRef | null =
     exactMandateRef ?? (mandate === null ? null : { scope, recordId: mandate.recordId, kind: 'mandate' })
   return {
-    authority: { ...authority, ...updated, selection: applicable },
+    authority: { ...authority, ...updated, causal: selectionCausal, selection: applicable },
     number,
     reader: reader ?? null,
     issue,
-    uwRead,
+    uwRead: currentRead,
     mandate,
     acceptedSpec: own.ok ? own.value.accepted : null,
     mandateRef,
   }
+}
+
+function exactSelectionProblem(
+  selection: FeatureAuthority['selection'],
+  ref: ScopedRecordRef | undefined,
+): ContinueFeatureResult | null {
+  if (ref === undefined) return null
+  if (selection.status !== 'applicable') return { kind: 'blocked', reason: `exact-mandate-${selection.reason}` }
+  if (selection.mandate === null || selection.mandate.recordId !== ref.recordId)
+    return { kind: 'blocked', reason: 'exact-mandate-not-applicable' }
+  return null
 }
 
 function needsInitialSpec(control: FeatureControl, selection: FeatureAuthority['selection']): boolean {
@@ -187,38 +226,14 @@ async function createSuccessorSelection(input: {
   parentHistories: FeatureAuthority['parentHistories']
 }): Promise<SelectionState | ContinueFeatureResult> {
   const { authority, issue, uwRead, reader, number, branch, sessionCwd, history, parentHistories } = input
+  if (reader === undefined) return { kind: 'blocked', reason: 'uw-read-required' }
   const own = await freshOwnSpec(authority.scope, uwRead, reader)
   if ('kind' in own) return own
   const checkout = await prepareSuccessorCheckout(authority, branch, sessionCwd)
   if (checkout !== null) return checkout
   const boot = await runWorktreeBootstrap(authority.context.cwd)
   if (!boot.ok) return { kind: 'blocked', reason: boot.reason }
-  return publishAndRefreshSuccessor(authority, issue, own, number, history, parentHistories)
-}
-
-async function prepareSuccessorCheckout(
-  authority: FeatureAuthority,
-  branch: string,
-  sessionCwd: string | null,
-): Promise<ContinueFeatureResult | null> {
-  const { context, identity, onPrincipal, scope } = authority
-  if (!onPrincipal && sessionCwd !== null) return null
-  const base = await resolveBase(context.git, identity.ok ? identity.principalTop : context.cwd)
-  if ('reason' in base) return { kind: 'blocked', reason: base.reason }
-  const prepared = await prepareFeatureCheckout({
-    git: context.git,
-    sessionCwd: context.cwd,
-    branch,
-    base: base.base,
-    repository: scope.repository,
-    detached: false,
-  })
-  if (prepared.status === 'blocked') return { kind: 'blocked', reason: prepared.reason }
-  if (prepared.status === 'move') {
-    const move = linkedMove(context.cwd, prepared.path)
-    if (move) return move
-  }
-  return null
+  return publishAndRefreshSuccessor(authority, issue, own, number, history, parentHistories, reader)
 }
 
 async function publishAndRefreshSuccessor(
@@ -228,6 +243,7 @@ async function publishAndRefreshSuccessor(
   number: number,
   history: FeatureAuthority['history'],
   parentHistories: FeatureAuthority['parentHistories'],
+  reader: UwReadPort,
 ): Promise<SelectionState | ContinueFeatureResult> {
   const { context, scope } = authority
   const succession = await publishSuccessorMandate({
@@ -243,14 +259,23 @@ async function publishAndRefreshSuccessor(
     parents: parentHistories,
   })
   if (!succession.ok) return { kind: 'blocked', reason: succession.reason }
-  const refreshed = await context.engine.readComposedWorkflowHistory([scope], { cwd: context.cwd, gh: context.gh })
+  const options = { ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }), gh: context.gh }
+  const refreshed = await context.engine.readComposedWorkflowHistory([scope], options)
   if (!refreshed.ok || refreshed.histories[0] === undefined) return { kind: 'blocked', reason: 'successor-unconfirmed' }
   const nextHistory = refreshed.histories[0]
-  const parents = await mandateParentHistories(context.engine, nextHistory, { cwd: context.cwd, gh: context.gh })
+  const parents = await mandateParentHistories(context.engine, nextHistory, options)
   if (!parents.ok) return { kind: 'blocked', reason: parents.reason }
-  const selection = context.engine.selectApplicableMandate(nextHistory, parents.parents)
+  const read = await reader.readUw(scope)
+  const causal = await readFixUwCausalContext(read.histories, [nextHistory, ...parents.parents], options)
+  if (!causal.ok)
+    return {
+      kind: 'blocked',
+      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
+      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
+  const selection = context.engine.selectApplicableMandate(nextHistory, parents.parents, causal.value)
   if (selection.status !== 'applicable') {
     return { kind: 'blocked', reason: `successor-${selection.status === 'refused' ? selection.reason : 'unconfirmed'}` }
   }
-  return { history: nextHistory, parentHistories: parents.parents, selection }
+  return { history: nextHistory, parentHistories: parents.parents, causal: causal.value, selection }
 }

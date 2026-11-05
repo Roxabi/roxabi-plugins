@@ -1,7 +1,7 @@
 import { projectionConfig, TEST_HEAD, TEST_REVIEW_INPUT, TEST_SCOPE } from '../../testing/record-builders.ts'
 
 export const TAXONOMY = ['race-condition', 'candidate/isolated-hypothesis', 'test-tautology']
-export const PROJECTION_CONFIG = projectionConfig(TAXONOMY)
+export const PROJECTION_CONFIG = projectionConfig()
 
 export function refusalCodes(result: { ok: boolean; diagnostics?: { code: string }[] }): string[] {
   if (result.ok) throw new Error('Expected a refusal')

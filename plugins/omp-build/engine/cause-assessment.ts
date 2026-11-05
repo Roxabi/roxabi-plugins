@@ -1,3 +1,4 @@
+import { canonicalValueDigest } from './action-input.ts'
 import { resolveCauseActionInputs } from './cause-adjudication.ts'
 import {
   authenticateCauseContext,
@@ -18,6 +19,7 @@ import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { validateDecisionBindings } from './review-decision.ts'
 import { bindExternalRef } from './workflow-control.ts'
 export const blockingLabels = new Set(['issue', 'issue(blocking)', 'todo', 'suggestion(blocking)'])
@@ -25,6 +27,7 @@ type AssessmentInput = {
   context: CauseContext
   source: DispositionSource
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
   adjudications: readonly Extract<CanonicalRecord, { kind: 'cause-operation' }>[]
 }
 
@@ -60,7 +63,12 @@ function assess(
   if (!bound.ok) return bound
   if (JSON.stringify(bound.value) !== JSON.stringify(decision))
     return { ok: false, diagnostics: [diagnostic('unbound', 'Decision differs from its authenticated record')] }
-  const bindings = validateDecisionBindings(decision, history)
+  const bindingKey = canonicalValueDigest([decisionScope, decision])
+  let bindings = frame?.bindings.get(bindingKey)
+  if (bindings === undefined) {
+    bindings = validateDecisionBindings(decision, history, frame?.catalogues ?? input.catalogues)
+    frame?.bindings.set(bindingKey, bindings)
+  }
   diagnostics.push(...bindings.diagnostics)
   const resolvedInputs = resolveCauseActionInputs({ decision, history, context })
   if (!resolvedInputs.ok) return resolvedInputs

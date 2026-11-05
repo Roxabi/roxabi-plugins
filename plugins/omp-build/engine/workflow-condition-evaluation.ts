@@ -5,6 +5,7 @@ import { adoptedOrConfirmed, implementConfirmed, planConfirmed, workflowBound } 
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowCondition } from './workflow-graph.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
+import type { WorkflowCausalContext } from './workflow-plan.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
 
 export function conditionHolds(
@@ -14,7 +15,7 @@ export function conditionHolds(
   decisions: SpecializedDecisions,
   mandate: MandateRecord | null,
   pullRequest: DecodedHistory | null,
-  externalHistories: readonly DecodedHistory[] = [],
+  causal: WorkflowCausalContext,
 ): boolean | null {
   switch (when) {
     case 'always':
@@ -24,15 +25,15 @@ export function conditionHolds(
     case 'mandate-ready':
       return mandate !== null
     case 'spec-differs':
-      return specMatches(false, history, facts, mandate, externalHistories)
+      return specMatches(false, facts, mandate, causal.histories)
     case 'spec-settled':
-      return specMatches(true, history, facts, mandate, externalHistories)
+      return specMatches(true, facts, mandate, causal.histories)
     case 'plan-confirmed':
-      return planConfirmed(history, mandate)
+      return planConfirmed(history, mandate, causal)
     case 'implement-confirmed':
-      return implementConfirmed(history, mandate)
+      return implementConfirmed(history, mandate, causal)
     case 'pr-open':
-      return pullRequestIsOpen(history, facts, mandate, pullRequest)
+      return pullRequestIsOpen(history, facts, mandate, pullRequest, causal)
     case 'review-step-review':
       return decisions.reviewStep === 'review'
     case 'review-step-fix':
@@ -74,13 +75,12 @@ export function conditionHolds(
 
 function specMatches(
   settled: boolean,
-  history: DecodedHistory,
   facts: WorkflowFacts,
   mandate: MandateRecord | null,
-  externalHistories: readonly DecodedHistory[],
+  histories: readonly DecodedHistory[],
 ): boolean {
   if (mandate === null || facts.currentSpec === null) return false
-  const accepted = resolveAcceptedSpec(mandate, [history, ...externalHistories])
+  const accepted = resolveAcceptedSpec(mandate, histories)
   if (!accepted.ok) return false
   const same =
     facts.currentSpec.snapshot.spec.version === accepted.spec.snapshot.spec.version &&
@@ -115,11 +115,12 @@ function pullRequestIsOpen(
   facts: WorkflowFacts,
   mandate: MandateRecord | null,
   pullRequest: DecodedHistory | null,
+  causal: WorkflowCausalContext,
 ): boolean {
   return (
     facts.pullRequest !== null &&
     workflowBound(mandate, history, pullRequest, facts) &&
-    adoptedOrConfirmed(history, mandate)
+    adoptedOrConfirmed(history, mandate, causal)
   )
 }
 

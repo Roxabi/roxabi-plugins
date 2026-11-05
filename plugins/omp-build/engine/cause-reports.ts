@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { canonicalValueDigest } from './action-input.ts'
 import type { Ref, ReportListing } from './cause-disposition.ts'
-import { readCauseDispositionHeads } from './cause-heads.ts'
+import { readRetainedCauseDispositionLedger } from './cause-heads.ts'
 import {
   diagnoseDispositionCycle,
   validateDispositionSuccessor,
@@ -116,6 +116,64 @@ export function resolveCauseSisterReceipt(input: {
     return { ok: true, value: receipt }
   }
 }
+type ReportDisposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
+type ReportPromotion = Extract<CanonicalRecord, { kind: 'report-promotion' }>
+type ReportScopeState = {
+  scope: Scope
+  history: DecodedHistory
+  dispositions: ReportDisposition[]
+  promotions: ReportPromotion[]
+  ids: Set<string>
+  successorCount: Map<string, number>
+  initialSubjects: Set<string>
+  diagnostics: Diagnostic[]
+  reports: ReportListing['reports']
+}
+
+function validateReportLineage(record: ReportDisposition, state: ReportScopeState): void {
+  const { scope, history, diagnostics, initialSubjects, ids, dispositions, successorCount } = state
+  const ref: Ref<'cause-disposition'> = { scope, recordId: record.recordId, kind: 'cause-disposition' }
+  const bound = bindExternalRef(ref, history)
+  if (!bound.ok) diagnostics.push(...bound.diagnostics)
+  if (!equalScope(record.payload.origin.uw, scope))
+    diagnostics.push(diagnostic('cause-origin-mismatch', `Disposition ${record.recordId} is not stored on its origin`))
+  const previous = record.payload.previous
+  if (previous === null) validateInitialDisposition(record, initialSubjects, diagnostics)
+  if (previous !== null)
+    validateDispositionSuccessor(record, previous, scope, ids, dispositions, successorCount, diagnostics)
+}
+
+function collectRetainedReport(record: ReportDisposition, state: ReportScopeState): void {
+  const { scope, history, dispositions, promotions, successorCount, diagnostics, reports } = state
+  diagnoseDispositionCycle(record, dispositions, diagnostics)
+  if (
+    successorCount.has(record.recordId) ||
+    record.payload.outcome.state !== 'final' ||
+    record.payload.outcome.disposition !== 'report'
+  )
+    return
+  const matches = promotions.filter(
+    (item) => equalScope(item.payload.report.scope, scope) && item.payload.report.recordId === record.recordId,
+  )
+  if (matches.length > 1) diagnostics.push(diagnostic('ambiguous', `Report ${record.recordId} has multiple promotions`))
+  const promotion = matches[0]
+  if (promotion) validateReportPromotion(promotion, record, scope, history, diagnostics)
+  reports.push({
+    ref: { scope, recordId: record.recordId, kind: 'cause-disposition' },
+    record,
+    promotion: promotion ? { scope, recordId: promotion.recordId, kind: 'report-promotion' } : null,
+  })
+}
+
+function retainedScopeHeads(scope: Scope, history: DecodedHistory, diagnostics: Diagnostic[]) {
+  const heads = readRetainedCauseDispositionLedger({ uw: scope, history })
+  if (!heads.ok) diagnostics.push(...heads.diagnostics)
+  const problem = workflowOperationProblem(history)
+  if (problem !== null)
+    diagnostics.push(diagnostic(problem, `Workflow history is not complete and authoritative for ${scope.target}`))
+  return heads
+}
+
 export function readCauseReports(input: {
   root: Scope
   subtree: readonly Scope[]
@@ -138,11 +196,7 @@ export function readCauseReports(input: {
       return
     }
     const completeHistory = history
-    const heads = readCauseDispositionHeads({ uw: scope, histories })
-    if (!heads.ok) diagnostics.push(...heads.diagnostics)
-    const problem = workflowOperationProblem(history)
-    if (problem !== null)
-      diagnostics.push(diagnostic(problem, `Workflow history is not complete and authoritative for ${scope.target}`))
+    const heads = retainedScopeHeads(scope, history, diagnostics)
     const records = recordsOf(history)
     const dispositions = records.filter(
       (record): record is Extract<CanonicalRecord, { kind: 'cause-disposition' }> =>
@@ -151,47 +205,21 @@ export function readCauseReports(input: {
     const promotions = records.filter(
       (record): record is Extract<CanonicalRecord, { kind: 'report-promotion' }> => record.kind === 'report-promotion',
     )
-    const ids = new Set(dispositions.map((record) => record.recordId))
-    const successorCount = new Map<string, number>()
-    const initialSubjects = new Set<string>()
-    function validateLineage(record: (typeof dispositions)[number]): void {
-      const ref: Ref<'cause-disposition'> = { scope, recordId: record.recordId, kind: 'cause-disposition' }
-      const bound = bindExternalRef(ref, completeHistory)
-      if (!bound.ok) diagnostics.push(...bound.diagnostics)
-      if (!equalScope(record.payload.origin.uw, scope))
-        diagnostics.push(
-          diagnostic('cause-origin-mismatch', `Disposition ${record.recordId} is not stored on its origin`),
-        )
-      const previous = record.payload.previous
-      if (previous === null) validateInitialDisposition(record, initialSubjects, diagnostics)
-      if (previous !== null)
-        validateDispositionSuccessor(record, previous, scope, ids, dispositions, successorCount, diagnostics)
+    const state: ReportScopeState = {
+      scope,
+      history: completeHistory,
+      dispositions,
+      promotions,
+      ids: new Set(dispositions.map((record) => record.recordId)),
+      successorCount: new Map(),
+      initialSubjects: new Set(),
+      diagnostics,
+      reports,
     }
-    for (const record of dispositions) validateLineage(record)
-    if ([...successorCount.values()].some((count) => count !== 1))
+    for (const record of dispositions) validateReportLineage(record, state)
+    if ([...state.successorCount.values()].some((count) => count !== 1))
       diagnostics.push(diagnostic('ambiguous', 'Disposition chain has competing successors'))
-    function collectReport(record: (typeof dispositions)[number]): void {
-      diagnoseDispositionCycle(record, dispositions, diagnostics)
-      if (
-        successorCount.has(record.recordId) ||
-        record.payload.outcome.state !== 'final' ||
-        record.payload.outcome.disposition !== 'report'
-      )
-        return
-      const matches = promotions.filter(
-        (item) => equalScope(item.payload.report.scope, scope) && item.payload.report.recordId === record.recordId,
-      )
-      if (matches.length > 1)
-        diagnostics.push(diagnostic('ambiguous', `Report ${record.recordId} has multiple promotions`))
-      const promotion = matches[0]
-      if (promotion) validateReportPromotion(promotion, record, scope, completeHistory, diagnostics)
-      reports.push({
-        ref: { scope, recordId: record.recordId, kind: 'cause-disposition' },
-        record,
-        promotion: promotion ? { scope, recordId: promotion.recordId, kind: 'report-promotion' } : null,
-      })
-    }
-    for (const record of dispositions) collectReport(record)
+    if (heads.ok) for (const record of heads.value.heads) collectRetainedReport(record, state)
   }
   for (const scope of input.subtree) collectScope(scope)
   return diagnostics.length ? { ok: false, diagnostics } : { ok: true, value: { root: input.root, reports } }

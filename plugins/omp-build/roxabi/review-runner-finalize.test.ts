@@ -11,6 +11,7 @@ import {
 import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
 import { criterionImplementationRecords } from '../testing/criterion-accepted-plan.ts'
 import { criterionReviewGraph, encodeCriterionRecords } from '../testing/criterion-approval.ts'
+import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { acceptedPullRequestReviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation } from '../testing/record-history.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
@@ -110,6 +111,7 @@ function fixture(refuseWrite = false, validCriterion = false) {
     nextRecordId: (kind: string) => `${kind}-unused`,
   }
   const store: FixDispositionStore = {
+    catalogues: async () => fixtureHostReviewClassCatalogues(),
     read: async () => ({ ok: true, value: [origin, target] }),
     publish: async (record) => {
       if (refuseWrite)
@@ -121,6 +123,7 @@ function fixture(refuseWrite = false, validCriterion = false) {
       const diagnostics = validateCauseDispositionRecords({
         records: [...recordsOf(origin), record],
         histories: [origin, target],
+        catalogues: fixtureHostReviewClassCatalogues(),
       })
       if (diagnostics.length) return { status: 'refused', history: origin, diagnostics }
       if (validCriterion) {
@@ -229,6 +232,7 @@ function fixture(refuseWrite = false, validCriterion = false) {
       if (!result.ok) throw new Error(`review-disposition-refused:${result.diagnostics.join(',')}`)
     },
     readExternalHistories: async () => ({ ok: true as const, value: [origin] }),
+    loadCatalogues: async () => fixtureHostReviewClassCatalogues(),
     onDecisionConfirmed: () => {},
   }
   return { graph, input, saved, getOrigin: () => origin, getTarget: () => target }

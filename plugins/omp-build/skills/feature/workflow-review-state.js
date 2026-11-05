@@ -1,5 +1,7 @@
 import { buildRecord, deriveReviewState, publishGitHubRecord } from '../../dist/contracts.js'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
+import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
+import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
 import {
   approves,
@@ -11,13 +13,7 @@ import {
 } from './workflow-gate.js'
 import { resolveReviewPr } from './workflow-pr.js'
 import { resolveLandingBase } from './workflow-readiness.js'
-import {
-  readReviewHistory,
-  requiredReviewRecords,
-  reviewRecords,
-  reviewRefusal,
-  reviewTaxonomy,
-} from './workflow-records.js'
+import { readReviewHistory, requiredReviewRecords, reviewRecords, reviewRefusal } from './workflow-records.js'
 import { hasFreshReviewInput } from './workflow-review-input.js'
 import { errorText, gh } from './workflow-runtime.js'
 
@@ -57,7 +53,12 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
   const history = await readReviewHistory(cwd, pr, ghFn)
   const cited = await readReviewInputHistories(history, { cwd, gh: ghFn })
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
-  const summary = reviewRecords(history, { externalHistories: cited.value })
+  const catalogues = await loadReviewClassCatalogues({
+    histories: [history, ...cited.value],
+    cwd,
+    gh: ghFn,
+  })
+  const summary = reviewRecords(history, { catalogues, externalHistories: cited.value })
   if (!summary.ok) throw reviewRefusal(summary)
   const gate = await readGate(cwd, pr, ghFn)
   if (!isCommitSha(gate.headRefOid) || summary.value.head !== gate.headRefOid || !approves(summary.value.verdict))
@@ -71,7 +72,7 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
       ci: 'red',
       acceptedEvidencePolicyRef: null,
     },
-    reviewTaxonomy(),
+    catalogues,
     cited.value,
   )
   if (!state.ok) throw reviewRefusal(state)
@@ -94,11 +95,11 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
     payload: state.requiredStop,
   })
   if (!built.ok) throw reviewRefusal(built)
+  const options = withRoxabiGitHubPolicy({ cwd, gh: ghFn })
   const published = await publishGitHubRecord(
     built.value,
-    history,
-    withRoxabiGitHubPolicy({ cwd, gh: ghFn }),
-    null,
+    options,
+    createPublicationContextResolver(options, null),
     cited.value,
   )
   if (published.status !== 'confirmed') throw reviewRefusal(published)

@@ -31,7 +31,7 @@ import { prepareStandaloneFix } from './fix-preparation.ts'
 export async function executeDecision(
   prepared: PreparedFix,
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore'>,
+  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore' | 'github'>,
   identity: FixIdentity,
 ): Promise<FixActionResult<FixRecord>> {
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
@@ -248,7 +248,7 @@ export async function runDefaultFixWorkflow(
 export async function runReviewBoundFixWorkflow(
   prepared: PreparedFix,
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore'>,
+  product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore' | 'github'>,
   identity: FixIdentity,
 ): Promise<FixActionResult<FixRecord>> {
   const retainedDecision = await persistCauseDispositions(

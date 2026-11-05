@@ -8,11 +8,12 @@ import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { resolveOwnSpecEffective } from '../../engine/spec-effective.ts'
 import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import { recordsOf } from '../../engine/workflow-control.ts'
+import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { readAuthenticatedCause } from '../uw-cause-read.ts'
-import type { UwRead, UwReadPort } from '../uw-contract.ts'
+import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const ref = (record: Extract<CanonicalRecord, { kind: 'cause-disposition' }>) => ({
@@ -58,6 +59,7 @@ it('reads the final sister disposition after two authenticated sequential adjudi
         context,
         source: { kind: 'decision', decision },
         histories: [own, source],
+        catalogues: fixtureReviewClassCatalogues(),
         adjudications: operations,
       }),
     ).outcomes.find((item) => item.subject.kind === 'cause')
@@ -158,6 +160,8 @@ it('reads the final sister disposition after two authenticated sequential adjudi
     cwd: '/fixture',
     readAuthor: 'operator',
     gh: async (_cwd: string, args: string[]) => {
+      const catalogue = fixtureCatalogueGhResponse(args)
+      if (catalogue !== null) return catalogue
       const match = /^repos\/acme\/app\/issues\/(\d+)\/comments\?per_page=100&page=(\d+)$/.exec(args[1] ?? '')
       if (args[0] !== 'api' || !match) throw new Error(`Unexpected GH read: ${JSON.stringify(args)}`)
       const history = histories.get(`acme/app#${match[1]}`)
@@ -174,11 +178,31 @@ it('reads the final sister disposition after two authenticated sequential adjudi
       )
     },
   }
-  // The port supplies the real resolved accepted Spec; the cause reader itself
-  // re-reads and authenticates every canonical record through the GH transport.
-  const reader: UwReadPort = {
-    readUw: async () => ({ accepted: { status: 'accepted', value: accepted.spec } }) as UwRead,
-  }
+  // This observed reader does not claim a completed causal closure; the cause
+  // reader independently re-reads and authenticates the actual GitHub history.
+  const reader = createInstalledObservedUwReadPort({
+    graph: {
+      status: 'complete',
+      root: uw,
+      observedAt: '2026-10-27T12:00:00.000Z',
+      nodes: [
+        {
+          uw,
+          title: 'Save the selected region',
+          raw: mandate.payload.ownSpec.snapshot.raw,
+          updatedAt: '2026-10-27T12:00:00.000Z',
+          labels: [`size:${mandate.payload.tier}`],
+          wayfinderLabels: [],
+          parent: null,
+          children: [],
+          blockers: [],
+          native: { state: 'OPEN', stateReason: null },
+        },
+      ],
+    },
+    histories: [own, source],
+    catalogues: fixtureReviewClassCatalogues(),
+  })
   const read = await readAuthenticatedCause(ref(two.next), reader, github)
   expect(read.disposition).toEqual(two.next)
   expect(read.context).toEqual(context)

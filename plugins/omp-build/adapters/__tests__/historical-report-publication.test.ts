@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
 import { causeCreationProposalSchema } from '../../engine/cause-disposition-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
+import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
 import { sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { decodeHistory } from '../github/history-codec.ts'
-import { readGitHubHistory } from '../github/transport.ts'
 import { publishConfirmedWorkflowRecord } from '../github-workflow/binding.ts'
 import { comment, nativeComment, wire } from './github-workflow-support.ts'
 
@@ -127,6 +128,8 @@ it('publishes a historical PR-sourced report promotion through the actual codec 
     readAuthor: 'automation',
     writerLogin: 'automation',
     gh: async (_cwd: string, args: string[]) => {
+      const catalogue = fixtureCatalogueGhResponse(args)
+      if (catalogue !== null) return catalogue
       if (args.includes('POST')) {
         const body = args.find((arg) => arg.startsWith('body='))
         if (!body) throw new Error('missing post body')
@@ -134,15 +137,18 @@ it('publishes a historical PR-sourced report promotion through the actual codec 
         comments.push(posted)
         return JSON.stringify(posted)
       }
-      if (String(args[1] ?? '').includes('/comments') && !String(args[1] ?? '').includes('/pulls/'))
+      if (String(args[1] ?? '').includes(`/issues/${created.target.split('#')[1]}/comments`))
+        return JSON.stringify([nativeComment(300, wire(identity))])
+      if (String(args[1] ?? '').includes(`/issues/${scope.target.split('#')[1]}/comments`))
         return JSON.stringify(comments)
       throw new Error(`old PR unavailable: ${args.join(' ')}`)
     },
   }
-  const first = await publishConfirmedWorkflowRecord(intent, decodeHistory(source), github, null, [])
+  const first = await publishConfirmedWorkflowRecord(intent, github, createPublicationContextResolver(github, null), [])
   expect(first.status).toBe('confirmed')
-  const reread = decodeHistory(await readGitHubHistory(scope, github))
-  const second = await publishConfirmedWorkflowRecord(receipt, reread, github, null, [identityHistory])
+  const second = await publishConfirmedWorkflowRecord(receipt, github, createPublicationContextResolver(github, null), [
+    identityHistory,
+  ])
   expect(second.status).toBe('confirmed')
   expect(posts).toBeGreaterThanOrEqual(2)
 })

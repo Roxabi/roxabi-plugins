@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { selectApplicableMandate } from '../../engine/workflow-mandate-admission.ts'
+import { fixtureCausal } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import { BODY, blank, SCOPE } from './support/workflow-decision-fixtures.ts'
 
@@ -10,7 +11,11 @@ describe('workflow decision specification authority', () => {
   it('does not treat a mandate object outside the history as authority', () => {
     const held = featureMandate(SCOPE, { body: BODY })
     expect(held.kind).toBe('mandate')
-    expect(selectApplicableMandate(blank(), [])).toMatchObject({ status: 'refused', reason: 'missing' })
+    const issue = blank()
+    expect(selectApplicableMandate(issue, [], fixtureCausal([issue]))).toMatchObject({
+      status: 'refused',
+      reason: 'missing',
+    })
   })
 
   it('pins the mandate product version to installed package metadata', () => {

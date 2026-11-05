@@ -16,6 +16,7 @@ import {
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../../engine/__tests__/workflow-spec-assessment-support.ts'
+import { fixtureCausal } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import {
   childNode,
@@ -104,7 +105,7 @@ function prepare(depth: 0 | 1 | 2, armed: boolean) {
   const ph = f.historyFrom([p], ME, ME, depth === 2 ? [gh] : [])
   const ancestors = [ph, gh].slice(0, depth)
   const uh = f.historyFrom(uRecords, ME, ME, ancestors)
-  expect(selectApplicableMandate(uh, ancestors)).toMatchObject({
+  expect(selectApplicableMandate(uh, ancestors, fixtureCausal([uh, ...ancestors]))).toMatchObject({
     status: 'applicable',
     mandate: { recordId: u.recordId },
   })
@@ -122,7 +123,7 @@ function prepare(depth: 0 | 1 | 2, armed: boolean) {
     recordId: 'mandate-c',
   })
   const ch = f.historyFrom([c], ME, ME, [uh, ...ancestors])
-  expect(selectApplicableMandate(ch, [uh, ...ancestors])).toMatchObject({
+  expect(selectApplicableMandate(ch, [uh, ...ancestors], fixtureCausal([ch, uh, ...ancestors]))).toMatchObject({
     status: 'applicable',
     mandate: { recordId: c.recordId },
   })

@@ -1,6 +1,7 @@
 import type { DecodedHistory } from './history-schema.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Group, Label, Scope, Verdict } from './record-values.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import type { Stop } from './review-schema.ts'
 
 export type Result<T, D extends Diagnostic = Diagnostic> =
@@ -42,7 +43,7 @@ export type ReviewState =
     }
 
 export type RecordProjectionConfig = {
-  taxonomy: readonly string[]
+  catalogues: ReviewClassCatalogues
   acceptedPolicy: string | null
 }
 

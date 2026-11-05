@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import {
   buildRecord,
   decodeHistory,
@@ -13,7 +13,8 @@ import {
   summarizeReviews,
 } from '../dist/contracts.js'
 import { ROXABI_STOP_AUTHOR, withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
-import { loadReviewClassCatalogue } from '../roxabi/review-assets.ts'
+import { createPublicationContextResolver } from '../roxabi/publication-context.ts'
+import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 import type { ReviewContext } from '../roxabi/review-contract.ts'
 import { persistRequiredReviewStop } from '../roxabi/review-dispatch.ts'
 import { readReviewInputHistories } from '../roxabi/uw-input-readers.ts'
@@ -91,26 +92,19 @@ async function gh(cwd: string, repository: string, args: string[]): Promise<stri
   return stdout.trim()
 }
 
-function taxonomy(cwd: string): string[] {
-  const { classes } = loadReviewClassCatalogue(join(cwd, 'plugins/omp-build/skills/dev-review'))
-  const taxonomy = [...classes.matchAll(/^\s*-\s+class:\s*([a-z][a-z0-9-]*)\s*$/gm)].map((match) => match[1])
-  if (taxonomy.length === 0) throw new Error('trusted review taxonomy is unreadable')
-  return taxonomy
-}
-
 async function main(): Promise<void> {
   const args = parse(process.argv.slice(2))
   const cwd = resolve(import.meta.dirname, '../../..')
   const observation = observed(args.observation)
   const scope = githubScope(args.repository, args.pr)
   const scopedGh: Gh = (callCwd, commandArgs) => gh(callCwd, args.repository, commandArgs)
-  const canonicalClasses = taxonomy(cwd)
   const history = decodeHistory(
     await readGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, readAuthor: args.automationLogin, gh: scopedGh })),
   )
   const cited = await readReviewInputHistories(history, { cwd, gh: scopedGh, readAuthor: args.automationLogin })
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
-  const summary = summarizeReviews(history, canonicalClasses, null, cited.value)
+  const catalogues = await loadReviewClassCatalogues({ histories: [history, ...cited.value], cwd, gh: scopedGh })
+  const summary = summarizeReviews(history, catalogues, null, cited.value)
   if (!summary.ok) throw new Error('fresh review history refused stop publication')
   const coordinates = JSON.parse(await scopedGh(cwd, ['pr', 'view', String(args.pr), '--json', 'headRefOid'])) as {
     headRefOid?: unknown
@@ -126,7 +120,7 @@ async function main(): Promise<void> {
       ci: 'red',
       acceptedEvidencePolicyRef: null,
     },
-    canonicalClasses,
+    catalogues,
     cited.value,
   )
   if (!state.ok) throw new Error('fresh review state is invalid')
@@ -166,9 +160,8 @@ async function main(): Promise<void> {
       if (!built.ok) return { ok: false, reason: 'invalid-stop-record' }
       const published = await publishGitHubRecord(
         built.value,
-        history,
         withRoxabiGitHubPolicy({ cwd, gh: scopedGh, readAuthor: args.automationLogin, writerLogin: STOP_AUTHOR }),
-        null,
+        createPublicationContextResolver({ cwd, gh: scopedGh, readAuthor: args.automationLogin }, null),
         cited.value,
       )
       return published.status === 'confirmed' ? { ok: true } : { ok: false, reason: published.status }

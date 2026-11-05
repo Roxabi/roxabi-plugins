@@ -1,6 +1,7 @@
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
+  createReviewClassCatalogues,
   observeCauseSisters,
   parseIssueSpecBody,
   readCauseHistoryClosure,
@@ -13,8 +14,12 @@ import {
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
+import { defaultGh } from './feature-engine.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
 import { assembleUwRead, type HistoryObservation, type InstalledUwContracts, refused } from './uw-read-state.ts'
 import { withTransitionAdmission } from './uw-read-transition.ts'
@@ -34,11 +39,11 @@ export class UwGraphUnavailableError extends Error {
 }
 
 function readOptions(options: InstalledUwReadOptions): GitHubOptions {
-  return {
+  return withRoxabiGitHubPolicy({
     cwd: options.cwd,
     gh: options.gh,
     ...(options.readAuthor === undefined ? {} : { readAuthor: options.readAuthor }),
-  }
+  })
 }
 
 /** Test seam for a loaded facade. */
@@ -64,6 +69,7 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
           uw,
           graph,
           history: { ok: false, reason: composed.reason, diagnostics: composed.diagnostics },
+          catalogues: createReviewClassCatalogues([]),
         })
       }
       const closure = await readCauseHistoryClosure(composed.histories, (needed) =>
@@ -74,17 +80,29 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
           uw,
           graph,
           history: { ok: false, reason: closure.reason, diagnostics: closure.diagnostics },
+          catalogues: createReviewClassCatalogues([]),
         })
       }
-      const observedGraph = await observeCauseSisters(graph, closure.histories, (scope) =>
-        contracts.readUwGraph(scope, github),
+      const catalogues = await loadReviewClassCatalogues({
+        histories: closure.histories,
+        cwd: options.cwd,
+        gh: options.gh ?? defaultGh(),
+      })
+      const observedGraph = await observeCauseSisters(
+        graph,
+        closure.histories,
+        (scope) => contracts.readUwGraph(scope, github),
+        catalogues,
       )
       const reader = createObservedUwReadPort(contracts, {
         graph: observedGraph,
         histories: closure.histories,
+        catalogues,
         assessmentReplay: options.assessmentReplay,
       })
-      return withTransitionAdmission(contracts, await reader.readUw(uw), reader)
+      const read = await reader.readUw(uw)
+      read.causalObservation = { status: 'complete', histories: read.histories, catalogues: read.catalogues }
+      return withTransitionAdmission(contracts, read, reader)
     },
   }
 }
@@ -95,6 +113,7 @@ export function createObservedUwReadPort(
   input: {
     graph: UwGraphObservation
     histories: readonly DecodedHistory[]
+    catalogues: ReviewClassCatalogues
     history?: HistoryObservation
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
@@ -106,6 +125,7 @@ export function createObservedUwReadPort(
         uw,
         graph: input.graph,
         history: input.history ?? { ok: true, histories: input.histories },
+        catalogues: input.catalogues,
         observedReader: reader,
         assessmentReplay: input.assessmentReplay,
       })
@@ -145,6 +165,11 @@ export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions):
     uw,
     graph,
     history: { ok: true, histories: composed.histories },
+    catalogues: await loadReviewClassCatalogues({
+      histories: composed.histories,
+      cwd: options.cwd,
+      gh: options.gh ?? defaultGh(),
+    }),
   })
   const diagnostics = refused(uw, 'creation-read-only', 'Creation readback does not assess delivery admission')
   return {
@@ -161,6 +186,7 @@ export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions):
 export function createInstalledObservedUwReadPort(input: {
   graph: UwGraphObservation
   histories: readonly DecodedHistory[]
+  catalogues: ReviewClassCatalogues
 }): UwReadPort {
   return createObservedUwReadPort(installedUwContracts, input)
 }

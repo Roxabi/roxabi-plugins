@@ -6,6 +6,7 @@ import {
   type Policy,
   type RecordDraft,
   type Ref,
+  type ReviewClassCatalogues,
   reviewInventoryHasContextNegative,
   type Scope,
   validateFreshDecision,
@@ -43,6 +44,7 @@ export async function finalizeReview(input: {
   persistDecision(decision: Extract<CanonicalRecord, { kind: 'decision' }>): Promise<Ref<'cause-disposition'>[]>
   retainFailedSynthesis(history: DecodedHistory, diagnostic: string): Promise<void>
   readExternalHistories(history: DecodedHistory): Promise<Result<readonly DecodedHistory[]>>
+  loadCatalogues(histories: readonly DecodedHistory[]): Promise<ReviewClassCatalogues>
   onDecisionConfirmed(decisionId: string): void
 }): Promise<void> {
   if (!input.canContinue()) return
@@ -81,10 +83,11 @@ export async function finalizeReview(input: {
   const causeDispositionRefs = await input.persistDecision(decision)
   const cited = await input.readExternalHistories(history)
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
+  const catalogues = await input.loadCatalogues([history, ...cited.value])
   const validated = validateFreshDecision(
     decision,
     history,
-    input.review.canonicalClasses,
+    catalogues,
     input.review.policy.version === 'evidence-v1' ? input.review.policy.acceptanceRef : null,
     cited.value,
     history,

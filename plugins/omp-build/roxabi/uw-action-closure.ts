@@ -2,11 +2,11 @@ import { canonicalValueDigest, recordsOf, selectorAdmitted } from '../dist/contr
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { RecordInputRef, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
 import { field, inventoryIdsOf } from './uw-action-record-fields.ts'
 import { actionFailure } from './uw-action-result.ts'
-import { priorCorrectionContribution } from './uw-correction-stage-contribution.ts'
-import { priorCorrectionDecision } from './uw-correction-stage-decision.ts'
+import { refuseOutsideStage } from './uw-action-stage-closure.ts'
 import { cites } from './uw-record-cites.ts'
 
 /** Only populated by the authenticated contribution resolver, never by the command envelope. */
@@ -115,27 +115,6 @@ function ownedOutputs(
   return outputs
 }
 
-function refuseOutsideStage(
-  request: UwActionRequest,
-  outputs: ReadonlySet<string>,
-  histories: readonly DecodedHistory[],
-): Result<true> {
-  for (const ref of request.stageSources) {
-    const owned = outputs.has(
-      identityKey(ref.record.scope.repository, ref.record.scope.target, ref.record.kind, ref.record.recordId),
-    )
-    if (request.purpose === 'correction') {
-      const prior =
-        !owned &&
-        (priorCorrectionDecision(ref, request, histories) || priorCorrectionContribution(ref, request, histories))
-      if (!prior) return actionFailure('self-output', 'Correction stage source is not an authenticated prior input')
-    } else if (!owned) {
-      return actionFailure('self-output', 'Stage annex cites a record outside the current root')
-    }
-  }
-  return { ok: true, value: true }
-}
-
 function refuseNormativeOutputs(
   request: UwActionRequest,
   normative: readonly RecordInputRef[],
@@ -235,6 +214,7 @@ function rootedAttempts(
 export function assertCurrentOutputClosure(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   normative: readonly RecordInputRef[],
   reviewedRoot?: ReviewRootRef,
   expansionRoot?: VerifiedExpansionRoot,
@@ -242,7 +222,7 @@ export function assertCurrentOutputClosure(
   const records = histories.flatMap((history) => recordsOf(history))
   const { roots, inventories, scope } = rootedAttempts(records, request, reviewedRoot, expansionRoot)
   const outputs = ownedOutputs(records, roots, inventories, scope)
-  const stage = refuseOutsideStage(request, outputs, histories)
+  const stage = refuseOutsideStage(request, outputs, histories, catalogues)
   if (!stage.ok) return stage
   const checkedRequest =
     expansionRoot?.negativeRef === undefined

@@ -2,7 +2,7 @@ import type { NativeBatch } from '../omp/review-runtime/contracts.ts'
 import type { CorrectionEffectResult } from './correction-execution-contract.ts'
 import type { FixActionResult, FixRecord } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
-import { admitDecisionExecution, type DefaultFixWorkflow } from './fix-execution-policy.ts'
+import { admitDecisionExecution, type DefaultFixWorkflow, executionCatalogues } from './fix-execution-policy.ts'
 export async function authorizeCorrectionContinuation(runtime: DefaultFixWorkflow['runtime']) {
   const allowed =
     runtime.beforeContinuation === undefined
@@ -22,14 +22,16 @@ export async function correctionStarted(
 
 export async function admitStoredDecision(
   decision: Extract<FixRecord, { kind: 'decision' }>,
-  product: Pick<DefaultFixWorkflow, 'readHistory'>,
+  product: Pick<DefaultFixWorkflow, 'readHistory' | 'github'>,
   incompleteDiagnostic: string,
   unreadableDiagnostic: string,
 ): Promise<FixActionResult<void>> {
   try {
     const history = await product.readHistory()
     if (!history.source.complete) return failure(incompleteDiagnostic)
-    return admitDecisionExecution(decision, history)
+    const catalogues = await executionCatalogues(history, product.github)
+    if (!catalogues.ok) return catalogues
+    return admitDecisionExecution(decision, history, catalogues.value)
   } catch (error) {
     return failure(`${unreadableDiagnostic}:${error instanceof Error ? error.message : String(error)}`)
   }

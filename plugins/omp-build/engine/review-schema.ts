@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validateActionInputs } from './action-input.ts'
+import { validateParsedActionInputs } from './action-input.ts'
 import { type ActionInputs, actionInputsSchema } from './action-input-schema.ts'
 import { criterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import { criterionVerdictRefSchema, exclusionClaimSchema } from './criterion-verdict-schema.ts'
@@ -33,7 +33,7 @@ function bindActionSnapshot(
   value: { actionInputDigest: string; input: string | null; inputSnapshot: ActionInputs },
   context: z.RefinementCtx,
 ): void {
-  const validated = validateActionInputs(value.inputSnapshot)
+  const validated = validateParsedActionInputs(value.inputSnapshot)
   if (!validated.ok) {
     context.addIssue({
       code: 'custom',

@@ -2,12 +2,14 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
-import { validateDecision, validateFreshDecision } from './review-decision.ts'
+import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
+import { validateDecision } from './review-decision.ts'
+import { validateHistoricalReviewDecision } from './review-fresh-decision.ts'
 export function spentReviewFor(
   reviews: readonly Extract<CanonicalRecord, { kind: 'review' }>[],
   records: ReadonlyMap<string, CanonicalRecord>,
   history: DecodedHistory,
-  taxonomy: readonly string[],
+  catalogues: ReviewClassCatalogues,
   acceptedPolicyRef: string | null,
   externalHistories: readonly DecodedHistory[],
   deliveryHistory: DecodedHistory,
@@ -21,12 +23,19 @@ export function spentReviewFor(
       review.payload.causeDispositionRefs === undefined
         ? {
             ok: true as const,
-            value: validateDecision(decision, history, taxonomy, acceptedPolicyRef, externalHistories, deliveryHistory),
+            value: validateDecision(
+              decision,
+              history,
+              catalogues,
+              acceptedPolicyRef,
+              externalHistories,
+              deliveryHistory,
+            ),
           }
-        : validateFreshDecision(
+        : validateHistoricalReviewDecision(
             decision,
             history,
-            taxonomy,
+            catalogues,
             acceptedPolicyRef,
             externalHistories,
             deliveryHistory,

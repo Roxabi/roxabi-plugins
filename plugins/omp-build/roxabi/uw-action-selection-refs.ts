@@ -9,6 +9,7 @@ import type { ActionSpecInput } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
@@ -124,16 +125,67 @@ function appendLineage(refs: DeliveryDataRef[], lineage: readonly CanonicalRecor
   }
 }
 
+function gatherCorrectionRecord(
+  record: Extract<CanonicalRecord, { kind: 'fix-result' }>,
+  input: {
+    head: string
+    planActionId: string
+    mandate: MandateRecord
+    ownSpec: Extract<ActionSpecInput, { kind: 'accepted' }>['effective']['own']
+    histories: readonly DecodedHistory[]
+    catalogues: ReviewClassCatalogues
+    authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>
+    gathered: { refs: DeliveryDataRef[]; selected: CanonicalRecord[] }
+  },
+): Result<true> {
+  const authenticated = input.authenticate(record)
+  if (!authenticated.ok) return authenticated
+  const source = resolveAdmittedCorrectionCriterionSource(
+    record,
+    input.histories,
+    {
+      head: input.head,
+      planActionId: input.planActionId,
+      mandate: {
+        scope: { repository: input.mandate.repository, target: input.mandate.target },
+        kind: 'mandate',
+        recordId: input.mandate.recordId,
+      },
+      ownSpec: input.ownSpec,
+    },
+    input.catalogues,
+  )
+  if (!source.ok) return source
+  if (source.value === null) return { ok: true, value: true }
+  input.gathered.selected.push(record)
+  input.gathered.refs.push(
+    ...implementationRefs(record, source.value.criteria, input.head, '/payload/criterionReceipt/criteria'),
+  )
+  appendLineage(input.gathered.refs, source.value.lineage)
+  return { ok: true, value: true }
+}
+
 export function gatherCorrectionRefs(
   request: UwActionRequest,
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>,
   planActionId: string | null,
   spec: ActionSpecInput | undefined,
   gathered: { refs: DeliveryDataRef[]; selected: CanonicalRecord[] },
 ): Result<true> {
   if (spec?.kind !== 'accepted' || planActionId === null) return { ok: true, value: true }
+  const input = {
+    head: request.code.head,
+    planActionId,
+    mandate,
+    ownSpec: spec.effective.own,
+    histories,
+    catalogues,
+    authenticate,
+    gathered,
+  }
   for (const history of histories) {
     for (const record of recordsOf(history)) {
       if (
@@ -142,24 +194,8 @@ export function gatherCorrectionRefs(
         record.payload.criterionReceipt === undefined
       )
         continue
-      const authenticated = authenticate(record)
-      if (!authenticated.ok) return authenticated
-      const source = resolveAdmittedCorrectionCriterionSource(record, histories, {
-        head: request.code.head,
-        planActionId,
-        mandate: {
-          scope: { repository: mandate.repository, target: mandate.target },
-          kind: 'mandate',
-          recordId: mandate.recordId,
-        },
-        ownSpec: spec.effective.own,
-      })
-      if (source === null) continue
-      gathered.selected.push(record)
-      gathered.refs.push(
-        ...implementationRefs(record, source.criteria, request.code.head, '/payload/criterionReceipt/criteria'),
-      )
-      appendLineage(gathered.refs, source.lineage)
+      const selected = gatherCorrectionRecord(record, input)
+      if (!selected.ok) return selected
     }
   }
   return { ok: true, value: true }

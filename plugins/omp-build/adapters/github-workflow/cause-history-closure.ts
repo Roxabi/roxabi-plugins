@@ -49,19 +49,32 @@ function missingScopes(
   return pending
 }
 
-/** Expand only typed canonical references, once per scope, at delivery gates. */
-export async function readCauseHistoryClosure(
-  initial: readonly DecodedHistory[],
+type ClosureSeed =
+  | { kind: 'strict'; histories: readonly DecodedHistory[] }
+  | { kind: 'primary-observation'; primary: DecodedHistory; external: readonly DecodedHistory[] }
+
+async function expandCauseHistoryClosure(
+  seed: ClosureSeed,
   read: (scopes: readonly Scope[]) => Promise<ComposedWorkflowHistory>,
 ): Promise<ComposedWorkflowHistory> {
+  const initial = seed.kind === 'strict' ? seed.histories : [seed.primary, ...seed.external]
   const histories = new Map<string, DecodedHistory>()
   const initialFailure = appendHistories(histories, initial)
   if (initialFailure !== null) return initialFailure
   while (true) {
     const current = [...histories.values()]
-    const validated = validateComposedWorkflowHistories(current)
+    const strictHistories = seed.kind === 'strict' ? current : current.filter((history) => history !== seed.primary)
+    const validated = validateComposedWorkflowHistories(strictHistories)
     if (!validated.ok) return { ...validated, histories: current }
-    const pending = missingScopes(validated.records, histories)
+    const primaryRecords =
+      seed.kind === 'strict'
+        ? []
+        : seed.primary.operations.flatMap((operation) =>
+            operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
+              ? [operation.record]
+              : [],
+          )
+    const pending = missingScopes([...primaryRecords, ...validated.records], histories)
     if (pending.size === 0)
       return {
         ok: true,
@@ -74,4 +87,21 @@ export async function readCauseHistoryClosure(
     const failure = appendHistories(histories, observed.histories, pending)
     if (failure !== null) return failure
   }
+}
+
+/** Expand typed references from a fully authenticated collection. */
+export function readCauseHistoryClosure(
+  initial: readonly DecodedHistory[],
+  read: (scopes: readonly Scope[]) => Promise<ComposedWorkflowHistory>,
+): Promise<ComposedWorkflowHistory> {
+  return expandCauseHistoryClosure({ kind: 'strict', histories: initial }, read)
+}
+
+/** Discover from a raw primary observation without promoting it to external authority. */
+export function readCauseHistoryClosureFromPrimary(
+  primary: DecodedHistory,
+  external: readonly DecodedHistory[],
+  read: (scopes: readonly Scope[]) => Promise<ComposedWorkflowHistory>,
+): Promise<ComposedWorkflowHistory> {
+  return expandCauseHistoryClosure({ kind: 'primary-observation', primary, external }, read)
 }

@@ -1,8 +1,21 @@
-import { issueSpecAnalysisSchema, parseIssueSpecBody, rawSource } from '../dist/contracts.js'
+import {
+  issueSpecAnalysisSchema,
+  parseIssueSpecBody,
+  rawSource,
+  readCauseHistoryClosure,
+  readComposedWorkflowHistory,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { ACCEPTED_PURPOSE, acceptedChain, bindSubject } from './uw-action-accepted-state.ts'
-import { type EvidenceObservation, resolveEvidenceBasis, seedEvidenceObservation } from './uw-action-basis.ts'
+import {
+  type EvidenceObservation,
+  type ObserveCausalFacts,
+  resolveEvidenceBasis,
+  seedEvidenceObservation,
+} from './uw-action-basis.ts'
 import { causeActionData } from './uw-action-cause-data.ts'
 import type {
   ActionInputManifest,
@@ -65,6 +78,7 @@ async function finishFacts(
   request: UwActionRequest,
   source: ActionFactSource,
   histories: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
   subject: ActionSubject,
   spec: ActionInputManifest['spec'],
   acceptedSources: RecordInputRef[],
@@ -88,6 +102,7 @@ async function finishFacts(
         request,
         mandate.value,
         histories,
+        catalogues,
         (record) => authenticate(record, histories),
         expansion.value?.planner,
         spec,
@@ -96,7 +111,7 @@ async function finishFacts(
     : { ok: true as const, value: { refs: [], plannedPaths: [] } }
   if (!delivery.ok) return delivery
   const currentOutputs = currentRootOutputRefs(request, histories, reviewedRoot, expansion.value?.root)
-  const causes = causeActionData(request, histories, currentOutputs)
+  const causes = causeActionData(request, histories, currentOutputs, catalogues)
   if (!causes.ok) return causes
   const deliveryData = [...delivery.value.refs, ...causes.value]
   const basis = await resolveEvidenceBasis(deliveryData, source, observation)
@@ -104,6 +119,7 @@ async function finishFacts(
   const closed = assertCurrentOutputClosure(
     request,
     histories,
+    catalogues,
     [...acceptedSources, ...deliveryData],
     reviewedRoot,
     expansion.value?.root,
@@ -132,7 +148,7 @@ export async function uwFacts(
   config: ActionInputManifest['configuration'],
   reviewedFingerprint?: string,
   histories?: readonly DecodedHistory[],
-  observation?: EvidenceObservation,
+  observeCausal?: ObserveCausalFacts,
   reviewedRoot?: ReviewRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'uw') return actionFailure('action-input-missing', 'UW subject is absent')
@@ -157,10 +173,33 @@ export async function uwFacts(
   if (!operands.ok) return operands
   const sources = [...accepted.value.acceptedSources, ...operands.value.identitySources]
   const uniqueSources = [...new Map(sources.map((ref) => [JSON.stringify([ref.record, ref.selector]), ref])).values()]
+  const observedCausal =
+    observeCausal === undefined
+      ? await (async () => {
+          const closure = await readCauseHistoryClosure(read.value, (scopes) =>
+            readComposedWorkflowHistory(scopes, source),
+          )
+          if (!closure.ok) return { ok: false as const, diagnostics: closure.diagnostics }
+          const catalogues = await loadReviewClassCatalogues({
+            histories: closure.histories,
+            cwd: source.cwd,
+            gh: source.gh,
+          })
+          return {
+            ok: true as const,
+            value: {
+              causal: { histories: closure.histories, catalogues },
+              evidence: seedEvidenceObservation(closure.histories),
+            },
+          }
+        })()
+      : await observeCausal()
+  if (!observedCausal.ok) return observedCausal
   return finishFacts(
     request,
     source,
-    read.value,
+    observedCausal.value.causal.histories,
+    observedCausal.value.causal.catalogues,
     bound.value.subject,
     spec.value,
     uniqueSources,
@@ -168,7 +207,7 @@ export async function uwFacts(
     operands.value.operands,
     accepted.value.configuration,
     reviewedFingerprint,
-    observation ?? seedEvidenceObservation(read.value),
+    observedCausal.value.evidence,
     reviewedRoot,
   )
 }

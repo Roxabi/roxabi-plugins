@@ -8,10 +8,12 @@ import {
 import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-schema.ts'
+import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
+import { readFixUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
 import { configCompatibility } from '../../roxabi/workflow-overrides.ts'
 import type { CanonicalEpic } from './epic-driver-canonical'
 import { gather } from './epic-driver-gather'
-import { issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
+import { adapterOptions, issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
 import { Assisted, currentEpicEffects, Refused } from './epic-driver-runtime'
 import { frameEpic } from './epic-frame'
 import { BASE_NAME, RUN_ID } from './epic-naming'
@@ -78,8 +80,13 @@ export async function assertConfig(repo: string, effective: unknown): Promise<vo
   if (!checked.ok) throw new Refused(checked.error)
 }
 
-function selectedMandate(history: DecodedHistory, external: DecodedHistory[], epic: number): MandateRecord {
-  const selected = selectApplicableMandate(history, external)
+function selectedMandate(
+  history: DecodedHistory,
+  external: DecodedHistory[],
+  causal: WorkflowCausalContext,
+  epic: number,
+): MandateRecord {
+  const selected = selectApplicableMandate(history, external, causal)
   if (selected.status === 'refused') {
     if (selected.reason === 'missing') throw new Assisted(`${ASSISTED_MANDATE} #${epic}`)
     throw new Refused(`epic mandate ${selected.reason}: ${evidenceText(selected.evidence)}`)
@@ -132,10 +139,12 @@ export async function readEpicAuthority(repo: string, epic: number): Promise<Epi
     throw new Refused(`epic #${epic} history is incomplete; continuation is not confirmed`)
   }
   const external = await parentMandateHistories(repo, history)
-  const mandate = selectedMandate(history, external, epic)
+  const causal = await readFixUwCausalContext([history, ...external], [], adapterOptions(repo))
+  if (!causal.ok) throw new Refused(`epic causal history unavailable: ${causal.diagnostics.join(',')}`)
+  const mandate = selectedMandate(history, external, causal.value, epic)
   const inhibit = localInhibit(history, mandate.recordId)
   if (inhibit) throw new Refused(`continuation inhibited: ${inhibit} is requested and not confirmed`)
-  const resolved = resolveAcceptedSpec(mandate, [history, ...external])
+  const resolved = resolveAcceptedSpec(mandate, causal.value.histories)
   if (!resolved.ok)
     throw new Refused(`epic parent accepted Spec ${resolved.reason}: ${evidenceText(resolved.evidence)}`)
   const confirmed = confirmedEpicMandate(mandate, resolved.spec)

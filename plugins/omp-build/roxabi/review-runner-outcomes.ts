@@ -5,6 +5,7 @@ import {
   type Policy,
   type Scope,
 } from '../dist/contracts.js'
+import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import { actionRequest, confirmPreparedAction, deliveryTask, prepareRefusal } from './delivery-action.ts'
 import type { PreparedReviewBatch } from './review-contract.ts'
 import type { ObservedEvidence, PreparedReviewChunk } from './review-input-contract'
@@ -143,15 +144,14 @@ export async function advanceReviewStage(input: {
   sourceContributions: readonly SourceContribution[]
   knownSlots: Map<string, ReviewSlot>
   readHistory: () => Promise<Parameters<typeof deriveRecallPlan>[0]>
+  loadCatalogues: (history: Parameters<typeof deriveRecallPlan>[0]) => Promise<ReviewClassCatalogues>
   createSynthesis: (rootAttemptId: string) => Promise<PreparedReviewBatch>
 }): Promise<PreparedReviewBatch> {
   if (input.prepared.stage === 'recall') return input.createSynthesis(input.prepared.rootAttemptId)
 
-  const recall = deriveRecallPlan(
-    await input.readHistory(),
-    input.prepared.rootAttemptId,
-    input.review.canonicalClasses,
-  )
+  const history = await input.readHistory()
+  const catalogues = await input.loadCatalogues(history)
+  const recall = deriveRecallPlan(history, input.prepared.rootAttemptId, catalogues)
   if (!recall.ok) {
     throw new Error(`recall-plan-refused:${recall.diagnostics.map((item) => item.code).join(',')}`)
   }

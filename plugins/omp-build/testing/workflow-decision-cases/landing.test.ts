@@ -5,6 +5,7 @@ import type { Scope } from '../../engine/record-values.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { requireLandingMandate } from '../../engine/workflow-landing-admission.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
+import { fixtureReviewClassCatalogues, workflowEvidence } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import {
   BODY,
@@ -65,6 +66,8 @@ function landingInput(
         }
   return {
     histories,
+    authorityHistories: histories,
+    catalogues: fixtureReviewClassCatalogues(),
     native: {
       branch: 'feat/42-save',
       base: 'main',
@@ -126,14 +129,14 @@ describe('workflow landing decisions', () => {
     })
     expect(
       reconstructWorkflow({
-        evidence: { issue: historyFrom([fix]), pullRequest: null, parents: [] },
+        evidence: workflowEvidence(historyFrom([fix]), null, [], []),
         facts: factsForMandate(fix),
         decisions: decisions(),
       }),
     ).toMatchObject({ status: 'action', action: 'fix' })
     expect(
       reconstructWorkflow({
-        evidence: { issue: historyFrom([review]), pullRequest: null, parents: [] },
+        evidence: workflowEvidence(historyFrom([review]), null, [], []),
         facts: factsForMandate(review),
         decisions: decisions(),
       }),
