@@ -8263,14 +8263,10 @@ function pinnedIdentity(ref) {
 function refIdentity(ref) {
   return ref.source === "record" ? `record\x00${recordIdentity(ref)}` : `file\x00${pinnedIdentity(ref)}`;
 }
-function byIdentity(left, right) {
-  const leftKey = refIdentity(left);
-  const rightKey = refIdentity(right);
-  if (leftKey < rightKey)
-    return -1;
-  if (leftKey > rightKey)
-    return 1;
-  return 0;
+function identitySorted(refs) {
+  if (refs.length < 2)
+    return [...refs];
+  return refs.map((ref) => ({ ref, key: refIdentity(ref) })).sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0).map(({ ref }) => ref);
 }
 function durableSource(raw) {
   return { reference: raw.reference, body: raw.body, bodySha256: raw.bodySha256 };
@@ -8314,11 +8310,11 @@ function canonicalActionOperands(operands) {
 function sortedManifest(manifest) {
   return {
     ...manifest,
-    acceptedSources: [...manifest.acceptedSources].sort(byIdentity),
-    deliveryData: [...manifest.deliveryData].sort(byIdentity),
-    repositoryReferences: [...manifest.repositoryReferences].sort(byIdentity),
-    plugin: { ...manifest.plugin, files: [...manifest.plugin.files].sort(byIdentity) },
-    expandedContext: [...manifest.expandedContext].sort(byIdentity)
+    acceptedSources: identitySorted(manifest.acceptedSources),
+    deliveryData: identitySorted(manifest.deliveryData),
+    repositoryReferences: identitySorted(manifest.repositoryReferences),
+    plugin: { ...manifest.plugin, files: identitySorted(manifest.plugin.files) },
+    expandedContext: identitySorted(manifest.expandedContext)
   };
 }
 function canonicalActionInput(manifest) {

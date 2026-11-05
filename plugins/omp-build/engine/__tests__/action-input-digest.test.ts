@@ -142,6 +142,20 @@ describe('action input fingerprint', () => {
     )
   })
 
+  test('preserves input order for equal durable reference identities, including conflicting digests', () => {
+    const first = outputRef('/payload')
+    const second = { ...first, digest: 'b'.repeat(64) }
+    const current = manifest({ kind: 'absent', reason: 'standalone-review' }, 'review')
+    const forward = { ...current, expandedContext: [first, second] }
+    const reverse = { ...current, expandedContext: [second, first] }
+
+    expect(JSON.parse(canonicalActionInput(forward)).expandedContext).toEqual([first, second])
+    expect(JSON.parse(canonicalActionInput(reverse)).expandedContext).toEqual([second, first])
+    expect(actionInputDigest(forward)).not.toBe(actionInputDigest(reverse))
+    expect(forward.expandedContext).toEqual([first, second])
+    expect(reverse.expandedContext).toEqual([second, first])
+  })
+
   test('refuses the same current output under another selector and keeps a prior review', () => {
     const current = manifest({ kind: 'absent', reason: 'standalone-review' }, 'review')
     const laundered = bound({ ...current, expandedContext: [outputRef('/payload')] }, [
