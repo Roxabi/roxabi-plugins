@@ -1,23 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { epicDiffRange } from './epic-close'
 import { postMergeArgv } from './post-merge-hook'
-
-describe('epicDiffRange', () => {
-  it('spans the first merged child base to the last merge commit, skipping unmerged children', () => {
-    expect(
-      epicDiffRange([
-        { number: 1, baseSha: 'base1', mergeSha: 'm1' },
-        { number: 2, baseSha: 'base2', mergeSha: null },
-        { number: 3, baseSha: 'base3', mergeSha: 'm3' },
-      ]),
-    ).toEqual({ range: 'base1..m3' })
-  })
-
-  it('refuses a range when nothing has merged', () => {
-    expect(epicDiffRange([{ number: 1, baseSha: 'base1', mergeSha: null }])).toEqual({ error: 'no merged children' })
-    expect(epicDiffRange([])).toEqual({ error: 'no merged children' })
-  })
-})
 
 describe('postMergeArgv', () => {
   const stack = (postMerge: unknown) => ({ release: { model: 'trunk', post_merge: postMerge } })

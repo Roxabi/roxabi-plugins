@@ -1,6 +1,7 @@
 import {
   canonicalValueDigest,
   implementationOutputSchema,
+  integrationOutputSchema,
   planOutputSchema,
   recordsOf,
   resolveAdmittedCorrectionCriterionSource,
@@ -98,6 +99,36 @@ function implementResultRefs(
   return { ok: true, value: implementationRefs(record, implemented.data.criteria, head) }
 }
 
+function integrationResultRefs(
+  record: CanonicalRecord,
+  body: {
+    admission: { admitted: boolean; remoteTip?: string | null } | null
+    structured: unknown
+    exactInputs: { planActionId: string; mandateId: string }
+  },
+  head: string,
+  planActionId: string | null,
+  mandateId: string,
+): Result<DeliveryDataRef[]> {
+  if (
+    body.admission?.admitted !== true ||
+    body.admission.remoteTip !== head ||
+    body.exactInputs.planActionId !== planActionId ||
+    body.exactInputs.mandateId !== mandateId
+  )
+    return { ok: true, value: [] }
+  const integrated = integrationOutputSchema.safeParse(body.structured)
+  if (!integrated.success || integrated.data.code.head !== head)
+    return actionFailure('criterion-declaration-absent', 'Integration has no readable, head-bound declarations')
+  return {
+    ok: true,
+    value: [
+      recordRef(record, '/payload/structured/code', integrated.data.code, 'integration'),
+      ...implementationRefs(record, integrated.data.criteria, head),
+    ],
+  }
+}
+
 export function refsFor(
   record: CanonicalRecord,
   head: string,
@@ -106,6 +137,8 @@ export function refsFor(
 ): Result<DeliveryDataRef[]> {
   if (record.kind !== 'action-receipt' || record.payload.phase !== 'result') return { ok: true, value: [] }
   if (record.payload.action === 'plan') return planResultRefs(record, record.payload, planActionId)
+  if (record.payload.action === 'integrate')
+    return integrationResultRefs(record, record.payload, head, planActionId, mandateId)
   if (record.payload.action !== 'implement') return { ok: true, value: [] }
   return implementResultRefs(record, record.payload, head, planActionId, mandateId)
 }

@@ -31,7 +31,7 @@ function validateOrigin(record: Disposition, frame: CauseValidationFrame, diagno
     diagnostics.push(
       diagnostic('cause-origin-mismatch', `Disposition ${record.recordId} is not stored on its original UW`),
     )
-  if (!historicalCauseContext(frame, payload.origin).ok)
+  if (!historicalCauseContext(frame, payload.origin, payload.basis.versionVector).ok)
     diagnostics.push(
       diagnostic('cause-origin-unconfirmed', `Disposition ${record.recordId} lacks its authenticated accepted Spec`),
     )

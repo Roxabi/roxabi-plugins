@@ -1,6 +1,7 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { CORE_SCHEMA, load as parseYaml } from 'js-yaml'
 import { afterAll, afterEach, expect, vi } from 'vitest'
 import { unitSdkRoots } from './plugins/omp-build/testing/unit-sdk-scopes.ts'
 
@@ -195,6 +196,8 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
 if (typeof globalThis.Bun === 'undefined') {
   // biome-ignore lint/suspicious/noExplicitAny: bun-types makes the Bun global too complex to satisfy without any
   ;(globalThis as any).Bun = {
+    // Keep bare date scalars as strings, matching Bun instead of js-yaml's Date coercion.
+    YAML: { parse: (text: string) => parseYaml(text, { schema: CORE_SCHEMA }) },
     spawnSync: (
       cmd: string[],
       opts?: {

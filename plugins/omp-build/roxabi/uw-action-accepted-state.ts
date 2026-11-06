@@ -1,10 +1,16 @@
-import { historyFor, resolveAcceptedSpec, resolveOwnSpecEffective, selectWorkflowBinding } from '../dist/contracts.js'
+import {
+  historyFor,
+  resolveAcceptedSpec,
+  resolveSpecEffective,
+  selectWorkflowBinding,
+  type UwGraphObservation,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { ActionInputManifest, ActionSubject, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
-import { sourceRef } from './uw-action-observe.ts'
+import { pinAcceptedSources, sourceRef } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { currentAccountedMandate } from './uw-action-selection.ts'
 
@@ -12,6 +18,7 @@ const ACCEPTED_PURPOSE: Record<string, true> = {
   plan: true,
   'plan-review': true,
   implement: true,
+  integrate: true,
   'attribute-ci': true,
   review: true,
   correction: true,
@@ -61,7 +68,8 @@ function acceptedChain(
   histories: readonly DecodedHistory[],
   mandate: Result<import('../engine/workflow-control.ts').MandateRecord>,
   config: ActionInputManifest['configuration'],
-  replay?: { actionId: string; fingerprint: string },
+  graph: UwGraphObservation,
+  replay?: AssessmentReplayContext,
 ): Result<{
   spec: ActionInputManifest['spec']
   acceptedSources: RecordInputRef[]
@@ -76,9 +84,21 @@ function acceptedChain(
       : { ok: true, value: { spec, acceptedSources, configuration: config, acceptedSpec: null } }
   const accepted = resolveAcceptedSpec(mandate.value, histories, replay)
   if (!accepted.ok) return { ok: false, diagnostics: accepted.evidence }
-  const effective = resolveOwnSpecEffective(accepted.spec)
+  const effective =
+    request.purpose === 'assess-spec'
+      ? resolveSpecEffective({
+          mode: 'historical',
+          own: accepted.spec.ref,
+          versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
+          histories,
+          assessmentReplay: replay,
+        })
+      : resolveSpecEffective({ mode: 'current', own: accepted.spec.ref, histories, graph })
   if (!effective.ok) return { ok: false, diagnostics: effective.diagnostics }
-  const pinned = pinAcceptedSources(histories, accepted.spec.sourceRefs)
+  const pinned = pinAcceptedSources(histories, [
+    ...accepted.spec.sourceRefs,
+    ...effective.value.versionVector.map((ref) => ref.sourceAccepted),
+  ])
   if (!pinned.ok) return pinned
   return {
     ok: true,
@@ -93,19 +113,6 @@ function acceptedChain(
       },
     },
   }
-}
-
-function pinAcceptedSources(
-  histories: readonly DecodedHistory[],
-  refs: readonly ExternalRecordRef[],
-): Result<RecordInputRef[]> {
-  const acceptedSources: RecordInputRef[] = []
-  for (const ref of refs) {
-    const pinned = sourceRef(histories, ref)
-    if (!pinned.ok) return pinned
-    acceptedSources.push(pinned.value)
-  }
-  return { ok: true, value: acceptedSources }
 }
 
 export { ACCEPTED_PURPOSE, acceptedChain, bindSubject }

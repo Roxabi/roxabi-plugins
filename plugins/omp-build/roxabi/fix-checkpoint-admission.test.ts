@@ -6,6 +6,7 @@ import type { UwGraphObservation, UwNativeNode } from '../engine/uw-graph.ts'
 import { canonicalSpec, type SpecSnapshot } from '../engine/uw-spec.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../testing/uw-completion-observation.ts'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { authorizeFixAction } from './fix-ci-evidence.ts'
 import type { FixTarget } from './fix-contract.ts'
@@ -63,7 +64,7 @@ function node(input: {
   }
 }
 
-function graph(root: Scope, nodes: readonly UwNativeNode[]): UwGraphObservation {
+function graph(root: Scope, nodes: readonly UwNativeNode[]): Extract<UwGraphObservation, { status: 'complete' }> {
   return { status: 'complete', root, nodes, observedAt: OBSERVED_AT }
 }
 
@@ -79,7 +80,7 @@ function pullRequestTarget(): FixTarget {
   }
 }
 
-function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
+async function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
   const fixtures = roxabiWorkflowFixtures()
   const ownSpec = fixtures.ownSpecFromSnapshot(UW, snapshot(UW))
   const mandate = fixtures.featureMandate(UW, {
@@ -91,7 +92,8 @@ function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
     ownSpec,
   })
   const binding = fixtures.workflowBinding(PR, mandate, 'feature/41', 'main')
-  const history = fixtures.historyFrom([mandate])
+  const seededHistory = fixtures.historyFrom([mandate])
+  const history = contracts.decodeHistory({ ...seededHistory.source, stopAuthor: 'github-actions[bot]' })
   const observed = graph(UW, [
     {
       ...node({ scope: UW, snapshot: ownSpec.snapshot, blockers: [BLOCKER] }),
@@ -109,11 +111,18 @@ function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
         ]
       : []),
   ])
-  const reader = createInstalledObservedUwReadPort({
+  const histories = [
+    history,
+    ...observed.nodes
+      .filter((item) => item.uw.target !== UW.target)
+      .map((item) => contracts.decodeHistory({ ...history.source, scope: item.uw, comments: [] })),
+  ]
+  const observation = await observedUwWithoutPullRequests({
     graph: observed,
-    histories: [history],
+    histories,
     catalogues: fixtureHostReviewClassCatalogues(),
   })
+  const reader = createInstalledObservedUwReadPort({ observation })
   const bindingRead = {
     ok: true as const,
     value: {
@@ -125,6 +134,7 @@ function fixture(nativeBlocker: UwNativeNode['native'], withWayfinder = false) {
       native: { branch: 'feature/41', base: 'main', pullRequest: PR, linkedIssueScopes: [UW] },
       observed: { head: SHA, baseTip: 'b'.repeat(40) },
       uwGraph: observed,
+      observation,
     },
   }
   return { bindingRead, history, reader }
@@ -136,7 +146,7 @@ afterEach(() => {
 
 describe('fix checkpoint UW delivery admission', () => {
   it('allows default and CI correction past leaf admission with an unchanged never-accepted wayfinder', async () => {
-    const leaf = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' }, true)
+    const leaf = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' }, true)
     const read = await leaf.reader.readUw(UW)
     expect(read.accepted).toMatchObject({ status: 'accepted', value: { children: [] } })
     expect(read.admission).toMatchObject({ framed: { ok: true }, deliverable: { ok: true } })
@@ -167,36 +177,39 @@ describe('fix checkpoint UW delivery admission', () => {
   })
 
   it('refuses CI admission when the authenticated original UW history is absent', async () => {
-    const leaf = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
+    const leaf = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
     const read = await leaf.reader.readUw(UW)
-    const prHistory = { ...leaf.history, source: { ...leaf.history.source, scope: PR }, operations: [] }
-    const git = vi.fn()
+    const prHistory = contracts.decodeHistory({ ...leaf.history.source, scope: PR, comments: [] })
+    const git = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'correction config unavailable' }))
     vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
-    const result = await authorizeFixAction(
-      {
-        cwd: '/worktree',
-        target: pullRequestTarget(),
-        branch: 'feature/41',
-        base: 'main',
-        options: { cwd: '/worktree' },
-      },
-      prHistory,
-      null,
-      [],
-      'fix',
-      { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
-      { ...read, histories: [] },
-    )
+    const input = {
+      cwd: '/worktree',
+      target: pullRequestTarget(),
+      branch: 'feature/41',
+      base: 'main',
+      options: { cwd: '/worktree' },
+    }
+    const evidence = { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] }
+    const baseline = await authorizeFixAction(input, leaf.history, null, [], 'fix', evidence, read)
+    expect(baseline).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
+    expect(git).toHaveBeenCalledTimes(1)
+    git.mockClear()
+    const histories = read.histories.filter((history) => history.source.scope.target !== UW.target)
+    const result = await authorizeFixAction(input, prHistory, null, [], 'fix', evidence, {
+      ...read,
+      histories,
+      causalObservation: { status: 'complete', histories, catalogues: read.catalogues },
+    })
     expect(result).toMatchObject({
       ok: false,
-      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled', 'cause-history-unconfirmed']),
+      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled', 'fix-causal-own-history-missing']),
     })
     expect(git).not.toHaveBeenCalled()
   })
 
   it('refuses default-fix advancement for a CLOSED/NOT_PLANNED blocker while preserving CLOSED/COMPLETED', async () => {
-    const blocked = fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
-    const completed = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
+    const blocked = await fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
+    const completed = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
     const blockedRead = await blocked.reader.readUw(UW)
     const completedRead = await completed.reader.readUw(UW)
     expect(blockedRead.graph.nodes).toContainEqual(
@@ -230,8 +243,8 @@ describe('fix checkpoint UW delivery admission', () => {
   })
 
   it('refuses CI correction before its config read when the fresh UW graph has a CLOSED/NOT_PLANNED blocker', async () => {
-    const blocked = fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
-    const completed = fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
+    const blocked = await fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
+    const completed = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
     const blockedRead = await blocked.reader.readUw(UW)
     const completedRead = await completed.reader.readUw(UW)
     expect(blockedRead.graph.nodes).toContainEqual(

@@ -1,6 +1,7 @@
 import { canonicalValueDigest } from './action-input.ts'
 import { assessHistoricalAdjudicationSuccessor } from './cause-adjudication-successor.ts'
 import { assessHistoricalCauseDispositions, blockingLabels } from './cause-assessment.ts'
+import { authenticateCauseCapture } from './cause-capture-authentication.ts'
 import { type CauseValidationFrame, historicalCauseContext } from './cause-validation-frame.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
@@ -30,17 +31,49 @@ function validateRetainedFinding(record: Disposition, source: CanonicalRecord, d
     diagnostics.push(diagnostic('cause-outcome-mismatch', `Retained finding ${record.recordId} has an invalid outcome`))
 }
 
-function validateRetained(record: Disposition, histories: readonly DecodedHistory[], diagnostics: Diagnostic[]): void {
+function validateRetained(
+  record: Disposition,
+  histories: readonly DecodedHistory[],
+  diagnostics: Diagnostic[],
+  frame: CauseValidationFrame,
+): void {
   const payload = record.payload
   if (payload.subject.kind === 'cause') return
   const ref = payload.subject.kind === 'retained-finding' ? payload.subject.contribution : payload.subject.source
   const history = histories.find((item) => equalScope(item.source.scope, ref.scope))
   const source = history && bindExternalRef(ref, history)
-  if (!source?.ok)
+  if (!source?.ok) {
     diagnostics.push(
       diagnostic('cause-source-unconfirmed', `Retained disposition ${record.recordId} lacks its authenticated source`),
     )
-  else if (payload.subject.kind === 'retained-finding') validateRetainedFinding(record, source.value, diagnostics)
+    return
+  }
+  const context = historicalCauseContext(frame, payload.origin, payload.basis.versionVector)
+  if (!context.ok) {
+    diagnostics.push(...context.diagnostics)
+    return
+  }
+  const assessmentSource =
+    source.value.kind === 'contribution'
+      ? { kind: 'retained-output' as const, contributions: [source.value], diagnostics: [] }
+      : source.value.kind === 'decision'
+        ? { kind: 'decision' as const, decision: source.value }
+        : null
+  if (assessmentSource === null) {
+    diagnostics.push(
+      diagnostic('cause-source-unconfirmed', `Retained disposition ${record.recordId} has an unsupported source`),
+    )
+    return
+  }
+  const capture = authenticateCauseCapture({
+    context: context.value,
+    capture: payload.basis.capture,
+    source: assessmentSource,
+    histories,
+    catalogues: frame.catalogues,
+  })
+  if (!capture.ok) diagnostics.push(...capture.diagnostics)
+  if (payload.subject.kind === 'retained-finding') validateRetainedFinding(record, source.value, diagnostics)
   else if (payload.outcome.state !== 'pending-blocking')
     diagnostics.push(diagnostic('cause-outcome-mismatch', `Rule error ${record.recordId} must remain pending`))
 }
@@ -64,7 +97,7 @@ function validateCause(
     )
     return
   }
-  const context = historicalCauseContext(frame, payload.origin)
+  const context = historicalCauseContext(frame, payload.origin, payload.basis.versionVector)
   if (!context.ok) {
     diagnostics.push(
       diagnostic('cause-origin-unconfirmed', `Disposition ${record.recordId} lacks a unique accepted Spec`),
@@ -81,6 +114,7 @@ function validateCause(
   const assessed = assessHistoricalCauseDispositions(
     {
       context: context.value,
+      capture: payload.basis.capture,
       source: { kind: 'decision', decision: source.value },
       histories,
       catalogues: frame.catalogues,
@@ -119,7 +153,7 @@ function validateSuccessor(
     )
     return
   }
-  const context = historicalCauseContext(frame, record.payload.origin)
+  const context = historicalCauseContext(frame, record.payload.origin, record.payload.basis.versionVector)
   if (!context.ok) {
     diagnostics.push(
       diagnostic('cause-origin-unconfirmed', `Disposition ${record.recordId} lacks a unique accepted Spec`),
@@ -157,6 +191,6 @@ export function validateCauseSubject(
     validateSuccessor(record, operations, histories, diagnostics, frame)
     return
   }
-  validateRetained(record, histories, diagnostics)
+  validateRetained(record, histories, diagnostics, frame)
   validateCause(record, operations, histories, diagnostics, frame)
 }

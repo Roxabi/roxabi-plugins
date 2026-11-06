@@ -23,6 +23,8 @@ import {
   writeState,
 } from '../testing/review-gate-fixture.ts'
 import { PR_EDITED } from '../testing/review-gate-gh.ts'
+import { acceptGateSpecChange } from '../testing/review-gate-material.ts'
+import { registerMandateIntegrityCases } from './review-gate-mandate-integrity.cases.ts'
 
 export function registerReviewGateMandateCases(): void {
   describe('review-gate CLI mandate and binding', () => {
@@ -212,7 +214,23 @@ export function registerReviewGateMandateCases(): void {
       await seedMandate(fixture)
       const input = await boundInput(fixture)
       publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
-      await seedMandate(fixture, nativeFeatureSpec('Save keeps the selected region after clarification'))
+      const before = readState(fixture)
+      const issueA = before.issues['42']?.comments
+      if (!issueA?.length || !before.comments.length) throw new Error('Published A native records are missing')
+      const gateA = runReviewGate(fixture)
+      expect(gateA.status).toBe(0)
+      expect(JSON.parse(gateA.stdout)).toMatchObject({ ok: true, allowed: true, ci: 'green' })
+      const changed = await acceptGateSpecChange(
+        fixture,
+        nativeFeatureSpec('Save keeps the selected region after clarification'),
+      )
+      expect(changed.confirmations).toBe(1)
+      const after = readState(fixture)
+      expect({ head: after.head, base: after.base }).toEqual({ head: before.head, base: before.base })
+      for (const comment of issueA)
+        expect(after.issues['42']?.comments.find((item) => item.id === comment.id)).toEqual(comment)
+      for (const comment of before.comments)
+        expect(after.comments.find((item) => item.id === comment.id)).toEqual(comment)
 
       const result = runReviewGate(fixture)
 
@@ -239,62 +257,6 @@ export function registerReviewGateMandateCases(): void {
       expect(result.stderr).toBe('')
     })
 
-    it.each(['review', 'review-attempt', 'decision', 'mandate', 'workflow-binding'] as const)(
-      'refuses an edited %s record without persistent effects',
-      async (kind) => {
-        const fixture = setupReviewGateFixture()
-        await seedMandate(fixture)
-        publish(fixture, cleanReview(fixture, fixture.head, 'integrity', await boundInput(fixture)), 'SUCCESS')
-        const state = readState(fixture)
-        const comment =
-          kind === 'mandate'
-            ? state.issues['42']?.comments.find((entry) => entry.body.includes('kind=mandate '))
-            : state.comments.find((entry) => entry.body.includes(`kind=${kind} `))
-        if (!comment) throw new Error(`missing ${kind} fixture record`)
-        comment.updated_at = '2026-10-21T00:00:01Z'
-        writeState(fixture, state)
-
-        const result = runReviewGate(fixture)
-        const body = JSON.parse(result.stdout)
-
-        expect(result.status).toBe(1)
-        expect(body).toMatchObject({ ok: false, allowed: false })
-        if (kind === 'review' || kind === 'review-attempt' || kind === 'decision')
-          expect(body).toMatchObject({ reason: 'record-edited' })
-        expect(postCalls(fixture)).toEqual([])
-      },
-    )
-
-    it.each(['review-attempt', 'decision'] as const)('refuses a foreign-author %s record', async (kind) => {
-      const fixture = setupReviewGateFixture()
-      await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture, fixture.head, 'foreign', await boundInput(fixture)), 'SUCCESS')
-      const state = readState(fixture)
-      const comment = state.comments.find((entry) => entry.body.includes(`kind=${kind} `))
-      if (!comment) throw new Error(`missing ${kind} fixture record`)
-      comment.user.login = 'foreign-automation'
-      writeState(fixture, state)
-
-      const result = runReviewGate(fixture)
-
-      expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false })
-    })
-
-    it('refuses an approval with absent native revision metadata', async () => {
-      const fixture = setupReviewGateFixture()
-      await seedMandate(fixture)
-      publish(fixture, cleanReview(fixture, fixture.head, 'unreadable', await boundInput(fixture)), 'SUCCESS')
-      const state = readState(fixture)
-      const review = state.comments.find((comment) => comment.body.includes('kind=review '))
-      if (!review) throw new Error('missing review fixture record')
-      delete (review as Partial<typeof review>).updated_at
-      writeState(fixture, state)
-
-      const result = runReviewGate(fixture)
-
-      expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'record-unreadable' })
-    })
+    registerMandateIntegrityCases()
   })
 }

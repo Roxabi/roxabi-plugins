@@ -77,6 +77,27 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     delivered.push(result)
   }
   const operations: UwOperations = {
+    readEffective: async () => {
+      throw new Error('unexpected readEffective')
+    },
+    readCoverage: async () => {
+      throw new Error('unexpected readCoverage')
+    },
+    readCompletion: async () => {
+      throw new Error('unexpected readCompletion')
+    },
+    adjustCauseDependency: async () => {
+      throw new Error('unexpected adjustCauseDependency')
+    },
+    reopen: async () => {
+      throw new Error('unexpected reopen')
+    },
+    abandon: async () => {
+      throw new Error('unexpected abandon')
+    },
+    closeLinked: async () => {
+      throw new Error('unexpected closeLinked')
+    },
     listReports: async () => {
       throw new Error('unexpected listReports')
     },

@@ -6,30 +6,37 @@ function commentPage(path) {
   return match === null ? null : { issue: Number(match[1]), page: path.match(/[?&]page=(\d+)/)?.[1] ?? '1' }
 }
 
-function pullView(fields, fixture, state) {
+function pullView(fields, fixture, state, native) {
   return JSON.stringify({
     ...(fields.includes('number') && { number: fixture.pr }),
     ...(fields.includes('headRefOid') && { headRefOid: state.head }),
     ...(fields.includes('headRefName') && { headRefName: 'feat/save' }),
     ...(fields.includes('state') && { state: 'OPEN' }),
+    ...(fields.includes('mergeCommit') && { mergeCommit: null }),
     ...(fields.includes('labels') && { labels: state.label ? [{ name: 'reviewed' }] : [] }),
     ...(fields.includes('autoMergeRequest') && { autoMergeRequest: state.auto ? { enabledAt: 'now' } : null }),
     ...(fields.includes('mergeStateStatus') && { mergeStateStatus: 'CLEAN' }),
     ...(fields.includes('baseRefName') && { baseRefName: 'main' }),
-    ...(fields.includes('baseRefOid') && { baseRefOid: fixture.heads[0] }),
+    ...(fields.includes('baseRefOid') && { baseRefOid: native.base }),
     ...(fields.includes('author') && { author: { login: fixture.author } }),
     ...(fields.includes('body') && { body: '' }),
     ...(fields.includes('updatedAt') && { updatedAt: null }),
   })
 }
 
+function historySlice(history, page, historyPage) {
+  const number = Number(page)
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error(`invalid fixture comment page ${page}`)
+  const comments = JSON.parse(historyPage(history))
+  return JSON.stringify(comments.slice((number - 1) * 100, number * 100))
+}
+
 function issueComments(page, history, issueHistory, fixture, historyPage) {
-  if (page.page !== '1') return '[]'
   if (page.issue === fixture.issue) {
     if (issueHistory === null) throw new Error(`unexpected mandate history read for #${fixture.issue}`)
-    return historyPage(issueHistory)
+    return historySlice(issueHistory, page.page, historyPage)
   }
-  if (page.issue === fixture.pr) return historyPage(history)
+  if (page.issue === fixture.pr) return historySlice(history, page.page, historyPage)
   return null
 }
 
@@ -98,8 +105,10 @@ function publishComment(args, history, fixture) {
   return JSON.stringify({ id: Number(nativeId), body, user: { login: fixture.author } })
 }
 
-function apiCommand(args, history, issueHistory, fixture, historyPage) {
+function apiCommand(args, history, issueHistory, fixture, historyPage, native) {
   if (args[0] !== 'api') return null
+  const nativeResponse = native.response(args)
+  if (nativeResponse !== null) return nativeResponse
   const response = apiResponse(args, history, issueHistory, fixture, historyPage)
   if (response !== null) return response
   return args.includes('POST') || (args.includes('--method') && args.includes('POST'))
@@ -118,8 +127,10 @@ function issueView(args, fixture) {
     : null
 }
 
-function pullRequestView(args, fixture, state) {
-  return args[0] === 'pr' && args[1] === 'view' ? pullView(String(args.at(-1)).split(','), fixture, state) : null
+function pullRequestView(args, fixture, state, native) {
+  return args[0] === 'pr' && args[1] === 'view'
+    ? pullView(String(args.at(-1)).split(','), fixture, state, native)
+    : null
 }
 
 function disarmCommand(args, state) {
@@ -135,7 +146,7 @@ function disarmCommand(args, state) {
   return null
 }
 
-export function createGateGh({ history, issueHistory, state, calls, fixture, historyPage }) {
+export function createGateGh({ history, issueHistory, state, calls, fixture, historyPage, native }) {
   return async (_cwd, args) => {
     calls.push(args)
     const fixtureCatalogue = fixtureCatalogueGhResponse(args)
@@ -143,11 +154,11 @@ export function createGateGh({ history, issueHistory, state, calls, fixture, his
     const pinned = toolingGh(args)
     if (pinned !== null) return pinned.trim()
     if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: fixture.repository })
-    const api = apiCommand(args, history, issueHistory, fixture, historyPage)
+    const api = apiCommand(args, history, issueHistory, fixture, historyPage, native)
     if (api !== null) return api
     const issue = issueView(args, fixture)
     if (issue !== null) return issue
-    const pullRequest = pullRequestView(args, fixture, state)
+    const pullRequest = pullRequestView(args, fixture, state, native)
     if (pullRequest !== null) return pullRequest
     const disarmed = disarmCommand(args, state)
     if (disarmed !== null) return disarmed

@@ -10,6 +10,7 @@ import { planOutputSchema } from '../engine/workflow-output-schema.ts'
 import { BRANCH, cleanupFeatureRecoveryRoots, featureFixture, SCOPE } from '../testing/feature-recovery-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { writeSim } from '../testing/sandbox/sandbox-repository.ts'
+import { authenticatedPlanFixtures } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 
 afterEach(cleanupFeatureRecoveryRoots)
 
@@ -50,7 +51,8 @@ describe('installed feature criterion blockers', () => {
       },
     })
     if (!allocated.ok) throw new Error('expected identity record')
-    const [start, result] = fixtures.planDraftRecords(mandate)
+    const planFixtures = authenticatedPlanFixtures(mandate, [fixtures.historyFrom([allocated.value, mandate])]).workflow
+    const [start, result] = planFixtures.planDraftRecords(mandate)
     if (
       start === undefined ||
       result?.kind !== 'action-receipt' ||

@@ -74,7 +74,7 @@ If required context is absent, do not invent it or produce a positive result. Re
 
 Use Bash only to verify the candidate named by the index. Residual environment, gh config, git helpers, and SSH credentials may remain; that is a procedural fallback, not isolation. Worktree separation is not a credential boundary. Do not publish, push, comment, or close. Do not implement.
 
-Every finding requires a target in format omp-build-finding-target/1. Use the indexed accepted OwnSpecRef and local criterion or invariant ID when applicable; otherwise use an outside-spec target bound to the indexed original scope. Never infer a criterion or invariant from prose or use an ancestor or foreign Spec.
+Every finding requires a target in format omp-build-finding-target/1. Use the exact effective.own Spec reference for an own criterion or invariant. For an inherited invariant copy the exact effective.inherited.invariants[].target from spec.json, including its pinned owner. Otherwise use an outside-spec target bound to the indexed original scope. Never infer an obligation from prose or use a foreign or unpinned Spec reference. Apply every own and inherited invariant and exclusion; only own criteria require criterion verdict rows.
 
 Judge each accepted criterion named by the index. Return specRows as canonical CriterionVerdict rows, one per criterion, plus findings only for concrete conformity gaps.
 

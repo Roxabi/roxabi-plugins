@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
+import { landedEpicDuringDisarm } from './testing/epic-driver/epic-driver-merged-race.ts'
 import { childNode, prNode, servePr } from './testing/epic-driver/epic-driver-records.ts'
 import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
 
@@ -30,40 +31,23 @@ describe('epic-driver — eventual consistency', () => {
   }
 
   it.each([false, true])(
-    'reads GitHub once more when the PR merged during its disarm (autoMerge=%s), and moves on',
-    (autoMerge) => {
-      const tip = armedOnOrigin(autoMerge)
-      const { state } = sandboxOf()
-      const initial = new Map(
-        ['containment-2', 'branch-prs-2', 'uw-2'].map((name) => [name, readFileSync(path.join(state, `${name}.json`))]),
-      )
-      const merged = prNode(11, 'feat/2-first-child', tip, {
-        state: 'MERGED',
-        mergedAt: '2026-09-30T10:00:00Z',
-        mergeCommit: { oid: 'd'.repeat(40), parents: { nodes: [{ oid: 'a'.repeat(40) }] } },
-      })
-      // The first read is the stale one; every later read shows the merge.
-      writeFileSync(path.join(state, 'epic.json.1'), readFileSync(path.join(state, 'epic.json')))
-      serveBoundEpic(
-        childNode(2, 'feat(x): first child', { state: 'CLOSED', stateReason: 'COMPLETED', prs: [merged] }),
-        11,
-        'feat/2-first-child',
-      )
-      for (const [name, contents] of initial) {
-        const current = path.join(state, `${name}.json`)
-        writeFileSync(`${current}.after-edit`, readFileSync(current))
-        writeFileSync(current, contents)
-      }
-      writeFileSync(path.join(state, 'pr', '11.merge-on-edit.json'), JSON.stringify(merged))
+    'reads GitHub again after a real child merge during disarm (autoMerge=%s)',
+    async (autoMerge) => {
+      const { progressRange, state, priorReads } = await landedEpicDuringDisarm(autoMerge)
 
       const run = drive(['next'])
 
       expect(run.code, run.stderr).toBe(0)
-      expect(run.json().step).toMatchObject({ action: 'final-review', stage: 'review' })
-      expect(reads()).toBeGreaterThanOrEqual(2)
+      expect(run.json().step).toMatchObject({ action: 'integrate' })
+      expect(reads() - priorReads).toBeGreaterThanOrEqual(2)
       expect(writes()).toEqual(
-        expect.arrayContaining([...(autoMerge ? ['merge 11 --disable-auto'] : []), 'edit 11 --remove-label reviewed']),
+        expect.arrayContaining([...(autoMerge ? ['merge 10 --disable-auto'] : []), 'edit 10 --remove-label reviewed']),
       )
+      expect(JSON.parse(readFileSync(path.join(state, 'pr', '10.native.json'), 'utf8'))).toMatchObject({
+        number: 10,
+        state: 'MERGED',
+        mergeCommit: { oid: progressRange.split('..')[1] },
+      })
     },
   )
 

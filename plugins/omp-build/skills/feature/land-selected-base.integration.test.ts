@@ -3,13 +3,18 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { actionInputDigest } from '../../engine/action-input.ts'
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
-import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
+import { buildRecord } from '../../engine/record-construction.ts'
 import { criterionPullHistory, criterionReviewGraph } from '../../testing/criterion-approval.ts'
+import { graphFromSimulatedIssues } from '../../testing/criterion-dispositions.ts'
 import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
+import { nativeImplementationWorld } from '../../testing/native-implementation-world.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
+import { eligiblePlan } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const PR = 30
@@ -83,8 +88,9 @@ function captureInput(box: Box, cwd: string, head: string): { input: string; inp
   return { input: captured.input, inputs }
 }
 
-function prepare(box: Box, cwd: string, armed = false): void {
+async function prepare(box: Box, cwd: string, armed = false): Promise<void> {
   const head = box.sha[BRANCH] as string
+  const base = box.sha.main as string
   const authority = linkedLandingAuthority({
     repository: 'acme/app',
     issueNumber: ISSUE,
@@ -93,10 +99,106 @@ function prepare(box: Box, cwd: string, armed = false): void {
     base: 'main',
     issueBody: LANDING_SPEC.body,
     ownSpec: LANDING_SPEC.ownSpec,
-    lineageHead: head,
+    lineageHead: base,
     author: 'operator',
   })
-  const issueRecords = criterionImplementationRecords(authority.mandate, head)
+  const fixtures = roxabiWorkflowFixtures()
+  const plan = eligiblePlan(authority.mandate, [fixtures.historyFrom([authority.mandate])]).map((record) => {
+    if (record.kind !== 'action-receipt') return record
+    const previous = record.payload.inputs
+    const manifest = {
+      ...previous.manifest,
+      code: { repository: ISSUE_SCOPE.repository, base, head: base, referenceCommit: base },
+    }
+    const built = buildRecord({
+      ...record,
+      payload: { ...record.payload, inputs: { ...previous, manifest, fingerprint: actionInputDigest(manifest) } },
+    })
+    if (!built.ok) throw new Error(`Invalid landing plan ${JSON.stringify(built.diagnostics)}`)
+    return built.value
+  })
+  const observe = (sha: string) => {
+    const [actual, ...parents] = git(box, cwd, ['rev-list', '--parents', '-n1', sha]).split(' ')
+    if (actual !== sha) throw new Error('Wrong selected-base fixture commit')
+    return {
+      sha,
+      parents,
+      tree: git(box, cwd, ['rev-parse', `${sha}^{tree}`]),
+      subject: git(box, cwd, ['show', '-s', '--format=%s', sha]),
+      paths: git(box, cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean),
+      config: git(box, cwd, ['show', `${sha}:.dev/stack.yml`]),
+    }
+  }
+  const pullScope = { repository: 'acme/app', target: `acme/app#${PR}` }
+  const pullHistory = decodeHistory({
+    scope: pullScope,
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    comments: [],
+    diagnostics: [],
+  })
+  const rangeCommits = git(box, cwd, ['rev-list', '--reverse', `${base}..${head}`])
+    .split('\n')
+    .filter(Boolean)
+  const issueRecords = (
+    await nativeImplementationWorld({
+      graph: graphFromSimulatedIssues(ISSUE_SCOPE, [
+        {
+          number: ISSUE,
+          title: 'fix: plain',
+          body: LANDING_SPEC.body,
+          updatedAt: '2026-10-27T12:00:00Z',
+          state: 'OPEN',
+          stateReason: null,
+          labels: ['size:S'],
+          subIssues: [],
+          blockedBy: [],
+        },
+      ]),
+      histories: [fixtures.historyFrom(plan), pullHistory],
+      scope: ISSUE_SCOPE,
+      mandate: authority.mandate,
+      startHead: base,
+      head,
+      branch: BRANCH,
+      author: 'operator',
+      command: 'bun test plain.test.ts',
+      output: 'PASS plain',
+      commits: [observe(base), ...rangeCommits.map(observe)],
+      comparisons: [
+        { base, head: base, status: 'identical', commits: [] },
+        { base, head, status: rangeCommits.length ? 'ahead' : 'identical', commits: rangeCommits },
+      ],
+      baseTip: base,
+      remoteTipBefore: base,
+      remoteTipAfter: head,
+      pullRequestsBefore: [
+        {
+          scope: pullScope,
+          branch: BRANCH,
+          base: 'main',
+          head: base,
+          baseTip: base,
+          state: 'OPEN',
+          mergeCommit: null,
+          author: 'operator',
+        },
+      ],
+      pullRequestsAfter: [
+        {
+          scope: pullScope,
+          branch: BRANCH,
+          base: 'main',
+          head,
+          baseTip: base,
+          state: 'OPEN',
+          mergeCommit: null,
+          author: 'operator',
+        },
+      ],
+    })
+  ).records
   const issueBodies = roxabiWorkflowFixtures().framedBodies(issueRecords, 'operator')
   writeSim(box, (state) => {
     const pull = state.prs[String(PR)]
@@ -125,6 +227,8 @@ function prepare(box: Box, cwd: string, armed = false): void {
     head,
     inputs: captured.inputs,
     projection,
+    graph: graphFromSimulatedIssues(ISSUE_SCOPE, Object.values(readSim(box).issues)),
+    contextHistories: [],
     author: 'operator',
     verdict: 'Approve (clean)',
     prefix: 'selected-base',
@@ -205,9 +309,9 @@ process.exit(output.status ?? 1)
 }
 
 describe('landPr retains the selected base name and tip', () => {
-  it.each(['native', 'merge-on-green'] as const)('%s keeps watching when nothing moves', (mode) => {
+  it.each(['native', 'merge-on-green'] as const)('%s keeps watching when nothing moves', async (mode) => {
     const { box, cwd } = createBox(mode)
-    prepare(box, cwd)
+    await prepare(box, cwd)
 
     const run = land(box, cwd, mode)
 
@@ -218,9 +322,9 @@ describe('landPr retains the selected base name and tip', () => {
     )
   })
 
-  it.each(['native', 'merge-on-green'] as const)('%s lands a green PR onto the selected tip', (mode) => {
+  it.each(['native', 'merge-on-green'] as const)('%s lands a green PR onto the selected tip', async (mode) => {
     const { box, cwd } = createBox(mode)
-    prepare(box, cwd)
+    await prepare(box, cwd)
     green(box)
 
     const run = land(box, cwd, mode)
@@ -230,9 +334,9 @@ describe('landPr retains the selected base name and tip', () => {
     expect(run.pull.mergeCommit?.parents).toEqual([box.sha.main, box.sha[BRANCH]])
   })
 
-  it('reports merged when native auto-merge completes during post-write observation', () => {
+  it('reports merged when native auto-merge completes during post-write observation', async () => {
     const { box, cwd } = createBox()
-    prepare(box, cwd)
+    await prepare(box, cwd)
     green(box)
 
     const run = land(box, cwd, 'native')
@@ -245,9 +349,9 @@ describe('landPr retains the selected base name and tip', () => {
     )
   })
 
-  it('refuses native landing once it merged onto a base moved after selection', () => {
+  it('refuses native landing once it merged onto a base moved after selection', async () => {
     const { box, cwd } = createBox()
-    prepare(box, cwd)
+    await prepare(box, cwd)
     green(box)
     const restore = mutateAfter(
       box,
@@ -263,9 +367,9 @@ describe('landPr retains the selected base name and tip', () => {
     }
   })
 
-  it('refuses a merge-on-green wrong-head merge instead of claiming watching or merged', () => {
+  it('refuses a merge-on-green wrong-head merge instead of claiming watching or merged', async () => {
     const { box, cwd } = createBox('merge-on-green')
-    prepare(box, cwd)
+    await prepare(box, cwd)
     green(box)
     const h2 = box.sha[NEXT] as string
     green(box, h2)
@@ -282,9 +386,9 @@ describe('landPr retains the selected base name and tip', () => {
     }
   })
 
-  it('does not claim merged or watching when a native post-admit race changes the head', () => {
+  it('does not claim merged or watching when a native post-admit race changes the head', async () => {
     const { box, cwd } = createBox()
-    prepare(box, cwd)
+    await prepare(box, cwd)
     green(box)
     const h2 = box.sha[NEXT] as string
     green(box, h2)
@@ -301,9 +405,9 @@ describe('landPr retains the selected base name and tip', () => {
     }
   })
 
-  it('does not claim merged or watching when admission never succeeds and a prior arm settles onto the tip', () => {
+  it('does not claim merged or watching when admission never succeeds and a prior arm settles onto the tip', async () => {
     const { box, cwd } = createBox()
-    prepare(box, cwd, true)
+    await prepare(box, cwd, true)
     green(box)
     const restore = mutateAfter(box, 'review-input', `state.prs[${PR}].baseRefName = 'staging'`)
     try {
@@ -325,9 +429,9 @@ describe('landPr retains the selected base name and tip', () => {
     }
   })
 
-  it.each(['native', 'merge-on-green'] as const)('%s refuses an unreadable selected base tip', (mode) => {
+  it.each(['native', 'merge-on-green'] as const)('%s refuses an unreadable selected base tip', async (mode) => {
     const { box, cwd } = createBox(mode)
-    prepare(box, cwd)
+    await prepare(box, cwd)
     const restore = mutateAfter(box, 'label', `state.prs[${PR}].baseRefName = 'missing'`)
     try {
       const run = land(box, cwd, mode)
@@ -341,21 +445,24 @@ describe('landPr retains the selected base name and tip', () => {
 })
 
 describe('origin identity is bound to the selected repository before base policy', () => {
-  it.each(['native', 'merge-on-green'] as const)('%s refuses a fork origin before it reads the base policy', (mode) => {
-    const { box, cwd } = createBox(mode)
-    prepare(box, cwd)
-    const fork = path.join(box.root, 'fork.git')
-    git(box, box.root, ['clone', '-q', '--bare', box.origin, fork])
-    writeSim(box, (state) => {
-      state.repositoryUrls = { [fork]: 'fork/app' }
-    })
-    git(box, cwd, ['remote', 'set-url', 'origin', fork])
+  it.each(['native', 'merge-on-green'] as const)(
+    '%s refuses a fork origin before it reads the base policy',
+    async (mode) => {
+      const { box, cwd } = createBox(mode)
+      await prepare(box, cwd)
+      const fork = path.join(box.root, 'fork.git')
+      git(box, box.root, ['clone', '-q', '--bare', box.origin, fork])
+      writeSim(box, (state) => {
+        state.repositoryUrls = { [fork]: 'fork/app' }
+      })
+      git(box, cwd, ['remote', 'set-url', 'origin', fork])
 
-    const run = land(box, cwd, mode)
+      const run = land(box, cwd, mode)
 
-    expect(run.result).toMatchObject({ status: 'base-blocked', reason: 'unbound' })
-    expect(run.pull.labels).toEqual([])
-    expect(run.pull.autoMerge).toBeNull()
-    expect(run.calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
-  })
+      expect(run.result).toMatchObject({ status: 'base-blocked', reason: 'unbound' })
+      expect(run.pull.labels).toEqual([])
+      expect(run.pull.autoMerge).toBeNull()
+      expect(run.calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
+    },
+  )
 })

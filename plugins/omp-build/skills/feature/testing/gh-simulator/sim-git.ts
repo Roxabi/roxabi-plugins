@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { execInherited } from './sim-invocation.ts'
+import { currentInvocation, execInherited } from './sim-invocation.ts'
 import { persist } from './sim-state.ts'
 import { type Check, fail, PASSING, type Pull, type State, stamp } from './sim-types.ts'
 
@@ -21,7 +21,7 @@ export function git(origin: string, args: string[]): string {
       'core.hooksPath=/dev/null',
       ...args,
     ],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: currentInvocation().cwd, env: currentInvocation().env },
   ).trim()
 }
 
@@ -193,7 +193,12 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
         '-m',
         `Merge pull request #${pr.number} from ${pr.headRefName}`,
       ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd: currentInvocation().cwd,
+        env: currentInvocation().env,
+      },
     )
     const oid = execInherited('git', ['-C', scratch, 'rev-parse', 'HEAD']).trim()
     const first = execInherited('git', ['-C', scratch, 'rev-parse', 'HEAD^1']).trim()

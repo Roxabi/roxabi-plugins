@@ -1,7 +1,10 @@
 import { expect, it } from 'vitest'
+import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
 import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
 import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
+import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest } from '../action-input.ts'
@@ -13,7 +16,7 @@ import {
   validateCauseDispositionRecords,
 } from '../cause-disposition.ts'
 import { causeValidationFrame } from '../cause-validation-frame.ts'
-import { resolveOwnSpecEffective } from '../spec-effective.ts'
+import { resolveSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { appendAccountedRecords } from './cause-hold-fixture.ts'
@@ -108,12 +111,28 @@ it('validates a long authenticated lineage and its final disposition without los
 it('does not carry an authenticated rejection from accepted Spec A into a fresh review of B', () => {
   const result = lineageFixture(3, true)
   const accepted = mandateAssessmentState(result.mandate)
-  const proposed = proposedAssessmentState(accepted, { body: 'Editorial clarification of selected region' })
-  const amendment = assessFixture(result.mandate, 'lineage-editorial', accepted, proposed, 'editorial')
+  const body = `${accepted.snapshot.raw.body}\n`
+  const parsed = parseIssueSpecBody({
+    uw: result.context.original,
+    raw: rawSource(result.context.original.target, body, '2026-10-27T12:00:00.000Z'),
+  })
+  if (parsed.status !== 'conformant') throw new Error('Expected conformant editorial Spec B')
+  const proposed = { ...proposedAssessmentState(accepted, { body }), snapshot: parsed.snapshot }
+  const amendment = assessFixture(result.mandate, 'lineage-editorial', accepted, proposed, 'editorial', [
+    result.own,
+    result.source,
+  ])
   const own = appendAccountedRecords(result.own, [amendment.start, amendment.result])
   const current = resolveAcceptedSpec(result.mandate, [own, result.source])
   if (!current.ok) throw new Error('Expected authenticated Spec B')
-  const effective = must(resolveOwnSpecEffective(current.spec))
+  const effective = must(
+    resolveSpecEffective({
+      mode: 'historical',
+      own: current.spec.ref,
+      versionVector: [current.spec.ref, ...current.spec.inheritedOwnSpecRefs],
+      histories: [own, result.source],
+    }),
+  )
   const pr = { repository: result.context.original.repository, target: 'acme/app#45' }
   const binding = roxabiWorkflowFixtures().workflowBinding(pr, result.mandate, 'feat/fresh-b', 'main')
   const base = acceptedPullRequestReviewGraph({
@@ -151,6 +170,8 @@ it('does not carry an authenticated rejection from accepted Spec A into a fresh 
   const observed = must(
     assessCauseDispositions({
       context: { original: result.context.original, effective },
+      capture: synthesisActionCapture(fresh.decision, [fresh.history]),
+      graph: causeFixtureGraph(body),
       source: { kind: 'decision', decision: fresh.decision },
       histories,
       catalogues: result.catalogues,

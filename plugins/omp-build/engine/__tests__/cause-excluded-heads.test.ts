@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
+import { rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
 import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { operation } from '../../testing/record-history.ts'
@@ -19,6 +21,7 @@ import { assessCauseHolds } from '../cause-hold.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { specDigest } from '../record-digests.ts'
 import { canonicalSpec } from '../uw-spec.ts'
+import { projectUwWaits } from '../uw-waits.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { cataloguesForInputs, withPinnedCatalogue } from './cause-catalogue-fixture.ts'
 import { appendAccountedRecords, ref } from './cause-hold-fixture.ts'
@@ -27,6 +30,36 @@ import { must } from './workflow-test-support.ts'
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const uw = { repository: 'acme/app', target: 'acme/app#42' }
 const pr = { repository: 'acme/app', target: 'acme/app#44' }
+const observedAt = '2026-10-27T12:00:00.000Z'
+const nativeGraph = {
+  status: 'complete' as const,
+  root: uw,
+  observedAt,
+  nodes: [
+    {
+      uw,
+      title: 'Save region',
+      raw: rawSource(uw.target, 'Save region; bulk export is excluded', observedAt),
+      updatedAt: observedAt,
+      labels: ['size:S'],
+      wayfinderLabels: [],
+      parent: null,
+      children: [],
+      blockers: [],
+      native: { state: 'OPEN' as const, stateReason: null },
+    },
+  ],
+}
+function fixtureHolds(
+  histories: Parameters<typeof projectUwWaits>[0]['histories'],
+  catalogues: Parameters<typeof projectUwWaits>[0]['catalogues'],
+) {
+  return assessCauseHolds({
+    uw,
+    waits: projectUwWaits({ graph: nativeGraph, histories, catalogues }),
+    dependencies: new Map(),
+  })
+}
 const citation = {
   source: 'git-file' as const,
   repository: uw.repository,
@@ -147,6 +180,8 @@ function mixedFixture(includeExclusion = true) {
   const assessment = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(decision, [source]),
+      graph: nativeGraph,
       source: { kind: 'decision', decision },
       histories: [own, source],
       adjudications: [],
@@ -240,14 +275,7 @@ it('consumes the authenticated excluded-only report after rejecting the actionab
   ).toEqual([])
   const heads = must(readCauseDispositionHeads({ uw, histories, catalogues: fixture.catalogues }))
   expect(heads.map((head) => head.recordId)).toEqual([fixture.head.recordId])
-  expect(
-    assessCauseHolds({
-      uw,
-      histories,
-      catalogues: fixture.catalogues,
-      graph: { status: 'complete', root: uw, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-    }),
-  ).toEqual([])
+  expect(fixtureHolds(histories, fixture.catalogues)).toEqual([])
   expect(
     must(causeActionData(fixture.request, histories, [], fixture.catalogues)).map((pin) => pin.record.recordId),
   ).toEqual(expect.arrayContaining([fixture.pending.recordId, fixture.adjudication.recordId, fixture.head.recordId]))
@@ -274,14 +302,7 @@ it('refuses a forged report that clears a surviving actionable finding and missi
   }
   const histories = [own, fixture.source]
   expect(readCauseDispositionHeads({ uw, histories, catalogues: fixture.catalogues }).ok).toBe(false)
-  expect(
-    assessCauseHolds({
-      uw,
-      histories,
-      catalogues: fixture.catalogues,
-      graph: { status: 'complete', root: uw, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-    }).length,
-  ).toBeGreaterThan(0)
+  expect(fixtureHolds(histories, fixture.catalogues).length).toBeGreaterThan(0)
   expect(causeActionData(fixture.request, histories, [], fixture.catalogues).ok).toBe(false)
   // Retained ledger display does not establish that the initial outcome was semantically valid.
   expect(
@@ -303,14 +324,7 @@ it('refuses omitted confirmation and competing successor instead of clearing a h
   for (const own of [withoutConfirmation, withCompetition]) {
     const histories = [own, fixture.source]
     expect(readCauseDispositionHeads({ uw, histories, catalogues: fixture.catalogues }).ok).toBe(false)
-    expect(
-      assessCauseHolds({
-        uw,
-        histories,
-        catalogues: fixture.catalogues,
-        graph: { status: 'complete', root: uw, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-      }).length,
-    ).toBeGreaterThan(0)
+    expect(fixtureHolds(histories, fixture.catalogues).length).toBeGreaterThan(0)
     expect(causeActionData(fixture.request, histories, [], fixture.catalogues).ok).toBe(false)
     expect(readCauseReports({ root: uw, subtree: [uw], histories: [own] }).ok).toBe(false)
   }
@@ -320,13 +334,6 @@ it('keeps the remaining blocker pending when the exclusion is absent', () => {
   const fixture = mixedFixture(false)
   const histories = [fixture.own, fixture.source]
   expect(fixture.head.payload.outcome.state).toBe('pending-blocking')
-  expect(
-    assessCauseHolds({
-      uw,
-      histories,
-      catalogues: fixture.catalogues,
-      graph: { status: 'complete', root: uw, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-    }).length,
-  ).toBeGreaterThan(0)
+  expect(fixtureHolds(histories, fixture.catalogues).length).toBeGreaterThan(0)
   expect(must(readCauseReports({ root: uw, subtree: [uw], histories })).reports).toEqual([])
 })

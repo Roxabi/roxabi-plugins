@@ -1,4 +1,4 @@
-import { decisionSchema } from '../dist/contracts.js'
+import { canonicalValueDigest, decisionSchema, type PreparedCauseCapture } from '../dist/contracts.js'
 import type { NativeBatch, NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 import { actionRequest, codePin, confirmPreparedAction, deliveryTask, recordStageRef } from './delivery-action.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, RecordPublisher } from './fix-contract.ts'
@@ -11,6 +11,7 @@ export type PreparedCorrectionSynthesis = {
   inventoryId: string
   sourceContributionIds: string[]
   batch: NativeBatch
+  capture: PreparedCauseCapture
 }
 
 /** Synthesis cites confirmed contribution payloads as stage records, not opaque IDs or embedded JSON. */
@@ -91,6 +92,19 @@ export async function prepareCorrectionSynthesis(
     value: {
       inventoryId,
       sourceContributionIds,
+      capture: {
+        kind: 'action',
+        input: {
+          source: 'record',
+          record: {
+            scope: { repository: inventory.repository, target: inventory.target },
+            recordId: inventory.recordId,
+            kind: 'review-attempt',
+          },
+          selector: '/payload/slots/0/action/inputs',
+          digest: canonicalValueDigest(preparedAction.value.inputs),
+        },
+      },
       batch: {
         operationId: identity.operationId,
         tasks: {

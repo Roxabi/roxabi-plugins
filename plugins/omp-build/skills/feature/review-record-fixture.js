@@ -1,3 +1,4 @@
+import { readUwGraph } from '../../adapters/github-native/uw-graph.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
 import { actionInputDigest } from '../../engine/action-input.ts'
@@ -6,14 +7,17 @@ import { SPEC_CONTENT_FORMAT } from '../../engine/uw-spec-schema.ts'
 import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
 import { freshReviewInputs, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
-import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
+import { committedFixtureRecords } from '../../testing/committed-plugin-fixture.ts'
 import { criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { assembleActionInputs } from '../../testing/review-input-assembly.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { CHECKOUT_HEADS, createGateGit, WORKTREE } from './review-record-git-fixture.js'
+import { eligiblePlan } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
+import { createReviewDeliveryNative } from './review-record-delivery-gh.js'
+import { CHECKOUT_BASE, CHECKOUT_HEADS, createGateGit, WORKTREE } from './review-record-git-fixture.js'
 import { createGateGh } from './review-record-github-fixture.js'
-import { INSTALLED_PLUGIN, TOOLING_COMMIT } from './review-record-pin.js'
+import { linkedImplementation } from './review-record-native-fixture.js'
+import { INSTALLED_PLUGIN, TOOLING_COMMIT, TOOLING_ROOT } from './review-record-pin.js'
 import { confirmedReviewSemanticContext as observedReviewSemanticContext } from './workflow-review-input.js'
 export const REPOSITORY = 'acme/app'
 export const ISSUE = 42
@@ -121,14 +125,14 @@ export function distinctReviewInput() {
   return DISTINCT_INPUTS.fingerprint
 }
 
-function mandateRecord(head) {
+function mandateRecord() {
   return featureMandate(ISSUE_SCOPE, {
     recordId: 'mandate-feature-1',
     runId: 'run00001',
     operationId: 'op-mandate-feature-1',
     branch: 'feat/save',
     base: 'main',
-    lineageHead: head,
+    lineageHead: CHECKOUT_BASE,
     ownSpec: NATIVE_SPEC.ownSpec,
   })
 }
@@ -142,7 +146,7 @@ async function linkedInput(head, issue, bindingHistory) {
       actionId: `review-${PR}`,
       purpose: 'review',
       subject: { kind: 'uw', uw: ISSUE_SCOPE, pullRequest: SCOPE, binding: null },
-      code: { repository: REPOSITORY, base: HEADS[0], head, referenceCommit: head },
+      code: { repository: REPOSITORY, base: CHECKOUT_BASE, head, referenceCommit: head },
       stageSources: [],
       expandedContext: [],
     },
@@ -156,12 +160,46 @@ async function linkedInput(head, issue, bindingHistory) {
 
 /** Approving review bound to issue 42, shipped config, and the empty-PR canon. */
 export async function linkedApproval(head = HEADS[0]) {
-  const mandate = mandateRecord(head)
-  const issueRecords = criterionImplementationRecords(mandate, head)
-  const issue = historyFrom(issueRecords, AUTHOR)
+  const mandate = mandateRecord()
+  const plan = committedFixtureRecords(
+    TOOLING_ROOT,
+    eligiblePlan(mandate, [historyFrom([mandate], AUTHOR)]),
+    TOOLING_COMMIT,
+  ).map((record) => {
+    if (record.kind !== 'action-receipt') return record
+    const previous = record.payload.inputs
+    const manifest = {
+      ...previous.manifest,
+      code: {
+        repository: REPOSITORY,
+        base: CHECKOUT_BASE,
+        head: CHECKOUT_BASE,
+        referenceCommit: CHECKOUT_BASE,
+      },
+    }
+    const result = frameRecord({
+      ...record,
+      payload: { ...record.payload, inputs: { ...previous, manifest, fingerprint: actionInputDigest(manifest) } },
+    })
+    if (!result.ok) throw new Error(`Invalid native review fixture plan: ${JSON.stringify(result.diagnostics)}`)
+    return result.value
+  })
+  const produced = await linkedImplementation({
+    scope: ISSUE_SCOPE,
+    body: SPEC,
+    mandate,
+    plan,
+    author: AUTHOR,
+    base: CHECKOUT_BASE,
+    head,
+  })
+  const issueRecords = produced.records
+  const issue = produced.history
   const binding = workflowBinding(SCOPE, mandate, 'feat/save', 'main')
   const framedBinding = historyFrom([binding], AUTHOR, AUTHOR, [issue])
   const inputs = await linkedInput(head, issue, framedBinding)
+  const { gh } = gateGh(framedBinding, { head, armed: true, issueHistory: issue })
+  const graph = await readUwGraph(ISSUE_SCOPE, { cwd: WORKTREE, gh })
   const reviews = criterionReviewGraph({
     mandate,
     inputs,
@@ -170,6 +208,8 @@ export async function linkedApproval(head = HEADS[0]) {
     issueRecords,
     scope: SCOPE,
     projection: roxabiRecordFixtures().projection,
+    graph,
+    contextHistories: [],
     prefix: 'review-1',
     author: AUTHOR,
   })
@@ -234,10 +274,17 @@ export function gateGh(
     pr: PR,
     author: AUTHOR,
     spec: SPEC,
-    heads: HEADS,
   }
   return {
-    gh: createGateGh({ history, issueHistory, state, calls, fixture, historyPage }),
+    gh: createGateGh({
+      history,
+      issueHistory,
+      state,
+      calls,
+      fixture,
+      historyPage,
+      native: createReviewDeliveryNative(fixture),
+    }),
     git: createGateGit({ state, moveHeadAfterInputRead, heads: HEADS }),
     state,
     calls,

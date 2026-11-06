@@ -44,7 +44,7 @@ function validateAdjudication(
   frame: CauseValidationFrame,
   diagnostics: Diagnostic[],
 ): void {
-  const resolved = historicalCauseContext(frame, disposition.payload.origin)
+  const resolved = historicalCauseContext(frame, disposition.payload.origin, disposition.payload.basis.versionVector)
   if (!resolved.ok) {
     diagnostics.push(diagnostic('cause-origin-unconfirmed', `Operation ${operation.recordId} lacks its accepted Spec`))
     return

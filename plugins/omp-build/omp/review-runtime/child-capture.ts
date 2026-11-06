@@ -1,16 +1,12 @@
 import { isDeepStrictEqual } from 'node:util'
+import { inspectNativeTerminal } from '../../dist/contracts.js'
 import type { CommandRun } from '../../engine/criterion-evidence-schema.ts'
-import { json, nativeSnapshot, object } from './capture'
+import { nativeSnapshot, object } from './capture'
 import type { Json, NativeChildResult, NativeProofBashCall, NativeProofDirective } from './contracts'
 import { commandRunFromCapture, nativeProvenance, referencedCommandIds } from './criterion-grounding.ts'
 import type { ActiveBatch, ChildCapture } from './state'
 
 type SelectedProofReference = { toolCallId: string; guardId: string | null }
-
-function terminalStructured(value: Record<string, unknown>): Json | null {
-  const output = value.structuredOutput
-  return object(output) && output.status === 'valid' && json(output.data) ? output.data : null
-}
 
 function selectedProofReference(
   value: Json | null,
@@ -66,13 +62,10 @@ function childCompletionReason(
   expectedId: string | null,
   structured: Json | null,
   submissions: ChildCapture['submissions'],
+  terminalReason: string | null,
 ): string | null {
   if (child === null) return expectedId === null ? 'malformed-child-result' : 'missing-required-child-result'
-  if (child.exitCode !== 0) return 'required-child-exit-code'
-  if (child.error !== undefined && child.error !== null) return 'required-child-error'
-  if (child.aborted === true) return 'required-child-aborted'
-  if (!object(child.structuredOutput)) return 'missing-structured-output'
-  if (child.structuredOutput.status !== 'valid') return 'structured-output-not-valid'
+  if (terminalReason !== null) return terminalReason
   return submissionReason(submissions, structured)
 }
 
@@ -106,9 +99,10 @@ export function captureChildResult(
   const task =
     expectedId === null ? undefined : active.batch.tasks.tasks.find((candidate) => candidate.name === expectedId)
   const directive = task?.proofEvidence ?? null
-  const structured = child === null ? null : terminalStructured(child)
+  const terminal = inspectNativeTerminal(value)
+  const structured = terminal.structured
   const proofReference = selectedProofReference(structured, directive)
-  const reason = childCompletionReason(child, expectedId, structured, submissions)
+  const reason = childCompletionReason(child, expectedId, structured, submissions, terminal.reason)
   const commandRuns: CommandRun[] = []
   const childId = id
   const actionId = task?.action?.snapshot.actionId

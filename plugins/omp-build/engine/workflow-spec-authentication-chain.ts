@@ -1,3 +1,4 @@
+import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -44,6 +45,12 @@ function authenticateStart(
   if (startPayload.actionId !== confirmed.payload.actionId) return mismatchedStart()
   if (!sameRef(startPayload.mandate, mandateRef)) return mismatchedStart()
   if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs)) return mismatchedStart()
+  if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
+    return mismatchedStart()
+  if (!validateActionInputs(confirmed.payload.inputs).ok) return mismatchedStart()
+  const operands = confirmed.payload.inputs.manifest.operands
+  if (operands?.action !== 'assess-spec' || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
+    return mismatchedStart()
   return { ok: true }
 }
 

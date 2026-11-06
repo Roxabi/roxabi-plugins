@@ -4,9 +4,10 @@ import { dirname, join } from 'node:path'
 import * as hostSdk from '@oh-my-pi/pi-coding-agent'
 import { cfgTaskAgentModelOverrides } from '@oh-my-pi/pi-coding-agent/task/settings'
 import ompBuildExtension from '../omp/index.ts'
-import { ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
+import { createOmpFixPort, ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
+import type { NativePort } from '../roxabi/fix-contract.ts'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
 import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
 import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
@@ -28,6 +29,7 @@ type RootContext = {
 export type ActionProof = { command: string; args: string[]; program?: string; prepare?(): void; restore?(): void }
 export type ReviewDriver = {
   controller: NativeBatchController
+  native: NativePort
   messages: string[]
   diagnostics: Record<string, unknown>[]
   fixRun(): FixRun | undefined
@@ -210,7 +212,11 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
   await settlement
 }
 
-export async function createReviewDriver(cwd: string, contextWindow = 128_000): Promise<ReviewDriver> {
+export async function createReviewDriver(
+  cwd: string,
+  contextWindow = 128_000,
+  mode: 'feature' | 'review-only' = 'feature',
+): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
   const commands = new Map<string, Handler>()
   const messages: string[] = []
@@ -239,9 +245,16 @@ export async function createReviewDriver(cwd: string, contextWindow = 128_000): 
   await emit(events, 'session_start', { type: 'session_start' }, context)
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  await feature('#42', context)
+  if (mode === 'review-only') {
+    const review = commands.get('dev-review')
+    if (review === undefined) throw new Error('review-command-unregistered')
+    await review('7', context)
+  } else {
+    await feature('#42', context)
+  }
   return {
     controller,
+    native: createOmpFixPort(api),
     messages,
     diagnostics,
     fixRun: () => ownedFixRunFor(api)?.run,

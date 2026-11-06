@@ -1,15 +1,12 @@
-import {
-  issueSpecAnalysisSchema,
-  parseIssueSpecBody,
-  rawSource,
-  readCauseHistoryClosure,
-  readComposedWorkflowHistory,
-} from '../dist/contracts.js'
+import { canonicalValueDigest, readUwCompletionObservation, toDiagnostics } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
-import { ACCEPTED_PURPOSE, acceptedChain, bindSubject } from './uw-action-accepted-state.ts'
+import { acceptedChain, bindSubject } from './uw-action-accepted-state.ts'
 import {
   type EvidenceObservation,
   type ObserveCausalFacts,
@@ -28,50 +25,40 @@ import type {
 import { expansionOrigin } from './uw-action-expansion-origin.ts'
 import { type ActionFactSource, authenticate, configuration, observeCode, readHistories } from './uw-action-observe.ts'
 import { observeActionOperands } from './uw-action-operands.ts'
+import { proposedSpec } from './uw-action-proposed-spec.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { authenticateReviewRoot } from './uw-action-review-root.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs, selectDeliveryData } from './uw-action-selection.ts'
+import type { IntegrationStageObservation } from './uw-action-stage-closure.ts'
 import { standaloneFacts } from './uw-action-standalone-facts.ts'
 import { validateExpandedWorkflowLive } from './uw-context-negative-live.ts'
+import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 
 export type { ActionFactSource }
 
-async function proposedSpec(
+function integrationOperands(
   request: UwActionRequest,
-  subject: Extract<ActionSubject, { kind: 'uw' }>,
-  source: ActionFactSource,
-  current: ActionInputManifest['spec'],
-): Promise<Result<ActionInputManifest['spec']>> {
-  if (ACCEPTED_PURPOSE[request.purpose] || request.purpose === 'assess-spec') return { ok: true, value: current }
-  const uw = subject.uw
-  const body = await source.gh(source.cwd, [
-    'issue',
-    'view',
-    uw.target.split('#').at(-1) ?? '',
-    '--repo',
-    uw.repository,
-    '--json',
-    'body,updatedAt',
-  ])
-  const issue = JSON.parse(body) as { body?: string; updatedAt?: string }
-  const parsed = parseIssueSpecBody({ uw, raw: rawSource(uw.target, issue.body ?? '', issue.updatedAt ?? null) })
-  if (parsed.status === 'conformant') return { ok: true, value: { kind: 'proposed', uw, snapshot: parsed.snapshot } }
-  const analysis = issueSpecAnalysisSchema.safeParse(parsed.analysis)
-  if (!analysis.success) return actionFailure('action-input-missing', 'Unframed parser facts are not readable')
-  return {
-    ok: true,
-    value: {
-      kind: 'unframed',
-      uw,
-      source: rawSource(uw.target, issue.body ?? '', issue.updatedAt ?? null),
-      parser: {
-        status: parsed.status,
-        diagnostics: [...parsed.diagnostics],
-        analysis: analysis.data,
-        draft: parsed.status === 'draft' ? parsed.draft : null,
-      },
-    },
-  }
+  mandate: Result<MandateRecord>,
+  planActionId: string | null,
+  operands: CurrentActionFacts['operands'],
+): Result<CurrentActionFacts['operands']> {
+  if (request.purpose === 'integrate' && (!mandate.ok || planActionId === null))
+    return actionFailure('action-input-missing', 'Integration requires the current mandate and eligible plan')
+  const selected =
+    request.purpose === 'integrate' && mandate.ok && planActionId !== null
+      ? { action: 'integrate' as const, exactInputs: { mandateId: mandate.value.recordId, planActionId } }
+      : operands
+  if (
+    request.purpose === 'integrate' &&
+    (selected === undefined ||
+      request.operands === undefined ||
+      canonicalValueDigest(selected) !== canonicalValueDigest(request.operands))
+  )
+    return actionFailure(
+      'review-input-changed',
+      'Integration operands differ from the same-cut eligible mandate and plan',
+    )
+  return { ok: true, value: selected }
 }
 
 async function finishFacts(
@@ -82,9 +69,11 @@ async function finishFacts(
   subject: ActionSubject,
   spec: ActionInputManifest['spec'],
   acceptedSources: RecordInputRef[],
-  mandate: Result<import('../engine/workflow-control.ts').MandateRecord>,
+  mandate: Result<MandateRecord>,
   operands: CurrentActionFacts['operands'],
   config: ActionInputManifest['configuration'],
+  completionObservation: Extract<UwCompletionObservation, { status: 'complete' }>,
+  integration: IntegrationStageObservation | undefined,
   reviewedFingerprint?: string,
   observation?: EvidenceObservation,
   reviewedRoot?: ReviewRootRef,
@@ -103,13 +92,17 @@ async function finishFacts(
         mandate.value,
         histories,
         catalogues,
+        completionObservation,
         (record) => authenticate(record, histories),
         expansion.value?.planner,
         spec,
         reviewedFingerprint,
       )
-    : { ok: true as const, value: { refs: [], plannedPaths: [] } }
+    : { ok: true as const, value: { refs: [], plannedPaths: [], planActionId: null } }
   if (!delivery.ok) return delivery
+  const selected = integrationOperands(request, mandate, delivery.value.planActionId, operands)
+  if (!selected.ok) return selected
+  const selectedOperands = selected.value
   const currentOutputs = currentRootOutputRefs(request, histories, reviewedRoot, expansion.value?.root)
   const causes = causeActionData(request, histories, currentOutputs, catalogues)
   if (!causes.ok) return causes
@@ -123,6 +116,7 @@ async function finishFacts(
     [...acceptedSources, ...deliveryData],
     reviewedRoot,
     expansion.value?.root,
+    integration,
   )
   if (!closed.ok) return closed
   return {
@@ -133,12 +127,43 @@ async function finishFacts(
       acceptedSources,
       deliveryData,
       plannedPaths: delivery.value.plannedPaths,
-      ...(operands === undefined ? {} : { operands }),
+      ...(selectedOperands === undefined ? {} : { operands: selectedOperands }),
       currentOutputs,
       configuration: config,
       ...(expansion.value?.previous === undefined ? {} : { expansionPrevious: expansion.value.previous }),
     },
   }
+}
+
+async function observeJointCompletion(
+  subject: Extract<ActionSubject, { kind: 'uw' }>,
+  source: ActionFactSource,
+  histories?: readonly DecodedHistory[],
+  observeCausal?: ObserveCausalFacts,
+): Promise<Result<Extract<UwCompletionObservation, { status: 'complete' }>>> {
+  const pull = subject.pullRequest
+  const read =
+    histories === undefined
+      ? await readHistories(pull === null ? [subject.uw] : [subject.uw, pull], source)
+      : { ok: true as const, value: histories }
+  if (!read.ok) return read
+  const prior = observeCausal === undefined ? null : await observeCausal()
+  if (prior !== null && !prior.ok) return prior
+  const before = source.createdChildAssessment?.before
+  const expectedHistories = [
+    ...read.value,
+    ...(before?.histories ?? []),
+    ...(prior?.ok ? prior.value.causal.histories : []),
+  ]
+  const observation = await readUwCompletionObservation(
+    subject.uw,
+    withRoxabiGitHubPolicy(source),
+    (current) => loadReviewClassCatalogues({ histories: current, cwd: source.cwd, gh: source.gh }),
+    before?.graph.nodes.map((node) => node.uw) ?? [],
+    expectedHistories,
+  )
+  if (observation.status !== 'complete') return { ok: false, diagnostics: toDiagnostics(observation.diagnostics) }
+  return { ok: true, value: observation }
 }
 
 export async function uwFacts(
@@ -153,61 +178,61 @@ export async function uwFacts(
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'uw') return actionFailure('action-input-missing', 'UW subject is absent')
   const subject = request.subject
-  const pull = subject.pullRequest
-  const read =
-    histories === undefined
-      ? await readHistories(pull === null ? [subject.uw] : [subject.uw, pull], source)
-      : { ok: true as const, value: histories }
-  if (!read.ok) return read
-  const bound = bindSubject(request, subject, read.value, observed)
-  if (!bound.ok) return bound
+  const joint = await observeJointCompletion(subject, source, histories, observeCausal)
+  if (!joint.ok) return joint
+  const observation = joint.value
   const replay =
     request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
-      ? { actionId: request.actionId, fingerprint: reviewedFingerprint }
+      ? { uw: subject.uw, actionId: request.actionId, fingerprint: reviewedFingerprint }
       : undefined
-  const accepted = acceptedChain(request, read.value, bound.value.mandate, config, replay)
+  const uwRead = await createInstalledObservedUwReadPort({
+    observation,
+    ...(replay === undefined ? {} : { assessmentReplay: replay }),
+  }).readUw(subject.uw)
+  const sameCutHistories = observation.histories
+  const bound = bindSubject(request, subject, sameCutHistories, observed)
+  if (!bound.ok) return bound
+  const accepted = acceptedChain(
+    request,
+    sameCutHistories,
+    bound.value.mandate,
+    config,
+    uwRead.observation.graph,
+    replay,
+  )
   if (!accepted.ok) return accepted
   const spec = await proposedSpec(request, subject, source, accepted.value.spec)
   if (!spec.ok) return spec
-  const operands = await observeActionOperands(request, source, read.value, accepted.value.acceptedSpec, replay)
+  const operands = await observeActionOperands(
+    request,
+    source,
+    sameCutHistories,
+    accepted.value.acceptedSpec,
+    replay,
+    uwRead,
+  )
   if (!operands.ok) return operands
   const sources = [...accepted.value.acceptedSources, ...operands.value.identitySources]
   const uniqueSources = [...new Map(sources.map((ref) => [JSON.stringify([ref.record, ref.selector]), ref])).values()]
-  const observedCausal =
-    observeCausal === undefined
-      ? await (async () => {
-          const closure = await readCauseHistoryClosure(read.value, (scopes) =>
-            readComposedWorkflowHistory(scopes, source),
-          )
-          if (!closure.ok) return { ok: false as const, diagnostics: closure.diagnostics }
-          const catalogues = await loadReviewClassCatalogues({
-            histories: closure.histories,
-            cwd: source.cwd,
-            gh: source.gh,
-          })
-          return {
-            ok: true as const,
-            value: {
-              causal: { histories: closure.histories, catalogues },
-              evidence: seedEvidenceObservation(closure.histories),
-            },
-          }
-        })()
-      : await observeCausal()
-  if (!observedCausal.ok) return observedCausal
+  const completeHistories = observation.histories
+  const completeCatalogues = observation.catalogues
   return finishFacts(
     request,
     source,
-    observedCausal.value.causal.histories,
-    observedCausal.value.causal.catalogues,
+    completeHistories,
+    completeCatalogues,
     bound.value.subject,
     spec.value,
     uniqueSources,
     bound.value.mandate,
     operands.value.operands,
     accepted.value.configuration,
+    observation,
+    request.purpose === 'integrate' && accepted.value.acceptedSpec !== null
+      ? { read: uwRead, accepted: accepted.value.acceptedSpec, acceptedSources: uniqueSources }
+      : undefined,
     reviewedFingerprint,
-    observedCausal.value.evidence,
+    seedEvidenceObservation(completeHistories),
     reviewedRoot,
   )
 }
@@ -222,7 +247,7 @@ export async function readProductionActionFacts(
     actionFailure('action-code-moved', error instanceof Error ? error.message : 'code observation failed'),
   )
   if (!observed.ok) return observed
-  const config = await configuration(source.cwd, request.code.referenceCommit)
+  const config = await configuration(source.cwd, request.code.referenceCommit, source.git)
   if (!config.ok) return config
   if (request.subject.kind === 'standalone-pr')
     return standaloneFacts(request, source, observed.value, config.value, reviewedFingerprint, undefined, reviewedRoot)

@@ -3,10 +3,18 @@ import { specDigest } from './record-digests.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Scope } from './record-values.ts'
+import { nativeObservationDigest } from './uw-native-observation-schema.ts'
 import type { SpecItemId } from './uw-spec-schema.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
 import type { AssessSpecExact, AssessSpecResultPayload } from './workflow-receipt-schema.ts'
+import {
+  childrenProjection,
+  currentChildrenProjection,
+  currentSnapshotProjection,
+  refProjection,
+  snapshotProjection,
+} from './workflow-spec-projections.ts'
 
 export type AssessResultRecord = {
   repository: string
@@ -44,17 +52,17 @@ function changedItemStatements(
 
 function changedChildren(
   accepted: readonly AcceptedChildCommitment[],
-  proposed: readonly AcceptedChildCommitment[],
+  proposed: AssessSpecExact['proposed']['children'],
 ): boolean {
   const key = (child: AcceptedChildCommitment) => `${child.scope.repository}\0${child.scope.target}`
   if (accepted.length !== proposed.length) return true
   const prior = new Map(accepted.map((child) => [key(child), `${child.specVersion}\0${child.tier}`]))
-  return proposed.some((child) => prior.get(key(child)) !== `${child.specVersion}\0${child.tier}`)
+  return proposed.some((child) => 'kind' in child || prior.get(key(child)) !== `${child.specVersion}\0${child.tier}`)
 }
 
 export function mechanicalSpecDelta(
   accepted: Omit<AssessedOwnState, 'ref'>,
-  proposed: Omit<AssessedOwnState, 'ref'>,
+  proposed: AssessSpecExact['proposed'],
 ): MechanicalSpecDelta {
   const acceptedCriteria = accepted.snapshot.spec.criteria
   const proposedCriteria = proposed.snapshot.spec.criteria
@@ -81,6 +89,9 @@ export function mechanicalSpecDelta(
       JSON.stringify(accepted.snapshot.spec.exclusions) !== JSON.stringify(proposed.snapshot.spec.exclusions),
     tierChanged: accepted.tier !== proposed.tier,
     childrenChanged: changedChildren(accepted.children, proposed.children),
+    inheritanceChanged:
+      stableStringify(accepted.inheritedOwnSpecRefs) !== stableStringify(proposed.inheritedOwnSpecRefs),
+    coverageChanged: stableStringify(accepted.coverage) !== stableStringify(proposed.coverage),
     sectionsOrOrderChanged,
   }
 }
@@ -95,7 +106,9 @@ export function isMechanical(delta: MechanicalSpecDelta): boolean {
     delta.removed.length > 0 ||
     delta.exclusionsChanged ||
     delta.tierChanged ||
-    delta.childrenChanged
+    delta.childrenChanged ||
+    delta.inheritanceChanged ||
+    delta.coverageChanged
   )
 }
 export type AssessmentClassification = 'editorial' | 'material' | 'unknown'
@@ -130,7 +143,7 @@ export function sameAssessedState(left: AssessedOwnState, right: AssessedOwnStat
 }
 
 export type MaterialAcceptanceProposal = {
-  format: 'omp-build-material-acceptance/1'
+  format: 'omp-build-material-acceptance/2'
   operationId: string
   uw: Scope
   mandate: ExternalRecordRef
@@ -140,71 +153,6 @@ export type MaterialAcceptanceProposal = {
   exactInputs: AssessSpecExact
 }
 export type PreparedMaterialAcceptance = { proposal: MaterialAcceptanceProposal; digest: string }
-
-function refProjection(ref: ExternalRecordRef) {
-  return {
-    scope: { repository: ref.scope.repository, target: ref.scope.target },
-    recordId: ref.recordId,
-    kind: ref.kind,
-  }
-}
-
-function snapshotProjection(snapshot: AssessSpecExact['proposed']['snapshot']) {
-  return {
-    spec: {
-      format: snapshot.spec.format,
-      criteria: snapshot.spec.criteria.map((item) => ({ id: item.id, statement: item.statement })),
-      invariants: snapshot.spec.invariants.map((item) => ({ id: item.id, statement: item.statement })),
-      exclusions: [...snapshot.spec.exclusions],
-      openQuestions: [...snapshot.spec.openQuestions],
-      sections: { ...snapshot.spec.sections },
-      version: snapshot.spec.version,
-    },
-    raw: {
-      reference: snapshot.raw.reference,
-      body: snapshot.raw.body,
-      bodySha256: snapshot.raw.bodySha256,
-      lastEditedAt: snapshot.raw.lastEditedAt,
-    },
-  }
-}
-
-function childrenProjection(children: AssessSpecExact['proposed']['children']) {
-  return children.map((child) => ({
-    scope: { repository: child.scope.repository, target: child.scope.target },
-    specVersion: child.specVersion,
-    snapshot: snapshotProjection(child.snapshot),
-    tier: child.tier,
-  }))
-}
-
-function currentSnapshotProjection(snapshot: AssessSpecExact['proposed']['snapshot']) {
-  return {
-    spec: {
-      format: snapshot.spec.format,
-      criteria: snapshot.spec.criteria.map((item) => ({ id: item.id, statement: item.statement })),
-      invariants: snapshot.spec.invariants.map((item) => ({ id: item.id, statement: item.statement })),
-      exclusions: [...snapshot.spec.exclusions],
-      openQuestions: [...snapshot.spec.openQuestions],
-      sections: { ...snapshot.spec.sections },
-      version: snapshot.spec.version,
-    },
-    raw: {
-      reference: snapshot.raw.reference,
-      body: snapshot.raw.body,
-      bodySha256: snapshot.raw.bodySha256,
-    },
-  }
-}
-
-function currentChildrenProjection(children: AssessSpecExact['proposed']['children']) {
-  return children.map((child) => ({
-    scope: { repository: child.scope.repository, target: child.scope.target },
-    specVersion: child.specVersion,
-    snapshot: currentSnapshotProjection(child.snapshot),
-    tier: child.tier,
-  }))
-}
 
 /**
  * Compares a persisted proposal with freshly observed native state. Timestamps
@@ -220,11 +168,15 @@ export function sameCurrentAssessedState(
       snapshot: currentSnapshotProjection(left.snapshot),
       tier: left.tier,
       children: currentChildrenProjection(left.children),
+      inheritedOwnSpecRefs: left.inheritedOwnSpecRefs,
+      coverage: left.coverage,
     }) ===
     JSON.stringify({
       snapshot: currentSnapshotProjection(right.snapshot),
       tier: right.tier,
       children: currentChildrenProjection(right.children),
+      inheritedOwnSpecRefs: right.inheritedOwnSpecRefs,
+      coverage: right.coverage,
     })
   )
 }
@@ -250,12 +202,29 @@ export function materialAcceptanceDigest(value: MaterialAcceptanceProposal): str
         snapshot: snapshotProjection(exact.accepted.snapshot),
         tier: exact.accepted.tier,
         children: childrenProjection(exact.accepted.children),
+        inheritedOwnSpecRefs: exact.accepted.inheritedOwnSpecRefs,
+        coverage: exact.accepted.coverage,
       },
       proposed: {
         snapshot: snapshotProjection(exact.proposed.snapshot),
         tier: exact.proposed.tier,
         children: childrenProjection(exact.proposed.children),
+        inheritedOwnSpecRefs: exact.proposed.inheritedOwnSpecRefs,
+        coverage: exact.proposed.coverage,
       },
+      attachedChildren: childrenProjection(exact.attachedChildren),
+      attachedWayfinders: exact.attachedWayfinders.map(nativeObservationDigest),
+      childOwnSources: exact.childOwnSources.map((source) => ({
+        uw: source.uw,
+        own:
+          source.own === null
+            ? null
+            : {
+                uw: source.own.uw,
+                version: source.own.version,
+                sourceAccepted: refProjection(source.own.sourceAccepted),
+              },
+      })),
       identityAllocations: exact.identityAllocations.map(refProjection),
       mechanical: {
         added: [...exact.mechanical.added],
@@ -264,6 +233,8 @@ export function materialAcceptanceDigest(value: MaterialAcceptanceProposal): str
         exclusionsChanged: exact.mechanical.exclusionsChanged,
         tierChanged: exact.mechanical.tierChanged,
         childrenChanged: exact.mechanical.childrenChanged,
+        inheritanceChanged: exact.mechanical.inheritanceChanged,
+        coverageChanged: exact.mechanical.coverageChanged,
         sectionsOrOrderChanged: exact.mechanical.sectionsOrOrderChanged,
       },
     },

@@ -13,19 +13,9 @@ export function mergedPr(child: ChildFacts, base: string): PrFacts | null {
   )
 }
 
-/**
- * CLOSED/NOT_PLANNED is terminal for scheduling. CLOSED/COMPLETED waits for an
- * observed ticket PR to settle unless its stop is permanent; a qualifying merged
- * PR completes its own child.
- */
-export function isDone(child: ChildFacts, base: string): boolean {
-  return (
-    (child.state === 'CLOSED' &&
-      (child.stateReason !== 'COMPLETED' ||
-        !child.prs.some((pr) => pr.state === 'OPEN') ||
-        stickyStopReason(child) !== null)) ||
-    mergedPr(child, base) !== null
-  )
+/** Only the common same-cut completion proof can complete a managed child. */
+export function childCompleted(child: ChildFacts, _base: string): boolean {
+  return child.completion === 'complete'
 }
 
 function stickyStopReason(child: ChildFacts): string | null {
@@ -39,6 +29,18 @@ export function stopOf(child: ChildFacts, run: string): { reason: string; sticky
   if (sticky !== null) return { reason: sticky, sticky: true }
   const current = child.stops.filter((stop) => stop.run === run).at(-1)
   return current ? { reason: current.reason, sticky: false } : null
+}
+/** Readiness to initialize is separate from, and never changes, completion. */
+export function childSchedulable(child: ChildFacts, run?: string): boolean {
+  return (
+    child.completion === 'not-complete' ||
+    (run !== undefined &&
+      child.completion === 'indeterminate' &&
+      child.state === 'OPEN' &&
+      child.ownUw.status === 'framed' &&
+      child.initialMandate?.status === 'ready' &&
+      stopOf(child, run) === null)
+  )
 }
 
 /** Open, armed PRs of children `stopOf` reports stopped, sticky or this run. */
@@ -80,17 +82,12 @@ export function mergedStoppedPrs(facts: Facts): { ticket: number; pr: number }[]
   return found
 }
 
-export function blockerCompleted(blocker: { state: 'OPEN' | 'CLOSED'; stateReason?: string | null }): boolean {
-  return blocker.state === 'CLOSED' && blocker.stateReason === 'COMPLETED'
+export function dependencySatisfied(blocker: { dependency?: 'satisfied' | 'held' }): boolean {
+  return blocker.dependency === 'satisfied'
 }
 
-export function openBlockers(child: ChildFacts, byNumber: Map<number, ChildFacts>, _base: string): number[] {
-  return child.blockedBy
-    .filter((blocker) => {
-      const sibling = blocker.repo ? undefined : byNumber.get(blocker.number)
-      return sibling ? !blockerCompleted(sibling) : !blockerCompleted(blocker)
-    })
-    .map((blocker) => blocker.number)
+export function openBlockers(child: ChildFacts, _byNumber: Map<number, ChildFacts>, _base: string): number[] {
+  return child.blockedBy.filter((blocker) => !dependencySatisfied(blocker)).map((blocker) => blocker.number)
 }
 
 /** Kahn over in-epic edges between `pending` children, ties by number. */
@@ -121,8 +118,8 @@ export function summarize(facts: Facts): Report {
   const byNumber = new Map(facts.children.map((child) => [child.number, child]))
   const report: Report = { merged: [], closed: [], stopped: [], skipped: [], baseCi: facts.baseCi }
   for (const child of [...facts.children].sort((a, b) => a.number - b.number)) {
-    if (mergedPr(child, facts.base)) report.merged.push(child.number)
-    else if (child.state === 'CLOSED') report.closed.push(child.number)
+    if (child.completion === 'complete' && mergedPr(child, facts.base)) report.merged.push(child.number)
+    else if (child.completion === 'complete') report.closed.push(child.number)
     else {
       const stop = stopOf(child, facts.run)
       if (stop) report.stopped.push({ ticket: child.number, ...stop })

@@ -1,8 +1,8 @@
-import { observedComment } from '../../testing/record-history.ts'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { encodeParts } from '../../adapters/github/history-encoder.ts'
 import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
-import { isWorkflowKind } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
 import type { MandateRecord } from '../workflow-control.ts'
@@ -92,22 +92,27 @@ function history(records: CanonicalRecord[], scope = SCOPE): DecodedHistory {
       complete.unshift(syntheticWorkflowFixtures.identityAllocation(ref.scope, ref.recordId))
     }
   }
-  return {
-    source: { scope, expectedAuthor: 'operator', stopAuthor: null, complete: true, comments: [], diagnostics: [] },
-    operations: complete.map((record) => ({
-      operationId: record.operationId,
-      recordId: record.recordId,
-      kind: record.kind,
-      status: 'complete',
-      authority: isWorkflowKind(record.kind) ? 'accounted' : 'authority',
-      claimedKinds: [record.kind],
-      parts: [
-        observedComment({ locator: `comment-${record.recordId}`, nativeId: record.recordId, author: 'operator' }),
-      ],
-      record,
-    })),
+  const comments = complete.flatMap((record, index) =>
+    must(encodeParts(record, `# ${record.kind}`, 65_536)).map((body, part) => {
+      const nativeId = String(index * 100 + part + 1)
+      return {
+        locator: `${scope.target}:comment:${nativeId}`,
+        nativeId,
+        body,
+        author: 'operator',
+        createdAt: '2026-10-21T00:00:00Z',
+        updatedAt: '2026-10-21T00:00:00Z',
+      }
+    }),
+  )
+  return decodeHistory({
+    scope,
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    comments,
     diagnostics: [],
-  }
+  })
 }
 
 function binding(target: CanonicalRecord, scope = SCOPE): CanonicalRecord {

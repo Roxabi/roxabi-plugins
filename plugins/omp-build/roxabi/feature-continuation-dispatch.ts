@@ -31,7 +31,8 @@ export async function resumePausedFeature(input: {
     return { kind: 'blocked', reason: 'resume-pause-unreadable' }
   }
   const body = payload(confirmation.value)
-  const controlId = typeof body.controlId === 'string' && body.controlId.length > 0 ? body.controlId : null
+  const controlId =
+    'controlId' in body && typeof body.controlId === 'string' && body.controlId.length > 0 ? body.controlId : null
   if (
     body.control !== 'pause-confirmed' ||
     controlId === null ||

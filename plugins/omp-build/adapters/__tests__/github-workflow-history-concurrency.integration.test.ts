@@ -132,7 +132,7 @@ it('overlaps adjacent composed histories and fully paginates in scope order', as
   ).toEqual(['101:1', '101:2', '102:1', '102:2', '103:1', '103:2', '104:1', '104:2'])
 })
 
-it('joins the failing pair and keeps the successful prefix and first input error', async () => {
+it('joins failing reads and retains all successful histories with named failures', async () => {
   const options = setup(true)
   const result = await readComposedWorkflowHistory(scopes, options)
   const observed = events(options.cwd)
@@ -140,8 +140,10 @@ it('joins the failing pair and keeps the successful prefix and first input error
   if (result.ok) throw new Error('expected unreadable composed history')
   expect(result.reason).toBe('unreadable')
   expect(JSON.stringify(result.diagnostics)).toContain('deliberate failure for 103')
-  expect(result.histories.map((history) => history.source.scope)).toEqual(scopes.slice(0, 2))
-  expect(result.histories.map((history) => history.source.comments.length)).toEqual([100, 100])
+  expect(JSON.stringify(result.diagnostics)).toContain('deliberate failure for 104')
+  expect(result.histories.map((history) => history.source.scope)).toEqual(scopes)
+  expect(result.histories.map((history) => history.source.comments.length)).toEqual([100, 100, 0, 0, 100])
+  expect(result.histories.map((history) => history.source.complete)).toEqual([true, true, false, false, true])
   expect(result.evidence).toBeUndefined()
   expectJoinedAndBounded(observed, options.cwd)
   expect(observed.findIndex((event) => event.kind === 'end' && event.number === 104)).toBeLessThan(
@@ -162,4 +164,28 @@ it('refuses empty or duplicate scopes before invoking gh', async () => {
   expect(empty).toMatchObject({ ok: false, reason: 'incomplete', histories: [] })
   expect(duplicate).toMatchObject({ ok: false, reason: 'ambiguous', histories: [] })
   expect(events(options.cwd)).toEqual([])
+})
+
+it('retains first-page comments when a later history page is unreadable', async () => {
+  const comments = Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    user: { login: 'operator' },
+    body: `comment ${index}`,
+    created_at: '2026-10-21T00:00:00Z',
+    updated_at: '2026-10-21T00:00:00Z',
+  }))
+  const result = await readComposedWorkflowHistory([scopes[0]], {
+    cwd: '/fixture',
+    readAuthor: 'operator',
+    gh: async (_cwd, args) => {
+      if (new URL(String(args[1]), 'https://api.github.com').searchParams.get('page') === '1')
+        return JSON.stringify(comments)
+      throw new Error('second page unavailable')
+    },
+  })
+  expect(result.ok).toBe(false)
+  if (result.ok) throw new Error('expected incomplete history')
+  expect(result.histories[0]?.source.complete).toBe(false)
+  expect(result.histories[0]?.source.comments).toHaveLength(100)
+  expect(JSON.stringify(result.diagnostics)).toContain('second page unavailable')
 })

@@ -4,38 +4,47 @@ import {
   readCauseHistoryClosure,
   readCauseHistoryClosureFromPrimary,
   readComposedWorkflowHistory,
-  recordIntegrity,
-  recordOperation,
+  readUwCompletionObservation,
   recordsOf,
 } from '../dist/contracts.js'
 import type { ActionInputs, RecordInputRef } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { readSelectedRecords } from './uw-action-basis.ts'
 import { readProductionActionFactsBatch } from './uw-action-batch-facts.ts'
 import type { PinnedFileRef, TrustedHostPluginPin, UwActionPorts, UwInputReadPorts } from './uw-action-contract.ts'
 import { readProductionActionFacts, readSelectedRecord } from './uw-action-facts.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 import { createActionSnapshotStore } from './uw-action-snapshot.ts'
-import type { UwRead } from './uw-contract.ts'
 import { correctionObservation } from './uw-correction-observation.ts'
+import type { CreatedChildAssessment } from './uw-created-child-candidate.ts'
 import type { UwDeliveryReadPorts } from './uw-delivery-read.ts'
 import { readGitFileBytes, readGitFileBytesBatch, readPinnedDiff } from './uw-git-bytes.ts'
 import { confirmCitedRefs } from './uw-input-citations.ts'
-import { readDeliveryHistories } from './uw-input-linked.ts'
 import { pluginPinPort } from './uw-plugin-pin.ts'
 import { discoverRepositoryReferences } from './uw-repository-refs.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 export type ProductionReaderOptions = {
   cwd: string
   gh: Gh
+  git?: GitRunner
   readAuthor?: string
   pluginPin?: TrustedHostPluginPin
   artifactsDir?: string | null
+  createdChildAssessment?: CreatedChildAssessment
 }
 
 export function createProductionInputPorts(options: ProductionReaderOptions): UwInputReadPorts {
-  const source = { cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor }
+  const source = {
+    cwd: options.cwd,
+    gh: options.gh,
+    git: options.git,
+    readAuthor: options.readAuthor,
+    createdChildAssessment: options.createdChildAssessment,
+  }
   return {
     readCurrentActionFacts: (request, reviewedFingerprint, reviewedRoot) =>
       readProductionActionFacts(
@@ -105,21 +114,20 @@ export function createProductionActionPorts(options: ProductionReaderOptions): U
     readCurrentActionFactsBatch: (requests, reviewedFingerprint, reviewedRoot) =>
       readProductionActionFactsBatch(
         requests,
-        { cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor },
+        { cwd: options.cwd, gh: options.gh, git: options.git, readAuthor: options.readAuthor },
         reviewedFingerprint,
         reviewedRoot,
       ),
     snapshots: createActionSnapshotStore({ artifactsDir: options.artifactsDir, cwd: options.cwd }),
   }
 }
-export function createProductionDeliveryPorts(
-  options: ProductionReaderOptions,
-  readUw: (uw: Scope) => Promise<UwRead>,
-): UwDeliveryReadPorts {
+export function createProductionDeliveryPorts(options: ProductionReaderOptions): UwDeliveryReadPorts {
+  const github = withRoxabiGitHubPolicy({ cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor })
   return {
-    readUw,
-    readDeliveryHistories: (uw) =>
-      readDeliveryHistories(uw, { cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor }),
+    readObservation: (uw) =>
+      readUwCompletionObservation(uw, github, (histories) =>
+        loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh }),
+      ),
   }
 }
 function citedScopes(root: DecodedHistory, inputs: ActionInputs): Scope[] {
@@ -169,30 +177,8 @@ export async function readManifestCitedHistories(input: {
   )
   if (!closure.ok) return { ok: false, diagnostics: closure.diagnostics }
   const histories = closure.histories
-  for (const ref of citedRefs(input.inputs)) {
-    const record = histories
-      .flatMap((history) => recordsOf(history))
-      .find(
-        (candidate) =>
-          candidate.recordId === ref.record.recordId &&
-          candidate.kind === ref.record.kind &&
-          candidate.repository === ref.record.scope.repository &&
-          candidate.target === ref.record.scope.target,
-      )
-    if (record === undefined)
-      return actionFailure(
-        'record-unreadable',
-        `Cited ${ref.record.kind} ${ref.record.recordId} is absent from ${ref.record.scope.repository} ${ref.record.scope.target}`,
-      )
-    const operation = recordOperation(histories, record)
-    if (operation === null || operation.authority !== 'accounted')
-      return actionFailure(
-        'record-unreadable',
-        `Cited ${ref.record.kind} ${ref.record.recordId} is not an accounted native operation`,
-      )
-    const refusal = recordIntegrity(operation.parts, record)
-    if (refusal !== null) return actionFailure(refusal.reason, refusal.detail)
-  }
+  const refs = confirmCitedRefs(citedRefs(input.inputs), histories)
+  if (!refs.ok) return refs
   return { ok: true, value: histories }
 }
 function assessedInputs(history: DecodedHistory): ActionInputs[] {
@@ -230,7 +216,13 @@ function gatherCited(
   const refs: RecordInputRef[] = []
   for (const item of inputs) {
     for (const scope of citedScopes(history, item)) addScope(scopes, scope)
-    refs.push(...citedRefs(item))
+    for (const ref of citedRefs(item)) {
+      if (
+        ref.record.scope.repository !== history.source.scope.repository ||
+        ref.record.scope.target !== history.source.scope.target
+      )
+        refs.push(ref)
+    }
   }
   return { scopes, refs }
 }
@@ -280,7 +272,7 @@ export async function readReviewInputHistories(
       entry.source.scope.repository !== history.source.scope.repository ||
       entry.source.scope.target !== history.source.scope.target,
   )
-  const refs = confirmCitedRefs(cited.refs, history, external)
+  const refs = confirmCitedRefs(cited.refs, external)
   if (!refs.ok) return refs
   return { ok: true, value: external }
 }

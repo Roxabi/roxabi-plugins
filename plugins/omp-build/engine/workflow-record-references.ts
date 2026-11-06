@@ -18,6 +18,8 @@ function causeDispositionRefs(payload: CauseDispositionPayload): ExternalRecordR
   const subject = payload.subject
   return [
     payload.origin.sourceAccepted,
+    ...payload.basis.versionVector.map((ref) => ref.sourceAccepted),
+    payload.basis.capture?.record ?? null,
     payload.previous,
     payload.adjudication,
     subject.kind === 'cause'
@@ -37,6 +39,51 @@ function causeOperationRefs(payload: CauseOperationPayload): ExternalRecordRef[]
         ? proposal.creation.disposition
         : proposal.creation.report,
   ]
+}
+
+function operatorControlRefs(payload: OperatorControlPayload): ExternalRecordRef[] {
+  const refs: Array<ExternalRecordRef | null> =
+    payload.control === 'adjust-cause-dependency'
+      ? [
+          payload.proposal.mandate,
+          payload.proposal.predecessor,
+          payload.proposal.disposition,
+          payload.proposal.receipt,
+          payload.proposal.accepted.sourceAccepted,
+          ...payload.proposal.versionVector.map((ref) => ref.sourceAccepted),
+        ]
+      : [payload.mandate, payload.predecessor]
+  if (payload.control === 'accept-material') {
+    refs.push(payload.assessment)
+    if (payload.authorization.kind === 'cause-creation')
+      refs.push(payload.authorization.operation, payload.authorization.binding.identity)
+  }
+  if (payload.control === 'select-successor') refs.push(payload.successor)
+  if (payload.control === 'adjust-cause-dependency') {
+    for (const reference of payload.proposal.references) if (reference.source === 'record') refs.push(reference.record)
+  }
+  return refs.filter((ref): ref is ExternalRecordRef => ref !== null)
+}
+
+function actionReceiptRefs(payload: ActionReceiptPayload): ExternalRecordRef[] {
+  const refs: ExternalRecordRef[] = payload.mandate.kind === 'absent' ? [] : [payload.mandate]
+  if (payload.phase === 'result') refs.push(payload.start)
+  if (payload.action === 'assess-spec') {
+    refs.push(payload.exactInputs.accepted.ref.sourceAccepted, ...payload.exactInputs.identityAllocations)
+    refs.push(...payload.exactInputs.accepted.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted))
+    refs.push(...payload.exactInputs.proposed.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted))
+    refs.push(
+      ...payload.exactInputs.childOwnSources.flatMap((entry) => (entry.own === null ? [] : [entry.own.sourceAccepted])),
+    )
+    const operands = payload.inputs.manifest.operands
+    if (operands?.action === 'assess-spec' && operands.origin.kind === 'cause-created-child')
+      refs.push(
+        operands.origin.creation.kind === 'sister'
+          ? operands.origin.creation.disposition
+          : operands.origin.creation.report,
+      )
+  }
+  return refs
 }
 
 export function scopedRefsOf(record: { kind: Kind; payload: unknown }): ExternalRecordRef[] {
@@ -69,26 +116,17 @@ export function scopedRefsOf(record: { kind: Kind; payload: unknown }): External
     }
     case 'mandate': {
       const payload = record.payload as MandatePayload
-      return [payload.parent, payload.antecedent, ...payload.ownSpec.identityAllocations].filter(
-        (ref): ref is ExternalRecordRef => ref !== null,
-      )
+      return [
+        payload.parent,
+        payload.antecedent,
+        ...payload.ownSpec.identityAllocations,
+        ...payload.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted),
+      ].filter((ref): ref is ExternalRecordRef => ref !== null)
     }
-    case 'operator-control': {
-      const payload = record.payload as OperatorControlPayload
-      const refs: Array<ExternalRecordRef | null> = [payload.mandate, payload.predecessor]
-      if (payload.control === 'accept-material') refs.push(payload.assessment)
-      if (payload.control === 'select-successor') refs.push(payload.successor)
-      return refs.filter((ref): ref is ExternalRecordRef => ref !== null)
-    }
-    case 'action-receipt': {
-      const payload = record.payload as ActionReceiptPayload
-      const refs: ExternalRecordRef[] = payload.mandate.kind === 'absent' ? [] : [payload.mandate]
-      if (payload.phase === 'result') refs.push(payload.start)
-      if (payload.action === 'assess-spec') {
-        refs.push(payload.exactInputs.accepted.ref.sourceAccepted, ...payload.exactInputs.identityAllocations)
-      }
-      return refs
-    }
+    case 'operator-control':
+      return operatorControlRefs(record.payload as OperatorControlPayload)
+    case 'action-receipt':
+      return actionReceiptRefs(record.payload as ActionReceiptPayload)
     case 'workflow-binding':
       return [(record.payload as WorkflowBindingPayload).mandate]
     case 'review-interruption':

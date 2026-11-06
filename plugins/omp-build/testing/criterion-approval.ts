@@ -1,16 +1,16 @@
 import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import { evidenceDigest } from '../engine/criterion-admission.ts'
-import { criterionEvidenceSchema } from '../engine/criterion-evidence-schema.ts'
 import { criterionVerdictSchema } from '../engine/criterion-verdict-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope, Verdict } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
+import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
+import { capturedCriterionEvidence } from './criterion-captured-evidence.ts'
 import { criterionDispositionRecords } from './criterion-dispositions.ts'
 import { NATIVE_AUTHOR, submission } from './record-builders.ts'
 import { contribution } from './record-decisions.ts'
@@ -77,49 +77,7 @@ export function encodeCriterionRecords(
   return { comments: comments.slice(priorCount), history: decodeHistory(source) }
 }
 
-function capturedCriterionEvidence(options: {
-  mandate: MandateRecord
-  inputs: ActionInputs
-  head: string
-  issueRecords: readonly CanonicalRecord[]
-}) {
-  const { mandate, inputs, head, issueRecords } = options
-  if (
-    inputs.manifest.spec.kind !== 'accepted' ||
-    inputs.manifest.code.head !== head ||
-    inputs.manifest.spec.effective.own.sourceAccepted.recordId !== mandate.recordId
-  )
-    throw new Error('Expected captured accepted inputs for the mandate and candidate head')
-  const selection = inputs.manifest.deliveryData.find((ref) => ref.role === 'implementation')
-  if (selection === undefined) throw new Error('Captured inputs contain no implementation receipt')
-  const implementation = issueRecords.find(
-    (record) =>
-      record.kind === 'action-receipt' &&
-      record.recordId === selection.record.recordId &&
-      record.repository === selection.record.scope.repository &&
-      record.target === selection.record.scope.target,
-  )
-  if (
-    implementation?.kind !== 'action-receipt' ||
-    implementation.payload.action !== 'implement' ||
-    implementation.payload.phase !== 'result' ||
-    implementation.payload.structured === null
-  )
-    throw new Error('Captured implementation receipt is missing')
-  const declaration = implementation.payload.structured.criteria.find(
-    (item) => item.target.id === 'C1' && item.verification === 'evidence',
-  )
-  if (declaration === undefined || declaration.verification !== 'evidence' || declaration.evidence.length !== 1)
-    throw new Error('Expected one C1 evidence declaration')
-  const captured = criterionEvidenceSchema.safeParse(declaration.evidence[0])
-  if (!captured.success || captured.data.method !== 'test') throw new Error('Expected captured C1 test evidence')
-  const evidence = captured.data
-  if (canonicalValueDigest(evidence.target.spec) !== canonicalValueDigest(inputs.manifest.spec.effective.own))
-    throw new Error('Evidence does not match the captured accepted spec')
-  return { selection, evidence }
-}
-
-/** Independently judge the selected fictional implementation evidence for C1. */
+/** Independently judge the exactly selected implementation evidence. */
 export function criterionSatisfiedRow(options: {
   mandate: MandateRecord
   inputs: ActionInputs
@@ -146,7 +104,7 @@ export function criterionSatisfiedRow(options: {
         reason: 'The captured result satisfies the criterion',
       },
     ],
-    reason: 'Independent fixture review supports C1',
+    reason: 'Independent fixture review supports the selected criterion',
   })
 }
 
@@ -160,6 +118,8 @@ export function criterionReviewGraph(options: {
   issueHistory?: DecodedHistory
   scope: Scope
   projection: RecordProjectionConfig
+  graph: UwGraphObservation
+  contextHistories: readonly DecodedHistory[]
   prefix?: string
   verdict?: Verdict
   author?: string
@@ -231,7 +191,7 @@ export function criterionReviewGraph(options: {
     scope,
     projection,
     options.author,
-    [issueHistory],
+    [issueHistory, ...options.contextHistories],
     options.pullHistory,
   )
   const boundDecision = recordsOf(beforeReview.history).find(
@@ -242,15 +202,16 @@ export function criterionReviewGraph(options: {
   const { original, dispositions } = criterionDispositionRecords(
     inputs,
     boundDecision,
-    [issueHistory, beforeReview.history],
+    [issueHistory, beforeReview.history, ...options.contextHistories],
     projection.catalogues,
+    options.graph,
   )
   const persisted = encodeCriterionRecords(
     dispositions,
     original,
     projection,
     options.author,
-    [beforeReview.history],
+    [beforeReview.history, ...options.contextHistories],
     issueHistory,
   )
   const refs = dispositions.map((record) => ({
@@ -264,7 +225,7 @@ export function criterionReviewGraph(options: {
     scope,
     projection,
     options.author,
-    [persisted.history],
+    [persisted.history, ...options.contextHistories],
     beforeReview.history,
   )
   const records: CanonicalRecord[] = [...prefixRecords, review]

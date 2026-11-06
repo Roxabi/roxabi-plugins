@@ -8,6 +8,7 @@ import type { History } from '../../engine/history-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
+import { resolveSpecEffective } from '../../engine/spec-effective.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
@@ -15,6 +16,7 @@ import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { guardedCauseWriter } from '../uw-cause-guard.ts'
 import { createUwOperations } from '../uw-operations.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
@@ -99,7 +101,7 @@ export function setup(abandoned: boolean) {
   let confirmations = 0
   let patches = 0
   let labels = ['size:S']
-  const graph = (): UwGraphObservation => ({
+  const graph = (): Extract<UwGraphObservation, { status: 'complete' }> => ({
     status: 'complete',
     root: uw,
     observedAt: time,
@@ -118,11 +120,13 @@ export function setup(abandoned: boolean) {
       },
     ],
   })
-  const read = (scope: Scope) =>
+  const read = async (scope: Scope) =>
     createInstalledObservedUwReadPort({
-      graph: graph(),
-      histories: [history],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: await observedUwWithoutPullRequests({
+        graph: graph(),
+        histories: [history],
+        catalogues: fixtureHostReviewClassCatalogues(),
+      }),
     }).readUw(scope)
   const unsupported = async (): Promise<never> => {
     throw new Error('unexpected issue mutation')
@@ -133,6 +137,7 @@ export function setup(abandoned: boolean) {
       title,
       body,
       updatedAt: time,
+      nativeState: { state: 'OPEN', stateReason: null },
       labels: [...labels],
       parent: null,
       children: [],
@@ -154,6 +159,7 @@ export function setup(abandoned: boolean) {
     removeChild: unsupported,
     addBlocker: unsupported,
     removeBlocker: unsupported,
+    setNativeState: unsupported,
   }
   const operator = createOperatorConfirmation({
     agent: { kind: 'main', depth: 0 },
@@ -169,7 +175,13 @@ export function setup(abandoned: boolean) {
   } as unknown as ExtensionContext)
   const operations = createUwOperations({
     read,
+    abandon: unsupported,
+    adjustCauseDependency: unsupported,
+    resolveSpecEffective,
     readCreated: read,
+    closeLinked: async () => {
+      throw new Error('unexpected close-linked effect')
+    },
     listReports: async (root) => ({ ok: true, value: { root, reports: [] } }),
     guardParent: async () => {},
     writer: createIssueWriter(issuePorts),

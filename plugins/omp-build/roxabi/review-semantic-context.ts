@@ -149,22 +149,25 @@ async function resolveBoundSemanticContext(
         ...toDiagnostics(graph.diagnostics),
       ],
     }
+  if (observation.observation.status !== 'complete')
+    return failed('uw-observation-incomplete', 'Bound review requires a complete joint UW observation')
   const node = graph.nodes.find((entry) => entry.uw.repository === scope.repository && entry.uw.target === scope.target)
   if (node === undefined) return failed('graph-root-missing', 'Bound UW is absent from its native graph')
-  const reader = createInstalledObservedUwReadPort({
-    graph,
-    histories: observation.histories,
-    catalogues: observation.catalogues,
-  })
+  const reader = createInstalledObservedUwReadPort({ observation: observation.observation })
   const read = await reader.readUw(scope)
   if (!read.admission.deliverable.ok)
     return { ok: false, diagnostics: toDiagnostics(read.admission.deliverable.diagnostics) }
-  const facts = await readCurrentOwnSpecFacts({ uw: scope, read, reader })
+  const facts = await readCurrentOwnSpecFacts({ uw: scope, read })
   if (!facts.ok) return { ok: false, diagnostics: toDiagnostics(facts.diagnostics) }
+  const causal = {
+    histories: observation.histories,
+    catalogues: observation.catalogues,
+    observation: observation.observation,
+  }
   const resolved = resolveBoundWork({
     use: 'review',
     histories: observation.authorityHistories,
-    causal: { histories: observation.histories, catalogues: observation.catalogues },
+    causal,
     explicitSelection: true,
     pullRequest,
     native: { branch: input.branch, base: input.base },

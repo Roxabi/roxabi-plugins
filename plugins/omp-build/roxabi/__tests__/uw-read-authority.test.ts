@@ -7,6 +7,7 @@ import { type UwGraphObservation, type UwNativeNode, WAYFINDER_LABELS } from '..
 import { canonicalSpec, type SpecSnapshot } from '../../engine/uw-spec.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
 const UW: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
@@ -36,7 +37,7 @@ function fact(scope: Scope): SpecSnapshot {
   return parsed.snapshot
 }
 
-function graph(scope: Scope, snapshot: SpecSnapshot): UwGraphObservation {
+function graph(scope: Scope, snapshot: SpecSnapshot): Extract<UwGraphObservation, { status: 'complete' }> {
   const labels = ['size:S']
   const node: UwNativeNode = {
     uw: scope,
@@ -141,15 +142,25 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const snapshot = fact(UW)
     const observed = graph(UW, snapshot)
     const baseline = await createInstalledObservedUwReadPort({
-      graph: observed,
-      histories: [emptyHistory(UW)],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: {
+        status: 'complete',
+        root: UW,
+        graph: observed,
+        histories: [emptyHistory(UW)],
+        catalogues: fixtureHostReviewClassCatalogues(),
+        delivery: [],
+      },
     }).readUw(UW)
     const foreignHistory = copiedForeignMandate(UW, snapshot)
     const foreign = await createInstalledObservedUwReadPort({
-      graph: observed,
-      histories: [foreignHistory],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: {
+        status: 'complete',
+        root: UW,
+        graph: observed,
+        histories: [foreignHistory],
+        catalogues: fixtureHostReviewClassCatalogues(),
+        delivery: [],
+      },
     }).readUw(UW)
 
     expect(foreignHistory.operations).toContainEqual(
@@ -169,14 +180,18 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const observed = graph(UW, snapshot)
     const histories = managedHistoryWithForeignCopiedIdentity(UW, snapshot)
     const baseline = await createInstalledObservedUwReadPort({
-      graph: observed,
-      histories: [histories.baseline],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: await observedUwWithoutPullRequests({
+        graph: observed,
+        histories: [histories.baseline],
+        catalogues: fixtureHostReviewClassCatalogues(),
+      }),
     }).readUw(UW)
     const foreign = await createInstalledObservedUwReadPort({
-      graph: observed,
-      histories: [histories.foreign],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: await observedUwWithoutPullRequests({
+        graph: observed,
+        histories: [histories.foreign],
+        catalogues: fixtureHostReviewClassCatalogues(),
+      }),
     }).readUw(UW)
 
     expect(histories.foreign.operations).toContainEqual(
@@ -195,9 +210,11 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const histories = managedHistoryWithForeignCopiedIdentity(UW, snapshot)
     const history = incompleteTrustedIdentity(histories.baseline)
     const read = await createInstalledObservedUwReadPort({
-      graph: graph(UW, snapshot),
-      histories: [history],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: await observedUwWithoutPullRequests({
+        graph: graph(UW, snapshot),
+        histories: [history],
+        catalogues: fixtureHostReviewClassCatalogues(),
+      }),
     }).readUw(UW)
 
     expect(history.operations).toContainEqual(
@@ -219,9 +236,11 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const snapshot = fact(UW)
     const history = incompleteTrustedMandate(UW, snapshot)
     const read = await createInstalledObservedUwReadPort({
-      graph: graph(UW, snapshot),
-      histories: [history],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: await observedUwWithoutPullRequests({
+        graph: graph(UW, snapshot),
+        histories: [history],
+        catalogues: fixtureHostReviewClassCatalogues(),
+      }),
     }).readUw(UW)
 
     expect(history.operations).toContainEqual(

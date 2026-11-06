@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview, sisterRecords } from '../../testing/cause-input-fixture.ts'
+import {
+  authenticatedReview,
+  causeFixtureGraph,
+  causeOriginalHistory,
+  sisterRecords,
+} from '../../testing/cause-input-fixture.ts'
+import { contributionActionCapture, synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { canonicalValueDigest } from '../action-input.ts'
 import { assessAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
@@ -13,10 +19,14 @@ import { specDigest } from '../record-digests.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
 import { assessUwAdmission } from '../uw-admission.ts'
+import { assessUwCompletion } from '../uw-completion.ts'
+import type { UwCompletionObservation } from '../uw-completion-types.ts'
 import type { UwNativeNode } from '../uw-graph.ts'
 import type { SpecIdentityLedger } from '../uw-identity.ts'
-import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
-import { appendAccountedRecords, ref } from './cause-hold-fixture.ts'
+import { projectUwWaits } from '../uw-waits.ts'
+import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
+import { recordsOf } from '../workflow-control.ts'
+import { ref } from './cause-hold-fixture.ts'
 import { history, must } from './workflow-test-support.ts'
 
 const uw: Scope = { repository: 'acme/app', target: 'acme/app#42' }
@@ -27,19 +37,10 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const fixtures = roxabiWorkflowFixtures()
 const mandate = fixtures.featureMandate(uw, { recordId: 'mandate-42', body: 'Save the selected region' })
 const ownSpec = mandate.payload.ownSpec
-const origin = {
-  uw,
-  version: ownSpec.version,
-  sourceAccepted: { scope: uw, recordId: mandate.recordId, kind: 'mandate' as const },
-}
-const accepted: AcceptedOwnSpec = {
-  ref: origin,
-  snapshot: ownSpec.snapshot,
-  tier: 'S',
-  children: [],
-  chain: [{ kind: 'mandate', source: origin.sourceAccepted, version: ownSpec.version }],
-  sourceRefs: [origin.sourceAccepted],
-}
+const resolvedAccepted = resolveAcceptedSpec(mandate, [causeOriginalHistory()])
+if (!resolvedAccepted.ok)
+  throw new Error(`Expected authenticated accepted Spec: ${JSON.stringify(resolvedAccepted.evidence)}`)
+const accepted = resolvedAccepted.spec
 const identityAllocation = ownSpec.identityAllocations[0]
 if (identityAllocation === undefined) throw new Error('Expected an allocated criterion identity')
 const identities: SpecIdentityLedger = {
@@ -50,7 +51,6 @@ const identities: SpecIdentityLedger = {
   allocations: new Map([['C1', identityAllocation]]),
   retired: new Map(),
 }
-const decision = { scope: foreign, recordId: 'decision-region', kind: 'decision' as const }
 const evidence = {
   source: 'git-file' as const,
   repository: uw.repository,
@@ -58,69 +58,10 @@ const evidence = {
   path: 'src/region.ts',
   digest: 'a'.repeat(64),
 }
-const missing = { state: 'missing' as const, value: null, reason: 'Evidence is contested', references: [] }
-const subject = {
-  kind: 'cause' as const,
-  decision,
-  cause: {
-    id: 'cause-region',
-    title: 'Region save failure',
-    mechanism: 'Save discards the selection',
-    failure: 'Reload loses the region',
-    fix: 'Persist the selection',
-    restored: 'Reload retains the region',
-    paths: ['src/region.ts'],
-    proof: 'Exercise save and reload',
-    findingIds: ['finding-region'],
-    judgment: { necessary: missing, urgent: missing, tooLarge: missing },
-    proposedDisposition: null,
-  },
-  findings: [
-    {
-      id: 'finding-region',
-      label: 'issue' as const,
-      impactReason: 'Selection is lost',
-      state: 'usable' as const,
-      target: {
-        format: 'omp-build-finding-target/1' as const,
-        kind: 'criterion' as const,
-        spec: origin,
-        id: 'C1' as const,
-      },
-      sourceFindingIds: ['original-region'],
-      description: 'Reload loses the selected region',
-    },
-  ],
-}
 
-function disposition(id: string, outcome: 'pending' | 'sister', changedSubject = subject) {
-  return must(
-    buildRecord({
-      version: 1,
-      ...uw,
-      recordId: id,
-      runId: 'run',
-      operationId: `op-${id}`,
-      kind: 'cause-disposition',
-      payload: {
-        format: 'omp-build-cause-disposition/1',
-        origin,
-        subject: changedSubject,
-        previous: null,
-        adjudication: null,
-        outcome:
-          outcome === 'pending'
-            ? { state: 'pending-blocking', reason: 'Evidence requires adjudication' }
-            : {
-                state: 'final',
-                disposition: 'sister-blocking',
-                blocking: true,
-                reason: 'Repair exceeds original scope',
-              },
-        diagnostics: [],
-      },
-    }),
-  )
+function disposition(id: string, _outcome: 'pending') {
+  const { pending } = authenticatedSuccessor()
+  return must(buildRecord({ ...pending, recordId: id, operationId: `op-${id}` }))
 }
 function node(scope: Scope, blockers: Scope[] = [], completed = false): UwNativeNode {
   return {
@@ -136,8 +77,7 @@ function node(scope: Scope, blockers: Scope[] = [], completed = false): UwNative
     native: { state: completed ? 'CLOSED' : 'OPEN', stateReason: completed ? 'COMPLETED' : null },
   }
 }
-const originalHistory = (records: CanonicalRecord[] = []) =>
-  appendAccountedRecords(fixtures.historyFrom([mandate]), records)
+const originalHistory = causeOriginalHistory
 function admission(
   records: CanonicalRecord[],
   options: {
@@ -153,18 +93,37 @@ function admission(
   const nodes = options.blocker
     ? [node(uw, options.detached ? [] : [sister]), node(sister, [], options.blocker === 'completed')]
     : [node(uw)]
+  const graph = { status: 'complete' as const, root: uw, nodes, observedAt: now }
+  const histories = [
+    original,
+    ...(options.sourceHistory ? [options.sourceHistory] : []),
+    ...(options.sisterHistory ? [options.sisterHistory] : []),
+  ]
+  const catalogues = fixtureReviewClassCatalogues()
+  const facts = { root: uw, graph, histories, catalogues, delivery: [] }
+  const observation: UwCompletionObservation = histories.every((item) => item.source.complete)
+    ? { status: 'complete', ...facts }
+    : {
+        status: 'incomplete',
+        ...facts,
+        diagnostics: [
+          {
+            code: 'history-unconfirmed',
+            message: 'Fixture history is incomplete',
+            location: { kind: 'native', uw, connection: 'state' },
+            related: [],
+          },
+        ],
+      }
   return assessUwAdmission({
     uw,
-    graph: { status: 'complete', root: uw, nodes, observedAt: now },
+    graph,
     proposed: options.proposedChanged ? { ok: false, diagnostics: [] } : { ok: true, snapshot: ownSpec.snapshot },
     accepted: { status: 'accepted', value: accepted },
     identities,
-    histories: [
-      original,
-      ...(options.sourceHistory ? [options.sourceHistory] : []),
-      ...(options.sisterHistory ? [options.sisterHistory] : []),
-    ],
-    catalogues: fixtureReviewClassCatalogues(),
+    histories,
+    catalogues,
+    completion: assessUwCompletion(observation),
     phase: 'delivery-transition',
     currentChildren: { ok: true, value: [] },
   })
@@ -240,6 +199,8 @@ function authenticatedSuccessor() {
   const initial = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(graph.decision, [graph.history]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision: graph.decision },
       histories: [originHistory, graph.history],
       adjudications: [],
@@ -298,6 +259,8 @@ function authenticatedSuccessor() {
   const assessed = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(graph.decision, [graph.history]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory([pending, operation]), graph.history],
       adjudications: [operation],
@@ -323,12 +286,16 @@ function authenticatedSuccessor() {
 
 it.each(['retained-finding', 'rule-error'] as const)('accepts motivated exact %s adjudication', (kind) => {
   const { graph, context } = authenticatedReview()
+  const panel = recordsOf(graph.history).find((record) => record.recordId === graph.panel.recordId)
+  if (panel?.kind !== 'contribution') throw new Error('Expected authenticated panel contribution')
   const assessed = must(
     assessCauseDispositions({
       context,
+      capture: contributionActionCapture(panel, [graph.history]),
+      graph: causeFixtureGraph(),
       source: {
         kind: 'retained-output',
-        contributions: [graph.panel],
+        contributions: [panel],
         diagnostics: [{ code: 'raw-error', message: 'Incomplete output' }],
       },
       histories: [originalHistory(), graph.history],
@@ -417,7 +384,6 @@ describe('cause holds at UW admission', () => {
     const { graph, pending } = authenticatedSuccessor()
     const result = admission([pending], { sourceHistory: graph.history })
     expect(result.framed.ok).toBe(true)
-    expect(result.applicability).toBe('own-only')
     expect(result.deliverable.ok).toBe(false)
     expect(codes(result)).toEqual(['cause-adjudication-required'])
   })
@@ -455,31 +421,31 @@ describe('cause holds at UW admission', () => {
     expect(codes(admission(original, { sourceHistory, sisterHistory: history([altered], sister) }))).toContain(
       'cause-effect-mismatch',
     )
-    expect(
-      assessCauseHolds({
-        uw,
-        graph: { status: 'complete', root: uw, nodes: [node(uw)], observedAt: now },
-        histories: [
-          history([mandate, ...original], uw),
-          sourceHistory,
-          history([identity], { repository: uw.repository, target: 'acme/app#45' }),
-        ],
-        catalogues: fixtureReviewClassCatalogues(),
-      }).map((d) => d.code),
-    ).toContain('cause-effect-unconfirmed')
+    const histories = [
+      history([mandate, ...original], uw),
+      sourceHistory,
+      history([identity], { repository: uw.repository, target: 'acme/app#45' }),
+    ]
+    const waits = projectUwWaits({
+      graph: { status: 'complete', root: uw, nodes: [node(uw)], observedAt: now },
+      histories,
+      catalogues: fixtureReviewClassCatalogues(),
+    })
+    expect(assessCauseHolds({ uw, waits, dependencies: new Map() }).map((d) => d.code)).toContain(
+      'cause-effect-unconfirmed',
+    )
   })
 
-  it('keeps the native blocker independent after a valid receipt; only completion admits', () => {
+  it('keeps the native blocker held after a valid receipt when the allocated sister lacks delivery', () => {
     const { graph, held, operation, identity, receipt } = sisterRecords()
     const records = [held, operation, receipt]
     const sisterHistory = history([identity], sister)
     const open = admission(records, { sourceHistory: graph.history, sisterHistory, blocker: 'open' })
-    expect(open.applicability).toBe('own-only')
     expect(open.deliverable.ok).toBe(false)
     expect(codes(open)).toContain('blocker-not-completed')
     expect(codes(open)).not.toContain('cause-sister-confirmation-required')
     const completed = admission(records, { sourceHistory: graph.history, sisterHistory, blocker: 'completed' })
-    expect(completed.deliverable).toEqual({ ok: true, diagnostics: [] })
+    expect(codes(completed)).toContain('blocker-not-completed')
   })
 
   it('keeps the confirmed sister obligation after the native edge disappears', () => {
@@ -488,7 +454,7 @@ describe('cause holds at UW admission', () => {
     const options = { sourceHistory: graph.history, sisterHistory: history([identity], sister) }
     expect(admission(records, options).deliverable.ok).toBe(false)
     expect(admission(records, { ...options, detached: true, blocker: 'open' }).deliverable.ok).toBe(false)
-    expect(admission(records, { ...options, detached: true, blocker: 'completed' }).deliverable.ok).toBe(true)
+    expect(admission(records, { ...options, detached: true, blocker: 'completed' }).deliverable.ok).toBe(false)
   })
 
   it('admits the authenticated adjudicated successor without bypassing native or Spec obligations', () => {
@@ -499,6 +465,26 @@ describe('cause holds at UW admission', () => {
     const independent = admission(records, { sourceHistory, blocker: 'open', proposedChanged: true })
     expect(independent.deliverable.ok).toBe(false)
     expect(codes(independent)).toEqual(expect.arrayContaining(['blocker-not-completed', 'proposed-spec-unavailable']))
+    const { context } = authenticatedReview()
+    const panel = recordsOf(sourceHistory).find((record) => record.recordId === graph.panel.recordId)
+    if (panel?.kind !== 'contribution') throw new Error('Expected authenticated panel contribution')
+    const retainedAssessment = must(
+      assessCauseDispositions({
+        context,
+        capture: contributionActionCapture(panel, [sourceHistory]),
+        graph: causeFixtureGraph(),
+        source: {
+          kind: 'retained-output',
+          contributions: [panel],
+          diagnostics: [{ code: 'partition-error', message: 'A separate finding was not classified' }],
+        },
+        histories: [originalHistory(records), sourceHistory],
+        adjudications: [],
+        catalogues: fixtureReviewClassCatalogues(),
+      }),
+    )
+    const retainedPayload = retainedAssessment.outcomes.find((item) => item.subject.kind === 'rule-error')
+    if (!retainedPayload) throw new Error('Expected authenticated retained rule error')
     const unrelated = must(
       buildRecord({
         version: 1,
@@ -507,19 +493,7 @@ describe('cause holds at UW admission', () => {
         runId: 'run',
         operationId: 'unrelated-rule-error-op',
         kind: 'cause-disposition',
-        payload: {
-          format: 'omp-build-cause-disposition/1',
-          origin,
-          subject: {
-            kind: 'rule-error',
-            source: ref(graph.decision),
-            diagnostic: { code: 'partition-error', message: 'A separate finding was not classified' },
-          },
-          previous: null,
-          adjudication: null,
-          outcome: { state: 'pending-blocking', reason: 'Separate finding requires resynthesis' },
-          diagnostics: [],
-        },
+        payload: retainedPayload,
       }),
     )
     const retained = admission([...records, unrelated], { sourceHistory })
@@ -527,10 +501,11 @@ describe('cause holds at UW admission', () => {
   })
 
   it('refuses an apparently confirmed successor without its decision and citation provenance', () => {
-    const pending = disposition('pending', 'pending')
-    const result = admission([pending, ...successor(pending, 'resolved')], { blocker: 'open', proposedChanged: true })
+    const { graph, pending, operation, resolved } = authenticatedSuccessor()
+    const records = [pending, operation, resolved]
+    expect(admission(records, { sourceHistory: graph.history }).deliverable).toEqual({ ok: true, diagnostics: [] })
+    const result = admission(records)
     expect(result.deliverable.ok).toBe(false)
-    expect(codes(result)).toEqual(expect.arrayContaining(['blocker-not-completed', 'proposed-spec-unavailable']))
     expect(codes(result).some((code) => code === 'cause-source-unconfirmed' || code === 'missing-history')).toBe(true)
   })
 

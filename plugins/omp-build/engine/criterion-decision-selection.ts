@@ -13,6 +13,8 @@ import {
   currentPlanReceipt,
   implementationReceiptEligible,
   implementationStartPaired,
+  integrationReceiptEligible,
+  integrationStartPaired,
   observationAuthenticationDiagnostics,
   planReceiptEligible,
 } from './delivery-eligibility.ts'
@@ -47,7 +49,7 @@ function pointer(value: unknown, selector: string): unknown {
 
 function receiptEligible(record: Receipt): boolean {
   if (record.payload.action === 'plan') return planReceiptEligible(record) && record.payload.phase === 'result'
-  return implementationReceiptEligible(record)
+  return implementationReceiptEligible(record) || integrationReceiptEligible(record)
 }
 
 function receiptFor(
@@ -88,7 +90,11 @@ function admittedImplementation(
   mandate: ExternalRecordRef,
 ): boolean {
   const payload = receipt.payload
-  if (payload.action !== 'implement' || payload.phase !== 'result' || !('planActionId' in payload.exactInputs))
+  if (
+    (payload.action !== 'implement' && payload.action !== 'integrate') ||
+    payload.phase !== 'result' ||
+    !('planActionId' in payload.exactInputs)
+  )
     return false
   if (
     !sameRef(payload.mandate, mandate) ||
@@ -96,7 +102,12 @@ function admittedImplementation(
     payload.exactInputs.mandateId !== mandate.recordId
   )
     return false
-  if (!implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt)) return false
+  if (
+    payload.action === 'integrate'
+      ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt)
+      : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt)
+  )
+    return false
   if (payload.admission?.remoteTip !== head) return false
   return payload.exactInputs.planActionId === planActionId
 }
@@ -131,7 +142,7 @@ function appendEvidence(
 ): void {
   if (declaration.verification !== 'evidence') return
   const payload = receipt.payload
-  if (payload.action !== 'implement' || payload.phase !== 'result') return
+  if ((payload.action !== 'implement' && payload.action !== 'integrate') || payload.phase !== 'result') return
   for (const value of declaration.evidence) {
     appendOneEvidence(value, ref, head, histories, pins, receipt, diagnostics, evidence)
   }

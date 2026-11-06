@@ -33,6 +33,8 @@ export function buildFixOnlyMandate(draft: {
   ownSpec: FixOnlyOwnSpec
   tier: FixOnlyTier
   children: FixOnlyChildren
+  inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
+  coverage: MandatePayload['coverage']
   config: { version: string; digest: string; effective: Json }
   parent: ExternalRecordRef | null
   antecedent: ExternalRecordRef | null
@@ -49,7 +51,7 @@ export function buildFixOnlyMandate(draft: {
     operationId: draft.operationId,
     payload: {
       role: 'fix-only',
-      format: 'omp-build-mandate/3',
+      format: 'omp-build-mandate/4',
       branch: draft.branch,
       base: draft.base,
       lineageHead: draft.lineageHead,
@@ -57,6 +59,8 @@ export function buildFixOnlyMandate(draft: {
       ownSpec: draft.ownSpec,
       tier: draft.tier,
       children: draft.children,
+      inheritedOwnSpecRefs: draft.inheritedOwnSpecRefs,
+      coverage: draft.coverage,
       permissions: { landing: false, correct: true },
       config: {
         productVersion: draft.productVersion,

@@ -1,6 +1,9 @@
+import { canonicalValueDigest } from './action-input.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import { resolveSpecEffective } from './spec-effective.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { boundCiAttribution } from './workflow-action-completion.ts'
+import type { ProposedAssessmentState } from './workflow-action-operands.ts'
 import { adoptedOrConfirmed, implementConfirmed, planConfirmed, workflowBound } from './workflow-action-state.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowCondition } from './workflow-graph.ts'
@@ -25,9 +28,9 @@ export function conditionHolds(
     case 'mandate-ready':
       return mandate !== null
     case 'spec-differs':
-      return specMatches(false, facts, mandate, causal.histories)
+      return specMatches(false, facts, mandate, causal)
     case 'spec-settled':
-      return specMatches(true, facts, mandate, causal.histories)
+      return specMatches(true, facts, mandate, causal)
     case 'plan-confirmed':
       return planConfirmed(history, mandate, causal)
     case 'implement-confirmed':
@@ -77,20 +80,37 @@ function specMatches(
   settled: boolean,
   facts: WorkflowFacts,
   mandate: MandateRecord | null,
-  histories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
 ): boolean {
   if (mandate === null || facts.currentSpec === null) return false
-  const accepted = resolveAcceptedSpec(mandate, histories)
+  const accepted = resolveAcceptedSpec(mandate, causal.histories)
   if (!accepted.ok) return false
+  const effective = settled
+    ? resolveSpecEffective({
+        mode: 'current',
+        own: accepted.spec.ref,
+        histories: causal.histories,
+        graph: causal.observation.graph,
+      })
+    : resolveSpecEffective({
+        mode: 'historical',
+        own: accepted.spec.ref,
+        versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
+        histories: causal.histories,
+      })
+  if (!effective.ok) return false
   const same =
     facts.currentSpec.snapshot.spec.version === accepted.spec.snapshot.spec.version &&
     facts.currentSpec.tier === accepted.spec.tier &&
-    sameChildren(facts.currentSpec.children, accepted.spec.children)
+    sameChildren(facts.currentSpec.children, accepted.spec.children) &&
+    canonicalValueDigest(facts.currentSpec.inheritedOwnSpecRefs) ===
+      canonicalValueDigest(accepted.spec.inheritedOwnSpecRefs) &&
+    canonicalValueDigest(facts.currentSpec.coverage) === canonicalValueDigest(accepted.spec.coverage)
   return settled ? same : !same
 }
 
 function sameChildren(
-  current: readonly AcceptedChildCommitment[],
+  current: readonly ProposedAssessmentState['children'][number][],
   accepted: readonly AcceptedChildCommitment[],
 ): boolean {
   if (current.length !== accepted.length) return false
@@ -99,6 +119,7 @@ function sameChildren(
     const right = accepted[index]
     if (
       left === undefined ||
+      'kind' in left ||
       right === undefined ||
       left.scope.repository !== right.scope.repository ||
       left.scope.target !== right.scope.target ||

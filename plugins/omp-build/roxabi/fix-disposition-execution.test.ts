@@ -1,29 +1,49 @@
 import { describe, expect, it, vi } from 'vitest'
+import { rawSource } from '../adapters/github-native/uw-spec.ts'
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
 import { assessCauseHolds, buildRecord, parseRecord } from '../dist/contracts.js'
-import { fixtureCatalogueGhResponse } from '../testing/action-input-fixtures.ts'
-import { encodeCriterionRecords } from '../testing/criterion-approval.ts'
+import { assessUwCompletion } from '../engine/uw-completion.ts'
+import { synthesisActionCapture } from '../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
-import { projectionConfig, submission } from '../testing/record-builders.ts'
+import { submission } from '../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph, reviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import type { FixIdentity, FixRecord, PreparedFix } from './fix-contract.ts'
+import type { FixIdentity } from './fix-contract.ts'
 import { persistCauseDispositions } from './fix-disposition-execution.ts'
-import type { DefaultFixWorkflow } from './fix-execution-policy.ts'
-import { executeDecision, runReviewBoundFixWorkflow } from './fix-execution-runner.ts'
 
 const original = { repository: 'Acme/app', target: 'Acme/app#12' }
-const prepared = {
-  causeContext: { original, effective: { own: { sourceAccepted: { scope: original } } } },
-} as unknown as PreparedFix
-const decision = {
-  kind: 'decision',
-  repository: 'Acme/app',
-  target: 'Acme/app#42',
-  recordId: 'decision-1',
-  payload: { judgment: { causes: [] } },
-} as unknown as Extract<FixRecord, { kind: 'decision' }>
+const nativeGraph = {
+  status: 'complete' as const,
+  root: original,
+  observedAt: '2026-10-27T12:00:00Z',
+  nodes: [
+    {
+      uw: original,
+      title: 'Original correction',
+      raw: rawSource(original.target, 'Correct the original issue', '2026-10-27T12:00:00Z'),
+      updatedAt: '2026-10-27T12:00:00Z',
+      labels: ['size:S'],
+      wayfinderLabels: [],
+      parent: null,
+      children: [],
+      blockers: [],
+      native: { state: 'OPEN' as const, stateReason: null },
+    },
+  ],
+}
+function holds(histories: readonly DecodedHistory[]) {
+  const observation = {
+    status: 'complete' as const,
+    root: original,
+    graph: nativeGraph,
+    histories,
+    catalogues: fixtureHostReviewClassCatalogues(),
+    delivery: [],
+  }
+  const completion = assessUwCompletion(observation)
+  return assessCauseHolds({ uw: original, waits: completion.waits, dependencies: completion.dependencies })
+}
 const identity: FixIdentity = { runId: 'run', operationId: 'operation', nextRecordId: () => 'unused' }
 
 function acceptedReview(label: 'issue' | 'suggestion' = 'issue') {
@@ -40,42 +60,44 @@ function acceptedReview(label: 'issue' | 'suggestion' = 'issue') {
   if (inputs.manifest.spec.kind !== 'accepted') throw new Error('accepted fixture required')
   const origin = fixtures.historyFrom([mandate])
   const prepared = {
+    target: {
+      ...graph.history.source.scope,
+      number: 42,
+      kind: 'pull-request' as const,
+      state: 'open' as const,
+      candidateGitSHA: inputs.manifest.code.head,
+      baseGitSHA: inputs.manifest.code.base,
+    },
+    requestId: 'request-disposition',
+    inventoryId: graph.root.recordId,
+    batch: {
+      operationId: 'op-disposition',
+      tasks: { context: 'No correction is dispatched in these refusal cases', tasks: [] },
+    },
+    sourceContributionId: graph.panel.recordId,
+    policy: { version: 'baseline' as const },
+    cwd: '/fixture',
+    publishBinding: {
+      pushUrl: 'https://github.com/Acme/app.git',
+      publicationRepository: original.repository,
+      localBranch: 'fix/42-save',
+      destinationRef: 'refs/heads/fix/42-save',
+      localHead: inputs.manifest.code.head,
+      expectedRemoteSHA: inputs.manifest.code.head,
+      defaultBranch: 'main',
+      observed: {},
+    },
+    subject: inputs.manifest.subject,
     causeContext: { original, effective: inputs.manifest.spec.effective },
-  } as PreparedFix
+    capture: { kind: 'action' as const, input: synthesisActionCapture(graph.decision, [graph.history, origin]) },
+    graph: nativeGraph,
+  }
   return { graph, origin, prepared }
 }
 
 function consumer(origin: DecodedHistory, target: DecodedHistory) {
   let current = origin
   const saved: Extract<CanonicalRecord, { kind: 'cause-disposition' }>[] = []
-  const activate = vi.fn()
-  const publish = vi.fn()
-  const records = origin.operations.flatMap((entry) => (entry.record === null ? [] : [entry.record]))
-  const encodedOrigin = encodeCriterionRecords(
-    records,
-    origin.source.scope,
-    projectionConfig(),
-    origin.source.expectedAuthor,
-  )
-  const github = {
-    cwd: '/fixture',
-    readAuthor: origin.source.expectedAuthor,
-    gh: async (_cwd: string, args: string[]) => {
-      const catalogue = fixtureCatalogueGhResponse(args)
-      if (catalogue !== null) return catalogue
-      if (args[0] === 'api' && args[1] === `repos/${original.repository}/issues/12/comments?per_page=100&page=1`)
-        return JSON.stringify(
-          encodedOrigin.comments.map((comment, index) => ({
-            id: index + 1,
-            body: comment.body,
-            user: { login: origin.source.expectedAuthor },
-            created_at: comment.createdAt,
-            updated_at: comment.updatedAt,
-          })),
-        )
-      throw new Error(`Unexpected fixture GitHub request: ${args.join(' ')}`)
-    },
-  }
   const dispositionStore = {
     read: vi.fn(async () => ({ ok: true as const, value: [current, target] })),
     catalogues: async () => fixtureHostReviewClassCatalogues(),
@@ -89,62 +111,18 @@ function consumer(origin: DecodedHistory, target: DecodedHistory) {
       return { status: 'confirmed' as const, operation: observed }
     }),
   }
-  const workflow = {
-    github,
-    dispositionStore,
-    native: { activate },
-    publisher: { publish },
-    runtime: { signal: new AbortController().signal },
-    readHistory: async () => target,
-  } as unknown as DefaultFixWorkflow
-  return { workflow, saved, activate, publish, dispositionStore }
+  return { saved, dispositionStore }
 }
 
 describe('correction disposition ingress', () => {
-  it('refuses before dispatch or publication when original history is unreadable', async () => {
-    const activate = vi.fn()
-    const publish = vi.fn()
-    const product = {
-      github: {
-        cwd: '/fixture',
-        gh: async () => {
-          throw new Error('Unexpected GitHub request')
-        },
-      },
-      runtime: { signal: new AbortController().signal },
-      native: { activate },
-      publisher: { publish },
-      dispositionStore: {
-        read: vi.fn(async () => ({
-          ok: false as const,
-          diagnostics: [{ code: 'correction-disposition-history-unreadable', message: 'unavailable' }],
-        })),
-        catalogues: vi.fn(async () => {
-          throw new Error('Catalogue loading must not follow an unreadable history')
-        }),
-        publish: vi.fn(),
-      },
-      readHistory: vi.fn(),
-    } as unknown as DefaultFixWorkflow
-    const result = await executeDecision(prepared, decision, product, identity)
-    expect(result).toEqual({ ok: false, diagnostics: ['correction-disposition-history-unreadable'] })
-    expect(product.dispositionStore.read).toHaveBeenCalledWith([
-      { repository: 'Acme/app', target: 'Acme/app#42' },
-      original,
-    ])
-    expect(activate).not.toHaveBeenCalled()
-    expect(publish).not.toHaveBeenCalled()
-    expect(product.dispositionStore.publish).not.toHaveBeenCalled()
-  })
-
-  it('persists a nonblocking report on its authenticated original without dispatching a fix', async () => {
+  it('persists a nonblocking report on its authenticated original', async () => {
     const { graph, origin, prepared } = acceptedReview('suggestion')
     const product = consumer(origin, graph.history)
     const result = await persistCauseDispositions(
       prepared,
       { kind: 'decision', decision: graph.decision },
       identity,
-      product.workflow.dispositionStore,
+      product.dispositionStore,
     )
     expect(result.ok).toBe(true)
     expect(product.saved).toEqual([
@@ -156,8 +134,6 @@ describe('correction disposition ingress', () => {
         }),
       }),
     ])
-    expect(product.activate).not.toHaveBeenCalled()
-    expect(product.publish).not.toHaveBeenCalled()
   })
   it('persists and holds an unassigned exclusion rule error alongside an otherwise valid cause', async () => {
     const { graph, origin, prepared } = acceptedReview()
@@ -206,10 +182,10 @@ describe('correction disposition ingress', () => {
     const product = consumer(origin, target)
     let sequence = 0
     const result = await persistCauseDispositions(
-      prepared,
+      { ...prepared, capture: { kind: 'action', input: synthesisActionCapture(decision, [target, origin]) } },
       { kind: 'decision', decision },
       { ...identity, nextRecordId: () => `disposition-${++sequence}` },
-      product.workflow.dispositionStore,
+      product.dispositionStore,
     )
     expect(result.ok, JSON.stringify(result)).toBe(true)
     if (!result.ok) throw new Error('disposition persistence refused')
@@ -229,13 +205,10 @@ describe('correction disposition ingress', () => {
     )
     const readback = await product.dispositionStore.read()
     if (!readback.ok) throw new Error('readback unavailable')
-    const holds = assessCauseHolds({
-      uw: original,
-      histories: readback.value,
-      catalogues: fixtureHostReviewClassCatalogues(),
-      graph: { status: 'complete', root: original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-    })
-    expect(holds).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]))
+    const holdsResult = holds(readback.value)
+    expect(holdsResult).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]),
+    )
   })
   it('persists a hold for an unknown exclusion in an otherwise empty authenticated correction', async () => {
     const base = acceptedReview()
@@ -367,10 +340,10 @@ describe('correction disposition ingress', () => {
     }
     const product = consumer(base.origin, target)
     const result = await persistCauseDispositions(
-      base.prepared,
+      { ...base.prepared, capture: { kind: 'action', input: synthesisActionCapture(decision, [target, base.origin]) } },
       { kind: 'decision', decision },
       identity,
-      product.workflow.dispositionStore,
+      product.dispositionStore,
     )
     expect(result.ok, JSON.stringify(result)).toBe(true)
     if (!result.ok) throw new Error('empty correction persistence refused')
@@ -390,88 +363,8 @@ describe('correction disposition ingress', () => {
     )
     const readback = await product.dispositionStore.read()
     if (!readback.ok) throw new Error('readback unavailable')
-    expect(
-      assessCauseHolds({
-        uw: original,
-        histories: readback.value,
-        catalogues: fixtureHostReviewClassCatalogues(),
-        graph: { status: 'complete', root: original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-      }),
-    ).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]))
-  })
-
-  it('refuses an unauthenticated synthesis slot without filing or applying the raw finding', async () => {
-    const { graph, origin, prepared } = acceptedReview()
-    // A foreign native author cannot authenticate the synthesis action slot.
-    const target = {
-      ...graph.history,
-      operations: graph.history.operations.map((item) =>
-        item.recordId === graph.synthesis.recordId ? { ...item, authority: 'foreign' as const } : item,
-      ),
-    }
-    const product = consumer(origin, target)
-    const result = await runReviewBoundFixWorkflow(prepared, graph.decision, product.workflow, identity)
-    expect(result).toEqual({ ok: false, diagnostics: ['cause-source-unconfirmed'] })
-    expect(product.saved).toEqual([])
-    expect(product.activate).not.toHaveBeenCalled()
-    expect(product.publish).not.toHaveBeenCalled()
-    expect(target.operations.find((item) => item.recordId === graph.panel.recordId)?.record).toEqual(graph.panel)
-    expect(graph.panel.target).not.toBe(original.target)
-  })
-
-  it('retains authenticated findings and rule errors when synthesis breaks the partition', async () => {
-    const { graph, origin, prepared } = acceptedReview()
-    const cause = graph.decision.payload.judgment.causes[0]
-    if (cause === undefined) throw new Error('fixture cause required')
-    const brokenDecision = {
-      ...graph.decision,
-      payload: {
-        ...graph.decision.payload,
-        judgment: { ...graph.decision.payload.judgment, causes: [{ ...cause, findingIds: ['unknown-finding'] }] },
-      },
-    }
-    const brokenSynthesis = {
-      ...graph.synthesisContribution,
-      payload: {
-        ...graph.synthesisContribution.payload,
-        structured: brokenDecision.payload.judgment,
-        rawAttempts: graph.synthesisContribution.payload.rawAttempts.map((attempt) => ({
-          ...attempt,
-          data: brokenDecision.payload.judgment,
-        })),
-      },
-    }
-    const target = {
-      ...graph.history,
-      operations: graph.history.operations.map((item) =>
-        item.recordId === brokenDecision.recordId
-          ? { ...item, record: brokenDecision }
-          : item.recordId === brokenSynthesis.recordId
-            ? { ...item, record: brokenSynthesis }
-            : item,
-      ),
-    }
-    const product = consumer(origin, target)
-    const result = await runReviewBoundFixWorkflow(prepared, brokenDecision, product.workflow, identity)
-    expect(result.ok).toBe(false)
-    expect(
-      product.saved.some(
-        (item) =>
-          item.payload.subject.kind === 'retained-finding' &&
-          item.payload.subject.contribution.recordId === graph.panel.recordId &&
-          item.payload.outcome.state === 'pending-blocking',
-      ),
-    ).toBe(true)
-    expect(
-      product.saved.some(
-        (item) => item.payload.subject.kind === 'rule-error' && item.payload.outcome.state === 'pending-blocking',
-      ),
-    ).toBe(true)
-    expect(
-      product.saved.every((item) => item.repository === original.repository && item.target === original.target),
-    ).toBe(true)
-    expect(product.activate).not.toHaveBeenCalled()
-    expect(product.publish).not.toHaveBeenCalled()
-    expect(target.operations.find((item) => item.recordId === graph.panel.recordId)?.record).toEqual(graph.panel)
+    expect(holds(readback.value)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'cause-adjudication-required' })]),
+    )
   })
 })

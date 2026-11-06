@@ -1,3 +1,4 @@
+import type { PreparedCauseCapture } from '../dist/contracts.js'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, PublishBinding } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { type FixIntakePublication, publishNativeContributions } from './fix-contributions-native.ts'
@@ -6,7 +7,7 @@ import {
   type PreservedSynthesis,
   prepareCorrectionSynthesis,
 } from './fix-contributions-synthesis.ts'
-import { persistCauseDispositions } from './fix-disposition-execution.ts'
+import { persistCapturedCauseDispositions } from './fix-disposition-capture.ts'
 import type { DefaultFixWorkflow } from './fix-execution-policy.ts'
 import { actionTask, dispatchNativeBatch } from './fix-native-dispatch.ts'
 import { nativeFixProfileByAction } from './native-review-profiles'
@@ -17,7 +18,7 @@ export async function synthesizeCiCorrection(
   product: CiCorrectionProduct,
   evidence: FixRecord,
   intake: FixIntakePublication,
-): Promise<FixActionResult<FixRecord>> {
+): Promise<FixActionResult<{ decision: FixRecord; capture: PreparedCauseCapture }>> {
   const synthesisTask = actionTask(
     'ci-correction-synthesis',
     nativeFixProfileByAction.synthesis,
@@ -63,9 +64,9 @@ export async function synthesizeCiCorrection(
     preservedSynthesis.value,
     product.runtime.signal,
   )
-  if (decision.ok) return decision
-  const retained = await persistCauseDispositions(
-    prepared,
+  if (decision.ok) return { ok: true, value: { decision: decision.value, capture: synthesis.value.capture } }
+  const retained = await persistCapturedCauseDispositions(
+    prepared.causeContext,
     {
       kind: 'retained-output',
       contributions: [evidence, ...intake.records, ...preservedSynthesis.value.contributions].filter(
@@ -75,6 +76,8 @@ export async function synthesizeCiCorrection(
     },
     product.identity,
     product.dispositionStore,
+    product.runtime.uw,
+    synthesis.value.capture,
   )
   return retained.ok ? decision : retained
 }

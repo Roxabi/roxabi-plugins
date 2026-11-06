@@ -188,12 +188,17 @@ async function discoverOwnPullRequests(
   authority: SelectedMandateAuthority | null,
 ): Promise<{ numbers: Set<number>; incomplete: boolean; evidence: unknown[] }> {
   const discovered = await discoverPullRequests(gh, cwd, target, branch)
+  const explicitPr =
+    target.status === 'pull-request' && role !== 'feature' && role !== 'epic' ? target.pullRequest.pr : null
+  if (explicitPr !== null) discovered.numbers.delete(explicitPr)
   const authentication =
-    role === 'feature' || role === 'epic'
-      ? await authenticateOwnPullRequests(gh, cwd, target.scope.repository, discovered.numbers, authority)
-      : null
+    explicitPr !== null && discovered.numbers.size === 0
+      ? null
+      : await authenticateOwnPullRequests(gh, cwd, target.scope.repository, discovered.numbers, authority)
+  const numbers = authentication?.numbers ?? new Set<number>()
+  if (explicitPr !== null) numbers.add(explicitPr)
   return {
-    numbers: authentication?.numbers ?? discovered.numbers,
+    numbers,
     incomplete: discovered.incomplete || authentication?.incomplete === true,
     evidence: [...discovered.evidence, ...(authentication === null ? [] : [{ ownership: authentication.evidence }])],
   }

@@ -27,7 +27,7 @@ import {
   findingTargetSchema,
 } from '../finding-target-schema.ts'
 import { type ExternalRecordRef, externalRecordRefSchema } from '../record-references.ts'
-import { type SpecEffective, specEffectiveSchema } from '../spec-effective.ts'
+import { type SpecEffective, specEffectiveSchema } from '../spec-effective-schema.ts'
 import type { OwnSpecRef } from '../uw-spec-schema.ts'
 import { type PlanOutput, planOutputSchema } from '../workflow-output-schema.ts'
 
@@ -51,11 +51,11 @@ export const earlier: CodeVersion = { repository: 'acme/app', commit: sha('paren
 
 export function acceptedSpec(criteria: readonly { id: 'C1' | 'C2'; statement: string }[]): SpecEffective {
   return specEffectiveSchema.parse({
-    format: 'omp-build-spec-effective/1',
-    resolution: 'own-only',
+    format: 'omp-build-spec-effective/2',
+    resolution: 'resolved',
     own,
     versionVector: [own],
-    ancestry: 'not-resolved',
+    inherited: { invariants: [], exclusions: [] },
     spec: {
       format: 'omp-build-spec-content/1',
       version,

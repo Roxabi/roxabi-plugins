@@ -1,11 +1,14 @@
+import { githubScope } from '../../dist/contracts.js'
+import { resolveParentWorktreeAnchor } from '../../roxabi/feature-parent-anchor.ts'
+import { verifyParentCheckout } from '../../roxabi/workflow-checkout.ts'
 import { assertChildGrant, frameEpicChildren } from './epic-driver-authority'
 import { readChildPrInventory } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
-import { tree } from './epic-driver-github'
+import { repoName, tree } from './epic-driver-github'
 import { activateNextStep } from './epic-driver-next-activation'
 import { inventoryChildren, type KnownMerge } from './epic-driver-next-inventory'
 import { type Disarm, disarm, ticketStop } from './epic-driver-publication'
-import { git, Refused } from './epic-driver-runtime'
+import { git, Refused, uwReadPort } from './epic-driver-runtime'
 import { nextStep } from './epic-next-step'
 import { armedStoppedPrs, mergedLocalBranches, mergedStoppedPrs, summarize } from './epic-progress'
 import type { Facts, Step } from './epic-types'
@@ -180,6 +183,23 @@ async function nextWithKnownMerge(
 ): Promise<NextOut> {
   if (!dry) {
     refusePrincipal(repo)
+    const repository = repoName(repo).full
+    const subject = githubScope(repository, epic)
+    const reader = await uwReadPort(repo)
+    const anchor = await resolveParentWorktreeAnchor({ subject, read: await reader.readUw(subject) })
+    if (!anchor.ok) throw new Refused(anchor.reason)
+    const checked = await verifyParentCheckout({
+      cwd: repo,
+      uw: anchor.anchor,
+      git: async (cwd, args) => {
+        try {
+          return { code: 0, stdout: git(cwd, args), stderr: '' }
+        } catch (error) {
+          return { code: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }
+        }
+      },
+    })
+    if (!checked.ok) throw new Refused(checked.reason)
     git(repo, ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'])
   }
   const { authority, facts } = await frameEpicChildren(repo, epic)

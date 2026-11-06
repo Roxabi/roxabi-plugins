@@ -1,3 +1,4 @@
+import { canonicalValueDigest } from '../../dist/contracts.js'
 import { resolveTicketBranch } from './epic-claims'
 import { revalidateEpicActivation } from './epic-driver-activation'
 import { assertChildGrant, type EpicAuthority } from './epic-driver-authority'
@@ -51,6 +52,26 @@ function authenticateResumePr(
   return pr.number
 }
 
+async function activateParentStep(
+  repo: string,
+  base: string,
+  authority: EpicAuthority,
+  facts: Facts,
+  step: Extract<Step, { action: 'parent' }>,
+): Promise<void> {
+  const fresh = await revalidateEpicActivation(repo, authority, facts)
+  const previous = facts.children.find((entry) => entry.number === step.ticket)
+  const child = fresh.facts.children.find((entry) => entry.number === step.ticket)
+  if (!previous || !child) throw new Refused(`missing observation for child #${step.ticket}`)
+  if (canonicalValueDigest(previous.ownUw) !== canonicalValueDigest(child.ownUw))
+    throw new Refused(`Parent #${step.ticket} metadata changed before activation`)
+  child.prs = await readChildPrInventory(repo, fresh.authority, child)
+  const current = nextStep(fresh.facts)
+  if (fresh.authority.base !== base || current.action !== 'parent' || current.ticket !== step.ticket)
+    throw new Refused('epic native state changed before Parent activation')
+  assertChildGrant(fresh.authority, fresh.facts, step.ticket)
+}
+
 export async function activateNextStep(
   repo: string,
   base: string,
@@ -58,6 +79,10 @@ export async function activateNextStep(
   facts: Facts,
   step: Step,
 ): Promise<{ disarmed: Disarm | null; pr: number | null }> {
+  if (step.action === 'parent') {
+    await activateParentStep(repo, base, authority, facts, step)
+    return { disarmed: null, pr: null }
+  }
   if (step.action !== 'start' && step.action !== 'resume') return { disarmed: null, pr: null }
   const { ticket, branch } = step
   const fresh = await revalidateEpicActivation(repo, authority, facts)

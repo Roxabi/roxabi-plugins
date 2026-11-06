@@ -24,6 +24,7 @@ export function rootObservation(uw: Scope, read: Pick<UwRead, 'graph'>): IssueWr
     title: root.title,
     body: root.raw.body,
     updatedAt: root.updatedAt,
+    nativeState: root.native,
     labels: root.labels,
     parent: root.parent === null ? null : issueOf(root.parent),
     children: root.children.map(issueOf),

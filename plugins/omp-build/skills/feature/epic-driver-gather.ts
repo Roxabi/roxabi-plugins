@@ -1,6 +1,13 @@
 import { type NativeEpicPullRequest, readNativeEpicChildren } from '../../adapters/github-native/epic-children.ts'
 import type { DecodedHistory } from '../../dist/contracts.js'
-import { type CanonicalEpic, issueNumber, readCanonicalEpic } from './epic-driver-canonical'
+import { currentParentIntegration } from '../../roxabi/uw-parent-current-integration.ts'
+import {
+  type CanonicalEpic,
+  epicChildCompletion,
+  epicDependency,
+  issueNumber,
+  readCanonicalEpic,
+} from './epic-driver-canonical'
 import {
   baseCi,
   branchRefs,
@@ -46,9 +53,18 @@ function observedChild(
   stopped: Set<number>,
   refs: Map<number, BranchFacts[]>,
   ownUw: OwnUwObservation,
+  canonical: CanonicalEpic,
 ): ChildFacts {
   const number = issueNumber(node.uw)
   const body = node.raw.body
+  const completion = canonical.completion.completions.get(`${node.uw.repository}\0${node.uw.target}`)
+  const canonicalHistories = canonical.parent.histories.filter(
+    (candidate) =>
+      candidate.source.scope.repository === node.uw.repository && candidate.source.scope.target === node.uw.target,
+  )
+  const canonicalHistory = canonicalHistories[0]
+  if (canonicalHistories.length !== 1 || canonicalHistory === undefined || !canonicalHistory.source.complete)
+    throw new Refused(`#${number} has no unique complete same-cut history`)
   if (/<!--\s*omp-build:epic-fix\b/.test(body)) {
     throw new Refused(`#${number} has a legacy epic-fix body marker; publish a canonical epic-event instead`)
   }
@@ -60,6 +76,14 @@ function observedChild(
     labels: [...node.labels],
     body,
     ownUw,
+    initialMandate: canonical.initialMandates.get(number) ?? {
+      status: 'held',
+      reason: 'Child initialization was not observed',
+    },
+    completion: epicChildCompletion(canonical, node.uw),
+    ...(completion?.state === 'complete'
+      ? { completionCode: { role: completion.role, code: completion.code, sources: completion.sources } }
+      : {}),
     epicFix: hasEpicFixEvent(history),
     blockedBy: node.blockers.map((scope) => {
       const blocker = native.get(`${scope.repository}\0${scope.target}`)
@@ -68,10 +92,11 @@ function observedChild(
         number: issueNumber(scope),
         state: blocker.native.state,
         stateReason: blocker.native.stateReason,
+        dependency: epicDependency(canonical, scope),
         ...(scope.repository === full ? {} : { repo: scope.repository }),
       }
     }),
-    stops: stopsFromEvents(history),
+    stops: stopsFromEvents(canonicalHistory),
     prs: (rawPrs.get(number) ?? []).map((pr) => prFacts(pr, stopped)),
     branches: refs.get(number) ?? [],
   }
@@ -86,6 +111,7 @@ function observedChildren(
   stopped: Set<number>,
   refs: Map<number, BranchFacts[]>,
   ownUws: Map<number, OwnUwObservation>,
+  canonical: CanonicalEpic,
 ): ChildFacts[] {
   return nodes.map((node) => {
     const number = issueNumber(node.uw)
@@ -93,7 +119,7 @@ function observedChildren(
     if (history === undefined) throw new Error(`missing history for #${number}`)
     const ownUw = ownUws.get(number)
     if (ownUw === undefined) throw new Error(`missing own UW observation for #${number}`)
-    return observedChild(node, full, native, history, rawPrs, stopped, refs, ownUw)
+    return observedChild(node, full, native, history, rawPrs, stopped, refs, ownUw, canonical)
   })
 }
 
@@ -147,11 +173,26 @@ export async function gather(
   const refs = withGit ? branchRefs(repo, base, numbers) : new Map<number, BranchFacts[]>()
   const baseSha = withGit ? git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}^{commit}`]) : ''
   const { landing, landingError } = landingObservation(repo, base, dashboard)
+  const children = observedChildren(nodes, full, native, histories, rawPrs, stopped, refs, ownUws, canonical)
   const facts: Facts = {
     epic,
     run,
     base,
     baseSha,
+    parentIntegration: withGit
+      ? currentParentIntegration(canonical.parent, baseSha, git(repo, ['rev-parse', '--verify', 'HEAD^{commit}']))
+      : {
+          ok: false,
+          diagnostics: [
+            {
+              code: 'record-unreadable',
+              message: 'Current Parent candidate head was not observed',
+              location: { kind: 'native', uw: canonical.parent.uw, connection: 'state' },
+              related: [],
+            },
+          ],
+        },
+    parentCompletion: canonical.completion.completions.get(`${full}\0${full}#${epic}`) ?? null,
     tree: withGit ? tree(repo) : { clean: true, branch: null },
     baseCi: !dashboard
       ? { state: 'unread', failed: [], pending: [] }
@@ -159,7 +200,7 @@ export async function gather(
         ? baseCi(repo, owner, name, baseSha, landing.required_checks)
         : { state: 'none', failed: [], pending: [] },
     landingError,
-    children: observedChildren(nodes, full, native, histories, rawPrs, stopped, refs, ownUws),
+    children,
     reviews: await reviewsFromEvents(repo, epicHistory),
     hooks: hooksFromEvents(epicHistory),
   }

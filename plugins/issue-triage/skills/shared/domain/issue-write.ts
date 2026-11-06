@@ -26,11 +26,17 @@ export type NativeIssueWritePlan = {
   }
 }
 
+export type ObservedNativeIssueState = { state: 'OPEN' | 'CLOSED'; stateReason: string | null }
+export type NativeIssueStateEffect =
+  | { state: 'OPEN'; stateReason: 'REOPENED' | null }
+  | { state: 'CLOSED'; stateReason: 'COMPLETED' }
+
 export type IssueWriteObservation = {
   issue: IssueRef
   title: string
   body: string
   updatedAt: string
+  nativeState: ObservedNativeIssueState
   labels: readonly string[]
   parent: IssueRef | null
   children: readonly IssueRef[]
@@ -62,11 +68,17 @@ export interface IssueWritePorts {
   removeChild(parent: IssueRef, child: IssueRef): Promise<void>
   addBlocker(issue: IssueRef, blocker: IssueRef): Promise<void>
   removeBlocker(issue: IssueRef, blocker: IssueRef): Promise<void>
+  setNativeState(issue: IssueRef, effect: NativeIssueStateEffect): Promise<void>
 }
 
 export interface IssueWriter {
   create(plan: NativeIssueWritePlan): Promise<IssueWriteResult>
   update(issue: IssueRef, plan: NativeIssueWritePlan, expected: IssueWriteObservation): Promise<IssueWriteResult>
+  setNativeState(
+    issue: IssueRef,
+    effect: NativeIssueStateEffect,
+    expected: IssueWriteObservation,
+  ): Promise<IssueWriteResult>
 }
 
 const keyOf = (ref: IssueRef): string => `${ref.repository}#${ref.number}`
@@ -97,11 +109,23 @@ function sameAssertedObservation(left: IssueWriteObservation, right: IssueWriteO
     sameRef(left.issue, right.issue) &&
     left.title === right.title &&
     left.body === right.body &&
+    validNativeState(left.nativeState) &&
+    validNativeState(right.nativeState) &&
+    left.nativeState.state === right.nativeState.state &&
+    left.nativeState.stateReason === right.nativeState.stateReason &&
     sameStringSet(left.labels, right.labels) &&
     ((left.parent === null && right.parent === null) ||
       (left.parent !== null && right.parent !== null && sameRef(left.parent, right.parent))) &&
     sameRefSet(left.children, right.children) &&
     sameRefSet(left.blockers, right.blockers)
+  )
+}
+
+function validNativeState(value: ObservedNativeIssueState | undefined): boolean {
+  return (
+    !!value &&
+    (value.state === 'OPEN' || value.state === 'CLOSED') &&
+    (value.stateReason === null || typeof value.stateReason === 'string')
   )
 }
 
@@ -241,6 +265,7 @@ function desiredObservation(
     issue,
     title: plan.title ?? baseline.title,
     body: plan.body,
+    nativeState: baseline.nativeState,
     labels: applyLabelChanges(baseline.labels, plan.labels.add, plan.labels.remove),
     parent: plan.relations.parent === undefined ? baseline.parent : plan.relations.parent,
     children: applyRefChanges(baseline.children, plan.relations.addChildren, plan.relations.removeChildren),
@@ -253,6 +278,9 @@ function matchesDesired(observed: IssueWriteObservation, desired: Omit<IssueWrit
     sameRef(observed.issue, desired.issue) &&
     observed.title === desired.title &&
     observed.body === desired.body &&
+    validNativeState(observed.nativeState) &&
+    observed.nativeState.state === desired.nativeState.state &&
+    observed.nativeState.stateReason === desired.nativeState.stateReason &&
     sameStringSet(observed.labels, desired.labels) &&
     ((observed.parent === null && desired.parent === null) ||
       (observed.parent !== null && desired.parent !== null && sameRef(observed.parent, desired.parent))) &&
@@ -410,6 +438,7 @@ export function createIssueWriter(ports: IssueWritePorts): IssueWriter {
         title,
         body: plan.body,
         updatedAt: '',
+        nativeState: { state: 'OPEN', stateReason: null },
         labels: [],
         parent: null,
         children: [],
@@ -462,6 +491,89 @@ export function createIssueWriter(ports: IssueWritePorts): IssueWriter {
       const unreadable = await preflightReferences(ports, plan)
       if (unreadable) return { status: 'refused', diagnostics: [unreadable] }
       return applyPlan(ports, issue, plan, current, [])
+    },
+
+    async setNativeState(issue, effect, expected): Promise<IssueWriteResult> {
+      const invalid = validateRef(issue, 'issue')
+      if (invalid) return { status: 'refused', diagnostics: [invalid] }
+      if (
+        !effect ||
+        !(
+          (effect.state === 'OPEN' && (effect.stateReason === null || effect.stateReason === 'REOPENED')) ||
+          (effect.state === 'CLOSED' && effect.stateReason === 'COMPLETED')
+        )
+      ) {
+        return {
+          status: 'refused',
+          diagnostics: [diagnostic('write-invalid-state', 'Invalid native state effect', issue)],
+        }
+      }
+      if (!expected?.issue || !sameRef(expected.issue, issue) || !validNativeState(expected.nativeState)) {
+        return {
+          status: 'refused',
+          diagnostics: [diagnostic('write-conflict', `Invalid expected observation for ${keyOf(issue)}`, issue)],
+        }
+      }
+      let current: IssueWriteObservation
+      try {
+        current = await ports.read(issue)
+      } catch (error) {
+        return {
+          status: 'refused',
+          diagnostics: [
+            diagnostic('read-unavailable', `Cannot read ${keyOf(issue)}: ${(error as Error).message}`, issue),
+          ],
+        }
+      }
+      if (!sameAssertedObservation(current, expected)) {
+        return {
+          status: 'refused',
+          diagnostics: [diagnostic('write-conflict', `Current observation is stale for ${keyOf(issue)}`, issue)],
+        }
+      }
+      try {
+        await ports.setNativeState(issue, effect)
+      } catch (error) {
+        return {
+          status: 'partial',
+          issue,
+          completed: [],
+          diagnostics: [
+            diagnostic(
+              'write-failed',
+              `Native state effect unconfirmed for ${keyOf(issue)}: ${(error as Error).message}`,
+              issue,
+            ),
+          ],
+        }
+      }
+      try {
+        const observed = await ports.read(issue)
+        if (!sameAssertedObservation(observed, { ...current, nativeState: effect })) {
+          return {
+            status: 'partial',
+            issue,
+            completed: ['native-state'],
+            diagnostics: [
+              diagnostic(
+                'write-conflict',
+                `Readback did not match the asserted native state for ${keyOf(issue)}`,
+                issue,
+              ),
+            ],
+          }
+        }
+        return { status: 'written', observed }
+      } catch (error) {
+        return {
+          status: 'partial',
+          issue,
+          completed: ['native-state'],
+          diagnostics: [
+            diagnostic('readback-unconfirmed', `Cannot read back ${keyOf(issue)}: ${(error as Error).message}`, issue),
+          ],
+        }
+      }
     },
   }
 }

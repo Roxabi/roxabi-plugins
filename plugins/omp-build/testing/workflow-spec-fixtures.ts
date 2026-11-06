@@ -86,6 +86,21 @@ export function createWorkflowSpecFixtures(context: WorkflowSpecFixtureContext) 
         allocations: [{ draftKey: 'criterion-1', id: 'C1' }],
       },
     })
+  const allocationForSpec = (
+    record: Extract<CanonicalRecord, { kind: 'mandate' }>,
+    ref: Pick<WorkflowOwnSpec['identityAllocations'][number], 'scope' | 'recordId'>,
+  ) => {
+    const seed = identityAllocation(ref.scope, ref.recordId)
+    if (seed.kind !== 'spec-identity' || seed.payload.event !== 'allocate')
+      throw new Error('Expected initial specification identity allocation')
+    const spec = record.payload.ownSpec.snapshot.spec
+    const allocations = [
+      ...spec.criteria.map((item, index) => ({ draftKey: `criterion-${index + 1}`, id: item.id })),
+      ...spec.invariants.map((item, index) => ({ draftKey: `invariant-${index + 1}`, id: item.id })),
+    ]
+    if (allocations.length === 0) throw new Error('Cannot create an allocation for a specification without identities')
+    return mustRecord({ ...seed, payload: { ...seed.payload, allocations } })
+  }
   const withIdentities = (records: readonly CanonicalRecord[]) => {
     const present = new Set(records.map((record) => `${record.repository}\0${record.target}\0${record.recordId}`))
     const additions: CanonicalRecord[] = []
@@ -94,7 +109,7 @@ export function createWorkflowSpecFixtures(context: WorkflowSpecFixtureContext) 
       for (const ref of record.payload.ownSpec.identityAllocations) {
         const key = `${ref.scope.repository}\0${ref.scope.target}\0${ref.recordId}`
         if (present.has(key)) continue
-        additions.push(identityAllocation(ref.scope, ref.recordId))
+        additions.push(allocationForSpec(record, ref))
         present.add(key)
       }
     }

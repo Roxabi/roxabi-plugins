@@ -1,11 +1,15 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
+import { causeSisterInputSchema } from '../../engine/cause-disposition-schema.ts'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
 import type { UwOperationResult, UwOperations } from '../../roxabi/uw-contract.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
+import { batch } from '../../testing/review-runtime-support.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
 import { parseUwCommand, registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
 import { reportResult } from '../omp-uw-result.ts'
@@ -17,15 +21,105 @@ it('accepts only an explicit issue scope for subtree reports', () => {
   expect(parseUwCommand('reports')).toMatchObject({ kind: 'invalid' })
   expect(parseUwCommand('reports acme/widgets#42 --confirmed')).toMatchObject({ kind: 'invalid' })
 })
+it('requires an exact issue and rejects confirmation flags for state controls and calculated reads', () => {
+  for (const kind of ['abandon', 'reopen', 'read-effective', 'read-coverage', 'read-completion']) {
+    expect(parseUwCommand(`${kind} acme/widgets#42`)).toEqual({ kind, repository: 'acme/widgets', number: 42 })
+    expect(parseUwCommand(`${kind} acme/widgets#42 --confirmed`)).toMatchObject({ kind: 'invalid' })
+  }
+})
 
 it('requires a request file and rejects confirmation flags for cause operations', () => {
-  for (const kind of ['adjudicate', 'sister', 'promote-report']) {
+  for (const kind of ['adjudicate', 'sister', 'promote-report', 'adjust-cause-dependency']) {
     expect(parseUwCommand(`${kind} --request-file /tmp/request.json`)).toEqual({
       kind,
       requestFile: '/tmp/request.json',
     })
     expect(parseUwCommand(`${kind} --request-file /tmp/request.json --confirmed`)).toMatchObject({ kind: 'invalid' })
     expect(parseUwCommand(`${kind} --confirmed`)).toMatchObject({ kind: 'invalid' })
+  }
+})
+
+it('accepts explicit planned-child coverage without accepting a forged created-by identity', () => {
+  const input = {
+    disposition: { scope: target, kind: 'cause-disposition', recordId: 'cause' },
+    factors: { scope: 1, complexity: 1, dependencies: 1, risk: 1 },
+    tierOverride: null,
+    labels: { add: [], remove: [] },
+    parentCoverage: {
+      parent: { uw: target, version: 'a'.repeat(64) },
+      assignments: [{ criterion: 'C1', children: [{ kind: 'created-child' }] }],
+    },
+  }
+  const coverage = causeSisterInputSchema.shape.parentCoverage.safeParse(input.parentCoverage)
+  expect(coverage.success).toBe(true)
+  expect(
+    causeSisterInputSchema.shape.parentCoverage.safeParse({
+      ...input.parentCoverage,
+      assignments: [{ criterion: 'C1', children: [{ kind: 'created-by', operationId: 'forged' }] }],
+    }).success,
+  ).toBe(false)
+})
+it('retains an announced sister operation until terminal and revokes it on root session switch', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'uw-cause-command-'))
+  const requestFile = join(directory, 'request.json')
+  writeFileSync(
+    requestFile,
+    JSON.stringify({
+      disposition: { scope: target, recordId: 'cause', kind: 'cause-disposition' },
+      factors: { files: 1, risk: 1, architecture: 1, unknowns: 1, domains: 1 },
+      tierOverride: null,
+      labels: { add: [], remove: [] },
+    }),
+  )
+  const commands = new Map<string, Command>()
+  const listeners = new Map<string, Session[]>()
+  const done = Promise.withResolvers<void>()
+  const state: { signal?: AbortSignal } = {}
+  const context = {
+    cwd: directory,
+    agent: { kind: 'main', depth: 0 },
+    hasUI: true,
+    mode: 'tui',
+    sessionManager: { getSessionId: () => 'session-1' },
+    localProtocolOptions: consultableProtocolOptions(),
+    ui: { confirm: async () => true },
+  } as unknown as ExtensionContext
+  const pi = createExtensionApiStub({
+    on: (event, handler) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), handler as Session])
+    },
+    registerCommand: (name, command) => {
+      commands.set(name, command as Command)
+    },
+  })
+  installFeatureUwOperationLifecycle(pi)
+  registerUwCommand(pi, ({ nativeHost }) => ({
+    ...fixtureUwOperations(),
+    createSister: async () => {
+      if (nativeHost === undefined) throw new Error('missing native host')
+      state.signal = nativeHost.signal
+      const prepared = batch(['slot-a'])
+      nativeHost.native.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
+      nativeHost.onBatch(prepared)
+      nativeHost.onStarted({
+        creationOperationId: 'create-1',
+        assessmentStart: { scope: target, recordId: 'assessment-start', kind: 'action-receipt' },
+      })
+      await done.promise
+      return { status: 'refused', diagnostics: [] }
+    },
+  }))
+  try {
+    const command = commands.get('uw')
+    if (command === undefined) throw new Error('uw-command-missing')
+    await command.handler(`sister --request-file ${requestFile}`, context)
+    expect(state.signal?.aborted).toBe(false)
+    for (const listener of listeners.get('session_switch') ?? []) await listener({}, context)
+    expect(state.signal?.aborted).toBe(true)
+    done.resolve()
+  } finally {
+    done.resolve()
+    rmSync(directory, { recursive: true, force: true })
   }
 })
 
@@ -36,7 +130,7 @@ function materialProposal(): PreparedMaterialAcceptance {
   return {
     digest: '8e6e37f6c1d14723bc8d8e4b5565d928',
     proposal: {
-      format: 'omp-build-material-acceptance/1',
+      format: 'omp-build-material-acceptance/2',
       operationId: 'accept-material-acme-widgets-42',
       uw: target,
       mandate: { scope: target, recordId: 'mandate-42', kind: 'mandate' },
@@ -87,11 +181,32 @@ function lifecycleFixture() {
       createSister: async () => {
         throw new Error('unexpected-sister')
       },
+      adjustCauseDependency: async () => {
+        throw new Error('unexpected-adjustment')
+      },
       promoteReport: async () => {
         throw new Error('unexpected-promotion')
       },
       readUw: async () => {
         throw new Error('unexpected-read')
+      },
+      readEffective: async () => {
+        throw new Error('unexpected-read-effective')
+      },
+      readCoverage: async () => {
+        throw new Error('unexpected-read-coverage')
+      },
+      readCompletion: async () => {
+        throw new Error('unexpected-read-completion')
+      },
+      closeLinked: async () => {
+        throw new Error('unexpected-close-linked')
+      },
+      reopen: async () => {
+        throw new Error('unexpected-reopen')
+      },
+      abandon: async () => {
+        throw new Error('unexpected-abandon')
       },
       prepare: async () => {
         throw new Error('unexpected-prepare')

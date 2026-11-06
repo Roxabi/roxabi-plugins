@@ -6,6 +6,8 @@ import { causeAdjudicationProposalSchema } from '../engine/cause-disposition-sch
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { fixtureReviewClassCatalogues } from '../testing/action-input-fixtures.ts'
+import { causeFixtureGraph } from '../testing/cause-input-fixture.ts'
+import { synthesisActionCapture } from '../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { acceptedPullRequestReviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation as observedOperation } from '../testing/record-history.ts'
@@ -70,6 +72,8 @@ function actionFixture() {
   const assessed = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(graph.decision, [graph.history]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory(), graph.history],
       catalogues: fixtureReviewClassCatalogues(),
@@ -128,6 +132,8 @@ function actionFixture() {
   const firstAssessment = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(graph.decision, [graph.history]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory([pending, firstOperation]), graph.history],
       catalogues: fixtureReviewClassCatalogues(),
@@ -185,6 +191,8 @@ function actionFixture() {
   const adjudicated = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(graph.decision, [graph.history]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision: graph.decision },
       histories: [originalHistory([pending, firstOperation, middle, operation]), graph.history],
       catalogues: fixtureReviewClassCatalogues(),
@@ -280,6 +288,8 @@ describe('cause state as action data', () => {
     const assessed = must(
       assessCauseDispositions({
         context: { original: uw, effective: inputs.manifest.spec.effective },
+        capture: synthesisActionCapture(other.decision, [pull]),
+        graph: causeFixtureGraph(),
         source: { kind: 'decision', decision: other.decision },
         histories: [originalHistory([pending]), pull],
         catalogues: fixtureReviewClassCatalogues(),

@@ -3,7 +3,7 @@ import type { ExclusionClaim } from './criterion-verdict-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { FinalFinding } from './review-schema.ts'
-import type { SpecEffective } from './spec-effective.ts'
+import type { SpecEffective } from './spec-effective-schema.ts'
 
 /** Validate every claim, including conflicting classifications for one original. */
 export function validateExclusionClaims(input: {

@@ -80,13 +80,16 @@ function runConserved(
   )
 }
 
-function declaredCriteria(criteria: ImplementationOutput['criteria']): boolean {
+export function declaredCriteria(criteria: ImplementationOutput['criteria']): boolean {
   if (criteria.length === 0) return false
   const ids = criteria.map((item) => item.target.id)
   return new Set(ids).size === ids.length
 }
 
-function conservedDeclarations(claim: ImplementationOutput, runs: readonly CommandRun[]): boolean {
+export function conservedDeclarations(
+  claim: Pick<ImplementationOutput, 'criteria'>,
+  runs: readonly CommandRun[],
+): boolean {
   return claim.criteria.every(
     (item) =>
       item.verification !== 'evidence' ||
@@ -94,8 +97,8 @@ function conservedDeclarations(claim: ImplementationOutput, runs: readonly Comma
   )
 }
 
-function bindClaimedCommands(
-  claim: ImplementationClaim,
+export function bindClaimedCommands(
+  claim: Pick<ImplementationClaim, 'commands'>,
   calls: readonly NativeProofBashCall[],
   cwd: string,
 ): { ok: true; commands: HostEffectAdmission['commands'] } | { ok: false; commands: HostEffectAdmission['commands'] } {

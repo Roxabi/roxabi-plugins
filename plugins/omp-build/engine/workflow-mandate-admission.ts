@@ -217,6 +217,7 @@ function controlParentAuthority(
   externalHistories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string>,
+  replayContext?: AssessmentReplayContext,
 ): Result<void> {
   if (mandate.payload.parent === null) return { ok: true, value: undefined }
   const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories)
@@ -224,7 +225,7 @@ function controlParentAuthority(
   const bound = bindExternalRef(mandate.payload.parent, parentHistory)
   if (!bound.ok) return bound
   if (bound.value.kind !== 'mandate') return fail([diagnostic('kind-mismatch', 'Parent reference is not a mandate')])
-  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, causal, seen)
+  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, causal, seen, replayContext)
   if (!parent.ok) return parent
   if (
     !sameRef(
@@ -266,7 +267,7 @@ export function resolveOwnSpecAuthority(
   if (!graph.ok) return fail(graph.diagnostics)
   const nextSeen = new Set(seen)
   nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
-  const parent = controlParentAuthority(selected, externalHistories, causal, nextSeen)
+  const parent = controlParentAuthority(selected, externalHistories, causal, nextSeen, replayContext)
   if (!parent.ok) return parent
   const accepted = resolveAcceptedSpec(selected, causal.histories, replayContext)
   if (!accepted.ok) return fail(accepted.evidence)

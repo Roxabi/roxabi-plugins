@@ -19,6 +19,7 @@ export function hasAcceptedOwnUw(child: ChildFacts): boolean {
   return (
     own.status === 'accepted' &&
     own.graphComplete &&
+    own.role === 'leaf' &&
     own.accepted.children.length === 0 &&
     hasCompleteAllocations(own.accepted.snapshot, own.identityAllocations)
   )
@@ -29,7 +30,7 @@ export function hasFramedOwnUw(child: ChildFacts): boolean {
   const own = child.ownUw
   return own.status === 'accepted'
     ? own.graphComplete &&
-        own.accepted.children.length === 0 &&
+        (own.role === 'parent' || own.accepted.children.length === 0) &&
         hasCompleteAllocations(own.accepted.snapshot, own.identityAllocations)
     : own.status === 'framed' && own.graphComplete && hasCompleteAllocations(own.snapshot, own.identityAllocations)
 }

@@ -37,9 +37,17 @@ export type {
   NativeTargetResolution,
   WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
+export { readUwCompletionObservation } from './adapters/github-workflow/uw-observation.ts'
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
 export * from './contracts-review.ts'
+export { acceptedMetadataOwner } from './engine/accepted-metadata-owner.ts'
+export { authenticateCauseCapture, type PreparedCauseCapture } from './engine/cause-capture-authentication.ts'
+export {
+  prepareCauseDependencyAdjustment,
+  recheckCauseDependencyAdjustment,
+  recheckCauseDependencyAdjustmentEffect,
+} from './engine/cause-dependency-adjustment.ts'
 export * from './engine/cause-disposition.ts'
 export * from './engine/cause-disposition-schema.ts'
 export { assessCauseHolds } from './engine/cause-hold.ts'
@@ -57,12 +65,17 @@ export {
   operationAuthoritySchema,
   operationReadSchema,
 } from './engine/history-schema.ts'
+export { inspectNativeTerminal } from './engine/native-terminal.ts'
 export { assessParentInsertionEngagement, type ParentEngagementEvidence } from './engine/parent-insertion-engagement.ts'
 export { inspectFinding, PRODUCER_OUTPUTS, type ProducerOutput, producerJsonSchema } from './engine/producer-schema.ts'
 export { buildRecord, parseRecord, type RecordDraft } from './engine/record-construction.ts'
 export { equalScope } from './engine/record-diagnostics.ts'
-export type { FailedCheckFailure } from './engine/record-digests.ts'
-export { failedCheckEvidenceDigest, failedCheckFailureSchema, specDigest } from './engine/record-digests.ts'
+export {
+  type FailedCheckFailure,
+  failedCheckEvidenceDigest,
+  failedCheckFailureSchema,
+  specDigest,
+} from './engine/record-digests.ts'
 export type { RecordIntegrityRefusal } from './engine/record-integrity.ts'
 export { nativeInstant, recordIntegrity } from './engine/record-integrity.ts'
 export { projectRecord } from './engine/record-projection.ts'
@@ -130,8 +143,30 @@ export {
 } from './engine/record-values.ts'
 export { assessUwAdmission } from './engine/uw-admission.ts'
 export { projectNativeUwChildren } from './engine/uw-child-admission.ts'
-export { uwCreateInputSchema, uwProposalInputSchema } from './engine/uw-command-schema.ts'
+export {
+  causeDependencyAdjustmentInputSchema,
+  uwCreateInputSchema,
+  uwProposalInputSchema,
+} from './engine/uw-command-schema.ts'
+export { assessUwCompletion } from './engine/uw-completion.ts'
+export type {
+  CauseWaitResolution,
+  DependencyBasis,
+  DependencyResolution,
+  NativeDeliveryPullRequest,
+  NativeOnlyAbsenceWitness,
+  ObservedCommit,
+  SpecVersionVector,
+  UwCompletion,
+  UwCompletionAssessment,
+  UwCompletionObservation,
+  UwDeliveryFacts,
+  UwObservationFacts,
+  UwWaitProjection,
+  WaitRequirement,
+} from './engine/uw-completion-types.ts'
 export { toDiagnostic, toDiagnostics, uwDiagnosticSchema, uwLocationSchema } from './engine/uw-diagnostics.ts'
+export type { UwGraphObservation } from './engine/uw-graph.ts'
 export {
   isWayfinder,
   knownWayfinderLabels,
@@ -152,6 +187,11 @@ export {
   SPEC_IDENTITY_FORMAT,
   specIdentityPayloadSchema,
 } from './engine/uw-identity-schema.ts'
+export {
+  type NativeIssueObservation,
+  nativeIssueObservationSchema,
+  nativeObservationDigest,
+} from './engine/uw-native-observation-schema.ts'
 export { normalizationJudgementSchema } from './engine/uw-normalization-schema.ts'
 export { canonicalSpec, specVersion, validateSpecIds } from './engine/uw-spec.ts'
 export type { OwnSpecRef } from './engine/uw-spec-schema.ts'
@@ -167,12 +207,25 @@ export {
   specSnapshotSchema,
   uwTierSchema,
 } from './engine/uw-spec-schema.ts'
-export { resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
+export { projectUwWaits } from './engine/uw-waits.ts'
+export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
+export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
+export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
+export {
+  buildComposedMaterialAcceptanceControl,
+  validateComposedMaterialAuthorization,
+} from './engine/workflow-composed-material.ts'
+export {
+  nativeIssueObservationFromNode,
+  prepareComposedParentConsent,
+  recheckComposedAssessmentDelta,
+  recheckComposedParentAcceptance,
+} from './engine/workflow-composed-material-preparation.ts'
 export { bindExternalRef, type MandateRecord, type PauseBinding } from './engine/workflow-control.ts'
 export { assessFixMandate } from './engine/workflow-correction-admission.ts'
 export { buildFixOnlyMandate, type FixMandateAssessment } from './engine/workflow-correction-mandate.ts'
@@ -188,58 +241,14 @@ export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
 export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
 export {
-  type AcceptedChildCommitment,
-  acceptedChildCommitmentSchema,
-  type MandatePayload,
-  mandatePayloadSchema,
-  type OperatorControlPayload,
-  operatorControlPayloadSchema,
-  type WorkflowBindingPayload,
-  workflowBindingPayloadSchema,
-} from './engine/workflow-mandate-schema.ts'
-export {
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
-export {
-  type CiAttribution,
-  ciAttributionSchema,
-  type ImplementationOutput,
-  implementationOutputSchema,
-  type PlanBlockerRef,
-  type PlanOutput,
-  type PlanResolution,
-  type PlanReview,
-  type PlanStep,
-  planBlockerRefSchema,
-  planDigest,
-  planOutputSchema,
-  planResolutionSchema,
-  planReviewSchema,
-  planStepSchema,
-  type SpecAssessment,
-  specAssessmentSchema,
-} from './engine/workflow-output-schema.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { bindImplementationCommand } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
-export {
-  type ActionReceiptPayload,
-  type AssessSpecResultPayload,
-  actionReceiptPayloadSchema,
-  type HostEffectAdmission,
-  hostEffectAdmissionSchema,
-  type ImplementationAdmissionCommand,
-  implementationAdmissionCommandSchema,
-  PLAN_REVIEW_SPECIALISTS,
-  type PlanReviewSlot,
-  planReviewSlotSchema,
-  planReviewSpecialistSchema,
-  type WorkflowReceiptAction,
-  workflowReceiptActionSchema,
-} from './engine/workflow-receipt-schema.ts'
 export { reconstructWorkflow } from './engine/workflow-reconstruction-admission.ts'
 export type {
   NativeSelector,
@@ -251,11 +260,14 @@ export type {
 } from './engine/workflow-reconstruction-types.ts'
 export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'
 export {
+  isAssessResult,
   materialAcceptanceDigest,
   mechanicalSpecDelta,
+  sameAssessedState,
   sameCurrentAssessedState,
 } from './engine/workflow-spec-assessment.ts'
 export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
+export { authenticatedAssessResult } from './engine/workflow-spec-authentication-chain.ts'
 export {
   type OmpBuildPrepareCheckoutParameters,
   type OmpBuildRecoveryPrParameters,

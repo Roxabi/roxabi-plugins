@@ -1,7 +1,8 @@
 import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
+import type { RecordInputRef } from '../../engine/action-input-schema.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
-import { readFixUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
+import { readFreshUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
 import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
 import { discoverAcceptedChildPrs, discoverOwnPrs, readChildPrInventory } from './epic-driver-containment'
 import { gather } from './epic-driver-gather'
@@ -95,7 +96,7 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
   const history = await issueHistory(repo, full, epic)
   if (!history.source.complete) throw new Refused(`epic #${epic} history is incomplete; continuation is not confirmed`)
   const external = await parentMandateHistories(repo, history)
-  const causal = await readFixUwCausalContext([history, ...external], [], adapterOptions(repo))
+  const causal = await readFreshUwCausalContext(history.source.scope, [history, ...external], adapterOptions(repo))
   if (!causal.ok) throw new Refused(`epic causal history unavailable: ${causal.diagnostics.join(',')}`)
   const target = selectedControlTarget(history, external, causal.value, epic)
   const accepted = resolveAcceptedSpec(target.mandate, causal.value.histories)
@@ -148,6 +149,7 @@ export type EpicRangeReviewRequest = {
   runId: string
   range: string
   candidateGitSHA: string
+  integration: RecordInputRef
 }
 
 /** Confirmed final-review context for the native range review. Does not dispatch it. */
@@ -166,12 +168,15 @@ export async function epicFinalReviewRequest(repo: string, epic: number): Promis
   const candidateGitSHA = step.range.split('..')[1] ?? ''
   if (!/^[0-9a-f]{40}$/.test(candidateGitSHA))
     throw new Refused(`final review range ${step.range} has no candidate sha`)
+  if (!facts.parentIntegration.ok || facts.parentIntegration.value === null)
+    throw new Refused('current Parent integration is unavailable')
   return {
     repository: authority.repository,
     target: githubScope(authority.repository, epic).target,
     runId: authority.run,
     range: step.range,
     candidateGitSHA,
+    integration: facts.parentIntegration.value.source,
   }
 }
 
@@ -179,7 +184,7 @@ export type EpicStepRead = {
   run: string
   base: string
   step: Step
-  name: EpicStepName
+  name: EpicStepName | null
   land: null
 }
 

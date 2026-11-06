@@ -2,7 +2,7 @@ export type NativeFeatureProducerOutput =
   | 'spec-assessment'
   | 'plan'
   | 'plan-review'
-  | 'implementation'
+  | 'delivery-execution'
   | 'ci-attribution'
   | 'uw-normalization'
 export type NativeFeatureProfile = {
@@ -40,6 +40,7 @@ const planReviewInstructions = [
   snapshot,
   readOnly,
   'Review the plan named by the index once. Read each accepted criterion that plan maps, from the index, not from task text.',
+  'Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions when reviewing the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.',
   'Report each blocking gap between a criterion id and the plan’s code or evidence mapping. A blocker has id, criterionId, and gap. Outcome clear has no blockers. Outcome blocking names every blocker.',
   'A clear outcome does not cover an accepted criterion id the plan omits. Do not return clear to override missing coverage or a missing verdict. Done when outcome is clear and blockers is empty, or outcome is blocking and every blocker has those three fields. This is the one specialist pass. It does not implement, open a pull request, or spend a fix round.',
 ].join('\n\n')
@@ -55,15 +56,11 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     body: [
       snapshot,
       readOnly,
-      'Compare the exact accepted Spec snapshot with the exact current Spec snapshot named by the index. Return the classification of that pair.',
-      '1. Read both snapshots from the index.',
-      '2. Classify the change as editorial, material, or unknown.',
-      '3. Return that classification. The snapshots themselves stay the pair being classified.',
-      'Done when classification is exactly one of editorial, material, or unknown.',
-      'editorial: wording, order, or formatting that leaves the approved target, scope, acceptance criteria, and constraints unchanged.',
-      'material: a change to the approved target, scope, acceptance criteria, or constraints.',
-      'unknown: the snapshots do not support editorial or material.',
-      'This role does not frame, normalize, or invent an accepted Spec.',
+      'Read the exact accepted and proposed states, captured ancestor and child sources, and any created-child plan from the index.',
+      'Classify the complete change as editorial, material, or unknown. Evaluate every applicable inherited invariant and exclusion against the proposed parent, existing children, and created-child slot.',
+      'Return a structured compatibility judgment for each required constraint, with the exact captured evidence that supports its consistency, conflict, or uncertainty. Preserve the identity of every qualified constraint and child slot.',
+      'An editorial change leaves the approved target, scope, criteria, and constraints unchanged. A material change alters one or more of them. Use unknown when the captured evidence cannot support either classification.',
+      'Done when the classification and all compatibility judgments are grounded in the indexed inputs; missing or conflicting context remains explicit.',
     ].join('\n\n'),
   },
   {
@@ -77,6 +74,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
       snapshot,
       readOnly,
       'Map every accepted criterion id named by the index to the pinned code and the evidence that will prove it. Reuse patterns already in that pinned tree. A recovered or amended plan uses the same index, not a dumped prior result.',
+      'Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions in the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.',
       '1. Read the accepted criteria and the pinned base paths the index names.',
       '2. Map each criterion id to the code it changes, the evidence that will prove it, and the relative git paths that change.',
       '3. When the index names blocking plan-review originals, amend from those originals.',
@@ -110,12 +108,14 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     tools: 'read, grep, glob, bash, lsp, ast_grep, write, edit',
     model: '@task',
     maxTurns: 50,
-    output: 'implementation',
+    output: 'delivery-execution',
     body: [
       snapshotBase,
       'If required context is absent, return the normal blocked implementation output with commitSHAs, commands, criteria, and reason, plus a nonempty missing array of {locator,reason,targets}. Declare every accepted criterion honestly, using unverified when evidence is absent; do not invent declarations. Locator is exactly one of {kind:"file-request",repository,path,revisionHint}, {kind:"record-request",repository,target,recordKind,requestedId,selector}, or {kind:"information-request",description}; nullable fields must be present. Requests are not canonical source records.',
       credential,
-      'Implement the confirmed plan named by the index, inside the approved worktree. A recovered implementation uses that same index and the same declaration rule.',
+      'For an integrate action, validate the index-pinned parent candidate, every completed child version and code range, the accepted coverage, and the parent criteria. Return outcome integrated with those actual sources, code, command claims, and criterion declarations. A candidate already containing all child merges needs no new commit; never invent a commit or code range. If required context is missing, return the structured missing-context output.',
+      'For an implement action, implement the confirmed plan named by the index inside the approved worktree. A recovered implementation uses that same index and declaration rule. Follow the steps below for implementation.',
+      'Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions to the implementation or integration. Preserve qualified owners; declare only own criteria, not ancestor criteria.',
       '1. Apply the confirmed plan. Use the repository’s test-first seam only where that plan names one. A criterion does not require a test command.',
       '2. Run the changed path and the relevant existing checks when those checks exist. Keep a regression test only for a failure the change can plausibly cause.',
       '3. Update each document the change makes false.',
@@ -124,7 +124,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
       'commands may be empty when the work is an observation or content reading and no command ran. Each command that did run is toolCallId, command, and exitCode only. Do not put stdout, stderr, output, cwd, provenance, or a code SHA on a command claim. The host attaches the SDK-presented output view from the completed tool event. It may be normalized, bounded, or incomplete; neither an artifact file nor a printed marker proves original output or completeness. Independent review judges whether the observed view suffices for the criterion.',
       'criteria has one declaration for every accepted criterion named by the index. For content-reading, prompt-observation, and manual-interface, return the observed payload and the pinned index references with no provenance or native action, child, or tool-call IDs. The host binds the actual matched submission; that binding does not establish the truth of the observation, its applicability, or its executed version. Independent review judges those facts. If the needed source or observation is absent, declare unverified. A test citation is id, target, method test, scenario, and after {toolCallId, versionClaim}. before is that same shape or null. versionClaim is the execution-version assertion. Do not print output, cwd, code, provenance, actionId, or childId, and do not print a boundary SHA as code-at-run. The host attaches the captured run and its own provenance. If the capture or version claim is absent, declare unverified with target, verification, and reason only. Do not add a toolCallId field to an unverified declaration.',
       'A blocked result still declares every criterion and names the real reason. It does not claim an unowned commit. An implemented result with explicit unverified declarations is a factual receipt and may go to independent review. It does not prove delivery.',
-      'Done when outcome is implemented or blocked, every accepted criterion has one declaration, and every command that ran is those three fields. Empty commands are valid for a real observation.',
+      'Done when the sealed action has its matching structured result, every accepted criterion has one declaration, and every command that ran is recorded with those three fields. Empty commands are valid for a real observation.',
     ].join('\n\n'),
   },
   {

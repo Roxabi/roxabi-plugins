@@ -12,7 +12,7 @@ import type { FeatureObservation } from './feature-observation-contract.ts'
 import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
 import { boundCorrection } from './fix-mandate-resolution.ts'
 import { classifyCiCorrectionStep } from './fix-mandate-types.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { extendObservedUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -47,7 +47,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   const attributionRecordId = latestAttributeCiChangeReceiptId(decoded.history, input.head, input.scope)
   if (attributionRecordId === null) return null
   const mandateHistory = input.mandateHistory ?? input.history
-  const causal = await readFixUwCausalContext(input.causal.histories, [decoded.history], {
+  const causal = await extendObservedUwCausalContext(input.causal, [decoded.history], {
     cwd: input.cwd,
     gh: input.gh,
   })
@@ -118,6 +118,9 @@ export async function continueReviewBoundFix(
   const storedRole = selected.mandate.payload.role
   if (effectiveMandateRole(storedRole, selected.acceptedSpec) !== 'feature')
     return { kind: 'blocked', reason: 'review-fix-mandate-role' }
+  const currentSpec = observation.facts.currentSpec
+  if (currentSpec === null || currentSpec.children.some((child) => !('scope' in child)))
+    return { kind: 'blocked', reason: 'review-fix-current-spec-unreadable' }
   const bound = boundCorrection(
     {
       target: {
@@ -133,11 +136,7 @@ export async function continueReviewBoundFix(
       base: delivery.base,
     },
     [delivery.history, observation.evidence.issue, ...observation.evidence.parents],
-    {
-      snapshot: selected.acceptedSpec.snapshot,
-      tier: selected.acceptedSpec.tier,
-      children: selected.acceptedSpec.children,
-    },
+    { ...currentSpec, children: currentSpec.children.filter((child) => 'scope' in child) },
     observation.evidence.causal,
   )
   if (!bound.ok)

@@ -13,7 +13,7 @@ The task is the procedure and the index path. Read that index and the files it n
 
 If required context is absent, do not invent it or produce a positive result. Return {outcome:"missing-context",missing:[{locator,reason,targets}]} with a nonempty missing list, a concrete reason, and applicable finding targets (or an empty targets array). Locator is exactly one of {kind:"file-request",repository,path,revisionHint}, {kind:"record-request",repository,target,recordKind,requestedId,selector}, or {kind:"information-request",description}; nullable fields must be present. Requests are not canonical source records.
 
-Every finding requires a target in format omp-build-finding-target/1. Use the indexed accepted OwnSpecRef and local criterion or invariant ID when applicable; otherwise use an outside-spec target bound to the indexed original scope. Never infer a criterion or invariant from prose or use an ancestor or foreign Spec.
+Every finding requires a target in format omp-build-finding-target/1. Use the exact effective.own Spec reference for an own criterion or invariant. For an inherited invariant copy the exact effective.inherited.invariants[].target from spec.json, including its pinned owner. Otherwise use an outside-spec target bound to the indexed original scope. Never infer an obligation from prose or use a foreign or unpinned Spec reference. Apply every own and inherited invariant and exclusion; only own criteria require criterion verdict rows.
 
 Read only the index and the supplied canonical class, chunk reports, and callsites it names. Verify cross-chunk recurrence and return structured findings only.
 

@@ -76,10 +76,10 @@ export function selectWorkflowBinding(input: {
   }
 }
 
-function unboundReviewMandate(inputs: ActionInputs, histories: readonly DecodedHistory[]): Result<MandateRecord> {
-  const { subject, acceptedSources, purpose, code } = inputs.manifest
-  if (subject.kind !== 'uw' || subject.pullRequest !== null || subject.binding !== null || purpose !== 'review')
-    return fail([diagnostic('unconfirmed', 'Unbound mandate is only valid for a UW review')])
+function unboundPinnedMandate(inputs: ActionInputs, histories: readonly DecodedHistory[]): Result<MandateRecord> {
+  const { subject, acceptedSources, code } = inputs.manifest
+  if (subject.kind !== 'uw' || subject.pullRequest !== null || subject.binding !== null)
+    return fail([diagnostic('unconfirmed', 'Unbound mandate requires an unbound UW subject')])
   if (code.repository !== subject.uw.repository)
     return fail([diagnostic('mismatch', 'UW review code repository does not match its subject')])
   const pins = acceptedSources.filter(
@@ -109,7 +109,10 @@ export function resolveManifestMandate(
   const { subject, spec, acceptedSources } = inputs.manifest
   if (subject.kind !== 'uw' || spec.kind !== 'accepted' || !equalScope(spec.effective.own.uw, subject.uw))
     return fail([diagnostic('unconfirmed', 'Action inputs do not identify an accepted UW Spec')])
-  if (subject.pullRequest === null) return unboundReviewMandate(inputs, histories)
+  if (subject.pullRequest === null)
+    return inputs.manifest.purpose === 'review'
+      ? unboundPinnedMandate(inputs, histories)
+      : fail([diagnostic('unconfirmed', 'Unbound mandate is only valid for a UW review')])
   if (
     subject.binding === null ||
     !equalScope(subject.binding.record.scope, subject.pullRequest) ||
@@ -144,4 +147,17 @@ export function resolveManifestMandate(
   )
     return fail([diagnostic('unconfirmed', 'Execution mandate is not pinned in accepted sources')])
   return { ok: true, value: resolved.value }
+}
+
+/** Authenticate a persisted work invocation's mandate without granting review or delivery authority. */
+export function resolveCapturedWorkMandate(
+  inputs: ActionInputs,
+  histories: readonly DecodedHistory[],
+): Result<MandateRecord> {
+  const { purpose, subject } = inputs.manifest
+  if (purpose !== 'plan' && purpose !== 'plan-review' && purpose !== 'implement' && purpose !== 'integrate')
+    return fail([diagnostic('unconfirmed', 'Captured work purpose is not an inspected invocation')])
+  return subject.kind === 'uw' && subject.pullRequest === null
+    ? unboundPinnedMandate(inputs, histories)
+    : resolveManifestMandate(inputs, histories)
 }

@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { executeSimCommand } from '../gh-simulator/sim-execution.ts'
 import {
   A,
   B,
@@ -32,6 +33,12 @@ const REAL_GIT = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
 const REPOSITORY_URL = 'https://github.com/acme/app.git'
 
 let box: Box | undefined
+let initialParentHead: string | undefined
+
+export function sandboxInitialParentHead(): string {
+  if (!initialParentHead) throw new Error('Goal initial parent HEAD is unavailable')
+  return initialParentHead
+}
 
 function activeBox(): Box {
   if (!box) throw new Error('no sandbox')
@@ -49,6 +56,7 @@ export function sandboxOrigin(): string {
 export function dispose(): void {
   if (box) rmSync(box.root, { recursive: true, force: true })
   box = undefined
+  initialParentHead = undefined
 }
 
 export function git(cwd: string, args: string[]): string {
@@ -79,6 +87,21 @@ export function gh(args: string[], input?: string) {
     input,
   })
   return { status: out.status, stdout: out.stdout, stderr: out.stderr }
+}
+
+/** Same stateful simulator kernel for injected UW callbacks; explicit CLI probes use gh(). */
+export function moduleGh(args: string[], input?: string) {
+  const active = activeBox()
+  let unread = input ?? ''
+  return executeSimCommand(args, {
+    cwd: active.epic,
+    env: active.env,
+    readStdin() {
+      const value = unread
+      unread = ''
+      return value
+    },
+  })
 }
 
 /** Resolve the same immutable tooling repository and pin served by the simulator. */
@@ -132,19 +155,20 @@ export function sandbox(): Box {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'omp-goal-scenario-')))
   const origin = path.join(root, 'origin.git')
   const principal = path.join(root, 'principal')
-  const epic = path.join(root, 'epic')
+  const epic = path.join(root, 'worktrees', 'app', 'parents', 'acme-1')
   const bin = path.join(root, 'bin')
   const stateFile = path.join(root, 'gh-state.json')
   mkdirSync(bin)
-  symlinkSync(SIM, path.join(bin, 'gh'))
-  chmodSync(SIM, 0o755)
+  const simulator = process.env.OMP_TEST_GH_SIMULATOR_PATH ?? SIM
+  symlinkSync(simulator, path.join(bin, 'gh'))
+  chmodSync(simulator, 0o755)
   const gitWrapper = path.join(bin, 'git')
   writeFileSync(
     gitWrapper,
     `#!/bin/sh
 for arg in "$@"; do
   case "$arg" in
-    fetch|push) exec "${REAL_GIT}" -c "url.\${GH_SIM_ORIGIN}.insteadOf=${REPOSITORY_URL}" "$@" ;;
+    fetch|push|ls-remote) exec "${REAL_GIT}" -c "url.\${GH_SIM_ORIGIN}.insteadOf=${REPOSITORY_URL}" "$@" ;;
   esac
 done
 exec "${REAL_GIT}" "$@"
@@ -169,6 +193,8 @@ exec "${REAL_GIT}" "$@"
   writeFileSync(
     path.join(principal, '.dev', 'stack.yml'),
     [
+      'worktree:',
+      `  base: ${path.join(root, 'worktrees')}`,
       'landing:',
       '  mode: native',
       '  required_checks:',
@@ -185,6 +211,7 @@ exec "${REAL_GIT}" "$@"
   writeFileSync(path.join(principal, 'README.md'), 'base\n')
   git(principal, ['add', '.'])
   git(principal, ['commit', '-qm', 'chore: base'])
+  initialParentHead = git(principal, ['rev-parse', 'HEAD'])
   git(principal, ['remote', 'add', 'origin', REPOSITORY_URL])
   git(principal, ['push', '-q', '-u', 'origin', 'main'])
   git(principal, ['worktree', 'add', '-q', '--detach', epic, 'refs/remotes/origin/main'])

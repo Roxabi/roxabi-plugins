@@ -3,11 +3,13 @@ import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import { citedOperationIntegrity, nativeResultValid } from './delivery-eligibility.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
-import { equalScope } from './record-diagnostics.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
+import type { Result } from './result.ts'
+import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { succeeds } from './workflow-context-lineage.ts'
 import { authenticatedContextReplayStart, hasUnpairedStart } from './workflow-context-replay.ts'
 import { reviewContextPairValid } from './workflow-context-review.ts'
-import { type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { bindExternalRef, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
 
 const outputFor = {
@@ -15,7 +17,8 @@ const outputFor = {
   plan: 'plan',
   'assess-spec': 'spec-assessment',
   'attribute-ci': 'ci-attribution',
-  implement: 'implementation',
+  implement: 'delivery-execution',
+  integrate: 'delivery-execution',
   normalize: 'uw-normalization',
 } as const
 
@@ -41,30 +44,74 @@ export function workflowContextNegative(result: ReceiptRecord): boolean {
   )
 }
 
-function paired(history: DecodedHistory, result: ReceiptRecord, receipts: readonly ReceiptRecord[]): boolean {
+export function authenticateWorkflowReceiptPair(
+  history: DecodedHistory,
+  result: ReceiptRecord,
+): Result<{ start: ReceiptRecord; result: ReceiptRecord }> {
+  const refusal = (): Result<never> => ({
+    ok: false,
+    diagnostics: [diagnostic('unconfirmed', 'Workflow receipt pair is not uniquely authenticated')],
+  })
   const payload = result.payload
   if (
     payload.phase !== 'result' ||
+    !history.source.complete ||
     !nativeResultValid(result) ||
-    citedOperationIntegrity(history, result.recordId) !== null
+    citedOperationIntegrity(history, result.recordId) !== null ||
+    (workflowContextNegative(result) && payload.admission !== null)
   )
-    return false
-  if (workflowContextNegative(result) && payload.admission !== null) return false
+    return refusal()
+  const operations = history.operations.filter(
+    (operation) =>
+      operation.authority !== 'foreign' &&
+      operation.record?.kind === 'action-receipt' &&
+      operation.record.payload.action === payload.action &&
+      operation.record.payload.actionId === payload.actionId,
+  )
+  if (
+    operations.length !== 2 ||
+    operations.some((operation) => operation.authority !== 'accounted' || operation.status !== 'complete')
+  )
+    return refusal()
+  const receipts = operations
+    .map((operation) => operation.record)
+    .filter((record): record is ReceiptRecord => record !== null && record.kind === 'action-receipt')
   const starts = matchingReceipts(receipts, result, 'start')
-  if (starts.length !== 1 || matchingReceipts(receipts, result, 'result').length !== 1) return false
+  if (starts.length !== 1 || matchingReceipts(receipts, result, 'result').length !== 1) return refusal()
   const start = starts[0]
-  if (start === undefined || start.payload.phase !== 'start') return false
-  if (!reviewContextPairValid(start, result, workflowContextNegative(result))) return false
-  return (
-    payload.start.kind === 'action-receipt' &&
-    payload.start.recordId === start.recordId &&
-    equalScope(payload.start.scope, history.source.scope) &&
-    citedOperationIntegrity(history, start.recordId) === null &&
-    validateActionInputs(payload.inputs).ok &&
-    canonicalValueDigest(start.payload.inputs) === canonicalValueDigest(payload.inputs) &&
-    canonicalValueDigest(start.payload.exactInputs) === canonicalValueDigest(payload.exactInputs) &&
-    canonicalValueDigest(start.payload.mandate) === canonicalValueDigest(payload.mandate)
+  if (
+    start === undefined ||
+    start.payload.phase !== 'start' ||
+    !reviewContextPairValid(start, result, workflowContextNegative(result))
   )
+    return refusal()
+  const boundStart = bindExternalRef(
+    { scope: history.source.scope, kind: 'action-receipt', recordId: start.recordId },
+    history,
+  )
+  const boundResult = bindExternalRef(
+    { scope: history.source.scope, kind: 'action-receipt', recordId: result.recordId },
+    history,
+  )
+  if (
+    !boundStart.ok ||
+    !boundResult.ok ||
+    canonicalValueDigest(boundResult.value) !== canonicalValueDigest(result) ||
+    payload.start.kind !== 'action-receipt' ||
+    payload.start.recordId !== start.recordId ||
+    !equalScope(payload.start.scope, history.source.scope) ||
+    citedOperationIntegrity(history, start.recordId) !== null ||
+    !validateActionInputs(payload.inputs).ok ||
+    canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(payload.inputs) ||
+    canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(payload.exactInputs) ||
+    canonicalValueDigest(start.payload.mandate) !== canonicalValueDigest(payload.mandate)
+  )
+    return refusal()
+  return { ok: true, value: { start, result } }
+}
+
+function paired(history: DecodedHistory, result: ReceiptRecord, _receipts: readonly ReceiptRecord[]): boolean {
+  return authenticateWorkflowReceiptPair(history, result).ok
 }
 
 function matchingReceipts(
@@ -222,6 +269,12 @@ function validPositiveSuccessor(successor: ReceiptRecord): boolean {
       payload.admission.remoteTip !== null
     )
   }
+  if (payload.action === 'integrate')
+    return (
+      integrationOutputSchema.safeParse(payload.structured).success &&
+      payload.admission?.admitted === true &&
+      payload.admission.remoteTip !== null
+    )
   if (payload.action === 'frame' && payload.structured === null) return true
   if (!(payload.action in outputFor)) return true
   const output = outputFor[payload.action as keyof typeof outputFor]

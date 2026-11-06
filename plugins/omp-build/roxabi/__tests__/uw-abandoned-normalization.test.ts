@@ -4,8 +4,8 @@ import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapte
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import { selectApplicableMandate } from '../../engine/workflow-mandate-admission.ts'
+import { mandatePayloadSchema } from '../../engine/workflow-mandate-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../../omp/review-runtime/contracts.ts'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { selectionNormalization } from '../feature-continuation-selection.ts'
 import type { FeatureCommandHost } from '../feature-contract.ts'
 import type { UwOperations, UwProposalInput, UwRead } from '../uw-contract.ts'
@@ -30,13 +30,15 @@ async function normalizeExplicitSuccessor(
   before: UwRead,
 ): Promise<void> {
   expect(await subject.operations.write(subject.request)).toMatchObject({ status: 'refused' })
+  if (before.observation.status !== 'complete') throw new Error('Expected complete predecessor observation')
   const selected = selectionNormalization(
     'new',
     {
       scope: uw,
       selection: selectApplicableMandate(subject.history, [], {
-        histories: [subject.history],
-        catalogues: fixtureReviewClassCatalogues(),
+        histories: before.histories,
+        catalogues: before.catalogues,
+        observation: before.observation,
       }),
     },
     before,
@@ -142,13 +144,15 @@ describe('normalization after an authenticated abandoned mandate', () => {
   it('rejects mutation of the selected normalization request and consumes its capability', async () => {
     const subject = setup(true)
     const read = await subject.read(uw)
+    if (read.observation.status !== 'complete') throw new Error('Expected complete normalization observation')
     const selected = selectionNormalization(
       'new',
       {
         scope: uw,
         selection: selectApplicableMandate(subject.history, [], {
-          histories: [subject.history],
-          catalogues: fixtureReviewClassCatalogues(),
+          histories: read.histories,
+          catalogues: read.catalogues,
+          observation: read.observation,
         }),
       },
       read,
@@ -162,10 +166,13 @@ describe('normalization after an authenticated abandoned mandate', () => {
 
   it.each([
     ['active baseline', false],
-    ['abandoned compatible /3 mandate', true],
-  ])('prepares and confirms a conserved legacy normalization with %s', async (_label, abandoned) => {
+    ['abandoned current mandate', true],
+  ])('prepares and confirms a conserved legacy body normalization with %s', async (_label, abandoned) => {
     const subject = setup(abandoned)
-    expect(subject.mandate.payload.format).toBe('omp-build-mandate/3')
+    expect(subject.mandate.payload.format).toBe('omp-build-mandate/4')
+    expect(mandatePayloadSchema.safeParse({ ...subject.mandate.payload, format: 'omp-build-mandate/3' }).success).toBe(
+      false,
+    )
     expect(subject.history.source.complete).toBe(true)
     expect(subject.history.operations).toHaveLength(abandoned ? 3 : 2)
     expect(

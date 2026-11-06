@@ -1,32 +1,129 @@
 import { decodeHistory } from '../../../../contracts.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
+import { buildRecord } from '../../../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../../../engine/record-schema.ts'
+import { resolveSpecEffective } from '../../../../engine/spec-effective.ts'
+import { resolveAcceptedSpec } from '../../../../engine/workflow-accepted-spec.ts'
 import { recordsOf } from '../../../../engine/workflow-control.ts'
 import { committedFixtureProjection, committedFixtureRecords } from '../../../../testing/committed-plugin-fixture.ts'
-import { criterionImplementationRecords } from '../../../../testing/criterion-accepted-plan.ts'
 import { criterionSatisfiedRow, encodeCriterionRecords } from '../../../../testing/criterion-approval.ts'
 import { criterionDispositionRecords } from '../../../../testing/criterion-dispositions.ts'
+import { nativeImplementationWorld } from '../../../../testing/native-implementation-world.ts'
 import { submission } from '../../../../testing/record-builders.ts'
 import { contribution } from '../../../../testing/record-decisions.ts'
 import { reviewGraph } from '../../../../testing/record-graphs.ts'
+import { eligiblePlan } from '../../../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
+import { childGraphHistories } from './epic-driver-child-histories.ts'
 import { issueComments, ME, pullReviewInputs, recordHistory, serveComments } from './epic-driver-records.ts'
-import { git } from './epic-driver-sandbox.ts'
+import { git, sandboxOf } from './epic-driver-sandbox.ts'
 
 /** Install a genuine accepted-C1 implementation record on the child UW. */
-export function installReviewEvidence(head: string) {
-  const origin = decodeHistory(recordHistory(2, issueComments(2)))
-  const parent = decodeHistory(recordHistory(1, issueComments(1)))
+export async function installReviewEvidence(head: string) {
+  const { graph, origin, histories, external } = childGraphHistories()
   const mandate = recordsOf(origin).find((record) => record.kind === 'mandate')
   if (mandate?.kind !== 'mandate') throw new Error('Expected child mandate')
-  const issueRecords = committedFixtureRecords(
+  // Use the complete native graph closure, including unmandated siblings.
+  const accepted = resolveAcceptedSpec(mandate, histories)
+  if (!accepted.ok) throw new Error(`Cannot resolve child accepted Spec: ${accepted.reason}`)
+  const effective = resolveSpecEffective({ mode: 'current', own: accepted.spec.ref, histories, graph })
+  if (!effective.ok) throw new Error(`Cannot resolve child effective Spec: ${JSON.stringify(effective.diagnostics)}`)
+  const cwd = sandboxOf().epic
+  const base = git(cwd, 'rev-parse', 'refs/remotes/origin/main')
+  const plan = committedFixtureRecords(
     import.meta.dirname,
-    criterionImplementationRecords(mandate, head),
+    eligiblePlan(mandate, histories, effective.value),
     git(import.meta.dirname, 'rev-parse', 'HEAD'),
   )
+    .filter((record) => record.kind !== 'mandate')
+    .map((record) => {
+      if (record.kind !== 'action-receipt') return record
+      const previous = record.payload.inputs
+      const manifest = {
+        ...previous.manifest,
+        code: { repository: origin.source.scope.repository, base, head: base, referenceCommit: base },
+      }
+      const built = buildRecord({
+        ...record,
+        payload: { ...record.payload, inputs: { ...previous, manifest, fingerprint: actionInputDigest(manifest) } },
+      })
+      if (!built.ok) throw new Error(`Invalid child plan ${JSON.stringify(built.diagnostics)}`)
+      return built.value
+    })
+  const first = plan.find((record) => record.kind === 'action-receipt')
+  if (first?.kind !== 'action-receipt') throw new Error('Expected child plan')
+  const seedProjection = committedFixtureProjection(import.meta.dirname, first.payload.inputs)
+  const planned = encodeCriterionRecords(plan, origin.source.scope, seedProjection, ME, external, origin).history
+  const pull = decodeHistory(recordHistory(11, issueComments(11)))
+  const observe = (sha: string) => {
+    const [actual, ...parents] = git(cwd, 'rev-list', '--parents', '-n1', sha).split(' ')
+    if (actual !== sha) throw new Error('Wrong child fixture commit')
+    return {
+      sha,
+      parents,
+      tree: git(cwd, 'rev-parse', `${sha}^{tree}`),
+      subject: git(cwd, 'show', '-s', '--format=%s', sha),
+      paths: git(cwd, 'diff-tree', '--no-commit-id', '--name-only', '-r', sha).split('\n').filter(Boolean),
+      config: git(cwd, 'show', `${sha}:.dev/stack.yml`),
+    }
+  }
+  const issueRecords = (
+    await nativeImplementationWorld({
+      graph,
+      histories: [planned, ...external, pull],
+      scope: origin.source.scope,
+      mandate,
+      startHead: base,
+      head,
+      branch: 'feat/2-first-child',
+      author: ME,
+      command: 'bun test child.test.ts',
+      output: 'PASS child',
+      commits: [observe(base), observe(head)],
+      baseTip: base,
+      remoteTipBefore: base,
+      remoteTipAfter: head,
+      pullRequestsBefore: [
+        {
+          scope: pull.source.scope,
+          branch: 'feat/2-first-child',
+          base: 'main',
+          head: base,
+          baseTip: base,
+          state: 'OPEN',
+          mergeCommit: null,
+          author: ME,
+        },
+      ],
+      pullRequestsAfter: [
+        {
+          scope: pull.source.scope,
+          branch: 'feat/2-first-child',
+          base: 'main',
+          head,
+          baseTip: base,
+          state: 'OPEN',
+          mergeCommit: null,
+          author: ME,
+        },
+      ],
+      comparisons: [
+        { base, head: base, status: 'identical', commits: [] },
+        { base, head, status: 'ahead', commits: [head] },
+      ],
+    })
+  ).records
   const receipt = issueRecords.find((record) => record.kind === 'action-receipt')
   if (receipt?.kind !== 'action-receipt') throw new Error('Expected fixture action receipt')
   const projection = committedFixtureProjection(import.meta.dirname, receipt.payload.inputs)
-  const persisted = encodeCriterionRecords(issueRecords, origin.source.scope, projection, ME, [parent], origin)
+  const priorIds = new Set(recordsOf(origin).map((record) => record.recordId))
+  const persisted = encodeCriterionRecords(
+    issueRecords.filter((record) => !priorIds.has(record.recordId)),
+    origin.source.scope,
+    projection,
+    ME,
+    external,
+    origin,
+  )
   serveComments(2, [...issueComments(2), ...persisted.comments.map(({ body }) => ({ body, author: ME }))])
   return { mandate, issueRecords }
 }
@@ -43,7 +140,7 @@ export function appendBoundReview(options: {
 }): void {
   const { number, head, prefix, blocking, author, mandate, issueRecords } = options
   const scope = { repository: 'o/r', target: `o/r#${number}` }
-  const issueHistory = decodeHistory(recordHistory(2, issueComments(2)))
+  const { graph: nativeGraph, origin: issueHistory, external } = childGraphHistories()
   // Build each forged review against a clean operator-owned snapshot. Foreign
   // comments remain in the served PR history, but are not publication authority.
   const priorComments = issueComments(number)
@@ -139,7 +236,7 @@ export function appendBoundReview(options: {
     scope,
     reviewProjection,
     ME,
-    [issueHistory],
+    [issueHistory, ...external],
     pullHistory,
   )
   const decisionRecord = recordsOf(before.history).find(
@@ -149,17 +246,32 @@ export function appendBoundReview(options: {
   const { original, dispositions } = criterionDispositionRecords(
     inputs,
     decisionRecord,
-    [issueHistory, before.history],
+    [issueHistory, before.history, ...external],
     reviewProjection.catalogues,
+    nativeGraph,
   )
-  const persisted = encodeCriterionRecords(dispositions, original, reviewProjection, ME, [before.history], issueHistory)
+  const persisted = encodeCriterionRecords(
+    dispositions,
+    original,
+    reviewProjection,
+    ME,
+    [before.history, ...external],
+    issueHistory,
+  )
   const refs = dispositions.map((record) => ({
     scope: original,
     kind: 'cause-disposition' as const,
     recordId: record.recordId,
   }))
   const review = { ...graph.review, payload: { ...graph.review.payload, causeDispositionRefs: refs } }
-  const final = encodeCriterionRecords([review], scope, reviewProjection, ME, [persisted.history], before.history)
+  const final = encodeCriterionRecords(
+    [review],
+    scope,
+    reviewProjection,
+    ME,
+    [persisted.history, ...external],
+    before.history,
+  )
   if (author === ME)
     serveComments(2, [...issueComments(2), ...persisted.comments.map(({ body }) => ({ body, author: ME }))])
   serveComments(number, [

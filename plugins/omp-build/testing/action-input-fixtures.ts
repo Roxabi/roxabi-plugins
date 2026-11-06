@@ -10,15 +10,16 @@ import {
   type ActionPurpose,
 } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { Result } from '../engine/result.ts'
+import type { Scope } from '../engine/record-values.ts'
 import { createReviewClassCatalogues, type ReviewCatalogueRead } from '../engine/review-class-catalogue.ts'
-import type { SpecEffective } from '../engine/spec-effective.ts'
+import { type SpecEffective, specEffectiveSchema } from '../engine/spec-effective-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { mandateScope } from '../engine/workflow-control.ts'
-import type { PreparedUwAction, ReviewActionBatch } from '../roxabi/uw-action-contract.ts'
+import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
 import { sealActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
-import { admitsConfirmingReviewBatchItem } from './review-batch-fixture.ts'
+import { confirmingReviewActions } from './confirming-review-fixture.ts'
+import { observeDeclaredNativeWorld } from './declared-native-observation.ts'
 
 const SHA = 'a'.repeat(64)
 const GIT = 'b'.repeat(40)
@@ -71,6 +72,7 @@ export function fixtureMissingReviewClassCatalogues() {
   return createReviewClassCatalogues([])
 }
 
+/** Records-only fact closure; never supplies native UW authority. */
 export function fixtureCausal(histories: readonly DecodedHistory[]) {
   const byScope = new Map<string, DecodedHistory>()
   for (const history of histories) {
@@ -82,19 +84,44 @@ export function fixtureCausal(histories: readonly DecodedHistory[]) {
   }
   return { histories: [...byScope.values()], catalogues: fixtureReviewClassCatalogues() }
 }
+/** Native facts are declared by the scenario, independently of accepted workflow records. */
+export type FixtureNativeWorld = {
+  root: Scope
+  nodes: readonly {
+    scope: Scope
+    title: string
+    body: string
+    updatedAt: string
+    labels: readonly string[]
+    parent: Scope | null
+    children: readonly Scope[]
+    blockers: readonly Scope[]
+    state: 'OPEN' | 'CLOSED'
+    stateReason: string | null
+  }[]
+  histories: readonly DecodedHistory[]
+  pullRequests: readonly {
+    scope: Scope
+    branch: string
+    base: string
+    head: string
+    baseTip: string
+    state: 'OPEN' | 'CLOSED' | 'MERGED'
+    mergeCommit: string | null
+    author: string | null
+  }[]
+  commits: readonly { repository: string; sha: string; parents: readonly string[] }[]
+  comparisons: readonly {
+    repository: string
+    base: string
+    head: string
+    status: 'ahead' | 'identical'
+    commits: readonly string[]
+  }[]
+}
 
-export function workflowEvidence(
-  issue: DecodedHistory,
-  pullRequest: DecodedHistory | null,
-  parents: readonly DecodedHistory[],
-  extraCausalHistories: readonly DecodedHistory[],
-) {
-  return {
-    issue,
-    pullRequest,
-    parents,
-    causal: fixtureCausal([issue, ...(pullRequest === null ? [] : [pullRequest]), ...parents, ...extraCausalHistories]),
-  }
+export async function observeFixtureNativeWorld(world: FixtureNativeWorld, options: { stopAuthor?: string } = {}) {
+  return observeDeclaredNativeWorld(world, fixtureReviewClassCatalogues, options)
 }
 
 function pin() {
@@ -147,22 +174,37 @@ export function freshReviewInputs(): ActionInputs {
   return { ...base, manifest, fingerprint: actionInputDigest(manifest) }
 }
 
-export function acceptedActionInputs(mandate: MandateRecord, purpose: ActionPurpose): ActionInputs {
+export function acceptedActionInputs(
+  mandate: MandateRecord,
+  purpose: ActionPurpose,
+  resolved?: SpecEffective,
+  codeRange?: ActionInputs['manifest']['code'],
+): ActionInputs {
+  if (mandate.payload.inheritedOwnSpecRefs.length !== 0 && resolved === undefined)
+    throw new Error('acceptedActionInputs requires an authenticated inherited effective Spec for a non-root mandate')
   const own = {
     uw: mandate.payload.ownSpec.uw,
     version: mandate.payload.ownSpec.version,
     sourceAccepted: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' as const },
   }
-  const effective: SpecEffective = {
-    format: 'omp-build-spec-effective/1',
-    resolution: 'own-only',
+  const effective: SpecEffective = resolved ?? {
+    format: 'omp-build-spec-effective/2',
+    resolution: 'resolved',
     own,
     versionVector: [own],
     spec: mandate.payload.ownSpec.snapshot.spec,
-    ancestry: 'not-resolved',
+    inherited: { invariants: [], exclusions: [] },
   }
+  if (
+    !specEffectiveSchema.safeParse(effective).success ||
+    effective.own.uw.repository !== own.uw.repository ||
+    effective.own.uw.target !== own.uw.target
+  )
+    throw new Error('effective fixture must explicitly resolve the same UW')
+  const base = pin()
   const manifest = {
-    ...pin(),
+    ...base,
+    code: codeRange ?? { ...base.code, repository: own.uw.repository },
     acceptedSources: [
       {
         source: 'record' as const,
@@ -213,9 +255,16 @@ export function fixtureUwOperations(
   }
   return {
     readUw: unexpected,
+    readEffective: unexpected,
+    readCoverage: unexpected,
+    readCompletion: unexpected,
+    closeLinked: unexpected,
+    reopen: unexpected,
+    abandon: unexpected,
     listReports: unexpected,
     adjudicateCause: unexpected,
     createSister: unexpected,
+    adjustCauseDependency: unexpected,
     promoteReport: unexpected,
     prepare: unexpected,
     validateNormalization() {
@@ -239,51 +288,7 @@ export function confirmingUwOperations(): UwOperations {
     ...fixtureUwOperations(async () => ({ ok: true, value: prepared })),
     replayActionInputs: async () => ({ ok: true, value: prepared.inputs }),
     verifyAction: async () => ({ ok: true, value: prepared.snapshot }),
-    prepareReviewActions: (input) => confirmingReviewActions(operations, input),
+    prepareReviewActions: (input) => confirmingReviewActions(operations, input, fixturePreparedAction),
   }
   return operations
-}
-
-async function confirmDistinctReviewAction(
-  operations: UwOperations,
-  item: ReviewActionBatch['actions'][number],
-): Promise<Result<PreparedUwAction>> {
-  const existing = await operations.prepareAction(item.request, item.projection)
-  if (!existing.ok) return existing
-  const distinct = fixturePreparedAction(item.request.actionId)
-  if (distinct.inputs.fingerprint !== existing.value.inputs.fingerprint) return { ok: false, diagnostics: [] }
-  const replay = await operations.replayActionInputs({ reviewed: distinct.inputs, request: item.request })
-  if (!replay.ok || replay.value.fingerprint !== distinct.inputs.fingerprint) return { ok: false, diagnostics: [] }
-  const verified = await operations.verifyAction(distinct.snapshot)
-  if (!verified.ok) return verified
-  return { ok: true, value: distinct }
-}
-
-async function confirmingReviewActions(
-  operations: UwOperations,
-  input: ReviewActionBatch,
-): Promise<Result<readonly PreparedUwAction[]>> {
-  const first = input.actions[0]
-  if (first === undefined || first.projection.taskName !== 'spec' || first.projection.assignedChunk !== null) {
-    return { ok: false, diagnostics: [] }
-  }
-  const prepared: PreparedUwAction[] = []
-  const ids = new Set<string>()
-  const names = new Set<string>()
-  const commonRequest = JSON.stringify({ ...first.request, actionId: '' })
-  const commonProjection = JSON.stringify({
-    contextWindow: first.projection.contextWindow,
-    chunks: first.projection.chunks,
-  })
-  for (const [index, item] of input.actions.entries()) {
-    if (!admitsConfirmingReviewBatchItem(item, index, commonRequest, commonProjection, ids, names)) {
-      return { ok: false, diagnostics: [] }
-    }
-    ids.add(item.request.actionId)
-    names.add(item.projection.taskName)
-    const distinct = await confirmDistinctReviewAction(operations, item)
-    if (!distinct.ok) return distinct
-    prepared.push(distinct.value)
-  }
-  return { ok: true, value: prepared }
 }

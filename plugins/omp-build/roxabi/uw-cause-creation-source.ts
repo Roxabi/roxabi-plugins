@@ -3,13 +3,13 @@ import type { CauseSisterInput, ReportPromotionInput } from '../engine/cause-dis
 import { checkDuplicate, home } from './uw-cause-creation-support.ts'
 import { observeCauseParent } from './uw-cause-parent.ts'
 import { readAuthenticatedCause, readAuthenticatedReport } from './uw-cause-read.ts'
-import type { UwReadPort } from './uw-contract.ts'
+import type { CreatedUwReadPort, UwReadPort } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
 import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
 
 export async function loadCauseCreationSource(
-  input: { reader: UwReadPort; nativeReader: UwReadPort; github: GitHubOptions },
+  input: { reader: UwReadPort; nativeReader: CreatedUwReadPort; github: GitHubOptions },
   request: CauseSisterInput | ReportPromotionInput,
   mode: 'sister' | 'report-promotion',
 ) {
@@ -27,6 +27,11 @@ export async function loadCauseCreationSource(
   const parentScope = parentIssue == null ? null : githubScope(parentIssue.repository, parentIssue.number)
   const parent =
     parentScope === null ? null : await observeCauseParent(parentScope, createParentEngagementReadPort(input.github))
-  if (parent !== null && parent.state !== 'inactive') throw new Error(`cause-parent-${parent.state}`)
+  if (parent?.state === 'active') {
+    if (request.parentCoverage == null) throw new Error('cause-parent-active-requires-explicit-coverage')
+  } else {
+    if (parent !== null && parent.state !== 'inactive') throw new Error(`cause-parent-${parent.state}`)
+    if (request.parentCoverage != null) throw new Error('cause-parent-coverage-not-applicable')
+  }
   return { source, originalDigest, parentScope, parent }
 }

@@ -4,6 +4,7 @@ import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { baseFromStack } from '../skills/feature/epic-ci.ts'
 import { type Contracts, type History, publishRecord, type Scope } from './feature-engine.ts'
+import type { InitialMandateCheckout } from './feature-initial-checkout.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
@@ -25,19 +26,17 @@ export async function publishFirstMandate(
   contracts: Contracts,
   history: History,
   scope: Scope,
-  initial: Pick<MandatePayload, 'ownSpec' | 'tier' | 'children'> & { parent: ExternalRecordRef | null },
-  branch: string,
+  initial: Pick<MandatePayload, 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'> & {
+    parent: ExternalRecordRef | null
+  },
+  checkout: InitialMandateCheckout,
   git: GitRunner,
   gh: Gh,
   cwd: string,
   parentHistories: readonly History[],
 ): Promise<{ ok: true } | { ok: false; reason: string; diagnostics?: readonly { code: string; message: string }[] }> {
   const productVersion = contracts.shippedProductVersion()
-  const head = await git(cwd, ['rev-parse', 'HEAD'])
-  const lineageHead = head.code === 0 ? head.stdout.trim() : null
-  const resolvedBase = await resolveBase(git, cwd)
-  if ('reason' in resolvedBase) return { ok: false, reason: resolvedBase.reason }
-  const base = resolvedBase.base
+  const { base, branch, lineageHead } = checkout
   const override = await git(cwd, ['show', `refs/remotes/origin/${base}:.dev/stack.yml`])
   const parsed = parseWorkflowOverride(override.code === 0 ? override.stdout : null)
   if (!parsed.ok) return { ok: false, reason: parsed.reason }
@@ -55,8 +54,8 @@ export async function publishFirstMandate(
       operationId: randomUUID(),
       kind: 'mandate',
       payload: {
-        role: initial.children.length === 0 ? 'feature' : 'epic',
-        format: 'omp-build-mandate/3',
+        role: checkout.kind === 'parent' ? 'epic' : 'feature',
+        format: 'omp-build-mandate/4',
         branch,
         base,
         lineageHead,
@@ -71,6 +70,8 @@ export async function publishFirstMandate(
         ownSpec: initial.ownSpec,
         tier: initial.tier,
         children: initial.children,
+        inheritedOwnSpecRefs: initial.inheritedOwnSpecRefs,
+        coverage: initial.coverage,
         permissions: { landing: true, correct: true },
         run: randomUUID().slice(0, 8),
       },

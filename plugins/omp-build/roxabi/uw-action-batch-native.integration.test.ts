@@ -49,10 +49,15 @@ function batch(first: UwActionRequest): ReviewActionBatch {
   const chunks = [{ index: 0, delta: [], diff: 'native patch', files: [], digest: 'native digest' }]
   return {
     actions: [
-      { request: first, projection: { taskName: 'spec', assignedChunk: null, contextWindow: 100_000, chunks } },
       {
+        role: 'R-review-spec',
+        request: first,
+        projection: { taskName: 'spec', assignedChunk: null, contextWindow: 100_000, chunks },
+      },
+      {
+        role: 'R-tester',
         request: { ...first, actionId: 'native-panel' },
-        projection: { taskName: 'panel-0-tester', assignedChunk: 0, contextWindow: 100_000, chunks },
+        projection: { taskName: 'panel-0-R-tester', assignedChunk: 0, contextWindow: 100_000, chunks },
       },
     ],
   }

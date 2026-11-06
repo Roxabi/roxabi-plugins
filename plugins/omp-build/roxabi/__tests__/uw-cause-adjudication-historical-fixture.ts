@@ -9,14 +9,16 @@ import {
 } from '../../engine/__tests__/workflow-spec-assessment-support.ts'
 import { assessCauseDispositions } from '../../engine/cause-disposition.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
-import { resolveOwnSpecEffective } from '../../engine/spec-effective.ts'
+import { resolveSpecEffective } from '../../engine/spec-effective.ts'
 import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import { recordsOf } from '../../engine/workflow-control.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { createCauseAdjudication } from '../uw-cause-adjudication.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
@@ -27,7 +29,7 @@ function must<T>(
   return result.value
 }
 
-export function historicalWorld(confirm: boolean, beforeConfirmation?: () => Promise<void>) {
+export async function historicalWorld(confirm: boolean, beforeConfirmation?: () => Promise<void>) {
   const fixtures = roxabiWorkflowFixtures()
   const { projection } = roxabiRecordFixtures()
   const { graph, context: fixtureContext } = authenticatedReview()
@@ -37,16 +39,20 @@ export function historicalWorld(confirm: boolean, beforeConfirmation?: () => Pro
   if (!allocation) throw new Error('Expected mandate identity allocation')
   const identity = fixtures.identityAllocation(uw, allocation.recordId)
   let own = encodeCriterionRecords([identity, mandate], uw, projection, 'operator').history
-  const source = encodeCriterionRecords(
-    recordsOf(graph.history).filter((record) => record.kind !== 'review'),
-    graph.history.source.scope,
-    projection,
-    'operator',
-    [own],
-  ).history
+  const source = graph.history
   const acceptedA = resolveAcceptedSpec(mandate, [own, source])
   if (!acceptedA.ok) throw new Error(`Spec A unavailable: ${acceptedA.reason}`)
-  const contextA = { original: uw, effective: must(resolveOwnSpecEffective(acceptedA.spec)) }
+  const contextA = {
+    original: uw,
+    effective: must(
+      resolveSpecEffective({
+        mode: 'historical',
+        own: acceptedA.spec.ref,
+        versionVector: [acceptedA.spec.ref, ...acceptedA.spec.inheritedOwnSpecRefs],
+        histories: [own, source],
+      }),
+    ),
+  }
   const decision = recordsOf(source).find(
     (record) => record.kind === 'decision' && record.recordId === graph.decision.recordId,
   )
@@ -54,6 +60,8 @@ export function historicalWorld(confirm: boolean, beforeConfirmation?: () => Pro
   const assessment = must(
     assessCauseDispositions({
       context: contextA,
+      capture: synthesisActionCapture(decision, [source]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision },
       histories: [own, source],
       catalogues: fixtureReviewClassCatalogues(),
@@ -78,7 +86,7 @@ export function historicalWorld(confirm: boolean, beforeConfirmation?: () => Pro
   own = encodeCriterionRecords([pending], uw, projection, 'operator', [source], own).history
   const accepted = mandateAssessmentState(mandate)
   const proposed = proposedAssessmentState(accepted, { body: 'Editorial clarification of selected region' })
-  const amendment = assessFixture(mandate, 'historical-editorial', accepted, proposed, 'editorial')
+  const amendment = assessFixture(mandate, 'historical-editorial', accepted, proposed, 'editorial', [own, source])
   own = encodeCriterionRecords([amendment.start, amendment.result], uw, projection, 'operator', [source], own).history
   const acceptedB = resolveAcceptedSpec(mandate, [own, source])
   if (!acceptedB.ok) throw new Error(`Spec B unavailable: ${acceptedB.reason}`)
@@ -134,27 +142,29 @@ export function historicalWorld(confirm: boolean, beforeConfirmation?: () => Pro
     },
   }
   const reader = createInstalledObservedUwReadPort({
-    graph: {
-      status: 'complete',
-      root: uw,
-      observedAt: '2026-10-27T12:00:00.000Z',
-      nodes: [
-        {
-          uw,
-          title: 'Save the selected region',
-          raw: amendment.proposed.snapshot.raw,
-          updatedAt: '2026-10-27T12:00:00.000Z',
-          labels: [`size:${mandate.payload.tier}`],
-          wayfinderLabels: [],
-          parent: null,
-          children: [],
-          blockers: [],
-          native: { state: 'OPEN', stateReason: null },
-        },
-      ],
-    },
-    histories: [own, source],
-    catalogues: fixtureReviewClassCatalogues(),
+    observation: await observedUwWithoutPullRequests({
+      graph: {
+        status: 'complete',
+        root: uw,
+        observedAt: '2026-10-27T12:00:00.000Z',
+        nodes: [
+          {
+            uw,
+            title: 'Save the selected region',
+            raw: amendment.proposed.snapshot.raw,
+            updatedAt: '2026-10-27T12:00:00.000Z',
+            labels: [`size:${mandate.payload.tier}`],
+            wayfinderLabels: [],
+            parent: null,
+            children: [],
+            blockers: [],
+            native: { state: 'OPEN', stateReason: null },
+          },
+        ],
+      },
+      histories: [own, source],
+      catalogues: fixtureReviewClassCatalogues(),
+    }),
   })
   const prompts: string[] = []
   const artifacts = mkdtempSync(join(tmpdir(), 'omp-historical-adjudication-'))

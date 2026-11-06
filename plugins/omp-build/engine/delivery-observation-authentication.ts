@@ -8,6 +8,7 @@ import { recordIntegrity } from './record-integrity.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
+import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
@@ -27,6 +28,18 @@ export function implementationReceiptEligible(record: Receipt): boolean {
     record.payload.phase === 'result' &&
     record.payload.admission?.admitted === true &&
     nativeResultValid(record)
+  )
+}
+
+export function integrationReceiptEligible(record: Receipt): boolean {
+  return (
+    record.payload.format === 'omp-build-action-receipt/2' &&
+    record.payload.action === 'integrate' &&
+    record.payload.phase === 'result' &&
+    record.payload.inputs.manifest.purpose === 'integrate' &&
+    record.payload.admission?.admitted === true &&
+    nativeResultValid(record) &&
+    integrationOutputSchema.safeParse(record.payload.structured).success
   )
 }
 
@@ -96,9 +109,37 @@ function versionClaimReferences(evidence: CriterionEvidence): ObservationRef[] {
     ...(evidence.before === null ? [] : evidence.before.versionClaim.references),
   ]
 }
+function submissionMatchesCapture(
+  observation: NonNullable<
+    Extract<Receipt['payload'], { action: 'implement' | 'integrate'; phase: 'result' }>['native']['observation']
+  >,
+): boolean {
+  const submissionRaw = observation.submission.raw
+  if (
+    submissionRaw === null ||
+    typeof submissionRaw !== 'object' ||
+    Array.isArray(submissionRaw) ||
+    typeof submissionRaw.toolCallId !== 'string' ||
+    submissionRaw.toolCallId.length === 0
+  )
+    return false
+  const executed = submissionRaw.executionArguments
+  return !(
+    executed === null ||
+    typeof executed !== 'object' ||
+    Array.isArray(executed) ||
+    executed.data === undefined ||
+    canonicalValueDigest(executed.data) !== canonicalValueDigest(observation.submission.data)
+  )
+}
+
 function nativeObservationMatches(evidence: Exclude<CriterionEvidence, { method: 'test' }>, receipt: Receipt): boolean {
   const payload = receipt.payload
-  if (payload.action !== 'implement' || payload.phase !== 'result' || !implementationReceiptEligible(receipt))
+  if (
+    (payload.action !== 'implement' && payload.action !== 'integrate') ||
+    payload.phase !== 'result' ||
+    !(implementationReceiptEligible(receipt) || integrationReceiptEligible(receipt))
+  )
     return false
   const provenance = evidence.provenance
   if (provenance.kind !== 'native') return false
@@ -126,24 +167,7 @@ function nativeObservationMatches(evidence: Exclude<CriterionEvidence, { method:
     canonicalValueDigest(structured.data) !== canonicalValueDigest(observation.submission.data)
   )
     return false
-  const submissionRaw = observation.submission.raw
-  if (
-    submissionRaw === null ||
-    typeof submissionRaw !== 'object' ||
-    Array.isArray(submissionRaw) ||
-    typeof submissionRaw.toolCallId !== 'string' ||
-    submissionRaw.toolCallId.length === 0
-  )
-    return false
-  const executed = submissionRaw.executionArguments
-  if (
-    executed === null ||
-    typeof executed !== 'object' ||
-    Array.isArray(executed) ||
-    executed.data === undefined ||
-    canonicalValueDigest(executed.data) !== canonicalValueDigest(observation.submission.data)
-  )
-    return false
+  if (!submissionMatchesCapture(observation)) return false
   const data = observation.submission.data
   if (data === null || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.criteria)) return false
   const { provenance: _provenance, ...producerEvidence } = evidence
@@ -162,9 +186,9 @@ function nativeObservationMatches(evidence: Exclude<CriterionEvidence, { method:
 function testRunsMatchHostCapture(evidence: Extract<CriterionEvidence, { method: 'test' }>, receipt: Receipt): boolean {
   const payload = receipt.payload
   if (
-    payload.action !== 'implement' ||
+    (payload.action !== 'implement' && payload.action !== 'integrate') ||
     payload.phase !== 'result' ||
-    !implementationReceiptEligible(receipt) ||
+    !(implementationReceiptEligible(receipt) || integrationReceiptEligible(receipt)) ||
     evidence.provenance.kind !== 'native' ||
     evidence.provenance.actionId !== payload.actionId
   )
@@ -242,7 +266,7 @@ function recordSourceDiagnostics(
   return integrity === null ? [] : [integrity]
 }
 
-function recordRefDiagnostics(
+export function recordRefDiagnostics(
   evidenceId: string,
   ref: RecordInputRef,
   histories: readonly DecodedHistory[],

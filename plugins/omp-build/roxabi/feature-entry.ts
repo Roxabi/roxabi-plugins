@@ -1,4 +1,3 @@
-import { realpathSync } from 'node:fs'
 import { parseFeatureCommand, runTrustedFeatureInit } from './feature-command.ts'
 import type {
   ContinueFeatureInput,
@@ -6,6 +5,7 @@ import type {
   FeatureCommandHost,
   FeatureFixTerminal,
 } from './feature-contract.ts'
+import { continueWithParentCoverage } from './feature-coverage-continuation.ts'
 import { deliverEpicFinalReview } from './feature-epic-delivery.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
 import { abortOwnedFeatureWatch, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
@@ -18,6 +18,7 @@ import {
   isFramingResult,
   principalRefusalMessage,
 } from './feature-presentation.ts'
+import { deliverSessionCwd } from './feature-session-cwd.ts'
 import { announceUwNormalization } from './uw-normalization-host.ts'
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
   const parsed = parseFeatureCommand(args)
@@ -55,6 +56,9 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
     return
   }
+  const withCoverage = await continueWithParentCoverage(host, commandInput, result, principalDispatch)
+  if (withCoverage === undefined) return
+  result = withCoverage
   if (principalDispatch) {
     await deliverPrincipalRefusal(host, result)
     return
@@ -154,21 +158,6 @@ export async function deliverFeatureResult(
       await host.send('feature-stopped: feature-result-invalid')
   }
 }
-async function deliverSessionCwd(
-  result: Extract<ContinueFeatureResult, { kind: 'session-cwd' }>,
-  host: FeatureCommandHost,
-): Promise<void> {
-  const stop = featureStopMessage(result)
-  if (stop !== null) {
-    await host.send(`session-cwd ${host.cwd}\n${stop}`)
-    return
-  }
-  if (sameRealpath(result.path, host.cwd)) {
-    await host.send('feature-stopped: session-cwd-already-current')
-    return
-  }
-  await host.send(featureSessionCwdMessage(result.path, result.instruction))
-}
 
 async function deliverFeatureWatch(
   reference: string,
@@ -229,7 +218,7 @@ async function continueAfterReview(reference: string, host: FeatureCommandHost):
     reference,
     control: 'continue',
     principal: false,
-    ...(host.uw === undefined ? {} : { read: host.uw }),
+    ...(host.uw === undefined ? {} : { read: host.uw, uw: host.uw }),
     ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
   })
   await deliverFeatureResult(reference, next, host)
@@ -248,7 +237,7 @@ function observeFeatureTerminal(
         reference,
         control: 'continue',
         principal: false,
-        ...(host.uw === undefined ? {} : { read: host.uw }),
+        ...(host.uw === undefined ? {} : { read: host.uw, uw: host.uw }),
         ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
       })
       await deliverFeatureResult(reference, next, host)
@@ -286,12 +275,4 @@ async function continueAfterAdmittedCiCorrection(
     uw: result.uw,
   })
   observeFeatureTerminal(reference, host, run.terminal)
-}
-
-function sameRealpath(left: string, right: string): boolean {
-  try {
-    return realpathSync(left) === realpathSync(right)
-  } catch {
-    return false
-  }
 }

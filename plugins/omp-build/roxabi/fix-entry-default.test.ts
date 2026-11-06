@@ -56,7 +56,51 @@ describe('default fix feature mandate binding', () => {
       observed: {},
     }
 
-    const result = await bindFixMandate(input, target, {} as GitHubOptions, publishBinding, async () => history([]))
+    const emptyPage = { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } }
+    const github: GitHubOptions = {
+      cwd: '/worktree',
+      readAuthor: 'operator',
+      stopAuthor: 'github-actions[bot]',
+      gh: async (_cwd, args) => {
+        if (args[0] === 'api' && args[1] === 'graphql') {
+          if (!args.some((arg) => arg.includes('blockedBy') && arg.includes('subIssues')))
+            throw new Error(`unexpected GraphQL request: ${args.join(' ')}`)
+          return JSON.stringify({
+            data: {
+              repository: {
+                issue: {
+                  number: 42,
+                  repository: { nameWithOwner: 'Acme/app' },
+                  title: 'Correct the finding',
+                  body: '',
+                  updatedAt: '2026-10-21T10:00:00Z',
+                  state: 'OPEN',
+                  stateReason: null,
+                  parent: null,
+                  labels: emptyPage,
+                  subIssues: emptyPage,
+                  blockedBy: emptyPage,
+                },
+              },
+            },
+          })
+        }
+        if (args[0] === 'api' && args[1] === 'repos/Acme/app/issues/42/comments?per_page=100&page=1') return '[]'
+        throw new Error(`unexpected GitHub request: ${args.join(' ')}`)
+      },
+    }
+    const scope = { repository: target.repository, target: target.target }
+    const readHistory = async () => contracts.decodeHistory(await contracts.readGitHubHistory(scope, github))
+    expect((await readHistory()).operations).toEqual(history([]).operations)
+    const baseline = await bindFixMandate(
+      { ...input, requiredFeatureMandate: undefined },
+      target,
+      github,
+      publishBinding,
+      readHistory,
+    )
+    expect(baseline).toEqual({ ok: false, diagnostics: ['fix-own-uw-required'] })
+    const result = await bindFixMandate(input, target, github, publishBinding, readHistory)
 
     expect(result).toEqual({ ok: false, diagnostics: ['feature-mandate-required'] })
   })
@@ -110,6 +154,8 @@ describe('default fix feature mandate binding', () => {
       ownSpec: mandate.payload.ownSpec,
       tier: mandate.payload.tier,
       children: mandate.payload.children,
+      inheritedOwnSpecRefs: mandate.payload.inheritedOwnSpecRefs,
+      coverage: mandate.payload.coverage,
       parent: null,
       antecedent: null,
     })

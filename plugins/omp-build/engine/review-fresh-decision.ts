@@ -1,29 +1,23 @@
 import { canonicalValueDigest } from './action-input.ts'
+import type { ActionInputs } from './action-input-schema.ts'
 import { assessHistoricalCauseDispositions } from './cause-assessment.ts'
-import {
-  assessCauseDispositions,
-  effectiveRejectedFindingIds,
-  type Ref,
-  validateCauseDispositionRecords,
-} from './cause-disposition.ts'
+import { decisionCauseCapture } from './cause-capture-authentication.ts'
+import { effectiveRejectedFindingIds, type Ref, validateCauseDispositionRecords } from './cause-disposition.ts'
 import { historicalRejectedFindingIds } from './cause-effective-findings.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
+import { diagnostic, equalScope, fail, sameOwnSpecRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { DecisionAssessment, Result } from './result.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { assessDecision } from './review-decision.ts'
+import { authenticateReviewIntegrationPin } from './review-integration-pin.ts'
 import { reviewInputsFromInventory } from './review-inventory-input.ts'
-import { sameOwnSpecRef } from './spec-effective.ts'
 import { bindExternalRef, recordsOf } from './workflow-control.ts'
 
 type Decision = Extract<CanonicalRecord, { kind: 'decision' }>
 type Disposition = Extract<CanonicalRecord, { kind: 'cause-disposition' }>
-type AcceptedSpec = Extract<
-  NonNullable<ReturnType<typeof reviewInputsFromInventory>>['manifest']['spec'],
-  { kind: 'accepted' }
->
+type AcceptedSpec = Extract<ActionInputs['manifest']['spec'], { kind: 'accepted' }>
 
 function reviewSourceDiagnostic(subject: Disposition['payload']['subject'], decision: Decision): Diagnostic | null {
   if (
@@ -78,7 +72,6 @@ function validateBoundAssessment(
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
   assessment: DecisionAssessment,
-  historical: boolean,
 ): Result<DecisionAssessment> {
   const uw = spec.effective.own.uw
   const origin = histories.find((entry) => equalScope(entry.source.scope, uw))
@@ -88,8 +81,11 @@ function validateBoundAssessment(
   const relevant = bound.value
   const validation = validateCauseDispositionRecords({ records: recordsOf(origin), histories, catalogues })
   if (validation.length) return fail(validation)
-  const expected = (historical ? assessHistoricalCauseDispositions : assessCauseDispositions)({
+  const capture = decisionCauseCapture(record, histories)
+  if (!capture.ok) return capture
+  const expected = assessHistoricalCauseDispositions({
     context: { original: uw, effective: spec.effective },
+    capture: capture.value,
     source: { kind: 'decision', decision: record },
     histories,
     catalogues,
@@ -118,6 +114,13 @@ function validateBoundAssessment(
   )
   return { ok: true, value: veto ? { ...assessment, verdict: 'Request changes' } : assessment }
 }
+function reviewNeedsIntegrationAuthentication(inputs: ActionInputs): boolean {
+  return (
+    inputs.manifest.subject.kind === 'uw' &&
+    inputs.manifest.subject.pullRequest === null &&
+    inputs.manifest.deliveryData.some((item) => item.role === 'integration')
+  )
+}
 
 function validateDecisionAtObservation(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
@@ -140,6 +143,10 @@ function validateDecisionAtObservation(
   const selected = inputs.manifest.deliveryData.filter((item) => item.role === 'cause-state')
   let rejected: readonly string[] = []
   const histories = [deliveryHistory, ...externalHistories]
+  if (reviewNeedsIntegrationAuthentication(inputs)) {
+    const integration = authenticateReviewIntegrationPin(inputs, histories)
+    if (!integration.ok) return integration
+  }
   if (selected.some((item) => item.record.kind === 'cause-disposition')) {
     const effective = (historical ? historicalRejectedFindingIds : effectiveRejectedFindingIds)({
       decision: record,
@@ -164,15 +171,7 @@ function validateDecisionAtObservation(
     return reviewDispositionRefs.length === 0
       ? { ok: true, value: assessment }
       : fail([diagnostic('cause-origin-mismatch', 'Standalone review cannot select UW dispositions')])
-  return validateBoundAssessment(
-    record,
-    inputs.manifest.spec,
-    reviewDispositionRefs,
-    histories,
-    catalogues,
-    assessment,
-    historical,
-  )
+  return validateBoundAssessment(record, inputs.manifest.spec, reviewDispositionRefs, histories, catalogues, assessment)
 }
 
 export function validateFreshDecision(

@@ -123,6 +123,8 @@ export async function materializeCandidateChunks(input: {
   ])
   const deletions = deletedPaths(nameStatus)
   const chunks = await chunk(rawDiff, input.contextWindow, input.cwd, input.helper)
+  if (chunks.length === 0 && (rawDiff.length !== 0 || nameStatus.length !== 0))
+    throw new Error('chunker returned no chunks for a nonempty candidate diff')
   return Promise.all(
     chunks.map(async (item) => ({
       index: item.index,

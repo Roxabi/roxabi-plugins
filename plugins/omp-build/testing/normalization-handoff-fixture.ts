@@ -1,7 +1,9 @@
 import { decodeHistory } from '../adapters/github/history-codec.ts'
 import type { Gh } from '../adapters/github/types.ts'
+import { UW_GRAPH_QUERY } from '../adapters/github-native/uw-graph-query.ts'
 import { rawSource } from '../adapters/github-native/uw-spec.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
+import { ROXABI_STOP_AUTHOR } from '../roxabi/github-policy.ts'
 import { createInstalledObservedUwReadPort } from '../roxabi/uw-read-port.ts'
 import { fixtureHostReviewClassCatalogues } from './host-catalogue-fixture.ts'
 
@@ -25,6 +27,42 @@ export function normalizationHandoffFixture() {
     }
     if (command === JSON.stringify(['api', 'user', '--jq', '.login'])) return 'fixture'
     if (command === JSON.stringify(['api', `repos/${repository}/issues/910/comments?per_page=100&page=1`])) return '[]'
+    if (
+      command ===
+      JSON.stringify([
+        'api',
+        'graphql',
+        '-f',
+        `query=${UW_GRAPH_QUERY}`,
+        '-f',
+        'owner=fixture',
+        '-f',
+        'name=widgets',
+        '-F',
+        'number=910',
+      ])
+    ) {
+      const page = (nodes: unknown[]) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } })
+      return JSON.stringify({
+        data: {
+          repository: {
+            issue: {
+              number: 910,
+              repository: { nameWithOwner: repository },
+              title,
+              body,
+              updatedAt: time,
+              state: 'OPEN',
+              stateReason: null,
+              parent: null,
+              labels: page([{ name: 'size:S' }]),
+              subIssues: page([]),
+              blockedBy: page([]),
+            },
+          },
+        },
+      })
+    }
     if (
       command ===
       JSON.stringify(['issue', 'view', '910', '--repo', repository, '--json', 'title,body,labels,updatedAt'])
@@ -56,7 +94,7 @@ export function normalizationHandoffFixture() {
   const history = decodeHistory({
     scope,
     expectedAuthor: 'fixture',
-    stopAuthor: null,
+    stopAuthor: ROXABI_STOP_AUTHOR,
     complete: true,
     comments: [],
     diagnostics: [],
@@ -68,9 +106,14 @@ export function normalizationHandoffFixture() {
     graph,
     history,
     read: createInstalledObservedUwReadPort({
-      graph,
-      histories: [history],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      observation: {
+        status: 'complete',
+        root: scope,
+        graph,
+        histories: [history],
+        catalogues: fixtureHostReviewClassCatalogues(),
+        delivery: [],
+      },
     }),
   }
 }

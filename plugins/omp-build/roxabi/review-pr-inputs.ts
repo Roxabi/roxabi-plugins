@@ -89,13 +89,6 @@ function trackerSnapshot(issueSpec: PreparedReviewInputs['issueSpec']) {
   return { reference: issueSpec.reference, body: issueSpec.body, lastEditedAt: issueSpec.lastEditedAt }
 }
 
-function assignedPanelChunk(name: string, chunks: readonly PreparedReviewChunk[]): number | null {
-  const match = /^panel-(\d+)-(.+)$/.exec(name)
-  if (match === null) return null
-  const index = Number(match[1])
-  return chunks.some((chunk) => chunk.index === index) ? index : null
-}
-
 async function confirmReviewActions(
   options: PrepareReviewInputsOptions,
   candidate: string,
@@ -103,7 +96,7 @@ async function confirmReviewActions(
   semanticContext: ReviewSemanticContext,
   code: DeliveryCode,
   chunks: readonly PreparedReviewChunk[],
-  taskNames: readonly string[],
+  tasks: readonly { name: string; role: string; assignedChunk: number | null }[],
   captureInput: string | null,
 ): Promise<Result<Record<string, PreparedUwAction>>> {
   const subject = reviewSubject(scope, semanticContext)
@@ -111,14 +104,15 @@ async function confirmReviewActions(
     contextWindow: options.contextWindow,
     chunks,
   }
-  const descriptors: { name: string; assignedChunk: number | null }[] = [{ name: 'spec', assignedChunk: null }]
-  for (const name of taskNames) {
-    const assignedChunk = assignedPanelChunk(name, chunks)
-    if (assignedChunk === null) return failed('review-action-unprepared', `panel task names an absent chunk: ${name}`)
-    descriptors.push({ name, assignedChunk })
+  const descriptors = [{ name: 'spec', role: 'R-review-spec', assignedChunk: null as number | null }]
+  for (const { name, role, assignedChunk } of tasks) {
+    if (assignedChunk === null || !chunks.some((chunk) => chunk.index === assignedChunk))
+      return failed('review-action-unprepared', `panel task names an absent chunk: ${name}`)
+    descriptors.push({ name, role, assignedChunk })
   }
   const prepared = await options.operations.prepareReviewActions({
-    actions: descriptors.map(({ name, assignedChunk }) => ({
+    actions: descriptors.map(({ name, role, assignedChunk }) => ({
+      role,
       request: actionRequest({
         actionId: reviewActionId(candidate, name, options.expansion?.expandedContext ?? []),
         purpose: 'review',
@@ -213,6 +207,7 @@ async function prepareCapturedReviewInputs(
   const pinned = codePin(repository, refreshed.tip, candidate, candidate)
   if (!pinned.ok) return failed('code-unobserved', 'review code pins are not observed SHAs')
   const panel = allocateReviewPanel({
+    subject: { kind: 'pull-request' },
     chunks,
     roster,
     config: { ...config, canonicalClasses },
@@ -225,7 +220,7 @@ async function prepareCapturedReviewInputs(
     semanticContext,
     pinned.code,
     chunks,
-    panel.tasks.map((task) => task.name),
+    panel.tasks,
     capture.input,
   )
   if (!actions.ok) return actions

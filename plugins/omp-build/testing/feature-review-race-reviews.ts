@@ -1,4 +1,5 @@
 import { publishGitHubRecord } from '../adapters/github/publish.ts'
+import { readUwGraph } from '../adapters/github-native/uw-graph.ts'
 import type { CauseContext } from '../engine/finding-target.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { persistCauseDispositions } from '../roxabi/fix-disposition-execution.ts'
@@ -9,6 +10,7 @@ import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
 import { gh } from '../skills/feature/workflow-runtime.js'
+import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { citedHistory, history, reviewRecord } from './feature-review-race-history.ts'
 
 type ReviewRecord = Extract<CanonicalRecord, { kind: 'review' }>
@@ -40,8 +42,15 @@ async function publishNewReview(
   )
   if (decisionPublication.status !== 'confirmed')
     throw new Error(`third-review-decision-refused:${JSON.stringify(decisionPublication.diagnostics)}`)
+  const updated = await history(cwd)
+  const capturedHistories = [updated, ...(await citedHistory(cwd, updated))]
+  const graph = await readUwGraph(effective.own.uw, { cwd, gh })
   const retained = await persistCauseDispositions(
-    { causeContext: { original: effective.own.uw, effective } },
+    {
+      causeContext: { original: effective.own.uw, effective },
+      capture: { kind: 'action', input: synthesisActionCapture(newerDecision, capturedHistories) },
+      graph,
+    },
     { kind: 'decision', decision: newerDecision },
     { runId: id, operationId: `${id}-disposition`, nextRecordId: (kind) => `${id}-${kind}` },
     store,

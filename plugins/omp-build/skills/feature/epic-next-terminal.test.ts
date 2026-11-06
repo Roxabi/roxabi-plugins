@@ -2,19 +2,28 @@ import { describe, it } from 'vitest'
 import type { Case } from './epic-transition.fixture'
 import {
   branch,
-  child,
   decides,
   EARLIER,
   facts,
+  on as fixtureBlocker,
+  child as fixtureChild,
   head,
   landed,
   OTHER_REPO,
-  on,
   pr,
   RUN,
   sha,
   T1,
 } from './epic-transition.fixture'
+import type { ChildFacts } from './epic-types'
+
+// Pure selector scenarios explicitly declare a pending completion, regardless of native state.
+const child = (number: number, over: Partial<ChildFacts> = {}) =>
+  fixtureChild(number, { completion: 'not-complete', ...over })
+const on = (number: number, state: 'OPEN' | 'CLOSED' = 'OPEN', repo?: string): ChildFacts['blockedBy'][number] => ({
+  ...fixtureBlocker(number, state, repo),
+  dependency: 'held',
+})
 
 describe('stops across runs', () => {
   it.each<Case>([
@@ -80,18 +89,21 @@ describe('stops across runs', () => {
 describe('merged children', () => {
   it.each<Case>([
     {
-      name: 'merged into the base with the issue still open (staging-train) completes itself but not a dependent',
-      facts: facts([child(1, { prs: [landed(1, T1, sha('1'), sha('2'))] }), child(2, { blockedBy: [on(1)] })]),
+      name: 'declared-complete merged child with the issue still open does not satisfy a held dependent',
+      facts: facts([
+        child(1, { completion: 'complete', prs: [landed(1, T1, sha('1'), sha('2'))] }),
+        child(2, { blockedBy: [on(1)] }),
+      ]),
       step: { action: 'drop', stop: 'no-progress' },
       report: { merged: [1], skipped: [{ ticket: 2, blockers: [1] }] },
     },
     {
-      name: 'merged into another base → not done',
+      name: 'merged into another base remains incomplete and its used head requires a superseding branch',
       facts: facts([
         child(1, { prs: [landed(1, T1, sha('1'), sha('2'), { base: 'staging' })] }),
         child(2, { blockedBy: [on(1)] }),
       ]),
-      step: { action: 'start', ticket: 1 },
+      step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
       report: { merged: [], skipped: [{ ticket: 2, blockers: [1] }] },
     },
     {
@@ -104,13 +116,13 @@ describe('merged children', () => {
       report: { merged: [] },
     },
     {
-      name: 'MERGED with no merge commit → not done',
+      name: 'MERGED without a merge commit remains incomplete and its used head requires a superseding branch',
       facts: facts([
         child(1, { prs: [landed(1, T1, sha('1'), sha('2'), { mergeSha: null })] }),
         child(2, { blockedBy: [on(1)] }),
       ]),
-      step: { action: 'start', ticket: 1 },
-      report: { merged: [] },
+      step: { action: 'stop', ticket: 1, stop: 'branch-mismatch' },
+      report: { merged: [], skipped: [{ ticket: 2, blockers: [1] }] },
     },
   ])('$name', decides)
 })
@@ -124,7 +136,9 @@ describe('shared state before a ticket', () => {
     },
     {
       name: "a dirty tree on a finished child's branch → drop dirty-tree",
-      facts: facts([child(1, { state: 'CLOSED' }), child(2)], { tree: { clean: false, branch: head(1) } }),
+      facts: facts([child(1, { state: 'CLOSED', completion: 'complete' }), child(2)], {
+        tree: { clean: false, branch: head(1) },
+      }),
       step: { action: 'drop', stop: 'dirty-tree' },
     },
     {
@@ -191,7 +205,10 @@ describe('no progress', () => {
     },
     {
       name: 'only a sticky stop open → drop no-progress',
-      facts: facts([child(1, { state: 'CLOSED' }), child(2, { stops: [{ run: EARLIER, reason: 'review-bound' }] })]),
+      facts: facts([
+        child(1, { state: 'CLOSED', completion: 'complete' }),
+        child(2, { stops: [{ run: EARLIER, reason: 'review-bound' }] }),
+      ]),
       step: { action: 'drop', stop: 'no-progress' },
     },
   ])('$name', decides)

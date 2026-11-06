@@ -1,15 +1,14 @@
 import type { assessUwAdmission } from '../dist/contracts.js'
-import type { UwRead, UwReadPort } from './uw-contract.ts'
+import type { UwRead } from './uw-contract.ts'
 import { readCurrentChildrenProjection } from './uw-current-facts.ts'
 import { bindHistoricalProjection, historicalProjection } from './uw-normalization-internal.ts'
 
 export async function withTransitionAdmission(
   contracts: { assessUwAdmission: typeof assessUwAdmission },
   read: UwRead,
-  reader: UwReadPort,
 ): Promise<UwRead> {
   if (!read.identity.ok) return read
-  const currentChildren = await readCurrentChildrenProjection({ uw: read.uw, read, reader })
+  const currentChildren = await readCurrentChildrenProjection({ uw: read.uw, read })
   const result: UwRead = {
     ...read,
     admission: contracts.assessUwAdmission({
@@ -20,6 +19,7 @@ export async function withTransitionAdmission(
       identities: read.identity.value,
       histories: read.histories,
       catalogues: read.catalogues,
+      completion: read.completion,
       phase: 'delivery-transition',
       currentChildren,
     }),

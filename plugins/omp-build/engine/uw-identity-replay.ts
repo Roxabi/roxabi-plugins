@@ -1,5 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { sameRef } from './record-diagnostics.ts'
+import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
@@ -16,6 +16,8 @@ export function replayForMandate(
 ): boolean {
   return (
     assessmentReplay !== undefined &&
+    equalScope(assessmentReplay.uw, history.source.scope) &&
+    equalScope(assessmentReplay.uw, { repository: mandate.repository, target: mandate.target }) &&
     recordsOf(history).some(
       (record) =>
         record.kind === 'action-receipt' &&

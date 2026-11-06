@@ -71,6 +71,7 @@ function setup(
     partial?: boolean
     blocking?: boolean
     intentMissing?: boolean
+    receiptMissing?: boolean
     parentChangesAfterCreate?: boolean
     incompletePriorIntent?: boolean
     foreignParent?: boolean
@@ -135,9 +136,11 @@ function setup(
   boundary.validate.mockReturnValue([])
   const events: string[] = []
   let intent: { kind: string; recordId: string } | null = null
+  let receipt: { kind: string; recordId: string } | null = null
   boundary.publish.mockImplementation(async (record: { kind: string; recordId: string }) => {
     events.push(record.kind)
     if (record.kind === 'cause-operation') intent = record
+    if (record.kind === 'debt-receipt' || record.kind === 'report-promotion') receipt = record
     return { status: 'confirmed' }
   })
   boundary.histories.mockImplementation(async () => ({
@@ -158,7 +161,11 @@ function setup(
   boundary.bind.mockImplementation((requested: { kind: string }) =>
     requested.kind === 'cause-operation'
       ? { ok: true, value: intent }
-      : { ok: true, value: { kind: 'spec-identity', payload: { proposalDigest, confirmation: { operationId } } } },
+      : requested.kind === 'debt-receipt' || requested.kind === 'report-promotion'
+        ? options.receiptMissing
+          ? { ok: false, diagnostics: [] }
+          : { ok: true, value: receipt }
+        : { ok: true, value: { kind: 'spec-identity', payload: { proposalDigest, confirmation: { operationId } } } },
   )
   let originalBlockers: (typeof originalIssue)[] = []
   let sisterBlockers: (typeof originalIssue)[] = []
@@ -248,6 +255,13 @@ function setup(
         reader: { readUw } as never,
         nativeReader: { readUw } as never,
         github: {} as never,
+        actionOptions: {
+          cwd: '/fixture',
+          readAuthor: 'operator',
+          gh: async () => {
+            throw new Error('No native assessment host in this test')
+          },
+        },
         operator: base.ports.operator,
         ...backend,
         guardedWriter: guardedWriter as never,
@@ -269,6 +283,18 @@ describe('cause creation orchestration (simulated boundaries)', () => {
   it('rejects a foreign-repository parent before confirmation or any write', async () => {
     const test = setup({ foreignParent: true })
     const result = await test.service.createSister(test.sisterRequest)
+    expect(result.status).toBe('refused')
+    expect(test.confirmations()).toBe(0)
+    expect(test.nativeCreate).not.toHaveBeenCalled()
+    expect(test.events).toEqual([])
+  })
+
+  it('requires a real native assessment host even with explicit active-parent coverage', async () => {
+    const test = setup({ parentState: 'active' })
+    const result = await test.service.createSister({
+      ...test.sisterRequest,
+      parentCoverage: { parent: { uw: parent, version: 'a'.repeat(64) }, assignments: [] },
+    })
     expect(result.status).toBe('refused')
     expect(test.confirmations()).toBe(0)
     expect(test.nativeCreate).not.toHaveBeenCalled()
@@ -297,6 +323,20 @@ describe('cause creation orchestration (simulated boundaries)', () => {
     },
   )
 
+  it('does not silently discard parent coverage when the parent is inactive', async () => {
+    const test = setup()
+    const result = await test.service.createSister({
+      ...test.sisterRequest,
+      parentCoverage: {
+        parent: { uw: parent, version: 'a'.repeat(64) },
+        assignments: [{ criterion: 'C1', children: [{ kind: 'created-child' }] }],
+      },
+    })
+    expect(result.status).toBe('refused')
+    expect(test.nativeCreate).not.toHaveBeenCalled()
+    expect(test.confirmations()).toBe(0)
+  })
+
   it('does not retry when a previous creation intent remains incomplete', async () => {
     const test = setup({ incompletePriorIntent: true })
     expect((await test.service.createSister(test.sisterRequest)).status).toBe('refused')
@@ -310,6 +350,13 @@ describe('cause creation orchestration (simulated boundaries)', () => {
     expect(result.status).toBe('partial')
     expect(test.nativeCreate).not.toHaveBeenCalled()
     expect(test.events).toEqual(['cause-operation'])
+  })
+
+  it('reports partial when the final causal receipt cannot be authenticated on readback', async () => {
+    const test = setup({ receiptMissing: true })
+    const result = await test.service.createSister(test.sisterRequest)
+    expect(result.status).toBe('partial')
+    expect(test.events).toEqual(['cause-operation', 'create', 'debt-receipt'])
   })
 
   it('holds a partial creation when the parent becomes active before a later effect', async () => {

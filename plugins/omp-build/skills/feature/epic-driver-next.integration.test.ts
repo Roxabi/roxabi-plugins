@@ -6,6 +6,9 @@ import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
+import { landedEpic } from './testing/epic-driver/epic-driver-landed-fixture.ts'
+import { expectCompleteEpicObservation } from './testing/epic-driver/epic-driver-observation.ts'
+import { inheritedParentSpecs } from './testing/epic-driver/epic-driver-parent-vector.ts'
 import {
   type Comment,
   childNode,
@@ -120,7 +123,7 @@ function successorRecords(): Comment[] {
 }
 
 describe('epic-driver — the gate', () => {
-  it('does not report an accepted child as changed for its never-accepted wayfinder', () => {
+  it('does not report an accepted child as changed for its never-accepted wayfinder', async () => {
     sandbox()
     const fixtures = roxabiWorkflowFixtures()
     const parentScope = { repository: 'o/r', target: 'o/r#1' }
@@ -140,6 +143,7 @@ describe('epic-driver — the gate', () => {
       body: child.body,
       ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
       parent: fixtures.mandateRef(parent),
+      inheritedOwnSpecRefs: inheritedParentSpecs(parent),
     })
     serveEpic(
       [
@@ -165,6 +169,8 @@ describe('epic-driver — the gate', () => {
     wayfinder.parent = { number: 2, repository: { nameWithOwner: 'o/r' } }
     wayfinder.subIssues.nodes = []
     writeFileSync(path.join(sandboxOf().state, 'uw-3.json'), JSON.stringify(wayfinderGraph))
+    serveComments(3, [])
+    await expectCompleteEpicObservation()
 
     const run = drive(['next'])
     expect(run.code, `stderr: ${run.stderr}\nstdout: ${run.stdout}`).toBe(0)
@@ -252,7 +258,7 @@ describe('epic-driver — next', () => {
     expect(git(epic, 'rev-parse', 'HEAD')).toBe(git(epic, 'rev-parse', 'refs/remotes/origin/main'))
   })
 
-  it('does not schedule a child behind a native NOT_PLANNED sibling, but starts behind COMPLETED', () => {
+  it('does not schedule behind NOT_PLANNED, but starts behind a genuinely completed sibling', async () => {
     const { epic: notPlannedEpic } = sandbox()
     serveEpic([
       childNode(2, 'feat(x): prerequisite', { state: 'CLOSED' }),
@@ -264,13 +270,20 @@ describe('epic-driver — next', () => {
     const notPlannedWrites = writes()
 
     cleanupSandbox()
-
-    const { epic: completedEpic } = sandbox()
+    const { epic: unprovenEpic } = sandbox()
     serveEpic([
       childNode(2, 'feat(x): prerequisite', { state: 'CLOSED' }),
       childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'CLOSED']] }),
     ])
     setNativeStateReason(2, 'COMPLETED')
+    const unproven = drive(['next'])
+    const unprovenBranch = git(unprovenEpic, 'branch', '--show-current')
+    const unprovenWrites = writes()
+    cleanupSandbox()
+
+    await landedEpic({}, [childNode(3, 'fix(y): dependent child', { blockedBy: [[2, 'OPEN']] })])
+    const { epic: completedEpic } = sandboxOf()
+    const writesBeforeCompleted = writes()
     const completed = drive(['next'])
 
     expect(notPlanned.code).toBe(0)
@@ -278,89 +291,20 @@ describe('epic-driver — next', () => {
     expect(notPlanned.json().step.report.skipped).toEqual([{ ticket: 3, blockers: [2] }])
     expect(notPlannedBranch).toBe('')
     expect(notPlannedWrites).toEqual([])
+    expect(unproven.code).toBe(0)
+    expect(unproven.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
+    expect(unprovenBranch).toBe('')
+    expect(unprovenWrites).toEqual([])
     expect(completed.code).toBe(0)
     expect(completed.json().step).toMatchObject({ action: 'start', ticket: 3, branch: 'fix/3-dependent-child' })
     expect(git(completedEpic, 'branch', '--show-current')).toBe('fix/3-dependent-child')
-    expect(writes()).toEqual([])
+    expect(writes()).toEqual(writesBeforeCompleted)
   })
 
-  it('confirms a merged child, deletes its local branch and starts the next one', () => {
-    const { epic, root } = sandbox()
-    serveEpic([
-      childNode(2, 'feat(x): first child'),
-      childNode(3, 'fix(y): second child', { blockedBy: [[2, 'OPEN']] }),
-    ])
-    drive(['next'])
-    writeFileSync(path.join(epic, 'one.txt'), 'one\n')
-    git(epic, 'add', 'one.txt')
-    git(epic, 'commit', '-qm', 'feat(x): first child (#2)')
-    git(epic, 'push', '-q', 'origin', 'feat/2-first-child')
-    const tip = git(epic, 'rev-parse', 'HEAD')
-    const base = git(epic, 'rev-parse', 'refs/remotes/origin/main')
-    git(root, 'clone', '-q', sandboxOf().origin, 'merger')
-    const merger = path.join(root, 'merger')
-    git(merger, 'merge', '-q', '--no-ff', 'origin/feat/2-first-child', '-m', 'Merge pull request #10')
-    git(merger, 'push', '-q', 'origin', 'main')
-    const mergeSha = git(merger, 'rev-parse', 'HEAD')
-    const merged = prNode(10, 'feat/2-first-child', tip, {
-      state: 'MERGED',
-      mergedAt: '2026-09-30T10:00:00Z',
-      mergeCommit: { oid: mergeSha, parents: { nodes: [{ oid: base }] } },
-    })
-    const children = [
-      childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }),
-      childNode(3, 'fix(y): second child', { blockedBy: [[2, 'CLOSED']] }),
-    ]
-    const fixtures = roxabiWorkflowFixtures()
-    const parentScope = { repository: 'o/r', target: 'o/r#1' }
-    const parentBody = strictSpecBody('works')
-    const approved = children.map((child) => {
-      const scope = { repository: 'o/r', target: `o/r#${child.number}` }
-      const snapshot = strictSnapshot(scope, child.body)
-      return { scope, snapshot, specVersion: snapshot.spec.version, tier: 'S' as const }
-    })
-    const parent = fixtures.epicMandate(parentScope, approved, {
-      body: parentBody,
-      ownSpec: fixtures.ownSpecFromSnapshot(parentScope, strictSnapshot(parentScope, parentBody)),
-    })
-    const mandate = fixtures.featureMandate(approved[0].scope, {
-      body: children[0].body,
-      ownSpec: fixtures.ownSpecFromSnapshot(approved[0].scope, approved[0].snapshot),
-      parent: fixtures.mandateRef(parent),
-      branch: 'feat/2-first-child',
-      runId: 'run00002',
-      run: 'run00002',
-    })
-    const parentHistory = fixtures.historyFrom([parent])
-    const childHistory = fixtures.historyFrom([mandate], 'operator', 'operator', [parentHistory])
-    const binding = fixtures.workflowBinding(
-      { repository: 'o/r', target: 'o/r#10' },
-      mandate,
-      'feat/2-first-child',
-      'main',
-    )
-    serveEpic(
-      [
-        {
-          ...children[0],
-          fixtureComments: fixtures.framedBodies([mandate], 'operator', [parentHistory]).map((body) => ({
-            body,
-            author: 'operator',
-          })),
-        },
-        children[1],
-      ],
-      framedRecords(1, [parent]),
-      { mandate: false },
-    )
-    serveComments(
-      10,
-      fixtures.framedBodies([binding], 'operator', [childHistory, parentHistory]).map((body) => ({
-        body,
-        author: 'operator',
-      })),
-    )
-    setNativeStateReason(2, 'COMPLETED')
+  it('confirms a genuinely delivered child, deletes its local branch and starts the next one', async () => {
+    const world = await landedEpic({}, [childNode(3, 'fix(y): second child', { blockedBy: [[2, 'OPEN']] })])
+    const { epic } = sandboxOf()
+    const mergeSha = world.progressRange.split('..')[1]
 
     const run = drive(['next'])
     expect(run.code).toBe(0)

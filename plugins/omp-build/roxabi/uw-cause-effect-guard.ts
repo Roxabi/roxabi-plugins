@@ -5,7 +5,7 @@ import type { Scope } from '../engine/record-values.ts'
 import { same } from './uw-cause-creation-support.ts'
 import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import { assertCauseParentUnchanged } from './uw-cause-parent.ts'
-import type { UwReadPort } from './uw-contract.ts'
+import type { CreatedUwReadPort } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
 import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
@@ -24,7 +24,7 @@ function withoutCreated(
   }
 }
 export function causeEffectGuard(
-  input: { reader: UwReadPort; github: GitHubOptions },
+  input: { reader: CreatedUwReadPort; github: GitHubOptions },
   parent: Parent | null,
   parentScope: Scope | null,
   uw: Scope,

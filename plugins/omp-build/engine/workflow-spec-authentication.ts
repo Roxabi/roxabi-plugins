@@ -1,8 +1,9 @@
 import { validateActionInputs } from './action-input.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { sameRef } from './record-diagnostics.ts'
+import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
+import type { Scope } from './record-values.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 
 export { sameAssessInputs } from './workflow-spec-assessment.ts'
@@ -16,7 +17,7 @@ import { bindExternalRef, type ReceiptRecord, recordsOf } from './workflow-contr
 import { specChainFailure } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
-export type AssessmentReplayContext = { actionId: string; fingerprint: string }
+export type AssessmentReplayContext = { uw: Scope; actionId: string; fingerprint: string }
 
 function authenticatedReplayStart(
   record: CanonicalRecord,
@@ -26,6 +27,8 @@ function authenticatedReplayStart(
 ): boolean {
   if (
     context === undefined ||
+    !equalScope(context.uw, home.source.scope) ||
+    !equalScope(context.uw, mandateRef.scope) ||
     record.kind !== 'action-receipt' ||
     record.payload.action !== 'assess-spec' ||
     record.payload.phase !== 'start' ||

@@ -133,9 +133,7 @@ export function readActionInputs(value: unknown): ActionInputs | null {
 export function inputsMatchReadback(expected: ActionInputs, observed: unknown): boolean {
   const actual = readActionInputs(observed)
   if (actual === null) return false
-  return (
-    actual.fingerprint === expected.fingerprint && JSON.stringify(actual.manifest) === JSON.stringify(expected.manifest)
-  )
+  return canonicalValueDigest(actual) === canonicalValueDigest(expected)
 }
 
 export function receiptInputs(payload: unknown): ActionInputs | null {
@@ -215,10 +213,14 @@ export async function confirmPreparedAction(
     reviewedRoot: review?.root,
   })
   if (!replay.ok) return replay
-  if (replay.value.fingerprint !== prepared.value.inputs.fingerprint) {
+  if (
+    request.purpose === 'integrate'
+      ? canonicalValueDigest(replay.value) !== canonicalValueDigest(prepared.value.inputs)
+      : replay.value.fingerprint !== prepared.value.inputs.fingerprint
+  ) {
     return {
       ok: false,
-      diagnostics: [{ code: 'review-input-changed', message: 'replay fingerprint diverged from the prepared action' }],
+      diagnostics: [{ code: 'review-input-changed', message: 'replay inputs diverged from the prepared action' }],
     }
   }
   const verified = await operations.verifyAction(prepared.value.snapshot)

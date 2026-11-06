@@ -3,6 +3,7 @@ import { readCauseHistoryClosure, readComposedWorkflowHistory } from '../dist/co
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { type CausalFactObservation, type ObserveCausalFacts, seedEvidenceObservation } from './uw-action-basis.ts'
 import type { CurrentActionFacts, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
@@ -57,9 +58,10 @@ async function readUwCausalHistories(
   required: readonly Scope[],
   source: ActionFactSource,
 ): Promise<Result<readonly DecodedHistory[]>> {
+  const github = withRoxabiGitHubPolicy(source)
   const missing = required.filter((scope) => !selected.has(JSON.stringify([scope.repository, scope.target])))
   if (missing.length > 0) {
-    const fetched = await readComposedWorkflowHistory(missing, source)
+    const fetched = await readComposedWorkflowHistory(missing, github)
     if (!fetched.ok) return { ok: false, diagnostics: fetched.diagnostics }
     const expected = new Set(missing.map((scope) => JSON.stringify([scope.repository, scope.target])))
     for (const history of fetched.histories) {
@@ -72,7 +74,7 @@ async function readUwCausalHistories(
     if (expected.size > 0) return actionFailure('record-unreadable', 'Required action history is missing')
   }
   const closure = await readCauseHistoryClosure([...selected.values()], (scopes) =>
-    readComposedWorkflowHistory(scopes, source),
+    readComposedWorkflowHistory(scopes, github),
   )
   return closure.ok ? { ok: true, value: closure.histories } : { ok: false, diagnostics: closure.diagnostics }
 }
@@ -144,7 +146,7 @@ export async function readProductionActionFactsBatch(
     actionFailure('action-code-moved', error instanceof Error ? error.message : 'code observation failed'),
   )
   if (!observed.ok) return observed
-  const config = await configuration(source.cwd, first.code.referenceCommit)
+  const config = await configuration(source.cwd, first.code.referenceCommit, source.git)
   if (!config.ok) return config
   const subject = first.subject
   const scopes =

@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
-import { parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import { committedFixturePlugin } from '../testing/committed-plugin-fixture.ts'
+import { nativeCorrectionRecords } from '../testing/native-correction-records.ts'
 import { NATIVE_AUTHOR, TEST_SCOPE } from '../testing/record-builders.ts'
 import { toolingGh } from '../testing/review-gate-tooling-gh.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
@@ -67,14 +67,7 @@ function fixture() {
   const toolsCommit = execFileSync('git', ['-C', tools, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
   const plugin = committedFixturePlugin(tools, standaloneReviewInputs().manifest.plugin, toolsCommit)
 
-  const raw: unknown = JSON.parse(
-    readFileSync(new URL('../engine/__tests__/fixtures/native-correction-records.json', import.meta.url), 'utf8'),
-  )
-  if (!Array.isArray(raw)) throw new Error('Expected native correction records')
-  const records = raw.map((value: unknown) => {
-    const parsed = parseRecord(value)
-    if (!parsed.ok) throw new Error(JSON.stringify(parsed.diagnostics))
-    const record = parsed.value
+  const records = nativeCorrectionRecords().map((record) => {
     if (record.kind === 'review-attempt') {
       const slots = record.payload.slots.map((slot) => {
         if (slot.action === undefined) throw new Error('Expected captured fixture action')

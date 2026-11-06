@@ -30,7 +30,7 @@ export function reviewContextPairValid(start: ReceiptRecord, result: ReceiptReco
   )
 }
 
-function reviewChildValid(slot: PlanReviewSlot | undefined, contribution: Contribution): boolean {
+export function reviewChildValid(slot: PlanReviewSlot | undefined, contribution: Contribution): boolean {
   if (slot?.action == null || contribution.host.action == null) return false
   if (contribution.host.origin !== 'native' || contribution.host.role !== slot.specialist) return false
   if (contribution.native?.completion !== 'completed' || contribution.native.strict !== 'valid') return false

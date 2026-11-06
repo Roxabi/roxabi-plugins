@@ -22,12 +22,44 @@ import { prepareCreateProposal } from '../uw-proposal-preparation.ts'
 import { UwGraphUnavailableError } from '../uw-read-port.ts'
 
 describe('UW operation write authority', () => {
+  it('reopens only after confirmation and reads back the exact OPEN/REOPENED state', async () => {
+    const { state, operations } = fixture()
+    state.nativeState = { state: 'CLOSED', stateReason: 'NOT_PLANNED' }
+    state.acceptedSource = { scope: UW, recordId: 'accepted-reopen', kind: 'mandate' }
+    const result = await operations.reopen(UW)
+    expect(result.status).toBe('written')
+    expect(state.nativeState).toEqual({ state: 'OPEN', stateReason: 'REOPENED' })
+  })
+
+  it('does not reopen when the native state changed during confirmation', async () => {
+    const { state, operations } = fixture({
+      onConfirm: (current) => {
+        current.nativeState = { state: 'OPEN', stateReason: 'REOPENED' }
+      },
+    })
+    state.nativeState = { state: 'CLOSED', stateReason: 'NOT_PLANNED' }
+    state.acceptedSource = { scope: UW, recordId: 'accepted-reopen', kind: 'mandate' }
+    const result = await operations.reopen(UW)
+    expect(result).toMatchObject({ status: 'refused', diagnostics: [{ code: 'proposal-stale' }] })
+    expect(state.issueReadIssues).toEqual([])
+  })
+
   it('binds ordinary creation context into the prepared exact proposal', async () => {
     const { operations } = fixture()
     await expect(operations.prepare(createInput())).resolves.toMatchObject({
       ok: true,
       value: { proposal: { operation: 'create', creation: { kind: 'operator-create' } } },
     })
+  })
+
+  it('reports a declined unallocated creation at the repository, never an invented issue', async () => {
+    const { operations, state } = fixture({ confirm: false })
+    const result = await operations.create(createInput())
+    expect(result.status).toBe('refused')
+    if (result.status !== 'refused') throw new Error('Expected a declined creation')
+    expect(result.diagnostics[0]?.location).toEqual({ kind: 'repository', repository: createInput().repository })
+    expect(JSON.stringify(result)).not.toContain('#0')
+    expect(state.patchCount).toBe(0)
   })
 
   it('includes the exact sister context in the same proposal digest used for creation', () => {
@@ -196,7 +228,7 @@ describe('UW operation write authority', () => {
   it('refuses before publication when the accepted predecessor changes during confirmation', async () => {
     const { operations, state } = fixture({
       onConfirm: (current) => {
-        current.acceptedSource = { scope: UW, recordId: 'accepted-successor', kind: 'operator-control' }
+        current.acceptedSource = { scope: UW, recordId: 'accepted-successor', kind: 'mandate' }
       },
     })
 
@@ -278,7 +310,7 @@ describe('UW operation write authority', () => {
       nextCriterion: '2',
       allocations: new Map([['C1', allocated]]),
     }
-    state.acceptedSource = { scope: UW, recordId: 'accepted-c1', kind: 'operator-control' }
+    state.acceptedSource = { scope: UW, recordId: 'accepted-c1', kind: 'mandate' }
     const request = {
       ...input('replacement', 'Not used'),
       normalization: [],
@@ -342,6 +374,16 @@ describe('UW operation write authority', () => {
 
     expect(state.published).toHaveLength(1)
     expect(state.patchCount).toBe(1)
+  })
+
+  it('returns only factual created readback, without accepted or admission authority', async () => {
+    const { operations } = fixture()
+    const result = await operations.create(createInput())
+    expect(result.status).toBe('created')
+    if (result.status !== 'created') throw new Error('expected created UW')
+    expect(result.value.uw).toEqual(CREATED_UW)
+    expect(result.value).not.toHaveProperty('accepted')
+    expect(result.value).not.toHaveProperty('admission')
   })
 
   it('reports partial after creating an empty-obligation UW cannot be read back', async () => {

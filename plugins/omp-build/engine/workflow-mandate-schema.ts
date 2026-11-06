@@ -1,9 +1,18 @@
 import { z } from 'zod'
+import { causeDependencyAdjustmentProposalSchema } from './cause-dependency-adjustment-schema.ts'
 import { specDigest } from './record-digests.ts'
 import { type ExternalRecordRef, externalRecordRefSchema } from './record-references.ts'
 import { identifierSchema, jsonSchema, scopeSchema, sha256Schema, shaSchema } from './schema-primitives.ts'
 import { operatorConfirmationEvidenceSchema } from './uw-identity-schema.ts'
-import { specItemIdSchema, specSnapshotSchema, uwTierSchema } from './uw-spec-schema.ts'
+import { nativeIssueObservationSchema } from './uw-native-observation-schema.ts'
+import {
+  criterionIdSchema,
+  ownSpecRefSchema,
+  specItemIdSchema,
+  specSnapshotSchema,
+  uwTierSchema,
+} from './uw-spec-schema.ts'
+import { refinePopulatedParentCoverage } from './workflow-parent-coverage-refinement.ts'
 
 const mandateConfigSchema = z.strictObject({
   productVersion: z.string().min(1),
@@ -61,8 +70,81 @@ export const acceptedChildCommitmentSchema = z
   })
 export type AcceptedChildCommitment = z.infer<typeof acceptedChildCommitmentSchema>
 
+export const parentCoverageSchema = z.strictObject({
+  parent: z.strictObject({ uw: scopeSchema, version: sha256Schema }),
+  assignments: z.array(
+    z.strictObject({
+      criterion: criterionIdSchema,
+      children: z.tuple([scopeSchema]).rest(scopeSchema),
+    }),
+  ),
+})
+export type ParentCoverage = z.infer<typeof parentCoverageSchema>
+export const concreteAcceptedStateSchema = z.strictObject({
+  snapshot: specSnapshotSchema,
+  tier: uwTierSchema,
+  children: z.array(acceptedChildCommitmentSchema),
+  inheritedOwnSpecRefs: z.array(ownSpecRefSchema),
+  coverage: parentCoverageSchema.nullable(),
+})
+export type ConcreteAcceptedState = z.infer<typeof concreteAcceptedStateSchema>
+export const createdChildBindingSchema = z.strictObject({
+  slot: z.strictObject({ kind: z.literal('created-by'), operationId: identifierSchema }),
+  child: scopeSchema,
+  identity: externalRecordRefSchema.extend({ kind: z.literal('spec-identity') }),
+  observed: nativeIssueObservationSchema,
+  snapshot: specSnapshotSchema,
+})
+export type CreatedChildBinding = z.infer<typeof createdChildBindingSchema>
+export const materialAuthorizationSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('direct') }),
+  z.strictObject({
+    kind: z.literal('cause-creation'),
+    operation: externalRecordRefSchema.extend({ kind: z.literal('cause-operation') }),
+    binding: createdChildBindingSchema,
+    boundState: concreteAcceptedStateSchema,
+  }),
+])
+export type MaterialAuthorization = z.infer<typeof materialAuthorizationSchema>
+
+export function refineParentCoverage(
+  value: {
+    own: {
+      uw: { repository: string; target: string }
+      version: string
+      snapshot: { spec: { criteria: readonly { id: string }[] } }
+    }
+    children: readonly AcceptedChildCommitment[]
+    coverage: ParentCoverage | null
+  },
+  context: z.RefinementCtx,
+): void {
+  if (value.children.length === 0) {
+    if (value.coverage !== null)
+      context.addIssue({ code: 'custom', path: ['coverage'], message: 'leaf must not declare parent coverage' })
+    return
+  }
+  const coverage = value.coverage
+  if (coverage === null) {
+    context.addIssue({
+      code: 'custom',
+      path: ['coverage'],
+      message: 'parent coverage is required for committed children',
+    })
+    return
+  }
+  refinePopulatedParentCoverage(value, coverage, context)
+}
+
+export function validParentCoverage(value: Parameters<typeof refineParentCoverage>[0]): boolean {
+  return z
+    .unknown()
+    .superRefine((_input, context) => refineParentCoverage(value, context))
+    .safeParse(null).success
+}
+
 const mandateShared = {
-  format: z.literal('omp-build-mandate/3'),
+  format: z.literal('omp-build-mandate/4'),
   branch: z.string().min(1).nullable(),
   base: z.string().min(1),
   lineageHead: shaSchema.nullable(),
@@ -72,6 +154,8 @@ const mandateShared = {
   ownSpec: mandateOwnSpecSchema,
   tier: uwTierSchema,
   children: z.array(acceptedChildCommitmentSchema),
+  inheritedOwnSpecRefs: z.array(ownSpecRefSchema),
+  coverage: parentCoverageSchema.nullable(),
 }
 const featureMandateSchema = z.strictObject({
   role: z.literal('feature'),
@@ -112,6 +196,7 @@ export const mandatePayloadSchema = z
   .discriminatedUnion('role', [featureMandateSchema, epicMandateSchema, fixOnlyMandateSchema])
   .superRefine((mandate, context) => {
     sameRefMeaning([...mandate.ownSpec.identityAllocations, mandate.parent, mandate.antecedent], context)
+    refineParentCoverage({ own: mandate.ownSpec, children: mandate.children, coverage: mandate.coverage }, context)
     const children = new Set<string>()
     for (const [index, child] of mandate.children.entries()) {
       const key = `${child.scope.repository}\0${child.scope.target}`
@@ -144,11 +229,19 @@ export const operatorControlPayloadSchema = z
       ...controlShared,
     }),
     z.strictObject({
+      control: z.literal('adjust-cause-dependency'),
+      proposal: causeDependencyAdjustmentProposalSchema,
+      proposalDigest: sha256Schema,
+      confirmation: operatorConfirmationEvidenceSchema,
+      execution: z.strictObject({ observed: nativeIssueObservationSchema }),
+    }),
+    z.strictObject({
       control: z.literal('accept-material'),
       predecessor: externalRecordRefSchema,
       assessment: externalRecordRefSchema,
       specVersion: sha256Schema,
       proposalDigest: sha256Schema,
+      authorization: materialAuthorizationSchema,
       confirmation: operatorConfirmationEvidenceSchema,
       identityDelta: identityDeltaSchema,
       ...controlShared,
@@ -161,8 +254,22 @@ export const operatorControlPayloadSchema = z
     }),
   ])
   .superRefine((control, context) => {
-    const refs: Array<ExternalRecordRef | null> = [control.mandate, control.predecessor]
-    if (control.control === 'accept-material') refs.push(control.assessment)
+    const refs: Array<ExternalRecordRef | null> =
+      control.control === 'adjust-cause-dependency'
+        ? [
+            control.proposal.mandate,
+            control.proposal.predecessor,
+            control.proposal.disposition,
+            control.proposal.receipt,
+            control.proposal.accepted.sourceAccepted,
+            ...control.proposal.versionVector.map((ref) => ref.sourceAccepted),
+          ]
+        : [control.mandate, control.predecessor]
+    if (control.control === 'accept-material') {
+      refs.push(control.assessment)
+      if (control.authorization.kind === 'cause-creation')
+        refs.push(control.authorization.operation, control.authorization.binding.identity)
+    }
     if (control.control === 'select-successor') refs.push(control.successor)
     sameRefMeaning(refs, context)
   })

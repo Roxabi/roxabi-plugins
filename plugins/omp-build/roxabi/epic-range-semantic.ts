@@ -1,4 +1,4 @@
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import type { Gh } from './review-input-contract'
 import { confirmedReviewSemanticContext, reviewSemanticCanon } from './review-semantic-canon'
@@ -65,7 +65,11 @@ export async function acceptedEpicSemantic(
   const history = composed.histories[0]
   if (history === undefined) return null
   const parents = composed.histories.slice(1)
-  const causal = await readFixUwCausalContext(composed.histories, [], withRoxabiGitHubPolicy({ cwd, gh }))
+  const causal = await readFreshUwCausalContext(
+    history.source.scope,
+    composed.histories,
+    withRoxabiGitHubPolicy({ cwd, gh }),
+  )
   if (!causal.ok) return null
   const selected = contracts.selectApplicableMandate(history, parents, causal.value)
   if (selected.status !== 'applicable') return null

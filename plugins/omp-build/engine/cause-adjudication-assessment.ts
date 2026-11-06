@@ -7,12 +7,11 @@ import { causeDispositionLineage } from './cause-lineage.ts'
 import type { CauseValidationFrame } from './cause-validation-frame.ts'
 import type { CauseContext } from './finding-target.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope, sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
 import type { Cause, CauseJudgment, FinalFinding } from './review-schema.ts'
-import { sameOwnSpecRef } from './spec-effective.ts'
 import { bindExternalRef, recordsOf } from './workflow-control.ts'
 
 type Operation = Extract<CanonicalRecord, { kind: 'cause-operation' }>

@@ -14,6 +14,7 @@ export type ReviewChunk = {
   digest: string
 }
 export type ReviewPanelInput = {
+  subject: { kind: 'pull-request' } | { kind: 'epic-range'; range: string }
   chunks: readonly ReviewChunk[]
   roster: AllocateReviewInput['shared']
   config: ReviewConfig
@@ -40,11 +41,15 @@ export function createRecallTask(input: RecallTaskInput): Omit<NativeTask, 'acti
   }
 }
 
-export type ReviewPanel = { allocation: AllocateReviewResult; tasks: Array<Omit<NativeTask, 'action'>> }
+export type PanelTask = Omit<NativeTask, 'action'> & { role: string; assignedChunk: number | null }
+export type ReviewPanel = { allocation: AllocateReviewResult; tasks: PanelTask[] }
 
 /** Preserves chunk order, full diff/file bytes and roster-owned role selection. */
 export function allocateReviewPanel(input: ReviewPanelInput): ReviewPanel {
-  if (input.chunks.length === 0) throw new Error('review requires chunker output')
+  if (input.chunks.length === 0 && input.subject.kind !== 'epic-range')
+    throw new Error('review requires chunker output')
+  if (input.chunks.length === 0 && input.roster.delta.length !== 0)
+    throw new Error('empty review chunks disagree with the changed-file delta')
   if (input.chunks.some((chunk, index) => chunk.index !== index || chunk.digest.length === 0))
     throw new Error('review chunks require ordered chunker/digest outputs')
   const allocation = allocateReview({
@@ -52,17 +57,27 @@ export function allocateReviewPanel(input: ReviewPanelInput): ReviewPanel {
     shared: { ...input.roster, chunks: input.chunks.length },
   })
   if (allocation.global.review_halt) throw new Error('roster halted review dispatch')
-  const tasks = input.chunks.flatMap((chunk) =>
-    allocation.chunk_agents[chunk.index].map((role) => {
-      const agent = nativePanelProfileByRole[role]
-      if (!agent) throw new Error(`roster selected unsupported native role ${role}`)
-      return {
-        name: `panel-${chunk.index}-${role}`,
-        agent,
-        solutionSpace: 'review this assigned chunk and report only structured findings',
-        task: 'Review the assigned chunk named by the index. Return structured findings only. Do not publish.',
-      }
-    }),
-  )
+  const task = (role: string, assignedChunk: number | null): PanelTask => {
+    const agent = nativePanelProfileByRole[role]
+    if (!agent) throw new Error(`roster selected unsupported native role ${role}`)
+    return {
+      name: assignedChunk === null ? `panel-context-${role}` : `panel-${assignedChunk}-${role}`,
+      agent,
+      role,
+      assignedChunk,
+      solutionSpace:
+        assignedChunk === null
+          ? 'independently review the accepted parent context and integration evidence'
+          : 'review this assigned chunk and report only structured findings',
+      task:
+        assignedChunk === null
+          ? 'There is no changed-file diff. Independently examine the accepted Parent obligations, integration result, direct evidence, coverage and child-proof sources in the index. Return structured findings only. Do not publish.'
+          : 'Review the assigned chunk named by the index. Return structured findings only. Do not publish.',
+    }
+  }
+  const tasks =
+    input.chunks.length === 0
+      ? allocation.global.agents.map((role) => task(role, null))
+      : input.chunks.flatMap((chunk) => allocation.chunk_agents[chunk.index].map((role) => task(role, chunk.index)))
   return { allocation, tasks }
 }

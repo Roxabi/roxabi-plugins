@@ -68,11 +68,11 @@ function validateExpandedBinding(
   start: Start,
   binding: { actionId: string; inputs: ActionInputs },
   histories: readonly DecodedHistory[],
-  causal: WorkflowCausalContext,
+  causal: WorkflowCausalContext | null,
 ): Check {
   const inputs = binding.inputs
   if (inputs.manifest.expandedContext.length === 0) return { ok: true }
-  const references = validateExpandedReferences(inputs, causal.histories)
+  const references = validateExpandedReferences(inputs, causal?.histories ?? histories)
   if (!references.ok) return references
   const request: UwActionRequest = {
     actionId: binding.actionId,
@@ -101,14 +101,18 @@ function validateExpandedBinding(
     !same(previous.stageSources, inputs.stageSources)
   )
     return { ok: false, reason: 'review-input-changed' }
-  return validatePlannerSlot(start, request, histories, causal)
+  return causal === null
+    ? start.action === 'plan' || start.action === 'plan-review'
+      ? { ok: false, reason: 'causal-uw-unavailable' }
+      : { ok: true }
+    : validatePlannerSlot(start, request, histories, causal)
 }
 
 /** Validate the actual start's semantic slot against every explicit negative lineage before publication. */
 export function authorizeExpandedStart(
   start: Start,
   histories: readonly DecodedHistory[],
-  causal: WorkflowCausalContext,
+  causal: WorkflowCausalContext | null,
 ): Check {
   const bindings: { actionId: string; inputs: ActionInputs }[] =
     start.action === 'plan-review'
@@ -125,7 +129,7 @@ export function authorizeExpandedStart(
 export function recheckExpandedStart(
   record: Extract<CanonicalRecord, { kind: 'action-receipt' }>,
   histories: readonly DecodedHistory[],
-  causal: WorkflowCausalContext,
+  causal: WorkflowCausalContext | null,
 ): { ok: true } | { ok: false; reason: string } {
   if (record.payload.phase !== 'start') return { ok: false, reason: 'action-start-unconfirmed' }
   const observed = histories.flatMap((history) =>
@@ -151,8 +155,7 @@ export function recheckExpandedStart(
     ),
   })
   const beforeStart = histories.map(withoutStart)
-  const beforeCausal = { ...causal, histories: causal.histories.map(withoutStart) }
-  return authorizeExpandedStart(record.payload, beforeStart, beforeCausal)
+  return authorizeExpandedStart(record.payload, beforeStart, causal)
 }
 
 export function hasExpandedStart(start: Start): boolean {

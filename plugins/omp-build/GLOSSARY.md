@@ -20,6 +20,14 @@ _Avoid_: epic, a delivery inferred from its children's approvals alone
 A UW without children, as determined by its native GitHub relations.
 _Avoid_: ticket, a role fixed by an issue type
 
+**UW gérée**:
+A UW whose confirmed Mandate establishes an accepted Spec. A conforming body, allocated identities or native closure alone do not establish its delivery.
+_Avoid_: a size label, an issue considered delivered because it is closed
+
+**Terminée**:
+A calculated UW state established by its applicable accepted obligations and authenticated delivery: a merged leaf with satisfied criteria, or a parent with completed accepted children, matching relations, satisfied coverage and direct integration evidence.
+_Avoid_: native closure, an abandoned UW, the sum of child approvals
+
 **Feature**:
 The delivery of a UW, from framing through merge, driven by `/feature`.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
@@ -37,7 +45,7 @@ The durable pause a native session stop, switch, or shutdown awaits for a pausab
 _Avoid_: a local interrupt, an unconfirmed pause request, a spent review bound
 
 **Abandonment**:
-Explicit revocation of a Mandate. A successor, if one exists, retains its antecedents and does not erase their stops.
+Explicit revocation of a Mandate, not successful completion and not removal of incoming dependencies. A successor, if one exists, retains its antecedents and does not erase their stops.
 _Avoid_: pause, automatic renewal, resetting a bound
 
 **Successor**:
@@ -77,7 +85,7 @@ A published result whose complete remote record has been read back and can suppo
 _Avoid_: a local snapshot, an attempted write, an unconfirmed acknowledgement
 
 **Parent UW mandate**:
-The confirmed mandate on a UW parente: run, base, and approved child scope for that delivery. It is not a session goal.
+The confirmed mandate on a UW parente: the accepted child UWs, their Spec versions and tiers, and their parent coverage for one delivery. It is not a session goal.
 _Avoid_: Epic goal, /goal, an autonomy level stored on the issue, one goal per UW
 
 **Run**:
@@ -115,6 +123,14 @@ _Avoid_: a body URL alone, an unversioned obligation
 **Version de Spec**:
 The identity of parsed canonical framing content, independent of presentation-only spacing and distinct from the integrity of the exact source bytes.
 _Avoid_: a raw-body digest, whitespace erasure inside an obligation or example
+
+**Vecteur de versions acceptées**:
+The ordered accepted Spec references for a UW and every ancestor, starting with the UW itself. It pins the obligations used together rather than following newer proposed bodies implicitly.
+_Avoid_: an own-only reference, an unversioned ancestor list, implicit acceptance of a parent edit
+
+**Couverture parente**:
+The explicitly accepted assignment of every parent criterion to at least one accepted child, at the accepted Spec versions and tiers. Child approvals alone do not establish that the parent's integrated criteria are satisfied.
+_Avoid_: matching criteria by text, implicit coverage, an orphan criterion
 
 **Critère**:
 A UW obligation with a durable identity that survives rewording and is never reused after withdrawal.
@@ -187,7 +203,7 @@ _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 **Landing admission**:
 The read-only check before `landPr` writes its arms. It admits only when the latest review approves the current head inside an unspent review bound, required CI is not red or unreadable, normative inputs are unchanged, and the selected outputs are authentic. Pending CI may be armed; the merge waits until the required checks pass. Normative inputs are the mandate configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/4` capture equal to the review binding. Authentic outputs have the expected author and readable, unedited native dates on every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; and on every mandate-chain and workflow-binding part.
 
-Admission also requires the selected UW to remain deliverable on a fresh, complete native graph with its accepted own Spec applicable. Missing or incompatible authority is a refusal, not permission to infer acceptance, migrate a record or renew a mandate.
+Admission also requires the selected UW's full accepted Spec version vector to remain applicable on a fresh, complete common observation, with its required dependencies satisfied by their calculated completion. The selected UW need not already be complete to implement, integrate or review it. Missing or incompatible authority is a refusal, not permission to infer acceptance, migrate a record or renew a mandate.
 
 _Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
 
@@ -268,7 +284,7 @@ A durable linked git checkout (ω) that isolates delivery from the Principal. Cr
 _Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`; a session goal
 
 **Parent UW worktree**:
-The one Worktree a UW parente is delivered from, created **detached** at `refs/remotes/origin/<base>`, with no parent branch. Each child UW gets its own branch inside it, from the base, and its own PR; after a confirmed merge HEAD is detached there again and the child's local branch deleted.
+The one Worktree shared by a UW parente's delivery hierarchy, including nested Parents and their Leaf children, anchored to the outermost Parent. Each Parent retains its own Mandat and delivery obligations without a Parent branch or PR; each Leaf child uses its own branch and PR in that Worktree.
 _Avoid_: one worktree per child UW, a parent branch, the Principal, Isolation
 
 **Bootstrap**:

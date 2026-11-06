@@ -41,6 +41,7 @@ export {
   type DeliveryDataRef,
   deliveryDataRefSchema,
 } from './engine/action-input-schema.ts'
+export { type CodeRange, codeRangeSchema } from './engine/code-range-schema.ts'
 export { resolveAdmittedCorrectionCriterionSource } from './engine/correction-criterion-source.ts'
 export { resolveCorrectionRequestBasis } from './engine/correction-request-basis.ts'
 export {
@@ -111,6 +112,7 @@ export {
   unframedParserSchema,
 } from './engine/issue-spec-analysis-schema.ts'
 export { producerOutputValid } from './engine/producer-schema.ts'
+export { sameOwnSpecRef } from './engine/record-diagnostics.ts'
 export { gitObjectIdSchema } from './engine/record-references.ts'
 export { accounted, resolvedOutputValid } from './engine/review-context-authentication.ts'
 export {
@@ -120,18 +122,24 @@ export {
   reviewInventoryHasContextNegative,
 } from './engine/review-context-lineage.ts'
 export { repoRelativePathSchema } from './engine/schema-primitives.ts'
-export {
-  resolveOwnSpecEffective,
-  SPEC_EFFECTIVE_FORMAT,
-  type SpecEffective,
-  sameOwnSpecRef,
-  specEffectiveSchema,
-} from './engine/spec-effective.ts'
+export { resolveSpecEffective, type SpecEffectiveRequest } from './engine/spec-effective.ts'
+export { SPEC_EFFECTIVE_FORMAT, type SpecEffective, specEffectiveSchema } from './engine/spec-effective-schema.ts'
 export { actionEnvelopeSchema, actionRequestSchema } from './engine/uw-action-command-schema.ts'
 export {
+  buildObservedCommitIndex,
+  deliveredChildCommit,
+  type ObservedCommitIndex,
+  observedAncestors,
+} from './engine/uw-delivery-lineage.ts'
+export { projectUwDelivery } from './engine/uw-delivery-projection.ts'
+export type { UwDeliveryDeclaration, UwDeliveryRead, UwDeliveryVerdict } from './engine/uw-delivery-types.ts'
+export { type IntegrationOutput, integrationOutputSchema } from './engine/uw-integration-schema.ts'
+export {
   type ActionOperands,
+  type AssessmentProposalOrigin,
   type AssessSpecExact,
   actionOperandsSchema,
+  assessmentProposalOriginSchema,
   type CiExact,
 } from './engine/workflow-action-operands.ts'
 export {
@@ -149,6 +157,58 @@ export {
   unliftedPause,
   workflowOperationProblem,
 } from './engine/workflow-control.ts'
-export { producerImplementationOutputSchema } from './engine/workflow-output-schema.ts'
+export { resolveCurrentInheritedOwnSpecRefs } from './engine/workflow-current-inheritance.ts'
+export type {
+  ConcreteAcceptedState,
+  CreatedChildBinding,
+  MaterialAuthorization,
+} from './engine/workflow-mandate-schema.ts'
+export {
+  type AcceptedChildCommitment,
+  acceptedChildCommitmentSchema,
+  type MandatePayload,
+  mandatePayloadSchema,
+  type OperatorControlPayload,
+  operatorControlPayloadSchema,
+  parentCoverageSchema,
+  validParentCoverage,
+  type WorkflowBindingPayload,
+  workflowBindingPayloadSchema,
+} from './engine/workflow-mandate-schema.ts'
+export {
+  type CiAttribution,
+  ciAttributionSchema,
+  type ImplementationOutput,
+  implementationOutputSchema,
+  type PlanBlockerRef,
+  type PlanOutput,
+  type PlanResolution,
+  type PlanReview,
+  type PlanStep,
+  planBlockerRefSchema,
+  planDigest,
+  planOutputSchema,
+  planResolutionSchema,
+  planReviewSchema,
+  planStepSchema,
+  producerImplementationOutputSchema,
+  type SpecAssessment,
+  specAssessmentSchema,
+} from './engine/workflow-output-schema.ts'
 export { confirmedAccountedMandate } from './engine/workflow-pr-binding.ts'
 export { ciExactSchema } from './engine/workflow-receipt-exact.ts'
+export {
+  type ActionReceiptPayload,
+  type AssessSpecResultPayload,
+  actionReceiptPayloadSchema,
+  type HostEffectAdmission,
+  hostEffectAdmissionSchema,
+  type ImplementationAdmissionCommand,
+  implementationAdmissionCommandSchema,
+  PLAN_REVIEW_SPECIALISTS,
+  type PlanReviewSlot,
+  planReviewSlotSchema,
+  planReviewSpecialistSchema,
+  type WorkflowReceiptAction,
+  workflowReceiptActionSchema,
+} from './engine/workflow-receipt-schema.ts'

@@ -165,7 +165,7 @@ it('joins all demanded histories and reports the first input failure despite rev
     failure = error
   }
   expect(failure).toBeInstanceOf(Error)
-  expect(JSON.stringify(failure)).toContain('deliberate failure for 101')
+  expect((failure as Error).message).toContain('#101')
   const observed = events(repo)
   expectJoinedAndBounded(observed, repo)
   expect(observed.findIndex((event) => event.kind === 'end' && event.number === 102)).toBeLessThan(

@@ -8,6 +8,7 @@ import {
   type Ref,
   type ReviewClassCatalogues,
   reviewInventoryHasContextNegative,
+  reviewRootFromDecision,
   type Scope,
   validateFreshDecision,
 } from '../dist/contracts.js'
@@ -32,7 +33,7 @@ function requireFinalContext(history: DecodedHistory, inventories: readonly stri
     throw new Error('final-publication-refused:action-context-missing')
 }
 
-export async function finalizeReview(input: {
+type FinalizeInput = {
   review: FinalizationInput
   identity: ReviewIdentity
   scope: Scope
@@ -46,7 +47,33 @@ export async function finalizeReview(input: {
   readExternalHistories(history: DecodedHistory): Promise<Result<readonly DecodedHistory[]>>
   loadCatalogues(histories: readonly DecodedHistory[]): Promise<ReviewClassCatalogues>
   onDecisionConfirmed(decisionId: string): void
-}): Promise<void> {
+}
+
+async function requireSynthesisDecision(input: FinalizeInput, history: DecodedHistory) {
+  const contribution = input.contributions.find((item) => item.child.expectedId === 'synthesis')
+  if (!contribution || contribution.child.structured === null) {
+    await input.retainFailedSynthesis(history, 'synthesis-contribution-missing')
+    throw new Error('synthesis-contribution-missing')
+  }
+  const judgment = decisionSchema.safeParse(contribution.child.structured)
+  if (!judgment.success || judgment.data.purpose !== 'review') {
+    await input.retainFailedSynthesis(history, 'synthesis-decision-invalid')
+    throw new Error('synthesis-decision-invalid')
+  }
+  return { contribution, judgment: judgment.data }
+}
+
+function hasEpicIntegration(
+  decision: Extract<CanonicalRecord, { kind: 'decision' }>,
+  history: DecodedHistory,
+): boolean {
+  const root = reviewRootFromDecision(decision, history)
+  if (!root.ok || root.value.payload.stage !== 'initial' || root.value.payload.purpose !== 'review')
+    throw new Error('final-publication-refused:review-root-unconfirmed')
+  return root.value.payload.inputSnapshot.manifest.deliveryData.some((item) => item.role === 'integration')
+}
+
+export async function finalizeReview(input: FinalizeInput): Promise<void> {
   if (!input.canContinue()) return
   const rootId = input.inventories[0]
   if (rootId === undefined) throw new Error('final-publication-refused:review-root-unconfirmed')
@@ -58,22 +85,13 @@ export async function finalizeReview(input: {
   if (!authorization.ok) throw new Error(`final-publication-refused:${authorization.reason}`)
   const beforeFinal = await input.readHistory()
   requireFinalContext(beforeFinal, input.inventories)
-  const contribution = input.contributions.find((item) => item.child.expectedId === 'synthesis')
-  if (!contribution || contribution.child.structured === null) {
-    await input.retainFailedSynthesis(beforeFinal, 'synthesis-contribution-missing')
-    throw new Error('synthesis-contribution-missing')
-  }
-  const judgment = decisionSchema.safeParse(contribution.child.structured)
-  if (!judgment.success || judgment.data.purpose !== 'review') {
-    await input.retainFailedSynthesis(beforeFinal, 'synthesis-decision-invalid')
-    throw new Error('synthesis-decision-invalid')
-  }
+  const { contribution, judgment } = await requireSynthesisDecision(input, beforeFinal)
   const decisionRecordId = input.identity.next('decision')
   const decision = requireRecord(
     buildRecord({
       ...recordBase(input.identity, input.scope, decisionRecordId),
       kind: 'decision',
-      payload: { originalContributionId: contribution.id, judgment: judgment.data },
+      payload: { originalContributionId: contribution.id, judgment },
     } satisfies Extract<RecordDraft, { kind: 'decision' }>),
     'decision',
   )
@@ -101,7 +119,7 @@ export async function finalizeReview(input: {
   }
   input.onDecisionConfirmed(decision.recordId)
   if (!input.canContinue()) return
-  if (input.review.context.subject.kind === 'epic-range') return
+  if (input.review.context.subject.kind === 'epic-range' && !hasEpicIntegration(decision, history)) return
 
   const reviewRecordId = input.identity.next('review')
   const review = requireRecord(

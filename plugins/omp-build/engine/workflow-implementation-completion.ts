@@ -1,8 +1,11 @@
 import { assessCriterionDeclarations } from './criterion-admission.ts'
-import { uniqueAccounted } from './delivery-eligibility.ts'
+import { integrationReceiptEligible, integrationStartPaired, uniqueAccounted } from './delivery-eligibility.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
-import { resolveOwnSpecEffective, type SpecEffective } from './spec-effective.ts'
+import { resolveSpecEffective } from './spec-effective.ts'
+import type { SpecEffective } from './spec-effective-schema.ts'
+import { toDiagnostics } from './uw-diagnostics.ts'
+import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
@@ -11,16 +14,18 @@ import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
 
 type ImplementationReceipt = ReceiptRecord & {
-  payload: Extract<ReceiptRecord['payload'], { action: 'implement' }>
+  payload: Extract<ReceiptRecord['payload'], { action: 'implement' | 'integrate' }>
 }
 type ImplementationResult = ImplementationReceipt & {
   payload: Extract<ImplementationReceipt['payload'], { phase: 'result' }>
 }
 
-function implementationReceipts(history: WorkflowEvidence['issue']): ImplementationReceipt[] {
+function implementationReceipts(
+  history: WorkflowEvidence['issue'],
+  action: 'implement' | 'integrate',
+): ImplementationReceipt[] {
   return recordsOf(history).filter(
-    (record): record is ImplementationReceipt =>
-      record.kind === 'action-receipt' && record.payload.action === 'implement',
+    (record): record is ImplementationReceipt => record.kind === 'action-receipt' && record.payload.action === action,
   )
 }
 
@@ -32,6 +37,8 @@ function unpairedStart(receipts: readonly ImplementationReceipt[]): boolean {
 
 function isUnadmittedImplementation(record: ImplementationReceipt): boolean {
   if (record.payload.phase !== 'result' || record.payload.admission?.admitted !== true) return true
+  if (record.payload.action === 'integrate')
+    return !integrationOutputSchema.safeParse(record.payload.structured).success
   const parsed = implementationOutputSchema.safeParse(record.payload.structured)
   return !parsed.success || parsed.data.outcome !== 'implemented'
 }
@@ -69,8 +76,11 @@ function coveredImplementation(
   mandate: MandateRecord,
   spec: SpecEffective,
 ): ActionCompletion {
-  const latest = implementationOutputSchema.safeParse(latestRecord.payload.structured)
-  if (!latest.success || latest.data.outcome !== 'implemented') {
+  const latest =
+    latestRecord.payload.action === 'integrate'
+      ? integrationOutputSchema.safeParse(latestRecord.payload.structured)
+      : implementationOutputSchema.safeParse(latestRecord.payload.structured)
+  if (!latest.success || (latest.data.outcome !== 'implemented' && latest.data.outcome !== 'integrated')) {
     return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
   }
   const commit = latestRecord.payload.admission?.remoteTip
@@ -91,6 +101,7 @@ function admittedResult(
   receipts: readonly ImplementationReceipt[],
   planActionId: string,
   spec: SpecEffective,
+  history: WorkflowEvidence['issue'],
 ): ActionCompletion {
   const selectedReceipts = implementationForPlan(receipts, mandate, planActionId)
   const starts = selectedReceipts.filter((record) => record.payload.phase === 'start')
@@ -99,7 +110,12 @@ function admittedResult(
   const implemented = results.filter(
     (record) => !isUnadmittedImplementation(record) && record.payload.admission?.remoteTip != null,
   )
-  const selected = uniqueAccounted(implemented, 'current implementation')
+  const paired = implemented.filter(
+    (result) =>
+      result.payload.action !== 'integrate' ||
+      (integrationReceiptEligible(result) && integrationStartPaired(history, result)),
+  )
+  const selected = uniqueAccounted(paired, 'current implementation')
   if (!selected.ok) return { status: 'blocked', evidence: selected.diagnostics }
   if (selected.value === null) {
     return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
@@ -114,8 +130,13 @@ function mandatedCompletion(
 ): ActionCompletion {
   const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (!accepted.ok) return { status: 'blocked', evidence: accepted.evidence }
-  const effective = resolveOwnSpecEffective(accepted.spec)
-  if (!effective.ok) return { status: 'blocked', evidence: effective.diagnostics }
+  const effective = resolveSpecEffective({
+    mode: 'current',
+    own: accepted.spec.ref,
+    histories: evidence.causal.histories,
+    graph: evidence.causal.observation.graph,
+  })
+  if (!effective.ok) return { status: 'blocked', evidence: toDiagnostics(effective.diagnostics) }
   const blocked = macroBlocked(evidence, mandate)
   if (blocked !== null) {
     if (blocked.status === 'not-started' && hasRejectedResult(receipts)) {
@@ -126,12 +147,15 @@ function mandatedCompletion(
   const macro = planMacro(evidence, mandate)
   const planActionId = macro.amendmentActionId ?? macro.draftActionId
   if (planActionId === null) return { status: 'not-started', evidence: [] }
-  return admittedResult(mandate, receipts, planActionId, effective.value)
+  return admittedResult(mandate, receipts, planActionId, effective.value, evidence.issue)
 }
 
 export function implementationCompletion(evidence: WorkflowEvidence, mandate: MandateRecord | null): ActionCompletion {
-  const receipts = implementationReceipts(evidence.issue)
-  const terminal = workflowContextTerminal(evidence.issue, 'implement')
+  const accepted = mandate === null ? null : resolveAcceptedSpec(mandate, evidence.causal.histories)
+  if (accepted !== null && !accepted.ok) return { status: 'blocked', evidence: accepted.evidence }
+  const action = accepted?.ok && accepted.spec.children.length > 0 ? 'integrate' : 'implement'
+  const receipts = implementationReceipts(evidence.issue, action)
+  const terminal = workflowContextTerminal(evidence.issue, action)
   if (terminal === 'missing')
     return {
       status: 'blocked',

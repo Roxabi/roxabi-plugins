@@ -1,5 +1,5 @@
 import {
-  assessCauseDispositions,
+  assessHistoricalCauseDispositions,
   bindExternalRef,
   canonicalValueDigest,
   causeDispositionLineage,
@@ -9,7 +9,7 @@ import {
   readCauseReports,
   readComposedWorkflowHistory,
   resolveCauseActionInputs,
-  resolveOwnSpecEffective,
+  resolveSpecEffective,
   validateCauseDispositionRecords,
 } from '../dist/contracts.js'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
@@ -95,8 +95,9 @@ function assertDispositionAssessment(
   } else if (previousRef !== null || adjudicationRef !== null) {
     throw new Error('cause-disposition-stale')
   }
-  const assessed = assessCauseDispositions({
+  const assessed = assessHistoricalCauseDispositions({
     context,
+    capture: disposition.payload.basis.capture,
     source: { kind: 'decision', decision },
     histories: loaded,
     catalogues,
@@ -107,6 +108,31 @@ function assertDispositionAssessment(
     (outcome) => canonicalValueDigest(outcome.subject) === canonicalValueDigest(disposition.payload.subject),
   )
   if (matching.length !== 1 || canonicalValueDigest(matching[0]) !== canonicalValueDigest(disposition.payload))
+    throw new Error('cause-disposition-stale')
+}
+
+function assertCurrentDisposition(
+  loaded: readonly DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
+  ref: ExternalRecordRef,
+): void {
+  const records = loaded.flatMap((history) =>
+    history.operations.flatMap((operation) =>
+      operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
+        ? [operation.record]
+        : [],
+    ),
+  )
+  const validation = validateCauseDispositionRecords({ records, histories: loaded, catalogues })
+  if (validation.length) fail(validation)
+  if (
+    records.some(
+      (record) =>
+        record.kind === 'cause-disposition' &&
+        record.payload.previous?.recordId === ref.recordId &&
+        same(record.payload.previous.scope, ref.scope),
+    )
+  )
     throw new Error('cause-disposition-stale')
 }
 
@@ -134,7 +160,20 @@ export async function readAuthenticatedCause(
   if (!lineage.ok) fail(lineage.diagnostics)
   const original = await reader.readUw(ref.scope)
   if (original.accepted.status !== 'accepted') throw new Error('correction-spec-not-accepted')
-  const effective = resolveOwnSpecEffective(original.accepted.value)
+  if (original.observation.status !== 'complete') throw new Error('cause-observation-incomplete')
+  const current = resolveSpecEffective({
+    mode: 'current',
+    own: original.accepted.value.ref,
+    histories: original.observation.histories,
+    graph: original.observation.graph,
+  })
+  if (!current.ok) fail(current.diagnostics)
+  const effective = resolveSpecEffective({
+    mode: 'historical',
+    own: disposition.payload.origin,
+    versionVector: disposition.payload.basis.versionVector,
+    histories: original.observation.histories,
+  })
   if (!effective.ok) fail(effective.diagnostics)
   const context: CauseContext = { original: ref.scope, effective: effective.value }
   const subject = disposition.payload.subject
@@ -179,24 +218,7 @@ export async function readAuthenticatedCause(
     gh: github.gh ?? defaultGh(),
   })
   const own = home(loaded, ref.scope)
-  const records = loaded.flatMap((history) =>
-    history.operations.flatMap((operation) =>
-      operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
-        ? [operation.record]
-        : [],
-    ),
-  )
-  const validation = validateCauseDispositionRecords({ records, histories: loaded, catalogues })
-  if (validation.length) fail(validation)
-  if (
-    records.some(
-      (record) =>
-        record.kind === 'cause-disposition' &&
-        record.payload.previous?.recordId === ref.recordId &&
-        same(record.payload.previous.scope, ref.scope),
-    )
-  )
-    throw new Error('cause-disposition-stale')
+  assertCurrentDisposition(loaded, catalogues, ref)
   assertDispositionAssessment(disposition, source.value, loaded, context, catalogues)
   assertDispositionRebound(ref, own, disposition)
   return { disposition, histories: loaded, context, catalogues }

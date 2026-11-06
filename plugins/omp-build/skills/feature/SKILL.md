@@ -10,9 +10,9 @@ version: 0.1.12
 
 The installed `/feature` command owns selection and continuation. `omp/index.ts` registers it and calls `runInstalledFeatureCommand` in `roxabi/feature-entry.ts`. That registered command does not dump this file into the turn. Explicit `skill://feature` or `/skill:feature` access supplies reference material, not another lifecycle or execution authority. A session `/goal` is not authority.
 
-Package `0.13.0` in this tree is not evidence of installation, activation or runtime qualification. This reference grants no campaign or hosted-activation authority.
+A source package or skill read does not attest installation or the loaded runtime.
 
-One issue, one branch, one worktree, one PR. The body carries a proposed own Spec in the sole English-heading grammar documented in the plugin README; author-language statements are preserved. Accepted Spec comes from the applicable `/3` mandate and its authenticated assessment/operator chain, not from a manual body edit. Ancestor Spec is not applicable until the separate inheritance work.
+Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a proposed own Spec in the sole English-heading grammar documented in the plugin README; author-language statements are preserved. Accepted Own Spec and version-pinned inherited clauses come from the applicable `/3` mandates and their authenticated assessment/operator chains; manual body edits remain proposals.
 
 ## Operator controls
 

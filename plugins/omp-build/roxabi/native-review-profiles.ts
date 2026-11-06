@@ -28,7 +28,7 @@ const worktreeWrite =
   'Write only the confirmed worktree change named by the index. Residual environment, gh config, git helpers, and SSH credentials may remain on Bash; that is a procedural fallback, not isolation. Worktree separation is not a credential boundary. Do not publish, push, comment, or close.'
 
 const targetInstructions =
-  'Every finding requires a target in format omp-build-finding-target/1. Use the indexed accepted OwnSpecRef and local criterion or invariant ID when applicable; otherwise use an outside-spec target bound to the indexed original scope. Never infer a criterion or invariant from prose or use an ancestor or foreign Spec.'
+  'Every finding requires a target in format omp-build-finding-target/1. Use the exact effective.own Spec reference for an own criterion or invariant. For an inherited invariant copy the exact effective.inherited.invariants[].target from spec.json, including its pinned owner. Otherwise use an outside-spec target bound to the indexed original scope. Never infer an obligation from prose or use a foreign or unpinned Spec reference. Apply every own and inherited invariant and exclusion; only own criteria require criterion verdict rows.'
 const findings = [snapshot, verifyShell, targetInstructions, 'Return structured findings only.'].join('\n\n')
 
 const specInstructions = [
@@ -48,7 +48,7 @@ const specInstructions = [
 const causeInstructions = [
   'Return format omp-build-cause-decision/1. Preserve every original exactly once in final findings; merge only findings with identical targets. Assign every usable final finding to exactly one cause and every unusable final finding to exactly one unassignedFindings entry with its reason and diagnostics. Preserve an unparseable target as null, not an invented target.',
   'For each cause provide necessary, urgent, and tooLarge judgments. Each supported judgment has a nonblank reason and distinct authenticated observation references specific to that cause and dimension. Mark absent or disputed evidence missing or contested. Propose fix-original for necessary and urgent work that fits; sister-blocking for blocking work that is too large; sister-after for nonblocking necessary and urgent work that is too large; otherwise report. A blocking finding is necessary and urgent but unsupported, contested, or contradictory evidence requires proposedDisposition null and adjudication, not a blind fix.',
-  'Provide exclusionClaims with sourceFindingId, target, exclusion, concern, and reason. Only explicitly excluded outside-Spec additional work is excluded; an accepted criterion, introduced regression, security defect, or invariant violation remains actionable. Separate excluded additional work from actionable work into distinct causes.',
+  'Provide exclusionClaims with sourceFindingId, target, exclusion, concern, and reason. Copy the exact own exclusion reference or effective.inherited.exclusions[].ref from spec.json, including its pinned owner. Only explicitly excluded outside-Spec additional work is excluded; an accepted criterion, introduced regression, security defect, or invariant violation remains actionable. Separate excluded additional work from actionable work into distinct causes.',
 ].join('\n\n')
 const synthesisInstructions = [
   snapshot,

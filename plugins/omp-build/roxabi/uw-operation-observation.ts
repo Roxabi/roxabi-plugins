@@ -18,6 +18,7 @@ export function observation(read: UwRead): IssueWriteObservation | null {
     title: node.title,
     body: node.raw.body,
     updatedAt: node.updatedAt,
+    nativeState: node.native,
     labels: node.labels,
     parent: node.parent === null ? null : issueRef(node.parent),
     children: node.children.flatMap((child) => {

@@ -8,7 +8,7 @@ import {
 } from '../criterion-admission.ts'
 import { type CriterionEvidence, type EvidenceRef, evidenceRefSchema } from '../criterion-evidence-schema.ts'
 import type { CriterionVerdict } from '../criterion-verdict-schema.ts'
-import type { SpecEffective } from '../spec-effective.ts'
+import type { SpecEffective } from '../spec-effective-schema.ts'
 import {
   candidate,
   claimedRun,
@@ -341,5 +341,51 @@ describe('criterion admission', () => {
       exclusion({ target: outsideTarget(otherScope) }),
     ]
     for (const claim of refused) expect(assessExclusion({ spec: paired, claim }).ok).toBe(false)
+  })
+  test('admits only exact own or pinned ancestor exclusion references without waiving actionable work', () => {
+    const parentScope = { repository: 'acme/app', target: 'acme/app#41' }
+    const grandScope = { repository: 'acme/app', target: 'acme/app#40' }
+    const parent = {
+      uw: parentScope,
+      version: 'a'.repeat(64),
+      sourceAccepted: { scope: parentScope, recordId: 'parent', kind: 'mandate' as const },
+    }
+    const grand = {
+      uw: grandScope,
+      version: 'b'.repeat(64),
+      sourceAccepted: { scope: grandScope, recordId: 'grand', kind: 'mandate' as const },
+    }
+    const spec: SpecEffective = {
+      ...paired,
+      versionVector: [own, parent, grand],
+      inherited: {
+        invariants: [],
+        exclusions: [
+          { ref: { spec: parent, index: 0 }, statement: 'parent exclusion' },
+          { ref: { spec: grand, index: 0 }, statement: 'grandparent exclusion' },
+        ],
+      },
+    }
+    for (const owner of [own, parent, grand]) {
+      const claim = exclusion({ exclusion: { spec: owner, index: 0 } })
+      expect(assessExclusion({ spec, claim })).toEqual({ ok: true, value: claim })
+    }
+    const refused = [
+      exclusion({ exclusion: { spec: { ...parent, version: 'c'.repeat(64) }, index: 0 } }),
+      exclusion({
+        exclusion: { spec: { ...parent, sourceAccepted: { ...parent.sourceAccepted, recordId: 'other' } }, index: 0 },
+      }),
+      exclusion({ exclusion: { spec: parent, index: 1 } }),
+      exclusion({ exclusion: { spec: foreignOwn, index: 0 } }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, target: criterionTarget('C1') }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, target: invariantTarget() }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, concern: 'security' }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, concern: 'introduced-regression' }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, concern: 'unknown' }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, target: outsideTarget(parentScope) }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, concern: 'invariant-violation' }),
+      exclusion({ exclusion: { spec: parent, index: 0 }, target: outsideTarget(otherScope) }),
+    ]
+    for (const claim of refused) expect(assessExclusion({ spec, claim }).ok).toBe(false)
   })
 })

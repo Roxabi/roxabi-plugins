@@ -94,6 +94,7 @@ describe('action input fingerprint', () => {
       accepted,
       proposedAssessmentState(accepted, { body: 'new proposal' }),
       'material',
+      [roxabiWorkflowFixtures().historyFrom([mandate])],
     )
     if (assessment.start.kind !== 'action-receipt' || assessment.start.payload.action !== 'assess-spec')
       throw new Error('expected assessment start')

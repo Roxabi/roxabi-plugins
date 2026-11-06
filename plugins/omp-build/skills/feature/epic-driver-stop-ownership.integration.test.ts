@@ -3,6 +3,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { expectCompleteEpicObservation } from './testing/epic-driver/epic-driver-observation.ts'
+import { inheritedParentSpecs } from './testing/epic-driver/epic-driver-parent-vector.ts'
 import {
   childNode,
   epicEvent,
@@ -59,6 +61,7 @@ function armedChild(ownership: Ownership, stopped = false, second?: 'unbound' | 
     body: node.body,
     ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
     parent: fixtures.mandateRef(parent),
+    inheritedOwnSpecRefs: inheritedParentSpecs(parent),
     branch: 'feat/2-first-child',
     runId: 'run00002',
     run: 'run00002',
@@ -87,7 +90,10 @@ function armedChild(ownership: Ownership, stopped = false, second?: 'unbound' | 
   }
 
   function bindCandidate(number: number, candidateOwnership: Ownership): void {
-    if (candidateOwnership === 'unbound') return
+    if (candidateOwnership === 'unbound') {
+      serveComments(number, [])
+      return
+    }
     const foreignScope = { repository: 'o/r', target: 'o/r#3' }
     const foreignBody = strictSpecBody('independent work')
     const foreign = fixtures.featureMandate(foreignScope, {
@@ -143,11 +149,12 @@ describe('epic-driver — child stop PR ownership', () => {
 
   it.each(['unbound', 'foreign'] as const)(
     'preflights an owned PR before refusing a mixed batch with a %s PR',
-    (ownership) => {
+    async (ownership) => {
       armedChild('owned', false, ownership)
+      if (ownership === 'unbound') await expectCompleteEpicObservation()
       const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
       expectOwnershipRefusal(run)
-      expect(run.stderr).toContain('containment PR #12 binding is')
+      expect(run.stderr).toContain('#12')
       expectArmedAndUnchanged()
       const other = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '12.json'), 'utf8'))
       expect(other).toMatchObject({

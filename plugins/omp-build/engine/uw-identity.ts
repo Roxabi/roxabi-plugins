@@ -91,7 +91,7 @@ function replayAcceptedRetirements(
   for (const mandate of mandatesOf(history)) {
     const isReplayMandate = replayForMandate(history, mandate, assessmentReplay)
     replayMandateFound ||= isReplayMandate
-    const result = resolveAcceptedSpec(mandate, histories, isReplayMandate ? assessmentReplay : undefined)
+    const result = resolveAcceptedSpec(mandate, histories, assessmentReplay)
     if (!result.ok) {
       diagnostics.push(
         diag(
@@ -105,7 +105,7 @@ function replayAcceptedRetirements(
     authenticated.push(result.spec)
     replayAcceptedSteps(result.spec, controls, seen, replay, uw, diagnostics)
   }
-  if (assessmentReplay !== undefined && !replayMandateFound)
+  if (assessmentReplay !== undefined && equalScope(assessmentReplay.uw, uw) && !replayMandateFound)
     diagnostics.push(diag(uw, 'spec-ledger-incomplete', 'Assessment replay mandate is missing'))
   return authenticated
 }

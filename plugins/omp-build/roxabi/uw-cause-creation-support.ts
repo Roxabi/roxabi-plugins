@@ -5,6 +5,7 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
+import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import type { PreparedUwProposal, UwCreateInput, UwOperationResult } from './uw-contract.ts'
 export type Prepare = (
   input: UwCreateInput,
@@ -15,6 +16,7 @@ export type Commit = (
   prepared: PreparedUwProposal,
   confirmation: OperatorConfirmationEvidence,
   writer: IssueWriter,
+  composedGuard?: CauseEffectGuard,
 ) => Promise<UwOperationResult>
 export const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export const same = (a: Scope, b: Scope) => a.repository === b.repository && a.target === b.target
@@ -68,8 +70,10 @@ export function exactNewIntent(before: DecodedHistory, after: DecodedHistory, re
   const old = after.operations.filter((operation) => operation.recordId !== recordId)
   if (JSON.stringify(old) !== JSON.stringify(before.operations)) return false
   const ids = new Set(added[0].parts.map((part) => part.nativeId))
-  return (
-    JSON.stringify(after.source.comments.filter((comment) => !ids.has(comment.nativeId))) ===
-    JSON.stringify(before.source.comments)
-  )
+  const restored = {
+    ...after,
+    operations: old,
+    source: { ...after.source, comments: after.source.comments.filter((comment) => !ids.has(comment.nativeId)) },
+  }
+  return JSON.stringify(restored) === JSON.stringify(before)
 }

@@ -7,12 +7,13 @@ import { retainActionRecordSync } from './action-communication.ts'
 export type CommandOperatorPort = OperatorPort & { cancel(): void }
 
 function refusal(proposal: PreparedOperatorProposal, code: string, message: string): readonly UwDiagnostic[] {
-  const uw =
-    'target' in proposal.proposal
-      ? proposal.proposal.target.kind === 'existing'
-        ? proposal.proposal.target.uw
-        : { repository: proposal.proposal.target.repository, target: `${proposal.proposal.target.repository}#0` }
-      : proposal.proposal.uw
+  const target = proposal.proposal
+  if ('target' in target) {
+    if (target.target.kind === 'create')
+      return [{ code, message, location: { kind: 'repository', repository: target.target.repository }, related: [] }]
+    return [{ code, message, location: { kind: 'native', uw: target.target.uw, connection: 'state' }, related: [] }]
+  }
+  const uw = 'origin' in target ? target.origin : target.uw
   return [{ code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }]
 }
 
@@ -28,6 +29,38 @@ function decisionFacts(prepared: PreparedOperatorProposal): string[] {
       `judgment: ${JSON.stringify(proposal.judgment)}`,
       `reason: ${JSON.stringify(proposal.reason)}`,
       `references: ${JSON.stringify(proposal.references)}`,
+    ]
+  }
+  if (proposal.format === 'omp-build-cause-dependency-adjustment/1') {
+    return [
+      'operation: adjust-cause-dependency',
+      `repository: ${JSON.stringify(proposal.origin.repository)}`,
+      `UW: ${JSON.stringify(proposal.origin.target)}`,
+      `disposition: ${JSON.stringify(proposal.disposition)}`,
+      `receipt: ${JSON.stringify(proposal.receipt)}`,
+      `causal change: ${JSON.stringify(proposal.change)}`,
+      `native effect: ${JSON.stringify(proposal.nativeEffect)}`,
+      `reason: ${JSON.stringify(proposal.reason)}`,
+      `references: ${JSON.stringify(proposal.references)}`,
+    ]
+  }
+  if (proposal.format === 'omp-build-uw-reopen/1') {
+    return [
+      'operation: reopen',
+      `repository: ${JSON.stringify(proposal.uw.repository)}`,
+      `UW: ${JSON.stringify(proposal.uw.target)}`,
+      `accepted: ${JSON.stringify(proposal.accepted)}`,
+      `before state: ${JSON.stringify(proposal.before.nativeState)}`,
+      `native effect: ${JSON.stringify(proposal.effect)}`,
+    ]
+  }
+  if (proposal.format === 'omp-build-uw-abandon/1') {
+    return [
+      'operation: abandon',
+      `repository: ${JSON.stringify(proposal.uw.repository)}`,
+      `UW: ${JSON.stringify(proposal.uw.target)}`,
+      `mandate: ${JSON.stringify(proposal.mandate)}`,
+      `accepted: ${JSON.stringify(proposal.accepted)}`,
     ]
   }
   if (!('target' in proposal)) {
@@ -50,6 +83,9 @@ function decisionFacts(prepared: PreparedOperatorProposal): string[] {
     ...(proposal.creation === null || proposal.creation === undefined || proposal.creation.kind === 'operator-create'
       ? []
       : [`creation: ${JSON.stringify(proposal.creation)}`, `framing: ${JSON.stringify(proposal.draft)}`]),
+    ...('parentAcceptance' in proposal && proposal.parentAcceptance != null
+      ? [`parent acceptance: ${JSON.stringify(proposal.parentAcceptance)}`]
+      : []),
     ...(proposal.normalization ?? []).map((decision) => `change: ${JSON.stringify(decision)}`),
   ]
 }

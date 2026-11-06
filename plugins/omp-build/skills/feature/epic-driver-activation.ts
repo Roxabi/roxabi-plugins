@@ -1,5 +1,12 @@
 import { type EpicAuthority, frameCurrentChildren, readEpicAuthority } from './epic-driver-authority'
-import { type CanonicalEpic, issueNumber, readCanonicalEpic } from './epic-driver-canonical'
+import {
+  type CanonicalEpic,
+  epicChildCompletion,
+  epicDependency,
+  issueNumber,
+  readCanonicalEpic,
+} from './epic-driver-canonical'
+import { stopsFromEvents } from './epic-driver-history'
 import { Refused } from './epic-driver-runtime'
 import type { Facts } from './epic-types'
 
@@ -32,6 +39,13 @@ function freshCanonicalFacts(facts: Facts, canonical: CanonicalEpic): Facts {
       if (child === undefined) throw new Refused(`native child #${number} appeared before branch activation`)
       const ownUw = canonical.ownUws.get(number)
       if (ownUw === undefined) throw new Refused(`native child #${number} has no current UW observation`)
+      const histories = canonical.parent.histories.filter(
+        (history) =>
+          history.source.scope.repository === node.uw.repository && history.source.scope.target === node.uw.target,
+      )
+      const history = histories[0]
+      if (histories.length !== 1 || history === undefined || !history.source.complete)
+        throw new Refused(`native child #${number} history is unavailable before branch activation`)
       return {
         ...child,
         title: node.title,
@@ -40,6 +54,12 @@ function freshCanonicalFacts(facts: Facts, canonical: CanonicalEpic): Facts {
         labels: [...node.labels],
         body: node.raw.body,
         ownUw,
+        initialMandate: canonical.initialMandates.get(number) ?? {
+          status: 'held',
+          reason: 'Child initialization was not observed',
+        },
+        stops: stopsFromEvents(history),
+        completion: epicChildCompletion(canonical, node.uw),
         blockedBy: node.blockers.map((scope) => {
           const blocker = canonical.native.get(`${scope.repository}\0${scope.target}`)
           if (blocker === undefined) throw new Refused(`native blocker ${scope.target} was not observed`)
@@ -47,6 +67,7 @@ function freshCanonicalFacts(facts: Facts, canonical: CanonicalEpic): Facts {
             number: issueNumber(scope),
             state: blocker.native.state,
             stateReason: blocker.native.stateReason,
+            dependency: epicDependency(canonical, scope),
             ...(scope.repository === canonical.full ? {} : { repo: scope.repository }),
           }
         }),

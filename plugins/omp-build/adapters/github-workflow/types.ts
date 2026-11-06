@@ -2,6 +2,7 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
 import type { ReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
+import type { UwCompletionObservation } from '../../engine/uw-completion-types.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 
 export type LinkedIssueAssociation =
@@ -16,7 +17,8 @@ export type NativePullRequestFacts = {
   base: string
   baseTip: string
   branch: string
-  state: string
+  state: 'OPEN' | 'CLOSED' | 'MERGED'
+  mergeCommit: string | null
   author: string | null
 }
 
@@ -67,6 +69,7 @@ export type LandingFactsRead =
       binding: CanonicalRecord
       /** Fresh complete or incomplete native UW graph rooted at the bound own UW. */
       uwGraph: UwGraphObservation
+      observation: UwCompletionObservation
     }
   | {
       ok: false

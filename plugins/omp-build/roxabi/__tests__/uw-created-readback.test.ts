@@ -4,7 +4,7 @@ import type { Gh } from '../../adapters/github/types.ts'
 import { sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { readCreatedUw } from '../uw-read-port.ts'
 
-it('reads a created same-parent UW identity without reopening a sibling report PR and refuses delivery admission', async () => {
+it('reads a created same-parent UW identity without reading sibling history or asserting delivery', async () => {
   const { identity } = sisterRecords()
   const visited: string[] = []
   const gh: Gh = async (_cwd, args) => {
@@ -48,7 +48,8 @@ it('reads a created same-parent UW identity without reopening a sibling report P
   expect(result.graph.nodes.find((node) => node.uw.target === 'acme/app#43')?.parent?.target).toBe('acme/app#41')
   expect(result.identity.ok).toBe(true)
   if (result.identity.ok) expect(result.identity.value.head?.recordId).toBe(identity.recordId)
-  expect(result.admission.deliverable.ok).toBe(false)
+  expect(result).not.toHaveProperty('admission')
+  expect(result).not.toHaveProperty('accepted')
   expect(visited.filter((endpoint) => endpoint.includes('/comments'))).toEqual([
     expect.stringContaining('/issues/43/comments'),
   ])

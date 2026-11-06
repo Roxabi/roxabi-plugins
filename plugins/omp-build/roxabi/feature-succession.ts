@@ -3,7 +3,6 @@
 import { randomUUID } from 'node:crypto'
 import type { UwTier } from '../engine/uw-spec.ts'
 import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
-import { branchFor } from '../skills/feature/epic-naming.ts'
 import {
   type Contracts,
   type History,
@@ -18,7 +17,7 @@ import { preserveSuccessorBinding } from './feature-succession-binding.ts'
 export type { Gh } from './feature-succession-binding.ts'
 
 import type { Gh } from './feature-succession-binding.ts'
-import type { GitRunner } from './workflow-checkout.ts'
+import type { FeatureCheckoutTarget, GitRunner } from './workflow-checkout.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
@@ -26,7 +25,18 @@ import { parseWorkflowOverride } from './workflow-overrides.ts'
 type MandateRecord = Extract<HistoryRecord, { kind: 'mandate' }>
 type SuccessorShared = Pick<
   MandateRecord['payload'],
-  'format' | 'branch' | 'base' | 'lineageHead' | 'config' | 'parent' | 'antecedent' | 'ownSpec' | 'tier' | 'children'
+  | 'format'
+  | 'branch'
+  | 'base'
+  | 'lineageHead'
+  | 'config'
+  | 'parent'
+  | 'antecedent'
+  | 'ownSpec'
+  | 'tier'
+  | 'children'
+  | 'inheritedOwnSpecRefs'
+  | 'coverage'
 >
 
 export function mandatesInHistory(history: History): MandateRecord[] {
@@ -98,22 +108,22 @@ export async function publishSuccessorMandate(input: {
   loaded: Contracts
   history: History
   scope: Scope
-  issue: { title: string; labels: string[] }
   ownSpec: MandatePayload['ownSpec']
   tier: UwTier
   children: AcceptedChildCommitment[]
-  number: number
+  inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
+  coverage: MandatePayload['coverage']
   git: GitRunner
   gh: Gh
   cwd: string
   parents: readonly History[]
+  target: FeatureCheckoutTarget
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const antecedent = successionAntecedent(input.history)
   if ('reason' in antecedent) return { ok: false, reason: antecedent.reason }
   const productVersion = input.loaded.shippedProductVersion()
   const prior = antecedent.mandate.payload
-  const baseAndBranch = await successorBaseAndBranch(input, prior)
-  if (!baseAndBranch.ok) return baseAndBranch
+  const baseAndBranch = { base: prior.base, branch: input.target.kind === 'parent' ? null : input.target.branch }
   const shared = await successorShared(input, antecedent.ref, prior, baseAndBranch, productVersion)
   if (!shared.ok) return shared
   const rolePayload = successorRolePayload(prior, shared.shared)
@@ -150,28 +160,21 @@ export async function publishSuccessorMandate(input: {
     input.cwd,
     refreshed.histories.slice(1),
   )
-  const bound = await preserveSuccessorBinding({
-    loaded: input.loaded,
-    gh: input.gh,
-    cwd: input.cwd,
-    issueHistory: refreshed.histories[0],
-    successorId,
-    successorScope: input.scope,
-    antecedentRecordId: antecedent.mandate.recordId,
-    branch: baseAndBranch.branch,
-    base: baseAndBranch.base,
-  })
-  if (!bound.ok) return bound
+  if (baseAndBranch.branch !== null) {
+    const bound = await preserveSuccessorBinding({
+      loaded: input.loaded,
+      gh: input.gh,
+      cwd: input.cwd,
+      issueHistory: refreshed.histories[0],
+      successorId,
+      successorScope: input.scope,
+      antecedentRecordId: antecedent.mandate.recordId,
+      branch: baseAndBranch.branch,
+      base: baseAndBranch.base,
+    })
+    if (!bound.ok) return bound
+  }
   return controlPublished.ok ? { ok: true } : { ok: false, reason: controlPublished.reason }
-}
-
-async function successorBaseAndBranch(
-  input: { git: GitRunner; cwd: string; number: number; issue: { title: string; labels: string[] } },
-  prior: MandateRecord['payload'],
-): Promise<{ ok: true; base: string; branch: string } | { ok: false; reason: string }> {
-  const branch =
-    prior.branch ?? branchFor({ number: input.number, title: input.issue.title, labels: input.issue.labels })
-  return { ok: true, base: prior.base, branch }
 }
 
 async function successorShared(
@@ -181,15 +184,19 @@ async function successorShared(
     ownSpec: MandatePayload['ownSpec']
     tier: UwTier
     children: AcceptedChildCommitment[]
+    inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
+    coverage: MandatePayload['coverage']
     git: GitRunner
     cwd: string
   },
   antecedent: SuccessorAntecedent,
   prior: MandateRecord['payload'],
-  baseAndBranch: { base: string; branch: string },
+  baseAndBranch: { base: string; branch: string | null },
   productVersion: string,
 ): Promise<{ ok: true; shared: SuccessorShared } | { ok: false; reason: string }> {
   const head = await input.git(input.cwd, ['rev-parse', 'HEAD'])
+  if (head.code !== 0 || !/^[0-9a-f]{40}$/.test(head.stdout.trim()))
+    return { ok: false, reason: 'successor-head-unreadable' }
   const override = await input.git(input.cwd, ['show', `refs/remotes/origin/${baseAndBranch.base}:.dev/stack.yml`])
   const parsed = parseWorkflowOverride(override.code === 0 ? override.stdout : null)
   if (!parsed.ok) return { ok: false as const, reason: parsed.reason }
@@ -197,16 +204,18 @@ async function successorShared(
   return {
     ok: true as const,
     shared: {
-      format: 'omp-build-mandate/3',
+      format: 'omp-build-mandate/4',
       branch: baseAndBranch.branch,
       base: baseAndBranch.base,
-      lineageHead: head.code === 0 ? head.stdout.trim() : null,
+      lineageHead: head.stdout.trim(),
       config: { productVersion, version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(effective), effective },
       parent: prior.parent,
       antecedent,
       ownSpec: input.ownSpec,
       tier: input.tier,
       children: input.children,
+      inheritedOwnSpecRefs: input.inheritedOwnSpecRefs,
+      coverage: input.coverage,
     },
   }
 }

@@ -19,22 +19,30 @@ function createCheckout() {
   writeFileSync(path.join(worktree, 'base.txt'), 'base\n')
   git(worktree, ['add', '.'])
   git(worktree, ['commit', '-qm', 'base'])
-  const heads = [git(worktree, ['rev-parse', 'HEAD'])]
+  const base = git(worktree, ['rev-parse', 'HEAD'])
   git(worktree, ['remote', 'add', 'origin', 'https://github.com/acme/app.git'])
   git(worktree, ['config', `url.${bare}.insteadOf`, 'https://github.com/acme/app.git'])
   git(worktree, ['push', '-q', 'origin', 'HEAD:main'])
+  git(worktree, ['switch', '-q', '-c', 'feat/save'])
+  writeFileSync(path.join(worktree, 'first.txt'), 'first\n')
+  git(worktree, ['add', '.'])
+  git(worktree, ['commit', '-qm', 'feat: first (#42)'])
+  const heads = [git(worktree, ['rev-parse', 'HEAD'])]
+  git(worktree, ['push', '-q', 'origin', 'feat/save'])
   for (const name of ['two', 'three', 'four']) {
     writeFileSync(path.join(worktree, `${name}.txt`), `${name}\n`)
     git(worktree, ['add', '.'])
-    git(worktree, ['commit', '-qm', name])
+    git(worktree, ['commit', '-qm', `feat: ${name} (#42)`])
     heads.push(git(worktree, ['rev-parse', 'HEAD']))
   }
-  return { worktree, heads }
+  return { worktree, heads, base }
 }
 
 const checkout = createCheckout()
 export const WORKTREE = checkout.worktree
 export const CHECKOUT_HEADS = checkout.heads
+export const CHECKOUT_BASE = checkout.base
+export const readFixtureGit = (args) => git(WORKTREE, args)
 
 function success(stdout = '') {
   return { code: 0, stdout, stderr: '' }
@@ -57,6 +65,7 @@ function missingStackConfig(args) {
 function revisionResult(args, state, heads) {
   if (args[0] !== 'rev-parse') return null
   if (args.includes('HEAD^{commit}')) return success(`${state.head}\n`)
+  if (args.includes('refs/remotes/origin/main^{commit}')) return success(`${checkout.base}\n`)
   if (args.some((arg) => String(arg).includes(':'))) return { code: 1, stdout: '', stderr: 'absent' }
   return success(`${heads[0]}\n`)
 }

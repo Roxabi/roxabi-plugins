@@ -241,7 +241,11 @@ export async function planAction(
   uw: UwOperations | undefined,
   git: GitRunner,
 ): Promise<ContinueFeatureResult> {
-  const approved = approvedMandateContext(contracts, mandate, [history, ...evidence.parents])
+  const approved = approvedMandateContext(
+    contracts,
+    mandate,
+    evidence.causal?.histories ?? [history, ...evidence.parents],
+  )
   if (approved.status === 'invalid') {
     return { kind: 'blocked', reason: `mandate-spec-${approved.reason}`, diagnostics: approved.diagnostics }
   }

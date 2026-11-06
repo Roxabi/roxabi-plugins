@@ -6,15 +6,15 @@ import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { NativeSelector, SpecializedDecisions, WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
-import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
+import type { ContinueFeatureInput, ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { inhibition } from './feature-control.ts'
 import { assembleChantier } from './feature-delivery-facts.ts'
 import { isRecord } from './feature-engine.ts'
 import type { FeatureObservation, FreshUwDeliveryAdmission } from './feature-observation-contract.ts'
 import { readReviewObservation } from './feature-review-observation.ts'
 import type { UwRead } from './uw-contract.ts'
-import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
-import { UwGraphUnavailableError } from './uw-read-port.ts'
+import { readAssessmentSpecFacts, readCurrentOwnSpecFacts } from './uw-current-facts.ts'
+import { createInstalledObservedUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { SUPPORTED_CONFIG_VERSIONS, WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { additionalRequirementsOf } from './workflow-overrides.ts'
@@ -33,11 +33,24 @@ async function currentSpecFacts(
   selected: SelectedFeature,
   read: UwRead | null,
   causal: WorkflowCausalContext,
-): Promise<CurrentSpecObservation> {
+  intent: Pick<ContinueFeatureInput, 'parentCoverage' | 'parentCoverageBasis'>,
+): Promise<CurrentSpecObservation | ContinueFeatureResult> {
   if (selected.reader === null || read === null)
     return { currentSpec: null, identityAllocations: null, deliveryAdmission: null }
   if (!read.identity.ok) return unavailable(read.identity.diagnostics)
-  const facts = await readCurrentOwnSpecFacts({ uw: selected.authority.scope, read, reader: selected.reader })
+  if (intent.parentCoverage !== undefined && intent.parentCoverageBasis === undefined)
+    return { kind: 'blocked', reason: 'parent-coverage-intent-changed' }
+  const facts =
+    read.accepted.status === 'accepted'
+      ? await readAssessmentSpecFacts({
+          uw: selected.authority.scope,
+          read,
+          coverage: intent.parentCoverage,
+          basis: intent.parentCoverageBasis,
+        })
+      : await readCurrentOwnSpecFacts({ uw: selected.authority.scope, read })
+  if (!facts.ok && 'coverageRequest' in facts)
+    return { kind: 'blocked', reason: facts.reason, coverageRequest: facts.coverageRequest }
   const currentChildren: CurrentChildrenProjection = facts.ok
     ? {
         ok: true,
@@ -52,6 +65,7 @@ async function currentSpecFacts(
     identities: read.identity.value,
     histories: causal.histories,
     catalogues: causal.catalogues,
+    completion: read.completion,
     phase: 'delivery-transition',
     currentChildren,
   })
@@ -63,8 +77,9 @@ async function currentSpecFacts(
 export async function readFeatureObservation(
   control: FeatureControl,
   selected: SelectedFeature,
+  intent: Pick<ContinueFeatureInput, 'parentCoverage' | 'parentCoverageBasis'> = {},
 ): Promise<FeatureObservation | ContinueFeatureResult> {
-  const observation = await assembleObservationBase(control, selected)
+  const observation = await assembleObservationBase(control, selected, intent)
   if ('kind' in observation) return observation
   const decisions = await readObservationDecisions(selected, observation)
   if ('kind' in decisions) return decisions
@@ -88,20 +103,15 @@ async function readObservationUw(selected: SelectedFeature): Promise<UwRead | nu
   }
 }
 
-function isOrdinaryMergedDelivery(selected: SelectedFeature, merged: boolean): boolean {
-  const { mandate, acceptedSpec } = selected
-  return (
-    merged &&
-    mandate?.kind === 'mandate' &&
-    acceptedSpec !== null &&
-    effectiveMandateRole(mandate.payload.role, acceptedSpec) === 'feature' &&
-    !isRecord(mandate.payload.parent)
-  )
+function commonCompletion(read: UwRead | null, scope: { repository: string; target: string }): boolean {
+  if (read === null || read.observation.status !== 'complete') return false
+  return read.completion.completions.get(`${scope.repository}\0${scope.target}`)?.state === 'complete'
 }
 
 async function assembleObservationBase(
   control: FeatureControl,
   selected: SelectedFeature,
+  intent: Pick<ContinueFeatureInput, 'parentCoverage' | 'parentCoverageBasis'>,
 ): Promise<ObservationBase | ContinueFeatureResult> {
   const { authority, mandate, acceptedSpec } = selected
   const { context, target, history, scope, onPrincipal, identity } = authority
@@ -117,9 +127,16 @@ async function assembleObservationBase(
   const requirements = mandateRequirements(mandate?.payload.config)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
-  const ordinaryMergedDelivery = isOrdinaryMergedDelivery(selected, merged)
+  const currentRead =
+    uwRead === null
+      ? null
+      : await createInstalledObservedUwReadPort({ observation: evidence.causal.observation }).readUw(
+          selected.authority.scope,
+        )
+  const completedDelivery = merged && commonCompletion(currentRead, selected.authority.scope)
   const sessionCwd = identity.ok ? identity.sessionTop : null
-  const currentFacts = await currentSpecFacts(selected, uwRead, evidence.causal)
+  const currentFacts = await currentSpecFacts(selected, currentRead, evidence.causal, intent)
+  if ('kind' in currentFacts) return currentFacts
   return {
     evidence,
     delivery,
@@ -150,7 +167,7 @@ async function assembleObservationBase(
       explicitSelection: control === 'select' || control === 'new',
       explicitResume: control === 'resume',
       successorAntecedent: null,
-      endObligationsMet: ordinaryMergedDelivery,
+      endObligationsMet: completedDelivery,
       localInhibit: inhibition(scope) ?? null,
       failedChecks: null,
       evidenceDigest: null,
@@ -203,9 +220,13 @@ function currentSpecMatchesAccepted(
     currentSpec !== null &&
     acceptedSpec !== null &&
     currentSpec.snapshot.spec.version === acceptedSpec.ref.version &&
+    currentSpec.children.every((child) => 'scope' in child) &&
     JSON.stringify(currentSpec.snapshot.spec) === JSON.stringify(acceptedSpec.snapshot.spec) &&
     currentSpec.tier === acceptedSpec.tier &&
-    JSON.stringify(canonicalChildren(currentSpec.children)) === JSON.stringify(canonicalChildren(acceptedSpec.children))
+    JSON.stringify(canonicalChildren(currentSpec.children.filter((child) => 'scope' in child))) ===
+      JSON.stringify(canonicalChildren(acceptedSpec.children)) &&
+    JSON.stringify(currentSpec.inheritedOwnSpecRefs) === JSON.stringify(acceptedSpec.inheritedOwnSpecRefs) &&
+    JSON.stringify(currentSpec.coverage) === JSON.stringify(acceptedSpec.coverage)
   )
 }
 

@@ -11,6 +11,7 @@ import { inhibitCwd } from './feature-control.ts'
 import { payload } from './feature-engine.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 import { actionRequiresFeatureCheckout, moveFromEvidence, requireMandateCheckout } from './feature-selection.ts'
+import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 import { acceptMaterialDecision, acceptOwnMaterialDecision } from './workflow-material-decision.ts'
 import { coordinatePlanAndReceiptAction } from './workflow-plan-receipt.ts'
 /** Installed /feature continuation. The engine remains the only next-action authority. */
@@ -20,10 +21,13 @@ export async function continueFeature(input: ContinueFeatureInput): Promise<Cont
 async function continueFeatureAtTarget(
   input: ContinueFeatureInput,
   exactMandateRef?: ScopedRecordRef,
+  noImplicitResume = false,
+  completedReport = false,
 ): Promise<ContinueFeatureResult> {
   const authority = await resolveFeatureAuthority(input, exactMandateRef)
   if (isResult(authority)) return authority
-  if (input.control === 'pause' || input.control === 'abandon') return applyFeatureControl(input.control, authority)
+  if (input.control === 'pause' || input.control === 'abandon')
+    return applyFeatureControl(input.control, authority, input.uw)
   if (input.control === 'material-decision')
     return acceptOwnMaterialDecision(input, authority, () =>
       continueFeatureAtTarget({ ...input, control: 'continue' }, exactMandateRef),
@@ -34,10 +38,14 @@ async function continueFeatureAtTarget(
     authority,
     input.uw,
     input.read ?? input.uw,
+    input.parentCoverage,
+    input.parentCoverageBasis,
   )
   if (isResult(selected)) return selected
-  const observation = await readFeatureObservation(input.control, selected)
-  return isResult(observation) ? observation : coordinateDecision(input, exactMandateRef, selected, observation)
+  const observation = await readFeatureObservation(input.control, selected, input)
+  return isResult(observation)
+    ? observation
+    : coordinateDecision(input, exactMandateRef, selected, observation, noImplicitResume, completedReport)
 }
 
 async function coordinateDecision(
@@ -45,6 +53,8 @@ async function coordinateDecision(
   exactMandateRef: ScopedRecordRef | undefined,
   selected: SelectedFeature,
   observation: FeatureObservation,
+  noImplicitResume: boolean,
+  completedReport: boolean,
 ): Promise<ContinueFeatureResult> {
   const { mandate, acceptedSpec } = selected
   if (mandate !== null && acceptedSpec === null) return { kind: 'blocked', reason: 'mandate-spec-missing' }
@@ -56,8 +66,17 @@ async function coordinateDecision(
   if (decision.status !== 'action')
     return coordinateNonActionDecision(input, exactMandateRef, selected, observation, decision)
   if (input.control === 'material-decision') return { kind: 'blocked', reason: 'material-decision-not-pending' }
+  if (noImplicitResume && decision.action === 'resume') return { kind: 'paused', confirmed: true, reason: 'paused' }
   const admission = deliveryAdmission(observation, decision.action)
   if (admission !== null) return admission
+  if (completedReport && decision.action === 'report') {
+    return (
+      (await reenterCompletedParent(input, selected, observation)) ?? {
+        kind: 'blocked',
+        reason: 'parent-completion-unavailable',
+      }
+    )
+  }
   const checkout = await checkoutForFeatureAction(selected, decision.action)
   if (checkout !== null) return checkout
   const planned = await coordinatePlanAndReceiptAction(
@@ -90,8 +109,78 @@ async function coordinateNonActionDecision(
   if (decision.status === 'terminal' && decision.reason === 'done') {
     const admission = deliveryAdmission(observation, 'done')
     if (admission !== null) return admission
+    const closed = await closeLinkedDelivery(input, selected, observation)
+    if (closed !== null) return closed
+    const reentered = await reenterCompletedParent(input, selected, observation)
+    if (reentered !== null) return reentered
   }
   return handleNonActionDecision(input, exactMandateRef, selected, observation, decision)
+}
+
+async function reenterCompletedParent(
+  input: ContinueFeatureInput,
+  selected: SelectedFeature,
+  observation: FeatureObservation,
+): Promise<ContinueFeatureResult | null> {
+  const mandate = selected.mandate
+  const parent = mandate?.payload.parent
+  if (
+    mandate === null ||
+    selected.acceptedSpec === null ||
+    effectiveMandateRole(mandate.payload.role, selected.acceptedSpec) !== 'epic' ||
+    parent?.kind !== 'mandate'
+  )
+    return null
+  const scope = selected.authority.scope
+  const read = await createInstalledObservedUwReadPort({
+    observation: observation.evidence.causal.observation,
+  }).readUw(scope)
+  const completion = read.completion.completions.get(`${scope.repository}\0${scope.target}`)
+  if (completion?.state !== 'complete') return { kind: 'blocked', reason: 'parent-completion-unavailable' }
+  const { context } = selected.authority
+  return continueFeatureAtTarget(
+    {
+      ...input,
+      cwd: context.cwd,
+      reference: parent.scope.target,
+      control: 'continue',
+      principal: false,
+      git: context.git,
+      gh: context.gh,
+    },
+    parent,
+    true,
+  )
+}
+
+async function closeLinkedDelivery(
+  input: ContinueFeatureInput,
+  selected: SelectedFeature,
+  observation: FeatureObservation,
+): Promise<ContinueFeatureResult | null> {
+  if (observation.delivery === null) return null
+  if (selected.mandateRef === null) return { kind: 'blocked', reason: 'close-linked-mandate-unavailable' }
+  if (input.uw === undefined) return { kind: 'blocked', reason: 'close-linked-unavailable' }
+  const scope = selected.authority.scope
+  const read = await createInstalledObservedUwReadPort({
+    observation: observation.evidence.causal.observation,
+  }).readUw(scope)
+  const completion = read.completion.completions.get(`${scope.repository}\0${scope.target}`)
+  if (completion?.state !== 'complete') return { kind: 'blocked', reason: 'close-linked-completion-unavailable' }
+  if (selected.mandateRef.kind !== 'mandate') return { kind: 'blocked', reason: 'close-linked-mandate-unavailable' }
+  const closed = await input.uw.closeLinked({
+    uw: scope,
+    mandate: { ...selected.mandateRef, kind: 'mandate' },
+    pullRequest: observation.delivery.scope,
+    completion,
+  })
+  if (closed.status !== 'written')
+    return {
+      kind: 'blocked',
+      reason: `close-linked-${closed.status}`,
+      ...('diagnostics' in closed ? { diagnostics: closed.diagnostics } : {}),
+    }
+  return null
 }
 
 async function checkoutForFeatureAction(

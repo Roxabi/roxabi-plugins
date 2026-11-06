@@ -30,6 +30,10 @@ function incompleteApprovalHistory() {
 
 async function incompatibleMandateHistory(variant) {
   const linked = await linkedApproval(HEADS[0])
+  const baseline = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
+  await expect(nextReviewStep(WORKTREE, PR, { gh: baseline.gh, git: baseline.git })).resolves.toMatchObject({
+    action: 'land',
+  })
   const comment = linked.issue.source.comments.find((entry) => entry.body.includes('kind=mandate '))
   if (!comment) throw new Error('missing mandate fixture record')
   const match = /data=([A-Za-z0-9_-]+)/.exec(comment.body)
@@ -128,8 +132,7 @@ describe('landing review authority', () => {
     const input = noProducerInput(HEADS[0])
     const history = reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)', input }])
     const { gh, git, state } = gateGh(history, { head: HEADS[0], armed: true })
-    // Supply requiredContexts so native mode does not exit on empty checks before
-    // mandate admission; keep gh/git fully injected (unit budget — no real Git).
+    // Supply requiredContexts so native mode reaches mandate admission.
     await expect(
       landPr(WORKTREE, PR, {
         gh,
