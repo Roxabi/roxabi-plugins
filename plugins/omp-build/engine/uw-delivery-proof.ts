@@ -24,8 +24,14 @@ import type { UwResult } from './uw-diagnostics.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
 
-type DeliveryProof = { code: ActionInputManifest['code']; sources: readonly ExternalRecordRef[] }
-type CompleteChild = Extract<UwCompletion, { state: 'complete' }>
+type DeliveryProof = {
+  code: ActionInputManifest['code']
+  sources: readonly ExternalRecordRef[]
+  authority: readonly ExternalRecordRef[]
+}
+export type CompleteDeliveryChild = Extract<UwCompletion, { state: 'complete' }> & {
+  authority: readonly ExternalRecordRef[]
+}
 type Bound = Extract<WorkflowBindingSelection, { status: 'bound' }>
 
 function uniqueSources(refs: readonly ExternalRecordRef[]): ExternalRecordRef[] {
@@ -101,7 +107,14 @@ function assessLeaf(
       'delivery-not-merged',
       'Actual bound merge identity and observed commit parents do not prove this reviewed delivery',
     )
-  return { ok: true, value: { code, sources: uniqueSources([...selected.value.sources, expected, binding.mandate]) } }
+  return {
+    ok: true,
+    value: {
+      code,
+      sources: uniqueSources([...selected.value.sources, expected, binding.mandate]),
+      authority: [recordRef(selected.value.review), expected],
+    },
+  }
 }
 
 function assessParent(
@@ -109,7 +122,7 @@ function assessParent(
   uw: Scope,
   accepted: AcceptedOwnSpec,
   effective: SpecEffective,
-  children: readonly CompleteChild[],
+  children: readonly CompleteDeliveryChild[],
   index: ObservedCommitIndex,
 ): UwResult<DeliveryProof> {
   const selected = selectDeliveryReview(observation, uw, uw, effective, 'epic-range')
@@ -136,7 +149,14 @@ function assessParent(
     ancestors,
   )
   if (!integration.ok) return integration
-  return { ok: true, value: { code, sources: uniqueSources([...selected.value.sources, ...integration.value]) } }
+  return {
+    ok: true,
+    value: {
+      code,
+      sources: uniqueSources([...selected.value.sources, ...integration.value]),
+      authority: [recordRef(selected.value.review), ...integration.value],
+    },
+  }
 }
 
 export function selectUwDeliveryReview(
@@ -157,7 +177,7 @@ export function assessUwDeliveryProof(
   uw: Scope,
   accepted: AcceptedOwnSpec,
   effective: SpecEffective,
-  children: readonly CompleteChild[],
+  children: readonly CompleteDeliveryChild[],
   index: ObservedCommitIndex,
 ): UwResult<DeliveryProof> {
   if (observation.status !== 'complete') return { ok: false, diagnostics: [...observation.diagnostics] }

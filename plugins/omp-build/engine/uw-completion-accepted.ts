@@ -1,3 +1,4 @@
+import { parseIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { Scope } from './record-values.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import { completionCoverageProblem } from './uw-completion-coverage.ts'
@@ -12,6 +13,13 @@ export function acceptedCompletionProblem(
   spec: AcceptedOwnSpec,
   issue: (uw: Scope, code: string, message: string) => UwDiagnostic,
 ): UwDiagnostic | null {
+  if (node.raw.body !== spec.snapshot.raw.body) {
+    const current = parseIssueSpecBody({ uw, raw: node.raw })
+    if (current.status !== 'conformant')
+      return issue(uw, 'current-spec-unresolved', 'Current native own Spec cannot be resolved')
+    if (current.snapshot.spec.version !== spec.snapshot.spec.version)
+      return issue(uw, 'material-change-pending', 'Current native own Spec differs from the accepted Spec')
+  }
   const tiers = node.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
   if (tiers.length !== 1 || tiers[0] !== `size:${spec.tier}`)
     return issue(uw, 'tier-changed', 'Native tier differs from the accepted tier')

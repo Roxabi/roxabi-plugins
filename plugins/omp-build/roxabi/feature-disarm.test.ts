@@ -8,7 +8,7 @@ const { epicControlTarget } = vi.hoisted(() => ({ epicControlTarget: vi.fn() }))
 
 vi.mock('../skills/feature/epic-driver.ts', () => ({ epicControlTarget }))
 
-import { disarmKnownTarget } from './feature-disarm.ts'
+import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 
 type Gate = { reviewed: boolean; autoMerge: boolean }
 type GhReply = { output: string }
@@ -212,5 +212,35 @@ describe('Feature pause disarm discovery', () => {
       clean: false,
       evidence: { note: 'pull-request-list-incomplete', discovery: { children: { incomplete: true } } },
     })
+  })
+})
+
+describe('unresolved explicit reference containment', () => {
+  function localPullRequest() {
+    const gate = { reviewed: true, autoMerge: true }
+    const gates = new Map([[42, gate]])
+    const mutations: string[][] = []
+    const gh = async (_cwd: string, args: string[]) => {
+      if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: 'acme/app' })
+      if (args[0] === 'pr' && (args[1] === 'merge' || args[1] === 'edit')) mutations.push([...args])
+      const reply = gateReply(args, gates)
+      if (reply !== null) return reply.output
+      throw new Error(`unexpected gh call: ${args.join(' ')}`)
+    }
+    return { gh, gate, mutations }
+  }
+
+  it.each(['42', '#42', 'acme/app#42'])('still disarms the explicitly selected local PR %s', async (reference) => {
+    const fixture = localPullRequest()
+    await disarmUnresolved(fixture.gh, '/workspace', reference)
+    expect(fixture.gate).toEqual({ reviewed: false, autoMerge: false })
+    expect(fixture.mutations).toHaveLength(2)
+  })
+
+  it('does not disarm the local PR sharing a foreign selected reference number', async () => {
+    const fixture = localPullRequest()
+    await disarmUnresolved(fixture.gh, '/workspace', 'other/service#42')
+    expect(fixture.gate).toEqual({ reviewed: true, autoMerge: true })
+    expect(fixture.mutations).toEqual([])
   })
 })

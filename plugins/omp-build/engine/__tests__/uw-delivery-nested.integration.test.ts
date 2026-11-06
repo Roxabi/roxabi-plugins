@@ -1,10 +1,12 @@
 import { expect, test } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { runNestedDeliveryScenario } from '../../testing/nested-delivery-world.ts'
+import { specReportSchema } from '../record-values.ts'
 import { assessUwCompletion } from '../uw-completion.ts'
 import { scopeKey } from '../uw-graph.ts'
+import { recordsOf } from '../workflow-control.ts'
 
-test.each(['complete', 'middle-missing-coverage'] as const)(
+test.each(['complete', 'middle-missing-coverage', 'root-missing-child-proof'] as const)(
   'delivers nested parents in order: %s',
   async (mode) => {
     const result = await runNestedDeliveryScenario(mode)
@@ -102,6 +104,51 @@ test.each(['complete', 'middle-missing-coverage'] as const)(
       sources: expect.arrayContaining([middleProof.ref]),
     })
     expect(middleRead.completions.get(scopeKey(root))?.state).not.toBe('complete')
+    if (mode === 'root-missing-child-proof') {
+      const rootHistory = final.observation.histories.find(
+        (history) => scopeKey(history.source.scope) === scopeKey(root),
+      )
+      if (!rootHistory) throw new Error('Root review history unavailable')
+      const rows = recordsOf(rootHistory).flatMap((record) => {
+        if (record.kind !== 'contribution') return []
+        const report = specReportSchema.safeParse(record.payload.structured)
+        return report.success ? report.data.specRows : []
+      })
+      const verdict = rows.find((row) => row.target.id === 'C1' && scopeKey(row.target.spec.uw) === scopeKey(root))
+      if (!verdict) throw new Error('Root criterion review unavailable')
+      const examined = verdict.examined[0]
+      if (examined?.codeLink.method !== 'test') throw new Error('Root test evidence unavailable')
+      expect(examined.evidence.receipt).toEqual(rootProof.ref)
+      const refs = examined.codeLink.after.references.filter((ref) => ref.source === 'record')
+      expect(refs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            record: expect.objectContaining({ kind: 'mandate', recordId: rootMandate.recordId }),
+            selector: '/payload/coverage/assignments/0',
+          }),
+          expect.objectContaining({
+            record: expect.objectContaining({ kind: 'mandate', recordId: rootMandate.recordId }),
+            selector: '/payload',
+          }),
+        ]),
+      )
+      expect(rootProof.childCompletion.sources).toContainEqual({
+        scope: root,
+        kind: 'mandate',
+        recordId: rootMandate.recordId,
+      })
+      expect(refs.some((ref) => ref.record.recordId === middleProof.ref.recordId)).toBe(false)
+      expect(refs.some((ref) => scopeKey(ref.record.scope) === scopeKey(middle) && ref.record.kind === 'review')).toBe(
+        false,
+      )
+      expect(final.completion.completions.get(scopeKey(middle))).toMatchObject({ state: 'complete', role: 'parent' })
+      expect(final.completion.completions.get(scopeKey(leaf))).toMatchObject({ state: 'complete', role: 'leaf' })
+      expect(final.completion.completions.get(scopeKey(root))).toMatchObject({
+        state: 'not-complete',
+        diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'integration-coverage-not-cited' })]),
+      })
+      return
+    }
     expect(final.completion.completions.get(scopeKey(root))).toMatchObject({
       state: 'complete',
       role: 'parent',

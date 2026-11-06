@@ -11,7 +11,7 @@ import type { UwResult } from './uw-diagnostics.ts'
 import type { IntegrationOutput } from './uw-integration-schema.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 
-type CompleteChild = Extract<UwCompletion, { state: 'complete' }>
+type CompleteChild = Extract<UwCompletion, { state: 'complete' }> & { authority: readonly ExternalRecordRef[] }
 
 function matchedChildren(
   observation: UwCompletionObservation,
@@ -68,7 +68,7 @@ function citedAssignments(
     if (!coverageRef) return false
     for (const assigned of assignment.children) {
       const child = children.find((candidate) => equalScope(candidate.uw, assigned))
-      if (child === undefined || !refs.some((ref) => child.sources.some((source) => sameRef(source, ref.record))))
+      if (child === undefined || !refs.some((ref) => child.authority.some((source) => sameRef(source, ref.record))))
         return false
     }
   }

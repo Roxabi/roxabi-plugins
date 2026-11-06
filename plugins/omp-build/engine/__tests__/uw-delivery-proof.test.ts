@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { readWithAuthor } from '../../adapters/github/transport.ts'
+import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
@@ -97,6 +98,42 @@ test('completes an open leaf only after authenticated review and the actual boun
       { scope: fixture.pullRequest, kind: 'review', recordId: fixture.review.review.recordId },
     ]),
   )
+})
+
+test('a materially changed current leaf Spec cannot complete or satisfy a managed dependency', async () => {
+  const fixture = await deliveredLeaf()
+  const key = scopeKey(fixture.uw)
+  const baseline = assessUwCompletion(fixture.observation)
+  expect(baseline.completions.get(key)).toMatchObject({ state: 'complete', role: 'leaf' })
+  expect(baseline.dependencies.get(key)).toMatchObject({ state: 'satisfied', basis: { kind: 'accepted-uw' } })
+
+  const native = fixture.observation.graph.nodes.find((item) => scopeKey(item.uw) === key)
+  if (!native) throw new Error('Expected native leaf')
+  const assessBody = (body: string) => {
+    const raw = rawSource(native.raw.reference, body, native.raw.lastEditedAt)
+    const parsed = parseIssueSpecBody({ uw: fixture.uw, raw })
+    if (parsed.status !== 'conformant') throw new Error('Expected conformant current native Spec')
+    const observation = {
+      ...fixture.observation,
+      graph: {
+        ...fixture.observation.graph,
+        nodes: fixture.observation.graph.nodes.map((item) => (scopeKey(item.uw) === key ? { ...item, raw } : item)),
+      },
+    }
+    return { parsed, assessment: assessUwCompletion(observation) }
+  }
+  const noMaterial = assessBody(`${native.raw.body}\n`)
+  expect(noMaterial.parsed.snapshot.spec.version).toBe(fixture.accepted.ref.version)
+  expect(noMaterial.assessment.completions.get(key)).toMatchObject({ state: 'complete' })
+  expect(noMaterial.assessment.dependencies.get(key)).toMatchObject({ state: 'satisfied' })
+
+  const changedBody = native.raw.body.replace('Save keeps the selected region', 'Save deletes the selected region')
+  expect(changedBody).not.toBe(native.raw.body)
+  const changed = assessBody(changedBody)
+  expect(changed.parsed.snapshot.spec.criteria[0]?.id).toBe('C1')
+  expect(changed.parsed.snapshot.spec.version).not.toBe(fixture.accepted.ref.version)
+  expect(changed.assessment.completions.get(key)?.state).not.toBe('complete')
+  expect(changed.assessment.dependencies.get(key)).toMatchObject({ state: 'held' })
 })
 
 test('duplicate selected review histories, including conflicting native bytes, cannot prove delivery', async () => {

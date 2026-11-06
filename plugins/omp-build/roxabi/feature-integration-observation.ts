@@ -29,8 +29,9 @@ export async function observeIntegration(
     manifest.spec.kind !== 'accepted' ||
     structured.code.repository !== manifest.code.repository ||
     structured.code.base !== manifest.code.base ||
+    manifest.code.referenceCommit !== manifest.code.head ||
     structured.code.referenceCommit !== manifest.code.referenceCommit ||
-    (await input.git(input.cwd, ['merge-base', '--is-ancestor', manifest.code.head, structured.code.head])).code !== 0
+    structured.code.head !== manifest.code.head
   )
     refuse('integration-code-unbound')
   const uw = manifest.subject.uw

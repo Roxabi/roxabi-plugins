@@ -8,6 +8,7 @@ import { integrationOutputSchema } from '../engine/uw-integration-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { bindExternalRef, historyFor, workflowOperationProblem } from '../engine/workflow-control.ts'
 import { startImplement } from '../roxabi/feature-action-start.ts'
+import type { ContinueFeatureResult } from '../roxabi/feature-contract.ts'
 import { loadContracts } from '../roxabi/feature-engine.ts'
 import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
@@ -35,6 +36,7 @@ export async function produceParentIntegration(
     candidate: DeclaredCheckout
     command: string
     output: string
+    observeStart?: (opened: ContinueFeatureResult) => void
   },
 ) {
   const cwd = checkout.cwd
@@ -124,6 +126,7 @@ export async function produceParentIntegration(
     world.parent,
     installed,
   )
+  facts.observeStart?.(opened)
   if (opened.kind !== 'action' || opened.node !== 'integrate')
     throw new Error(`Parent integrate not opened: ${JSON.stringify(opened)}`)
   const task = opened.followUp.tasks.tasks[0]

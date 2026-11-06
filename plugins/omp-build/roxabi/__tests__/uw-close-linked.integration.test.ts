@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest'
+import type { Gh } from '../../adapters/github/types.ts'
+import { UW_GRAPH_QUERY } from '../../adapters/github-native/uw-graph-query.ts'
+import { threeDeliveredChildren } from '../../engine/__tests__/uw-delivery-proof-fixture.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
+import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 import { closeLinkedWorld } from './uw-close-linked-fixture.ts'
 
 it.each([false, true])(
@@ -120,4 +124,103 @@ it('accepts an already completed native state only with the current full proof',
     diagnostics: [expect.objectContaining({ code: 'close-linked-binding-changed' })],
   })
   expect(f.state()).toEqual({ state: 'CLOSED', stateReason: 'COMPLETED' })
+})
+
+it('refuses before closing when the final binding read observes accepted sibling tier drift', async () => {
+  await threeDeliveredChildren(
+    {
+      p0: 'a'.repeat(40),
+      merges: ['b', 'c', 'd'].map((value) => value.repeat(40)),
+      heads: ['1', '2', '3'].map((value) => value.repeat(40)),
+      parentHead: 'e'.repeat(40),
+      trees: ['4', '5', '6'].map((value) => value.repeat(40)),
+      baseTrees: ['7', '4', '5'].map((value) => value.repeat(40)),
+      mergeTrees: ['4', '5', '6'].map((value) => value.repeat(40)),
+      parentTree: 'f'.repeat(40),
+      diff: new TextEncoder().encode('diff --git a/fixture.txt b/fixture.txt\n'),
+    },
+    [{ id: 'C1', statement: 'Save keeps the selected region' }],
+    'planned',
+    async (world) => {
+      const [leaf, sibling] = world.reviews
+      if (!leaf || !sibling) throw new Error('Expected accepted siblings')
+      const binding = leaf.binding
+      if (binding.kind !== 'workflow-binding') throw new Error('Expected canonical workflow binding')
+      const mandateId = binding.payload.mandate.recordId
+      expect(world.parent.payload.children.map((child) => child.scope)).toContainEqual(sibling.uw)
+
+      async function attempt(drift: boolean) {
+        let state: { state: 'OPEN' | 'CLOSED'; stateReason: string | null } = { state: 'OPEN', stateReason: null }
+        let rootReads = 0
+        let racing = false
+        const events: string[] = []
+        const leafNumber = Number(leaf.uw.target.split('#')[1])
+        const siblingNumber = Number(sibling.uw.target.split('#')[1])
+        function isClosePatch(args: string[]): boolean {
+          return (
+            args[0] === 'api' &&
+            args[1] === '--method' &&
+            args[2] === 'PATCH' &&
+            args[3] === `repos/acme/app/issues/${leafNumber}` &&
+            args.includes('state=closed') &&
+            args.includes('state_reason=completed')
+          )
+        }
+        function observeGraph(response: string, number: number): string {
+          if (number === leafNumber && racing) rootReads++
+          const graph = JSON.parse(response)
+          if (number === leafNumber) Object.assign(graph.data.repository.issue, state)
+          if (drift && racing && rootReads >= 3 && number === siblingNumber) {
+            graph.data.repository.issue.labels.nodes = [{ name: 'size:F-lite' }]
+            events.push('sibling-tier-drift-observed')
+          }
+          return JSON.stringify(graph)
+        }
+        const gh: Gh = async (cwd, args) => {
+          if (isClosePatch(args)) {
+            events.push('close-patch')
+            state = { state: 'CLOSED', stateReason: 'COMPLETED' }
+            return '{}'
+          }
+          const response = await world.gh(cwd, args)
+          if (args[0] !== 'api' || args[1] !== 'graphql' || args[3] !== `query=${UW_GRAPH_QUERY}`) return response
+          return observeGraph(response, Number(args[9]?.slice('number='.length)))
+        }
+        const operations = await createInstalledUwOperations({
+          cwd: '/simulated',
+          gh,
+          readAuthor: 'operator',
+          operator: {
+            async executeConfirmed() {
+              throw new Error('No operator mutation authorized')
+            },
+          },
+        })
+        const before = await operations.readUw(leaf.uw)
+        const completion = before.completion.completions.get(scopeKey(leaf.uw))
+        expect(before.observation.status).toBe('complete')
+        expect(completion?.state).toBe('complete')
+        if (completion?.state !== 'complete') throw new Error('Expected complete inherited leaf')
+        racing = true
+        const result = await operations.closeLinked({
+          uw: leaf.uw,
+          pullRequest: leaf.pullRequest,
+          mandate: { scope: leaf.uw, kind: 'mandate', recordId: mandateId },
+          completion,
+        })
+        return { result, events, state }
+      }
+
+      const control = await attempt(false)
+      expect(control.result.status, JSON.stringify(control.result)).toBe('written')
+      expect(control.state).toEqual({ state: 'CLOSED', stateReason: 'COMPLETED' })
+      expect(control.events).toEqual(['close-patch'])
+
+      const raced = await attempt(true)
+      expect(raced.events).toContain('sibling-tier-drift-observed')
+      expect(raced.result).toMatchObject({ status: 'refused' })
+      expect(raced.events).not.toContain('close-patch')
+      expect(raced.state).toEqual({ state: 'OPEN', stateReason: null })
+    },
+  )
 })

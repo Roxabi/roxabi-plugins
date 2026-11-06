@@ -9,7 +9,7 @@ import { integrationVerdict } from './nested-delivery-integration-verdict.ts'
 import { produceParentIntegration } from './parent-integration-producer.ts'
 
 type World = Parameters<Parameters<typeof withNativeImplementationWorld>[1]>[0]
-type ScenarioName = 'complete' | 'middle-missing-coverage'
+type ScenarioName = 'complete' | 'middle-missing-coverage' | 'root-missing-child-proof'
 export type IntegrationContext = {
   world: World
   git: Pick<ReturnType<typeof nativeImplementationGit>, 'cwd' | 'checkout' | 'tree'>

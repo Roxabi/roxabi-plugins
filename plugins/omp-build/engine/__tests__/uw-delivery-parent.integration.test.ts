@@ -508,15 +508,53 @@ test.each(['unpublished-at-start', 'moves-after-start'] as const)(
         [{ id: 'C1', statement: 'Save keeps the selected region' }],
         'planned',
         async (world) => {
+          let opened: unknown
           await expect(
             produceParentIntegration(world, parentCheckout, {
               initial: scenario === 'unpublished-at-start' ? unpublished : published,
               candidate: unpublished,
               command: 'bun test parent.test.ts',
               output: 'PASS parent integration',
+              observeStart: (result) => {
+                opened = result
+              },
             }),
-          ).rejects.toThrow('integration-base-not-published')
+          ).rejects.toThrow()
           const read = await world.operations.readUw(world.parentScope)
+          const history = read.histories.find((item) => item.source.scope.target === world.parentScope.target)
+          if (!history) throw new Error('Parent integration history is missing')
+          const records = recordsOf(history)
+          const starts = records.filter(
+            (record) =>
+              record.kind === 'action-receipt' &&
+              record.payload.action === 'integrate' &&
+              record.payload.phase === 'start',
+          )
+          const results = records.filter(
+            (record) =>
+              record.kind === 'action-receipt' &&
+              record.payload.action === 'integrate' &&
+              record.payload.phase === 'result',
+          )
+          if (scenario === 'unpublished-at-start') {
+            expect(opened).toMatchObject({ kind: 'blocked', reason: 'integration-base-not-published' })
+            expect(starts).toEqual([])
+            expect(results).toEqual([])
+          } else {
+            expect(opened).toMatchObject({ kind: 'action', node: 'integrate' })
+            expect(starts).toHaveLength(1)
+            expect(results).toHaveLength(1)
+            const start = starts[0]
+            if (!start) throw new Error('Integration START is missing')
+            expect(start).toMatchObject({ payload: { inputs: { manifest: { code: { head: thirdMerge } } } } })
+            expect(results[0]).toMatchObject({
+              payload: {
+                start: { recordId: start.recordId },
+                structured: { outcome: 'integrated', code: { head: checkout.parentHead } },
+                admission: { admitted: false, reason: 'integration-code-unbound' },
+              },
+            })
+          }
           expect(read.completion.completions.get(scopeKey(world.parentScope))?.state).not.toBe('complete')
           for (const child of world.reviews)
             expect(read.completion.completions.get(scopeKey(child.uw))).toMatchObject({ state: 'complete' })

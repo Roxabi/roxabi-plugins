@@ -5,6 +5,7 @@ import { epicControlTarget } from '../skills/feature/epic-driver.ts'
 import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.js'
 import { authenticateOwnPullRequests, type SelectedMandateAuthority } from './feature-disarm-ownership.ts'
 import { isRecord, type Scope } from './feature-engine.ts'
+import { classifyIssueReference } from './prepare-canonical-checkout.ts'
 
 export type ControlTarget =
   | { status: 'issue'; scope: Scope; issue: { number: number } }
@@ -249,8 +250,19 @@ export async function disarmKnownTarget(
 }
 
 export async function disarmUnresolved(gh: Gh, cwd: string, reference: string): Promise<void> {
-  const number = Number(reference.replace(/^.*?(\d+)$/, '$1'))
-  if (!Number.isInteger(number) || number <= 0) return
+  const classified = classifyIssueReference(reference)
+  if ('reason' in classified || !Number.isSafeInteger(classified.number) || classified.number <= 0) return
+  const number = classified.number
+  let repository: string | null = null
+  if (classified.repository !== null) {
+    try {
+      const repo: unknown = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+      if (!isRecord(repo) || repo.nameWithOwner !== classified.repository) return
+      repository = classified.repository
+    } catch {
+      return
+    }
+  }
   try {
     await gh(cwd, ['pr', 'view', String(number), '--json', 'number'])
     await disarmReviewedBeforePush(cwd, number, { gh })
@@ -259,21 +271,17 @@ export async function disarmUnresolved(gh: Gh, cwd: string, reference: string): 
     // Not a pull request. Disarm open linked PRs only; do not assume Epic.
   }
   try {
-    const repoRaw = await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner'])
-    const repo: unknown = JSON.parse(repoRaw)
-    if (
-      repo === null ||
-      typeof repo !== 'object' ||
-      !('nameWithOwner' in repo) ||
-      typeof repo.nameWithOwner !== 'string'
-    )
-      return
+    if (repository === null) {
+      const repo: unknown = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+      if (!isRecord(repo) || typeof repo.nameWithOwner !== 'string') return
+      repository = repo.nameWithOwner
+    }
     await disarmKnownTarget(
       gh,
       cwd,
       {
         status: 'issue',
-        scope: { repository: repo.nameWithOwner, target: `${repo.nameWithOwner}#${number}` },
+        scope: { repository, target: `${repository}#${number}` },
         issue: { number },
       },
       null,

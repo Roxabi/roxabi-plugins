@@ -1,5 +1,6 @@
 import { assessCauseHolds } from './cause-hold.ts'
 import type { DecodedHistory } from './history-schema.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import { resolveSpecEffective } from './spec-effective.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
@@ -12,9 +13,9 @@ import type {
   UwWaitProjection,
 } from './uw-completion-types.ts'
 import type { ObservedCommitIndex } from './uw-delivery-lineage.ts'
-import { assessUwDeliveryProof } from './uw-delivery-proof.ts'
+import { assessUwDeliveryProof, type CompleteDeliveryChild } from './uw-delivery-proof.ts'
 import type { UwDiagnostic, UwResult } from './uw-diagnostics.ts'
-import { isWayfinder, sameScope, type UwNativeNode } from './uw-graph.ts'
+import { isWayfinder, sameScope, scopeKey, type UwNativeNode } from './uw-graph.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord } from './workflow-control.ts'
@@ -36,6 +37,7 @@ type Context = {
   waits: UwWaitProjection
   dependencies: Map<string, DependencyResolution>
   completions: Map<string, UwCompletion>
+  deliveryAuthorities: Map<string, readonly ExternalRecordRef[]>
   visiting: Set<string>
   commitIndex: UwResult<ObservedCommitIndex>
   issue: (uw: Scope, code: string, message: string) => UwDiagnostic
@@ -44,7 +46,7 @@ type Context = {
 }
 type AcceptedSpec = AcceptedOwnSpec
 type Effective = SpecEffective
-type Complete = Extract<UwCompletion, { state: 'complete' }>
+type Complete = CompleteDeliveryChild
 
 function assessChild(
   context: Context,
@@ -81,7 +83,17 @@ function assessChild(
       true,
     )
   }
-  return completed
+  const authority = context.deliveryAuthorities.get(scopeKey(edge.to))
+  if (!authority) {
+    visiting.delete(key)
+    return refuse(
+      basis,
+      'indeterminate',
+      issue(uw, 'child-delivery-authority-unavailable', 'Completed child has no selected delivery authority'),
+      true,
+    )
+  }
+  return { ...completed, authority }
 }
 
 function assessChildren(
@@ -143,6 +155,7 @@ function finishProof(
     sources: proof.value.sources,
   }
   completions.set(key, completion)
+  context.deliveryAuthorities.set(key, proof.value.authority)
   const native = node.native
   const nativeSuccess =
     (native.state === 'OPEN' && (native.stateReason === null || native.stateReason === 'REOPENED')) ||

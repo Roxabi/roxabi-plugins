@@ -18,6 +18,7 @@ function integrationCodeMatchesProducer(
 ): boolean {
   return (
     producer.referenceCommit === producer.head &&
+    produced.head === producer.head &&
     produced.referenceCommit === producer.referenceCommit &&
     produced.repository === producer.repository &&
     produced.base === producer.base &&

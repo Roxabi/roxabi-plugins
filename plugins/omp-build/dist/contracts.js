@@ -18568,7 +18568,7 @@ function readCauseReports(input) {
 }
 // plugins/omp-build/engine/review-integration-pin.ts
 function integrationCodeMatchesProducer(producer, produced, remoteTip) {
-  return producer.referenceCommit === producer.head && produced.referenceCommit === producer.referenceCommit && produced.repository === producer.repository && produced.base === producer.base && remoteTip === produced.head;
+  return producer.referenceCommit === producer.head && produced.head === producer.head && produced.referenceCommit === producer.referenceCommit && produced.repository === producer.repository && produced.base === producer.base && remoteTip === produced.head;
 }
 function integrationVersionMatchesReview(inputs, subject, spec) {
   const integratedSubject = inputs.manifest.subject;
@@ -24090,7 +24090,7 @@ function citedAssignments(accepted, owner, selected, children) {
       return false;
     for (const assigned of assignment.children) {
       const child = children.find((candidate) => equalScope(candidate.uw, assigned));
-      if (child === undefined || !refs.some((ref) => child.sources.some((source) => sameRef2(source, ref.record))))
+      if (child === undefined || !refs.some((ref) => child.authority.some((source) => sameRef2(source, ref.record))))
         return false;
     }
   }
@@ -24170,7 +24170,14 @@ function assessLeaf(observation, uw, accepted, effective, index) {
   const code = selected.value.inputs.manifest.code;
   if (!actualMergedLineage(facts, native, code, index))
     return deliveryFailure(uw, "delivery-not-merged", "Actual bound merge identity and observed commit parents do not prove this reviewed delivery");
-  return { ok: true, value: { code, sources: uniqueSources([...selected.value.sources, expected, binding.mandate]) } };
+  return {
+    ok: true,
+    value: {
+      code,
+      sources: uniqueSources([...selected.value.sources, expected, binding.mandate]),
+      authority: [recordRef(selected.value.review), expected]
+    }
+  };
 }
 function assessParent(observation, uw, accepted, effective, children, index) {
   const selected = selectDeliveryReview(observation, uw, uw, effective, "epic-range");
@@ -24186,7 +24193,14 @@ function assessParent(observation, uw, accepted, effective, children, index) {
   const integration = assessParentIntegration(observation, uw, accepted, selected.value, facts, children, index, ancestors);
   if (!integration.ok)
     return integration;
-  return { ok: true, value: { code, sources: uniqueSources([...selected.value.sources, ...integration.value]) } };
+  return {
+    ok: true,
+    value: {
+      code,
+      sources: uniqueSources([...selected.value.sources, ...integration.value]),
+      authority: [recordRef(selected.value.review), ...integration.value]
+    }
+  };
 }
 function selectUwDeliveryReview(observation, uw, accepted, effective) {
   if (accepted.children.length !== 0)
@@ -25265,6 +25279,13 @@ function completionCoverageProblem(uw, spec) {
 
 // plugins/omp-build/engine/uw-completion-accepted.ts
 function acceptedCompletionProblem(uw, node, graph, spec, issue) {
+  if (node.raw.body !== spec.snapshot.raw.body) {
+    const current = parseIssueSpecBody({ uw, raw: node.raw });
+    if (current.status !== "conformant")
+      return issue(uw, "current-spec-unresolved", "Current native own Spec cannot be resolved");
+    if (current.snapshot.spec.version !== spec.snapshot.spec.version)
+      return issue(uw, "material-change-pending", "Current native own Spec differs from the accepted Spec");
+  }
   const tiers = node.labels.filter((label) => label === "size:S" || label === "size:F-lite" || label === "size:F-full");
   if (tiers.length !== 1 || tiers[0] !== `size:${spec.tier}`)
     return issue(uw, "tier-changed", "Native tier differs from the accepted tier");
@@ -25301,7 +25322,12 @@ function assessChild(context, basis, spec, edge) {
     visiting.delete(key);
     return refuse(basis, "indeterminate", issue(uw, "child-version-mismatch", "Accepted child completion is missing or has a different version"), true);
   }
-  return completed;
+  const authority = context.deliveryAuthorities.get(scopeKey(edge.to));
+  if (!authority) {
+    visiting.delete(key);
+    return refuse(basis, "indeterminate", issue(uw, "child-delivery-authority-unavailable", "Completed child has no selected delivery authority"), true);
+  }
+  return { ...completed, authority };
 }
 function assessChildren(context, basis, spec) {
   const { uw, key, visiting, waits, issue, refuse } = context;
@@ -25339,6 +25365,7 @@ function finishProof(context, basis, spec, effective, completedChildren) {
     sources: proof.value.sources
   };
   completions.set(key, completion);
+  context.deliveryAuthorities.set(key, proof.value.authority);
   const native = node.native;
   const nativeSuccess = native.state === "OPEN" && (native.stateReason === null || native.stateReason === "REOPENED") || native.state === "CLOSED" && native.stateReason === "COMPLETED";
   const problems = nativeSuccess ? [] : [
@@ -25469,6 +25496,7 @@ function assessUwCompletion(observation) {
     diagnostics.push(...observation.diagnostics);
   const dependencies = new Map;
   const completions = new Map;
+  const deliveryAuthorities = new Map;
   const visiting = new Set;
   const assess = (uw) => {
     const key = scopeKey(uw);
@@ -25519,6 +25547,7 @@ function assessUwCompletion(observation) {
       waits,
       dependencies,
       completions,
+      deliveryAuthorities,
       visiting,
       commitIndex,
       issue: issue4,

@@ -24,7 +24,7 @@ type Git = ReturnType<typeof nativeImplementationGit>
 type Parent = Awaited<ReturnType<Git['parent']>>
 type World = Parameters<Parameters<typeof withNativeImplementationWorld>[1]>[0]
 type Scenario = ReturnType<typeof nestedDeliveryFactsFixture>
-type ScenarioName = 'complete' | 'middle-missing-coverage'
+type ScenarioName = 'complete' | 'middle-missing-coverage' | 'root-missing-child-proof'
 type NestedDeliveryContinuation = (context: {
   world: World
   git: Git

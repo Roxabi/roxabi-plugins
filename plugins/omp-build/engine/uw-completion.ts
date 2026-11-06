@@ -1,4 +1,4 @@
-import { isWorkflowKind } from './record-references.ts'
+import { type ExternalRecordRef, isWorkflowKind } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import { assessManagedCompletion } from './uw-completion-managed.ts'
 import { assessNativeOnly } from './uw-completion-native.ts'
@@ -92,6 +92,7 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
   if (observation.status === 'incomplete') diagnostics.push(...observation.diagnostics)
   const dependencies = new Map<string, DependencyResolution>()
   const completions = new Map<string, UwCompletion>()
+  const deliveryAuthorities = new Map<string, readonly ExternalRecordRef[]>()
   const visiting = new Set<string>()
   const assess = (uw: Scope): DependencyResolution => {
     const key = scopeKey(uw)
@@ -145,6 +146,7 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
       waits,
       dependencies,
       completions,
+      deliveryAuthorities,
       visiting,
       commitIndex,
       issue,

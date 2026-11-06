@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { canonicalValueDigest } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
 import {
   actionRequest,
   blocks,
@@ -21,9 +22,14 @@ import {
   startCiAttributionReceipt,
 } from './feature-action-receipt.ts'
 import { approvedMandateContext, finalEligiblePlanActionId } from './feature-approved-context.ts'
+import { explicitParentHistories } from './feature-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
+import { cwdInhibition, inhibition } from './feature-control.ts'
 import type { Contracts, History, WorkflowEvidence } from './feature-engine.ts'
-import type { RecordInputRef } from './uw-action-contract.ts'
+import { proveAuthorizedPublishedBase } from './feature-publication.ts'
+import { readFreshUwCausalContext } from './fix-uw-histories.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import type { PreparedUwAction, RecordInputRef } from './uw-action-contract.ts'
 import { integrationProofInputs } from './uw-action-stage-closure.ts'
 import type { UwOperations } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -50,6 +56,78 @@ async function integrationSources(
   const projected = integrationProofInputs(read)
   if (!projected.ok) return blocks(prepareRefusal(projected.diagnostics), projected.diagnostics)
   return { sources: projected.value.stageSources }
+}
+
+async function integrationStartSources(
+  git: GitRunner,
+  cwd: string,
+  base: string,
+  uw: UwOperations,
+  scope: Scope,
+  accepted: AcceptedOwnSpec,
+): Promise<{ base: string; sources: readonly RecordInputRef[] } | ContinueFeatureResult> {
+  const tip = await observeSha(git, cwd, `origin/${base}`)
+  if (tip === null) return blocks('integration-base-unobserved')
+  const projected = await integrationSources(uw, scope, accepted)
+  if ('kind' in projected) return projected
+  return { base: tip, sources: projected.sources }
+}
+
+function integrationStartOperands(action: 'integrate' | 'implement', mandateId: string, planActionId: string) {
+  return action === 'integrate'
+    ? { operands: { action: 'integrate' as const, exactInputs: { mandateId, planActionId } } }
+    : {}
+}
+
+type IntegrationStartPreflight = {
+  loaded: Contracts
+  scope: Scope
+  cwd: string
+  gh: Gh
+  git: GitRunner
+  mandate: MandateRecord
+  uw: UwOperations
+  prepared: PreparedUwAction
+  head: string
+}
+
+async function integrationStartAuthority(input: IntegrationStartPreflight): Promise<boolean> {
+  const { loaded, scope, cwd, gh, mandate, uw, prepared } = input
+  if (cwdInhibition(cwd) !== undefined || inhibition(scope) !== undefined) return false
+  const options = { ...withRoxabiGitHubPolicy({ cwd, gh }), gh }
+  const fresh = await loaded.readComposedWorkflowHistory([scope], options)
+  if (!fresh.ok || !fresh.histories[0]) return false
+  const currentHistory = fresh.histories[0]
+  const currentMandate = currentHistory.operations.find(
+    (operation) => operation.record?.kind === 'mandate' && operation.record.recordId === mandate.recordId,
+  )?.record
+  if (currentMandate?.kind !== 'mandate') return false
+  const parents = await explicitParentHistories(loaded, currentMandate, options)
+  if (!parents.ok) return false
+  const causal = await readFreshUwCausalContext(scope, [currentHistory, ...parents.parents], options)
+  if (!causal.ok) return false
+  const selected = loaded.selectApplicableMandate(currentHistory, parents.parents, causal.value)
+  const verified = await uw.verifyAction(prepared.snapshot)
+  return (
+    cwdInhibition(cwd) === undefined &&
+    inhibition(scope) === undefined &&
+    selected.status === 'applicable' &&
+    selected.mandate?.recordId === mandate.recordId &&
+    canonicalValueDigest(selected.mandate) === canonicalValueDigest(mandate) &&
+    verified.ok
+  )
+}
+
+async function preflightIntegrationStart(input: IntegrationStartPreflight) {
+  return proveAuthorizedPublishedBase(
+    input.git,
+    input.cwd,
+    input.gh,
+    input.scope.repository,
+    input.mandate.payload.base,
+    input.head,
+    () => integrationStartAuthority(input),
+  )
 }
 
 export async function startImplement(
@@ -81,11 +159,16 @@ export async function startImplement(
   if (uw === undefined) return blocks('prepare-action-unavailable')
   const stageSources: RecordInputRef[] = []
   if (action === 'integrate') {
-    const base = await observeSha(git, cwd, `origin/${approved.mandate.payload.base}`)
-    if (base === null) return blocks('integration-base-unobserved')
-    code.code.base = base
-    const projected = await integrationSources(uw, scope, approved.accepted)
+    const projected = await integrationStartSources(
+      git,
+      cwd,
+      approved.mandate.payload.base,
+      uw,
+      scope,
+      approved.accepted,
+    )
     if ('kind' in projected) return projected
+    code.code.base = projected.base
     stageSources.push(...projected.sources)
   }
   const prepared = await (action === 'integrate' ? confirmPreparedAction : prepareDeliveryAction)(
@@ -95,18 +178,25 @@ export async function startImplement(
       purpose: action,
       subject: uwSubject(scope, null),
       code: code.code,
-      ...(action === 'integrate'
-        ? {
-            operands: {
-              action: 'integrate' as const,
-              exactInputs: { mandateId: approved.mandate.recordId, planActionId: planAction },
-            },
-          }
-        : {}),
+      ...integrationStartOperands(action, approved.mandate.recordId, planAction),
       stageSources,
     }),
   )
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
+  if (action === 'integrate') {
+    const published = await preflightIntegrationStart({
+      loaded,
+      scope,
+      cwd,
+      gh,
+      git,
+      mandate: approved.mandate,
+      uw,
+      prepared: prepared.value,
+      head: code.code.head,
+    })
+    if (!published.ok) return blocks(published.reason)
+  }
   return sealReceipt({
     loaded,
     history,
