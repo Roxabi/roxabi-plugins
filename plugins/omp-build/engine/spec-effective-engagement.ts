@@ -3,6 +3,7 @@ import { equalScope } from './record-diagnostics.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwResult } from './uw-diagnostics.ts'
 import { type UwGraphObservation, validateUwGraph } from './uw-graph.ts'
+import { currentOwnSpecProblem } from './uw-spec-currentness.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
@@ -99,6 +100,13 @@ function stateEngagementProblem(
       input,
       'effective-native-ancestry-mismatch',
       'Complete native ancestry does not match accepted inheritance',
+    )
+  const currentProblem = currentOwnSpecProblem(node, state)
+  if (currentProblem !== null)
+    return refusal(
+      { ...input, own: state.ref },
+      currentProblem,
+      `Accepted UW ${state.ref.uw.repository} ${state.ref.uw.target} current native Spec or tier differs from its accepted state`,
     )
   const projected = projectNativeUwChildren({
     uw: state.ref.uw,

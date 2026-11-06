@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { runNestedDeliveryScenario } from '../../testing/nested-delivery-world.ts'
 import { specReportSchema } from '../record-values.ts'
 import { assessUwCompletion } from '../uw-completion.ts'
@@ -261,3 +261,76 @@ test.each(['complete', 'middle-missing-coverage', 'root-missing-child-proof'] as
   },
   60_000,
 )
+
+test('holds inherited completion when the outer ancestor native Spec changes materially', async () => {
+  const { root, middleScope: middle, leaf, rootMandate, final } = await runNestedDeliveryScenario('complete')
+  if (!final) throw new Error('Root delivery result unavailable')
+  for (const scope of [root, middle, leaf]) {
+    expect(final.completion.completions.get(scopeKey(scope))).toMatchObject({ state: 'complete' })
+    expect(final.completion.dependencies.get(scopeKey(scope))).toMatchObject({
+      state: 'satisfied',
+      basis: { kind: 'accepted-uw' },
+    })
+  }
+  const rootNode = final.observation.graph.nodes.find((node) => scopeKey(node.uw) === scopeKey(root))
+  if (!rootNode) throw new Error('Expected outer root native node')
+  const withRootBody = (body: string) => {
+    const raw = rawSource(rootNode.raw.reference, body, rootNode.raw.lastEditedAt)
+    const parsed = parseIssueSpecBody({ uw: root, raw })
+    if (parsed.status !== 'conformant') throw new Error('Expected conformant outer root Spec')
+    return {
+      parsed,
+      observation: {
+        ...final.observation,
+        graph: {
+          ...final.observation.graph,
+          nodes: final.observation.graph.nodes.map((node) =>
+            scopeKey(node.uw) === scopeKey(root) ? { ...node, raw } : node,
+          ),
+        },
+      },
+    }
+  }
+  const editorialRoot = withRootBody(`${rootNode.raw.body}\n`)
+  expect(editorialRoot.parsed.snapshot.spec.version).toBe(rootMandate.payload.ownSpec.version)
+  const editorialCompletion = assessUwCompletion(editorialRoot.observation)
+  for (const scope of [root, middle, leaf]) {
+    expect(editorialCompletion.completions.get(scopeKey(scope))).toMatchObject({ state: 'complete' })
+    expect(editorialCompletion.dependencies.get(scopeKey(scope))).toMatchObject({ state: 'satisfied' })
+  }
+  const changedRootBody = rootNode.raw.body.replace('Keep the root invariant', 'Discard the root invariant')
+  expect(changedRootBody).not.toBe(rootNode.raw.body)
+  const changedRoot = withRootBody(changedRootBody)
+  expect(changedRoot.parsed.snapshot.spec.invariants[0]?.id).toBe('I1')
+  expect(changedRoot.parsed.snapshot.spec.version).not.toBe(rootMandate.payload.ownSpec.version)
+  const changedRootCompletion = assessUwCompletion(changedRoot.observation)
+  for (const scope of [root, middle, leaf]) {
+    expect(changedRootCompletion.completions.get(scopeKey(scope))?.state).not.toBe('complete')
+    expect(changedRootCompletion.dependencies.get(scopeKey(scope))).toMatchObject({ state: 'held' })
+  }
+}, 60_000)
+
+test('holds inherited completion when the outer ancestor native tier changes', async () => {
+  const { root, middleScope: middle, leaf, final } = await runNestedDeliveryScenario('complete')
+  if (!final) throw new Error('Root delivery result unavailable')
+  for (const scope of [root, middle, leaf]) {
+    expect(final.completion.completions.get(scopeKey(scope))).toMatchObject({ state: 'complete' })
+    expect(final.completion.dependencies.get(scopeKey(scope))).toMatchObject({ state: 'satisfied' })
+  }
+  const rootNode = final.observation.graph.nodes.find((node) => scopeKey(node.uw) === scopeKey(root))
+  expect(rootNode?.labels).toContain('size:S')
+  const changed = {
+    ...final.observation,
+    graph: {
+      ...final.observation.graph,
+      nodes: final.observation.graph.nodes.map((node) =>
+        scopeKey(node.uw) === scopeKey(root) ? { ...node, labels: ['size:F-lite'] } : node,
+      ),
+    },
+  }
+  const assessment = assessUwCompletion(changed)
+  for (const scope of [root, middle, leaf]) {
+    expect(assessment.completions.get(scopeKey(scope))?.state).not.toBe('complete')
+    expect(assessment.dependencies.get(scopeKey(scope))).toMatchObject({ state: 'held' })
+  }
+}, 60_000)

@@ -10805,7 +10805,7 @@ function validateCauseEffects(input, dispositions) {
 }
 
 // plugins/omp-build/engine/cause-record-operation-validation.ts
-import { createHash as createHash7 } from "node:crypto";
+import { createHash as createHash8 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-adjudication.ts
 import { createHash as createHash5 } from "node:crypto";
@@ -11460,6 +11460,9 @@ function projectNativeUwChildren(input) {
   return diagnostics.length ? { ok: false, diagnostics } : { ok: true, value: children };
 }
 
+// plugins/omp-build/adapters/github-native/uw-spec-parser.ts
+import { createHash as createHash7 } from "node:crypto";
+
 // plugins/omp-build/engine/uw-spec.ts
 import { createHash as createHash6 } from "node:crypto";
 function normalized(value) {
@@ -11544,6 +11547,722 @@ function validateSpecIds(spec, ledger) {
     });
   }
   return diagnostics.length === 0 ? { ok: true, value: spec } : { ok: false, diagnostics };
+}
+
+// plugins/omp-build/adapters/github-native/uw-spec-text-codec.ts
+var ITEM_CONTINUATION_PREFIX = "  ";
+var TEXT_ENCODING = /^\s*(~{3,})omp-build-text\s*$/;
+function encodeSpecText(value) {
+  const longest = [...value.matchAll(/~+/g)].reduce((count, match) => Math.max(count, (match[0] ?? "").length), 0);
+  const delimiter = "~".repeat(Math.max(3, longest + 1));
+  return `${delimiter}omp-build-text
+${value}
+${delimiter}`;
+}
+function decodeSpecText(value) {
+  const lines = value.replace(/\r\n?/g, `
+`).split(`
+`);
+  const opening = TEXT_ENCODING.exec(lines[0] ?? "");
+  const delimiter = opening?.[1];
+  if (delimiter === undefined || lines.at(-1) !== delimiter)
+    return null;
+  const closes = new RegExp(`^\\s*${delimiter}\\s*$`);
+  if (lines.slice(1, -1).some((line) => closes.test(line)))
+    return null;
+  return lines.slice(1, -1).join(`
+`);
+}
+function isSpecTextFence(value) {
+  return TEXT_ENCODING.test(value.replace(/\r\n?/g, `
+`).split(`
+`)[0] ?? "");
+}
+function formatItemBody(statement) {
+  const lines = statement.split(`
+`);
+  if (lines.length <= 1)
+    return statement;
+  return [lines[0], ...lines.slice(1).map((line) => `${ITEM_CONTINUATION_PREFIX}${line}`)].join(`
+`);
+}
+function decodeContinuationLines(lines) {
+  return lines.map((line) => line.startsWith(ITEM_CONTINUATION_PREFIX) ? line.slice(ITEM_CONTINUATION_PREFIX.length) : line).join(`
+`);
+}
+// plugins/omp-build/adapters/github-native/uw-spec-item-scanner.ts
+var ITEM = /^-\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/;
+var LEGACY_ITEM = /^\s*[-*]\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/;
+function decodedStatement(item) {
+  if (item.source.length === 1)
+    return item.statement;
+  const continuation = decodeContinuationLines(item.source.slice(1));
+  return item.statement === "" ? continuation : `${item.statement}
+${continuation}`;
+}
+function completedItem(uw, section, expected, item, span) {
+  const decoded = decodedStatement(item);
+  const decodedText = decodeSpecText(decoded);
+  const block = {
+    kind: expected === "C" ? "criterion" : "invariant",
+    id: item.id,
+    statement: decodedText ?? decoded,
+    source: item.source.join(`
+`),
+    span
+  };
+  const malformed = [];
+  if (item.id !== null && normalized(block.statement) === "")
+    malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `${item.id} must have a non-empty statement`, block.span, section.heading));
+  if (item.id !== null && !item.id.startsWith(expected))
+    malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `${item.id} is not valid in ${section.heading}`, block.span, section.heading));
+  if (decodedText === null && isSpecTextFence(decoded))
+    malformed.push(bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", block.span, section.heading));
+  return { block, malformed };
+}
+function startItem(line, index, legacyCriteria) {
+  const match = (legacyCriteria ? LEGACY_ITEM : ITEM).exec(line);
+  if (!match)
+    return null;
+  return {
+    first: index,
+    last: index,
+    source: [line],
+    pendingBlankLines: [],
+    id: match[1] ?? null,
+    statement: match[2] ?? ""
+  };
+}
+function appendContinuation(active, line, index) {
+  if (active === null)
+    return false;
+  if (line.trim() === "") {
+    active.pendingBlankLines.push(line);
+    return true;
+  }
+  if (!/^\s+/.test(line))
+    return false;
+  active.source.push(...active.pendingBlankLines, line);
+  active.pendingBlankLines = [];
+  active.last = index;
+  return true;
+}
+function scanSourceItems(uw, section, expected, legacyCriteria = false) {
+  if (!section)
+    return { blocks: [], malformed: [], noncriterion: [] };
+  const lines = normalizeNewlines(section.content).split(`
+`);
+  const blocks = [];
+  const malformed = [];
+  const noncriterion = [];
+  const itemSpan = (first, last) => ({
+    start: { line: section.contentSpan.start.line + first, column: 1 },
+    end: { line: section.contentSpan.start.line + last, column: (lines[last] ?? "").length + 1 }
+  });
+  let active = null;
+  const finish = () => {
+    if (active === null)
+      return;
+    const completed = completedItem(uw, section, expected, active, itemSpan(active.first, active.last));
+    blocks.push(completed.block);
+    malformed.push(...completed.malformed);
+    active = null;
+  };
+  for (let index = 0;index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const next = startItem(line, index, legacyCriteria);
+    if (next !== null) {
+      finish();
+      active = next;
+      continue;
+    }
+    if (appendContinuation(active, line, index))
+      continue;
+    finish();
+    if (line !== "") {
+      const span = itemSpan(index, index);
+      noncriterion.push({ kind: "text", section: section.heading, span, source: line });
+      malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `Expected a bullet item in ${section.heading}`, span, section.heading));
+    }
+  }
+  finish();
+  return { blocks, malformed, noncriterion };
+}
+// plugins/omp-build/adapters/github-native/uw-spec-literal-items.ts
+function scanLiteralItems(uw, section) {
+  if (!section)
+    return { blocks: [], malformed: [], noncriterion: [] };
+  const lines = normalizeNewlines(section.content).split(`
+`);
+  const blocks = [];
+  const malformed = [];
+  const noncriterion = [];
+  const itemSpan = (first, last) => ({
+    start: { line: section.contentSpan.start.line + first, column: 1 },
+    end: { line: section.contentSpan.start.line + last, column: (lines[last] ?? "").length + 1 }
+  });
+  let active = null;
+  const finish = () => {
+    if (!active)
+      return;
+    const text = active.source.join(`
+`);
+    const decoded = active.statement + (active.source.length > 1 ? `
+${decodeContinuationLines(active.source.slice(1))}` : "");
+    const decodedText = decodeSpecText(decoded);
+    const block = {
+      kind: "criterion",
+      id: null,
+      statement: decodedText ?? decoded,
+      source: text,
+      span: itemSpan(active.first, active.last)
+    };
+    blocks.push(block);
+    if (decodedText === null && isSpecTextFence(decoded)) {
+      malformed.push(bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", block.span, section.heading));
+    }
+    active = null;
+  };
+  for (let index = 0;index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const match = LITERAL_ITEM.exec(line);
+    if (match) {
+      finish();
+      active = {
+        first: index,
+        last: index,
+        source: [line],
+        pendingBlankLines: [],
+        statement: match[1] ?? ""
+      };
+      continue;
+    }
+    if (active && line.trim() === "") {
+      active.pendingBlankLines.push(line);
+      continue;
+    }
+    if (active && /^\s+/.test(line)) {
+      active.source.push(...active.pendingBlankLines, line);
+      active.pendingBlankLines = [];
+      active.last = index;
+      continue;
+    }
+    finish();
+    if (line !== "") {
+      const malformedSpan = itemSpan(index, index);
+      noncriterion.push({ kind: "text", section: section.heading, span: malformedSpan, source: line });
+      malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `Expected a bullet item in ${section.heading}`, malformedSpan, section.heading));
+    }
+  }
+  finish();
+  return { blocks, malformed, noncriterion };
+}
+function questionBounds(lines) {
+  let first = 0;
+  let last = lines.length - 1;
+  while (first <= last && /^\s*$/.test(lines[first] ?? ""))
+    first += 1;
+  while (last >= first && /^\s*$/.test(lines[last] ?? ""))
+    last -= 1;
+  if (/^<!-- complexity: [0-9]+ -->$/.test(lines[last] ?? ""))
+    last -= 1;
+  while (last >= first && /^\s*$/.test(lines[last] ?? ""))
+    last -= 1;
+  return { first, last };
+}
+function questionBlock(section, lines, index) {
+  const source = lines[index] ?? "";
+  const item = LITERAL_ITEM.exec(source);
+  if (item === null) {
+    return {
+      block: {
+        statement: source,
+        source,
+        span: {
+          start: { line: section.contentSpan.start.line + index, column: 1 },
+          end: { line: section.contentSpan.start.line + index, column: source.length + 1 }
+        }
+      },
+      last: index
+    };
+  }
+  const start = index;
+  const itemLines = [item[1] ?? ""];
+  while ((lines[index + 1] ?? "").startsWith(ITEM_CONTINUATION_PREFIX)) {
+    index += 1;
+    itemLines.push((lines[index] ?? "").slice(ITEM_CONTINUATION_PREFIX.length));
+  }
+  const encoded = itemLines.join(`
+`);
+  return {
+    block: {
+      statement: decodeSpecText(encoded) ?? encoded,
+      source: lines.slice(start, index + 1).join(`
+`),
+      span: {
+        start: { line: section.contentSpan.start.line + start, column: 1 },
+        end: { line: section.contentSpan.start.line + index, column: (lines[index] ?? "").length + 1 }
+      }
+    },
+    last: index
+  };
+}
+function scanOpenQuestionItems(section) {
+  if (!section)
+    return [];
+  const lines = normalizeNewlines(section.content).split(`
+`);
+  const { first, last } = questionBounds(lines);
+  const blocks = [];
+  for (let index = first;index <= last; index += 1) {
+    if (lines[index] === "")
+      continue;
+    const question = questionBlock(section, lines, index);
+    blocks.push(question.block);
+    index = question.last;
+  }
+  return blocks;
+}
+
+// plugins/omp-build/adapters/github-native/uw-spec-source-scanner.ts
+var SPEC_MARKER = "<!-- omp-build-spec/1 -->";
+var SPEC_HEADINGS = [
+  "Origin",
+  "Context",
+  "Change",
+  "Acceptance Criteria",
+  "Invariants",
+  "Exclusions",
+  "Open Questions"
+];
+var LEGACY_HEADINGS = /^(?:acceptance criteria|critères d[’']acceptation|critères|criteria)$/i;
+var LITERAL_ITEM = /^- (.*)$/;
+function bodyLocation(uw, span, section) {
+  return { kind: "body", uw, section, start: span.start, end: span.end };
+}
+function bodyDiagnostic(uw, code, message, span, section) {
+  return { code, message, location: bodyLocation(uw, span, section), related: [] };
+}
+function sourceSpan(startLine, endLine, lines) {
+  const endText = lines[endLine - 1] ?? "";
+  return { start: { line: startLine, column: 1 }, end: { line: endLine, column: endText.length + 1 } };
+}
+function sourceLineSpan(line, start = 1, end = start) {
+  return { start: { line, column: start }, end: { line, column: end } };
+}
+function normalizeNewlines(value) {
+  return value.replace(/\r\n?/g, `
+`);
+}
+function isLegacyHeading(heading) {
+  return LEGACY_HEADINGS.test(heading);
+}
+function headingOf(line, marked) {
+  const heading = /^(#{1,6}) ([^\n]+)$/.exec(line);
+  if (heading === null || line.startsWith("\\#"))
+    return null;
+  const name = heading[2] ?? "";
+  return heading[1]?.length === 1 || !marked && isLegacyHeading(name) ? name : null;
+}
+function nextFence(current, line) {
+  const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+  if (fence === null)
+    return;
+  const delimiter = fence[1] ?? "";
+  if (current === null)
+    return /^\s/.test(line) ? undefined : delimiter;
+  return delimiter[0] === current[0] && delimiter.length >= current.length && /^\s*$/.test(fence[2] ?? "") ? null : current;
+}
+function scannedHeadings(lines, marked) {
+  const headings = [];
+  let fenced = null;
+  for (let index = 0;index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const next = nextFence(fenced, line);
+    if (next !== undefined) {
+      fenced = next;
+      continue;
+    }
+    if (fenced !== null)
+      continue;
+    const heading = headingOf(line, marked);
+    if (heading !== null)
+      headings.push({ heading, line: index + 1 });
+  }
+  return headings;
+}
+function sectionsOf(lines, headings) {
+  return headings.map((entry, index) => {
+    const next = headings[index + 1]?.line ?? lines.length + 1;
+    return {
+      heading: entry.heading,
+      content: lines.slice(entry.line, next - 1).join(`
+`),
+      source: lines.slice(entry.line - 1, next - 1).join(`
+`),
+      span: sourceSpan(entry.line, Math.max(entry.line, next - 1), lines),
+      contentSpan: sourceSpan(Math.min(entry.line + 1, lines.length || 1), Math.max(entry.line + 1, next - 1), lines)
+    };
+  });
+}
+function unknownSectionDiagnostics(uw, sections) {
+  return sections.flatMap((section) => SPEC_HEADINGS.some((heading) => heading === section.heading) ? [] : [
+    bodyDiagnostic(uw, "spec-section-unknown", `Unknown H1 section ${section.heading}`, section.span, section.heading)
+  ]);
+}
+function scanSpecStructure(uw, body) {
+  const lines = normalizeNewlines(body).split(`
+`);
+  const marked = lines.some((line) => line.trim() === SPEC_MARKER);
+  const sections = sectionsOf(lines, scannedHeadings(lines, marked));
+  return { sections, diagnostics: unknownSectionDiagnostics(uw, sections), marked };
+}
+function sectionsByHeading(parsed) {
+  const byHeading = new Map;
+  for (const section of parsed.sections)
+    byHeading.set(section.heading, [...byHeading.get(section.heading) ?? [], section]);
+  return byHeading;
+}
+function structuralDiagnostics(uw, parsed, byHeading) {
+  const diagnostics = [];
+  for (const heading of SPEC_HEADINGS) {
+    const matches = byHeading.get(heading) ?? [];
+    if (matches.length !== 1) {
+      diagnostics.push(bodyDiagnostic(uw, matches.length ? "spec-section-duplicate" : "spec-section-missing", `${heading} section must appear exactly once`, matches[0]?.span ?? sourceLineSpan(1), heading));
+    }
+  }
+  if (SPEC_HEADINGS.some((heading, index) => parsed.sections[index]?.heading !== heading)) {
+    diagnostics.push(bodyDiagnostic(uw, "spec-section-order", "Spec H1 sections are not in the required order", parsed.sections[0]?.span ?? sourceLineSpan(1)));
+  }
+  return diagnostics;
+}
+
+// plugins/omp-build/adapters/github-native/uw-spec-source-projection.ts
+function structuralContent(value) {
+  const lines = normalizeNewlines(value).split(`
+`);
+  while (lines[0] !== undefined && /^\s*$/.test(lines[0]))
+    lines.shift();
+  while (lines.at(-1) !== undefined && /^\s*$/.test(lines.at(-1) ?? ""))
+    lines.pop();
+  return lines.join(`
+`);
+}
+function decodedContent(value) {
+  const structural = structuralContent(value);
+  return decodeSpecText(structural) ?? structural;
+}
+function retainedSections(sections) {
+  return sections.filter((section) => !SPEC_HEADINGS.includes(section.heading) && !isLegacyHeading(section.heading)).map((section) => ({
+    kind: "section",
+    section: section.heading,
+    span: section.span,
+    source: section.source
+  }));
+}
+function sectionContentBlocks(byHeading) {
+  const names = [
+    ["Origin", "origin"],
+    ["Context", "context"],
+    ["Change", "change"]
+  ];
+  return names.flatMap(([heading, section]) => (byHeading.get(heading) ?? []).flatMap((entry) => {
+    const statement = decodedContent(entry.content);
+    return statement === "" ? [] : [
+      {
+        target: { kind: "section", section },
+        statement,
+        span: entry.contentSpan,
+        source: entry.content
+      }
+    ];
+  }));
+}
+function preservePreamble(uw, raw, sections, preserved) {
+  const firstHeading = sections[0]?.span.start.line;
+  if (firstHeading === undefined)
+    return [];
+  const lines = normalizeNewlines(raw.body).split(`
+`);
+  const diagnostics = [];
+  for (let line = 1;line < firstHeading; line += 1) {
+    const source = lines[line - 1] ?? "";
+    if (source !== "" && source.trim() !== SPEC_MARKER) {
+      const span = sourceSpan(line, line, lines);
+      preserved.push({ kind: "text", section: null, span, source });
+      diagnostics.push(bodyDiagnostic(uw, "spec-content-unclassifiable", "Body content outside Spec sections is preserved for normalization", span));
+    }
+  }
+  return diagnostics;
+}
+function preserveUnclassifiableBody(uw, raw, sections, preserved) {
+  if (sections.length !== 0 || raw.body === "")
+    return [];
+  const lines = normalizeNewlines(raw.body).split(`
+`);
+  const span = sourceSpan(1, lines.length, lines);
+  preserved.push({ kind: "text", section: null, span, source: raw.body });
+  return [bodyDiagnostic(uw, "spec-content-unclassifiable", "Body has no classifiable Spec sections", span)];
+}
+function malformedTextFenceDiagnostics(uw, byHeading) {
+  return ["Origin", "Context", "Change"].flatMap((heading) => (byHeading.get(heading) ?? []).flatMap((section) => {
+    const encoded = structuralContent(section.content);
+    return isSpecTextFence(encoded) && decodeSpecText(encoded) === null ? [
+      bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", section.contentSpan, heading)
+    ] : [];
+  }));
+}
+
+// plugins/omp-build/adapters/github-native/uw-spec-body-scan.ts
+function scanBodySources(uw, sections, byHeading, marked) {
+  const legacySections = sections.filter((section) => isLegacyHeading(section.heading));
+  const legacyCriteria = legacySections.filter((section) => section.heading !== "Acceptance Criteria");
+  const criteria = scanMany(uw, [...byHeading.get("Acceptance Criteria") ?? [], ...legacyCriteria], "C", !marked);
+  const invariants = scanMany(uw, byHeading.get("Invariants") ?? [], "I");
+  const exclusionScans = (byHeading.get("Exclusions") ?? []).map((section) => scanLiteralItems(uw, section));
+  const questionScans = (byHeading.get("Open Questions") ?? []).map((section) => scanOpenQuestionItems(section));
+  const exclusions = exclusionScans[0] ?? { blocks: [], malformed: [], noncriterion: [] };
+  const contentBlocks = [
+    ...sectionContentBlocks(byHeading),
+    ...exclusionScans.flatMap((scan) => scan.blocks).map((block, index) => ({
+      target: { kind: "exclusion", index },
+      statement: block.statement,
+      span: block.span,
+      source: block.source
+    })),
+    ...questionScans.flat().map((block, index) => ({
+      target: { kind: "open-question", index },
+      statement: block.statement,
+      span: block.span,
+      source: block.source
+    }))
+  ];
+  const preserved = [
+    ...retainedSections(sections),
+    ...criteria.noncriterion,
+    ...invariants.noncriterion,
+    ...exclusionScans.flatMap((scan) => scan.noncriterion)
+  ];
+  return {
+    legacySections,
+    criteria,
+    invariants,
+    exclusions,
+    questionBlocks: questionScans[0] ?? [],
+    contentBlocks,
+    preserved,
+    malformed: [...criteria.malformed, ...invariants.malformed, ...exclusionScans.flatMap((scan) => scan.malformed)]
+  };
+}
+function scanMany(uw, sections, expected, legacyCriteria = false) {
+  const scans = sections.map((section) => scanSourceItems(uw, section, expected, legacyCriteria));
+  return {
+    blocks: scans.flatMap((scan) => scan.blocks),
+    malformed: scans.flatMap((scan) => scan.malformed),
+    noncriterion: scans.flatMap((scan) => scan.noncriterion)
+  };
+}
+
+// plugins/omp-build/adapters/github-native/uw-spec-parser.ts
+function sha256(value) {
+  return createHash7("sha256").update(value).digest("hex");
+}
+function duplicateDiagnostics(uw, blocks) {
+  const firstById = new Map;
+  const diagnostics = [];
+  for (const block of blocks) {
+    if (block.id === null)
+      continue;
+    const first = firstById.get(block.id);
+    if (first === undefined)
+      firstById.set(block.id, block);
+    else
+      diagnostics.push({
+        ...bodyDiagnostic(uw, "spec-id-duplicate", `Duplicate Spec item ${block.id}`, block.span),
+        related: [bodyLocation(uw, first.span)]
+      });
+  }
+  return diagnostics;
+}
+function malformedResult(diagnostics, criteria, invariants, contentBlocks, preserved, status = "malformed") {
+  return { status, diagnostics, criterionBlocks: criteria, invariantBlocks: invariants, contentBlocks, preserved };
+}
+function isCriterionId(id) {
+  return id !== null && /^C[1-9][0-9]*$/.test(id);
+}
+function isInvariantId(id) {
+  return id !== null && /^I[1-9][0-9]*$/.test(id);
+}
+function draftCriteria(blocks) {
+  return blocks.map((block, index) => {
+    if (block.id === null)
+      return { kind: "new", draftKey: `${block.kind}-${index + 1}`, statement: block.statement };
+    if (!isCriterionId(block.id))
+      throw new Error(`Expected criterion ID, received ${block.id}`);
+    return { kind: "existing", id: block.id, statement: block.statement };
+  });
+}
+function draftInvariants(blocks) {
+  return blocks.map((block, index) => {
+    if (block.id === null)
+      return { kind: "new", draftKey: `${block.kind}-${index + 1}`, statement: block.statement };
+    if (!isInvariantId(block.id))
+      throw new Error(`Expected invariant ID, received ${block.id}`);
+    return { kind: "existing", id: block.id, statement: block.statement };
+  });
+}
+function identifiedItems(blocks, matches) {
+  return blocks.map((block) => {
+    if (!matches(block.id))
+      throw new Error(`Expected named Spec item, received ${block.id ?? "unnamed"}`);
+    return { id: block.id, statement: block.statement };
+  });
+}
+function parseSpecBody(uw, raw) {
+  const parsed = scanSpecStructure(uw, raw.body);
+  const byHeading = sectionsByHeading(parsed);
+  const diagnostics = [...parsed.diagnostics, ...structuralDiagnostics(uw, parsed, byHeading)];
+  const sourceFacts = scanBodySources(uw, parsed.sections, byHeading, parsed.marked);
+  const { criteria, invariants, exclusions, questionBlocks, contentBlocks, legacySections, preserved } = sourceFacts;
+  diagnostics.push(...sourceFacts.malformed);
+  diagnostics.push(...preservePreamble(uw, raw, parsed.sections, preserved));
+  diagnostics.push(...preserveUnclassifiableBody(uw, raw, parsed.sections, preserved));
+  const allBlocks = [...criteria.blocks, ...invariants.blocks];
+  diagnostics.push(...duplicateDiagnostics(uw, allBlocks));
+  const sections = {
+    origin: decodedContent(byHeading.get("Origin")?.[0]?.content ?? ""),
+    context: decodedContent(byHeading.get("Context")?.[0]?.content ?? ""),
+    change: decodedContent(byHeading.get("Change")?.[0]?.content ?? "")
+  };
+  diagnostics.push(...malformedTextFenceDiagnostics(uw, byHeading));
+  const questions = questionBlocks;
+  if (!parsed.marked) {
+    const legacy = legacySections.length > 0;
+    diagnostics.push(bodyDiagnostic(uw, "spec-legacy-format", legacy ? "Legacy specification headings require normalization" : "Spec marker is missing", sourceLineSpan(1)));
+    return malformedResult(diagnostics, criteria.blocks, invariants.blocks, contentBlocks, preserved, legacy ? "legacy" : "malformed");
+  }
+  if (diagnostics.length > 0)
+    return malformedResult(diagnostics, criteria.blocks, invariants.blocks, contentBlocks, preserved);
+  const draft = {
+    criteria: draftCriteria(criteria.blocks),
+    invariants: draftInvariants(invariants.blocks),
+    exclusions: exclusions.blocks.map((block) => block.statement),
+    openQuestions: questions.map((block) => block.statement),
+    sections
+  };
+  if (allBlocks.some((block) => block.id === null))
+    return {
+      status: "draft",
+      draft,
+      diagnostics: [],
+      criterionBlocks: criteria.blocks,
+      invariantBlocks: invariants.blocks,
+      contentBlocks,
+      preserved
+    };
+  const content = {
+    format: "omp-build-spec-content/1",
+    criteria: identifiedItems(criteria.blocks, isCriterionId),
+    invariants: identifiedItems(invariants.blocks, isInvariantId),
+    exclusions: exclusions.blocks.map((block) => block.statement),
+    openQuestions: draft.openQuestions,
+    sections
+  };
+  const canonical = canonicalSpec(content);
+  if (!canonical.ok) {
+    return malformedResult(canonical.diagnostics.map((entry) => bodyDiagnostic(uw, entry.code, entry.message, sourceLineSpan(1))), criteria.blocks, invariants.blocks, contentBlocks, preserved);
+  }
+  return {
+    status: "conformant",
+    content: canonical.value,
+    diagnostics: [],
+    criterionBlocks: criteria.blocks,
+    invariantBlocks: invariants.blocks,
+    contentBlocks,
+    preserved
+  };
+}
+function rawSource(reference, body, lastEditedAt) {
+  return { reference, body, bodySha256: sha256(body), lastEditedAt };
+}
+// plugins/omp-build/adapters/github-native/uw-spec-renderer.ts
+function renderIssueSpecBody(spec, metadata) {
+  const sections = {
+    Origin: encodeSpecText(spec.sections.origin),
+    Context: encodeSpecText(spec.sections.context),
+    Change: encodeSpecText(spec.sections.change),
+    "Acceptance Criteria": spec.criteria.map((item) => `- ${item.id} :
+${encodeSpecText(item.statement).split(`
+`).map((line) => `  ${line}`).join(`
+`)}`).join(`
+`),
+    Invariants: spec.invariants.map((item) => `- ${item.id} :
+${encodeSpecText(item.statement).split(`
+`).map((line) => `  ${line}`).join(`
+`)}`).join(`
+`),
+    Exclusions: spec.exclusions.map((item) => `- ${formatItemBody(encodeSpecText(item))}`).join(`
+`),
+    "Open Questions": spec.openQuestions.map((item) => `- ${formatItemBody(encodeSpecText(item))}`).join(`
+`)
+  };
+  const rendered = [SPEC_MARKER, ...SPEC_HEADINGS.flatMap((heading) => [`# ${heading}`, sections[heading]])];
+  if (metadata?.complexity !== undefined)
+    rendered.push(`<!-- complexity: ${metadata.complexity} -->`);
+  return `${rendered.join(`
+
+`)}
+`;
+}
+
+// plugins/omp-build/adapters/github-native/uw-spec.ts
+function analysis(criteria, invariants, content, preserved) {
+  return {
+    criterionSources: criteria.map(({ id, statement, span, source }) => ({ id, statement, span, source })),
+    invariantSources: invariants.map(({ id, statement, span, source }) => ({ id, statement, span, source })),
+    contentSources: content.map(({ target, statement, span, source }) => ({ target, statement, span, source })),
+    preservedContent: preserved.map(({ span, source, section }) => section === null ? { span, text: source } : { span, text: source, sectionHint: section })
+  };
+}
+function parseIssueSpecBody(input) {
+  const parsed = parseSpecBody(input.uw, input.raw);
+  const source = analysis(parsed.criterionBlocks, parsed.invariantBlocks, parsed.contentBlocks, parsed.preserved);
+  if (parsed.status === "conformant" && parsed.content !== undefined) {
+    return {
+      status: "conformant",
+      snapshot: { spec: parsed.content, raw: input.raw },
+      diagnostics: [],
+      analysis: source
+    };
+  }
+  if (parsed.status === "draft" && parsed.draft !== undefined) {
+    return { status: "draft", draft: parsed.draft, raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
+  }
+  if (parsed.status === "legacy") {
+    return { status: "legacy", raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
+  }
+  return { status: "malformed", raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
+}
+
+// plugins/omp-build/engine/uw-spec-currentness.ts
+function currentOwnSpecProblem(node, accepted) {
+  if (node.raw.body !== accepted.snapshot.raw.body) {
+    const current = parseIssueSpecBody({ uw: accepted.ref.uw, raw: node.raw });
+    if (current.status !== "conformant")
+      return "current-spec-unresolved";
+    if (current.snapshot.spec.version !== accepted.snapshot.spec.version)
+      return "material-change-pending";
+  }
+  let tiers = 0;
+  let matching = false;
+  for (const label of node.labels) {
+    if (label === "size:S" || label === "size:F-lite" || label === "size:F-full") {
+      tiers++;
+      if (label === `size:${accepted.tier}`)
+        matching = true;
+    }
+  }
+  return tiers === 1 && matching ? null : "tier-changed";
 }
 
 // plugins/omp-build/engine/uw-identity-allocation.ts
@@ -14203,6 +14922,9 @@ function stateEngagementProblem(state, parent, input) {
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, state.ref.uw));
   if (!node || (parent === undefined ? node.parent !== null : node.parent === null || !equalScope(node.parent, parent.ref.uw)))
     return refusal(input, "effective-native-ancestry-mismatch", "Complete native ancestry does not match accepted inheritance");
+  const currentProblem = currentOwnSpecProblem(node, state);
+  if (currentProblem !== null)
+    return refusal({ ...input, own: state.ref }, currentProblem, `Accepted UW ${state.ref.uw.repository} ${state.ref.uw.target} current native Spec or tier differs from its accepted state`);
   const projected = projectNativeUwChildren({
     uw: state.ref.uw,
     graph: input.graph,
@@ -14366,7 +15088,7 @@ function currentCauseContext(frame, origin, versionVector, graph) {
 // plugins/omp-build/engine/cause-record-operation-validation.ts
 function validateConfirmation(operation, confirmations, diagnostics) {
   const payload = operation.payload;
-  const digest = createHash7("sha256").update(JSON.stringify(payload.proposal)).digest("hex");
+  const digest = createHash8("sha256").update(JSON.stringify(payload.proposal)).digest("hex");
   if (payload.proposalDigest !== digest || payload.confirmation.proposalDigest !== digest || payload.confirmation.operationId !== payload.proposal.operationId)
     diagnostics.push(diagnostic2("cause-operation-confirmation-mismatch", `Operation ${operation.recordId} does not bind the exact confirmed proposal`));
   const key = payload.confirmation.operationId;
@@ -14402,7 +15124,7 @@ function sisterMatches(creation, disposition) {
 function validateCreation2(operation, proposal, disposition, diagnostics) {
   const creation = proposal.creation;
   const expectedDigest = creation.kind === "sister" ? creation.dispositionDigest : creation.reportDigest;
-  if (createHash7("sha256").update(JSON.stringify(disposition)).digest("hex") !== expectedDigest || disposition.payload.outcome.state !== "final" || (creation.kind === "sister" ? !sisterMatches(creation, disposition) : disposition.payload.outcome.disposition !== "report"))
+  if (createHash8("sha256").update(JSON.stringify(disposition)).digest("hex") !== expectedDigest || disposition.payload.outcome.state !== "final" || (creation.kind === "sister" ? !sisterMatches(creation, disposition) : disposition.payload.outcome.disposition !== "report"))
     diagnostics.push(diagnostic2("cause-operation-source-mismatch", `Operation ${operation.recordId} does not match its final disposition`));
 }
 function validateCauseOperations(operations, histories, diagnostics, frame) {
@@ -14467,7 +15189,7 @@ function validateCauseCycles(dispositions, diagnostics) {
 }
 
 // plugins/omp-build/engine/cause-adjudication-successor.ts
-import { createHash as createHash13 } from "node:crypto";
+import { createHash as createHash14 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-assessment-authority.ts
 function authenticateContext(context, histories, graph) {
@@ -14514,10 +15236,10 @@ function authenticateFrameContext(frame, context, historical, graph) {
 }
 
 // plugins/omp-build/engine/cause-adjudication-assessment.ts
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-lineage.ts
-import { createHash as createHash8 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 function causeDispositionLineage(input) {
   const chain = [];
   const seen = new Set;
@@ -14565,7 +15287,7 @@ function confirmedPredecessor(cursor, history) {
     };
   const payload = operation.value.payload;
   const proposal = payload.proposal;
-  if (proposal.operation !== "adjudicate-cause" || !sameRef2(proposal.pending, previous) || !equalScope(proposal.uw, history.source.scope) || proposal.pendingDigest !== createHash8("sha256").update(JSON.stringify(predecessor.value)).digest("hex") || payload.proposalDigest !== createHash8("sha256").update(JSON.stringify(proposal)).digest("hex") || payload.confirmation.proposalDigest !== payload.proposalDigest || payload.confirmation.operationId !== proposal.operationId || predecessor.value.payload.outcome.state !== "pending-blocking" || canonicalValueDigest(predecessor.value.payload.subject) !== canonicalValueDigest(cursor.payload.subject) || canonicalValueDigest(predecessor.value.payload.origin) !== canonicalValueDigest(cursor.payload.origin) || canonicalValueDigest(predecessor.value.payload.basis) !== canonicalValueDigest(cursor.payload.basis))
+  if (proposal.operation !== "adjudicate-cause" || !sameRef2(proposal.pending, previous) || !equalScope(proposal.uw, history.source.scope) || proposal.pendingDigest !== createHash9("sha256").update(JSON.stringify(predecessor.value)).digest("hex") || payload.proposalDigest !== createHash9("sha256").update(JSON.stringify(proposal)).digest("hex") || payload.confirmation.proposalDigest !== payload.proposalDigest || payload.confirmation.operationId !== proposal.operationId || predecessor.value.payload.outcome.state !== "pending-blocking" || canonicalValueDigest(predecessor.value.payload.subject) !== canonicalValueDigest(cursor.payload.subject) || canonicalValueDigest(predecessor.value.payload.origin) !== canonicalValueDigest(cursor.payload.origin) || canonicalValueDigest(predecessor.value.payload.basis) !== canonicalValueDigest(cursor.payload.basis))
     return {
       ok: false,
       diagnostics: [diagnostic2("cause-chain-invalid", "Successor differs from its confirmed predecessor")]
@@ -14596,7 +15318,7 @@ function authenticateOperation(input, operation, history) {
   if (pending.ok && pending.value.kind === "cause-disposition" && input.validationFrame?.confirmations.has(canonicalValueDigest([pending.value, operation, input.context])))
     return { ok: true, value: { pending: pending.value, proposal, opRef } };
   const authenticated = bindExternalRef(opRef, history);
-  const digest = createHash9("sha256").update(JSON.stringify(proposal)).digest("hex");
+  const digest = createHash10("sha256").update(JSON.stringify(proposal)).digest("hex");
   if (!authenticated.ok || JSON.stringify(authenticated.value) !== JSON.stringify(operation) || !pending.ok || pending.value.kind !== "cause-disposition" || operation.payload.proposalDigest !== digest || operation.payload.confirmation.proposalDigest !== digest || operation.payload.confirmation.operationId !== proposal.operationId)
     return {
       ok: false,
@@ -15238,7 +15960,7 @@ function appendUnassignedOutcomes(input) {
 }
 
 // plugins/omp-build/engine/criterion-admission.ts
-import { createHash as createHash10 } from "node:crypto";
+import { createHash as createHash11 } from "node:crypto";
 
 // plugins/omp-build/engine/criterion-declaration-projection.ts
 function ordered(value) {
@@ -15324,7 +16046,7 @@ function ordered2(value) {
   return value;
 }
 function evidenceDigest(value) {
-  return createHash10("sha256").update(JSON.stringify(ordered2(value)), "utf8").digest("hex");
+  return createHash11("sha256").update(JSON.stringify(ordered2(value)), "utf8").digest("hex");
 }
 function owns(spec, target) {
   return sameOwnSpecRef(target.spec, spec.own) && spec.spec.criteria.some((item) => item.id === target.id);
@@ -18384,10 +19106,10 @@ function causeHistoryReferences(records) {
   return [...found.values()];
 }
 // plugins/omp-build/engine/cause-reports.ts
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13 } from "node:crypto";
 
 // plugins/omp-build/engine/cause-report-validation.ts
-import { createHash as createHash11 } from "node:crypto";
+import { createHash as createHash12 } from "node:crypto";
 function validateInitialDisposition(record, initialSubjects, diagnostics) {
   const identity = canonicalValueDigest([record.payload.origin, record.payload.subject]);
   if (initialSubjects.has(identity))
@@ -18421,7 +19143,7 @@ function validateReportPromotion(promotion, record, scope, history, diagnostics)
   if (!bound.ok)
     diagnostics.push(...bound.diagnostics);
   const operation = bindExternalRef(promotion.payload.operation, history);
-  if (!operation.ok || operation.value.kind !== "cause-operation" || operation.value.payload.proposal.operation !== "create" || operation.value.payload.proposal.creation.kind !== "report-promotion" || !sameRef2(operation.value.payload.proposal.creation.report, promotion.payload.report) || operation.value.payload.proposal.creation.reportDigest !== createHash11("sha256").update(JSON.stringify(record)).digest("hex") || operation.value.payload.proposalDigest !== createHash11("sha256").update(JSON.stringify(operation.value.payload.proposal)).digest("hex") || operation.value.payload.confirmation.proposalDigest !== operation.value.payload.proposalDigest || operation.value.payload.confirmation.operationId !== operation.value.payload.proposal.operationId || !equalScope(promotion.payload.created, promotion.payload.identity.scope))
+  if (!operation.ok || operation.value.kind !== "cause-operation" || operation.value.payload.proposal.operation !== "create" || operation.value.payload.proposal.creation.kind !== "report-promotion" || !sameRef2(operation.value.payload.proposal.creation.report, promotion.payload.report) || operation.value.payload.proposal.creation.reportDigest !== createHash12("sha256").update(JSON.stringify(record)).digest("hex") || operation.value.payload.proposalDigest !== createHash12("sha256").update(JSON.stringify(operation.value.payload.proposal)).digest("hex") || operation.value.payload.confirmation.proposalDigest !== operation.value.payload.proposalDigest || operation.value.payload.confirmation.operationId !== operation.value.payload.proposal.operationId || !equalScope(promotion.payload.created, promotion.payload.identity.scope))
     diagnostics.push(diagnostic2("cause-effect-unconfirmed", `Promotion ${promotion.recordId} lacks its matching local confirmed intent`));
 }
 
@@ -18473,7 +19195,7 @@ function resolveCauseSisterReceipt(input) {
     const identity = bindExternalRef(receipt.payload.identity, sisterHistory);
     const op = operation.value.payload;
     const proposal = op.proposal;
-    if (!identity.ok || identity.value.kind !== "spec-identity" || identity.value.payload.event !== "allocate" || proposal.operation !== "create" || proposal.creation.kind !== "sister" || !equalScope(receipt.payload.identity.scope, receipt.payload.sister) || !equalScope(receipt.payload.original, uw) || !sameRef2(receipt.payload.decision, subject.decision) || receipt.payload.causeId !== subject.cause.id || !sameRef2(proposal.creation.disposition, ref) || !equalScope(proposal.creation.original, uw) || proposal.creation.dispositionDigest !== createHash12("sha256").update(JSON.stringify(disposition)).digest("hex") || proposal.creation.relation !== receipt.payload.relation || receipt.payload.relation !== (outcome.disposition === "sister-blocking" ? "original-blocked-by-sister" : "sister-blocked-by-original") || canonicalValueDigest(proposal.creation.parent) !== canonicalValueDigest(receipt.payload.parent) || op.proposalDigest !== createHash12("sha256").update(JSON.stringify(proposal)).digest("hex") || op.confirmation.proposalDigest !== op.proposalDigest || op.confirmation.operationId !== proposal.operationId || identity.value.operationId !== proposal.operationId || identity.value.payload.proposalDigest !== op.proposalDigest || canonicalValueDigest(identity.value.payload.confirmation) !== canonicalValueDigest(op.confirmation) || canonicalValueDigest(identity.value.payload.allocations) !== canonicalValueDigest(proposal.allocation.assignments))
+    if (!identity.ok || identity.value.kind !== "spec-identity" || identity.value.payload.event !== "allocate" || proposal.operation !== "create" || proposal.creation.kind !== "sister" || !equalScope(receipt.payload.identity.scope, receipt.payload.sister) || !equalScope(receipt.payload.original, uw) || !sameRef2(receipt.payload.decision, subject.decision) || receipt.payload.causeId !== subject.cause.id || !sameRef2(proposal.creation.disposition, ref) || !equalScope(proposal.creation.original, uw) || proposal.creation.dispositionDigest !== createHash13("sha256").update(JSON.stringify(disposition)).digest("hex") || proposal.creation.relation !== receipt.payload.relation || receipt.payload.relation !== (outcome.disposition === "sister-blocking" ? "original-blocked-by-sister" : "sister-blocked-by-original") || canonicalValueDigest(proposal.creation.parent) !== canonicalValueDigest(receipt.payload.parent) || op.proposalDigest !== createHash13("sha256").update(JSON.stringify(proposal)).digest("hex") || op.confirmation.proposalDigest !== op.proposalDigest || op.confirmation.operationId !== proposal.operationId || identity.value.operationId !== proposal.operationId || identity.value.payload.proposalDigest !== op.proposalDigest || canonicalValueDigest(identity.value.payload.confirmation) !== canonicalValueDigest(op.confirmation) || canonicalValueDigest(identity.value.payload.allocations) !== canonicalValueDigest(proposal.allocation.assignments))
       return {
         ok: false,
         diagnostics: [
@@ -19042,7 +19764,7 @@ function authenticated(input, frame) {
   const proposal = operation.payload.proposal;
   if (!op.ok || canonicalValueDigest(op.value) !== canonicalValueDigest(operation) || proposal.operation !== "adjudicate-cause")
     return failure5("Adjudication operation is not authenticated");
-  const digest = createHash13("sha256").update(JSON.stringify(proposal)).digest("hex");
+  const digest = createHash14("sha256").update(JSON.stringify(proposal)).digest("hex");
   if (operation.payload.proposalDigest !== digest || operation.payload.confirmation.proposalDigest !== digest || operation.payload.confirmation.operationId !== proposal.operationId)
     return failure5("Adjudication confirmation is not bound");
   const evidenceKey = canonicalValueDigest([proposal, pending, context]);
@@ -20988,704 +21710,6 @@ async function page(scope, options, cursors) {
   if (issue === null || issue.repository.nameWithOwner !== scope.repository || issue.number !== number)
     throw new Error(`Native graph payload for ${scope.target} is incomplete`);
   return issue;
-}
-
-// plugins/omp-build/adapters/github-native/uw-spec-parser.ts
-import { createHash as createHash14 } from "node:crypto";
-
-// plugins/omp-build/adapters/github-native/uw-spec-text-codec.ts
-var ITEM_CONTINUATION_PREFIX = "  ";
-var TEXT_ENCODING = /^\s*(~{3,})omp-build-text\s*$/;
-function encodeSpecText(value) {
-  const longest = [...value.matchAll(/~+/g)].reduce((count, match) => Math.max(count, (match[0] ?? "").length), 0);
-  const delimiter = "~".repeat(Math.max(3, longest + 1));
-  return `${delimiter}omp-build-text
-${value}
-${delimiter}`;
-}
-function decodeSpecText(value) {
-  const lines = value.replace(/\r\n?/g, `
-`).split(`
-`);
-  const opening = TEXT_ENCODING.exec(lines[0] ?? "");
-  const delimiter = opening?.[1];
-  if (delimiter === undefined || lines.at(-1) !== delimiter)
-    return null;
-  const closes = new RegExp(`^\\s*${delimiter}\\s*$`);
-  if (lines.slice(1, -1).some((line) => closes.test(line)))
-    return null;
-  return lines.slice(1, -1).join(`
-`);
-}
-function isSpecTextFence(value) {
-  return TEXT_ENCODING.test(value.replace(/\r\n?/g, `
-`).split(`
-`)[0] ?? "");
-}
-function formatItemBody(statement) {
-  const lines = statement.split(`
-`);
-  if (lines.length <= 1)
-    return statement;
-  return [lines[0], ...lines.slice(1).map((line) => `${ITEM_CONTINUATION_PREFIX}${line}`)].join(`
-`);
-}
-function decodeContinuationLines(lines) {
-  return lines.map((line) => line.startsWith(ITEM_CONTINUATION_PREFIX) ? line.slice(ITEM_CONTINUATION_PREFIX.length) : line).join(`
-`);
-}
-// plugins/omp-build/adapters/github-native/uw-spec-item-scanner.ts
-var ITEM = /^-\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/;
-var LEGACY_ITEM = /^\s*[-*]\s+(?:(C[1-9][0-9]*|I[1-9][0-9]*)\s*:(?: )?)?(.*)$/;
-function decodedStatement(item) {
-  if (item.source.length === 1)
-    return item.statement;
-  const continuation = decodeContinuationLines(item.source.slice(1));
-  return item.statement === "" ? continuation : `${item.statement}
-${continuation}`;
-}
-function completedItem(uw, section, expected, item, span) {
-  const decoded = decodedStatement(item);
-  const decodedText = decodeSpecText(decoded);
-  const block = {
-    kind: expected === "C" ? "criterion" : "invariant",
-    id: item.id,
-    statement: decodedText ?? decoded,
-    source: item.source.join(`
-`),
-    span
-  };
-  const malformed = [];
-  if (item.id !== null && normalized(block.statement) === "")
-    malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `${item.id} must have a non-empty statement`, block.span, section.heading));
-  if (item.id !== null && !item.id.startsWith(expected))
-    malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `${item.id} is not valid in ${section.heading}`, block.span, section.heading));
-  if (decodedText === null && isSpecTextFence(decoded))
-    malformed.push(bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", block.span, section.heading));
-  return { block, malformed };
-}
-function startItem(line, index, legacyCriteria) {
-  const match = (legacyCriteria ? LEGACY_ITEM : ITEM).exec(line);
-  if (!match)
-    return null;
-  return {
-    first: index,
-    last: index,
-    source: [line],
-    pendingBlankLines: [],
-    id: match[1] ?? null,
-    statement: match[2] ?? ""
-  };
-}
-function appendContinuation(active, line, index) {
-  if (active === null)
-    return false;
-  if (line.trim() === "") {
-    active.pendingBlankLines.push(line);
-    return true;
-  }
-  if (!/^\s+/.test(line))
-    return false;
-  active.source.push(...active.pendingBlankLines, line);
-  active.pendingBlankLines = [];
-  active.last = index;
-  return true;
-}
-function scanSourceItems(uw, section, expected, legacyCriteria = false) {
-  if (!section)
-    return { blocks: [], malformed: [], noncriterion: [] };
-  const lines = normalizeNewlines(section.content).split(`
-`);
-  const blocks = [];
-  const malformed = [];
-  const noncriterion = [];
-  const itemSpan = (first, last) => ({
-    start: { line: section.contentSpan.start.line + first, column: 1 },
-    end: { line: section.contentSpan.start.line + last, column: (lines[last] ?? "").length + 1 }
-  });
-  let active = null;
-  const finish = () => {
-    if (active === null)
-      return;
-    const completed = completedItem(uw, section, expected, active, itemSpan(active.first, active.last));
-    blocks.push(completed.block);
-    malformed.push(...completed.malformed);
-    active = null;
-  };
-  for (let index = 0;index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const next = startItem(line, index, legacyCriteria);
-    if (next !== null) {
-      finish();
-      active = next;
-      continue;
-    }
-    if (appendContinuation(active, line, index))
-      continue;
-    finish();
-    if (line !== "") {
-      const span = itemSpan(index, index);
-      noncriterion.push({ kind: "text", section: section.heading, span, source: line });
-      malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `Expected a bullet item in ${section.heading}`, span, section.heading));
-    }
-  }
-  finish();
-  return { blocks, malformed, noncriterion };
-}
-// plugins/omp-build/adapters/github-native/uw-spec-literal-items.ts
-function scanLiteralItems(uw, section) {
-  if (!section)
-    return { blocks: [], malformed: [], noncriterion: [] };
-  const lines = normalizeNewlines(section.content).split(`
-`);
-  const blocks = [];
-  const malformed = [];
-  const noncriterion = [];
-  const itemSpan = (first, last) => ({
-    start: { line: section.contentSpan.start.line + first, column: 1 },
-    end: { line: section.contentSpan.start.line + last, column: (lines[last] ?? "").length + 1 }
-  });
-  let active = null;
-  const finish = () => {
-    if (!active)
-      return;
-    const text = active.source.join(`
-`);
-    const decoded = active.statement + (active.source.length > 1 ? `
-${decodeContinuationLines(active.source.slice(1))}` : "");
-    const decodedText = decodeSpecText(decoded);
-    const block = {
-      kind: "criterion",
-      id: null,
-      statement: decodedText ?? decoded,
-      source: text,
-      span: itemSpan(active.first, active.last)
-    };
-    blocks.push(block);
-    if (decodedText === null && isSpecTextFence(decoded)) {
-      malformed.push(bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", block.span, section.heading));
-    }
-    active = null;
-  };
-  for (let index = 0;index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const match = LITERAL_ITEM.exec(line);
-    if (match) {
-      finish();
-      active = {
-        first: index,
-        last: index,
-        source: [line],
-        pendingBlankLines: [],
-        statement: match[1] ?? ""
-      };
-      continue;
-    }
-    if (active && line.trim() === "") {
-      active.pendingBlankLines.push(line);
-      continue;
-    }
-    if (active && /^\s+/.test(line)) {
-      active.source.push(...active.pendingBlankLines, line);
-      active.pendingBlankLines = [];
-      active.last = index;
-      continue;
-    }
-    finish();
-    if (line !== "") {
-      const malformedSpan = itemSpan(index, index);
-      noncriterion.push({ kind: "text", section: section.heading, span: malformedSpan, source: line });
-      malformed.push(bodyDiagnostic(uw, "spec-item-malformed", `Expected a bullet item in ${section.heading}`, malformedSpan, section.heading));
-    }
-  }
-  finish();
-  return { blocks, malformed, noncriterion };
-}
-function questionBounds(lines) {
-  let first = 0;
-  let last = lines.length - 1;
-  while (first <= last && /^\s*$/.test(lines[first] ?? ""))
-    first += 1;
-  while (last >= first && /^\s*$/.test(lines[last] ?? ""))
-    last -= 1;
-  if (/^<!-- complexity: [0-9]+ -->$/.test(lines[last] ?? ""))
-    last -= 1;
-  while (last >= first && /^\s*$/.test(lines[last] ?? ""))
-    last -= 1;
-  return { first, last };
-}
-function questionBlock(section, lines, index) {
-  const source = lines[index] ?? "";
-  const item = LITERAL_ITEM.exec(source);
-  if (item === null) {
-    return {
-      block: {
-        statement: source,
-        source,
-        span: {
-          start: { line: section.contentSpan.start.line + index, column: 1 },
-          end: { line: section.contentSpan.start.line + index, column: source.length + 1 }
-        }
-      },
-      last: index
-    };
-  }
-  const start = index;
-  const itemLines = [item[1] ?? ""];
-  while ((lines[index + 1] ?? "").startsWith(ITEM_CONTINUATION_PREFIX)) {
-    index += 1;
-    itemLines.push((lines[index] ?? "").slice(ITEM_CONTINUATION_PREFIX.length));
-  }
-  const encoded = itemLines.join(`
-`);
-  return {
-    block: {
-      statement: decodeSpecText(encoded) ?? encoded,
-      source: lines.slice(start, index + 1).join(`
-`),
-      span: {
-        start: { line: section.contentSpan.start.line + start, column: 1 },
-        end: { line: section.contentSpan.start.line + index, column: (lines[index] ?? "").length + 1 }
-      }
-    },
-    last: index
-  };
-}
-function scanOpenQuestionItems(section) {
-  if (!section)
-    return [];
-  const lines = normalizeNewlines(section.content).split(`
-`);
-  const { first, last } = questionBounds(lines);
-  const blocks = [];
-  for (let index = first;index <= last; index += 1) {
-    if (lines[index] === "")
-      continue;
-    const question = questionBlock(section, lines, index);
-    blocks.push(question.block);
-    index = question.last;
-  }
-  return blocks;
-}
-
-// plugins/omp-build/adapters/github-native/uw-spec-source-scanner.ts
-var SPEC_MARKER = "<!-- omp-build-spec/1 -->";
-var SPEC_HEADINGS = [
-  "Origin",
-  "Context",
-  "Change",
-  "Acceptance Criteria",
-  "Invariants",
-  "Exclusions",
-  "Open Questions"
-];
-var LEGACY_HEADINGS = /^(?:acceptance criteria|critères d[’']acceptation|critères|criteria)$/i;
-var LITERAL_ITEM = /^- (.*)$/;
-function bodyLocation(uw, span, section) {
-  return { kind: "body", uw, section, start: span.start, end: span.end };
-}
-function bodyDiagnostic(uw, code, message, span, section) {
-  return { code, message, location: bodyLocation(uw, span, section), related: [] };
-}
-function sourceSpan(startLine, endLine, lines) {
-  const endText = lines[endLine - 1] ?? "";
-  return { start: { line: startLine, column: 1 }, end: { line: endLine, column: endText.length + 1 } };
-}
-function sourceLineSpan(line, start = 1, end = start) {
-  return { start: { line, column: start }, end: { line, column: end } };
-}
-function normalizeNewlines(value) {
-  return value.replace(/\r\n?/g, `
-`);
-}
-function isLegacyHeading(heading) {
-  return LEGACY_HEADINGS.test(heading);
-}
-function headingOf(line, marked) {
-  const heading = /^(#{1,6}) ([^\n]+)$/.exec(line);
-  if (heading === null || line.startsWith("\\#"))
-    return null;
-  const name = heading[2] ?? "";
-  return heading[1]?.length === 1 || !marked && isLegacyHeading(name) ? name : null;
-}
-function nextFence(current, line) {
-  const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-  if (fence === null)
-    return;
-  const delimiter = fence[1] ?? "";
-  if (current === null)
-    return /^\s/.test(line) ? undefined : delimiter;
-  return delimiter[0] === current[0] && delimiter.length >= current.length && /^\s*$/.test(fence[2] ?? "") ? null : current;
-}
-function scannedHeadings(lines, marked) {
-  const headings = [];
-  let fenced = null;
-  for (let index = 0;index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const next = nextFence(fenced, line);
-    if (next !== undefined) {
-      fenced = next;
-      continue;
-    }
-    if (fenced !== null)
-      continue;
-    const heading = headingOf(line, marked);
-    if (heading !== null)
-      headings.push({ heading, line: index + 1 });
-  }
-  return headings;
-}
-function sectionsOf(lines, headings) {
-  return headings.map((entry, index) => {
-    const next = headings[index + 1]?.line ?? lines.length + 1;
-    return {
-      heading: entry.heading,
-      content: lines.slice(entry.line, next - 1).join(`
-`),
-      source: lines.slice(entry.line - 1, next - 1).join(`
-`),
-      span: sourceSpan(entry.line, Math.max(entry.line, next - 1), lines),
-      contentSpan: sourceSpan(Math.min(entry.line + 1, lines.length || 1), Math.max(entry.line + 1, next - 1), lines)
-    };
-  });
-}
-function unknownSectionDiagnostics(uw, sections) {
-  return sections.flatMap((section) => SPEC_HEADINGS.some((heading) => heading === section.heading) ? [] : [
-    bodyDiagnostic(uw, "spec-section-unknown", `Unknown H1 section ${section.heading}`, section.span, section.heading)
-  ]);
-}
-function scanSpecStructure(uw, body) {
-  const lines = normalizeNewlines(body).split(`
-`);
-  const marked = lines.some((line) => line.trim() === SPEC_MARKER);
-  const sections = sectionsOf(lines, scannedHeadings(lines, marked));
-  return { sections, diagnostics: unknownSectionDiagnostics(uw, sections), marked };
-}
-function sectionsByHeading(parsed) {
-  const byHeading = new Map;
-  for (const section of parsed.sections)
-    byHeading.set(section.heading, [...byHeading.get(section.heading) ?? [], section]);
-  return byHeading;
-}
-function structuralDiagnostics(uw, parsed, byHeading) {
-  const diagnostics = [];
-  for (const heading of SPEC_HEADINGS) {
-    const matches = byHeading.get(heading) ?? [];
-    if (matches.length !== 1) {
-      diagnostics.push(bodyDiagnostic(uw, matches.length ? "spec-section-duplicate" : "spec-section-missing", `${heading} section must appear exactly once`, matches[0]?.span ?? sourceLineSpan(1), heading));
-    }
-  }
-  if (SPEC_HEADINGS.some((heading, index) => parsed.sections[index]?.heading !== heading)) {
-    diagnostics.push(bodyDiagnostic(uw, "spec-section-order", "Spec H1 sections are not in the required order", parsed.sections[0]?.span ?? sourceLineSpan(1)));
-  }
-  return diagnostics;
-}
-
-// plugins/omp-build/adapters/github-native/uw-spec-source-projection.ts
-function structuralContent(value) {
-  const lines = normalizeNewlines(value).split(`
-`);
-  while (lines[0] !== undefined && /^\s*$/.test(lines[0]))
-    lines.shift();
-  while (lines.at(-1) !== undefined && /^\s*$/.test(lines.at(-1) ?? ""))
-    lines.pop();
-  return lines.join(`
-`);
-}
-function decodedContent(value) {
-  const structural = structuralContent(value);
-  return decodeSpecText(structural) ?? structural;
-}
-function retainedSections(sections) {
-  return sections.filter((section) => !SPEC_HEADINGS.includes(section.heading) && !isLegacyHeading(section.heading)).map((section) => ({
-    kind: "section",
-    section: section.heading,
-    span: section.span,
-    source: section.source
-  }));
-}
-function sectionContentBlocks(byHeading) {
-  const names = [
-    ["Origin", "origin"],
-    ["Context", "context"],
-    ["Change", "change"]
-  ];
-  return names.flatMap(([heading, section]) => (byHeading.get(heading) ?? []).flatMap((entry) => {
-    const statement = decodedContent(entry.content);
-    return statement === "" ? [] : [
-      {
-        target: { kind: "section", section },
-        statement,
-        span: entry.contentSpan,
-        source: entry.content
-      }
-    ];
-  }));
-}
-function preservePreamble(uw, raw, sections, preserved) {
-  const firstHeading = sections[0]?.span.start.line;
-  if (firstHeading === undefined)
-    return [];
-  const lines = normalizeNewlines(raw.body).split(`
-`);
-  const diagnostics = [];
-  for (let line = 1;line < firstHeading; line += 1) {
-    const source = lines[line - 1] ?? "";
-    if (source !== "" && source.trim() !== SPEC_MARKER) {
-      const span = sourceSpan(line, line, lines);
-      preserved.push({ kind: "text", section: null, span, source });
-      diagnostics.push(bodyDiagnostic(uw, "spec-content-unclassifiable", "Body content outside Spec sections is preserved for normalization", span));
-    }
-  }
-  return diagnostics;
-}
-function preserveUnclassifiableBody(uw, raw, sections, preserved) {
-  if (sections.length !== 0 || raw.body === "")
-    return [];
-  const lines = normalizeNewlines(raw.body).split(`
-`);
-  const span = sourceSpan(1, lines.length, lines);
-  preserved.push({ kind: "text", section: null, span, source: raw.body });
-  return [bodyDiagnostic(uw, "spec-content-unclassifiable", "Body has no classifiable Spec sections", span)];
-}
-function malformedTextFenceDiagnostics(uw, byHeading) {
-  return ["Origin", "Context", "Change"].flatMap((heading) => (byHeading.get(heading) ?? []).flatMap((section) => {
-    const encoded = structuralContent(section.content);
-    return isSpecTextFence(encoded) && decodeSpecText(encoded) === null ? [
-      bodyDiagnostic(uw, "spec-text-fence-malformed", "Tagged visible text requires a matching closing fence", section.contentSpan, heading)
-    ] : [];
-  }));
-}
-
-// plugins/omp-build/adapters/github-native/uw-spec-body-scan.ts
-function scanBodySources(uw, sections, byHeading, marked) {
-  const legacySections = sections.filter((section) => isLegacyHeading(section.heading));
-  const legacyCriteria = legacySections.filter((section) => section.heading !== "Acceptance Criteria");
-  const criteria = scanMany(uw, [...byHeading.get("Acceptance Criteria") ?? [], ...legacyCriteria], "C", !marked);
-  const invariants = scanMany(uw, byHeading.get("Invariants") ?? [], "I");
-  const exclusionScans = (byHeading.get("Exclusions") ?? []).map((section) => scanLiteralItems(uw, section));
-  const questionScans = (byHeading.get("Open Questions") ?? []).map((section) => scanOpenQuestionItems(section));
-  const exclusions = exclusionScans[0] ?? { blocks: [], malformed: [], noncriterion: [] };
-  const contentBlocks = [
-    ...sectionContentBlocks(byHeading),
-    ...exclusionScans.flatMap((scan) => scan.blocks).map((block, index) => ({
-      target: { kind: "exclusion", index },
-      statement: block.statement,
-      span: block.span,
-      source: block.source
-    })),
-    ...questionScans.flat().map((block, index) => ({
-      target: { kind: "open-question", index },
-      statement: block.statement,
-      span: block.span,
-      source: block.source
-    }))
-  ];
-  const preserved = [
-    ...retainedSections(sections),
-    ...criteria.noncriterion,
-    ...invariants.noncriterion,
-    ...exclusionScans.flatMap((scan) => scan.noncriterion)
-  ];
-  return {
-    legacySections,
-    criteria,
-    invariants,
-    exclusions,
-    questionBlocks: questionScans[0] ?? [],
-    contentBlocks,
-    preserved,
-    malformed: [...criteria.malformed, ...invariants.malformed, ...exclusionScans.flatMap((scan) => scan.malformed)]
-  };
-}
-function scanMany(uw, sections, expected, legacyCriteria = false) {
-  const scans = sections.map((section) => scanSourceItems(uw, section, expected, legacyCriteria));
-  return {
-    blocks: scans.flatMap((scan) => scan.blocks),
-    malformed: scans.flatMap((scan) => scan.malformed),
-    noncriterion: scans.flatMap((scan) => scan.noncriterion)
-  };
-}
-
-// plugins/omp-build/adapters/github-native/uw-spec-parser.ts
-function sha256(value) {
-  return createHash14("sha256").update(value).digest("hex");
-}
-function duplicateDiagnostics(uw, blocks) {
-  const firstById = new Map;
-  const diagnostics = [];
-  for (const block of blocks) {
-    if (block.id === null)
-      continue;
-    const first = firstById.get(block.id);
-    if (first === undefined)
-      firstById.set(block.id, block);
-    else
-      diagnostics.push({
-        ...bodyDiagnostic(uw, "spec-id-duplicate", `Duplicate Spec item ${block.id}`, block.span),
-        related: [bodyLocation(uw, first.span)]
-      });
-  }
-  return diagnostics;
-}
-function malformedResult(diagnostics, criteria, invariants, contentBlocks, preserved, status = "malformed") {
-  return { status, diagnostics, criterionBlocks: criteria, invariantBlocks: invariants, contentBlocks, preserved };
-}
-function isCriterionId(id) {
-  return id !== null && /^C[1-9][0-9]*$/.test(id);
-}
-function isInvariantId(id) {
-  return id !== null && /^I[1-9][0-9]*$/.test(id);
-}
-function draftCriteria(blocks) {
-  return blocks.map((block, index) => {
-    if (block.id === null)
-      return { kind: "new", draftKey: `${block.kind}-${index + 1}`, statement: block.statement };
-    if (!isCriterionId(block.id))
-      throw new Error(`Expected criterion ID, received ${block.id}`);
-    return { kind: "existing", id: block.id, statement: block.statement };
-  });
-}
-function draftInvariants(blocks) {
-  return blocks.map((block, index) => {
-    if (block.id === null)
-      return { kind: "new", draftKey: `${block.kind}-${index + 1}`, statement: block.statement };
-    if (!isInvariantId(block.id))
-      throw new Error(`Expected invariant ID, received ${block.id}`);
-    return { kind: "existing", id: block.id, statement: block.statement };
-  });
-}
-function identifiedItems(blocks, matches) {
-  return blocks.map((block) => {
-    if (!matches(block.id))
-      throw new Error(`Expected named Spec item, received ${block.id ?? "unnamed"}`);
-    return { id: block.id, statement: block.statement };
-  });
-}
-function parseSpecBody(uw, raw) {
-  const parsed = scanSpecStructure(uw, raw.body);
-  const byHeading = sectionsByHeading(parsed);
-  const diagnostics = [...parsed.diagnostics, ...structuralDiagnostics(uw, parsed, byHeading)];
-  const sourceFacts = scanBodySources(uw, parsed.sections, byHeading, parsed.marked);
-  const { criteria, invariants, exclusions, questionBlocks, contentBlocks, legacySections, preserved } = sourceFacts;
-  diagnostics.push(...sourceFacts.malformed);
-  diagnostics.push(...preservePreamble(uw, raw, parsed.sections, preserved));
-  diagnostics.push(...preserveUnclassifiableBody(uw, raw, parsed.sections, preserved));
-  const allBlocks = [...criteria.blocks, ...invariants.blocks];
-  diagnostics.push(...duplicateDiagnostics(uw, allBlocks));
-  const sections = {
-    origin: decodedContent(byHeading.get("Origin")?.[0]?.content ?? ""),
-    context: decodedContent(byHeading.get("Context")?.[0]?.content ?? ""),
-    change: decodedContent(byHeading.get("Change")?.[0]?.content ?? "")
-  };
-  diagnostics.push(...malformedTextFenceDiagnostics(uw, byHeading));
-  const questions = questionBlocks;
-  if (!parsed.marked) {
-    const legacy = legacySections.length > 0;
-    diagnostics.push(bodyDiagnostic(uw, "spec-legacy-format", legacy ? "Legacy specification headings require normalization" : "Spec marker is missing", sourceLineSpan(1)));
-    return malformedResult(diagnostics, criteria.blocks, invariants.blocks, contentBlocks, preserved, legacy ? "legacy" : "malformed");
-  }
-  if (diagnostics.length > 0)
-    return malformedResult(diagnostics, criteria.blocks, invariants.blocks, contentBlocks, preserved);
-  const draft = {
-    criteria: draftCriteria(criteria.blocks),
-    invariants: draftInvariants(invariants.blocks),
-    exclusions: exclusions.blocks.map((block) => block.statement),
-    openQuestions: questions.map((block) => block.statement),
-    sections
-  };
-  if (allBlocks.some((block) => block.id === null))
-    return {
-      status: "draft",
-      draft,
-      diagnostics: [],
-      criterionBlocks: criteria.blocks,
-      invariantBlocks: invariants.blocks,
-      contentBlocks,
-      preserved
-    };
-  const content = {
-    format: "omp-build-spec-content/1",
-    criteria: identifiedItems(criteria.blocks, isCriterionId),
-    invariants: identifiedItems(invariants.blocks, isInvariantId),
-    exclusions: exclusions.blocks.map((block) => block.statement),
-    openQuestions: draft.openQuestions,
-    sections
-  };
-  const canonical = canonicalSpec(content);
-  if (!canonical.ok) {
-    return malformedResult(canonical.diagnostics.map((entry) => bodyDiagnostic(uw, entry.code, entry.message, sourceLineSpan(1))), criteria.blocks, invariants.blocks, contentBlocks, preserved);
-  }
-  return {
-    status: "conformant",
-    content: canonical.value,
-    diagnostics: [],
-    criterionBlocks: criteria.blocks,
-    invariantBlocks: invariants.blocks,
-    contentBlocks,
-    preserved
-  };
-}
-function rawSource(reference, body, lastEditedAt) {
-  return { reference, body, bodySha256: sha256(body), lastEditedAt };
-}
-// plugins/omp-build/adapters/github-native/uw-spec-renderer.ts
-function renderIssueSpecBody(spec, metadata) {
-  const sections = {
-    Origin: encodeSpecText(spec.sections.origin),
-    Context: encodeSpecText(spec.sections.context),
-    Change: encodeSpecText(spec.sections.change),
-    "Acceptance Criteria": spec.criteria.map((item) => `- ${item.id} :
-${encodeSpecText(item.statement).split(`
-`).map((line) => `  ${line}`).join(`
-`)}`).join(`
-`),
-    Invariants: spec.invariants.map((item) => `- ${item.id} :
-${encodeSpecText(item.statement).split(`
-`).map((line) => `  ${line}`).join(`
-`)}`).join(`
-`),
-    Exclusions: spec.exclusions.map((item) => `- ${formatItemBody(encodeSpecText(item))}`).join(`
-`),
-    "Open Questions": spec.openQuestions.map((item) => `- ${formatItemBody(encodeSpecText(item))}`).join(`
-`)
-  };
-  const rendered = [SPEC_MARKER, ...SPEC_HEADINGS.flatMap((heading) => [`# ${heading}`, sections[heading]])];
-  if (metadata?.complexity !== undefined)
-    rendered.push(`<!-- complexity: ${metadata.complexity} -->`);
-  return `${rendered.join(`
-
-`)}
-`;
-}
-
-// plugins/omp-build/adapters/github-native/uw-spec.ts
-function analysis(criteria, invariants, content, preserved) {
-  return {
-    criterionSources: criteria.map(({ id, statement, span, source }) => ({ id, statement, span, source })),
-    invariantSources: invariants.map(({ id, statement, span, source }) => ({ id, statement, span, source })),
-    contentSources: content.map(({ target, statement, span, source }) => ({ target, statement, span, source })),
-    preservedContent: preserved.map(({ span, source, section }) => section === null ? { span, text: source } : { span, text: source, sectionHint: section })
-  };
-}
-function parseIssueSpecBody(input) {
-  const parsed = parseSpecBody(input.uw, input.raw);
-  const source = analysis(parsed.criterionBlocks, parsed.invariantBlocks, parsed.contentBlocks, parsed.preserved);
-  if (parsed.status === "conformant" && parsed.content !== undefined) {
-    return {
-      status: "conformant",
-      snapshot: { spec: parsed.content, raw: input.raw },
-      diagnostics: [],
-      analysis: source
-    };
-  }
-  if (parsed.status === "draft" && parsed.draft !== undefined) {
-    return { status: "draft", draft: parsed.draft, raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
-  }
-  if (parsed.status === "legacy") {
-    return { status: "legacy", raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
-  }
-  return { status: "malformed", raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
 }
 
 // plugins/omp-build/adapters/github-native/uw-graph-reader.ts
@@ -25279,16 +25303,11 @@ function completionCoverageProblem(uw, spec) {
 
 // plugins/omp-build/engine/uw-completion-accepted.ts
 function acceptedCompletionProblem(uw, node, graph, spec, issue) {
-  if (node.raw.body !== spec.snapshot.raw.body) {
-    const current = parseIssueSpecBody({ uw, raw: node.raw });
-    if (current.status !== "conformant")
-      return issue(uw, "current-spec-unresolved", "Current native own Spec cannot be resolved");
-    if (current.snapshot.spec.version !== spec.snapshot.spec.version)
-      return issue(uw, "material-change-pending", "Current native own Spec differs from the accepted Spec");
+  const currentProblem = currentOwnSpecProblem(node, spec);
+  if (currentProblem) {
+    const message = currentProblem === "current-spec-unresolved" ? "Current native own Spec cannot be resolved" : currentProblem === "material-change-pending" ? "Current native own Spec differs from the accepted Spec" : "Native tier differs from the accepted tier";
+    return issue(uw, currentProblem, message);
   }
-  const tiers = node.labels.filter((label) => label === "size:S" || label === "size:F-lite" || label === "size:F-full");
-  if (tiers.length !== 1 || tiers[0] !== `size:${spec.tier}`)
-    return issue(uw, "tier-changed", "Native tier differs from the accepted tier");
   const nativeChildren = projectNativeUwChildren({ uw, graph, accepted: { status: "accepted", value: spec } });
   if (!nativeChildren.ok)
     return nativeChildren.diagnostics[0] ?? issue(uw, "children-unresolved", "Native children are not concordant");

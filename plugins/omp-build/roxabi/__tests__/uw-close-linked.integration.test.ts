@@ -1,8 +1,10 @@
 import { expect, it } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
 import { UW_GRAPH_QUERY } from '../../adapters/github-native/uw-graph-query.ts'
+import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { threeDeliveredChildren } from '../../engine/__tests__/uw-delivery-proof-fixture.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 import { closeLinkedWorld } from './uw-close-linked-fixture.ts'
 
@@ -221,6 +223,124 @@ it('refuses before closing when the final binding read observes accepted sibling
       expect(raced.result).toMatchObject({ status: 'refused' })
       expect(raced.events).not.toContain('close-patch')
       expect(raced.state).toEqual({ state: 'OPEN', stateReason: null })
+    },
+  )
+})
+
+it('holds a delivered leaf when its outer ancestor has a stable material Spec change', async () => {
+  await threeDeliveredChildren(
+    {
+      p0: 'a'.repeat(40),
+      merges: ['b', 'c', 'd'].map((value) => value.repeat(40)),
+      heads: ['1', '2', '3'].map((value) => value.repeat(40)),
+      parentHead: 'e'.repeat(40),
+      trees: ['4', '5', '6'].map((value) => value.repeat(40)),
+      baseTrees: ['7', '4', '5'].map((value) => value.repeat(40)),
+      mergeTrees: ['4', '5', '6'].map((value) => value.repeat(40)),
+      parentTree: 'f'.repeat(40),
+      diff: new TextEncoder().encode('diff --git a/fixture.txt b/fixture.txt\n'),
+    },
+    [{ id: 'C1', statement: 'Save keeps the selected region' }],
+    'planned',
+    async (world) => {
+      const leaf = world.reviews[0]
+      const originalLeaf = world.observation.graph.nodes.find((node) => node.uw.target === leaf?.uw.target)
+      if (!leaf || !originalLeaf || leaf.binding.kind !== 'workflow-binding')
+        throw new Error('Expected delivered inherited leaf and binding')
+      const revised = canonicalSpec({
+        format: 'omp-build-spec-content/1',
+        criteria: [{ id: 'C1', statement: 'Save keeps the selected region with revised requirements' }],
+        invariants: [],
+        exclusions: [],
+        openQuestions: [],
+        sections: { origin: '', context: '', change: '' },
+      })
+      if (!revised.ok) throw new Error('Expected a conformant revised parent Spec')
+      expect(revised.value.version).not.toBe(world.parent.payload.ownSpec.version)
+      const revisedBody = renderIssueSpecBody(revised.value, { complexity: 1 })
+      const mandateId = leaf.binding.payload.mandate.recordId
+
+      async function attempt(materialChange: boolean) {
+        let changed = false
+        let state: { state: 'OPEN' | 'CLOSED'; stateReason: string | null } = { state: 'OPEN', stateReason: null }
+        const effects: string[] = []
+        function isClosePatch(args: string[]): boolean {
+          return (
+            args[0] === 'api' &&
+            args[1] === '--method' &&
+            args[2] === 'PATCH' &&
+            args[3] === 'repos/acme/app/issues/201' &&
+            args.includes('state=closed') &&
+            args.includes('state_reason=completed')
+          )
+        }
+        function observeGraph(response: string, number: string | undefined): string {
+          const graph = JSON.parse(response)
+          if (number === 'number=201') Object.assign(graph.data.repository.issue, state)
+          if (changed && number === 'number=200') {
+            graph.data.repository.issue.body = revisedBody
+            graph.data.repository.issue.updatedAt = '2026-10-28T12:00:00.000Z'
+          }
+          return JSON.stringify(graph)
+        }
+        const gh: Gh = async (cwd, args) => {
+          if (isClosePatch(args)) {
+            effects.push('close-patch')
+            state = { state: 'CLOSED', stateReason: 'COMPLETED' }
+            return '{}'
+          }
+          const response = await world.gh(cwd, args)
+          if (args[0] !== 'api' || args[1] !== 'graphql' || args[3] !== `query=${UW_GRAPH_QUERY}`) return response
+          return observeGraph(response, args[9])
+        }
+        const operations = await createInstalledUwOperations({
+          cwd: '/simulated',
+          gh,
+          readAuthor: 'operator',
+          operator: {
+            async executeConfirmed() {
+              throw new Error('No operator mutation authorized')
+            },
+          },
+        })
+        const baseline = await operations.readUw(leaf.uw)
+        const completion = baseline.completion.completions.get(scopeKey(leaf.uw))
+        expect(baseline.observation.status).toBe('complete')
+        if (completion?.state !== 'complete') throw new Error('Expected valid inherited completion before change')
+        const request = {
+          uw: leaf.uw,
+          pullRequest: leaf.pullRequest,
+          mandate: { scope: leaf.uw, kind: 'mandate' as const, recordId: mandateId },
+          completion,
+        }
+        changed = materialChange
+        const current = await operations.readUw(leaf.uw)
+        const result = await operations.closeLinked(request)
+        return { current, result, effects, state }
+      }
+
+      const control = await attempt(false)
+      expect(control.result.status, JSON.stringify(control.result)).toBe('written')
+      expect(control.effects).toEqual(['close-patch'])
+      expect(control.state).toEqual({ state: 'CLOSED', stateReason: 'COMPLETED' })
+
+      const changed = await attempt(true)
+      const parent = changed.current.observation.graph.nodes.find((node) => node.uw.target === world.parentScope.target)
+      const currentLeaf = changed.current.observation.graph.nodes.find((node) => node.uw.target === leaf.uw.target)
+      expect(parent?.raw.body).toBe(revisedBody)
+      expect(parent?.raw.lastEditedAt).toBe('2026-10-28T12:00:00.000Z')
+      expect(currentLeaf?.raw.body).toBe(originalLeaf.raw.body)
+      expect({
+        completion: changed.current.completion.completions.get(scopeKey(leaf.uw))?.state,
+        result: changed.result,
+        effects: changed.effects,
+        state: changed.state,
+      }).toMatchObject({
+        completion: expect.stringMatching(/^(not-complete|indeterminate|abandoned)$/),
+        result: { status: 'refused' },
+        effects: [],
+        state: { state: 'OPEN', stateReason: null },
+      })
     },
   )
 })
