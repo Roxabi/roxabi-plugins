@@ -1,7 +1,14 @@
-import { canonicalValueDigest, selectApplicableMandate, workflowOperationProblem } from '../dist/contracts.js'
+import {
+  canonicalValueDigest,
+  isWayfinder,
+  projectNativeUwChildren,
+  sameScope,
+  scopeKey,
+  selectApplicableMandate,
+  unknownWayfinderLabels,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import { projectNativeUwChildren } from '../engine/uw-child-admission.ts'
-import { isWayfinder, sameScope, scopeKey, unknownWayfinderLabels } from '../engine/uw-graph.ts'
 import type { UwRead } from './uw-contract.ts'
 import { readCurrentFramingFacts } from './uw-current-facts.ts'
 

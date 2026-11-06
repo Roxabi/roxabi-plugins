@@ -1,5 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import { parentCoverageSchema } from '../engine/workflow-mandate-schema.ts'
+import { parentCoverageSchema } from '../dist/contracts.js'
 import type { FeatureCommandHost } from '../roxabi/feature-contract.ts'
 import { rootContext } from './omp-feature-session.ts'
 

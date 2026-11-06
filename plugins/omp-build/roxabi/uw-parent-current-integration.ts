@@ -1,10 +1,14 @@
-import { canonicalValueDigest, historyFor, recordsOf } from '../dist/contracts.js'
+import {
+  authenticateIntegrationPin,
+  bindExternalRef,
+  canonicalValueDigest,
+  historyFor,
+  recordsOf,
+} from '../dist/contracts.js'
 import type { ActionSpecInput } from '../engine/action-input-schema.ts'
 import type { CodeRange } from '../engine/code-range-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { authenticateIntegrationPin } from '../engine/review-integration-pin.ts'
 import type { UwResult } from '../engine/uw-diagnostics.ts'
-import { bindExternalRef } from '../engine/workflow-control.ts'
 import { acceptedChain } from './uw-action-accepted-state.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'

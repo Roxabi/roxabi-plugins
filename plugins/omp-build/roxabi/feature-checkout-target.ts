@@ -1,6 +1,6 @@
+import { projectNativeUwChildren } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { AcceptedOwnSpecResult } from '../engine/uw-admission.ts'
-import { projectNativeUwChildren } from '../engine/uw-child-admission.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import type { FeatureCheckoutTarget } from './workflow-checkout.ts'

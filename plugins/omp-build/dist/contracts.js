@@ -28829,6 +28829,7 @@ export {
   assessUwCompletion,
   assessmentProposalOriginSchema,
   authenticateCauseCapture,
+  authenticateIntegrationPin,
   authenticatedAssessResult,
   authorizeReviewContextSuccessor,
   bindExternalRef,

@@ -1,7 +1,7 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { readSelectionIssueView } from '../adapters/github-native/issue-views.ts'
-import { readUwGraph } from '../adapters/github-native/uw-graph-reader.ts'
 import { resolveNativeTarget } from '../adapters/github-workflow/native-facts.ts'
+import { readUwGraph } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'

@@ -1,6 +1,5 @@
-import { assessUwAdmission, canonicalValueDigest } from '../dist/contracts.js'
+import { assessUwAdmission, canonicalValueDigest, projectNativeUwChildren } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
-import { projectNativeUwChildren } from '../engine/uw-child-admission.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'

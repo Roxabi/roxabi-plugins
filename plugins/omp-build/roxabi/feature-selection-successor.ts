@@ -1,5 +1,4 @@
-import { canonicalValueDigest } from '../dist/contracts.js'
-import { projectNativeUwChildren } from '../engine/uw-child-admission.ts'
+import { canonicalValueDigest, projectNativeUwChildren } from '../dist/contracts.js'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'
 import { mandateParentHistories } from './feature-context.ts'

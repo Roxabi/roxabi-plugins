@@ -863,3 +863,7 @@ Verification compares complete inventories and raw bytes: candidate = A = B, wit
 This is a distribution proof, not evidence of model judgment, hosted landing, installation or activation. It changes neither review records nor execution authority, bindings, bounds or approvals.
 
 Catalogue installation copies the plugin subtree; it does not install npm dependencies. Runtime consumers therefore use the shipped common bundle, which includes Zod; the root development dependency is needed to build it, not to run an installed plugin. No separate npm or issue-triage plugin installation is required.
+
+Parent coverage prompts, canonical graph checkout and Parent integration-pin authentication use that same compiled facade. Those runtime paths must not re-import the Zod-owning source schemas or their transitive adapters; the canonical source implementations remain the producer's inputs.
+
+The clean-import guard also requires a temporary tree with no `node_modules` ancestor. If the default tree is contaminated, a process-local `TMPDIR` pointing to a genuinely clean tree provides environment isolation, not a packaging correction: it changes where owned temporary files are written, never the guard. Remove that override when the default tree is clean; do not delete unrelated dependencies or disable isolation.
