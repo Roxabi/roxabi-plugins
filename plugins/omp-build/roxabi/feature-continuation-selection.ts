@@ -26,6 +26,8 @@ export type SelectedFeature = {
   mandate: MandateRecord | null
   acceptedSpec: AcceptedOwnSpec | null
   mandateRef: ScopedRecordRef | null
+  /** This call published the UW's first Mandate, consuming any supplied initial coverage intent. */
+  firstMandateEstablished: boolean
 }
 
 type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'>
@@ -65,7 +67,7 @@ export async function selectFeatureMandate(
   if ('kind' in updated) return updated
   const selected = await finishSelection(authority, updated, exactMandateRef, issue, number, uwRead, reader)
   if ('kind' in selected) return selected
-  const prepared = await prepareSelectionSession(control, selected, branch, sessionCwd, updated)
+  const prepared = await prepareSelectionSession(control, selected, branch, sessionCwd, updated.state)
   return prepared ?? selected
 }
 
@@ -95,7 +97,7 @@ async function prepareNormalization(
 
 async function finishSelection(
   authority: FeatureAuthority,
-  updated: SelectionState,
+  { state: updated, firstMandateEstablished }: { state: SelectionState; firstMandateEstablished: boolean },
   exactMandateRef: ScopedRecordRef | undefined,
   issue: SelectionIssueSpec,
   number: number,
@@ -135,6 +137,7 @@ async function finishSelection(
     mandate,
     acceptedSpec: own.ok ? own.value.accepted : null,
     mandateRef,
+    firstMandateEstablished,
   }
 }
 
@@ -157,7 +160,7 @@ async function updateMandateSelection(
   branch: string,
   parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
   parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
-): Promise<SelectionState | ContinueFeatureResult> {
+): Promise<{ state: SelectionState; firstMandateEstablished: boolean } | ContinueFeatureResult> {
   let state: SelectionState = authority
   if (
     control === 'new' &&
@@ -189,9 +192,9 @@ async function updateMandateSelection(
       parentCoverageBasis,
     })
     if ('kind' in established) return established
-    state = { ...state, ...established }
+    return { state: { ...state, ...established }, firstMandateEstablished: true }
   }
-  return state
+  return { state, firstMandateEstablished: false }
 }
 
 async function prepareSelectionSession(

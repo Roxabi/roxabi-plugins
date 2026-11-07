@@ -5,7 +5,7 @@ import {
   sameScope,
 } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import type { UwResult } from '../engine/uw-diagnostics.ts'
+import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
 import type { FramingProposal } from '../engine/uw-framing-receipt-schema.ts'
 import type { FramingAggregateInput } from '../engine/uw-framing-schema.ts'
 import { checkPlannedAncestry } from './feature-parent-anchor.ts'
@@ -65,6 +65,19 @@ function specRendering(
   }
 }
 
+/** Name an ancestry-owner refusal by the framing contract's two codes, keeping the exact owner reason. */
+export function framingAncestryDiagnostic(key: string, uw: Scope, parent: Scope | null, reason: string): UwDiagnostic {
+  return {
+    code:
+      reason === 'parent-anchor-commitment-mismatch'
+        ? 'framing-parent-commitment-mismatch'
+        : 'framing-ancestor-unqualified',
+    message: `Slot ${key} (${uw.target}), parent ${parent?.target ?? 'none'}: ${reason}`,
+    location: { kind: 'native', uw, connection: 'state' },
+    related: [],
+  }
+}
+
 /** A top-slot existing member authenticates its external accepted ancestry; planned parents seal later. */
 async function nativeInheritance(
   aggregate: FramingAggregateInput,
@@ -84,17 +97,7 @@ async function nativeInheritance(
   if (!ancestry.ok)
     return {
       ok: false,
-      diagnostics: [
-        {
-          code:
-            ancestry.reason === 'parent-anchor-commitment-mismatch'
-              ? 'framing-parent-commitment-mismatch'
-              : 'framing-ancestor-unqualified',
-          message: `Slot ${member.slot.key} (${member.slot.uw.target}), parent ${nativeParent?.target ?? 'none'}: ${ancestry.reason}`,
-          location: { kind: 'native', uw: member.slot.uw, connection: 'state' },
-          related: [],
-        },
-      ],
+      diagnostics: [framingAncestryDiagnostic(member.slot.key, member.slot.uw, nativeParent, ancestry.reason)],
     }
   return { ok: true, value: [...ancestry.inherited] }
 }

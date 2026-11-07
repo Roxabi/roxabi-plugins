@@ -117,6 +117,16 @@ function driverEffects(operations: UwOperations) {
   }
 }
 
+/** Epic effects that refuse the driver's first GitHub read, stopping the call after its own first Mandate. */
+function heldEpicStep(operations: UwOperations) {
+  return {
+    ...driverEffects(operations),
+    gh: (): string => {
+      throw new Error('fixture holds the epic step')
+    },
+  }
+}
+
 async function coverageIntent(request: Parameters<typeof continueFeature>[0]) {
   const pending = await continueFeature(request)
   if (pending.kind !== 'blocked' || !pending.coverageRequest) throw new Error(JSON.stringify(pending))
@@ -247,7 +257,7 @@ it('keeps an unmandated accepted child ready after presentation-only native edit
     }),
   ).toEqual({ ok: false, reason: 'current-inheritance-unavailable' })
   const intent = await coverageIntent(request)
-  await continueFeature({ ...request, ...intent })
+  await withEpicEffects(heldEpicStep(operations), () => continueFeature({ ...request, ...intent }))
   const baseline = await observeInitialChild(operations, parent, child)
   expect(baseline.parent.accepted.status).toBe('accepted')
   expect(baseline.child.accepted.status).toBe('absent')
@@ -305,9 +315,12 @@ it('publishes the first parent and child mandates in the same real parent checko
   }
   // This is a new invocation at the destination, not evidence of a native /move.
   const intent = await coverageIntent(request)
-  const acceptedResult = await continueFeature({ ...request, ...intent })
+  const effects = driverEffects(operations)
+  const acceptedResult = await withEpicEffects(effects, () => continueFeature({ ...request, ...intent }))
   const accepted = await operations.readUw(parent)
   expect(accepted.accepted.status, JSON.stringify(acceptedResult)).toBe('accepted')
+  // The first Mandate consumes the confirmed coverage; the same call must not ask for it again.
+  expect(acceptedResult).not.toMatchObject({ reason: expect.stringMatching(/^parent-coverage/) })
   if (accepted.accepted.status !== 'accepted') throw new Error('Parent mandate not confirmed')
   const parentAccepted = accepted.accepted.value
   const mandate = accepted.histories
@@ -320,11 +333,9 @@ it('publishes the first parent and child mandates in the same real parent checko
   if (mandate?.kind !== 'mandate') throw new Error('Confirmed parent mandate unavailable')
   expect(mandate.payload.branch).toBeNull()
   expect(mandate.payload.lineageHead).toBe(before)
-  expect((await operations.readUw(child)).accepted.status).toBe('absent')
-  const effects = driverEffects(operations)
-  const continued = await withEpicEffects(effects, () => continueFeature({ ...request, control: 'continue' }))
+  // The first Parent Mandate consumed the confirmed coverage; the same call continues into child activation.
   const childRead = await operations.readUw(child)
-  expect(childRead.accepted.status, JSON.stringify(continued)).toBe('accepted')
+  expect(childRead.accepted.status, JSON.stringify(acceptedResult)).toBe('accepted')
   if (childRead.accepted.status !== 'accepted') throw new Error('Child mandate not confirmed')
   const childAccepted = childRead.accepted.value
   expect(childAccepted.inheritedOwnSpecRefs[0]).toEqual(parentAccepted.ref)
@@ -394,7 +405,7 @@ it('preserves the dirty active child in the same parent worktree', async () => {
 it('does not establish a child mandate from an ancestor whose framing has changed', async () => {
   const { request, operations, parent, child } = await parentFixture()
   const intent = await coverageIntent(request)
-  const established = await continueFeature({ ...request, ...intent })
+  const established = await withEpicEffects(heldEpicStep(operations), () => continueFeature({ ...request, ...intent }))
   expect((await operations.readUw(parent)).accepted.status, JSON.stringify(established)).toBe('accepted')
   writeSim((state) => {
     const ancestor = state.issues[String(EPIC)]
@@ -438,7 +449,9 @@ it('schedules a parent child and its leaf in the root parent worktree without a 
     },
   }
   const middleRequest = { ...request, reference: '#2', control: 'continue' as const }
-  const middleResult = await withEpicEffects(effects, () => continueFeature({ ...middleRequest, ...middleIntent }))
+  const middleResult = await withEpicEffects(heldEpicStep(operations), () =>
+    continueFeature({ ...middleRequest, ...middleIntent }),
+  )
   const middleRead = await operations.readUw(middle)
   expect(middleRead.accepted.status, JSON.stringify(middleResult)).toBe('accepted')
   if (middleRead.accepted.status !== 'accepted') throw new Error('Nested parent mandate unavailable')

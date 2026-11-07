@@ -73,7 +73,8 @@ function admittedDuringFraming(pi: OmpBuildExtensionApi, toolName: string): bool
 
 /**
  * While a `/feature` intake is unclassified or a framing lease (live or revoked) holds the owner slot,
- * every context admits only built-in read/grep/glob and the framing submit tool.
+ * this root extension instance admits only built-in read/grep/glob and the framing submit tool.
+ * Subagents and background jobs started earlier are not gated by this instance.
  */
 function evaluateFramingAdmission(pi: OmpBuildExtensionApi, toolName: string): ToolCallEventResult | undefined {
   if (!featureOperationReadOnly(pi) || admittedDuringFraming(pi, toolName)) return

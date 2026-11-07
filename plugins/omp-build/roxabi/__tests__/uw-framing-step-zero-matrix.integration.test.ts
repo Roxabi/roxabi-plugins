@@ -301,6 +301,7 @@ test('an own mandate omitting its listing parent is refused on the same cut', as
     expect(refused.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 'framing-slot-authority', message: 'mandate-claim-present' }),
+        expect.objectContaining({ code: 'framing-slot-authority', message: expect.stringMatching(/^accepted-/) }),
       ]),
     )
   expect(confirmations()).toBe(0)

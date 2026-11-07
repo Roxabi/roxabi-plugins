@@ -8,6 +8,7 @@ import type { FramingMemberKey } from '../engine/uw-framing-schema.ts'
 import { checkPlannedAncestry } from './feature-parent-anchor.ts'
 import type { UwRead } from './uw-contract.ts'
 import { sealFramingMaterial } from './uw-framing-material.ts'
+import { framingAncestryDiagnostic } from './uw-framing-member-plan.ts'
 import { validateFramingNativeCut } from './uw-framing-native-cut.ts'
 import { buildFramingSourceBinding } from './uw-framing-prepare.ts'
 import { observation } from './uw-operation-observation.ts'
@@ -84,16 +85,10 @@ export async function ancestryDiagnostics(
     read,
     planned: { spec: member.allocation.spec, tier: member.tier },
   })
-  if (!ancestry.ok)
-    return [
-      nativeDiagnostic(
-        uw,
-        ancestry.reason === 'parent-anchor-commitment-mismatch'
-          ? 'framing-parent-commitment-mismatch'
-          : 'framing-ancestor-unqualified',
-        `Slot ${member.key} (${uw.target}), parent ${member.slot.kind === 'existing' ? (member.slot.observed.nativeParent?.target ?? 'none') : 'none'}: ${ancestry.reason}`,
-      ),
-    ]
+  if (!ancestry.ok) {
+    const parent = member.slot.kind === 'existing' ? member.slot.observed.nativeParent : null
+    return [framingAncestryDiagnostic(member.key, uw, parent, ancestry.reason)]
+  }
   if (mode === 'sealed' && canonicalValueDigest([...ancestry.inherited]) !== canonicalValueDigest(member.inherited))
     return [
       nativeDiagnostic(uw, 'framing-native-graph-drift', 'The inherited accepted ancestry changed after preparation'),

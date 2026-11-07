@@ -8,6 +8,7 @@
 - Pin and verify the three installed framing procedures. Typed forms and context projection do not establish provider receipt or human reasoning.
 - Refuse incomplete GitHub comment histories when a preceding page changes during pagination, retaining observed comments and a named diagnostic.
 - Keep ordinary relation-endpoint checks independent of unrelated historical delivery sources, while preserving framed-member currentness and authenticated past acceptance.
+- A Parent's first Mandate consumes its confirmed coverage: the same `/feature` call continues to the next step instead of stopping with `parent-coverage-intent-changed` and asking for the coverage again.
 
 ## 0.17.0
 
