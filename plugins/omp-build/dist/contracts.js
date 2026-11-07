@@ -22315,7 +22315,7 @@ function projectUwWaits(input) {
   };
   const addCauseWaits = (history) => {
     const uw = history.source.scope;
-    if (!history.operations.some((operation) => operation.kind === "cause-disposition" || operation.claimedKinds.includes("cause-disposition")))
+    if (!history.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "cause-disposition" || operation.claimedKinds.includes("cause-disposition"))))
       return;
     const heads = readCauseDispositionHeads({ uw, histories: input.histories, catalogues: input.catalogues });
     if (!heads.ok) {

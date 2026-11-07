@@ -145,7 +145,9 @@ export function projectUwWaits(input: WaitInput): UwWaitProjection {
     const uw = history.source.scope
     if (
       !history.operations.some(
-        (operation) => operation.kind === 'cause-disposition' || operation.claimedKinds.includes('cause-disposition'),
+        (operation) =>
+          operation.authority !== 'foreign' &&
+          (operation.kind === 'cause-disposition' || operation.claimedKinds.includes('cause-disposition')),
       )
     )
       return
