@@ -7,7 +7,9 @@ Infer the repo from `git remote -v`; `gh` does this automatically inside a clone
 state writes go through UW, which uses the injected issue-triage writer and its
 confirmation gates. Standalone issue-triage remains available for ordinary
 triage; CI and humans may also change GitHub issues directly. An edit or native
-close alone does not accept a Spec or establish calculated UW completion.
+close alone does not accept a Spec or establish calculated UW completion. Every
+`/uw` verb and host-only route is listed in
+[omp-build § UW operator command](../../plugins/omp-build/README.md#uw-operator-command).
 
 ## Read conventions
 
@@ -83,7 +85,7 @@ fires on either of two triggers: the milestone in progress, or a shipped check
 that lies. A check that fails closed is `P2-medium`, and a parent caps its
 feature slices but not its defects. This repo binds the two triggers:
 
-- **Milestone**: the open `epic` that carries `P1-high`.
+- **Milestone**: the open milestone parent that carries `P1-high`.
 - **Shipped**: everything under `plugins/`, the published plugins. A gate,
   guard, verifier or success predicate there that reports a pass when it
   should fail or stop is `P1-high`, whatever the milestone.

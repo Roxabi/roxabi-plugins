@@ -116,6 +116,8 @@ On success, a body replace prints `Body #N` or `Body owner/repo#N`.
 | `--blocked-by <REF>[,<REF>...]` | Set blocked-by on creation |
 | `--blocks <REF>[,<REF>...]` | Set blocking on creation |
 
+`create` prints `Created #N` first, then one line per write (`Type=`, `Size=`, `Parent=`, `BlockedBy=`…). A nonzero exit after `Created #N` leaves #N filed but incomplete: never create it again. Run `T set N` with only the flags whose line is missing.
+
 ### Cross-repo create
 
 Set `GITHUB_REPO=<owner/repo>` to retarget the CREATE to a different repo than the cwd's git remote:

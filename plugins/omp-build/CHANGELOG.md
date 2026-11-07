@@ -2,10 +2,11 @@
 
 ## 0.18.0
 
-- Stop and report blocking parent final reviews; resolve their persisted causes explicitly instead of creating a grouped fix issue.
-- Refuse nonconformant successors until a confirmed conformant UW write; remove the native normalization action and profile.
+- Drop a run whose current parent final review is blocking (`final-review-blocking`, reported as `epic-drop`) instead of creating a grouped fix issue. Pending and sister causes are resolved with `/uw adjudicate` and `/uw sister`; a `fix-original` cause needs corrected work and a fresh final review.
+- Refuse `/feature new` on an abandoned or revoked UW whose body is nonconformant (`successor-spec-nonconformant`); there is no in-place conversion, so start a new UW with `/feature <text>`. Remove the native normalization action and profile.
 - Use canonical Spec grammar and authorized records for review inputs, without legacy priced fences or draft frontmatter.
 - Keep `/feature init` from relabeling existing issues.
+- An active mandate published before 0.18.0 embeds the removed grouped-fix graph action and is refused as `unsupported` (`unsupported-graph`): continuation, pause, abandon, its accepted Spec and its children stop on it. Pause or abandon every active mandate before upgrading; a paused one can still be abandoned, and an abandoned or revoked one stays eligible for `/feature new`. A workflow history holding a native normalization receipt is refused as `unconfirmed` (an incomplete operation).
 - Document all `/uw` verbs, host-only operations, issue-write ownership and the limits of manual edits.
 
 ## 0.17.2

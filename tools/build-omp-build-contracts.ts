@@ -33,7 +33,6 @@ const issueTriageSlice = [
   'skills/issue-triage/templates/issue-tracker.md',
   'skills/shared/adapters/config-helpers.ts',
   'skills/shared/adapters/github-adapter.ts',
-  'skills/shared/adapters/github-infra.ts',
   'skills/shared/adapters/issue-writer.ts',
   'skills/shared/domain/complexity.ts',
   'skills/shared/domain/errors.ts',

@@ -16,7 +16,7 @@ Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a p
 
 ## Operator controls
 
-`parseFeatureCommand` is the word list. A known transition does not ask again.
+`parseFeatureCommand` is the word list. A known transition does not ask again. Every `/uw` verb and host-only route is listed in the plugin README, [UW operator command](../../README.md#uw-operator-command).
 
 | Command | Boundary |
 |---|---|
@@ -24,7 +24,7 @@ Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a p
 | `/feature resume <reference>` | Resumes an ordinary confirmed pause. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the mandate. No automatic renewal. |
-| `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. A nonconformant body is refused as `successor-spec-nonconformant` with parser diagnostics and no write, checkout or bootstrap; confirm a conformant body with `/uw write`, then run `/feature new`. A conformant successor preserves the existing mandate and binding checks. `new init` is this control, not init. |
+| `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. A nonconformant body is refused as `successor-spec-nonconformant` with parser diagnostics and no write, checkout or bootstrap; `/uw write` is also refused on an inactive mandate, so start again as a new UW with `/feature <text>`. A conformant successor preserves the existing mandate and binding checks. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the context-bound operator UI for the exact authenticated material or unknown proposal. `accept`/`reject` argv is not authority and is refused. `/uw accept-material <reference>` uses the same acceptance chain. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
@@ -66,7 +66,7 @@ The command dispatches the named actions. This file does not run a second loop. 
 | Implementation | Changed-path proof, affected docs, browser check or declared `commands.test_e2e`, task-owned Conventional commits ending `(#N)`. `agents/R-workflow-implement.md`. A model's commit list is a claim; the host binds captured commands and Git lineage. |
 | Review input | `hashReviewInput` prefixes `omp-build:review-input/4` and captures the observed PR inputs and semantic context without producer parts. Canonical grammar and authorized records supply Spec inputs, not priced fences or draft frontmatter. A stored null input is not approval; absent or older input formats refuse with `incompatible-format`. |
 | Review, correction, landing, watch | `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle action. `nextReviewStep` retains PR review/bound policy; `landPr` and `applyCiWatchExit` execute guarded landing/watch actions. Actual landing also requires `requireLandingMandate`. The bound is sticky: a third non-approving review stays spent after a later green, and a third approving review followed by red CI stays spent after later green checks. |
-| Parent UW | `skills/feature/epic-driver.ts` reads the confirmed mandate on the parent issue. The installed command calls `next`, `stop`, `review`, `hook`, `report`, and `control-disarm`. A blocking current final review selects the `final-review-blocking` stop and report, not automatic correction; resolve persisted causes with `/uw adjudicate`, `/uw sister` or `/uw promote-report`. A child stop lets independent children continue. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. |
+| Parent UW | `skills/feature/epic-driver.ts` reads the confirmed mandate on the parent issue. The installed command calls `next`, `stop`, `review`, `hook`, `report`, and `control-disarm`. A blocking current final review selects the `final-review-blocking` stop and report, not automatic correction; pending and sister causes are held at review binding until `/uw adjudicate` or `/uw sister`, and a `fix-original` cause needs corrected work and a fresh final review. A child stop lets independent children continue. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. |
 | Worktree bootstrap | `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs `skills/feature/worktree-bootstrap.sh` in the foreground after worktree identity is valid and before dispatch: successor, first mandate, and select/resume/new in a valid worktree. The marker `omp-build-bootstrapped` and lock `omp-build-bootstrap.lock` are environment cache, not business records. The script refuses the principal. `/feature init`, `prepareFeatureCheckout`, `session_start`, and `agent_start` do not run it. Do not shell it out as a second process. |
 
 Wire names `goal-stop` and `goal-report` are `epic-event` payload values. They name a recorded transition. They do not authorize a run.

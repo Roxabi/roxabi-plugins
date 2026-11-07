@@ -45,7 +45,7 @@ function observedChild(
   if (canonicalHistories.length !== 1 || canonicalHistory === undefined || !canonicalHistory.source.complete)
     throw new Refused(`#${number} has no unique complete same-cut history`)
   if (/<!--\s*omp-build:epic-fix\b/.test(body)) {
-    throw new Refused(`#${number} has a legacy epic-fix body marker`)
+    throw new Refused(`#${number} has a legacy epic-fix body marker; remove it from the issue body`)
   }
   return {
     number,

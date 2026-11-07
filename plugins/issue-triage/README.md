@@ -107,7 +107,7 @@ Version `0.4.0` requires native state/reason in the injected writer's complete o
 
 Version `0.4.1` avoids issuing a metadata PATCH when a write changes only labels or relations and the issue title and body are unchanged. Create no longer re-PATCHes unchanged metadata; a concurrent post-create body edit is reported as `write-conflict`. The version declarations do not establish installation or activation.
 
-Version `0.4.2` removes the blanket sibling rule from triage guidance; standalone triage remains available independently of UW.
+Version `0.4.2` removes the blanket sibling rule from triage guidance and the tracker contract template; standalone triage remains available independently of UW. `init` keeps an existing contract file (`contract: keep-existing`); only a new contract uses the updated template.
 
 ## Verification
 
