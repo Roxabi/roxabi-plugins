@@ -2,6 +2,7 @@ import { type NativeEpicPullRequest, readNativeEpicChildren } from '../../adapte
 import type { DecodedHistory } from '../../dist/contracts.js'
 import { type CanonicalEpic, issueNumber, readCanonicalEpic } from './epic-driver-canonical'
 import {
+  armedPullRequests,
   baseCi,
   branchRefs,
   issueHistory,
@@ -44,6 +45,7 @@ function observedChild(
   history: ChildHistory,
   rawPrs: Map<number, NativeEpicPullRequest[]>,
   stopped: Set<number>,
+  armed: Set<number>,
   refs: Map<number, BranchFacts[]>,
   ownUw: OwnUwObservation,
 ): ChildFacts {
@@ -72,7 +74,7 @@ function observedChild(
       }
     }),
     stops: stopsFromEvents(history),
-    prs: (rawPrs.get(number) ?? []).map((pr) => prFacts(pr, stopped)),
+    prs: (rawPrs.get(number) ?? []).map((pr) => prFacts(pr, stopped, armed)),
     branches: refs.get(number) ?? [],
   }
 }
@@ -84,6 +86,7 @@ function observedChildren(
   histories: Map<number, ChildHistory>,
   rawPrs: Map<number, NativeEpicPullRequest[]>,
   stopped: Set<number>,
+  armed: Set<number>,
   refs: Map<number, BranchFacts[]>,
   ownUws: Map<number, OwnUwObservation>,
 ): ChildFacts[] {
@@ -93,7 +96,7 @@ function observedChildren(
     if (history === undefined) throw new Error(`missing history for #${number}`)
     const ownUw = ownUws.get(number)
     if (ownUw === undefined) throw new Error(`missing own UW observation for #${number}`)
-    return observedChild(node, full, native, history, rawPrs, stopped, refs, ownUw)
+    return observedChild(node, full, native, history, rawPrs, stopped, armed, refs, ownUw)
   })
 }
 
@@ -142,6 +145,7 @@ export async function gather(
     ),
   ]
   const stopped = reviews ? await stoppedReviews(repo, full, open) : new Set<number>()
+  const armed = await armedPullRequests(repo, [...rawPrs.values()].flat())
   const numbers = nodes.map((node) => issueNumber(node.uw))
   const { epicHistory, histories } = await historiesFor(repo, full, epic, numbers)
   const refs = withGit ? branchRefs(repo, base, numbers) : new Map<number, BranchFacts[]>()
@@ -159,7 +163,7 @@ export async function gather(
         ? baseCi(repo, owner, name, baseSha, landing.required_checks)
         : { state: 'none', failed: [], pending: [] },
     landingError,
-    children: observedChildren(nodes, full, native, histories, rawPrs, stopped, refs, ownUws),
+    children: observedChildren(nodes, full, native, histories, rawPrs, stopped, armed, refs, ownUws),
     reviews: await reviewsFromEvents(repo, epicHistory),
     hooks: hooksFromEvents(epicHistory),
   }

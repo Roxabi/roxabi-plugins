@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { seedAuthorization } from './testing/epic-driver/epic-driver-authorization-fixture.ts'
 import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import { childNode, prNode, servePr } from './testing/epic-driver/epic-driver-records.ts'
 import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
@@ -26,6 +27,7 @@ describe('epic-driver — eventual consistency', () => {
       'feat/2-first-child',
     )
     servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge }, sticky)
+    seedAuthorization(11, tip)
     return tip
   }
 
@@ -54,6 +56,7 @@ describe('epic-driver — eventual consistency', () => {
         writeFileSync(`${current}.after-edit`, readFileSync(current))
         writeFileSync(current, contents)
       }
+      seedAuthorization(11, tip)
       writeFileSync(path.join(state, 'pr', '11.merge-on-edit.json'), JSON.stringify(merged))
 
       const run = drive(['next'])
@@ -82,7 +85,11 @@ describe('epic-driver — eventual consistency', () => {
     expect(run.code).toBe(1)
     expect(run.stderr).toContain('merged, yet the facts still show it open')
     expect(reads()).toBe(2)
-    expect(writes()).toEqual([...(autoMerge ? ['merge 11 --disable-auto'] : []), 'edit 11 --remove-label reviewed'])
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      ...(autoMerge ? ['merge 11 --disable-auto'] : []),
+      'edit 11 --remove-label reviewed',
+    ])
   })
 
   it.each([false, true])('preserves a disarm failure while the PR stays open and armed (autoMerge=%s)', (autoMerge) => {
@@ -91,9 +98,13 @@ describe('epic-driver — eventual consistency', () => {
     const run = drive(['next'])
 
     expect(run.code).toBe(1)
-    expect(run.stderr).toContain(autoMerge ? 'stays armed' : 'still armed after the disarm')
+    expect(run.stderr).toContain('stays armed')
     expect(reads()).toBe(1)
-    expect(writes()).toEqual([...(autoMerge ? ['merge 11 --disable-auto'] : []), 'edit 11 --remove-label reviewed'])
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      ...(autoMerge ? ['merge 11 --disable-auto'] : []),
+      'edit 11 --remove-label reviewed',
+    ])
   })
 
   it('refuses a stale open hint when fresh native PR metadata says merged', () => {

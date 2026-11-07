@@ -12,10 +12,17 @@ export type Gate = {
   autoMergeRequest: NativeAutoMergeRequest | { pinned: true } | null
   headRefOid?: string
   mergeStateStatus?: string
+  authorization?: {
+    allowed: boolean
+    receipt?: { id: number; record: { headSha: string } } | null
+  }
 }
 export type ReviewGateRecords = { spent: boolean; verdict: string | null; head: string | null }
 export type ArmedGatePolicy = 'allow-approved' | 'unarmed'
-export type ArmedGateReceipt = { allowed: true } | { allowed: false; disarmed?: true }
+export type WithdrawalBarrier = { id: number; body: string; createdAt: string; record: Record<string, unknown> }
+export type ArmedGateReceipt =
+  | { allowed: true }
+  | { allowed: false; disarmed?: true; barrier?: WithdrawalBarrier | null }
 
 export declare function isCommitSha(value: string | null | undefined): boolean
 export declare function readPrFields(
@@ -40,12 +47,24 @@ export declare function readHeadRefOid(cwd: string, pr: number | string, ghFn: G
 export declare function readGate(cwd: string, pr: number | string, ghFn?: Gh): Promise<Gate>
 export declare function isBehind(gate: Gate | null | undefined): boolean
 export declare function behindMessage(pr: number | string): string
-export declare function disarmGate(cwd: string, pr: number | string, gate: Gate, ghFn: Gh): Promise<boolean>
+export declare function disarmGate(
+  cwd: string,
+  pr: number | string,
+  gate: Gate | undefined,
+  ghFn: Gh,
+): Promise<{ barrier: WithdrawalBarrier | null }>
 export declare function approves(verdict: string | null | undefined): boolean
 export declare function reviewBoundStopped(records: Pick<ReviewGateRecords, 'spent'>): boolean
 export declare function mayStayArmed(records: ReviewGateRecords, gate: Gate, reviewing: boolean): boolean
 export declare function enforceArmedGate(
   cwd: string,
   pr: number | string,
-  options: { records?: ReviewGateRecords; gate?: Gate; reviewing?: boolean; policy?: ArmedGatePolicy; gh?: Gh },
+  options: {
+    records?: ReviewGateRecords
+    gate?: Gate
+    reviewing?: boolean
+    policy?: ArmedGatePolicy
+    gh?: Gh
+    withdrawOnReadFailure?: boolean
+  },
 ): Promise<ArmedGateReceipt>

@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import path from 'node:path'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import authorization from '../skills/feature/head-authorization.cjs'
 import { criterionImplementationRecords } from './criterion-accepted-plan.ts'
 import { nativeFeatureSpec } from './feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
@@ -39,6 +41,22 @@ export function cleanupFeatureRecoveryRoots(): void {
 
 export function trackFeatureRecoveryRoot(root: string): void {
   roots.push(root)
+}
+
+/** Read the simulator's real authorization stream using its configured policy. */
+export function recoveryAuthorization(box: Box, cwd: string, prNumber: number) {
+  const gh = async (target: string, args: string[]) => {
+    const result = spawnSync('gh', args, { cwd: target, env: box.env, encoding: 'utf8' })
+    if (result.status !== 0) throw new Error(result.stderr)
+    return result.stdout.trim()
+  }
+  const policy = authorization.policyFromEnv({
+    HEAD_AUTH_REPOSITORY_ID: '1',
+    HEAD_AUTH_OPERATOR_IDS: '[101]',
+    HEAD_AUTH_APP_ID: '200',
+    HEAD_AUTH_BOT_USER_ID: '201',
+  })
+  return { cwd, gh, prNumber, policy }
 }
 
 export function featureFixture(

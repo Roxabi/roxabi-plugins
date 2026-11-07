@@ -165,6 +165,7 @@ describe('epic-driver — child stop PR ownership', () => {
     expect(run.code).toBe(0)
     expect(run.json()).toMatchObject({ ticket: 2, stop: 'timeout', disarmed: { 11: 'disarmed' } })
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'merge 11 --disable-auto',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 2 <!-- omp-build-record /),
@@ -174,6 +175,15 @@ describe('epic-driver — child stop PR ownership', () => {
     expect(eventPayloads(2)).toContainEqual(
       expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'timeout' }),
     )
+  })
+
+  it('does not stop or disable auto-merge when authorization withdrawal is forbidden', () => {
+    armedChild('owned')
+    writeFileSync(path.join(sandboxOf().state, 'withdraw-forbidden'), '')
+    const result = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
+    expect(result.code).not.toBe(0)
+    expectArmedAndUnchanged()
+    expect(eventPayloads(2).filter((event) => event.event === 'goal-stop')).toEqual([])
   })
 
   it('does not reconcile an unbound hinted PR for an already stopped child', () => {

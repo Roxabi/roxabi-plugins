@@ -19,14 +19,6 @@ export type CiWatchExit = {
   disarmed?: true
 }
 
-export declare function labeledReviewedAt(cwd: string, pr: number | string, ghFn?: Gh): Promise<string>
-export declare function waitLabeledSince(
-  cwd: string,
-  pr: number | string,
-  ghFn: Gh,
-  before: string,
-  sleep: (ms: number) => Promise<void>,
-): Promise<string>
 export declare function applyCiWatchExit(
   cwd: string,
   pr: number | string,

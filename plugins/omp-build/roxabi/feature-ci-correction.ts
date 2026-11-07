@@ -2,6 +2,7 @@ import { effectiveMandateRole, missingContextOutputSchema } from '../dist/contra
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
+import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import { readDecodedHistory } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
@@ -12,7 +13,7 @@ import type { FeatureObservation } from './feature-observation-contract.ts'
 import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
 import { boundCorrection } from './fix-mandate-resolution.ts'
 import { classifyCiCorrectionStep } from './fix-mandate-types.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { readFixUwCausalContext, reconcileWithdrawalHistories } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -61,7 +62,8 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return { kind: 'blocked', reason: 'mandate-missing' }
   }
-  // The fresh decoded history above is both receipt selection and correction admission evidence.
+  // Keep admission's reread paired with its own confirmed withdrawal.
+  let admissionHistory = decoded.history
   const admitted = await admitAttributedCiCorrection({
     cwd: input.cwd,
     target: {
@@ -78,11 +80,23 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
     base: input.base,
     attributionRecordId,
     workflow: {
-      nextReviewStep: (cwd: string, pr: number, options: { ciFailed?: boolean; reviewing?: boolean }) =>
-        nextReviewStep(cwd, pr, { ...options, gh: input.gh }),
+      nextReviewStep: async (cwd: string, pr: number, options: { ciFailed?: boolean; reviewing?: boolean }) => {
+        const step = await nextReviewStep(cwd, pr, { ...options, gh: input.gh })
+        const fresh = await readDecodedHistory(input.scope, input.cwd, input.gh)
+        if (!fresh.ok) throw new Error(fresh.reason)
+        const matched = reconcileWithdrawalHistories(
+          [admissionHistory],
+          [fresh.history],
+          input.scope,
+          step.barrier ? [step.barrier] : [],
+        )
+        if (!matched.ok) throw new Error('fix-history-observation-drift')
+        admissionHistory = fresh.history
+        return step
+      },
     },
     options: withRoxabiGitHubPolicy({ cwd: input.cwd, gh: input.gh }),
-    readHistory: async () => decoded.history,
+    readHistory: async () => admissionHistory,
   })
   if (!admitted.ok)
     return {
@@ -240,9 +254,11 @@ export async function classifyRedCiBeforeDispatch(
   pr: number,
   gh: Gh,
   git: GitRunner,
+  onBarrier?: (barrier: WithdrawalBarrier) => void,
 ): Promise<ContinueFeatureResult | null> {
   try {
     const step = await nextReviewStep(cwd, pr, { ciFailed: true, gh, git })
+    if (step.barrier) onBarrier?.(step.barrier)
     const classified = classifyCiCorrectionStep(step)
     if (classified.status === 'spent') {
       return { kind: 'terminal', reason: classified.reason }

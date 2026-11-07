@@ -3,6 +3,7 @@ import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy'
 import { createPublicationContextResolver } from '../../roxabi/publication-context.ts'
 import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { readReviewInputHistories } from '../../roxabi/uw-input-readers.ts'
+import { disarmReviewedBeforePush } from './landing-foundation.js'
 import {
   approves,
   enforceArmedGate,
@@ -210,12 +211,18 @@ async function enforceSelectedReviewGate(cwd, selected, reviewing, ghFn) {
     throw disarmError
   }
   if (selected.failure) throw selected.failure
-  return { ...selected.step, ...(receipt.disarmed && { disarmed: true }) }
+  return { ...selected.step, ...(receipt.disarmed && { disarmed: true, barrier: receipt.barrier }) }
 }
 
 export async function nextReviewStep(cwd, pr, { ciFailed = false, reviewing = false, gh: ghFn = gh, git: gitFn } = {}) {
+  if (reviewing) {
+    const number = await resolveReviewPr(cwd, pr, { gh: ghFn })
+    await disarmReviewedBeforePush(cwd, number, { gh: ghFn })
+  }
   const selected = await selectReviewStep(cwd, pr, ciFailed, ghFn)
   const refreshed = await refreshApprovedReviewArm(cwd, selected, ciFailed, reviewing, ghFn, gitFn)
+  const result = await enforceSelectedReviewGate(cwd, refreshed, reviewing, ghFn)
   const persisted = await persistSelectedCiStop(cwd, refreshed, ciFailed, ghFn, gitFn)
-  return enforceSelectedReviewGate(cwd, persisted, reviewing, ghFn)
+  if (persisted.failure) throw persisted.failure
+  return result
 }

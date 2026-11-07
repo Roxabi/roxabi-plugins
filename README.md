@@ -26,6 +26,11 @@ Restart OMP after installing or upgrading a plugin; do not use `/reload-plugins`
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
+For merge-on-green repositories using the Kit gate, omp-build authorizes the reviewed
+head with a scoped protocol receipt; a `reviewed` label alone is not authority.
+See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards)
+for configuration and limits.
+
 ## Active external curation
 
 The active external catalog is the `status: active` projection of

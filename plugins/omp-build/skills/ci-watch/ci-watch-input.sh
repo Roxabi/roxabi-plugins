@@ -61,7 +61,7 @@ resolve_landing() {
   [[ -f "$LANDING_JS" ]] || { echo "ci-watch: run this script from its real path (realpath skill://ci-watch/ci-watch.sh) — cannot find ../feature/workflow-readiness.js" >&2; exit "$EXIT_INTERNAL"; }
   [[ -n "$BASE_REF" ]] || BASE_REF=$(gh pr view "$PR" --repo "$REPO" --json baseRefName --jq .baseRefName)
   [[ -n "$BASE_REF" && "$BASE_REF" != null ]] || { echo "Error: could not read baseRefName for PR $PR (pass --base <branch>)" >&2; exit "$EXIT_INTERNAL"; }
-  LANDING=$(bun -e 'const { readLanding } = await import(process.argv[1]); try { const landing = readLanding(process.cwd(), { base: process.argv[2] }); console.log([landing.mode, ...landing.required_checks].join("\n")) } catch (error) { console.error(`Error: ${error instanceof Error ? error.message : error}`); process.exit(1) }' "$LANDING_JS" "$BASE_REF")
+  LANDING=$(bash "$SCRIPT_DIR/../feature/trusted-bun.sh" -e 'const { readLanding } = await import(process.argv[1]); try { const landing = readLanding(process.cwd(), { base: process.argv[2] }); console.log([landing.mode, ...landing.required_checks].join("\n")) } catch (error) { console.error(`Error: ${error instanceof Error ? error.message : error}`); process.exit(1) }' "$LANDING_JS" "$BASE_REF")
   [[ -n "$MERGE_MODE" ]] || MERGE_MODE="${LANDING%%$'\n'*}"
   [[ "$MERGE_MODE" == merge-on-green || "$MERGE_MODE" == native ]] || { echo "Error: --merge-mode must be merge-on-green or native, got $MERGE_MODE" >&2; exit "$EXIT_INTERNAL"; }
   REQUIRED=""

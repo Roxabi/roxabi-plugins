@@ -35,7 +35,7 @@ export function tip(origin: string, branch: string): string | null {
 }
 
 function armed(pr: Pull): boolean {
-  return pr.autoMerge !== null || pr.labels.includes('reviewed')
+  return pr.autoMerge !== null
 }
 
 function collapsed(checks: Check[]): Check[] {

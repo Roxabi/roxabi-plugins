@@ -5,6 +5,12 @@ export type Comment = {
   body: string
   createdAt?: string | null
   updatedAt?: string | null
+  nodeId?: string
+  userId?: number
+  appId?: number | null
+  lastEditedAt?: string | null
+  associatedNumber?: number
+  associatedRepositoryId?: number
 }
 export type Check = {
   name: string
@@ -41,6 +47,10 @@ export type Pull = {
   headRefName: string
   baseRefName: string
   headRefOid: string
+  databaseId?: number
+  nodeId?: string
+  baseRefOid?: string
+  authorId?: number
   isCrossRepository: boolean
   labels: string[]
   autoMerge: { enabledAt: string; matchHeadCommit?: string } | null
@@ -54,6 +64,13 @@ export type Pull = {
 export type Event = { event: string; label?: { name: string }; created_at: string }
 export type State = {
   viewer: string
+  viewerId?: number
+  repositoryId?: number
+  repositoryNodeId?: string
+  commentPostForbidden?: boolean
+  commentReadFailurePage?: number
+  authorizationVariables?: Record<string, string>
+  authorizationVariablesForbidden?: boolean
   appInstallation?: boolean
   owner: string
   name: string
@@ -61,6 +78,8 @@ export type State = {
   /** Bare origin. Merge-on-read runs `git merge --no-ff` into it. */
   origin: string
   repositoryUrls?: Record<string, string>
+  /** Explicit remote refs for transport-only fixtures without a Git origin. */
+  remoteRefs?: Record<string, string>
   requiredChecks: string[]
   nextPr: number
   clock: number

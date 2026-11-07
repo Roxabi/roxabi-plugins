@@ -1,12 +1,75 @@
 import { type GitHubOptions, readCauseHistoryClosure, readComposedWorkflowHistory } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { defaultGh } from './feature-engine.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwRead } from './uw-contract.ts'
+
+function matchesWithdrawalBarrier(
+  comment: DecodedHistory['source']['comments'][number] | undefined,
+  barrier: WithdrawalBarrier | undefined,
+  scope: DecodedHistory['source']['scope'],
+): boolean {
+  return (
+    barrier !== undefined &&
+    comment !== undefined &&
+    barrier.record.kind === 'withdraw' &&
+    `${scope.repository}#${barrier.record.pullRequest}` === scope.target &&
+    comment.nativeId === String(barrier.id) &&
+    comment.body === barrier.body &&
+    comment.createdAt === barrier.createdAt
+  )
+}
+
+function matchesWithdrawalHistory(
+  previous: DecodedHistory,
+  current: DecodedHistory,
+  scope: DecodedHistory['source']['scope'],
+  barriers: readonly WithdrawalBarrier[],
+): boolean {
+  const comments = current.source.comments
+  const oldComments = previous.source.comments
+  if (comments.length !== oldComments.length + barriers.length) return false
+  for (let index = 0; index < barriers.length; index++) {
+    if (!matchesWithdrawalBarrier(comments[oldComments.length + index], barriers[index], scope)) return false
+  }
+  const withoutBarriers = {
+    ...current,
+    source: { ...current.source, comments: comments.slice(0, oldComments.length) },
+  }
+  return JSON.stringify(previous) === JSON.stringify(withoutBarriers)
+}
+
+/** Validate a native reread across our own confirmed withdrawal writes, without accepting other drift. */
+export function reconcileWithdrawalHistories(
+  before: readonly DecodedHistory[],
+  after: readonly DecodedHistory[],
+  scope: DecodedHistory['source']['scope'],
+  barriers: readonly WithdrawalBarrier[],
+): FixActionResult<readonly DecodedHistory[]> {
+  const key = (history: DecodedHistory) => `${history.source.scope.repository}\0${history.source.scope.target}`
+  const target = `${scope.repository}\0${scope.target}`
+  const next = new Map(after.map((history) => [key(history), history]))
+  if (next.size !== after.length || new Set(before.map(key)).size !== before.length || before.length !== after.length)
+    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  for (const previous of before) {
+    const current = next.get(key(previous))
+    if (current === undefined || !previous.source.complete || !current.source.complete)
+      return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+    const matches =
+      key(previous) === target
+        ? matchesWithdrawalHistory(previous, current, scope, barriers)
+        : JSON.stringify(previous) === JSON.stringify(current)
+    if (!matches) return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  }
+  if (barriers.length > 0 && !before.some((history) => key(history) === target))
+    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  return { ok: true, value: after }
+}
 
 export type FixUwCausalContext = {
   histories: readonly DecodedHistory[]

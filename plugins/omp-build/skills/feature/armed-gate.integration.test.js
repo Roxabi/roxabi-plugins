@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildRecord } from '../../dist/contracts.js'
 import { actionInputDigest } from '../../engine/action-input.ts'
 import { fixtureCatalogueGhResponse, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
@@ -14,9 +14,18 @@ import {
   SCOPE,
   WORKTREE,
 } from './review-record-fixture.js'
+import { readGate } from './workflow-gate.js'
 import { requiredReviewRecords } from './workflow-records.js'
 import { nextReviewStep } from './workflow-review-state.js'
 import { applyCiWatchExit } from './workflow-watch.js'
+
+beforeEach(() => {
+  vi.stubEnv('HEAD_AUTH_REPOSITORY_ID', '1')
+  vi.stubEnv('HEAD_AUTH_OPERATOR_IDS', '[101]')
+  vi.stubEnv('HEAD_AUTH_APP_ID', '200')
+  vi.stubEnv('HEAD_AUTH_BOT_USER_ID', '201')
+})
+afterEach(() => vi.unstubAllEnvs())
 
 describe('durable review stop', () => {
   it('keeps a third red sticky after a later green record and confirms gate clearing', async () => {
@@ -27,6 +36,7 @@ describe('durable review stop', () => {
       { head: HEADS[2], verdict: 'Approve (clean)' },
     ])
     const { gh, state } = gateGh(history, { head: HEADS[2], armed: true })
+    expect((await readGate(WORKTREE, PR, gh)).authorization.allowed).toBe(true)
     await expect(nextReviewStep(WORKTREE, PR, { gh })).resolves.toMatchObject({
       action: 'stop',
       reason: 'review-bound',
@@ -34,6 +44,27 @@ describe('durable review stop', () => {
     })
     expect(state.label).toBe(false)
     expect(state.auto).toBe(false)
+    expect((await readGate(WORKTREE, PR, gh)).authorization.allowed).toBe(false)
+  })
+
+  it('does not claim a spent-review stop was disarmed when withdrawal is forbidden', async () => {
+    const history = reviewHistory([
+      { head: HEADS[0], verdict: 'Request changes' },
+      { head: HEADS[1], verdict: 'Request changes' },
+      { head: HEADS[2], verdict: 'Request changes' },
+    ])
+    const fixture = gateGh(history, { head: HEADS[2], armed: true })
+    const gh = async (cwd, args) => {
+      if (
+        args.includes('POST') &&
+        args.some((arg) => String(arg).startsWith('body=<!-- kit-head-authorization:v1 -->'))
+      ) {
+        throw new Error('HTTP 403')
+      }
+      return fixture.gh(cwd, args)
+    }
+    await expect(nextReviewStep(WORKTREE, PR, { gh })).rejects.toThrow()
+    expect((await readGate(WORKTREE, PR, fixture.gh)).authorization.allowed).toBe(true)
   })
 
   it('persists a third current approval plus observed CI red before disarming', async () => {
@@ -193,6 +224,8 @@ describe('durable review stop', () => {
     }
     const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
     appendRecord(reviewGraph({ prefix: 'new-incomplete', head: HEADS[2], scope: SCOPE, inputs }).root)
+    // Authorization receipts consume real native IDs between the two review batches.
+    history.source.comments.at(-1).nativeId = '403'
     history.source.comments.push({
       locator: 'partial-review',
       nativeId: '404',

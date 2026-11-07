@@ -25,10 +25,38 @@ if [[ "$1" == "api" && ( ( "\${2:-}" == "graphql" && "$*" == *"object(expression
 fi
 case "$1 \${2:-}" in
   "repo view")
-    if [[ "$*" == *defaultBranchRef* ]]; then echo "develop"; else echo "o/r"; fi ;;
-  "api user") echo "$ME" ;;
+    if [[ "$*" == *defaultBranchRef* ]]; then echo "develop"; elif [[ "$*" == *--jq* ]]; then echo "o/r"; else echo '{"nameWithOwner":"o/r"}'; fi ;;
+  "api user") if [[ "$*" == *--jq* ]]; then echo "$ME"; else echo '{"login":"operator","id":101,"type":"User"}'; fi ;;
+  "api --include")
+    if [[ "\${3:-}" == 'repos/o/r/actions/variables?per_page=100&page=1' ]]; then
+      printf 'HTTP/2 200\\r\\nContent-Type: application/json\\r\\n\\r\\n%s\\n' '{"total_count":4,"variables":[{"name":"HEAD_AUTH_REPOSITORY_ID","value":"1"},{"name":"HEAD_AUTH_OPERATOR_IDS","value":"[101]"},{"name":"HEAD_AUTH_APP_ID","value":"200"},{"name":"HEAD_AUTH_BOT_USER_ID","value":"201"}]}'
+    elif [[ "\${3:-}" =~ ^repos/o/r/issues/([0-9]+)/comments[?]per_page=100[\\&]page=([0-9]+)$ ]]; then
+      issue="\${BASH_REMATCH[1]}"; page="\${BASH_REMATCH[2]}"; file="$S/comments-$issue.json"
+      [[ -f "$file" ]] || echo '[]' > "$file"
+      printf 'HTTP/2 200\\r\\nContent-Type: application/json\\r\\n'
+      if (( $(jq 'length' "$file") > page * 100 )); then
+        printf 'Link: <https://api.github.com/repos/o/r/issues/%s/comments?per_page=100&page=%s>; rel="next"\\r\\n' "$issue" "$((page + 1))"
+      fi
+      printf '\\r\\n'
+      jq -c --argjson page "$page" '.[(($page - 1) * 100):($page * 100)]' "$file"
+    else echo "stub gh: unhandled $*" >&2; exit 9; fi ;;
   "api graphql")
     q="$*"
+    if [[ "$q" == *IssueComment* && "$q" == *lastEditedAt* ]]; then
+      node=""
+      for arg in "$@"; do [[ "$arg" == id=* ]] && node="\${arg#id=}"; done
+      number=""
+      for file in "$S"/comments-*.json; do
+        [[ -f "$file" ]] || continue
+        if jq -e --arg node "$node" 'any(.[]; .node_id == $node)' "$file" >/dev/null; then
+          number="\${file##*/comments-}"; number="\${number%.json}"; break
+        fi
+      done
+      [[ -n "$number" ]] || { echo '{"data":{"node":null}}'; exit 0; }
+      id="\${node#IC_}"
+      jq -cn --arg node "$node" --arg id "$id" --argjson number "$number" '{data:{node:{id:$node,fullDatabaseId:$id,lastEditedAt:null,repository:{fullDatabaseId:"1"},pullRequest:{number:$number,fullDatabaseId:((1000+$number)|tostring)}}}}'
+      exit 0
+    fi
     if [[ "$q" == *EpicContainmentBranch* ]]; then
       query containment-branch
       branch=""
@@ -83,6 +111,24 @@ case "$1 \${2:-}" in
   "api repos/"*)
     resource="$2"
     comments_path='^repos/o/r/issues/([0-9]+)/comments[?]per_page=100[&]page=([0-9]+)$'
+    if [[ "$resource" == "repos/o/r" ]]; then echo '{"id":1}'; exit 0; fi
+    if [[ "$resource" == repos/o/r/git/ref/heads/* ]]; then
+      ref="\${resource#repos/o/r/git/ref/heads/}"
+      ref="\${ref//%2F//}"
+      sha=$(git --git-dir="$S/../origin.git" rev-parse --verify "refs/heads/$ref") || exit 1
+      jq -cn --arg ref "refs/heads/$ref" --arg sha "$sha" '{ref:$ref,object:{sha:$sha}}'
+      exit 0
+    fi
+    if [[ "$resource" =~ ^repos/o/r/pulls/([0-9]+)$ ]]; then
+      number="\${BASH_REMATCH[1]}"
+      if [[ -f "$S/pr/$number.native.json" ]]; then
+        raw=$(cat "$S/pr/$number.native.json")
+      else
+        raw=$(jq -s --argjson number "$number" '[.[][] | select(.number == $number)] | first // null' "$S"/branch-prs-*.json)
+      fi
+      jq -cn --argjson raw "$raw" --argjson number "$number" '{id:(1000+$number),number:$number,user:{id:101},head:{sha:$raw.headRefOid},base:{ref:$raw.baseRefName,sha:("b"*40),repo:{id:1}}}'
+      exit 0
+    fi
     if [[ "$resource" =~ $comments_path ]]; then
       issue="\${BASH_REMATCH[1]}"
       page="\${BASH_REMATCH[2]}"
@@ -100,10 +146,14 @@ case "$1 \${2:-}" in
     }
     issue="\${BASH_REMATCH[1]}"
     body="\${6#body=}"
+    if [[ "$body" == '<!-- kit-head-authorization:v1 -->'* && -f "$S/withdraw-forbidden" ]]; then
+      echo 'Resource not accessible by integration (HTTP 403)' >&2
+      exit 1
+    fi
     file="$S/comments-$issue.json"
     [[ -f "$file" ]] || echo '[]' > "$file"
-    id=$(( $(jq 'length' "$file") + 1001 ))
-    posted="$(jq -cn --arg author "$ME" --argjson id "$id" --arg body "$body" '{id: $id, body: $body, user: {login: $author}, created_at: "2026-10-21T10:00:00Z", updated_at: "2026-10-21T10:00:00Z"}')"
+    id=$(( $(jq -s '[.[][]?.id // 0] | max // 1000' "$S"/comments-*.json) + 1001 ))
+    posted="$(jq -cn --arg author "$ME" --argjson id "$id" --arg body "$body" '{id: $id, node_id: ("IC_"+($id|tostring)), body: $body, user: {login: $author,id:101,type:"User"}, performed_via_github_app:null, created_at: "2026-10-21T10:00:00Z", updated_at: "2026-10-21T10:00:00Z"}')"
     jq -c --argjson posted "$posted" '. + [$posted]' "$file" > "$S/tmp" && mv "$S/tmp" "$file"
     first="\${body%%$'\\n'*}"
     log "comment $issue $first"
@@ -162,7 +212,15 @@ export function sandbox(stack = 'release:\n  model: trunk\n'): Sandbox {
   mkdirSync(bin)
   writeFileSync(path.join(bin, 'gh'), GH_STUB)
   chmodSync(path.join(bin, 'gh'), 0o755)
-  const env: NodeJS.ProcessEnv = { PATH: `${bin}:${process.env.PATH}`, HOME: root, DRIVER_STATE: state }
+  const env: NodeJS.ProcessEnv = {
+    PATH: `${bin}:${process.env.PATH}`,
+    HOME: root,
+    DRIVER_STATE: state,
+    HEAD_AUTH_REPOSITORY_ID: '1',
+    HEAD_AUTH_OPERATOR_IDS: '[101]',
+    HEAD_AUTH_APP_ID: '200',
+    HEAD_AUTH_BOT_USER_ID: '201',
+  }
   env.GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL
   env.GIT_CONFIG_NOSYSTEM = '1'
   box = {

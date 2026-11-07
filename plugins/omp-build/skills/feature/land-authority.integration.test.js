@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { decodeHistory } from '../../dist/contracts.js'
 import {
   AUTHOR,
@@ -11,9 +11,18 @@ import {
   reviewHistory,
   WORKTREE,
 } from './review-record-fixture.js'
+import { readGate } from './workflow-gate.js'
 import { landPr } from './workflow-landing.js'
 import { featureLandOutcome } from './workflow-outcome.js'
 import { nextReviewStep } from './workflow-review-state.js'
+
+beforeEach(() => {
+  vi.stubEnv('HEAD_AUTH_REPOSITORY_ID', '1')
+  vi.stubEnv('HEAD_AUTH_OPERATOR_IDS', '[101]')
+  vi.stubEnv('HEAD_AUTH_APP_ID', '200')
+  vi.stubEnv('HEAD_AUTH_BOT_USER_ID', '201')
+})
+afterEach(() => vi.unstubAllEnvs())
 
 function incompleteApprovalHistory() {
   const history = reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)' }])
@@ -80,7 +89,10 @@ describe('landing review authority', () => {
       const output = await gh(cwd, args)
       if (
         (args[0] === 'pr' && args[1] === 'view' && String(args.at(-1)).includes('body')) ||
-        (args[0] === 'api' && args.includes('graphql') && args.some((arg) => String(arg).includes('lastEditedAt')))
+        (args[0] === 'api' &&
+          args.includes('graphql') &&
+          args.some((arg) => String(arg).includes('lastEditedAt')) &&
+          !args.some((arg) => String(arg).includes('... on IssueComment')))
       ) {
         const value = JSON.parse(output)
         if (args[0] === 'pr') value.body = 'changed after review'
@@ -249,6 +261,25 @@ describe('landing review authority', () => {
         landing: { mode: 'native', required_checks: ['ci'] },
       }),
     ).resolves.toMatchObject({ status: 'auto-merge-failed', armed: false })
+  })
+
+  it('arms an admitted native review with a read-back head receipt and no reviewed label', async () => {
+    const linked = await linkedApproval(HEADS[0])
+    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: false, issueHistory: linked.issue })
+    const result = await landPr(WORKTREE, PR, {
+      gh,
+      git,
+      requiredContexts: ['ci'],
+      landing: { mode: 'merge-on-green', required_checks: ['ci'] },
+    })
+    expect(result).toMatchObject({ status: 'watching', mode: 'merge-on-green' })
+    expect(result.watch).toContain('--since 2026-01-01T00:03:00Z')
+    expect(state.label).toBe(false)
+    const gate = await readGate(WORKTREE, PR, gh)
+    expect(gate.authorization).toMatchObject({
+      allowed: true,
+      receipt: { record: { kind: 'grant', source: 'native', headSha: HEADS[0] } },
+    })
   })
   it('lands when the head moves after landing admission', async () => {
     const linked = await linkedApproval(HEADS[0])

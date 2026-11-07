@@ -3,6 +3,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { seedAuthorization } from './testing/epic-driver/epic-driver-authorization-fixture.ts'
 import {
   childNode,
   epicEvent,
@@ -131,19 +132,19 @@ function gate() {
 }
 
 describe('epic-driver — hidden reviewed label in native PR inventory', () => {
-  for (const stopped of [true, false]) {
-    it(`refuses incomplete labels before ${stopped ? 'reconciling a stopped' : 'resuming an'} owned PR`, () => {
-      prepare(stopped, 'hidden')
-      expect(gate()).toMatchObject({ state: 'OPEN', autoMergeRequest: null })
-      expect(gate().labels.map((label: { name: string }) => label.name)).toEqual([...PREFIX, 'reviewed'])
-      const run = drive(['next'])
-      expect(run.code).toBe(2)
-      expect(run.stderr).toMatch(/label.*(incomplete|unreadable)|(incomplete|unreadable).*label/i)
-      expect(writes()).toEqual([])
-      expect(gate().labels.map((label: { name: string }) => label.name)).toEqual([...PREFIX, 'reviewed'])
-      expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe('')
-    })
-  }
+  it('withdraws an authorized head before resuming even when the label is outside the inventory page', () => {
+    prepare(false, 'hidden')
+    const tip = git(sandboxOf().epic, 'rev-parse', 'refs/remotes/origin/feat/2-first-child')
+    seedAuthorization(11, tip)
+    const run = drive(['next'])
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({ step: { action: 'resume', ticket: 2, branch: BRANCH } })
+    const comments = JSON.parse(readFileSync(path.join(sandboxOf().state, 'comments-11.json'), 'utf8'))
+    const withdrawal = comments.at(-1).body
+    expect(withdrawal).toContain('"kind":"withdraw"')
+    expect(withdrawal).toContain(`"headSha":"${tip}"`)
+    expect(writes()).toContain('comment 11 <!-- kit-head-authorization:v1 -->')
+  })
 
   it('resumes a complete unarmed PR without disarming it', () => {
     prepare(false, 'complete')
@@ -160,14 +161,5 @@ describe('epic-driver — hidden reviewed label in native PR inventory', () => {
     expect(run.code).toBe(2)
     expect(run.stderr).toMatch(/incomplete|unreadable/i)
     expect(writes()).toEqual([])
-  })
-
-  it('refuses missing label completeness without writes or a switch', () => {
-    prepare(false, 'missing')
-    const run = drive(['next'])
-    expect(run.code).toBe(2)
-    expect(run.stderr).toMatch(/label.*(incomplete|unreadable)|(incomplete|unreadable).*label/i)
-    expect(writes()).toEqual([])
-    expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe('')
   })
 })

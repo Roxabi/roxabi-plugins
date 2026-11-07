@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto'
+import authorization from './head-authorization.cjs'
+
 import {
   checkBeforeArm,
   checkLandingCoordinates,
@@ -8,7 +11,6 @@ import {
 } from './landing-initial.js'
 import { bindLandingBase, landingExit } from './landing-initial-preparation.js'
 import { errorText } from './workflow-runtime.js'
-import { labeledReviewedAt, waitLabeledSince } from './workflow-watch.js'
 
 async function refreshAndCheck(cwd, pr, gh, git, state, armedAuto, armedLabel) {
   const refreshed = await refreshLandingAuthorization(cwd, pr, gh, git, state, false)
@@ -92,61 +94,47 @@ async function repinExisting(cwd, pr, gh, git, state, armedAuto, armedLabel, pin
   return prepared
 }
 
-export async function armMergeOnGreen(cwd, pr, gh, git, sleep, state, armedAuto, armedLabel, owner) {
-  const before = await labeledReviewedAt(cwd, pr, gh)
-  const data = JSON.parse(await gh(cwd, ['pr', 'view', String(pr), '--json', 'labels']))
-  const labels = data.labels ?? []
-  if (!Array.isArray(labels)) throw new Error(`landPr: gh pr view ${pr} carried no labels`)
-  let prepared = await refreshAndCheck(cwd, pr, gh, git, state, armedAuto, armedLabel)
-  if (prepared.terminal) return prepared
-  if (labels.some((label) => label?.name === 'reviewed')) {
-    const removed = await writeLandingLabel(
-      cwd,
-      pr,
-      gh,
-      git,
-      prepared.state,
-      armedAuto,
-      armedLabel,
-      ['pr', 'edit', String(pr), '--remove-label', 'reviewed'],
-      false,
-      owner,
-    )
-    if (removed.terminal) return { ...removed, state: prepared.state, armedAuto }
-    armedLabel = removed.armedLabel
-    prepared = await refreshAndCheck(cwd, pr, gh, git, prepared.state, armedAuto, armedLabel)
-    if (prepared.terminal) return prepared
+export async function armMergeOnGreen(cwd, pr, gh, git, _sleep, state, armedAuto, armedLabel, owner) {
+  const policy = await authorization.policyFromRepository({ cwd, gh })
+  if (!policy) throw new Error('head authorization policy is not configured')
+  const snapshot = await authorization.captureAuthorization({ cwd, gh, prNumber: Number(pr), policy })
+  if (
+    snapshot.scope.headSha !== state.records.head ||
+    snapshot.scope.baseRef !== state.landingBase ||
+    snapshot.scope.baseSha !== state.landingContext.tip
+  ) {
+    return { terminal: landingExit({ status: 'not-approved', reason: 'head-moved' }, { policy: 'unarmed' }), state }
   }
-  const added = await writeLandingLabel(
-    cwd,
-    pr,
-    gh,
-    git,
-    prepared.state,
-    armedAuto,
-    armedLabel,
-    ['pr', 'edit', String(pr), '--add-label', 'reviewed'],
-    true,
-    owner,
-  )
-  if (added.terminal) return { ...added, state: prepared.state, armedAuto }
-  armedLabel = added.armedLabel
-  const afterLabel = await checkLandingCoordinates(cwd, pr, gh, git, prepared.state, armedAuto, armedLabel)
-  if (afterLabel) return { terminal: afterLabel, state: prepared.state, armedAuto, armedLabel }
-  const since = await waitLabeledSince(cwd, pr, gh, before, sleep)
-  const afterWait = await refuseIfLandingMoved(cwd, pr, gh, git, prepared.state, armedAuto, armedLabel)
-  if (afterWait) return { terminal: afterWait, state: prepared.state, armedAuto, armedLabel }
-  if (!since) {
+  const prepared = await refreshAndCheck(cwd, pr, gh, git, state, armedAuto, armedLabel)
+  if (prepared.terminal) return prepared
+  if (
+    prepared.state.records.head !== snapshot.scope.headSha ||
+    prepared.state.landingBase !== snapshot.scope.baseRef ||
+    prepared.state.landingContext.tip !== snapshot.scope.baseSha ||
+    !prepared.state.records.reviewId
+  ) {
     return {
-      terminal: landingExit({
-        status: 'watch-failed',
-        error: 'could not read the labeled reviewed event after re-label — merge-on-green needs --since from GitHub',
-      }),
+      terminal: landingExit({ status: 'not-approved', reason: 'head-moved' }, { policy: 'unarmed' }),
       state: prepared.state,
-      armedAuto,
-      armedLabel,
     }
   }
+  // A POST can succeed despite a lost response. The epilogue must withdraw it.
+  if (owner) owner.armedLabel = true
+  armedLabel = true
+  const receipt = await authorization.issueAuthorization({
+    cwd,
+    gh,
+    snapshot,
+    policy,
+    lane: 'reviewed',
+    source: 'native',
+    requireBaseSha: true,
+    evidence: prepared.state.records.reviewId,
+    operationId: randomUUID(),
+  })
+  const moved = await refuseIfLandingMoved(cwd, pr, gh, git, prepared.state, armedAuto, armedLabel)
+  if (moved) return { terminal: moved, state: prepared.state, armedAuto, armedLabel }
+  const since = receipt.createdAt.replace(/\.\d+Z$/, 'Z')
   return { state: prepared.state, armedAuto, armedLabel, since }
 }
 

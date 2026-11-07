@@ -5,19 +5,16 @@ import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { ActionReceiptPayload, HostEffectAdmission } from '../engine/workflow-receipt-schema.ts'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { publishNonImplementResult } from './feature-action-result.ts'
-import { explicitParentHistories } from './feature-context.ts'
 import type { FeatureNativePublication } from './feature-contract.ts'
-import { cwdInhibition, inhibition } from './feature-control.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
+import { disarmBranchBeforePush } from './feature-disarm.ts'
 import { defaultGh, publishRecord } from './feature-engine.ts'
 import { admitImplementationEvidence } from './feature-implementation-admission.ts'
 import { publishImplementationNegative } from './feature-implementation-negative.ts'
 import { claimedToolCallIds, refusedImplementationPayload } from './feature-implementation-receipt.ts'
 import { hasObservedNativeCapture, implementNativeOutcome } from './feature-native-outcome.ts'
-import { proveAuthorizedBranch } from './feature-publication.ts'
+import { authorizedImplementationPush, proveAuthorizedBranch } from './feature-publication.ts'
 import { bindImplementationResult, type ImplementationResultBinding } from './feature-result-binding.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
-import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { defaultGit } from './workflow-checkout.ts'
 
@@ -113,29 +110,6 @@ async function retainImplementationResult(
     binding.publicationParents,
   )
   return published.ok ? { retained: true } : { retained: false, reason: published.reason }
-}
-
-async function authorizedImplementationPush(binding: ImplementationResultBinding, cwd: string): Promise<boolean> {
-  if (cwdInhibition(cwd) !== undefined || inhibition(binding.mandate.scope) !== undefined) return false
-  const options = { ...withRoxabiGitHubPolicy({ cwd, gh: binding.gh }), gh: binding.gh }
-  const fresh = await binding.loaded.readComposedWorkflowHistory([binding.mandate.scope], options)
-  if (!fresh.ok || !fresh.histories[0]) return false
-  const freshMandate =
-    fresh.histories[0].operations.find(
-      (operation) => operation.record?.kind === 'mandate' && operation.record.recordId === binding.mandate.recordId,
-    )?.record ?? null
-  if (freshMandate === null) return false
-  const freshParents = await explicitParentHistories(binding.loaded, freshMandate, options)
-  if (!freshParents.ok) return false
-  const causal = await readFixUwCausalContext([fresh.histories[0], ...freshParents.parents], [], options)
-  if (!causal.ok) return false
-  const current = binding.loaded.selectApplicableMandate(fresh.histories[0], freshParents.parents, causal.value)
-  return (
-    cwdInhibition(cwd) === undefined &&
-    inhibition(binding.mandate.scope) === undefined &&
-    current.status === 'applicable' &&
-    current.mandate?.recordId === binding.mandate.recordId
-  )
 }
 
 async function publishImplementedResult(
@@ -261,9 +235,11 @@ export async function publishFeatureNativeResult(input: {
     )
     return retainedRefusal(retained, 'implementation-not-remote')
   }
-  const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, () =>
-    authorizedImplementationPush(binding, input.cwd),
-  )
+  const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, async () => {
+    if (!(await authorizedImplementationPush(binding, input.cwd))) return false
+    if (!(await disarmBranchBeforePush(gh, input.cwd, binding.mandate.scope.repository, binding.branch))) return false
+    return authorizedImplementationPush(binding, input.cwd)
+  })
   if (!remote.ok) {
     const retained = await retainImplementationResult(
       binding,
