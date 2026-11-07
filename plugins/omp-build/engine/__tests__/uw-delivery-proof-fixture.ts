@@ -216,6 +216,7 @@ export async function threeDeliveredChildren<T>(
     baseTip: entry.base,
     state: 'MERGED' as const,
     mergeCommit: entry.merge,
+    mergedAt: '2026-10-27T12:00:00Z',
     author: 'operator',
   }))
   return withNativeImplementationWorld(

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 
-pr_json() { gh pr view "$PR" --repo "$REPO" --json state,mergeStateStatus,autoMergeRequest,labels,headRefOid,statusCheckRollup; }
+pr_json() { gh pr view "$PR" --repo "$REPO" --json state,mergeStateStatus,autoMergeRequest,headRefOid,statusCheckRollup; }
 eligible_of() {
   local mode="$1" json="$2"
   if [[ "$mode" == merge-on-green ]]; then
-    echo "$json" | jq -r 'if (.labels | type) != "array" then error("labels is not an array") elif all(.labels[]; (type == "object" and (.name | type) == "string")) then any(.labels[]; .name == "reviewed") else error("labels contain an invalid entry") end'
+    local head_sha
+    head_sha=$(echo "$json" | jq -er '.headRefOid | select(type == "string" and test("^[0-9a-f]{40}$"))')
+    bash "$SCRIPT_DIR/../feature/trusted-bun.sh" -e 'const auth = require(process.argv[1]); const [owner, repo, ...rest] = process.argv[2].split("/"); if (!owner || !repo || rest.length) throw new Error("invalid repository"); const policy = await auth.policyFromRepository({repo: {owner, repo}}); if (policy === null) { console.log("false"); } else { const state = await auth.readAuthorization({repo: {owner, repo}, prNumber: Number(process.argv[3]), policy}); console.log(state.allowed === true && state.scope.headSha === process.argv[4] ? "true" : "false"); }' "$SCRIPT_DIR/../feature/head-authorization.cjs" "$REPO" "$PR" "$head_sha"
   else
     echo "$json" | jq -r '.autoMergeRequest != null'
   fi
@@ -49,12 +51,15 @@ watch_merge() {
     local elapsed=$((SECONDS - START)) snapshot state status eligible code head_sha
     snapshot=$(pr_json); require_snapshot "$snapshot"
     state=$(echo "$snapshot" | jq -r .state); status=$(echo "$snapshot" | jq -r .mergeStateStatus)
-    eligible=$(eligible_of "$MERGE_MODE" "$snapshot")
+    eligible=false
+    if [[ "$state" == OPEN ]] && ! is_behind "$state" "$status" && (( elapsed < TIMEOUT )); then
+      eligible=$(eligible_of "$MERGE_MODE" "$snapshot")
+    fi
     code=$(classify_merge_state "$state" "$status" "$MERGE_MODE" "$eligible" "$elapsed" "$TIMEOUT")
     if [[ "$code" == WATCH && "$kit_ci" == pending ]]; then
       head_sha=$(echo "$snapshot" | jq -r .headRefOid); kit_ci=$(kit_ci_of "$head_sha")
       if [[ "$kit_ci" == unconfigured ]]; then
-        if [[ -n "$SINCE" ]]; then echo 'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)' >&2; else echo 'evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then re-label reviewed' >&2; fi
+        if [[ -n "$SINCE" ]]; then echo 'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)' >&2; else echo 'evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then authorize the current head' >&2; fi
         exit "$EXIT_EVALUATE_ONLY"
       fi
     fi

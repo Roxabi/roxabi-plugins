@@ -340,6 +340,7 @@ describe('epic-driver — next', () => {
     expect(run.json().recorded).toMatchObject([{ ticket: 2, stop: 'foreign-commit', disarmed: { 11: 'disarmed' } }])
     expect(run.json().step).toMatchObject({ action: 'drop', stop: 'no-progress' })
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'merge 11 --disable-auto',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 2 <!-- omp-build-record /),
@@ -407,6 +408,7 @@ describe('epic-driver — stop', () => {
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout', ...detail("watch timed out; it's re-run later")])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'merge 11 --disable-auto',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 2 <!-- omp-build-record /),
@@ -429,7 +431,7 @@ describe('epic-driver — stop', () => {
     setNativePrRefs(11, 'feat/2-first-child')
     const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
     expect(run.code).toBe(1)
-    expect(writes().filter((line) => line.startsWith('comment'))).toEqual([])
+    expect(writes().filter((line) => line.startsWith('comment 2 '))).toEqual([])
   })
 
   it('writes no event when the PR merged before the disarm', () => {
@@ -475,6 +477,7 @@ describe('epic-driver — review and report', () => {
     const first = drive(['report', '--outcome', 'drop', '--reason', 'base-ci-red'])
     expect(first.code).toBe(0)
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'merge 11 --disable-auto',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 1 <!-- omp-build-record /),
@@ -485,6 +488,6 @@ describe('epic-driver — review and report', () => {
     servePr(11, { state: 'OPEN', labels: [], autoMerge: false })
     const second = drive(['report', '--outcome', 'drop', '--reason', 'base-ci-red'])
     expect(second.code).toBe(0)
-    expect(writes().filter((line) => line.startsWith('comment'))).toHaveLength(1)
+    expect(writes().filter((line) => line.startsWith('comment 1 <!-- omp-build-record'))).toHaveLength(1)
   })
 })

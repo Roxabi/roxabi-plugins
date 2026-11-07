@@ -1,9 +1,6 @@
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   fixture,
-  installGh,
   installProbeGh,
   page,
   plantBase,
@@ -16,7 +13,7 @@ import {
 const SINCE = '2026-09-29T10:00:00Z'
 const EVALUATE_ONLY = 'evaluate-only: kit-ci App not configured — manual merge required (docs/kit/ci-app-setup.md)'
 const EVALUATE_ONLY_LATEST =
-  'evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then re-label reviewed'
+  'evaluate-only: the latest merge-on-green run was evaluate-only — configure kit-ci (docs/kit/ci-app-setup.md), then authorize the current head'
 const NOT_CONFIGURED = JSON.stringify([
   { title: 'kit-ci not configured', message: 'Auto-merge OFF (evaluate-only)', annotation_level: 'notice' },
 ])
@@ -94,25 +91,10 @@ describe('ci-watch merge-on-green evaluate-only probe', () => {
 
   it('fails internally when the check-runs lookup fails instead of waiting for its deadline', () => {
     const box = fixture('runs-fail')
-    for (let index = 1; index <= 3; index += 1) writeFileSync(join(box.root, `snap.${index}.json`), snapshot())
-    installGh(
-      box,
-      `#!/usr/bin/env bash
-set -euo pipefail
-d="$(dirname "$0")/.."
-if [[ "$1" == "api" ]]; then echo "$*" >> "$d/api.log"; exit 1; fi
-if [[ "$1" == "pr" && "$2" == "view" ]]; then
-  n=0; [[ -f "$d/snap.count" ]] && n=$(cat "$d/snap.count")
-  n=$((n + 1)); echo "$n" > "$d/snap.count"
-  cat "$d/snap.$n.json"; exit 0
-fi
-echo "unexpected gh command: $*" >&2
-exit 70
-`,
-    )
+    installProbeGh(box, { snapshots: [snapshot()], failRuns: true })
     const result = evaluate(box)
     expect(result.code).toBe(70)
-    expect(read(box, 'api.log')).toContain('commits/abc/check-runs')
+    expect(read(box, 'api.log')).toContain(`commits/${'a'.repeat(40)}/check-runs`)
     expect(count(box, 'snap')).toBe('3')
   })
 

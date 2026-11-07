@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
+import authorization from '../skills/feature/head-authorization.cjs'
 import {
   BRANCH,
   cleanupFeatureRecoveryRoots,
   confirmedFeatureFixture,
   featureFixture,
   OBSERVED_INCOMPLETE_NATIVE_TERMINAL,
+  recoveryAuthorization,
   SCOPE,
   trackFeatureRecoveryRoot,
 } from '../testing/feature-recovery-fixture.ts'
@@ -266,7 +268,7 @@ describe('feature recovery through the installed OMP bridge', () => {
 })
 
 describe('feature recovery terminal and publication witnesses', () => {
-  it('turns a CLOSED watch into stopped with no cold write effect; it does not witness MERGED landing', () => {
+  it('fences each fresh CLOSED watch stop without delivery effects or a MERGED witness', async () => {
     const box = sandbox({
       base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
       branches: [{ name: 'feat/watch', from: 'main', commits: [] }],
@@ -286,6 +288,11 @@ describe('feature recovery terminal and publication witnesses', () => {
       reference: '#7',
     })
     expect(first).toEqual({ kind: 'terminal', reason: 'stopped' })
+    const auth = recoveryAuthorization(box, checkout, 8)
+    const firstBarrier = await authorization.readAuthorization(auth)
+    expect(firstBarrier.allowed).toBe(false)
+    expect(firstBarrier.receipt?.record?.kind).toBe('withdraw')
+    if (!firstBarrier.receipt) throw new Error('first withdrawal receipt missing')
 
     const cold = coldCheckout(box, 'watch-cold', 'feat/watch')
     const callsBefore = readSim(box).calls.length
@@ -301,7 +308,31 @@ describe('feature recovery terminal and publication witnesses', () => {
       },
     )
     expect(second).toEqual({ kind: 'terminal', reason: 'stopped' })
-    expect(effectCalls(box, callsBefore)).toEqual([])
+    const current = await authorization.readAuthorization({ ...auth, cwd: cold })
+    expect(current.allowed).toBe(false)
+    expect(current.receipt?.record).toMatchObject({
+      kind: 'withdraw',
+      repositoryId: 1,
+      pullRequest: 8,
+      headSha: box.sha['feat/watch'],
+      baseRef: 'main',
+      previous: firstBarrier.receipt.id,
+    })
+    if (!current.receipt) throw new Error('fresh withdrawal receipt missing')
+    expect(current.receipt.id).not.toBe(firstBarrier.receipt.id)
+    const effects = effectCalls(box, callsBefore)
+    expect(effects.length).toBeGreaterThan(0)
+    expect(
+      effects.every(
+        (args) =>
+          args[0] === 'api' &&
+          args[1] === '--method' &&
+          args[2] === 'POST' &&
+          args[3] === 'repos/acme/app/issues/8/comments' &&
+          args[4] === '-f' &&
+          args[5] === `body=<persisted-comment; ${Buffer.byteLength(current.receipt?.body ?? '')} bytes>`,
+      ),
+    ).toBe(true)
   })
 
   it('continues a cold command UW through simulated publication into a fresh review', async () => {

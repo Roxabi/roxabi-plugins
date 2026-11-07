@@ -15,38 +15,6 @@ import { hasFreshReviewInput } from './workflow-review-input.js'
 import { persistObservedCiStop } from './workflow-review-state.js'
 import { errorText, gh, gitResult, stuckError } from './workflow-runtime.js'
 
-const SINCE_ATTEMPTS = 5
-const SINCE_RETRY_MS = 200
-
-export async function labeledReviewedAt(cwd, pr, ghFn = gh) {
-  try {
-    const { nameWithOwner } = JSON.parse(await ghFn(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
-    const [owner, repo] = (nameWithOwner || '').split('/')
-    if (!owner || !repo) return ''
-    const out = await ghFn(cwd, [
-      'api',
-      `repos/${owner}/${repo}/issues/${pr}/events`,
-      '--paginate',
-      '--jq',
-      '.[] | select(.event == "labeled" and .label.name == "reviewed") | .created_at',
-    ])
-    const last = String(out).trim().split('\n').filter(Boolean).at(-1)
-    const since = last?.replace(/\.\d+Z$/, 'Z') ?? ''
-    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(since) ? since : ''
-  } catch {
-    return ''
-  }
-}
-
-export async function waitLabeledSince(cwd, pr, ghFn, before, sleep) {
-  for (let attempt = 0; attempt < SINCE_ATTEMPTS; attempt++) {
-    if (attempt > 0) await sleep(SINCE_RETRY_MS)
-    const since = await labeledReviewedAt(cwd, pr, ghFn)
-    if (since && (before === '' || since > before)) return since
-  }
-  return ''
-}
-
 function initialWatchResult(code, pr) {
   if (code === 0 || code === 4) return { status: 'stopped' }
   if (code === 1) return { status: 'ci-failed' }
@@ -59,8 +27,8 @@ function initialWatchResult(code, pr) {
 }
 
 function terminalState(code, gate, result) {
-  if ((code === 7 || (code >= 0 && code <= 3)) && gate.state === 'MERGED') return { status: 'merged' }
-  if ((code === 7 || (code >= 0 && code <= 3)) && gate.state === 'CLOSED') return { status: 'stopped' }
+  if ((code === 7 || (code >= 0 && code <= 4)) && gate.state === 'MERGED') return { status: 'merged' }
+  if ((code === 7 || (code >= 0 && code <= 4)) && gate.state === 'CLOSED') return { status: 'stopped' }
   return result
 }
 
@@ -101,9 +69,7 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
       result: { status: 'mandate-refused', reason: mandate.reason, error: evidenceText(mandate.evidence) },
     }
   }
-  const retaining =
-    currentGate.state === 'OPEN' &&
-    (currentGate.autoMergeRequest || currentGate.labels.some((label) => label?.name === 'reviewed'))
+  const retaining = currentGate.state === 'OPEN' && (currentGate.autoMergeRequest || currentGate.authorization?.allowed)
   if (!retaining || reviewBoundStopped(records) || !approves(records.verdict) || !isCommitSha(records.head)) {
     return { policy: 'allow-approved', gate: currentGate, result }
   }
@@ -129,15 +95,13 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
 }
 
 function watchPolicy(code) {
-  return (code >= 1 && code <= 3) || code === 7 ? 'unarmed' : 'allow-approved'
+  return (code >= 0 && code <= 4) || code === 7 ? 'unarmed' : 'allow-approved'
 }
 
 function watchNeedsContinuation(result, policy, gate) {
   const continuation = result.status === 'timeout' || result.status === 'evaluate-only'
   const retaining =
-    policy !== 'unarmed' &&
-    gate.state === 'OPEN' &&
-    (gate.autoMergeRequest || gate.labels.some((label) => label?.name === 'reviewed'))
+    policy !== 'unarmed' && gate.state === 'OPEN' && (gate.autoMergeRequest || gate.authorization?.allowed)
   return { continuation, retaining }
 }
 
@@ -195,6 +159,8 @@ async function enforceWatchGate(cwd, pr, watched, ghFn) {
 
 export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh, git: gitFn } = {}) {
   const watched = await readWatchExit(cwd, pr, code, ghFn, gitFn)
+  const result = await enforceWatchGate(cwd, pr, watched, ghFn)
   const persisted = await persistWatchCiStop(cwd, pr, code, watched, ghFn, gitFn)
-  return enforceWatchGate(cwd, pr, persisted, ghFn)
+  if (persisted.failure) throw persisted.failure
+  return result
 }

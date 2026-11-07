@@ -5,11 +5,49 @@ type Pull = NativeWorldFacts['pullRequests'][number]
 type Commit = NativeWorldFacts['commits'][number]
 type Comparison = NativeWorldFacts['comparisons'][number]
 
+function branchPullResponse(args: readonly string[], repository: string, pulls: Map<string, Pull>): string | undefined {
+  const [owner, name] = repository.split('/')
+  if (args.length !== 2 || args[0] !== 'api' || !args[1]?.startsWith(`repos/${owner}/${name}/pulls?`)) return undefined
+  const url = new URL(args[1], 'https://fixture.invalid/')
+  const params = url.searchParams
+  const head = params.get('head')
+  const pageText = params.get('page')
+  if (
+    [...params.keys()].sort().join(',') !== 'head,page,per_page,state' ||
+    params.get('state') !== 'all' ||
+    params.get('per_page') !== '100' ||
+    head === null ||
+    !head.startsWith(`${owner}:`) ||
+    head.length === owner.length + 1 ||
+    pageText === null ||
+    !/^[1-9]\d*$/.test(pageText) ||
+    !Number.isSafeInteger(Number(pageText))
+  )
+    throw new Error('Undeclared branch pull request enumeration')
+  const branch = head.slice(owner.length + 1)
+  const matching = [...pulls.values()].filter((pull) => pull.scope.repository === repository && pull.branch === branch)
+  const offset = (Number(pageText) - 1) * 100
+  return JSON.stringify(
+    matching.slice(offset, offset + 100).map((pull) => {
+      if (pull.state === 'MERGED' && (typeof pull.mergedAt !== 'string' || !Number.isFinite(Date.parse(pull.mergedAt))))
+        throw new Error('Merged pull request timestamp is not declared')
+      return {
+        number: nativeNumber(pull.scope),
+        state: pull.state === 'OPEN' ? 'open' : 'closed',
+        merged_at: pull.state === 'MERGED' ? pull.mergedAt : null,
+      }
+    }),
+  )
+}
+
 export function nativePullResponse(
   args: readonly string[],
   repository: string,
   pulls: Map<string, Pull>,
 ): string | undefined {
+  const [owner, name] = repository.split('/')
+  const branch = branchPullResponse(args, repository, pulls)
+  if (branch !== undefined) return branch
   if (
     args.length === 12 &&
     args[0] === 'pr' &&
@@ -28,7 +66,6 @@ export function nativePullResponse(
         .filter((pull) => pull.branch === args[3] && pull.base === args[5])
         .map((pull) => ({ number: nativeNumber(pull.scope), isCrossRepository: false, state: pull.state })),
     )
-  const [owner, name] = repository.split('/')
   const pullsQuery =
     'query=query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}'
   if (

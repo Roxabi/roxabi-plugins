@@ -33,6 +33,8 @@ type Probe = {
   snapshots: string[]
   runs?: string[]
   annotations?: Record<number, string>
+  authorized?: boolean
+  failRuns?: boolean
 }
 
 afterEach(() => {
@@ -84,6 +86,61 @@ export function installGh(box: WatchFixture, script: string): void {
 export function installProbeGh(box: WatchFixture, probe: Probe): void {
   const runs = probe.runs ?? [page()]
   const annotations = probe.annotations ?? {}
+  const head = 'a'.repeat(40)
+  const base = 'b'.repeat(40)
+  const record = {
+    version: 1,
+    kind: 'grant',
+    operationId: 'watch-fixture',
+    repositoryId: 1,
+    pullRequestId: 2,
+    pullRequest: 7,
+    headSha: head,
+    baseRef: 'main',
+    baseSha: base,
+    lane: 'reviewed',
+    source: 'native',
+    previous: null,
+    evidence: 'review:fixture',
+  }
+  const comments =
+    probe.authorized === false
+      ? []
+      : [
+          {
+            id: 3,
+            node_id: 'COMMENT',
+            user: { id: 101, type: 'User' },
+            performed_via_github_app: null,
+            body: `<!-- kit-head-authorization:v1 -->\n${JSON.stringify(record)}`,
+          },
+        ]
+  writeFileSync(join(box.root, 'auth-repo.json'), JSON.stringify({ id: 1 }))
+  writeFileSync(
+    join(box.root, 'auth-pr.json'),
+    JSON.stringify({
+      id: 2,
+      number: 7,
+      user: { id: 101 },
+      head: { sha: head },
+      base: { sha: base, ref: 'main', repo: { id: 1 } },
+    }),
+  )
+  writeFileSync(join(box.root, 'auth-comments.json'), JSON.stringify(comments))
+  writeFileSync(
+    join(box.root, 'auth-proof.json'),
+    JSON.stringify({
+      data: {
+        node: {
+          id: 'COMMENT',
+          fullDatabaseId: '3',
+          lastEditedAt: null,
+          repository: { fullDatabaseId: '1' },
+          pullRequest: { number: 7, fullDatabaseId: '2' },
+        },
+      },
+    }),
+  )
   writeSequence(box.root, 'snap', probe.snapshots)
   writeSequence(box.root, 'runs', runs)
   for (const [id, body] of Object.entries(annotations)) writeFileSync(join(box.root, `annotations.${id}.json`), body)
@@ -107,7 +164,13 @@ if [[ "$1" == "api" ]]; then
   args="$*"
   echo "$args" >> "$d/api.log"
   case "$args" in
-    *commits/abc/check-runs*) next runs ${runs.length} ;;
+    *commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs*) ${probe.failRuns ? 'exit 1' : `next runs ${runs.length}`} ;;
+    "api --include repos/acme/app/actions/variables?per_page=100&page=1") printf 'HTTP/2 200\\r\\nContent-Type: application/json\\r\\n\\r\\n%s\\n' '{"total_count":4,"variables":[{"name":"HEAD_AUTH_REPOSITORY_ID","value":"1"},{"name":"HEAD_AUTH_OPERATOR_IDS","value":"[101]"},{"name":"HEAD_AUTH_APP_ID","value":"200"},{"name":"HEAD_AUTH_BOT_USER_ID","value":"201"}]}' ;;
+    "api repos/acme/app") cat "$d/auth-repo.json" ;;
+    "api repos/acme/app/pulls/7") cat "$d/auth-pr.json" ;;
+    "api repos/acme/app/git/ref/heads/main") printf '%s\\n' '{"ref":"refs/heads/main","object":{"sha":"${base}"}}' ;;
+    *issues/7/comments*) printf 'HTTP/2 200\\r\\nContent-Type: application/json\\r\\n\\r\\n'; cat "$d/auth-comments.json" ;;
+    "api graphql "*) cat "$d/auth-proof.json" ;;
     *check-runs/*/annotations*) id="\${args#*check-runs/}"; cat "$d/annotations.\${id%%/*}.json" ;;
     *) echo "unexpected gh api: $args" >&2; exit 70 ;;
   esac
@@ -141,7 +204,16 @@ export function runWatch(box: WatchFixture, options: RunOptions = {}): WatchResu
   ]
   const cwd = options.cwd ?? box.cwd
   if (!existsSync(join(cwd, '.git'))) plantBase(cwd)
-  const env = { ...process.env, HOME: box.home, PATH: `${box.bin}:${process.env.PATH}`, ...options.env }
+  const env = {
+    ...process.env,
+    HEAD_AUTH_REPOSITORY_ID: '1',
+    HEAD_AUTH_OPERATOR_IDS: '[101]',
+    HEAD_AUTH_APP_ID: '200',
+    HEAD_AUTH_BOT_USER_ID: '201',
+    HOME: box.home,
+    PATH: `${box.bin}:${process.env.PATH}`,
+    ...options.env,
+  }
   try {
     const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', env, cwd })
     return { code: 0, stdout, stderr: '' }
@@ -173,7 +245,16 @@ export function startWatch(box: WatchFixture, options: RunOptions = {}): ChildPr
   if (!existsSync(join(box.cwd, '.git'))) plantBase(box.cwd)
   return spawn(SCRIPT, args, {
     cwd: options.cwd ?? box.cwd,
-    env: { ...process.env, HOME: box.home, PATH: `${box.bin}:${process.env.PATH}`, ...options.env },
+    env: {
+      ...process.env,
+      HEAD_AUTH_REPOSITORY_ID: '1',
+      HEAD_AUTH_OPERATOR_IDS: '[101]',
+      HEAD_AUTH_APP_ID: '200',
+      HEAD_AUTH_BOT_USER_ID: '201',
+      HOME: box.home,
+      PATH: `${box.bin}:${process.env.PATH}`,
+      ...options.env,
+    },
     stdio: 'pipe',
   })
 }
@@ -211,16 +292,4 @@ export function page(
   })
 }
 
-export function snapshot(
-  state = 'OPEN',
-  options: { autoMergeRequest?: unknown; extraChecks?: unknown[] } = {},
-): string {
-  return JSON.stringify({
-    state,
-    mergeStateStatus: state === 'OPEN' ? 'BLOCKED' : 'UNKNOWN',
-    autoMergeRequest: options.autoMergeRequest ?? null,
-    labels: state === 'OPEN' ? [{ name: 'reviewed' }] : [],
-    headRefOid: 'abc',
-    statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }, ...(options.extraChecks ?? [])],
-  })
-}
+export { snapshot } from './ci-watch-snapshot.ts'

@@ -1,9 +1,6 @@
 import { readUwGraph } from '../../adapters/github-native/uw-graph.ts'
-import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { decodeHistory, buildRecord as frameRecord } from '../../dist/contracts.js'
 import { actionInputDigest } from '../../engine/action-input.ts'
-import { canonicalSpec } from '../../engine/uw-spec.ts'
-import { SPEC_CONTENT_FORMAT } from '../../engine/uw-spec-schema.ts'
 import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
 import { freshReviewInputs, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
@@ -16,7 +13,7 @@ import { eligiblePlan } from '../../testing/workflow-decision-cases/support/work
 import { createReviewDeliveryNative } from './review-record-delivery-gh.js'
 import { CHECKOUT_BASE, CHECKOUT_HEADS, createGateGit, WORKTREE } from './review-record-git-fixture.js'
 import { createGateGh } from './review-record-github-fixture.js'
-import { linkedImplementation } from './review-record-native-fixture.js'
+import { linkedImplementation, nativeFeatureSpec } from './review-record-native-fixture.js'
 import { INSTALLED_PLUGIN, TOOLING_COMMIT, TOOLING_ROOT } from './review-record-pin.js'
 import { confirmedReviewSemanticContext as observedReviewSemanticContext } from './workflow-review-input.js'
 export const REPOSITORY = 'acme/app'
@@ -28,28 +25,9 @@ export const AUTHOR = 'omp-bot'
 export const HEADS = CHECKOUT_HEADS
 export { WORKTREE }
 
-const { featureMandate, historyFrom, ownSpecFromSnapshot, workflowBinding } = roxabiWorkflowFixtures()
+const { featureMandate, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
 
-function nativeFeatureSpec(criterion) {
-  const canonical = canonicalSpec({
-    format: SPEC_CONTENT_FORMAT,
-    criteria: [{ id: 'C1', statement: criterion }],
-    invariants: [],
-    exclusions: [],
-    openQuestions: [],
-    sections: { origin: '', context: '', change: '' },
-  })
-  if (!canonical.ok) throw new Error(canonical.diagnostics.map((item) => item.code).join(','))
-  const body = renderIssueSpecBody(canonical.value)
-  const parsed = parseIssueSpecBody({
-    uw: ISSUE_SCOPE,
-    raw: rawSource(ISSUE_SCOPE.target, body, '2026-10-21T12:00:00Z'),
-  })
-  if (parsed.status !== 'conformant') throw new Error('review record fixture Spec is not conformant')
-  return { body, ownSpec: ownSpecFromSnapshot(ISSUE_SCOPE, parsed.snapshot) }
-}
-
-const NATIVE_SPEC = nativeFeatureSpec('Save keeps the selected region')
+const NATIVE_SPEC = nativeFeatureSpec(ISSUE_SCOPE, 'Save keeps the selected region')
 export const SPEC = NATIVE_SPEC.body
 
 function reviewInputsForPullRequest(inputs, head = HEADS[0]) {
@@ -264,7 +242,14 @@ export function historyPage(history) {
 /** Stateful common-adapter/GitHub boundary for workflow gate tests. */
 export function gateGh(
   history,
-  { head = HEADS[0], armed = true, moveHeadAfterInputRead = null, issueHistory = null } = {},
+  {
+    head = HEADS[0],
+    armed = true,
+    moveHeadAfterInputRead = null,
+    issueHistory = null,
+    authorizationVariables,
+    authorizationVariablesForbidden = false,
+  } = {},
 ) {
   const calls = []
   const state = { head, label: armed, auto: armed }
@@ -274,6 +259,9 @@ export function gateGh(
     pr: PR,
     author: AUTHOR,
     spec: SPEC,
+    initialAuthorization: armed,
+    authorizationVariables,
+    authorizationVariablesForbidden,
   }
   return {
     gh: createGateGh({

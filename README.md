@@ -22,9 +22,14 @@ Restart OMP after installing or upgrading a plugin; do not use `/reload-plugins`
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Autonomous GitHub triage CLI plus an importable complete-observation writer, guarded native close/reopen effects and κ tier calculator; labels and native relations, no Projects V2. |
-| [omp-build](plugins/omp-build/README.md) | OMP | Criterion-id delivery with evidence-backed verdicts, versioned inherited constraints, explicit child coverage and bottom-up calculated completion; live canonical Spec currentness and full-proof guarded closure preserve accepted authority. Identity-stable portable input manifests retain exact PR/Epic review roots and read-only action snapshots. Durable per-cause decisions use producer-pinned review classes, original-UW reports, operator-adjudicated historical holds and genuinely confirmed sister/promotion operations. Strict Spec grammar and `/uw` writes retain authority in GitHub records and Git, not local artifacts or PR prose. Initial legacy normalization follows the intended worktree handoff; native root capture follows the live session after a move. |
+| [omp-build](plugins/omp-build/README.md) | OMP | Criterion-id delivery with evidence-backed verdicts, versioned inherited constraints, explicit child coverage and bottom-up calculated completion; live canonical Spec currentness, fresh whole-observation continuation and full-proof guarded closure preserve accepted authority. Identity-stable portable input manifests retain exact PR/Epic review roots and read-only action snapshots. Durable per-cause decisions use producer-pinned review classes, original-UW reports, operator-adjudicated historical holds and genuinely confirmed sister/promotion operations. Strict Spec grammar and `/uw` writes retain authority in GitHub records and Git, not local artifacts or PR prose. Initial legacy normalization follows the intended worktree handoff; native root capture follows the live session after a move. |
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
+
+For merge-on-green repositories using the Kit gate, omp-build authorizes the reviewed
+head with a scoped protocol receipt; a `reviewed` label alone is not authority.
+See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards)
+for configuration and limits.
 
 ## Active external curation
 

@@ -1,11 +1,13 @@
 import { existsSync, writeFileSync } from 'node:fs'
 
+import { apiVariables } from './sim-authorization-variables.ts'
 import type { Context, Route } from './sim-command-context.ts'
-import { observedCommit, observedCommits } from './sim-commit-metadata.ts'
-import { git, recordedBase, tip } from './sim-git.ts'
+import { apiDeliveryGit } from './sim-commit-metadata.ts'
+import { recordedBase, tip } from './sim-git.ts'
 import { commentsForNumber, commentThreadForNumber, emit, graphql, one, varsOf } from './sim-graphql.ts'
 import { currentInvocation } from './sim-invocation.ts'
 import { toolingBlobRoute } from './sim-tooling.ts'
+import type { Comment } from './sim-types.ts'
 import { closesOf, fail, fullName, type Pull, stamp } from './sim-types.ts'
 
 function duplicatePullRequestFailure(context: Context, head: string): never {
@@ -26,55 +28,7 @@ function duplicatePullRequestFailure(context: Context, head: string): never {
 function apiUser(context: Context): boolean {
   if (context.sub !== 'user') return false
   if (context.state.appInstallation) fail('Resource not accessible by integration (HTTP 403)')
-  emit({ login: context.state.viewer }, context.expression)
-  return true
-}
-
-function emitDeliveryComparison(context: Context, compare: RegExpExecArray): void {
-  const base = compare[3]
-  const head = compare[4]
-  if (base === undefined || head === undefined) fail('gh: invalid comparison')
-  // Range observations stay fresh for this request; metadata is batched only after its page is known.
-  const ahead = git(context.state.origin, ['rev-list', '--reverse', `${base}..${head}`])
-    .split('\n')
-    .filter(Boolean)
-  const behind = git(context.state.origin, ['rev-list', '--count', `${head}..${base}`])
-  const status = ahead.length === 0 ? (behind === '0' ? 'identical' : 'behind') : behind === '0' ? 'ahead' : 'diverged'
-  const page = Number(compare[5])
-  if (!Number.isSafeInteger(page)) fail('gh: invalid comparison page')
-  const pageShas = ahead.slice((page - 1) * 100, page * 100)
-  const metadata = observedCommits(context, [base, head, ...pageShas])
-  const commits = pageShas.map((sha) => {
-    const commit = metadata.get(sha)
-    if (!commit) fail(`gh: commit ${sha} not found`)
-    return commit
-  })
-  emit(
-    {
-      status,
-      total_commits: ahead.length,
-      commits,
-    },
-    context.expression,
-  )
-}
-
-function apiDeliveryGit(context: Context): boolean {
-  const path = context.sub ?? ''
-  const commit = /^repos\/([^/]+)\/([^/]+)\/git\/commits\/([a-f0-9]{40})$/.exec(path)
-  const compare =
-    /^repos\/([^/]+)\/([^/]+)\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})\?per_page=100&page=([1-9][0-9]*)$/.exec(path)
-  const match = commit ?? compare
-  if (!match || one(context.flag, '--method') !== undefined) return false
-  if (match[1] !== context.state.owner || match[2] !== context.state.name) fail('gh: repository not found')
-  if (commit) {
-    const sha = commit[3]
-    if (sha === undefined) fail('gh: invalid commit')
-    emit(observedCommit(context, sha), context.expression)
-    return true
-  }
-  if (!compare) return false
-  emitDeliveryComparison(context, compare)
+  emit({ login: context.state.viewer, id: context.state.viewerId ?? 101, type: 'User' }, context.expression)
   return true
 }
 
@@ -83,6 +37,72 @@ function apiGraphql(context: Context): boolean {
   const form = varsOf(context.flag)
   emit(graphql(context.state, form.query ?? '', form), context.expression)
   return true
+}
+
+function apiAuthorizationPull(context: Context, path: string): boolean {
+  const match = path.match(/^repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)$/)
+  if (!match || match[1] !== context.state.owner || match[2] !== context.state.name) return false
+  const pr = context.state.prs[match[3] ?? '']
+  if (!pr) fail('gh: pull request not found (HTTP 404)')
+  emit(
+    {
+      id: pr.databaseId ?? 1000 + pr.number,
+      node_id: pr.nodeId ?? `PR_${pr.number}`,
+      number: pr.number,
+      state: pr.state === 'OPEN' ? 'open' : 'closed',
+      user: { id: pr.authorId ?? context.state.viewerId ?? 101, login: context.state.viewer, type: 'User' },
+      head: { sha: pr.headRefOid },
+      base: {
+        ref: pr.baseRefName,
+        sha: pr.baseRefOid ?? recordedBase(context.state, pr),
+        repo: { id: context.state.repositoryId ?? 1 },
+      },
+    },
+    context.expression,
+  )
+  return true
+}
+
+function apiAuthorizationScope(context: Context): boolean {
+  const path = context.sub ?? ''
+  const repo = `repos/${context.state.owner}/${context.state.name}`
+  if (one(context.flag, '--method') !== undefined) return false
+  if (path.startsWith(`${repo}/actions/variables?`)) return apiVariables(context, path, repo)
+  if (path === repo) {
+    emit(
+      {
+        id: context.state.repositoryId ?? 1,
+        node_id: context.state.repositoryNodeId ?? 'R_1',
+        full_name: fullName(context.state),
+      },
+      context.expression,
+    )
+    return true
+  }
+  if (path.startsWith(`${repo}/git/ref/heads/`)) {
+    const branch = path.slice(`${repo}/git/ref/heads/`.length).split('/').map(decodeURIComponent).join('/')
+    const sha = context.state.remoteRefs?.[branch] ?? tip(context.state.origin, branch)
+    if (!sha) fail('gh: ref not found (HTTP 404)')
+    emit({ ref: `refs/heads/${branch}`, object: { sha } }, context.expression)
+    return true
+  }
+  return apiAuthorizationPull(context, path)
+}
+
+function restComment(context: Context, comment: Comment): Record<string, unknown> {
+  return {
+    id: comment.id,
+    node_id: comment.nodeId ?? `IC_${comment.id}`,
+    user: {
+      login: comment.author,
+      id: comment.userId ?? context.state.viewerId ?? 101,
+      type: comment.appId == null ? 'User' : 'Bot',
+    },
+    performed_via_github_app: comment.appId == null ? null : { id: comment.appId },
+    body: comment.body,
+    created_at: comment.createdAt,
+    updated_at: comment.updatedAt,
+  }
 }
 
 function apiCreatePull(context: Context): boolean {
@@ -174,6 +194,7 @@ function pauseCommentPost(body: string): void {
 function apiCommentPost(context: Context): boolean {
   const path = commentPath(context)
   if (!path || one(context.flag, '--method') !== 'POST') return false
+  if (context.state.commentPostForbidden) fail('Resource not accessible by integration (HTTP 403)')
   const thread = commentThreadForNumber(context.state, path[1] ?? '')
   const body = varsOf(context.flag).body
   if (thread === undefined || body === undefined)
@@ -182,11 +203,16 @@ function apiCommentPost(context: Context): boolean {
   const id = (context.state.nextCommentId ?? 0) + 1
   context.state.nextCommentId = id
   const createdAt = stamp(context.state)
-  thread.comments.push({ id, author: context.state.viewer, body, createdAt, updatedAt: createdAt })
-  emit(
-    { id, user: { login: context.state.viewer }, body, created_at: createdAt, updated_at: createdAt },
-    context.expression,
-  )
+  const comment = {
+    id,
+    author: context.state.viewer,
+    userId: context.state.viewerId ?? 101,
+    body,
+    createdAt,
+    updatedAt: createdAt,
+  }
+  thread.comments.push(comment)
+  emit(restComment(context, comment), context.expression)
   return true
 }
 
@@ -200,16 +226,17 @@ function apiCommentList(context: Context): boolean {
   if (!Number.isSafeInteger(perPage) || perPage < 1 || !Number.isSafeInteger(page) || page < 1) {
     fail('gh: invalid comment pagination')
   }
+  if (context.state.commentReadFailurePage === page) fail('gh: comment page unavailable (HTTP 503)')
   const rows = commentsForNumber(context.state, number)
     .slice((page - 1) * perPage, page * perPage)
-    .map((comment) => ({
-      id: comment.id,
-      user: { login: comment.author },
-      body: comment.body,
-      created_at: comment.createdAt,
-      updated_at: comment.updatedAt,
-    }))
-  emit(rows, context.expression)
+    .map((comment) => restComment(context, comment))
+  if (context.bool.has('--include')) {
+    const more = commentsForNumber(context.state, number).length > page * perPage
+    const link = more
+      ? `Link: <https://api.github.com/repos/${fullName(context.state)}/issues/${number}/comments?per_page=${perPage}&page=${page + 1}>; rel="next"\r\n`
+      : ''
+    context.writeStdout(`HTTP/2 200\r\nContent-Type: application/json\r\n${link}\r\n${JSON.stringify(rows)}\n`)
+  } else emit(rows, context.expression)
   return true
 }
 
@@ -218,13 +245,7 @@ function apiCommentPages(context: Context): boolean {
     return false
   const number = context.sub.match(/issues\/(\d+)\/comments$/)?.[1]
   if (!number) fail(`gh: unhandled ${context.argv.join(' ')}`)
-  const page = commentsForNumber(context.state, number).map((comment) => ({
-    id: comment.id,
-    user: { login: comment.author },
-    body: comment.body,
-    created_at: comment.createdAt,
-    updated_at: comment.updatedAt,
-  }))
+  const page = commentsForNumber(context.state, number).map((comment) => restComment(context, comment))
   context.writeStdout(`${JSON.stringify([page])}\n`)
   return true
 }
@@ -258,6 +279,7 @@ const API_ROUTES: readonly Route[] = [
   apiDeliveryGit,
   apiUser,
   apiGraphql,
+  apiAuthorizationScope,
   apiCreatePull,
   apiIssueGet,
   apiCommentPost,

@@ -132,6 +132,7 @@ describe('epic-driver — branch-only child PR inventory', () => {
     expect(run.json()).toMatchObject({ ticket: 2, stop: 'timeout', disarmed: { 11: 'disarmed' } })
     expectDisarmed()
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'merge 11 --disable-auto',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 2 <!-- omp-build-record /),
@@ -147,7 +148,11 @@ describe('epic-driver — branch-only child PR inventory', () => {
     expect(run.code, run.stderr).toBe(0)
     expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 11, disarmed: 'disarmed' }])
     expectDisarmed()
-    expect(writes()).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+    ])
     expect(stops()).toEqual(before)
   })
 
@@ -161,7 +166,11 @@ describe('epic-driver — branch-only child PR inventory', () => {
       reconciled: [],
     })
     expectDisarmed()
-    expect(writes()).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+    ])
     expect(stops()).toEqual([])
     expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe(BRANCH)
   })
@@ -172,7 +181,11 @@ describe('epic-driver — branch-only child PR inventory', () => {
     expect(run.code, run.stderr).toBe(0)
     expect(run.json()).toMatchObject({ failed: [], disarmed: { 11: 'disarmed' } })
     expectDisarmed()
-    expect(writes()).toEqual(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed'])
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+    ])
     expect(stops()).toEqual([])
   })
 

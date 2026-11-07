@@ -7,6 +7,7 @@ import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { publishNonImplementResult } from './feature-action-result.ts'
 import type { FeatureNativePublication } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
+import { disarmBranchBeforePush } from './feature-disarm.ts'
 import { defaultGh, publishRecord } from './feature-engine.ts'
 import { admitImplementationEvidence } from './feature-implementation-admission.ts'
 import { authorizedImplementationPush } from './feature-implementation-authorization.ts'
@@ -247,9 +248,11 @@ export async function publishFeatureNativeResult(input: FeatureNativeResultInput
     )
     return retainedRefusal(retained, 'implementation-not-remote')
   }
-  const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, () =>
-    authorizedImplementationPush(binding, input.cwd),
-  )
+  const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, async () => {
+    if (!(await authorizedImplementationPush(binding, input.cwd))) return false
+    if (!(await disarmBranchBeforePush(gh, input.cwd, binding.mandate.scope.repository, binding.branch))) return false
+    return authorizedImplementationPush(binding, input.cwd)
+  })
   if (!remote.ok) {
     const retained = await retainImplementationResult(
       binding,

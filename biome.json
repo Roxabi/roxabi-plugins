@@ -82,6 +82,12 @@
           }
         }
       }
+    },
+    {
+      "includes": ["plugins/omp-build/vendor/kit-head-authorization/index.cjs"],
+      "formatter": {
+        "lineWidth": 100
+      }
     }
   ]
 }

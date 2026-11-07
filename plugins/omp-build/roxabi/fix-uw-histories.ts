@@ -1,13 +1,8 @@
-import {
-  type GitHubOptions,
-  readCauseHistoryClosure,
-  readComposedWorkflowHistory,
-  readUwCompletionObservation,
-} from '../dist/contracts.js'
+import { type GitHubOptions, readUwCompletionObservation } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
+import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { defaultGh } from './feature-engine.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
@@ -17,9 +12,67 @@ import type { UwRead } from './uw-contract.ts'
 import { createInstalledUwReadPort } from './uw-read-port.ts'
 
 export type FixUwCausalContext = WorkflowCausalContext
-type FixHistoryClosure = {
-  histories: readonly DecodedHistory[]
-  catalogues: ReviewClassCatalogues
+
+function matchesWithdrawalBarrier(
+  comment: DecodedHistory['source']['comments'][number] | undefined,
+  barrier: WithdrawalBarrier | undefined,
+  scope: DecodedHistory['source']['scope'],
+): boolean {
+  return (
+    barrier !== undefined &&
+    comment !== undefined &&
+    barrier.record.kind === 'withdraw' &&
+    `${scope.repository}#${barrier.record.pullRequest}` === scope.target &&
+    comment.nativeId === String(barrier.id) &&
+    comment.body === barrier.body &&
+    comment.createdAt === barrier.createdAt
+  )
+}
+
+function matchesWithdrawalHistory(
+  previous: DecodedHistory,
+  current: DecodedHistory,
+  scope: DecodedHistory['source']['scope'],
+  barriers: readonly WithdrawalBarrier[],
+): boolean {
+  const comments = current.source.comments
+  const oldComments = previous.source.comments
+  if (comments.length !== oldComments.length + barriers.length) return false
+  for (let index = 0; index < barriers.length; index++) {
+    if (!matchesWithdrawalBarrier(comments[oldComments.length + index], barriers[index], scope)) return false
+  }
+  const withoutBarriers = {
+    ...current,
+    source: { ...current.source, comments: comments.slice(0, oldComments.length) },
+  }
+  return JSON.stringify(previous) === JSON.stringify(withoutBarriers)
+}
+
+/** Validate a native reread across our own confirmed withdrawal writes, without accepting other drift. */
+export function reconcileWithdrawalHistories(
+  before: readonly DecodedHistory[],
+  after: readonly DecodedHistory[],
+  scope: DecodedHistory['source']['scope'],
+  barriers: readonly WithdrawalBarrier[],
+): FixActionResult<readonly DecodedHistory[]> {
+  const key = (history: DecodedHistory) => `${history.source.scope.repository}\0${history.source.scope.target}`
+  const target = `${scope.repository}\0${scope.target}`
+  const next = new Map(after.map((history) => [key(history), history]))
+  if (next.size !== after.length || new Set(before.map(key)).size !== before.length || before.length !== after.length)
+    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  for (const previous of before) {
+    const current = next.get(key(previous))
+    if (current === undefined || !previous.source.complete || !current.source.complete)
+      return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+    const matches =
+      key(previous) === target
+        ? matchesWithdrawalHistory(previous, current, scope, barriers)
+        : JSON.stringify(previous) === JSON.stringify(current)
+    if (!matches) return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  }
+  if (barriers.length > 0 && !before.some((history) => key(history) === target))
+    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  return { ok: true, value: after }
 }
 
 function firstDifferentField(left: unknown, right: unknown, path = '$'): string | null {
@@ -87,26 +140,6 @@ export function mergeFixUwHistories(
   return { ok: true, value: [...histories.values()].map((entry) => entry.history) }
 }
 
-/** Build one complete reference-resolution observation without changing parent selection. */
-export async function readFixUwCausalContext(
-  observed: readonly DecodedHistory[],
-  current: readonly DecodedHistory[],
-  options: GitHubOptions,
-): Promise<FixActionResult<FixHistoryClosure>> {
-  const merged = mergeFixUwHistories(observed, current)
-  if (!merged.ok) return merged
-  const closure = await readCauseHistoryClosure(merged.value, (required) =>
-    readComposedWorkflowHistory(required, withRoxabiGitHubPolicy(options)),
-  )
-  if (!closure.ok) return failure('fix-own-uw-unsettled', ...closure.diagnostics.map((item) => item.code))
-  const catalogues = await loadReviewClassCatalogues({
-    histories: closure.histories,
-    cwd: options.cwd,
-    gh: options.gh ?? defaultGh(),
-  })
-  return { ok: true, value: { histories: closure.histories, catalogues } }
-}
-
 /** Reuse only the completed closure and catalogue table of this exact UW observation. */
 export async function composeObservedUwCausalContext(
   read: UwRead,
@@ -119,7 +152,11 @@ export async function composeObservedUwCausalContext(
     read.causalObservation.catalogues !== read.catalogues
   )
     return failure('fix-own-uw-unsettled', 'fix-causal-observation-unavailable')
-  if (read.observation.status !== 'complete')
+  if (
+    read.observation.status !== 'complete' ||
+    read.observation.histories !== read.histories ||
+    read.observation.catalogues !== read.catalogues
+  )
     return failure('fix-own-uw-unsettled', 'fix-completion-observation-unavailable')
   const scopes = new Set<string>()
   let own = false
@@ -171,10 +208,41 @@ export async function extendObservedUwCausalContext(
   selected: readonly DecodedHistory[],
   options: GitHubOptions,
 ): Promise<FixActionResult<WorkflowCausalContext>> {
+  if (!coherentContext(previous)) return failure('fix-own-uw-unsettled', 'fix-causal-observation-unavailable')
   const merged = mergeFixUwHistories(previous.histories, selected)
   if (!merged.ok) return merged
   if (merged.value.length === previous.histories.length) return { ok: true, value: previous }
   return collectJointUwCausalContext(previous.observation.root, merged.value, options)
+}
+
+function coherentContext(context: WorkflowCausalContext): boolean {
+  return (
+    context.observation?.status === 'complete' &&
+    context.histories === context.observation.histories &&
+    context.catalogues === context.observation.catalogues
+  )
+}
+
+/** A confirmed append explains history drift, never a change to retained native or delivery facts. */
+export function reconcileWithdrawalContexts(
+  before: WorkflowCausalContext,
+  after: WorkflowCausalContext,
+  scope: DecodedHistory['source']['scope'],
+  barriers: readonly WithdrawalBarrier[],
+): FixActionResult<WorkflowCausalContext> {
+  if (!coherentContext(before) || !coherentContext(after))
+    return failure('fix-own-uw-unsettled', 'fix-causal-observation-unavailable')
+  const histories = reconcileWithdrawalHistories(before.histories, after.histories, scope, barriers)
+  if (!histories.ok) return histories
+  const { observedAt: _beforeTime, ...beforeGraph } = before.observation.graph
+  const { observedAt: _afterTime, ...afterGraph } = after.observation.graph
+  if (
+    JSON.stringify(before.observation.root) !== JSON.stringify(after.observation.root) ||
+    JSON.stringify(beforeGraph) !== JSON.stringify(afterGraph) ||
+    JSON.stringify(before.observation.delivery) !== JSON.stringify(after.observation.delivery)
+  )
+    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+  return { ok: true, value: after }
 }
 
 async function collectJointUwCausalContext(

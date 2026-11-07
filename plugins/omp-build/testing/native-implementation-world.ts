@@ -35,12 +35,15 @@ export type NativeWorldFacts = {
     baseTip: string
     state: 'OPEN' | 'CLOSED' | 'MERGED'
     mergeCommit: string | null
+    mergedAt?: string | null
+    gate?: { labels: readonly string[]; autoMerge: { enabledAt: string } | null }
     author: string | null
   }[]
   comparisons: readonly { base: string; head: string; status: 'ahead' | 'identical'; commits: readonly string[] }[]
   author: string
   graph: Extract<UwGraphObservation, { status: 'complete' }>
   histories: readonly DecodedHistory[]
+  authorization?: { repositoryId: number; operatorId: number; appId: number; botUserId: number }
 }
 
 export type DeclaredCheckout = {
@@ -116,6 +119,7 @@ export async function withNativeImplementationWorld<T>(
       repository,
       ...(input.originUrl === undefined ? {} : { originUrl: input.originUrl }),
       ...(input.epic === undefined ? {} : { epic: input.epic }),
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       author: input.author,
       histories: input.histories,
       graph: input.graph,

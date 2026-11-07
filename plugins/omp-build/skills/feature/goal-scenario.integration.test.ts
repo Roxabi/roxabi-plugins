@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
+import authorization from './head-authorization.cjs'
 import {
   acceptGoalCoverage,
   integrateGoalParent,
@@ -198,6 +199,28 @@ describe('stateful gh — one continuous goal', () => {
     const stoppedC = drive(['stop', '--ticket', String(C), '--reason', 'review-bound'], RUN_A)
     expect(stoppedC.code, stoppedC.stderr).toBe(0)
     expect(gh(['pr', 'edit', String(openedC.number), '--add-label', 'reviewed']).status).toBe(0)
+    const transport = async (_cwd: string, args: string[]) => {
+      const result = gh(args)
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout.trim()
+    }
+    const policy = authorization.policyFromEnv({
+      HEAD_AUTH_REPOSITORY_ID: '1',
+      HEAD_AUTH_OPERATOR_IDS: '[101]',
+      HEAD_AUTH_APP_ID: '200',
+      HEAD_AUTH_BOT_USER_ID: '201',
+    })
+    const auth = { cwd: epic, gh: transport, prNumber: openedC.number, policy }
+    const snapshot = await authorization.captureAuthorization(auth)
+    await authorization.issueAuthorization({
+      ...auth,
+      snapshot,
+      lane: 'reviewed',
+      source: 'native',
+      evidence: 'fixture:stale-child-review',
+      operationId: 'stale-child-grant',
+    })
+    expect((await authorization.readAuthorization(auth)).allowed).toBe(true)
     expect(prOf(BRANCH_C).labels).toContain('reviewed')
 
     const unknown = gh(['pr', 'diff', '1'])
@@ -221,6 +244,7 @@ describe('stateful gh — one continuous goal', () => {
     markGreen(shaA)
     const resumed = jsonOf(drive(['next'], RUN_B))
     expect(resumed.reconciled).toEqual([{ ticket: C, pr: openedC.number, disarmed: 'disarmed' }])
+    expect((await authorization.readAuthorization(auth)).allowed).toBe(false)
     expect(stoppedArms()).toEqual([])
     expect(resumed.step).toMatchObject({ action: 'start', ticket: B, branch: BRANCH_B })
     const childA = { repository: 'acme/app', target: `acme/app#${A}` }

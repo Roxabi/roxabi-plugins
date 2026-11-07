@@ -1,6 +1,6 @@
 import { knownLandingGate, readLandingCoordinates, refreshLandingAuthorization } from './landing-initial.js'
 import { bindLandingBase, landingRefused, mergedAuthorized } from './landing-initial-preparation.js'
-import { enforceArmedGate, mayStayArmed, readGate } from './workflow-gate.js'
+import { disarmGate, enforceArmedGate, mayStayArmed, readGate } from './workflow-gate.js'
 import { errorText, stuckError } from './workflow-runtime.js'
 
 function watchingWithProof(terminal, proof) {
@@ -89,7 +89,7 @@ async function disabledAutoOutcome(cwd, pr, gh, terminal) {
     const gate = await readGate(cwd, pr, gh)
     const names = []
     if (gate.autoMergeRequest) names.push('auto-merge')
-    if (gate.labels.some((label) => label?.name === 'reviewed')) names.push('the reviewed label')
+    if (gate.authorization?.allowed) names.push('head authorization')
     if (names.length) {
       return {
         status: 'auto-merge-failed',
@@ -107,7 +107,7 @@ async function disabledAutoOutcome(cwd, pr, gh, terminal) {
     return {
       status: 'auto-merge-failed',
       armed: true,
-      error: `PR ${pr} could not be read back; auto-merge and reviewed may stay armed — ${errorText(error)}`,
+      error: `PR ${pr} could not be read back; auto-merge and head authorization may stay armed — ${errorText(error)}`,
     }
   }
 }
@@ -137,7 +137,12 @@ export async function finishLanding(cwd, pr, gh, git, terminal, state, armedAuto
       gate: refreshed.seen,
       policy: finalTerminal.policy,
       gh,
+      withdrawOnReadFailure: Boolean(owner?.armedLabel),
     })
+    if (owner?.armedLabel && !receipt.allowed && !receipt.disarmed) {
+      const disarmed = await disarmGate(cwd, pr, refreshed.seen, gh)
+      if (disarmed) receipt = { allowed: false, disarmed: true }
+    }
   } catch (disarmError) {
     return disarmFailureOutcome(cwd, pr, gh, git, finalTerminal, refreshed.state, refreshed.refreshFailed, disarmError)
   }

@@ -228,6 +228,13 @@ Completion is calculated bottom-up from one complete observation. A leaf needs i
 
 A parent's criterion citations must resolve to each covered child's actually selected delivery proofs; a shared ancestor citation is not the child's own integration or review proof. Before closing the bound UW, the installed closure's own final writer read obtains a concordant binding and whole common completion observation, including fresh native delivery facts. It evaluates that complete proof before projecting the native root; no later graph-only read can discard related facts. The same full reader confirms the effect. Observed proof loss before the state mutation refuses without a PATCH; proof loss after it remains partial and retains the actual close effect. Unreadable or lost-effect responses do not establish completion or trigger an automatic retry. This is not an atomic GitHub snapshot.
 
+After confirming its own Fix UW withdrawal appends, continuation collects a
+bounded, fresh whole UW observation. Exact append receipts must match while
+native-scope and retained delivery-dossier fences stay unchanged. Graph,
+histories and catalogues are projected together; unrelated drift holds
+continuation without erasing a confirmed withdrawal. This is not a GitHub-wide
+atomic snapshot.
+
 One parser/renderer in `adapters/github-native/uw-spec.ts` owns body grammar. `roxabi/uw-spec/` supplies its reads; the old `hasScope` and loose acceptance-list parsers are gone. The engine owns canonical content versions, durable C/I identities and admission; workflow owns the assisted normalization judgment and confirmed effects. Review-reference loading remains in `roxabi/review-assets.ts`.
 
 A conforming hand-written body uses this grammar; the identifiers below illustrate engine output, not permission to allocate identifiers manually:
@@ -574,14 +581,72 @@ then directs agents to perform the recovery, targeted proof and independent revi
 on a superseding PR. Its fresh admission still follows the normal review, proof, CI
 and `landPr` path; the original dossier and records remain evidence.
 
-**The armed gate (#713).** An OPEN PR is armed — `reviewed` label or auto-merge
-enabled — only when the latest review record approves the current head, the bound
-is not spent, and no review of that head is running. The four workflow exits share
-`enforceArmedGate` (#729), separating actual `reviewing` from forced-unarmed policy.
-Its `disarmGate` primitive disables auto-merge first, independently removes the
-label, validates read-back, and throws one error naming any remainder.
-`disarmed: true` requires an attempted clear and confirming read-back; an already
-clear or non-OPEN gate is a no-op. Every `nextReviewStep` action passes the policy:
+#### Kit merge-on-green head authorization
+
+The Kit merge-on-green gate uses authenticated `kit-head-authorization:v1` PR
+comments, not the `reviewed` label, as authority. A grant binds the immutable
+repository and PR identities, PR number, reviewed head and base ref. Before
+admission the producer captures the latest authenticated receipt; before posting
+it rechecks the scope and predecessor, and reports an arm only after read-back
+confirms the exact grant is active. A newer withdrawal denies all lanes. A new
+reviewed grant requires fresh admission; a label, old receipt or stale head is
+not a substitute. Dependabot grants additionally bind the evaluated base SHA.
+
+Configure trusted repository Actions variables `HEAD_AUTH_REPOSITORY_ID` (numeric
+repository ID), `HEAD_AUTH_OPERATOR_IDS` (JSON array of numeric trusted human IDs),
+`HEAD_AUTH_APP_ID` (numeric CI App ID), and `HEAD_AUTH_BOT_USER_ID` (numeric bot
+user ID). The plugin reads these through the repository Actions variables API, not
+the local process environment. All four are required for manual and merge-on-green
+authorization. When all are absent, only native auto-merge is permitted; partial
+configuration or an unreadable API response, including 403, fails closed.
+Operators use their authenticated `gh` identity; the machine issuer must match both
+configured App and bot identities and the PR must be authored by the real
+Dependabot identity. The existing target-only CI App credentials are used; these
+variables are not secrets.
+
+For an operator-supervised independent review, invoke the installed plugin's
+trusted launcher from the target repository:
+
+```sh
+bash "$PLUGIN_ROOT/skills/feature/trusted-bun.sh" "$PLUGIN_ROOT/skills/feature/head-authorization-cli.js" inspect --pr "$PR"
+bash "$PLUGIN_ROOT/skills/feature/trusted-bun.sh" "$PLUGIN_ROOT/skills/feature/head-authorization-cli.js" issue-manual --pr "$PR" --head "$REVIEWED_SHA" --evidence "$EVIDENCE_REFERENCE"
+bash "$PLUGIN_ROOT/skills/feature/trusted-bun.sh" "$PLUGIN_ROOT/skills/feature/head-authorization-cli.js" withdraw --pr "$PR" --reason "$REASON"
+```
+
+Set `PLUGIN_ROOT` to the absolute path of the installed omp-build directory. The
+launcher keeps the target repository as working directory, explicitly selects the
+installed Bun and compiler configurations and disables automatic `.env` loading.
+Do not invoke the CLI with naked `bun` from a target repository: its configuration
+can change startup or module resolution before the CLI runs.
+
+Manual issuance requires the exact reviewed lowercase 40-hex head and an opaque
+evidence reference; it does not parse a review report or bypass native ownership,
+spent-bound or refusal guards.
+It uses the current authenticated `gh` operator and reads the repository Actions
+variables through the API; exporting local environment variables is not a substitute.
+
+Stop, review-start and protected-push barriers withdraw authority and confirm the
+withdrawal before continuing. A failed or ambiguous write, incomplete read or
+later grant is not a confirmed disarm. Labels remain hints, including for wakeups;
+their absence does not hide an active grant. Native GitHub auto-merge mode keeps
+its existing protected-auto behavior.
+
+The stream is append-only by publisher contract, not immutable GitHub storage:
+trusted deletion or editing can erase history. Trusted operators, default-branch
+writers/dispatchers and App managers remain in the trust boundary. GitHub reads
+and merge are not atomic; a change after the final read remains a residual risk.
+Returning to the identical head without an accepted withdrawal can match again;
+authority for one head never authorizes another.
+
+
+**The armed gate (#713).** In native auto-merge mode, an OPEN PR is armed — `reviewed`
+label or auto-merge enabled — only when the latest review record approves the current
+head, the bound is not spent, and no review of that head is running. The four workflow
+exits share `enforceArmedGate` (#729), separating actual `reviewing` from
+forced-unarmed policy. Its `disarmGate` primitive clears known arms and validates
+read-back; Kit merge-on-green additionally requires the withdrawal receipt above.
+In native mode `disarmed: true` requires an attempted clear and confirming read-back;
+an already clear or non-OPEN gate is a no-op. Every `nextReviewStep` action passes the policy:
 non-`land` actions and actual review starts force clearing. Native
 `no-required-checks`, CI-watch failures and pre-push barriers also force clearing;
 watch observers retain arms only with current approval/head evidence. Required-check
@@ -618,7 +683,7 @@ An adopted open PR moves directly from `ready` to `review`. The graph has no int
 
 Behavioral evidence is required by criterion at every tier. A satisfied criterion cites an admissible, code-bound test or observation; content reading alone cannot establish behavioral satisfaction. Bug restoration needs a failing-before/passing-after test or an admissible observed restored behavior. Missing, unverified, proofless or absent criterion verdicts mechanically request changes even with zero findings. Reviewers judge truth and applicability; the engine checks structure, references, versions and the resulting rule. Correction falsification remains a separate obligation; neither green CI nor a digest replaces this review.
 
-`landPr` and the pinned reader in `.github/workflows/auto-merge.yml` run the same admission before writing an arm. The workflow refuses and disarms when its gate read refuses; a `reviewed` label is not enough. GitHub reads and arming are not transactional, so this does not establish continuous enforcement or close the queued-run race ([#787](https://github.com/Roxabi/roxabi-plugins/issues/787)).
+`landPr` runs shared admission before writing an arm. For Kit merge-on-green, the gate independently checks the active head authorization and performs a fresh observation before merging; labels alone are not sufficient. This does not make GitHub reads and merge atomic.
 
 When an admitted PR merges during landing observation, the base ref has advanced to the merge commit. Review-input revalidation uses the captured pre-merge base only when the native merge commit's two parents match that base and the admitted head; other input and authority checks remain fresh. A different or unreadable merge ancestry does not grant this exception.
 
@@ -628,7 +693,7 @@ The hosted reader needs readable metadata, issue/PR comments and histories, Git/
 
 A canonical record can span multiple PR comments (`part=i/n`); readers accept only a complete record. The header carries the payload and the Markdown is projection. Native authorship and native timestamps establish what the gate read, not a signature or a lasting pin. GitHub reads, review publication, and arming are separate operations, so a change after the last read can remain undetected while an observer retains an arm.
 
-Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Reviews run in the local OMP session. `/feature` landing's `landPr` runs shared admission, then uses the operator's `gh` login to apply `reviewed` and enable native auto-merge; there is no human label step. The base-defined `pull_request_target` workflow re-checks admission when that label arrives and disarms on refusal or `synchronize`. Deliberate forgery of a record by the agent is an accepted, uncovered risk; revisit if a second contributor or human-less automation appears.
+Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` provides no author/reviewer separation while that login is also the PR author's identity. Reviews run in the local OMP session. `/feature` landing runs shared admission before arming. In native mode it uses the operator's `gh` login for `reviewed` and native auto-merge; Kit merge-on-green instead requires the scoped receipt described above. Deliberate forgery by a trusted operator remains within the trust boundary.
 
 The same trusted author is used for review records, workflow mandates, and bindings. Any future author separation must preserve durable CI-stop records and keep review reads separate from workflow-authority reads.
 
@@ -650,10 +715,9 @@ and autonomous correction keep their separately admitted paths; neither grants
 landing authority. The feature skill is reference material, not another router.
 
 Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
-`merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command,
-including GitHub's fresh labeled-event time under merge-on-green. In native mode,
-`landPr` uses the operator's `gh` login for both native auto-merge and the
-`reviewed` label after shared admission. An OPEN `BEHIND` observation stops further
+`merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command.
+In native mode, `landPr` uses the operator's `gh` login for both native auto-merge
+and the `reviewed` label after shared admission. An OPEN `BEHIND` observation stops further
 arming and watching: `landPr` returns `behind` after clearing known OPEN arms,
 including a pin written earlier in that call. A failed clear throws naming the
 remainder; a merge during the clear returns `merged`. The watch exits 7, and its

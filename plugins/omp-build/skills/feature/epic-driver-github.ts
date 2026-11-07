@@ -17,6 +17,7 @@ import { refuseForeignCommits, ticketOfBranch, ticketOfSubject } from './epic-cl
 import { readHistoryPairs } from './epic-driver-history-pairs'
 import { gh, ghHistory, git, graphql, Refused } from './epic-driver-runtime'
 import type { BaseCi, BranchFacts, Facts, PrFacts } from './epic-types'
+import authorization from './head-authorization.cjs'
 
 type RollupData = {
   repository: { object: { statusCheckRollup: { contexts: { nodes: CheckNode[] } } | null } | null }
@@ -142,8 +143,40 @@ export async function stoppedReviews(repo: string, repository: string, numbers: 
   return new Set(states.filter((number): number is number => number !== null))
 }
 
-export function prFacts(raw: NativeEpicPullRequest, stopped: Set<number>): PrFacts {
-  const labels = raw.labels.nodes.map((label) => label.name)
+async function pullRequestArmed(
+  cwd: string,
+  pr: NativeEpicPullRequest,
+  policy: Parameters<typeof authorization.readAuthorization>[0]['policy'] | null,
+  transport: (cwd: string, args: string[]) => Promise<string>,
+): Promise<boolean> {
+  if (pr.state !== 'OPEN') return false
+  const [owner, name] = pr.repository.nameWithOwner.split('/')
+  if (!owner || !name) throw new Refused(`PR #${pr.number} authorization scope is invalid`)
+  if (policy === null) return pr.autoMergeRequest !== null
+  const state = await authorization.readAuthorization({
+    cwd,
+    gh: transport,
+    repo: { owner, repo: name },
+    prNumber: pr.number,
+    policy,
+  })
+  if (state.scope.headSha !== pr.headRefOid) throw new Refused(`PR #${pr.number} head changed during inventory`)
+  return state.allowed || pr.autoMergeRequest !== null
+}
+
+export async function armedPullRequests(repo: string, prs: readonly NativeEpicPullRequest[]): Promise<Set<number>> {
+  const armed = new Set<number>()
+  const transport = async (cwd: string, args: string[]) => gh(cwd, args)
+  const policy = prs.some((pr) => pr.state === 'OPEN')
+    ? await authorization.policyFromRepository({ cwd: repo, gh: transport })
+    : null
+  for (const pr of prs) {
+    if (await pullRequestArmed(repo, pr, policy, transport)) armed.add(pr.number)
+  }
+  return armed
+}
+
+export function prFacts(raw: NativeEpicPullRequest, stopped: Set<number>, armed: Set<number>): PrFacts {
   return {
     number: raw.number,
     state: raw.state,
@@ -153,7 +186,7 @@ export function prFacts(raw: NativeEpicPullRequest, stopped: Set<number>): PrFac
     mergedAt: raw.mergedAt,
     mergeSha: raw.mergeCommit?.oid ?? null,
     baseSha: raw.mergeCommit?.parents.nodes[0]?.oid ?? null,
-    armed: labels.includes('reviewed') || raw.autoMergeRequest !== null,
+    armed: armed.has(raw.number),
     exhausted: stopped.has(raw.number),
   }
 }

@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto'
+import authorization from './head-authorization.cjs'
+
 import { errorText, gh, preview } from './workflow-runtime.js'
 
 const GATE_STATES = new Set(['OPEN', 'CLOSED', 'MERGED'])
@@ -50,7 +53,14 @@ export async function readGate(cwd, pr, ghFn = gh) {
   if (!('autoMergeRequest' in data) || (data.autoMergeRequest !== null && typeof data.autoMergeRequest !== 'object')) {
     throw new Error(`readGate: gh pr view ${pr} carried no auto-merge state — ${preview(raw)}`)
   }
-  return data
+  return { ...data, authorization: await readAuthority(cwd, pr, ghFn) }
+}
+
+async function readAuthority(cwd, pr, ghFn) {
+  const policy = await authorization.policyFromRepository({ cwd, gh: ghFn })
+  if (policy === null) return { configured: false, allowed: false, receipt: null }
+  const state = await authorization.readAuthorization({ cwd, gh: ghFn, prNumber: Number(pr), policy })
+  return { ...state, configured: true }
 }
 
 export function isBehind(gate) {
@@ -85,7 +95,7 @@ async function revokeGateArming(cwd, pr, ghFn, { autoOn, labelled }) {
   return failures
 }
 
-async function confirmGateDisarmed(cwd, pr, ghFn, detail) {
+async function confirmGateDisarmed(cwd, pr, ghFn, detail, barrier) {
   let back
   try {
     back = await readGate(cwd, pr, ghFn)
@@ -95,6 +105,15 @@ async function confirmGateDisarmed(cwd, pr, ghFn, detail) {
     )
   }
   if (back.state === 'MERGED') throw new Error(`disarmGate: PR ${pr} merged while being disarmed${detail}`)
+  if (
+    barrier === null
+      ? back.authorization?.configured !== false
+      : !Number.isSafeInteger(barrier?.id) ||
+        back.authorization?.allowed ||
+        back.authorization?.receipt?.id !== barrier.id
+  ) {
+    throw new Error(`disarmGate: PR ${pr} withdrawal barrier changed during cleanup${detail}`)
+  }
   if (back.state === 'CLOSED') return true
   const stays = [
     back.autoMergeRequest && 'auto-merge',
@@ -105,12 +124,24 @@ async function confirmGateDisarmed(cwd, pr, ghFn, detail) {
 }
 
 export async function disarmGate(cwd, pr, gate, ghFn) {
-  if (gate.state !== 'OPEN') return false
-  const arming = gateArming(gate)
-  if (!arming.labelled && !arming.autoOn) return false
-  const failures = await revokeGateArming(cwd, pr, ghFn, arming)
+  if (gate?.state === 'MERGED') throw new Error(`disarmGate: PR ${pr} merged while being disarmed`)
+  const policy = await authorization.policyFromRepository({ cwd, gh: ghFn })
+  const barrier =
+    policy === null
+      ? null
+      : await authorization.withdrawAuthorization({
+          cwd,
+          gh: ghFn,
+          prNumber: Number(pr),
+          policy,
+          operationId: randomUUID(),
+          reason: 'native lifecycle disarm',
+        })
+  if (!gate) return { barrier }
+  const failures = gate.state === 'CLOSED' ? [] : await revokeGateArming(cwd, pr, ghFn, gateArming(gate))
   const detail = failures.length ? ` (${failures.join('; ')})` : ''
-  return confirmGateDisarmed(cwd, pr, ghFn, detail)
+  await confirmGateDisarmed(cwd, pr, ghFn, detail, barrier)
+  return { barrier }
 }
 
 export function approves(verdict) {
@@ -134,14 +165,31 @@ export function mayStayArmed(records, gate, reviewing) {
 export async function enforceArmedGate(
   cwd,
   pr,
-  { records, gate, reviewing = false, policy = 'allow-approved', gh: ghFn = gh },
+  { records, gate, reviewing = false, policy = 'allow-approved', gh: ghFn = gh, withdrawOnReadFailure = false },
 ) {
-  if (gate?.state !== 'OPEN') return { allowed: false }
-  const armed = gate.autoMergeRequest || gate.labels.some((label) => label?.name === 'reviewed')
+  if (gate?.state === 'MERGED') return { allowed: false }
+  if (policy === 'unarmed' || reviewing || !gate) {
+    const { barrier } = await disarmGate(cwd, pr, gate, ghFn)
+    return { allowed: false, disarmed: true, barrier }
+  }
+  if (gate.state === 'CLOSED') return { allowed: false }
+  let authority
+  try {
+    authority = await readAuthority(cwd, pr, ghFn)
+  } catch (error) {
+    if (withdrawOnReadFailure) await disarmGate(cwd, pr, gate, ghFn)
+    throw error
+  }
+  const armed = authority.allowed || gate.autoMergeRequest
   if (!armed) return { allowed: false }
-  if (policy === 'allow-approved' && records && mayStayArmed(records, gate, reviewing)) {
+  if (
+    policy === 'allow-approved' &&
+    records &&
+    mayStayArmed(records, gate, reviewing) &&
+    (!authority.allowed || authority.receipt?.record?.headSha === gate.headRefOid)
+  ) {
     return { allowed: true }
   }
-  const disarmed = await disarmGate(cwd, pr, gate, ghFn)
-  return disarmed ? { allowed: false, disarmed: true } : { allowed: false }
+  const { barrier } = await disarmGate(cwd, pr, gate, ghFn)
+  return { allowed: false, disarmed: true, barrier }
 }

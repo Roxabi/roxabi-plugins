@@ -151,6 +151,7 @@ describe('feature recovery native landing witness', () => {
         command: 'bun test plain.test.ts',
         output: 'PASS plain',
         author: 'operator',
+        authorization: { repositoryId: 1, operatorId: 101, appId: 200, botUserId: 201 },
         commits: [observeCommit(baseTip), ...rangeCommits.map(observeCommit)],
         comparisons: [
           { base: baseTip, head: baseTip, status: 'identical', commits: [] },
@@ -168,6 +169,7 @@ describe('feature recovery native landing witness', () => {
             baseTip,
             state: 'OPEN',
             mergeCommit: null,
+            gate: { labels: [], autoMerge: null },
             author: 'operator',
           },
         ],

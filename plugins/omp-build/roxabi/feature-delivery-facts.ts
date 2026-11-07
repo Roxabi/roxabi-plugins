@@ -28,6 +28,21 @@ export type Delivery = {
   issueScope: Scope
 }
 
+export function sameDeliveryCoordinates(before: Delivery | null, after: Delivery | null): boolean {
+  return (
+    before !== null &&
+    after !== null &&
+    before.number === after.number &&
+    before.scope.repository === after.scope.repository &&
+    before.scope.target === after.scope.target &&
+    before.issueScope.repository === after.issueScope.repository &&
+    before.issueScope.target === after.issueScope.target &&
+    before.head === after.head &&
+    before.branch === after.branch &&
+    before.base === after.base
+  )
+}
+
 export function scopeNumber(scope: Scope): number {
   const match = /#([1-9][0-9]*)$/.exec(scope.target)
   return match === null ? 0 : Number(match[1])

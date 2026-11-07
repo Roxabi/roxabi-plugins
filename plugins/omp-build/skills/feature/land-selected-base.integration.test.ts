@@ -88,7 +88,7 @@ function captureInput(box: Box, cwd: string, head: string): { input: string; inp
   return { input: captured.input, inputs }
 }
 
-async function prepare(box: Box, cwd: string, armed = false): Promise<void> {
+async function prepare(box: Box, cwd: string, armed = false, beforeCapture?: () => void): Promise<void> {
   const head = box.sha[BRANCH] as string
   const base = box.sha.main as string
   const authority = linkedLandingAuthority({
@@ -163,6 +163,7 @@ async function prepare(box: Box, cwd: string, armed = false): Promise<void> {
       head,
       branch: BRANCH,
       author: 'operator',
+      authorization: { repositoryId: 1, operatorId: 101, appId: 200, botUserId: 201 },
       command: 'bun test plain.test.ts',
       output: 'PASS plain',
       commits: [observe(base), ...rangeCommits.map(observe)],
@@ -182,6 +183,7 @@ async function prepare(box: Box, cwd: string, armed = false): Promise<void> {
           baseTip: base,
           state: 'OPEN',
           mergeCommit: null,
+          gate: { labels: [], autoMerge: null },
           author: 'operator',
         },
       ],
@@ -216,6 +218,7 @@ async function prepare(box: Box, cwd: string, armed = false): Promise<void> {
     pull.mergeCommit = null
     pull.mergedAt = null
   })
+  beforeCapture?.()
   const captured = captureInput(box, cwd, head)
   const pull = readSim(box).prs[String(PR)]
   if (!pull) throw new Error('landing fixture PR missing')
@@ -273,7 +276,12 @@ function green(box: Box, head = box.sha[BRANCH] as string): void {
   })
 }
 
-function mutateAfter(box: Box, when: 'label' | 'pin' | 'review-input', change: string): () => void {
+function mutateAfter(
+  box: Box,
+  when: 'label' | 'grant' | 'pin' | 'review-input',
+  change: string,
+  failFetch = false,
+): () => void {
   const dir = mkdtempSync(path.join(tmpdir(), 'omp-selected-base-'))
   const shim = path.join(dir, 'gh')
   const originalPath = box.env.PATH
@@ -286,10 +294,14 @@ const args = process.argv.slice(2)
 const reviewInput = args[0] === 'pr' && args[1] === 'view' && args.includes('headRefOid,baseRefName')
 const output = spawnSync('gh', args, { env: { ...process.env, PATH: ${JSON.stringify(originalPath)} }, stdio: 'inherit' })
 const marker = ${JSON.stringify(path.join(dir, 'mutated'))}
-const match = ${JSON.stringify(when)} === 'label'
-  ? args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
-  : ${JSON.stringify(when)} === 'pin'
-    ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
+const pending = marker + '-pending'
+if (${JSON.stringify(when)} === 'grant' && output.status === 0 && args[0] === 'api' && args.includes('POST') && args.some((arg) => arg.startsWith('body=<!-- kit-head-authorization:v1 -->'))) writeFileSync(pending, 'posted')
+const match = ${JSON.stringify(when)} === 'grant'
+  ? existsSync(pending) && args[0] === 'api' && args.includes('graphql') && args.some((arg) => arg.includes('... on IssueComment'))
+  : ${JSON.stringify(when)} === 'label'
+    ? args[0] === 'pr' && args[1] === 'edit' && args.includes('--add-label')
+    : ${JSON.stringify(when)} === 'pin'
+      ? args[0] === 'pr' && args[1] === 'merge' && args.includes('--auto')
     : reviewInput
 if (output.status === 0 && match && !existsSync(marker)) {
   const state = JSON.parse(readFileSync(process.env.GH_SIM_STATE, 'utf8'))
@@ -301,6 +313,21 @@ process.exit(output.status ?? 1)
 `,
   )
   chmodSync(shim, 0o755)
+  if (failFetch) {
+    const gitShim = path.join(dir, 'git')
+    writeFileSync(
+      gitShim,
+      `#!${BUN}
+import { existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+const args = process.argv.slice(2)
+if (existsSync(${JSON.stringify(path.join(dir, 'mutated'))}) && args.includes('fetch')) process.exit(1)
+const result = spawnSync('git', args, { env: { ...process.env, PATH: ${JSON.stringify(originalPath)} }, stdio: 'inherit' })
+process.exit(result.status ?? 1)
+`,
+    )
+    chmodSync(gitShim, 0o755)
+  }
   box.env.PATH = `${dir}:${originalPath}`
   return () => {
     box.env.PATH = originalPath
@@ -316,13 +343,13 @@ describe('landPr retains the selected base name and tip', () => {
     const run = land(box, cwd, mode)
 
     expect(run.result).toMatchObject({ status: 'watching', mode })
-    expect(run.pull.labels).toEqual(['reviewed'])
+    expect(run.pull.labels).toEqual(mode === 'native' ? ['reviewed'] : [])
     expect(run.pull.autoMerge).toEqual(
       mode === 'native' ? expect.objectContaining({ matchHeadCommit: box.sha[BRANCH] }) : null,
     )
   })
 
-  it.each(['native', 'merge-on-green'] as const)('%s lands a green PR onto the selected tip', async (mode) => {
+  it.each(['native', 'merge-on-green'] as const)('%s preserves the selected tip for a green PR', async (mode) => {
     const { box, cwd } = createBox(mode)
     await prepare(box, cwd)
     green(box)
@@ -330,8 +357,61 @@ describe('landPr retains the selected base name and tip', () => {
     const run = land(box, cwd, mode)
 
     expect(run.result.status).toBe(mode === 'native' ? 'merged' : 'watching')
-    expect(run.pull.state).toBe('MERGED')
-    expect(run.pull.mergeCommit?.parents).toEqual([box.sha.main, box.sha[BRANCH]])
+    if (mode === 'native') {
+      expect(run.pull.state).toBe('MERGED')
+      expect(run.pull.mergeCommit?.parents).toEqual([box.sha.main, box.sha[BRANCH]])
+    } else {
+      expect(run.pull.state).toBe('OPEN')
+      const grant = run.pull.comments.find((comment) => comment.body.startsWith('<!-- kit-head-authorization:v1 -->\n'))
+      if (!grant) throw new Error('authorization grant missing')
+      expect(JSON.parse(grant.body.split('\n')[1])).toMatchObject({
+        kind: 'grant',
+        headSha: box.sha[BRANCH],
+        baseRef: 'main',
+        baseSha: box.sha.main,
+      })
+    }
+  })
+
+  it('admits a fresh native review against the live advanced base, not cached PR base metadata', async () => {
+    const { box, cwd } = createBox('merge-on-green')
+    writeSim(box, (state) => {
+      state.prs[String(PR)].baseRecord = { at: `main@${box.sha[BRANCH]}`, oid: box.sha.main }
+    })
+    await prepare(box, cwd, false, () => {
+      git(box, cwd, ['--git-dir', box.origin, 'update-ref', 'refs/heads/main', box.sha.staging as string])
+    })
+    const run = land(box, cwd, 'merge-on-green')
+    expect(run.result.status).toBe('watching')
+    const grant = run.pull.comments.find((comment) => comment.body.startsWith('<!-- kit-head-authorization:v1 -->\n'))
+    if (!grant) throw new Error('authorization grant missing')
+    expect(JSON.parse(grant.body.split('\n')[1])).toMatchObject({
+      kind: 'grant',
+      headSha: box.sha[BRANCH],
+      baseRef: 'main',
+      baseSha: box.sha.staging,
+    })
+  })
+
+  it('refuses the previous review when the live base advances after approval', async () => {
+    const { box, cwd } = createBox('merge-on-green')
+    writeSim(box, (state) => {
+      state.prs[String(PR)].baseRecord = { at: `main@${box.sha[BRANCH]}`, oid: box.sha.main }
+    })
+    await prepare(box, cwd)
+    git(box, cwd, ['--git-dir', box.origin, 'update-ref', 'refs/heads/main', box.sha.staging as string])
+
+    const run = land(box, cwd, 'merge-on-green')
+
+    expect(run.result).toMatchObject({ status: 'review-input-refused', reason: 'review-input-changed' })
+    expect(run.pull.autoMerge).toBeNull()
+    expect(
+      run.pull.comments.some(
+        (comment) =>
+          comment.body.startsWith('<!-- kit-head-authorization:v1 -->\n') &&
+          JSON.parse(comment.body.split('\n')[1]).kind === 'grant',
+      ),
+    ).toBe(false)
   })
 
   it('reports merged when native auto-merge completes during post-write observation', async () => {
@@ -375,7 +455,7 @@ describe('landPr retains the selected base name and tip', () => {
     green(box, h2)
     const restore = mutateAfter(
       box,
-      'label',
+      'grant',
       `state.prs[${PR}].headRefOid = ${JSON.stringify(h2)}; state.prs[${PR}].headRefName = ${JSON.stringify(NEXT)}`,
     )
     try {
@@ -432,7 +512,7 @@ describe('landPr retains the selected base name and tip', () => {
   it.each(['native', 'merge-on-green'] as const)('%s refuses an unreadable selected base tip', async (mode) => {
     const { box, cwd } = createBox(mode)
     await prepare(box, cwd)
-    const restore = mutateAfter(box, 'label', `state.prs[${PR}].baseRefName = 'missing'`)
+    const restore = mutateAfter(box, mode === 'native' ? 'label' : 'grant', '', true)
     try {
       const run = land(box, cwd, mode)
       expect(run.result).toMatchObject({ status: 'base-blocked', reason: 'unreadable' })

@@ -27,8 +27,10 @@ export function serveComments(issue: number, comments: Comment[]): void {
     JSON.stringify(
       comments.map((comment, index) => ({
         id: index + 1,
+        node_id: `IC_${index + 1}`,
         body: comment.body,
-        user: { login: comment.author },
+        user: { login: comment.author, id: comment.author === ME ? 101 : 102, type: 'User' },
+        performed_via_github_app: null,
         created_at: '2026-10-21T10:00:00Z',
         updated_at: '2026-10-21T10:00:00Z',
       })),

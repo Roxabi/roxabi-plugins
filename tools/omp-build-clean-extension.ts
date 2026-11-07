@@ -17,6 +17,22 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
       return true
     },
   })
+  // The extension's runtime imports the vendored Kit core from the installed
+  // plugin, not from the producing checkout. Keep its license beside it.
+  for (const path of [
+    'vendor/kit-head-authorization/index.cjs',
+    'vendor/kit-head-authorization/LICENSE',
+    'skills/feature/head-authorization.cjs',
+    'skills/feature/head-authorization-reader.cjs',
+    'skills/feature/head-authorization-cli.js',
+    'skills/feature/trusted-bun.sh',
+    'skills/feature/trusted-bunfig.toml',
+    'skills/feature/trusted-tsconfig.json',
+  ]) {
+    const entry = join(destination, path)
+    if (!existsSync(entry) || !lstatSync(entry).isFile())
+      throw new Error(`clean extension missing required distribution file: ${path}`)
+  }
   // OMP loads extensions through its SDK graph loader, which supplies host
   // package imports even when the installed plugin has no node_modules.
   // Resolve the loader from B's frozen installation, not from the plugin.
