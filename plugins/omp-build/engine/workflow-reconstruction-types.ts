@@ -79,7 +79,7 @@ export type NativeSelectorStatus = 'absent' | 'published' | 'uncertain' | 'faile
 export type NativeSelector = { status: NativeSelectorStatus; evidence: Diagnostic[] }
 export type SpecializedDecisions = {
   reviewStep: 'review' | 'fix' | 'land' | 'stop' | null
-  epicStep: 'start' | 'resume' | 'stop' | 'final-review' | 'fix-ticket' | 'post-merge' | 'complete' | 'drop' | null
+  epicStep: 'start' | 'resume' | 'stop' | 'final-review' | 'post-merge' | 'complete' | 'drop' | null
   epicLand: boolean | null
   ciWatchStatus: 'green' | 'red' | 'pending' | 'timeout' | 'behind' | 'unknown' | null
   publish: NativeSelector

@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest'
+import { workflowGraphData } from '../../roxabi/workflow-graph.ts'
 import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { parseRecord } from '../record-construction.ts'
 import { assessFixMandate } from '../workflow-correction-admission.ts'
+import { workflowConditionSchema, workflowGraphActionSchema } from '../workflow-graph.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
@@ -20,6 +22,12 @@ import {
 } from './workflow-transition-native-fixture.ts'
 
 describe('workflow transition behavior', () => {
+  test('routes a blocking parent review to reporting and rejects obsolete grouped-fix graph entries', () => {
+    expect(workflowGraphData.edges).toContainEqual({ from: 'ready', to: 'report', when: 'epic-drop' })
+    expect(workflowConditionSchema.safeParse('epic-fix-ticket').success).toBe(false)
+    expect(workflowGraphActionSchema.safeParse('mark-fix').success).toBe(false)
+  })
+
   test('blocks the first mandate when the session is not in the prepared worktree', async () => {
     const issue = history([])
     const causal = await observeFixtureNativeWorld({

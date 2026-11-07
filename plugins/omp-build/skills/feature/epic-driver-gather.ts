@@ -18,13 +18,7 @@ import {
   stoppedReviews,
   tree,
 } from './epic-driver-github'
-import {
-  type Gathered,
-  hasEpicFixEvent,
-  hooksFromEvents,
-  reviewsFromEvents,
-  stopsFromEvents,
-} from './epic-driver-history'
+import { type Gathered, hooksFromEvents, reviewsFromEvents, stopsFromEvents } from './epic-driver-history'
 import { git, graphql, Refused } from './epic-driver-runtime'
 import type { BranchFacts, ChildFacts, Facts, OwnUwObservation } from './epic-types'
 import { readLanding } from './workflow-readiness.js'
@@ -51,7 +45,7 @@ function observedChild(
   if (canonicalHistories.length !== 1 || canonicalHistory === undefined || !canonicalHistory.source.complete)
     throw new Refused(`#${number} has no unique complete same-cut history`)
   if (/<!--\s*omp-build:epic-fix\b/.test(body)) {
-    throw new Refused(`#${number} has a legacy epic-fix body marker; publish a canonical epic-event instead`)
+    throw new Refused(`#${number} has a legacy epic-fix body marker`)
   }
   return {
     number,
@@ -69,7 +63,6 @@ function observedChild(
     ...(completion?.state === 'complete'
       ? { completionCode: { role: completion.role, code: completion.code, sources: completion.sources } }
       : {}),
-    epicFix: hasEpicFixEvent(canonicalHistory),
     blockedBy: node.blockers.map((scope) => {
       const blocker = native.get(`${scope.repository}\0${scope.target}`)
       if (blocker === undefined) throw new Refused(`native blocker ${scope.target} was not observed`)

@@ -40,7 +40,6 @@ export const actionPurposeSchema = z.enum([
   'attribute-ci',
   'review',
   'correction',
-  'normalize',
 ])
 export type ActionPurpose = z.infer<typeof actionPurposeSchema>
 export const actionSubjectSchema = z.discriminatedUnion('kind', [
@@ -108,14 +107,14 @@ function manifestIssue(context: z.RefinementCtx, path: (string | number)[], mess
 
 function refineSourcePurpose(value: ActionInputManifestValue, context: z.RefinementCtx): void {
   const { purpose, spec } = value
-  if (spec.kind === 'unframed' && purpose !== 'frame' && purpose !== 'normalize') {
-    manifestIssue(context, ['spec'], 'unframed source is lawful only for frame or normalize')
+  if (spec.kind === 'unframed' && purpose !== 'frame') {
+    manifestIssue(context, ['spec'], 'unframed source is lawful only for frame')
   }
-  if (spec.kind === 'proposed' && purpose !== 'frame' && purpose !== 'normalize' && purpose !== 'assess-spec') {
-    manifestIssue(context, ['spec'], 'proposed snapshot is lawful only for frame, normalize, or assess-spec')
+  if (spec.kind === 'proposed' && purpose !== 'frame' && purpose !== 'assess-spec') {
+    manifestIssue(context, ['spec'], 'proposed snapshot is lawful only for frame or assess-spec')
   }
-  if (spec.kind === 'accepted' && (purpose === 'frame' || purpose === 'normalize')) {
-    manifestIssue(context, ['spec'], 'frame and normalize cannot carry an accepted Spec')
+  if (spec.kind === 'accepted' && purpose === 'frame') {
+    manifestIssue(context, ['spec'], 'frame cannot carry an accepted Spec')
   }
   if (
     spec.kind === 'absent' &&

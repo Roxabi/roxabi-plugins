@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.0
+
+- Stop and report blocking parent final reviews; resolve their persisted causes explicitly instead of creating a grouped fix issue.
+- Refuse nonconformant successors until a confirmed conformant UW write; remove the native normalization action and profile.
+- Use canonical Spec grammar and authorized records for review inputs, without legacy priced fences or draft frontmatter.
+- Keep `/feature init` from relabeling existing issues.
+- Document all `/uw` verbs, host-only operations, issue-write ownership and the limits of manual edits.
+
 ## 0.17.2
 
 - Frame free-text requests and eligible existing issues through one accounted aggregate confirmation. Incomplete aggregates remain held; framing is not Spec acceptance or a Mandate.

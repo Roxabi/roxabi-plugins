@@ -5,10 +5,9 @@ import type { CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { resolveSpecEffective } from '../engine/spec-effective.ts'
-import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
+import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
-import type { NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
 import { type ActionOperationPorts, actionOperationMethods } from './uw-action-operations.ts'
 import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import type {
@@ -25,8 +24,6 @@ import type {
 import { executeFraming } from './uw-framing-executor.ts'
 import type { FramingPublicationPorts } from './uw-framing-ports.ts'
 import { prepareFraming } from './uw-framing-prepare.ts'
-import { bindSuccessorWriter } from './uw-normalization-internal.ts'
-import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
 import { observation } from './uw-operation-observation.ts'
 import { insertionDiagnostics } from './uw-parent-admission.ts'
 import { commitCreate, commitWrite } from './uw-proposal-commit.ts'
@@ -72,8 +69,6 @@ export type UwOperationsPorts = {
   prepareSpecAllocation: typeof prepareSpecAllocation
   renderIssueSpecBody: typeof renderIssueSpecBody
   calculateTier: typeof calculateTier
-  /** Bundled engine schema parser injected by the installed host; no source Zod dependency. */
-  parseNormalization(uw: Scope, value: unknown): UwResult<NormalizationJudgement>
   /** Publishes and reads back the engine-built identity effects on the actual issue. */
   publishIdentity(input: {
     uw: Scope
@@ -126,7 +121,6 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
   const proposalPorts: UwProposalPreparationPorts = ports
   const prepareExisting = async (
     input: UwProposalInput,
-    successorNormalization = false,
   ): Promise<PreparedUwProposal | { diagnostics: readonly UwDiagnostic[] }> => {
     const parentDiagnostics = parentRepositoryDiagnostics(input)
     if (parentDiagnostics.length > 0) return { diagnostics: parentDiagnostics }
@@ -140,7 +134,7 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
           diagnostic(input.uw, 'graph-root-missing', 'UW graph root cannot provide a complete native observation'),
         ],
       }
-    return prepareExistingProposal(input, read, observed, proposalPorts, successorNormalization)
+    return prepareExistingProposal(input, read, observed, proposalPorts)
   }
 
   const causes = ports.causeOperations({
@@ -177,12 +171,6 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     abandon: ports.abandon,
     adjustCauseDependency: ports.adjustCauseDependency,
     ...causes,
-    validateNormalization(request, value) {
-      const parsed = ports.parseNormalization(request.uw, value)
-      if (!parsed.ok) return parsed
-      const diagnostics = validateNormalizationJudgement(request, parsed.value)
-      return diagnostics.length === 0 ? { ok: true, value: parsed.value } : { ok: false, diagnostics: [...diagnostics] }
-    },
     async prepare(input) {
       const request = structuredClone(input)
       if ('uw' in request) return preparedResult(await prepareExisting(request))
@@ -220,20 +208,5 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     acceptMaterial: ports.acceptMaterial,
     ...actionOperationMethods(ports),
   }
-  bindSuccessorWriter(operations, async (input, historyDigest) => {
-    const request = structuredClone(input)
-    const prepared = await prepareExisting(request, true)
-    if ('diagnostics' in prepared) return { status: 'refused', diagnostics: prepared.diagnostics }
-    if (prepared.proposal.expected?.successorHistoryDigest !== historyDigest)
-      return {
-        status: 'refused',
-        diagnostics: [diagnostic(input.uw, 'proposal-stale', 'Successor history changed before proposal preparation')],
-      }
-    return confirmedResult(
-      await ports.operator.executeConfirmed(prepared, (confirmation) =>
-        commitWrite(request, prepared, confirmation, ports),
-      ),
-    )
-  })
   return operations
 }

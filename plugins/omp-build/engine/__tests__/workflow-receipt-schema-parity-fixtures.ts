@@ -29,7 +29,8 @@ export function fixtures() {
   const base = acceptedActionInputs(mandate, 'frame')
   const frameManifest = { ...base.manifest, spec: proposed }
   const frameInputs = { ...base, manifest: frameManifest, fingerprint: actionInputDigest(frameManifest) }
-  const normalizeManifest = { ...frameManifest, purpose: 'normalize' as const }
+  // Preserve a historical manifest verbatim while computing its original fingerprint.
+  const normalizeManifest = { ...frameManifest, purpose: 'normalize' as 'frame' }
   const normalizeInputs = { ...base, manifest: normalizeManifest, fingerprint: actionInputDigest(normalizeManifest) }
   const observed = {
     candidateGitSHA: 'a'.repeat(40),
@@ -96,7 +97,6 @@ export function fixtures() {
       assessment.result.payload,
       ...payloads,
       ...pair(ci),
-      ...pair(normalize),
     ],
     frame,
     preFrame,

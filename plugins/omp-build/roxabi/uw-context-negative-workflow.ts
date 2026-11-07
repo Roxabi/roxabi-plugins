@@ -27,7 +27,7 @@ import { validateExpansionHistory } from './uw-context-negative-history.ts'
 
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
-type Family = 'frame' | 'normalize' | 'assess-spec' | 'attribute-ci' | 'implement'
+type Family = 'frame' | 'assess-spec' | 'attribute-ci' | 'implement'
 type Negative = Receipt & { payload: Extract<Receipt['payload'], { action: Family; phase: 'result' }> }
 export type NonPlanExpansion = {
   previous: ActionInputs
@@ -218,7 +218,7 @@ function validateExpansionRequest(result: Negative, request: UwActionRequest): R
 function validateRemaining(histories: readonly DecodedHistory[], result: Negative): Result<true> {
   if (
     histories.some((history) =>
-      ['frame', 'plan', 'plan-review', 'assess-spec', 'attribute-ci', 'implement', 'normalize'].some(
+      ['frame', 'plan', 'plan-review', 'assess-spec', 'attribute-ci', 'implement'].some(
         (action) => workflowContextTerminal(history, action, result) !== 'clear',
       ),
     )
@@ -276,8 +276,7 @@ export function nonPlanExpansion(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
 ): Result<NonPlanExpansion | null> {
-  if (!['frame', 'normalize', 'assess-spec', 'attribute-ci', 'implement'].includes(request.purpose))
-    return { ok: true, value: null }
+  if (!['frame', 'assess-spec', 'attribute-ci', 'implement'].includes(request.purpose)) return { ok: true, value: null }
   const selected = selectNegative(request, histories)
   if (!selected.ok) return selected
   if (selected.value === null) return { ok: true, value: null }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { missingContextOf, requestedSourceLocatorSchema } from '../action-context.ts'
-import { ACTION_BINDING_FORMAT, ACTION_INPUT_FORMAT } from '../action-input-schema.ts'
+import { ACTION_BINDING_FORMAT, ACTION_INPUT_FORMAT, actionPurposeSchema } from '../action-input-schema.ts'
 import { producerOutputValid } from '../producer-schema.ts'
 import { contributionSchema } from '../record-values.ts'
 import { implementationOutputSchema, producerImplementationOutputSchema } from '../workflow-output-schema.ts'
@@ -23,7 +23,6 @@ const families = [
   'plan',
   'plan-review',
   'ci-attribution',
-  'uw-normalization',
 ] as const
 
 const sha = 'a'.repeat(64)
@@ -64,6 +63,11 @@ const contribution = {
 }
 
 describe('missing-context producer contract', () => {
+  test('refuses the removed native normalize purpose and producer', () => {
+    expect(actionPurposeSchema.safeParse('normalize').success).toBe(false)
+    expect(producerOutputValid('uw-normalization', negative)).toBe(false)
+  })
+
   test.each(families)('%s accepts the common negative and rejects malformed negatives', (family) => {
     expect(producerOutputValid(family, negative)).toBe(true)
     expect(missingContextOf(negative)).toEqual(missing)

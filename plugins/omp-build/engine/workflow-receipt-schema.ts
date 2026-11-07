@@ -4,7 +4,6 @@ import { actionInputsSchema } from './action-input-schema.ts'
 import { externalRecordRefSchema } from './record-references.ts'
 import { diagnosticSchema, identifierSchema, nativeOutcomeSchema } from './record-values.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
-import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
 
 import {
   ciAttributionSchema,
@@ -26,7 +25,6 @@ import {
   implementExactSchema,
   integrationExactSchema,
   nestedPlanContributionSchema,
-  normalizeExactSchema,
   PLAN_REVIEW_SPECIALISTS,
   type PlanReviewSlot,
   planExactSchema,
@@ -59,7 +57,6 @@ export const workflowReceiptActionSchema = z.enum([
   'implement',
   'integrate',
   'attribute-ci',
-  'normalize',
 ])
 export type WorkflowReceiptAction = z.infer<typeof workflowReceiptActionSchema>
 export const preMandateRefSchema = z.strictObject({
@@ -170,12 +167,6 @@ const [ciStart, ciResult] = actionReceipt(
   z.union([ciAttributionSchema, missingContextOutputSchema]),
   mandated,
 )
-const [normalizeStart, normalizeResult] = actionReceipt(
-  'normalize',
-  normalizeExactSchema,
-  z.union([normalizationJudgementSchema, missingContextOutputSchema]),
-  preMandateRefSchema,
-)
 export type AssessSpecResultPayload = z.infer<typeof assessResult>
 export type ActionReceiptPayload =
   | z.infer<typeof frameStart>
@@ -194,8 +185,6 @@ export type ActionReceiptPayload =
   | z.infer<typeof integrateResult>
   | z.infer<typeof ciStart>
   | z.infer<typeof ciResult>
-  | z.infer<typeof normalizeStart>
-  | z.infer<typeof normalizeResult>
 const taggedActionReceipts = z.discriminatedUnion('action', [
   z.discriminatedUnion('phase', [assessStart, assessResult]),
   z.discriminatedUnion('phase', [planStart, planResult]),
@@ -203,7 +192,6 @@ const taggedActionReceipts = z.discriminatedUnion('action', [
   z.discriminatedUnion('phase', [implementStart, implementResult]),
   z.discriminatedUnion('phase', [integrateStart, integrateResult]),
   z.discriminatedUnion('phase', [ciStart, ciResult]),
-  z.discriminatedUnion('phase', [normalizeStart, normalizeResult]),
 ])
 
 export const actionReceiptPayloadSchema = z

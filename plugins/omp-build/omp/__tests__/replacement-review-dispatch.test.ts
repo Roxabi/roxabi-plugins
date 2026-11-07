@@ -64,9 +64,6 @@ const operations = {
   frame: async () => {
     throw new Error('unexpected-operations')
   },
-  validateNormalization: () => {
-    throw new Error('unexpected-operations')
-  },
   write: async () => {
     throw new Error('unexpected-operations')
   },

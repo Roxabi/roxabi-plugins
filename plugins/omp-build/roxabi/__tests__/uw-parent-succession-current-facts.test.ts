@@ -14,7 +14,6 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { freshOwnSpec } from '../feature-initial-own-spec.ts'
 import { readCurrentChildrenProjection, readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
-import { historicalProjection } from '../uw-normalization-internal.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
 const parent: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
@@ -203,9 +202,6 @@ test('abandoning a parent preserves factual child projection without restoring c
   expect(childRead.proposed).toMatchObject({ ok: true, snapshot: childSnapshot })
   expect(childRead.identity).toMatchObject({ ok: true })
   expect(childRead.admission.framed).toMatchObject({ ok: true })
-  expect(historicalProjection(childRead)).toMatchObject({
-    accepted: { ref: { uw: child, sourceAccepted: { scope: child, recordId: c1.recordId, kind: 'mandate' } } },
-  })
   if (!childRead.identity.ok) throw new Error('child identity fixture invalid')
   expect(
     assessUwAdmission({

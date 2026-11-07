@@ -6,16 +6,7 @@ import type { ActionInputManifest, ActionInputs, RecordInputRef, UwActionPorts }
 import { actionFailure } from './uw-action-result.ts'
 
 const REVIEW = new Set(['review', 'correction'])
-const WORKFLOW = new Set([
-  'plan',
-  'plan-review',
-  'implement',
-  'integrate',
-  'attribute-ci',
-  'assess-spec',
-  'normalize',
-  'frame',
-])
+const WORKFLOW = new Set(['plan', 'plan-review', 'implement', 'integrate', 'attribute-ci', 'assess-spec', 'frame'])
 
 export function suppliedProcedurePaths(purpose: string): readonly string[] {
   const profiles = REVIEW.has(purpose) ? nativeReviewProfiles : WORKFLOW.has(purpose) ? nativeFeatureProfiles : []

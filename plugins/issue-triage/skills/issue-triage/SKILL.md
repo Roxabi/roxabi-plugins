@@ -1,7 +1,7 @@
 ---
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
-description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks a ticket up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
+description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks an issue up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
 version: 0.6.5
 allowed-tools: Bash, Read, ToolSearch
 ---
@@ -14,12 +14,11 @@ Default: `T` or `T list` (no args = list).
 
 Create GitHub issues, assign Size/Priority labels, manage blockedBy dependencies and parent/child relationships.
 
-This skill owns every issue write: creation, `size:` tier, priority, type, and the
-native relations. Nothing else writes them — not `gh issue create`, not a
-`Blocked by:` line in a body. The project contract is `docs/agents/issue-tracker.md`.
-
-It runs **before** the delivery cycle, not inside it. `/feature` mutates tickets
-only through issue-triage.
+Use this standalone skill for issue creation, labels and native relations. A
+`Blocked by:` line in a body is not a native relation. The project contract is
+`docs/agents/issue-tracker.md`. Omp-build automated issue body, label, relation
+and state writes go through UW; humans may also change issues directly. Neither
+an edit nor a native close alone accepts a Spec or establishes UW completion.
 
 ## Instructions
 
@@ -44,21 +43,21 @@ only through issue-triage.
 
 ## Priority Guidelines
 
-The project contract (`docs/agents/issue-tracker.md`) binds this rubric to the repository (which epic is the milestone, what counts as shipped) and wins where it differs.
+The project contract (`docs/agents/issue-tracker.md`) binds this rubric to the repository (which parent is the milestone, what counts as shipped) and wins where it differs.
 
 | Priority | When | Action |
 |----------|------|--------|
 | **Urgent** (P0) | Blocking now: the default branch or a release is blocked, or a security incident is live | Do immediately |
 | **High** (P1) | The milestone in progress, or a shipped check that lies (see below) | Do this sprint |
 | **Medium** (P2) | A real defect or debt that does not lie: a check that refuses too much or names the wrong cause, a misleading doc, a correctness gap outside the milestone | Plan for next sprint |
-| **Low** (P3) | Backlog: test hardening, deferred non-blocking findings, slices of a parked epic | Backlog |
+| **Low** (P3) | Backlog: test hardening, deferred non-blocking findings, slices of a parked parent | Backlog |
 
 P1 has two independent triggers; either one is enough:
 
-1. **Milestone.** The open `epic` that carries P1 needs the ticket to close or to keep its promise. Being that epic's child is not enough: a deferred non-blocking finding under it stays P2 or P3.
+1. **Milestone.** The open milestone parent needs the issue to close or to keep its promise. Being its child is not enough: a deferred non-blocking finding under it stays P2 or P3.
 2. **A shipped check that lies.** A gate, guard, verifier or success predicate in shipped code reports a pass when it should fail or stop: a wrong-green gate, a fail-open verifier, a guard that no longer halts. This holds whatever the milestone. A check that fails closed (it refuses too much, or names the wrong cause) is P2.
 
-An epic caps its feature slices, not its defects: a feature child sits at or below its epic, and a child that matches trigger 2 is P1 under any epic.
+A parent caps its feature slices, not its defects: a feature child sits at or below its parent, and a child that matches trigger 2 is P1 under any parent.
 
 Every priority change carries a comment that names the trigger and the evidence, so the next triage can tell a decision from drift.
 
@@ -132,63 +131,7 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Caveat — keep refs fully-qualified:** `GITHUB_REPO` retargets the entire invocation. A bare `#N` in any ref resolves against the overridden repo, not the cwd repo → always use `OWNER/REPO#N` for any cross-repo ref when the env var is set.
 
-**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd. The Deferred Follow-Ups recipe below starts triage in its own directory, so it resolves the target itself: the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`. It never reads the checkout's `.dev/dev-core.yml` pin.
-
-## Deferred Follow-Ups — Sibling Rule
-
-**Defer ≠ decomposition.** When an issue A defers work to a new follow-up B (out-of-scope finding, post-merge gap, "do this later"), B is a **sibling** of A under their shared parent — NOT a child of A.
-
-```
-       Epic E
-      ╱      ╲
-     A ←—————— B     B.parent = A.parent (= E)
-       blocked-by    B.blocked-by = A   (traceability of origin)
-```
-
-**Why:**
-- `gh issue view E` shows the full fan-out flat (A + B + future C…) — true scope of the epic, ¬nested cascade
-- A frontier query lands on the origin epic for every follow-up, however deep the deferral chain
-- Multi-level deferrals (A→B→C) stay flat under E — ¬arbre profond ingérable
-
-**Decomposition vs deferral:**
-
-| Pattern | Parent-child? | Example |
-|---------|---------------|---------|
-| **Epic → phase** (planned decomposition) | ✓ child of epic | `to-spec` splits an epic: phase 1, phase 2 are children of it |
-| **Issue → follow-up** (deferral, post-hoc) | ✗ sibling under shared parent | A review finding deferred out of `/feature` becomes a sibling |
-| **Bug → regression** (related ¬caused) | ✗ standalone | New bug surfaced post-merge, ¬child, ¬sibling necessarily |
-
-**Recipe — defer A → create follow-up B:**
-
-Triage starts in its own directory, never the checkout: Bun reads `bunfig.toml` and `.env` from the directory it starts in, and a tracked preload there runs before triage and can print `Created #N` and exit 0 with nothing filed (`--no-env-file` alone does not stop it). The target repository is the operator's `GITHUB_REPO` when set, else the checkout's `gh repo view`, and is passed as `GITHUB_REPO`; started from its own directory without it, triage would resolve the plugin's repository. The recipe never reads the checkout's `.dev/dev-core.yml` `github_repo` pin. An unresolved script or repository refuses.
-
-```bash
-# Title and body go through files — both often quote review text you did not write.
-DIR=$(mktemp -d -t "issue-triage-defer-XXXXXX")
-# write "$DIR/title.txt" ({deferred title}) and "$DIR/body.md" (**Origin:** #A
-# (deferred from ...), then {details}) with an editor or a write tool, then:
-TRIAGE=$(realpath "${CLAUDE_PLUGIN_ROOT}/skills/issue-triage/triage.ts") && TRIAGE_REPO="${GITHUB_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-triage() { (: "${TRIAGE:?issue-triage unresolved}" "${TRIAGE_REPO:?repository unresolved}" && cd "$(dirname "$TRIAGE")" && GITHUB_REPO="$TRIAGE_REPO" bun --no-env-file "$TRIAGE" "$@"); }
-# A's parent, empty when A is top-level. B takes it, and is blocked by A.
-A_PARENT_READY= && : "${A:?origin issue number required}" && A_PARENT=$(gh api graphql -f query="query{repository(owner:\"${TRIAGE_REPO%/*}\",name:\"${TRIAGE_REPO#*/}\"){issue(number:$A){parent{number repository{nameWithOwner}}}}}" \
-  --jq '.data.repository.issue.parent | select(. != null) | "\(.repository.nameWithOwner)#\(.number)"') && A_PARENT_READY=1 && triage create \
-  --title-file "$DIR/title.txt" \
-  --body-file "$DIR/body.md" \
-  --blocked-by "#${A}" \
-  ${A_PARENT:+--parent "$A_PARENT"} && rm -rf "$DIR"
-```
-
-`create` prints `Created #N` first, then one line per write (`Type=`, `Size=`, `Parent=`, `BlockedBy=`…). A nonzero exit after `Created #N` leaves #N filed but incomplete: never create it again. Run the same block with `triage set N` as its last command, passing only the flags whose line is missing.
-
-**Edge cases:**
-- A has no parent → B has no parent either (both top-level). Consider whether A should be re-parented under a freshly-created epic if the fan-out grows.
-- Existing follow-up issue B mis-parented under A → continue in the same shell after the defer recipe, reusing `triage` and `A_PARENT`:
-  ```bash
-  : "${A_PARENT_READY:?origin parent lookup not completed}" &&
-  triage set <B> --rm-parent &&
-    { [ -z "$A_PARENT" ] || triage set <B> --parent "$A_PARENT"; } &&
-    triage set <B> --blocked-by "#${A}"  # ensure traceability link
-  ```
+**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd. When filing from an untrusted checkout, start the trusted CLI in its own directory with `--no-env-file` and pass the target as `GITHUB_REPO` (the operator's value when set, otherwise the checkout's `gh repo view`); do not read the checkout's `.dev/dev-core.yml` pin. Bun reads `bunfig.toml` and `.env` from its startup directory, so a checkout-controlled preload could otherwise run before triage.
 
 ## Complexity Scoring
 
@@ -258,7 +201,7 @@ rm -rf "$DIR"
 | 7-10 | **F-full** | `size:F-full` |
 
 The label is the **only** source of the review tier — `R-dev-review` reads τ from
-the issue, so a ticket created without a `size:` label silently downgrades its own
+the issue, so an issue created without a `size:` label silently downgrades its own
 review to `F-lite`. What each tier costs downstream is the project contract's to
 state, not this skill's: `docs/agents/issue-tracker.md` § Tier is mandatory.
 
@@ -289,7 +232,7 @@ T create \
   --size S --priority Medium \
   --parent 163
 T create \
-  --title "epic: improve CI pipeline" \
+  --title "Improve CI pipeline" \
   --size L --priority High \
   --add-child 150,151,152
 

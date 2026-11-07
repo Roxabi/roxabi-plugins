@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { githubScope } from '../../adapters/github/transport.ts'
 import { type ParsedIssueSpec, parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
-import type { NormalizationJudgement } from '../../engine/uw-normalization-schema.ts'
-import { validateNormalizationJudgement } from '../uw-normalization-proposal.ts'
+import type { UwProposalInput } from '../uw-contract.ts'
+import { validateNormalizationConservation } from '../uw-normalization-conservation.ts'
+
+type NormalizationJudgement = Pick<UwProposalInput, 'draft' | 'normalization' | 'factors' | 'tierOverride'>
 
 const uw = githubScope('acme/app', 17)
 
@@ -58,9 +60,18 @@ function fixture(): { parsed: ParsedIssueSpec; judgement: NormalizationJudgement
 }
 
 function diagnostics(judgement: NormalizationJudgement, parsed: ParsedIssueSpec): readonly string[] {
-  return validateNormalizationJudgement(
-    { uw, title: 'Normalize', parsed, graph: {} as never, writes: {} as never },
-    judgement,
+  return validateNormalizationConservation(
+    {
+      ...judgement,
+      uw,
+      title: 'Normalize',
+      sourceBodySha256: rawSource('#17', '', null).bodySha256,
+      writes: {
+        labels: { add: [], remove: [] },
+        relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
+      },
+    },
+    parsed.analysis,
   ).map((entry) => entry.code)
 }
 
@@ -104,38 +115,7 @@ describe('UW normalization conservation', () => {
       factors: { files: 1, risk: 1, architecture: 1, unknowns: 1, domains: 1 },
       tierOverride: null,
     }
-    const observedAt = '2026-10-27T12:00:00.000Z'
-    const result = validateNormalizationJudgement(
-      {
-        uw,
-        title: 'Normalize',
-        parsed,
-        graph: {
-          status: 'complete',
-          root: uw,
-          observedAt,
-          nodes: [
-            {
-              uw,
-              title: 'Normalize',
-              raw,
-              updatedAt: observedAt,
-              labels: ['size:S'],
-              wayfinderLabels: [],
-              parent: null,
-              children: [],
-              blockers: [],
-              native: { state: 'OPEN', stateReason: null },
-            },
-          ],
-        },
-        writes: {
-          labels: { add: [], remove: [] },
-          relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
-        },
-      },
-      judgement,
-    )
+    const result = diagnostics(judgement, parsed)
 
     expect(parsed.analysis.preservedContent).toEqual([])
     expect(result).toEqual([])

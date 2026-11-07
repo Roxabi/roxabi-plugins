@@ -5,7 +5,6 @@ import {
   createGhIssueWritePorts,
   createIssueWriter,
   githubScope,
-  normalizationJudgementSchema,
   prepareSpecAllocation,
   readLandingFacts,
   readUwCompletionObservation,
@@ -36,7 +35,7 @@ import {
 } from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
-import { diagnostic, listInstalledReports } from './uw-installed-reports.ts'
+import { listInstalledReports } from './uw-installed-reports.ts'
 import { createLinkedClosure } from './uw-linked-closure.ts'
 import { createUwOperations } from './uw-operations.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
@@ -164,21 +163,6 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     resolveSpecEffective,
     renderIssueSpecBody,
     calculateTier,
-    parseNormalization(uw, value) {
-      const parsed = normalizationJudgementSchema.safeParse(value)
-      return parsed.success
-        ? { ok: true, value: parsed.data }
-        : {
-            ok: false,
-            diagnostics: [
-              diagnostic(
-                uw,
-                'normalization-invalid',
-                'Native normalization output does not match the required judgement',
-              ),
-            ],
-          }
-    },
     publishIdentity,
     framingPublication: createFramingPublicationPorts(github, createdReader),
     acceptMaterial,

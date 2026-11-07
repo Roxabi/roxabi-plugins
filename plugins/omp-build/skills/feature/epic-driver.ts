@@ -8,7 +8,7 @@ import {
 } from './epic-driver-control'
 import { next } from './epic-driver-next'
 import { Assisted, currentEpicEffects, type EpicEffects, Refused, withEpicEffects } from './epic-driver-runtime'
-import { hook, markFix, report, review, stop } from './epic-driver-terminal'
+import { hook, report, review, stop } from './epic-driver-terminal'
 
 export type { EpicAuthority, EpicChildGrant } from './epic-driver-authority'
 export { assertChildGrant, frameEpicChildren, readEpicAuthority } from './epic-driver-authority'
@@ -34,7 +34,6 @@ export type EpicDriverPort = {
   next: typeof next
   readEpicStep: typeof readEpicStep
   stop: typeof stop
-  markFix: typeof markFix
   review: typeof review
   hook: typeof hook
   report: typeof report
@@ -54,7 +53,6 @@ export function createEpicDriver(injected: EpicEffects = {}): EpicDriverPort {
     next: bind(next),
     readEpicStep: bind(readEpicStep),
     stop: bind(stop),
-    markFix: bind(markFix),
     review: bind(review),
     hook: bind(hook),
     report: bind(report),
@@ -68,7 +66,6 @@ const realDriver = createEpicDriver()
 export const epicNext = realDriver.next
 export const epicStep = realDriver.readEpicStep
 export const epicStop = realDriver.stop
-export const epicMarkFix = realDriver.markFix
 export const epicHook = realDriver.hook
 export const epicReport = realDriver.report
 export const epicBindReview = realDriver.review

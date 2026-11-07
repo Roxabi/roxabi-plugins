@@ -7785,12 +7785,6 @@ var complexityFactorsSchema = strictObject({
   domains: number2().int().min(1).max(10)
 });
 var tierOverrideSchema = strictObject({ tier: uwTierSchema, reason: string2().min(1) }).nullable();
-var normalizationJudgementSchema = strictObject({
-  draft: specDraftSchema,
-  normalization: array(normalizationDecisionSchema),
-  factors: complexityFactorsSchema,
-  tierOverride: tierOverrideSchema
-});
 
 // plugins/omp-build/engine/uw-write-intent-schema.ts
 var repositorySchema = string2().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
@@ -8726,8 +8720,7 @@ var actionPurposeSchema = _enum([
   "integrate",
   "attribute-ci",
   "review",
-  "correction",
-  "normalize"
+  "correction"
 ]);
 var actionSubjectSchema = discriminatedUnion("kind", [
   strictObject({
@@ -8783,14 +8776,14 @@ function manifestIssue(context, path, message) {
 }
 function refineSourcePurpose(value, context) {
   const { purpose, spec } = value;
-  if (spec.kind === "unframed" && purpose !== "frame" && purpose !== "normalize") {
-    manifestIssue(context, ["spec"], "unframed source is lawful only for frame or normalize");
+  if (spec.kind === "unframed" && purpose !== "frame") {
+    manifestIssue(context, ["spec"], "unframed source is lawful only for frame");
   }
-  if (spec.kind === "proposed" && purpose !== "frame" && purpose !== "normalize" && purpose !== "assess-spec") {
-    manifestIssue(context, ["spec"], "proposed snapshot is lawful only for frame, normalize, or assess-spec");
+  if (spec.kind === "proposed" && purpose !== "frame" && purpose !== "assess-spec") {
+    manifestIssue(context, ["spec"], "proposed snapshot is lawful only for frame or assess-spec");
   }
-  if (spec.kind === "accepted" && (purpose === "frame" || purpose === "normalize")) {
-    manifestIssue(context, ["spec"], "frame and normalize cannot carry an accepted Spec");
+  if (spec.kind === "accepted" && purpose === "frame") {
+    manifestIssue(context, ["spec"], "frame cannot carry an accepted Spec");
   }
   if (spec.kind === "absent" && (purpose !== "review" && purpose !== "correction" || value.subject.kind !== "standalone-pr")) {
     manifestIssue(context, ["spec"], "absent Spec is lawful only for standalone review or correction");
@@ -10245,10 +10238,6 @@ var preMandateFrameExactSchema = strictObject({
   branch: string2().min(1),
   base: string2().min(1)
 });
-var normalizeExactSchema = strictObject({
-  uw: scopeSchema,
-  bodySha256: sha256Schema
-});
 var PLAN_REVIEW_SPECIALISTS = ["R-workflow-plan-architect", "R-workflow-plan-adversarial"];
 var planReviewSpecialistSchema = _enum(PLAN_REVIEW_SPECIALISTS);
 var planReviewSlotSchema = strictObject({
@@ -10347,25 +10336,10 @@ function declaredPlanSlots(slots, context) {
 function issue2(context, path, message) {
   context.addIssue({ code: "custom", path, message });
 }
-function normalizeSourceDigest(spec) {
-  if (spec.kind === "unframed")
-    return spec.source.bodySha256;
-  if (spec.kind === "proposed")
-    return spec.snapshot.raw.bodySha256;
-  return null;
-}
 function refineAbsentMandate(receipt, context) {
-  if (receipt.action !== "frame" && receipt.action !== "normalize") {
-    issue2(context, ["mandate"], "absent mandate authorizes nothing");
-  }
   const spec = receipt.inputs.manifest.spec;
   if (spec.kind !== "unframed" && spec.kind !== "proposed") {
     issue2(context, ["inputs", "manifest", "spec"], "pre-mandate receipt cannot carry an accepted or absent Spec");
-  }
-  if (receipt.action !== "normalize" || !("bodySha256" in receipt.exactInputs))
-    return;
-  if (normalizeSourceDigest(spec) !== receipt.exactInputs.bodySha256) {
-    issue2(context, ["exactInputs", "bodySha256"], "normalize digest does not match the raw source");
   }
 }
 function mandatedRefs(receipt) {
@@ -10423,8 +10397,7 @@ var workflowReceiptActionSchema = _enum([
   "plan-review",
   "implement",
   "integrate",
-  "attribute-ci",
-  "normalize"
+  "attribute-ci"
 ]);
 var preMandateRefSchema = strictObject({
   kind: literal("absent"),
@@ -10494,15 +10467,13 @@ var [implementStart, implementResult] = actionReceipt("implement", implementExac
 ]), mandated);
 var [integrateStart, integrateResult] = actionReceipt("integrate", integrationExactSchema, union([integrationOutputSchema, missingContextOutputSchema]), mandated);
 var [ciStart, ciResult] = actionReceipt("attribute-ci", ciExactSchema, union([ciAttributionSchema, missingContextOutputSchema]), mandated);
-var [normalizeStart, normalizeResult] = actionReceipt("normalize", normalizeExactSchema, union([normalizationJudgementSchema, missingContextOutputSchema]), preMandateRefSchema);
 var taggedActionReceipts = discriminatedUnion("action", [
   discriminatedUnion("phase", [assessStart, assessResult]),
   discriminatedUnion("phase", [planStart, planResult]),
   discriminatedUnion("phase", [planReviewStart, planReviewResult]),
   discriminatedUnion("phase", [implementStart, implementResult]),
   discriminatedUnion("phase", [integrateStart, integrateResult]),
-  discriminatedUnion("phase", [ciStart, ciResult]),
-  discriminatedUnion("phase", [normalizeStart, normalizeResult])
+  discriminatedUnion("phase", [ciStart, ciResult])
 ]);
 var actionReceiptPayloadSchema = union([
   taggedActionReceipts,
@@ -10895,7 +10866,6 @@ var WORKTREE_ACTIONS = new Set([
   "attribute-ci",
   "epic-next",
   "epic-final",
-  "mark-fix",
   "hook",
   "report"
 ]);
@@ -11174,8 +11144,7 @@ var PRODUCER_OUTPUTS = [
   "plan",
   "plan-review",
   "delivery-execution",
-  "ci-attribution",
-  "uw-normalization"
+  "ci-attribution"
 ];
 var producerSchemas = {
   spec: union([specReportSchema, missingContextOutputSchema]),
@@ -11190,8 +11159,7 @@ var producerSchemas = {
     integrationOutputSchema.extend({ criteria: array(producerCriterionDeclarationSchema) }),
     missingContextOutputSchema
   ]),
-  "ci-attribution": union([ciAttributionSchema, missingContextOutputSchema]),
-  "uw-normalization": union([normalizationJudgementSchema, missingContextOutputSchema])
+  "ci-attribution": union([ciAttributionSchema, missingContextOutputSchema])
 };
 function producerOutputValid(output, value) {
   return Object.hasOwn(producerSchemas, output) && producerSchemas[output].safeParse(value).success;
@@ -13188,8 +13156,7 @@ var outputFor = {
   "assess-spec": "spec-assessment",
   "attribute-ci": "ci-attribution",
   implement: "delivery-execution",
-  integrate: "delivery-execution",
-  normalize: "uw-normalization"
+  integrate: "delivery-execution"
 };
 function workflowContextNegative(result) {
   const payload = result.payload;
@@ -15164,7 +15131,6 @@ var workflowGraphActionSchema = _enum([
   "watch",
   "epic-next",
   "epic-final",
-  "mark-fix",
   "hook",
   "report",
   "stop",
@@ -15193,7 +15159,6 @@ var workflowConditionSchema = _enum([
   "epic-resume",
   "epic-stop",
   "epic-final-review",
-  "epic-fix-ticket",
   "epic-post-merge",
   "epic-complete",
   "epic-drop"
@@ -29469,8 +29434,6 @@ function conditionHolds(when, history, facts, decisions, mandate, pullRequest, c
       return decisions.epicStep === "stop";
     case "epic-final-review":
       return decisions.epicStep === "final-review";
-    case "epic-fix-ticket":
-      return decisions.epicStep === "fix-ticket";
     case "epic-post-merge":
       return decisions.epicStep === "post-merge";
     case "epic-complete":
@@ -29566,16 +29529,7 @@ function nextNode(graph, current, node, history, facts, decisions, mandate, pull
     ["spec-differs", "spec-settled"],
     ["review-step-review", "review-step-fix", "review-step-land", "review-step-stop"],
     ["ci-red", "ci-attributed-change", "ci-attribution-refused"],
-    [
-      "epic-start",
-      "epic-resume",
-      "epic-stop",
-      "epic-final-review",
-      "epic-fix-ticket",
-      "epic-post-merge",
-      "epic-complete",
-      "epic-drop"
-    ]
+    ["epic-start", "epic-resume", "epic-stop", "epic-final-review", "epic-post-merge", "epic-complete", "epic-drop"]
   ].some((group) => matching.filter((edge) => group.includes(edge.when)).length > 1);
   if (exclusive)
     return blocked("ambiguous-transition", [
@@ -29846,7 +29800,6 @@ var NODES = [
   { id: "land", action: "land" },
   { id: "epic-next", action: "epic-next" },
   { id: "epic-final", action: "epic-final" },
-  { id: "mark-fix", action: "mark-fix" },
   { id: "hook", action: "hook" },
   { id: "report", action: "report" },
   { id: "stop", action: "stop" },
@@ -29860,7 +29813,6 @@ var EDGES = [
   { from: "ready", to: "report", when: "epic-drop" },
   { from: "ready", to: "report", when: "epic-complete" },
   { from: "ready", to: "epic-final", when: "epic-final-review" },
-  { from: "ready", to: "mark-fix", when: "epic-fix-ticket" },
   { from: "ready", to: "hook", when: "epic-post-merge" },
   { from: "ready", to: "epic-next", when: "epic-start" },
   { from: "ready", to: "epic-next", when: "epic-resume" },
@@ -30229,7 +30181,6 @@ export {
   nativeObservationDigest,
   nativeOutcomeSchema,
   nativeProofBashCallSchema,
-  normalizationJudgementSchema,
   observeCauseSisters,
   observedAncestors,
   observedCommentSchema,

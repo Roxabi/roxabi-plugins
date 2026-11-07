@@ -4,7 +4,7 @@ Triage and create GitHub issues — size, priority, lane, and type labels plus b
 
 ## Why
 
-Raw GitHub issues lack structure. This plugin adds Size (S / F-lite / F-full), Priority (P0→P3), Lane, and Type via native labels and issue relations, so the backlog is plannable and a frontier query — "what is grabbable right now?" — is answerable from GitHub alone. It is the single writer of issue relations and tiers; the consuming project states how they are used, e.g. [`docs/agents/issue-tracker.md`](../../docs/agents/issue-tracker.md) in this repo.
+Raw GitHub issues lack structure. This plugin adds Size (S / F-lite / F-full), Priority (P0→P3), Lane, and Type via native labels and issue relations, so the backlog is plannable and a frontier query — "what is grabbable right now?" — is answerable from GitHub alone. The consuming project states how they are used, e.g. [`docs/agents/issue-tracker.md`](../../docs/agents/issue-tracker.md) in this repo.
 
 ## Install
 
@@ -58,15 +58,15 @@ An existing final target must be a regular file. A special file such as a FIFO i
 
 `create` accepts the same field flags as `set`: `--size`, `--priority`, `--lane`, `--type`, plus `--parent`, `--add-child`, `--blocked-by`, `--blocks`.
 
-Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. Sibling deferral preserves the origin parent's full coordinate, even when another repository contains the same issue number. `set --rm-parent` resolves that actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`; the numeric-only helper was removed.
+Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. `set --rm-parent` resolves the actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`.
 
-Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` (yours when exported, else the checkout's `gh repo view`, never the checkout's `.dev/dev-core.yml` pin) and absolute `--title-file` / `--body-file` paths. The Deferred Follow-Ups recipe requires the origin issue and a successful parent lookup before creating its sibling; an empty parent keeps both issues top-level. Mis-parent repair reuses that launcher, parent value and confirmed-read state in the same shell: a failed or unattempted lookup refuses before any repair mutation, and removal or restoration failure stops later writes. Bun reads `bunfig.toml` and `.env` from its startup directory, so a preload committed in the checkout would otherwise run first.
+Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` (yours when exported, else the checkout's `gh repo view`, never the checkout's `.dev/dev-core.yml` pin) and absolute `--title-file` / `--body-file` paths. Bun reads `bunfig.toml` and `.env` from its startup directory, so a preload committed in the checkout would otherwise run first.
 
 Startup separation assumes the resolved CLI and its directory are operator-trusted. A normal installed cache is separate from the candidate checkout; a development link into candidate-controlled source does not establish that trust boundary. This launcher is not a validator or sandbox for the CLI it resolves.
 
 ## Importable issue writer
 
-The standalone skill, CLI and repository-selection rules above remain independent of omp-build. UW consumers use an injected library rather than importing the CLI or starting it as a subprocess:
+The standalone skill, CLI and repository-selection rules above remain independent of omp-build. Omp-build automated issue body, label, relation and state writes go through UW, which uses an injected library rather than importing the CLI or starting it as a subprocess. Humans may also change GitHub issues directly; an edit or native close alone does not accept a Spec or establish calculated UW completion.
 
 - [`domain/issue-write.ts`](skills/shared/domain/issue-write.ts): `createIssueWriter(ports)`, explicit `IssueRef` coordinates, mutation plans and observed results.
 - [`adapters/issue-writer.ts`](skills/shared/adapters/issue-writer.ts): `createGhIssueWritePorts({ gh, read })`, adapting a supplied command runner and a complete logical reader to native GitHub mutations.
@@ -106,6 +106,8 @@ Keep literal harness placeholders intact when changing the OMP path-rewrite impl
 Version `0.4.0` requires native state/reason in the injected writer's complete observations and adds guarded native close/reopen effects. Existing standalone commands, repository selection, cross-repository behavior and Claude/OMP entrypoints retain their contracts. Matching source/catalogue versions describe the candidate; they do not prove installation or activation.
 
 Version `0.4.1` avoids issuing a metadata PATCH when a write changes only labels or relations and the issue title and body are unchanged. Create no longer re-PATCHes unchanged metadata; a concurrent post-create body edit is reported as `write-conflict`. The version declarations do not establish installation or activation.
+
+Version `0.4.2` removes the blanket sibling rule from triage guidance; standalone triage remains available independently of UW.
 
 ## Verification
 

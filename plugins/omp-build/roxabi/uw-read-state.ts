@@ -6,7 +6,6 @@ import type { UwCompletionAssessment, UwCompletionObservation } from '../engine/
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
-import { bindEligibleHistoricalProjection } from './uw-read-historical-projection.ts'
 import type { InstalledUwReadOptions } from './uw-read-port.ts'
 
 type InstalledUwContracts = Pick<
@@ -286,7 +285,6 @@ function assembleUwRead(
           contracts.readFramingMembership({ uw, graph, histories: history.histories, accepted }),
         ),
   }
-  bindEligibleHistoricalProjection(contracts, result, own, history.histories, input.assessmentReplay)
   return result
 }
 

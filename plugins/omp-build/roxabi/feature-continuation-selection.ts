@@ -3,14 +3,13 @@ import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
-import { checkoutTarget } from './feature-checkout-target.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate } from './feature-initial-mandate.ts'
 import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
-import { selectionNormalization } from './feature-selection-normalization.ts'
 import { prepareRequestedSession, prepareSuccessorCheckout } from './feature-selection-session.ts'
+import { specEntrySelection } from './feature-selection-spec-entry.ts'
 import { createSuccessorSelection } from './feature-selection-successor.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
 import type { UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
@@ -51,9 +50,8 @@ export async function selectFeatureMandate(
     authority.target.status === 'pull-request'
       ? authority.target.pullRequest.branch
       : branchFor({ number, title: issue.title, labels: issue.labels })
-  const normalization = selectionNormalization(control, authority, uwRead)
-  if (normalization?.kind === 'normalization') return prepareNormalization(authority, uwRead, branch, normalization)
-  if (normalization !== null) return normalization
+  const entry = specEntrySelection(control, authority, uwRead)
+  if (entry !== null) return entry
   const sessionCwd = identity.ok ? identity.sessionTop : null
   const updated = await updateMandateSelection(
     control,
@@ -69,30 +67,6 @@ export async function selectFeatureMandate(
   if ('kind' in selected) return selected
   const prepared = await prepareSelectionSession(control, selected, branch, sessionCwd, updated.state)
   return prepared ?? selected
-}
-
-async function prepareNormalization(
-  authority: FeatureAuthority,
-  uwRead: UwRead | null,
-  branch: string,
-  normalization: ContinueFeatureResult,
-): Promise<ContinueFeatureResult> {
-  if (uwRead === null) return { kind: 'blocked', reason: 'uw-read-required' }
-  const target = checkoutTarget({ uw: authority.scope, graph: uwRead.graph, accepted: uwRead.accepted, branch })
-  if ('kind' in target) return target
-  if (target.target.kind === 'parent') {
-    const anchor = await resolveParentWorktreeAnchor({ subject: authority.scope, read: uwRead })
-    if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-    target.target.uw = anchor.anchor
-  }
-  const checkout =
-    target.target.kind === 'branch' && authority.target.status === 'pull-request'
-      ? { ...target.target, attachExisting: true as const }
-      : target.target
-  const prepared = await prepareRequestedSession(authority, checkout)
-  if ('kind' in prepared) return prepared
-  const boot = await runWorktreeBootstrap(authority.context.cwd)
-  return boot.ok ? normalization : { kind: 'blocked', reason: boot.reason }
 }
 
 async function finishSelection(

@@ -6,8 +6,6 @@ export type RosterCliInput = {
   chunkDeltas: string[][]
   chunks: number
   stackText: string | null
-  specContent: string | null
-  specUnreadable: boolean
   ioWarnings: string[]
 }
 
@@ -86,12 +84,6 @@ function readStack(stackPath: string, warnings: string[]): string | null {
   return stackText
 }
 
-function readSpec(specPath: string | null, warnings: string[]): Pick<RosterCliInput, 'specContent' | 'specUnreadable'> {
-  if (!specPath) return { specContent: null, specUnreadable: false }
-  const specContent = readOrWarn(specPath, specPath, warnings)
-  return { specContent, specUnreadable: specContent == null }
-}
-
 export function loadRosterCliInput(options: RosterCliArguments): RosterCliInput {
   const ioWarnings: string[] = []
   const delta = readDiffList(options.diffList, ioWarnings)
@@ -99,6 +91,5 @@ export function loadRosterCliInput(options: RosterCliArguments): RosterCliInput 
   const chunks = resolveChunkCount(options, ioWarnings)
   if (options.chunkLists.length) addChunkWarnings(delta, chunkDeltas, ioWarnings)
   const stackText = readStack(options.stackPath, ioWarnings)
-  const spec = readSpec(options.specPath, ioWarnings)
-  return { delta, chunkDeltas, chunks, stackText, ioWarnings, ...spec }
+  return { delta, chunkDeltas, chunks, stackText, ioWarnings }
 }

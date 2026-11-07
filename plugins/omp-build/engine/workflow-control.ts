@@ -28,7 +28,6 @@ export const WORKTREE_ACTIONS = new Set<string>([
   'attribute-ci',
   'epic-next',
   'epic-final',
-  'mark-fix',
   'hook',
   'report',
 ])

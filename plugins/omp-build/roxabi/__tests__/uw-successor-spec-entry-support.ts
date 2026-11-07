@@ -201,15 +201,6 @@ export function setup(abandoned: boolean) {
     prepareSpecAllocation,
     renderIssueSpecBody,
     calculateTier,
-    parseNormalization: () => ({
-      ok: true,
-      value: {
-        draft: request.draft,
-        normalization: request.normalization,
-        factors: request.factors,
-        tierOverride: null,
-      },
-    }),
     publishIdentity: async () => {
       throw new Error('existing C1 must not require identity publication')
     },
@@ -245,6 +236,7 @@ export function setup(abandoned: boolean) {
   return {
     history,
     mandate,
+    original,
     parsed,
     read,
     operations,

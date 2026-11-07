@@ -24,9 +24,9 @@ Before preparation, read `review-classes.yml`, `root-causes.md`, `evidence-polic
 Use the installed `omp-build` review product, not a shell runner or a replacement panel:
 
 - Parse the full diff with `chunker.py`, produce every boundary digest with `digest.py`, and preserve their ordered outputs.
-- Allocate every chunk with `roster.allocateReview`; retain its full allocation. `review_halt` stops. Existing tier $\tau \in \{S,F\text{-lite},F\text{-full}\}$ remains host-selected; an Epic range is not silently tier S.
+- Allocate every chunk with `roster.allocateReview`; retain its full allocation. `review_halt` stops. Existing tier $\tau \in \{S,F\text{-lite},F\text{-full}\}$ remains host-selected; a parent range is not silently tier S.
 - Read `review-classes.yml`; only canonical classes can trigger recall. `candidate/<slug>` is advisory.
-- Publish and read back the immutable initial `review-attempt` before dispatch. Initial PR inventory has `subject:{kind:'pull-request'}`; Epic range inventory has `subject:{kind:'epic-range',range:'<40hex>..<40hex>'}`. Later recall/synthesis inventories inherit the root; do not repeat `subject`.
+- Publish and read back the immutable initial `review-attempt` before dispatch. Initial PR inventory has `subject:{kind:'pull-request'}`; parent range inventory has `subject:{kind:'epic-range',range:'<40hex>..<40hex>'}`. Later recall/synthesis inventories inherit the root; do not repeat `subject`.
 - **Recall** — index report/callsite associations. Trigger a canonical non-candidate class only at $\ge2$ chunks and $\ge3$ unique callsites. Recall uses `R-review-recall`, the explicitly named blocking, read-only Roxabi profile configured with the bundled scout's `@smol` role and read-only tool subset; it is not the bundled `scout` or a scheduler replacement. Its terminal strict result is required before synthesis.
 
 ## Stages
@@ -36,7 +36,7 @@ Use the installed `omp-build` review product, not a shell runner or a replacemen
 1. **Initial** — required spec and panel slots use strict schemas. Preserve raw attempts and each child identity before inspecting the structured report. The outer task success does not make a child valid: every required `event.details.results` child needs expected ID, exitCode 0, no error/abort, and `structuredOutput.status === 'valid'`.
 2. **Recall** — use the confirmed class index and `R-review-recall`; its strict terminal result is required before synthesis.
 3. **Synthesis** — after all required source slots are retained and valid, use the blocking `R-review-synthesis` role. It alone classifies identities, final labels, impact, merges, and causes. Core only validates references/conservation and derives labels/groups/verdict.
-4. **Publication** — revalidate binding, publish canonical contribution/decision records through the GitHub adapter, and read them back. A PR publishes only its final `review`; an Epic range never publishes `review` or consumes PR rounds. Its driver publishes its domain `epic-event` from the confirmed decision/inventory references and exact range.
+4. **Publication** — revalidate binding, publish canonical contribution/decision records through the GitHub adapter, and read them back. A PR publishes only its final `review`; a parent range never publishes `review` or consumes PR rounds. Its driver publishes its domain `epic-event` from the confirmed decision/inventory references and exact range.
 
 Any incomplete or unusable required result stops. Retain raw partial output, including extractable reports, rather than replacing it with `[]` or a successful empty finding list. A third-red or third-green+CI-red stop remains sticky and is published as canonical `stop` before continuation/disarm.
 

@@ -19,7 +19,7 @@ import {
 } from '../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { checkPlannedAncestry, resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
-import { selectionNormalization } from './feature-selection-normalization.ts'
+import { specEntrySelection } from './feature-selection-spec-entry.ts'
 import { prepareCanonicalCheckout } from './prepare-canonical-checkout.ts'
 import type { UwOperations } from './uw-contract.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
@@ -175,7 +175,7 @@ it('routes a legacy issue to assisted framing at initial selection', async () =>
       observation: read.observation,
     },
   )
-  expect(selectionNormalization('select', { scope: child, selection }, read)).toEqual({
+  expect(specEntrySelection('select', { scope: child, selection }, read)).toEqual({
     kind: 'framing',
     source: { kind: 'issue', uw: child },
   })

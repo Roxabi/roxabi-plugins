@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
 import { producerJsonSchema } from '../plugins/omp-build/engine/producer-schema.ts'
@@ -28,24 +28,17 @@ const requiredBun = readFileSync(join(repositoryRoot, '.bun-version'), 'utf8').t
 const pluginRoot = join(repositoryRoot, 'plugins/omp-build')
 const issueTriageSource = join(repositoryRoot, 'plugins/issue-triage')
 const issueTriageSlice = [
-  'skills/issue-triage/triage.ts',
-  'skills/issue-triage/lib/create.ts',
-  'skills/issue-triage/lib/set.ts',
   'skills/issue-triage/lib/init.ts',
-  'skills/issue-triage/lib/label-flags.ts',
   'skills/issue-triage/lib/migrate-labels.ts',
-  'skills/issue-triage/lib/list.ts',
   'skills/issue-triage/templates/issue-tracker.md',
   'skills/shared/adapters/config-helpers.ts',
   'skills/shared/adapters/github-adapter.ts',
   'skills/shared/adapters/github-infra.ts',
   'skills/shared/adapters/issue-writer.ts',
-  'skills/shared/domain/cli-args.ts',
   'skills/shared/domain/complexity.ts',
   'skills/shared/domain/errors.ts',
   'skills/shared/domain/issue-types.ts',
   'skills/shared/domain/issue-write.ts',
-  'skills/shared/domain/parse-issue-ref.ts',
   'skills/shared/domain/types.ts',
   'skills/shared/queries.ts',
 ] as const
@@ -149,6 +142,7 @@ function writeProfile(
 function copyIssueTriageSlice(distDirectory: string, recorder: OutputRecorder, inputs: Set<string>): void {
   const missing = issueTriageSlice.filter((path) => !existsSync(join(issueTriageSource, path)))
   if (missing.length > 0) throw new Error(`issue-triage runtime slice missing source: ${missing.join(', ')}`)
+  rmSync(join(distDirectory, 'issue-triage'), { recursive: true, force: true })
   for (const path of issueTriageSlice) {
     const source = join(issueTriageSource, path)
     const destination = join(distDirectory, 'issue-triage', path)

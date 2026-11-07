@@ -227,7 +227,7 @@ function reviewedRangeStep(facts: Facts, report: Report, range: string): Step {
     .filter((entry) => entry.range === range && currentEpicReviewInputs(facts, entry.inputs))
     .at(-1)
   if (!review) return { action: 'final-review', stage: 'review', range, reason: `no review of ${range}`, report }
-  if (review.verdict === 'blocking') return blockingReviewStep(facts, range, report)
+  if (review.verdict === 'blocking') return blockingReviewStep(range, report)
   if (facts.parentCompletion?.state !== 'complete')
     return {
       action: 'drop',
@@ -279,20 +279,11 @@ export function currentEpicReviewInputs(facts: Facts, inputs: ActionInputs): boo
   )
 }
 
-function blockingReviewStep(facts: Facts, range: string, report: Report): Step {
-  if (!facts.children.some((child) => child.epicFix)) {
-    return {
-      action: 'final-review',
-      stage: 'fix-ticket',
-      range,
-      reason: 'the final review is blocking and its one fix round is unspent',
-      report,
-    }
-  }
+function blockingReviewStep(range: string, report: Report): Step {
   return {
     action: 'drop',
     stop: 'final-review-blocking',
-    reason: 'the final review is still blocking after its fix round',
+    reason: `Final review of ${range} is blocking; inspect its cause dispositions and use /uw adjudicate, /uw sister, or /uw promote-report as applicable`,
     report,
   }
 }

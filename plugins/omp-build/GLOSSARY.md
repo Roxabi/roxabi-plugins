@@ -10,15 +10,14 @@ _Avoid_: factory, /R-dev, /build, dev-core (on OMP)
 
 **UW (unit of work)**:
 A unit of work identified by its repository and issue number; it may contain other UWs.
-_Avoid_: ticket, epic
 
 **UW parente**:
 A UW with children, as determined by its native GitHub relations rather than an issue type.
-_Avoid_: epic, a delivery inferred from its children's approvals alone
+_Avoid_: a delivery inferred from its children's approvals alone
 
 **UW feuille**:
 A UW without children, as determined by its native GitHub relations.
-_Avoid_: ticket, a role fixed by an issue type
+_Avoid_: a role fixed by an issue type
 
 **UW gérée**:
 A UW whose confirmed Mandate establishes an accepted Spec. A conforming body, allocated identities or native closure alone do not establish its delivery.
@@ -86,7 +85,7 @@ _Avoid_: a local snapshot, an attempted write, an unconfirmed acknowledgement
 
 **Parent UW mandate**:
 The confirmed mandate on a UW parente: the accepted child UWs, their Spec versions and tiers, and their parent coverage for one delivery. It is not a session goal.
-_Avoid_: Epic goal, /goal, an autonomy level stored on the issue, one goal per UW
+_Avoid_: /goal, an autonomy level stored on the issue, one goal per UW
 
 **Run**:
 The run id stored on a Parent UW mandate. It names one delivery pass without authorizing it, resetting a review bound, or joining authority by itself.
@@ -94,7 +93,7 @@ _Avoid_: Goal run, a /goal line, `run=` in an objective, a counter of attempts
 
 **Arrêt d'UW**:
 A stop confined to one child UW while independent children may continue.
-_Avoid_: ticket stop, a shared-state stop, a /goal drop, a stop held only in session memory
+_Avoid_: a shared-state stop, a /goal drop, a stop held only in session memory
 
 **Shared-state stop**:
 A failure that makes every remaining child UW unsafe to continue.
@@ -157,7 +156,7 @@ A UW whose applicable Spec is framed and whose required graph facts and dependen
 _Avoid_: completed, native issue closure, an earlier admission reused without checking
 
 **Wayfinder**:
-A navigation map and its decision tickets for a path that needs exploration beyond one delivery. They are not UWs, have no UW tier and are excluded from the UW work graph.
+A navigation map and its decisions for a path that needs exploration beyond one delivery. They are not UWs, have no UW tier and are excluded from the UW work graph.
 _Avoid_: an accepted child silently removed by reclassification, a completed blocker inferred from a label
 
 **Spec effective**:
@@ -197,7 +196,7 @@ A versioned common record whose payload is the authority for that operation. The
 _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local session store
 
 **UW event**:
-A canonical `epic-event` record on a UW parente or child UW. Its historical payload names, including `goal-stop`, `epic-review`, `epic-fix`, `post-merge`, and `goal-report`, are protocol rather than a session goal.
+A canonical `epic-event` record on a UW parente or child UW. Payload names include `goal-stop`, `epic-review`, `post-merge`, and `goal-report`; historical `epic-fix` records are decoded for diagnostics only and do not drive facts, stages, or transitions.
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 
 **Landing admission**:
@@ -238,8 +237,8 @@ A frozen copy of selected `dev-core` files inside `omp-build`. No resync. Claude
 _Avoid_: Instantané, fork, submodule, live share
 
 **Lien d'UW**:
-A native GitHub relation between UWs: sub-issue (parent/child) or dependency (blocked-by/blocks), written through issue-triage.
-_Avoid_: ticket link, a `Blocked by:` text line, `.scratch/` local edges, raw `gh issue create` for a relation
+A native GitHub relation between UWs: sub-issue (parent/child) or dependency (blocked-by/blocks). Automated omp-build issue mutations, including relations, pass through UW operations; standalone issue-triage remains independent.
+_Avoid_: a `Blocked by:` text line, `.scratch/` local edges, raw `gh issue create` for a relation
 
 **Cause disposition**:
 The evidence-backed decision for one cause. A blocking cause is necessary and urgent by definition; uncertainty keeps it blocking rather than authorizing an automatic correction or report.
@@ -260,8 +259,8 @@ _Avoid_: an automatic nonblocking bundle, a blanket sibling rule, treating a pen
 _Avoid_: spec frontmatter, κ alone, tier-selected review agents
 
 **issue-triage**:
-The tracker plugin: creates issues, writes `size:`/`priority:`/type labels, and owns every Lien d'UW. Sibling to `omp-build`, not part of it.
-_Avoid_: folding it into omp-build, copying its mutations
+The standalone tracker plugin creates issues and writes labels and native relations. In omp-build, automated issue body, label, relation, and state writes are owned by UW operations.
+_Avoid_: treating standalone issue-triage as omp-build's authority
 
 **Optional tail**:
 `cleanup` after land, plus `promote` for staging-train projects only. Both remain the operator's decision.
@@ -320,7 +319,7 @@ The canonical `review` a consumer reads by record identity. It names the decisio
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The SHA-256 on a canonical review, or null. Prefix `omp-build:review-input/3` covers the observed PR inputs and semantic context without producer parts. A null input is not approval. Admission recaptures the input and requires equality; the digest checks observed inputs, not authorship.
+The SHA-256 on a canonical review, or null. Prefix `omp-build:review-input/4` covers the observed PR inputs and semantic context without producer parts. A null input is not approval. Admission recaptures the input and requires equality; the digest checks observed inputs, not authorship.
 
 Missing or older input formats refuse with `incompatible-format`; they are not migrated, re-reviewed, or exempted.
 

@@ -9,7 +9,7 @@ import { resumePausedFeature } from './feature-continuation-dispatch.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import { payload } from './feature-engine.ts'
-import { fileEpicFixTicket, runEpicPostMergeHook } from './feature-epic-actions.ts'
+import { runEpicPostMergeHook } from './feature-epic-actions.ts'
 import { landFeature } from './feature-landing.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 
@@ -46,8 +46,6 @@ export async function coordinateContinuationEffects(
       return input.uw === undefined
         ? { kind: 'blocked', reason: 'prepare-action-unavailable' }
         : prepareEpicFinal(context.cwd, context.git, context.gh, number, mandateRef, input.uw, input.pluginPin)
-    case 'mark-fix':
-      return fileEpicFix(input, exactMandateRef, authority, number, observation, continueAtTarget)
     case 'hook':
       return coordinateHook(input, exactMandateRef, authority, observation, number, continueAtTarget)
     case 'report':
@@ -68,20 +66,6 @@ async function resumeFeature(
   if (pause === undefined) return { kind: 'blocked', reason: 'resume-pause-missing' }
   const resumed = await resumePausedFeature({ pause, authority, observation })
   return resumed ?? reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
-}
-
-async function fileEpicFix(
-  input: ContinueFeatureInput,
-  exactMandateRef: ScopedRecordRef | undefined,
-  authority: FeatureAuthority,
-  epic: number,
-  observation: FeatureObservation,
-  continueAtTarget: ContinueAtTarget,
-): Promise<ContinueFeatureResult> {
-  const filed = await fileEpicFixTicket(authority.context.cwd, epic, observation.evidence.issue)
-  return filed.kind === 'terminal' && filed.reason.startsWith('epic-fix-marked:')
-    ? reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
-    : filed
 }
 
 async function coordinateLanding(

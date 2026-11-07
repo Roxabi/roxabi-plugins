@@ -8,16 +8,16 @@ import { fixtures } from './workflow-receipt-schema-parity-fixtures.ts'
 import { SCOPE } from './workflow-test-support.ts'
 
 describe('action receipt schema variant parity', () => {
-  it('accepts all sixteen real action/phase modes without changing their parsed JSON or record meaning', () => {
+  it('accepts all fourteen real action/phase modes without changing their parsed JSON or record meaning', () => {
     const { payloads } = fixtures()
-    expect(payloads).toHaveLength(16)
+    expect(payloads).toHaveLength(14)
     const variants = new Set(
       payloads.map(
         (payload) =>
           `${payload.action}:${payload.phase}:${payload.action === 'frame' && payload.mandate.kind === 'absent' ? 'pre' : 'mandated'}`,
       ),
     )
-    expect(variants.size).toBe(16)
+    expect(variants.size).toBe(14)
     for (const [index, payload] of payloads.entries()) {
       const parsed = actionReceiptPayloadSchema.safeParse(payload)
       expect(parsed.success, `${payload.action}:${payload.phase}`).toBe(true)
@@ -88,14 +88,24 @@ describe('action receipt schema variant parity', () => {
     expect(validateActionInputs(malformed).ok).toBe(false)
   })
 
-  it('retains normalization digest, slot, contribution and assessment operand refinements', () => {
-    const { normalize, planReview, planResult, assessment } = fixtures()
+  it('refuses historical normalize start and result receipts', () => {
+    const { normalize } = fixtures()
+    expect(actionReceiptPayloadSchema.safeParse(normalize).success).toBe(false)
     expect(
       actionReceiptPayloadSchema.safeParse({
         ...normalize,
-        exactInputs: { ...normalize.exactInputs, bodySha256: 'f'.repeat(64) },
+        phase: 'result',
+        start: { scope: SCOPE, recordId: 'schema-start', kind: 'action-receipt' },
+        native: { completion: 'completed', strict: 'valid', raw: null },
+        structured: null,
+        admission: null,
+        diagnostics: [],
       }).success,
     ).toBe(false)
+  })
+
+  it('retains slot, contribution and assessment operand refinements', () => {
+    const { planReview, planResult, assessment } = fixtures()
     if (
       planReview.kind !== 'action-receipt' ||
       planReview.payload.action !== 'plan-review' ||

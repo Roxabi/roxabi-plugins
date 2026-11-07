@@ -31,7 +31,7 @@ the other steps inherit it: only proven_merged(β) reaches `safe_remote`. A hint
 
 `/cleanup` is **offered**, never run on its own initiative:
 
-- It is not part of the feature cycle. `/feature` lands a ticket and stops. Nothing
+- It is not part of the feature cycle. `/feature` lands an issue and stops. Nothing
   in the review→fix loop may reach this skill: a loop that deletes branches between
   review rounds deletes the branch under review.
 - The operator invokes it. No path from `/feature`, `skill://dev-review` or
@@ -466,7 +466,7 @@ If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations per
 - **Phase:** Ship (optional tail)
 - **Predecessor:** — standalone. The operator runs it; nothing chains into it.
 - **Successor:** — none
-- **Class:** standalone. `/feature` may *offer* it after a ticket lands; offering is
+- **Class:** standalone. `/feature` may *offer* it after an issue lands; offering is
   printing a line and stopping. It is never entered from the review→fix loop, where
   deleting a branch would delete the branch under review.
 

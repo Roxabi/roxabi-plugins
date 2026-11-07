@@ -132,35 +132,6 @@ export async function review(
   return { decisionRecord, range }
 }
 
-/**
- * After the existing trusted filing workflow creates a normal fix ticket, bind
- * that child to the one blocking Epic decision which authorizes the fix round.
- */
-export async function markFix(repo: string, epic: number, ticket: number): Promise<{ ticket: number; range: string }> {
-  const authority = await readEpicAuthority(repo, epic)
-  const { run, base } = authority
-  if (!Number.isInteger(ticket) || ticket <= 0) throw new Refused('--ticket <N> is required')
-  refusePrincipal(repo)
-  const { facts, parentAdmission } = await gather(repo, epic, run, base)
-  requireDeliveryAdmission(epic, parentAdmission)
-  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
-  const step = nextStep(facts)
-  if (step.action !== 'final-review' || step.stage !== 'fix-ticket') {
-    throw new Refused(`the driver expects no final-review fix ticket (next: ${step.action})`)
-  }
-  const source = [...facts.reviews]
-    .reverse()
-    .find((review) => review.range === step.range && currentEpicReviewInputs(facts, review.inputs))
-  if (source?.verdict !== 'blocking') {
-    throw new Refused(`the current final review for ${step.range} is not a blocking canonical decision`)
-  }
-  const child = facts.children.find((entry) => entry.number === ticket)
-  if (!child) throw new Refused(`#${ticket} is not a sub-issue of #${epic}`)
-  assertChildGrant(authority, facts, ticket)
-  await publishEpicEvent(repo, ticket, run, 'epic-fix', String(ticket), {})
-  return { ticket, range: step.range }
-}
-
 export async function hook(repo: string, epic: number): Promise<HookResult> {
   const authority = await readEpicAuthority(repo, epic)
   const { run, base } = authority

@@ -117,7 +117,7 @@ describe('action input fingerprint', () => {
           source: source(lastEditedAt),
           parser: { ...parser, analysis: { ...parser.analysis, criterionSources: sources } },
         },
-        'normalize',
+        'frame',
       )
     const first = {
       id: 'C1',

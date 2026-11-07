@@ -15,7 +15,6 @@ import type {
   UwWritePrecondition,
 } from './uw-contract.ts'
 import { validateNormalizationConservation } from './uw-normalization-conservation.ts'
-import { historicalProjection } from './uw-normalization-internal.ts'
 
 export type UwProposalPreparationPorts = {
   prepareSpecAllocation: typeof prepareSpecAllocation
@@ -99,16 +98,11 @@ function sameObservation(left: IssueWriteObservation, right: IssueWriteObservati
 
 export function staleWrite(prepared: PreparedUwProposal, read: UwRead, fresh: IssueWriteObservation): boolean {
   const expected = prepared.proposal.expected
-  const historical = expected?.successorHistoryDigest === undefined ? undefined : historicalProjection(read)
-  const predecessor =
-    historical?.accepted.chain.at(-1)?.source ??
-    (read.accepted.status === 'accepted' ? (read.accepted.value.chain.at(-1)?.source ?? null) : null)
+  const predecessor = read.accepted.status === 'accepted' ? (read.accepted.value.chain.at(-1)?.source ?? null) : null
   return (
     !read.identity.ok ||
     expected === null ||
-    (expected.successorHistoryDigest === undefined
-      ? read.accepted.status === 'refused'
-      : historical === undefined || historical.historyDigest !== expected.successorHistoryDigest) ||
+    read.accepted.status === 'refused' ||
     !sameObservation(fresh, expected.observed) ||
     !sameRef(predecessor, expected.acceptedPredecessor) ||
     !sameRef(read.identity.value.head, expected.ledgerHead)
@@ -156,7 +150,6 @@ function assemblePlan(
   observed: IssueWriteObservation | null,
   operation: UwProposal['operation'],
   ports: UwProposalPreparationPorts,
-  successorHistoryDigest?: string,
 ): PreparedProposal {
   const allocation = ports.prepareSpecAllocation(input.draft, ledger)
   if (!allocation.ok) return { diagnostics: allocation.diagnostics }
@@ -177,7 +170,6 @@ function assemblePlan(
             nativeDigest: nativeIssueObservationDigest(observed),
             ledgerHead: structuredClone(ledger.head),
             acceptedPredecessor: structuredClone(acceptedPredecessor),
-            ...(successorHistoryDigest === undefined ? {} : { successorHistoryDigest }),
           },
     draft: structuredClone(input.draft),
     allocation: structuredClone(allocation.value),
@@ -202,26 +194,16 @@ export function prepareExistingProposal(
   read: UwRead,
   observed: IssueWriteObservation,
   ports: UwProposalPreparationPorts,
-  successorNormalization = false,
 ): PreparedProposal {
-  const historical = successorNormalization ? historicalProjection(read) : undefined
-  if (read.accepted.status === 'refused' && historical === undefined) return { diagnostics: read.accepted.diagnostics }
-  if (successorNormalization && (historical === undefined || read.parsed.status === 'conformant'))
-    return {
-      diagnostics: [
-        diagnostic(input.uw, 'normalization-ineligible', 'Explicit successor normalization is no longer eligible'),
-      ],
-    }
+  if (read.accepted.status === 'refused') return { diagnostics: read.accepted.diagnostics }
   if (!read.identity.ok) return { diagnostics: read.identity.diagnostics }
   return assemblePlan(
     input,
     read.identity.value,
-    historical?.accepted.chain.at(-1)?.source ??
-      (read.accepted.status === 'accepted' ? (read.accepted.value.chain.at(-1)?.source ?? null) : null),
+    read.accepted.status === 'accepted' ? (read.accepted.value.chain.at(-1)?.source ?? null) : null,
     observed,
-    successorNormalization || input.normalization.length > 0 ? 'normalize' : 'write',
+    input.normalization.length > 0 ? 'normalize' : 'write',
     ports,
-    historical?.historyDigest,
   )
 }
 

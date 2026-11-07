@@ -7,7 +7,7 @@ import { REMOVE_BLOCKED_BY_MUTATION } from '../../../issue-triage/skills/shared/
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import type { Gh } from '../../adapters/github/types.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
-import { isolateViewerToken, releaseViewerToken } from '../../roxabi/__tests__/uw-normalization-observation.ts'
+import { isolateViewerToken, releaseViewerToken } from '../../roxabi/__tests__/uw-viewer-token.ts'
 import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
 import { resolveCauseDependencyControl } from '../cause-dependency-control.ts'

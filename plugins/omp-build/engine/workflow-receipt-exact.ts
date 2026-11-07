@@ -2,13 +2,7 @@ import { z } from 'zod'
 import { contextNegativeBindingSchema } from './action-context.ts'
 import { canonicalValueDigest, validateParsedActionInputs } from './action-input.ts'
 import { type ExternalRecordRef, gitObjectIdSchema } from './record-references.ts'
-import {
-  contributionSchema,
-  identifierSchema,
-  repoRelativePathSchema,
-  scopeSchema,
-  sha256Schema,
-} from './record-values.ts'
+import { contributionSchema, identifierSchema, repoRelativePathSchema, sha256Schema } from './record-values.ts'
 import { sameRefMeaning } from './workflow-mandate-schema.ts'
 
 export type { AssessSpecExact, CiExact, IntegrationExact } from './workflow-action-operands.ts'
@@ -25,10 +19,6 @@ export const frameExactSchema = z.strictObject({
 export const preMandateFrameExactSchema = z.strictObject({
   branch: z.string().min(1),
   base: z.string().min(1),
-})
-export const normalizeExactSchema = z.strictObject({
-  uw: scopeSchema,
-  bodySha256: sha256Schema,
 })
 export const PLAN_REVIEW_SPECIALISTS = ['R-workflow-plan-architect', 'R-workflow-plan-adversarial'] as const
 export const planReviewSpecialistSchema = z.enum(PLAN_REVIEW_SPECIALISTS)
@@ -136,23 +126,10 @@ function issue(context: z.RefinementCtx, path: (string | number)[], message: str
   context.addIssue({ code: 'custom', path, message })
 }
 
-function normalizeSourceDigest(spec: ActionReceiptPayload['inputs']['manifest']['spec']): string | null {
-  if (spec.kind === 'unframed') return spec.source.bodySha256
-  if (spec.kind === 'proposed') return spec.snapshot.raw.bodySha256
-  return null
-}
-
 function refineAbsentMandate(receipt: AbsentReceipt, context: z.RefinementCtx): void {
-  if (receipt.action !== 'frame' && receipt.action !== 'normalize') {
-    issue(context, ['mandate'], 'absent mandate authorizes nothing')
-  }
   const spec = receipt.inputs.manifest.spec
   if (spec.kind !== 'unframed' && spec.kind !== 'proposed') {
     issue(context, ['inputs', 'manifest', 'spec'], 'pre-mandate receipt cannot carry an accepted or absent Spec')
-  }
-  if (receipt.action !== 'normalize' || !('bodySha256' in receipt.exactInputs)) return
-  if (normalizeSourceDigest(spec) !== receipt.exactInputs.bodySha256) {
-    issue(context, ['exactInputs', 'bodySha256'], 'normalize digest does not match the raw source')
   }
 }
 

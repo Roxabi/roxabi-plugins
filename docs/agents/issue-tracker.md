@@ -3,11 +3,11 @@
 Issues and specs for this repo live as GitHub issues in `Roxabi/roxabi-plugins`.
 Infer the repo from `git remote -v`; `gh` does this automatically inside a clone.
 
-**Reads use `gh` directly. Issue creation, labels and native relations are owned
-by issue-triage:** use its skill for ordinary triage, or its injected writer
-library through omp-build's operator-confirmed `uw` commands for strict Specs.
-Do not implement a second writer or call mutations by hand. CI workflows are
-the exception: [Issues filed by CI](#issues-filed-by-ci). Authority: ADR-020 §6.
+**Reads use `gh` directly.** Omp-build automated issue body, label, relation and
+state writes go through UW, which uses the injected issue-triage writer and its
+confirmation gates. Standalone issue-triage remains available for ordinary
+triage; CI and humans may also change GitHub issues directly. An edit or native
+close alone does not accept a Spec or establish calculated UW completion.
 
 ## Read conventions
 
@@ -26,11 +26,9 @@ Relations are **native GitHub**: sub-issues for parent/child, issue dependencies
 for blocked-by / blocks. A `Blocked by: #12` line in a body is **not** a relation —
 it is invisible to the frontier query and to `gh issue view`. Never write one.
 
-For ordinary triage, invoke the `issue-triage` skill (`/issue-triage`, or
-`Skill("issue-triage:issue-triage")`). It owns the native mutations and accepts
-cross-repo refs (`OWNER/REPO#N`). Omp-build's `uw` adapter delegates writes to the
-same importable issue-triage library; its additional Spec and confirmation gates
-do not replace that writer or alter the standalone triage contract.
+For ordinary standalone triage, invoke the `issue-triage` skill (`/issue-triage`,
+or `Skill("issue-triage:issue-triage")`); it accepts cross-repo refs
+(`OWNER/REPO#N`). Omp-build uses UW for its automated issue writes.
 
 | Need | Flag |
 |---|---|
@@ -50,8 +48,8 @@ for anything carrying a relation or a tier.
 
 ### Tier is mandatory
 
-Every ticket carries a `size:` label. It is the **only** source of the review tier
-(`R-dev-review` reads τ from the issue labels), so a ticket created without one
+Every issue carries a `size:` label. It is the **only** source of the review tier
+(`R-dev-review` reads τ from the issue labels), so an issue created without one
 silently downgrades its own review to `F-lite`.
 
 | Label | Meaning |
@@ -66,7 +64,7 @@ changes any κ input is not complete until the tier is re-asserted** —
 `/issue-triage set <n> --size <tier>`.
 
 It moves in both directions. Adding an acceptance criterion or pasting review
-findings raises it; adding a reproduction or splitting work out of the ticket
+findings raises it; adding a reproduction or splitting work out of the issue
 lowers it. Correcting a factual error touches no κ input and re-opens nothing.
 
 Re-asserting the **same** tier writes no label event, so it leaves no trace that
@@ -75,14 +73,14 @@ unchanged tier after a scope edit is a decision, and a decision nobody can
 distinguish from an omission has not been recorded.
 
 A stale `size:` gives no first contact: `R-dev-review` consumes it and proceeds
-with the wrong panel, so the defect surfaces as an under-reviewed ticket that
+with the wrong panel, so the defect surfaces as an under-reviewed issue that
 *looks* reviewed.
 
 ### Priority
 
 The rubric lives in the `issue-triage` skill, § Priority Guidelines. `P1-high`
 fires on either of two triggers: the milestone in progress, or a shipped check
-that lies. A check that fails closed is `P2-medium`, and an epic caps its
+that lies. A check that fails closed is `P2-medium`, and a parent caps its
 feature slices but not its defects. This repo binds the two triggers:
 
 - **Milestone**: the open `epic` that carries `P1-high`.
@@ -90,25 +88,10 @@ feature slices but not its defects. This repo binds the two triggers:
   guard, verifier or success predicate there that reports a pass when it
   should fail or stop is `P1-high`, whatever the milestone.
 
-### Deferred follow-ups are siblings
-
-A follow-up deferred out of issue A is a **sibling** of A under their shared
-parent, blocked-by A — never a child of A:
-
-```
-       Epic E
-      ╱      ╲
-     A ←—————— B     B.parent = A.parent (= E)
-       blocked-by    B.blocked-by = A
-```
-
-This keeps the epic's fan-out flat instead of building a nested cascade. Planned
-decomposition (epic → phase) *is* parent/child; post-hoc deferral is not. Full
-rule: the `issue-triage` skill, § Deferred Follow-Ups.
 
 ### No `ready-for-agent`
 
-This repo does not use that label. A ticket is grabbable when every blocker is
+This repo does not use that label. An issue is grabbable when every blocker is
 closed — read `issue_dependencies_summary.blocked_by` (open blockers only), not a
 label. Applying `ready-for-agent` would be a second, hand-maintained copy of a
 fact GitHub already computes.
@@ -136,13 +119,13 @@ picks one up sets the tier first — `/issue-triage set <n> --size <tier>` — b
 Create a GitHub issue through `issue-triage`, with a `size:` label and whatever
 relations the work implies.
 
-**Exception — an epic already exists for the subject.** When the conversation is
+**Exception — an issue already exists for the subject.** When the conversation is
 already tracked by an issue (the grill ran before the spec, the issue holds the
 decisions), **amend that issue** instead of publishing a second one. One subject,
 one spec home. An amendment that changes a κ input re-opens the tier — see
 [Tier is mandatory](#tier-is-mandatory).
 
-## When a skill says "fetch the relevant ticket"
+## When a skill says "fetch the relevant issue"
 
 `gh issue view <number> --comments`.
 

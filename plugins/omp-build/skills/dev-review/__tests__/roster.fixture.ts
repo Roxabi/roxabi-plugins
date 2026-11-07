@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,23 +19,6 @@ export function useRosterWorkspace(): void {
   })
 }
 
-export function writeSpec(body: string): string {
-  const p = join(dir, 'spec.md')
-  writeFileSync(
-    p,
-    `---
-title: test
-status: approved
----
-
-## Success Criteria
-
-${body}
-`,
-  )
-  return p
-}
-
 export function defaultConfig(overrides: Partial<RosterConfig> = {}): RosterConfig {
   return { maxAgents: 3, axialOverride: 'default', overrides: {}, warnings: [], ...overrides }
 }
@@ -49,9 +32,6 @@ export function roster(partial: Partial<ComputeRosterInput> = {}) {
     delta: ['src/foo.ts'],
     tier: 'F-lite',
     chunks: 1,
-    claims: [],
-    pricedClaimOk: true,
-    specDraft: false,
     axialAdr: false,
     stackPaths: emptyPaths(),
     config: defaultConfig(),

@@ -336,12 +336,16 @@ describe('epic-driver — canonical final review history', () => {
     expect(eventPayloads(1)[0]).not.toHaveProperty('verdict')
     const next = drive(['next', '--dry-run'])
     expect(next.code, next.stderr).toBe(0)
-    expect(next.json().step).toMatchObject({ action: 'final-review', stage: 'fix-ticket' })
-    expect(drive(['mark-fix', '--ticket', '999']).code).toBe(2)
-    const marked = drive(['mark-fix', '--ticket', '2'])
-    expect(marked.code).toBe(0)
-    expect(eventPayloads(2)).toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
-    expect(eventPayloads(1)).not.toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
+    expect(next.json().step).toMatchObject({ action: 'drop', stop: 'final-review-blocking' })
+    expect(eventPayloads(2)).not.toContainEqual(expect.objectContaining({ event: 'epic-fix' }))
+    const historical = {
+      ...epicEvent(2, 'historic-fix', { event: 'epic-fix', run: 'run00000' }),
+      runId: 'run00000',
+    }
+    serveComments(2, [...issueComments(2), ...framedRecords(2, [historical])])
+    const replay = drive(['next', '--dry-run'])
+    expect(replay.code, replay.stderr).toBe(0)
+    expect(replay.json().step).toMatchObject({ action: 'drop', stop: 'final-review-blocking' })
     expect(drive(['review', '--range', range]).code).toBe(2)
   })
 

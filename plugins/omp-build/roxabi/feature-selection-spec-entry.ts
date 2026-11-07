@@ -1,7 +1,6 @@
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
-import type { NormalizationProposalRequest, UwRead } from './uw-contract.ts'
-import { markSuccessorNormalization } from './uw-normalization-internal.ts'
+import type { UwRead } from './uw-contract.ts'
 
 function needsInitialSpec(control: FeatureControl, selection: FeatureAuthority['selection']): boolean {
   if (selection.status !== 'refused') return false
@@ -9,7 +8,7 @@ function needsInitialSpec(control: FeatureControl, selection: FeatureAuthority['
   return control === 'new' && (selection.reason === 'abandoned' || selection.reason === 'revoked')
 }
 
-export function selectionNormalization(
+export function specEntrySelection(
   control: FeatureControl,
   authority: Pick<FeatureAuthority, 'scope' | 'selection'>,
   read: UwRead | null,
@@ -19,7 +18,7 @@ export function selectionNormalization(
   if (!needsInitialSpec(control, authority.selection)) return null
   if (read === null) return { kind: 'blocked', reason: 'uw-read-required' }
   if (control !== 'new') return initialFramingSelection(authority.scope, read)
-  return successorNormalization(authority.scope, read)
+  return successorSpecSelection(authority.scope, read)
 }
 
 function initialFramingSelection(scope: FeatureAuthority['scope'], read: UwRead): ContinueFeatureResult | null {
@@ -40,22 +39,11 @@ function initialFramingSelection(scope: FeatureAuthority['scope'], read: UwRead)
   return { kind: 'blocked', reason: diagnostics[0].code, diagnostics }
 }
 
-function successorNormalization(scope: FeatureAuthority['scope'], read: UwRead): ContinueFeatureResult | null {
+function successorSpecSelection(scope: FeatureAuthority['scope'], read: UwRead): ContinueFeatureResult | null {
   const root = read.graph.nodes.find(
     (node) => node.uw.repository === scope.repository && node.uw.target === scope.target,
   )
   if (root === undefined) return { kind: 'blocked', reason: 'graph-root-missing' }
   if (read.parsed.status === 'conformant') return null
-  const request: NormalizationProposalRequest = {
-    uw: scope,
-    title: root.title,
-    parsed: read.parsed,
-    graph: read.graph,
-    writes: {
-      labels: { add: [], remove: [] },
-      relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
-    },
-  }
-  markSuccessorNormalization(request, read)
-  return { kind: 'normalization', request }
+  return { kind: 'blocked', reason: 'successor-spec-nonconformant', diagnostics: read.parsed.diagnostics }
 }

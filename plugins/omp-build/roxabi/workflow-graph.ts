@@ -25,7 +25,6 @@ const NODES: WorkflowGraph['nodes'] = [
   // rather than inventing a fake condition.
   { id: 'epic-next', action: 'epic-next' },
   { id: 'epic-final', action: 'epic-final' },
-  { id: 'mark-fix', action: 'mark-fix' },
   { id: 'hook', action: 'hook' },
   { id: 'report', action: 'report' },
   { id: 'stop', action: 'stop' },
@@ -41,7 +40,6 @@ const EDGES: WorkflowGraph['edges'] = [
   { from: 'ready', to: 'report', when: 'epic-drop' },
   { from: 'ready', to: 'report', when: 'epic-complete' },
   { from: 'ready', to: 'epic-final', when: 'epic-final-review' },
-  { from: 'ready', to: 'mark-fix', when: 'epic-fix-ticket' },
   { from: 'ready', to: 'hook', when: 'epic-post-merge' },
   { from: 'ready', to: 'epic-next', when: 'epic-start' },
   { from: 'ready', to: 'epic-next', when: 'epic-resume' },

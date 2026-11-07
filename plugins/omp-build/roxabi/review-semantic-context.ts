@@ -75,7 +75,7 @@ function standaloneContext(currentSpec: ReviewIssueSpec | null): Result<ReviewSe
   }
 }
 
-/** Published review-input/3 source view; accepted authority remains the engine snapshot. */
+/** Published review-input/4 source view; accepted authority remains the engine snapshot. */
 export function reviewAcceptedSpecView(
   accepted: AcceptedOwnSpec,
 ): Extract<ReviewSemanticContext, { mode: 'bound' }>['acceptedSpec'] {

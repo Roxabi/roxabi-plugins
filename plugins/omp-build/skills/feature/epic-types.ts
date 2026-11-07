@@ -85,8 +85,6 @@ export type ChildFacts = {
     code: import('../../engine/code-range-schema.ts').CodeRange
     sources: readonly ExternalRecordRef[]
   }
-  /** A complete canonical `epic-fix` event authored on this child issue. */
-  epicFix: boolean
   /** Canonical blocker facts from the parent-rooted UW graph. */
   blockedBy: {
     number: number
@@ -144,26 +142,17 @@ export type Step = { reason: string; report: Report } & (
   | { action: 'resume'; ticket: number; branch: string; pr: PrFacts | null }
   | { action: 'stop'; ticket: number; stop: TicketStop }
   | { action: 'integrate' }
-  | { action: 'final-review'; stage: 'review' | 'fix-ticket'; range: string }
+  | { action: 'final-review'; stage: 'review'; range: string }
   | { action: 'post-merge' }
   | { action: 'complete' }
   | { action: 'drop'; stop: SharedStop | 'no-progress' }
 )
 
-export type EpicStepName =
-  | 'start'
-  | 'resume'
-  | 'stop'
-  | 'final-review'
-  | 'fix-ticket'
-  | 'post-merge'
-  | 'complete'
-  | 'drop'
+export type EpicStepName = 'start' | 'resume' | 'stop' | 'final-review' | 'post-merge' | 'complete' | 'drop'
 
-/** Flatten `final-review` stage `fix-ticket`. Not a second selector. */
 export function epicStepName(step: Step): EpicStepName | null {
   if (step.action === 'integrate') return null
   if (step.action === 'parent') return 'start'
-  if (step.action === 'final-review') return step.stage === 'fix-ticket' ? 'fix-ticket' : 'final-review'
+  if (step.action === 'final-review') return 'final-review'
   return step.action
 }

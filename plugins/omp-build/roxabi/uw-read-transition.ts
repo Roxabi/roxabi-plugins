@@ -1,7 +1,6 @@
 import type { assessUwAdmission } from '../dist/contracts.js'
 import type { UwRead } from './uw-contract.ts'
 import { readCurrentChildrenProjection } from './uw-current-facts.ts'
-import { bindHistoricalProjection, historicalProjection } from './uw-normalization-internal.ts'
 
 export async function withTransitionAdmission(
   contracts: { assessUwAdmission: typeof assessUwAdmission },
@@ -24,7 +23,5 @@ export async function withTransitionAdmission(
       currentChildren,
     }),
   }
-  const historical = historicalProjection(read)
-  if (historical !== undefined) bindHistoricalProjection(result, historical.accepted, historical.historyDigest)
   return result
 }

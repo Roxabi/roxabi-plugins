@@ -3,9 +3,10 @@
 Issues and specs for this repo live as GitHub issues in `{{REPO}}`.
 Infer the repo from `git remote -v`; `gh` does this automatically inside a clone.
 
-**Reads use `gh` directly. issue-triage is the only writer of labels and
-relations** — run the `issue-triage` skill's CLI (`init`, `create`, `set`, …). Nothing else writes them.
-Not `gh issue create`, not `gh issue edit --add-label`, not a `Blocked by:` line in a body.
+**Reads use `gh` directly.** Use standalone issue-triage for ordinary triage.
+Omp-build automated issue body, label, relation and state writes go through UW.
+Humans may also change GitHub issues directly; an edit or native close alone does
+not accept a Spec or establish calculated UW completion.
 
 ## Relations
 
@@ -23,8 +24,8 @@ for blocked-by / blocks. A `Blocked by:` line in a body is **not** a relation.
 
 ### Tier is mandatory
 
-Every ticket carries a `size:` label. It is the only source of the review tier.
-A ticket without one is reviewed as `F-lite`.
+Every issue carries a `size:` label. It is the only source of the review tier.
+An issue without one is reviewed as `F-lite`.
 
 | Label | Meaning |
 |---|---|
@@ -32,14 +33,9 @@ A ticket without one is reviewed as `F-lite`.
 | `size:F-lite` | worktree + a small agent panel |
 | `size:F-full` | worktree + the full panel, test-first |
 
-### Deferred follow-ups are siblings
-
-A follow-up deferred out of issue A is a **sibling** of A under their shared
-parent, blocked-by A — never a child of A.
-
 ### No `ready-for-agent`
 
-This repo does not use that label. A ticket is grabbable when every blocker is
+This repo does not use that label. An issue is grabbable when every blocker is
 closed. Applying `ready-for-agent` would be a second copy of a fact GitHub
 already computes.
 

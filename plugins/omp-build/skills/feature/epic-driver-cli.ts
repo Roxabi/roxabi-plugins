@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util'
 import { disarmEpicControlTarget } from './epic-driver-control'
 import { next } from './epic-driver-next'
 import { Refused } from './epic-driver-runtime'
-import { hook, markFix, report, review, stop } from './epic-driver-terminal'
+import { hook, report, review, stop } from './epic-driver-terminal'
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -49,8 +49,6 @@ export async function main(argv: string[]): Promise<string> {
       return JSON.stringify(await stop(repo, epic, ticket, values.reason, detail), null, 2)
     case 'review':
       return JSON.stringify(await review(repo, epic, values['decision-record'], values.range), null, 2)
-    case 'mark-fix':
-      return JSON.stringify(await markFix(repo, epic, ticket), null, 2)
     case 'control-disarm':
       return JSON.stringify(await disarmEpicControlTarget(repo, epic), null, 2)
     case 'hook': {
@@ -68,7 +66,7 @@ export async function main(argv: string[]): Promise<string> {
     }
     default:
       throw new Refused(
-        `unknown subcommand ${command ?? '(none)'}: next | stop | mark-fix | review | hook | report | control-disarm`,
+        `unknown subcommand ${command ?? '(none)'}: next | stop | review | hook | report | control-disarm`,
       )
   }
 }

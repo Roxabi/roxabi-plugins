@@ -12,7 +12,7 @@ The installed `/feature` command owns selection and continuation. `omp/index.ts`
 
 A source package or skill read does not attest installation or the loaded runtime.
 
-Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a proposed own Spec in the sole English-heading grammar documented in the plugin README; author-language statements are preserved. Accepted Own Spec and version-pinned inherited clauses come from the applicable `/3` mandates and their authenticated assessment/operator chains; manual body edits remain proposals.
+Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a proposed own Spec in the sole English-heading grammar documented in the plugin README; author-language statements are preserved. Accepted Own Spec and version-pinned inherited clauses come from the applicable `/4` mandates and their authenticated assessment/operator chains; manual body edits remain proposals.
 
 ## Operator controls
 
@@ -20,11 +20,11 @@ Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a p
 
 | Command | Boundary |
 |---|---|
-| `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. No routine confirmation. Legacy normalization requires approval of the exact proposal before the same request can continue. |
+| `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. No routine confirmation. Nonconformant initial selections enter confirmed framing. |
 | `/feature resume <reference>` | Resumes an ordinary confirmed pause. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the mandate. No automatic renewal. |
-| `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. `publishSuccessorMandate` names the antecedent and publishes `select-successor`. `preserveSuccessorBinding` rebinds the same open PR when its binding names the antecedent or is absent. A missing antecedent or a foreign binding does not mint. Not renewal of `/feature <reference>`. `new init` is this control, not init. |
+| `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. A nonconformant body is refused as `successor-spec-nonconformant` with parser diagnostics and no write, checkout or bootstrap; confirm a conformant body with `/uw write`, then run `/feature new`. A conformant successor preserves the existing mandate and binding checks. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the context-bound operator UI for the exact authenticated material or unknown proposal. `accept`/`reject` argv is not authority and is refused. `/uw accept-material <reference>` uses the same acceptance chain. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
@@ -44,7 +44,7 @@ Explicit apply is the operator's own reply, forwarded verbatim:
 /feature init --approve <digest> --operator-approval '<operator reply>'
 ```
 
-`feature-init.ts` refuses a missing reply, a reply that is the digest, a digest that does not match the preview, a plan that changed, and a Principal checkout. A decline, silence, or a later agent turn applies nothing. An unchanged proposal reports `init=noop`.
+`feature-init.ts` refuses a missing reply, a reply that is the digest, a digest that does not match the preview, a plan that changed, and a Principal checkout. A decline, silence, or a later agent turn applies nothing. An unchanged proposal reports `init=noop`. omp-build init does not relabel existing issues; standalone issue-triage retains its own init behavior.
 
 ## Human decisions the command will not invent
 
@@ -61,12 +61,12 @@ The command dispatches the named actions. This file does not run a second loop. 
 
 | Obligation | Where |
 |---|---|
-| Tracker writes, labels, native relations | UW operations inject the issue-triage writer and κ rubric; `/uw` is not another workflow or authorization source. Cause sisters and report promotion use the exact-confirmed UW creation backend; reports remain on their original UW. Standalone issue-triage is independent. Epic fix-ticket paths still use the emitted CLI; init retains the emitted planner and `defaultInitDeps(repository, checkout)`. Native relations are real GitHub mutations, not closing prose. The generated `dist/issue-triage/` slice is committed with the plugin. |
+| Tracker writes, labels, native relations | omp-build UW operations inject the common issue writer and κ rubric; `/uw` is not another workflow or authorization source. Cause sisters and report promotion use the exact-confirmed UW creation backend; reports remain on their original UW. Standalone issue-triage is independent. Init retains the emitted planner and `defaultInitDeps(repository, checkout)` without relabeling existing issues. Native relations are real GitHub mutations, not closing prose. |
 | Plan | One read-only architect and adversarial round after criterion-to-code mapping. A blocking finding amends the plan before implementation and spends no PR fix round. `agents/R-workflow-plan.md`; `planAction` in `roxabi/workflow.ts`. |
 | Implementation | Changed-path proof, affected docs, browser check or declared `commands.test_e2e`, task-owned Conventional commits ending `(#N)`. `agents/R-workflow-implement.md`. A model's commit list is a claim; the host binds captured commands and Git lineage. |
-| Review input | `hashReviewInput` prefixes `omp-build:review-input/3` and captures the observed PR inputs and semantic context without producer parts. A stored null input is not approval; absent or older input formats refuse with `incompatible-format`. |
+| Review input | `hashReviewInput` prefixes `omp-build:review-input/4` and captures the observed PR inputs and semantic context without producer parts. Canonical grammar and authorized records supply Spec inputs, not priced fences or draft frontmatter. A stored null input is not approval; absent or older input formats refuse with `incompatible-format`. |
 | Review, correction, landing, watch | `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle action. `nextReviewStep` retains PR review/bound policy; `landPr` and `applyCiWatchExit` execute guarded landing/watch actions. Actual landing also requires `requireLandingMandate`. The bound is sticky: a third non-approving review stays spent after a later green, and a third approving review followed by red CI stays spent after later green checks. |
-| Epic | `skills/feature/epic-driver.ts` reads the confirmed mandate on the epic issue. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` and no goal file. A ticket stop lets independent children continue. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. |
+| Parent UW | `skills/feature/epic-driver.ts` reads the confirmed mandate on the parent issue. The installed command calls `next`, `stop`, `review`, `hook`, `report`, and `control-disarm`. A blocking current final review selects the `final-review-blocking` stop and report, not automatic correction; resolve persisted causes with `/uw adjudicate`, `/uw sister` or `/uw promote-report`. A child stop lets independent children continue. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. |
 | Worktree bootstrap | `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs `skills/feature/worktree-bootstrap.sh` in the foreground after worktree identity is valid and before dispatch: successor, first mandate, and select/resume/new in a valid worktree. The marker `omp-build-bootstrapped` and lock `omp-build-bootstrap.lock` are environment cache, not business records. The script refuses the principal. `/feature init`, `prepareFeatureCheckout`, `session_start`, and `agent_start` do not run it. Do not shell it out as a second process. |
 
 Wire names `goal-stop` and `goal-report` are `epic-event` payload values. They name a recorded transition. They do not authorize a run.

@@ -62,16 +62,7 @@ function nextNode(
     ['spec-differs', 'spec-settled'],
     ['review-step-review', 'review-step-fix', 'review-step-land', 'review-step-stop'],
     ['ci-red', 'ci-attributed-change', 'ci-attribution-refused'],
-    [
-      'epic-start',
-      'epic-resume',
-      'epic-stop',
-      'epic-final-review',
-      'epic-fix-ticket',
-      'epic-post-merge',
-      'epic-complete',
-      'epic-drop',
-    ],
+    ['epic-start', 'epic-resume', 'epic-stop', 'epic-final-review', 'epic-post-merge', 'epic-complete', 'epic-drop'],
   ].some((group) => matching.filter((edge) => group.includes(edge.when)).length > 1)
   if (exclusive)
     return blocked('ambiguous-transition', [

@@ -23,7 +23,6 @@ async function scenario(
     review?: 'none' | 'clean' | 'blocking'
     historical?: boolean
     earlier?: boolean
-    fix?: boolean
     hooks?: HookRecord[]
     baseCi?: Facts['baseCi']
     cleanTree?: boolean
@@ -42,7 +41,6 @@ async function scenario(
       labels: ['size:S'],
       body: item.ownUw.accepted.snapshot.raw.body,
       ownUw: item.ownUw,
-      epicFix: options.fix === true && index === 2,
       blockedBy: [],
       stops: [],
       branches: [],
@@ -126,7 +124,6 @@ describe('nextStep finalization', () => {
             state: 'CLOSED',
             labels: ['size:S'],
             body: own.accepted.value.snapshot.raw.body,
-            epicFix: false,
             blockedBy: [],
             stops: [],
             branches: [],
@@ -206,32 +203,27 @@ describe('nextStep finalization', () => {
   it.each([
     { name: 'green base', options: {} },
     { name: 'red base', options: { baseCi: red } },
-  ])('opens the unspent fix round for a genuinely blocking review on $name', async ({ options }) => {
-    const { input, range, proof } = await scenario({ ...options, review: 'blocking' })
+  ])('drops a genuinely blocking review on $name', async ({ options }) => {
+    const { input, proof } = await scenario({ ...options, review: 'blocking' })
     expect(proof.blockingVerdict).toBe('Request changes')
     expect(proof.blockingCompletion.state).not.toBe('complete')
-    expect(nextStep(input)).toMatchObject({ action: 'final-review', stage: 'fix-ticket', range })
+    expect(nextStep(input)).toMatchObject({ action: 'drop', stop: 'final-review-blocking' })
   })
 
   it('selects the latest current verdict, not an earlier clean review', async () => {
     const { input } = await scenario({ review: 'blocking' })
     const { input: clean } = await scenario({ review: 'clean', earlier: true })
     input.reviews = [...clean.reviews, ...input.reviews]
-    expect(nextStep(input)).toMatchObject({ action: 'final-review', stage: 'fix-ticket' })
-  })
-
-  it('drops a still-blocking review after the fix round is spent (selector counterfactual)', async () => {
-    const { input } = await scenario({ review: 'blocking', fix: true })
     expect(nextStep(input)).toMatchObject({ action: 'drop', stop: 'final-review-blocking' })
   })
 
   it('ignores a historical blocking review after the selected integration changes (selector counterfactual)', async () => {
-    const { input, range } = await scenario({ review: 'blocking', historical: true, fix: true })
+    const { input, range } = await scenario({ review: 'blocking', historical: true })
     expect(nextStep(input)).toMatchObject({ action: 'final-review', stage: 'review', range })
   })
 
-  it('runs the hook after a fresh clean decision even when the fix round is spent (selector counterfactual)', async () => {
-    const { input } = await scenario({ review: 'clean', fix: true })
+  it('runs the hook after a fresh clean decision', async () => {
+    const { input } = await scenario({ review: 'clean' })
     expect(nextStep(input)).toMatchObject({ action: 'post-merge' })
   })
 

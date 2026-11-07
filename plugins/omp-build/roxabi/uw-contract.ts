@@ -26,7 +26,7 @@ import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { SpecAllocationPlan, SpecIdentityLedger } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
-import type { NormalizationDecision, NormalizationJudgement } from '../engine/uw-normalization-schema.ts'
+import type { NormalizationDecision } from '../engine/uw-normalization-schema.ts'
 import type { SpecDraft, SpecRawSource, UwTier } from '../engine/uw-spec.ts'
 import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
@@ -51,7 +51,6 @@ export type UwWritePrecondition = {
   nativeDigest: string
   ledgerHead: ExternalRecordRef | null
   acceptedPredecessor: ExternalRecordRef | null
-  successorHistoryDigest?: string
 }
 
 export type UwProposalInput = {
@@ -177,19 +176,6 @@ export type CauseOperationResult =
     }
   | Extract<UwOperationResult, { status: 'refused' | 'partial' | 'uncertain' }>
 
-/** Selection sends parser facts and native relation intent; the runner supplies judgement-only fields. */
-export type NormalizationProposalRequest = {
-  uw: Scope
-  title: string
-  parsed: ParsedIssueSpec
-  graph: UwGraphObservation
-  writes: Pick<NativeIssueWritePlan, 'labels' | 'relations'>
-}
-
-export type NormalizationProposalRunner = {
-  propose(input: NormalizationProposalRequest): Promise<UwResult<NormalizationJudgement>>
-}
-
 /** Fresh native/parser/ledger/accepted projection shared by every UW consumer. */
 export type UwReadPort = {
   readUw(uw: Scope): Promise<UwRead>
@@ -214,8 +200,6 @@ export interface UwOperations extends UwReadPort {
   createSister(input: CauseSisterInput): Promise<CauseOperationResult>
   adjustCauseDependency(input: CauseDependencyAdjustmentInputJson): Promise<CauseAdjustmentResult>
   promoteReport(input: ReportPromotionInput): Promise<CauseOperationResult>
-  /** Runtime parser is injected from the installed bundled engine facade. */
-  validateNormalization(request: NormalizationProposalRequest, value: unknown): UwResult<NormalizationJudgement>
   write(input: UwProposalInput): Promise<UwOperationResult>
   create(input: UwCreateInput): Promise<UwOperationResult>
   reopen(uw: Scope): Promise<UwOperationResult>
