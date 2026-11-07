@@ -26442,6 +26442,29 @@ function absentBinding(input) {
     evidence: [diagnostic2("mandate-absent", "No workflow binding exists and selection was not explicit")]
   };
 }
+function sameLiveSnapshot(scope, current, accepted) {
+  if (current.raw.reference !== accepted.raw.reference)
+    return false;
+  const currentSpec = JSON.stringify(currentSnapshotProjection(current).spec);
+  if (currentSpec !== JSON.stringify(currentSnapshotProjection(accepted).spec))
+    return false;
+  if (current.raw.body === accepted.raw.body)
+    return current.raw.bodySha256 === accepted.raw.bodySha256;
+  if (current.raw.bodySha256 !== specDigest(current.raw.body))
+    return false;
+  const parsed = parseIssueSpecBody({ uw: scope, raw: current.raw });
+  return parsed.status === "conformant" && JSON.stringify(currentSnapshotProjection(parsed.snapshot).spec) === currentSpec;
+}
+function sameLiveAcceptedState(scope, current, accepted) {
+  if (sameCurrentAssessedState(current, accepted))
+    return true;
+  if (current.tier !== accepted.tier || JSON.stringify(current.inheritedOwnSpecRefs) !== JSON.stringify(accepted.inheritedOwnSpecRefs) || JSON.stringify(current.coverage) !== JSON.stringify(accepted.coverage) || current.children.length !== accepted.children.length || !sameLiveSnapshot(scope, current.snapshot, accepted.snapshot))
+    return false;
+  return current.children.every((child, index) => {
+    const expected = accepted.children[index];
+    return !("kind" in child) && expected !== undefined && child.scope.repository === expected.scope.repository && child.scope.target === expected.scope.target && child.specVersion === expected.specVersion && child.tier === expected.tier && sameLiveSnapshot(child.scope, child.snapshot, expected.snapshot);
+  });
+}
 function applicableBoundWork(input, mandate, permissions, acceptedSpec, configIdentity) {
   const scope = mandateScope(mandate);
   if (input.currentSpec == null)
@@ -26455,7 +26478,7 @@ function applicableBoundWork(input, mandate, permissions, acceptedSpec, configId
       configIdentity,
       drift: null
     };
-  const sameCurrent = sameCurrentAssessedState(input.currentSpec, acceptedSpec);
+  const sameCurrent = sameLiveAcceptedState(scope, input.currentSpec, acceptedSpec);
   return {
     status: "applicable",
     binding: "bound",

@@ -7,6 +7,7 @@ import {
   githubScope,
   normalizationJudgementSchema,
   prepareSpecAllocation,
+  readLandingFacts,
   readUwCompletionObservation,
   readUwGraph,
   renderIssueSpecBody,
@@ -109,7 +110,14 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     abandon: createUwAbandon({ operator: input.operator, reader, github }),
-    closeLinked: createLinkedClosure({ reader, writer, github }),
+    closeLinked: createLinkedClosure({
+      github,
+      readLanding: (pullRequest) =>
+        readLandingFacts(pullRequest, github, (histories) =>
+          loadReviewClassCatalogues({ histories, cwd: input.cwd, gh }),
+        ),
+      createWriter: (read) => createIssueWriter({ ...issuePorts, read }),
+    }),
     read: reader.readUw,
     readCreated: createdReader.readUw,
     adjustCauseDependency: createCauseAdjustment({

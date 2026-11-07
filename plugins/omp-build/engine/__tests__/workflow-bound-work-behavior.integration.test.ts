@@ -379,6 +379,22 @@ describe('workflow bound work behavior', () => {
       status: 'applicable',
       drift: 'settled',
     })
+    const editorialChildBody = `${childBody}\n`
+    const editorialChild = nativeSnapshot(child, editorialChildBody)
+    expect(editorialChild.spec.version).toBe(commitment.specVersion)
+    expect(editorialChild.raw.bodySha256).not.toBe(commitment.snapshot.raw.bodySha256)
+    const childEditorial = proposedAssessmentState(accepted, {
+      body: nativeBody,
+      content,
+      children: [{ ...commitment, snapshot: editorialChild }],
+    })
+    expect(
+      resolveBoundWork({
+        ...input,
+        causal: await childCausal(editorialChildBody, 'S', '2026-10-21T00:00:00Z'),
+        currentSpec: childEditorial,
+      }),
+    ).toMatchObject({ status: 'applicable', drift: 'settled' })
     const childC2Body = strictSpecBody('child C2')
     const childC2 = nativeSnapshot(child, childC2Body)
     const childVersionChanged = proposedAssessmentState(accepted, {

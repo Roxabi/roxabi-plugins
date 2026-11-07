@@ -1,5 +1,7 @@
+import { parseIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
+import { specDigest } from './record-digests.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
@@ -17,6 +19,7 @@ import type { WorkflowCausalContext } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import { sameCurrentAssessedState } from './workflow-spec-assessment.ts'
+import { currentSnapshotProjection } from './workflow-spec-projections.ts'
 
 type BoundWorkInput = {
   use: MandateUse
@@ -74,6 +77,47 @@ function absentBinding(input: BoundWorkInput): BoundWork {
   }
 }
 
+/** Accepted authority is immutable; only the live presentation may vary without changing its Spec. */
+function sameLiveSnapshot(
+  scope: Scope,
+  current: AssessSpecExact['proposed']['snapshot'],
+  accepted: AssessSpecExact['proposed']['snapshot'],
+): boolean {
+  if (current.raw.reference !== accepted.raw.reference) return false
+  const currentSpec = JSON.stringify(currentSnapshotProjection(current).spec)
+  if (currentSpec !== JSON.stringify(currentSnapshotProjection(accepted).spec)) return false
+  if (current.raw.body === accepted.raw.body) return current.raw.bodySha256 === accepted.raw.bodySha256
+  if (current.raw.bodySha256 !== specDigest(current.raw.body)) return false
+  const parsed = parseIssueSpecBody({ uw: scope, raw: current.raw })
+  return (
+    parsed.status === 'conformant' && JSON.stringify(currentSnapshotProjection(parsed.snapshot).spec) === currentSpec
+  )
+}
+
+function sameLiveAcceptedState(scope: Scope, current: AssessSpecExact['proposed'], accepted: AcceptedOwnSpec): boolean {
+  if (sameCurrentAssessedState(current, accepted)) return true
+  if (
+    current.tier !== accepted.tier ||
+    JSON.stringify(current.inheritedOwnSpecRefs) !== JSON.stringify(accepted.inheritedOwnSpecRefs) ||
+    JSON.stringify(current.coverage) !== JSON.stringify(accepted.coverage) ||
+    current.children.length !== accepted.children.length ||
+    !sameLiveSnapshot(scope, current.snapshot, accepted.snapshot)
+  )
+    return false
+  return current.children.every((child, index) => {
+    const expected = accepted.children[index]
+    return (
+      !('kind' in child) &&
+      expected !== undefined &&
+      child.scope.repository === expected.scope.repository &&
+      child.scope.target === expected.scope.target &&
+      child.specVersion === expected.specVersion &&
+      child.tier === expected.tier &&
+      sameLiveSnapshot(child.scope, child.snapshot, expected.snapshot)
+    )
+  })
+}
+
 function applicableBoundWork(
   input: BoundWorkInput,
   mandate: MandateRecord,
@@ -93,7 +137,7 @@ function applicableBoundWork(
       configIdentity,
       drift: null,
     }
-  const sameCurrent = sameCurrentAssessedState(input.currentSpec, acceptedSpec)
+  const sameCurrent = sameLiveAcceptedState(scope, input.currentSpec, acceptedSpec)
   return {
     status: 'applicable',
     binding: 'bound',

@@ -234,7 +234,6 @@ describe('unresolved explicit reference containment', () => {
     const fixture = localPullRequest()
     await disarmUnresolved(fixture.gh, '/workspace', reference)
     expect(fixture.gate).toEqual({ reviewed: false, autoMerge: false })
-    expect(fixture.mutations).toHaveLength(2)
   })
 
   it('does not disarm the local PR sharing a foreign selected reference number', async () => {

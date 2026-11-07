@@ -6,6 +6,7 @@ import { assembleEpicRangeInputs } from './epic-range-inputs'
 import {
   type AcceptedEpicSemantic,
   acceptedEpicSemantic,
+  canonicalSpecMatches,
   epicSemanticCanon,
   type LiveEpicSpec,
 } from './epic-range-semantic'
@@ -52,9 +53,7 @@ function capturedSemanticMatches(
     semantic !== undefined &&
     semantic.mode === 'bound' &&
     sameMandate(semantic, mandateRef) &&
-    semantic.acceptedSpec.reference === semantic.currentSpec.reference &&
-    semantic.acceptedSpec.body === semantic.currentSpec.body &&
-    semantic.acceptedSpec.digest === semantic.currentSpec.digest
+    canonicalSpecMatches(mandateRef.scope, semantic.acceptedSpec, semantic.currentSpec)
   )
 }
 
@@ -68,7 +67,7 @@ function acceptedSemanticMatches(
     accepted !== null &&
     accepted.semanticContext.mode === 'bound' &&
     sameMandate(accepted.semanticContext, mandateRef) &&
-    specMatches(accepted.spec, live) &&
+    canonicalSpecMatches(mandateRef.scope, accepted.spec, live) &&
     accepted.semanticCanon === epicSemanticCanon(captured)
   )
 }

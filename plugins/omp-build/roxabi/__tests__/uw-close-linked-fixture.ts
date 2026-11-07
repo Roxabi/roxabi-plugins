@@ -262,6 +262,7 @@ export async function closeLinkedWorld(
   }
   return {
     leaf,
+    gh,
     operations,
     request,
     state: () => state,

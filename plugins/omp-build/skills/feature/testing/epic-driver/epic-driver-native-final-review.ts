@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { ActionInputs, RecordInputRef } from '../../../../engine/action-input-schema.ts'
 import { parseRecord } from '../../../../engine/record-construction.ts'
@@ -11,7 +12,7 @@ import { captureSubagentEvent } from '../../../../omp/review-runtime/capture.ts'
 import { captureChildResult, groundCapturedChildren } from '../../../../omp/review-runtime/child-capture.ts'
 import type { Json, NativeBatch, NativeBatchResult } from '../../../../omp/review-runtime/contracts.ts'
 import { createActiveBatch } from '../../../../omp/review-runtime/state.ts'
-import { prepareEpicFinalReviewMaterials } from '../../../../roxabi/epic-range-finalization.ts'
+import { type PreparedEpicReview, prepareEpicFinalReviewMaterials } from '../../../../roxabi/epic-range-finalization.ts'
 import type {
   PreparedReviewBatch,
   PublishedContribution,
@@ -99,7 +100,13 @@ export async function withEpicNativeFinalReview<T>(
     read: UwRead
     initialTasks: readonly { name: string; agent: string }[]
     continuation: EpicStepRead
+    presentation: { before: UwRead; after: UwRead } | null
   }) => Promise<T>,
+  options: {
+    editPresentation?: boolean
+    onPresentation?: (before: UwRead, after: UwRead) => void
+    onPrepared?: (prepared: PreparedEpicReview, issueFile: string) => Promise<void>
+  } = {},
 ): Promise<T> {
   try {
     const world = await landedEpic()
@@ -140,6 +147,16 @@ export async function withEpicNativeFinalReview<T>(
         uwReadAuthor: 'operator',
       },
       async () => {
+        let presentation: { before: UwRead; after: UwRead } | null = null
+        if (options.editPresentation) {
+          const file = path.join(box.state, 'uw-1.json')
+          const native = JSON.parse(readFileSync(file, 'utf8'))
+          native.data.repository.issue.body += '\n'
+          native.data.repository.issue.updatedAt = '2026-10-22T12:00:00Z'
+          writeFileSync(file, JSON.stringify(native))
+          presentation = { before, after: await world.native.operations.readUw(scope) }
+          options.onPresentation?.(presentation.before, presentation.after)
+        }
         const request = await epicFinalReviewRequest(box.epic, 1)
         const pluginRoot = path.resolve(import.meta.dirname, '../../../..')
         const commit = git(import.meta.dirname, 'rev-parse', 'HEAD')
@@ -152,6 +169,7 @@ export async function withEpicNativeFinalReview<T>(
           operations: world.native.operations,
           pluginPin: { repository: 'Roxabi/roxabi-plugins', commit, installedRoot: pluginRoot },
         })
+        await options.onPrepared?.(prepared, path.join(box.state, 'uw-1.json'))
         const initial = prepared.prepared
         assertReviewRoster(initial)
         const graph = criterionEpicReviewGraph({
@@ -211,6 +229,7 @@ export async function withEpicNativeFinalReview<T>(
           read: after,
           decision: { scope, kind: 'decision', recordId: decision.recordId },
           initialTasks: initial.batch.tasks.tasks.map((task) => ({ name: task.name, agent: task.agent })),
+          presentation,
           continuation,
         })
       },
