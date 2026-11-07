@@ -40,7 +40,7 @@ afterEach(dispose)
 
 describe('stateful gh — one continuous goal', () => {
   // This continuous world now produces authenticated Parent coverage, plan, integration and review.
-  // Allow their full lifecycle under suite contention; all other integration cases retain 60 seconds.
+  // This case has a dedicated lifecycle budget; global integration defaults are unchanged.
   it('lands, crashes, merges, stops, and completes without an armed stopped PR', async () => {
     const { epic, origin, root } = sandbox()
     expect(git(epic, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe('HEAD')
