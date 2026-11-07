@@ -283,7 +283,7 @@ function blockingReviewStep(range: string, report: Report): Step {
   return {
     action: 'drop',
     stop: 'final-review-blocking',
-    reason: `Final review of ${range} is blocking; read its cause dispositions with /uw read: a fix-original cause needs corrected work and a fresh final review`,
+    reason: `Final review of ${range} is blocking; read its causes with /uw read. Continuing requires a fresh final review of a changed range`,
     report,
   }
 }

@@ -85,7 +85,7 @@ fires on either of two triggers: the milestone in progress, or a shipped check
 that lies. A check that fails closed is `P2-medium`, and a parent caps its
 feature slices but not its defects. This repo binds the two triggers:
 
-- **Milestone**: the open milestone parent that carries `P1-high`.
+- **Milestone**: the open parent issue of type `epic` that carries `P1-high`.
 - **Shipped**: everything under `plugins/`, the published plugins. A gate,
   guard, verifier or success predicate there that reports a pass when it
   should fail or stop is `P1-high`, whatever the milestone.
