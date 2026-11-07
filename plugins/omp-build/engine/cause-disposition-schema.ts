@@ -1,47 +1,28 @@
 import { z } from 'zod'
+import { recordInputRefSchema } from './action-input-refs.ts'
+import { causeCreationContextSchema } from './cause-creation-context-schema.ts'
+
+export {
+  type CreationContext,
+  creationContextSchema,
+  parentAdditionObservationSchema,
+} from './cause-creation-context-schema.ts'
+
 import { observationRefSchema } from './criterion-evidence-schema.ts'
 import { externalRecordRefSchema } from './record-references.ts'
 import { diagnosticSchema, originalFindingSchema } from './record-values.ts'
 import { causeJudgmentSchema, causeSchema, dispositionSchema, finalFindingSchema } from './review-schema.ts'
 import { identifierSchema, scopeSchema, sha256Schema } from './schema-primitives.ts'
-import { uwCreateInputSchema, writesSchema } from './uw-command-schema.ts'
+import { uwCreateInputSchema } from './uw-command-schema.ts'
+import { uwCreatePlanSchema } from './uw-create-plan-schema.ts'
 import { operatorConfirmationEvidenceSchema } from './uw-identity-schema.ts'
 import { complexityFactorsSchema, tierOverrideSchema } from './uw-normalization-schema.ts'
-import { ownSpecRefSchema, specDraftSchema, specItemIdSchema, specSchema, uwTierSchema } from './uw-spec-schema.ts'
+import { criterionIdSchema, ownSpecRefSchema } from './uw-spec-schema.ts'
+import { assessSpecExactSchema, createdChildSlotSchema } from './workflow-action-operands.ts'
 
 const ref = <K extends string>(kind: K) => externalRecordRefSchema.extend({ kind: z.literal(kind) })
 const dispositionRef = ref('cause-disposition')
 const operationRef = ref('cause-operation')
-export const parentAdditionObservationSchema = z.strictObject({
-  parent: scopeSchema,
-  nativeDigest: sha256Schema,
-  historyDigest: sha256Schema,
-  state: z.enum(['inactive', 'active', 'indeterminate']),
-  diagnostics: z.array(diagnosticSchema),
-})
-const sisterContextSchema = z.strictObject({
-  kind: z.literal('sister'),
-  disposition: dispositionRef,
-  dispositionDigest: sha256Schema,
-  original: scopeSchema,
-  originalObservationDigest: sha256Schema,
-  parent: scopeSchema.nullable(),
-  parentObservation: parentAdditionObservationSchema.nullable(),
-  relation: z.enum(['original-blocked-by-sister', 'sister-blocked-by-original']),
-})
-const promotionContextSchema = z.strictObject({
-  kind: z.literal('report-promotion'),
-  report: dispositionRef,
-  reportDigest: sha256Schema,
-  reason: z.string().trim().min(1),
-  parentObservation: parentAdditionObservationSchema.nullable(),
-})
-export const creationContextSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('operator-create') }),
-  sisterContextSchema,
-  promotionContextSchema,
-])
-export type CreationContext = z.infer<typeof creationContextSchema>
 export const causeAdjudicationInputSchema = z.strictObject({
   pending: dispositionRef,
   rejectedFindingIds: z.array(identifierSchema),
@@ -58,41 +39,52 @@ export const causeAdjudicationProposalSchema = causeAdjudicationInputSchema.exte
   pendingDigest: sha256Schema,
 })
 export type CauseAdjudicationProposal = z.infer<typeof causeAdjudicationProposalSchema>
+/** Command-only planned child placeholder; it is replaced with the actual operation ID before assessment. */
+export const parentCoverageIntentSchema = z.strictObject({
+  parent: z.strictObject({ uw: scopeSchema, version: sha256Schema }),
+  assignments: z.array(
+    z.strictObject({
+      criterion: criterionIdSchema,
+      children: z
+        .tuple([z.union([scopeSchema, z.strictObject({ kind: z.literal('created-child') })])])
+        .rest(z.union([scopeSchema, z.strictObject({ kind: z.literal('created-child') })])),
+    }),
+  ),
+})
+export type ParentCoverageIntent = z.infer<typeof parentCoverageIntentSchema>
 export const causeSisterInputSchema = z.strictObject({
   disposition: dispositionRef,
   factors: complexityFactorsSchema,
   tierOverride: tierOverrideSchema,
   labels: z.strictObject({ add: z.array(z.string().min(1)), remove: z.array(z.string().min(1)) }),
+  parentCoverage: parentCoverageIntentSchema.nullable().optional(),
 })
 export type CauseSisterInput = z.infer<typeof causeSisterInputSchema>
 export const reportPromotionInputSchema = z.strictObject({
   report: dispositionRef,
   create: uwCreateInputSchema,
   reason: z.string().trim().min(1),
+  parentCoverage: parentCoverageIntentSchema.nullable().optional(),
 })
 export type ReportPromotionInput = z.infer<typeof reportPromotionInputSchema>
-export const causeCreationProposalSchema = z.strictObject({
-  format: z.literal('omp-build-uw-proposal/1'),
-  operationId: identifierSchema,
-  operation: z.literal('create'),
-  target: z.strictObject({ kind: z.literal('create'), repository: z.string().min(1) }),
-  expected: z.null(),
-  draft: specDraftSchema,
-  allocation: z.strictObject({
-    ledgerHead: z.null(),
-    assignments: z.array(z.strictObject({ draftKey: identifierSchema, id: specItemIdSchema })),
-    retirements: z.tuple([]),
-    spec: specSchema,
-  }),
-  renderedBody: z.string(),
-  title: z.string().min(1),
-  factors: complexityFactorsSchema,
-  tier: uwTierSchema,
-  tierOverride: tierOverrideSchema,
-  writes: writesSchema,
-  normalization: z.tuple([]),
-  assessment: z.null(),
-  creation: z.discriminatedUnion('kind', [sisterContextSchema, promotionContextSchema]),
+export const composedParentConsentSchema = z.strictObject({
+  parent: scopeSchema,
+  mandate: ref('mandate'),
+  accepted: ownSpecRefSchema,
+  predecessor: externalRecordRefSchema,
+  versionVector: z.tuple([ownSpecRefSchema]).rest(ownSpecRefSchema),
+  nativeObservationDigest: sha256Schema,
+  historyDigest: sha256Schema,
+  assessment: ref('action-receipt'),
+  exactInputs: assessSpecExactSchema,
+  slot: createdChildSlotSchema,
+  parentOperationId: identifierSchema,
+  parentProposalDigest: sha256Schema,
+})
+export type ComposedParentConsent = z.infer<typeof composedParentConsentSchema>
+export const causeCreationProposalSchema = uwCreatePlanSchema.extend({
+  creation: causeCreationContextSchema,
+  parentAcceptance: composedParentConsentSchema.nullable(),
 })
 export type CauseCreationProposal = z.infer<typeof causeCreationProposalSchema>
 export const causeOperationPayloadSchema = z.strictObject({
@@ -103,8 +95,12 @@ export const causeOperationPayloadSchema = z.strictObject({
 })
 export type CauseOperationPayload = z.infer<typeof causeOperationPayloadSchema>
 export const causeDispositionPayloadSchema = z.strictObject({
-  format: z.literal('omp-build-cause-disposition/1'),
+  format: z.literal('omp-build-cause-disposition/2'),
   origin: ownSpecRefSchema,
+  basis: z.strictObject({
+    versionVector: z.tuple([ownSpecRefSchema]).rest(ownSpecRefSchema),
+    capture: recordInputRefSchema.nullable(),
+  }),
   subject: z.discriminatedUnion('kind', [
     z.strictObject({
       kind: z.literal('cause'),

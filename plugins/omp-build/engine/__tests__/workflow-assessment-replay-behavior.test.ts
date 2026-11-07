@@ -1,18 +1,26 @@
 import { expect, test } from 'vitest'
-import { fixtureCausal } from '../../testing/action-input-fixtures.ts'
+import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
-import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
+import { resolveSpecEffective, type SpecEffectiveRequest } from '../spec-effective.ts'
+import { resolveAcceptedSpec, resolveAcceptedSpecAt, resolveAcceptedSpecPrefixes } from '../workflow-accepted-spec.ts'
 import { observeAssessmentContextReplay, workflowContextTerminal } from '../workflow-context-terminal.ts'
+import { recordsOf } from '../workflow-control.ts'
 import { resolveOwnSpecAuthority } from '../workflow-mandate-admission.ts'
 import { assessFixture, mandateAssessmentState, shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
-import { history, must, SCOPE } from './workflow-test-support.ts'
+import { BODY, history, must, SCOPE } from './workflow-test-support.ts'
 
-test('observes only a linked authenticated pending expanded-context assessment', () => {
+test('observes only a linked authenticated pending expanded-context assessment', async () => {
   const mandated = shippedFeatureMandate()
   const initial = mandateAssessmentState(mandated)
-  const proposed = { snapshot: initial.snapshot, tier: initial.tier, children: initial.children }
-  const prior = assessFixture(mandated, 'negative-replay', initial, proposed, 'editorial')
+  const proposed = {
+    snapshot: initial.snapshot,
+    tier: initial.tier,
+    children: initial.children,
+    inheritedOwnSpecRefs: initial.inheritedOwnSpecRefs,
+    coverage: initial.coverage,
+  }
+  const prior = assessFixture(mandated, 'negative-replay', initial, proposed, 'editorial', [history([mandated])])
   if (
     prior.start.kind !== 'action-receipt' ||
     prior.start.payload.action !== 'assess-spec' ||
@@ -62,14 +70,59 @@ test('observes only a linked authenticated pending expanded-context assessment',
   )
   if (start.kind !== 'action-receipt' || start.payload.action !== 'assess-spec' || start.payload.phase !== 'start')
     throw new Error('expected expanded assessment start')
-  const replay = { actionId: 'expanded-action', fingerprint: inputs.fingerprint }
+  const replay = { uw: SCOPE, actionId: 'expanded-action', fingerprint: inputs.fingerprint }
   const issue = history([mandated, prior.start, negative, start])
+  const readBack = recordsOf(issue).find((record) => record.recordId === start.recordId)
+  if (
+    readBack?.kind !== 'action-receipt' ||
+    readBack.payload.action !== 'assess-spec' ||
+    readBack.payload.phase !== 'start'
+  )
+    throw new Error('Assessment START was not read back')
   expect(workflowContextTerminal(issue, 'assess-spec')).toBe('uncertain')
-  expect(observeAssessmentContextReplay(issue, start)).toBe('observed')
-  expect(observeAssessmentContextReplay(issue, { ...start })).toBe('uncertain')
+  expect(observeAssessmentContextReplay(issue, readBack)).toBe('observed')
+  expect(observeAssessmentContextReplay(issue, { ...readBack })).toBe('uncertain')
   expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: false })
   expect(resolveAcceptedSpec(mandated, [issue], replay)).toMatchObject({ ok: true })
-  expect(resolveOwnSpecAuthority(issue, [], fixtureCausal([issue]), new Set(), replay)).toMatchObject({ ok: true })
+  expect(resolveAcceptedSpecAt(mandated, [issue], initial.ref, replay)).toMatchObject({ ok: true })
+  expect(resolveAcceptedSpecPrefixes(mandated, [issue], replay)).toMatchObject({ ok: true })
+  const historical: Extract<SpecEffectiveRequest, { mode: 'historical' }> = {
+    mode: 'historical',
+    own: initial.ref,
+    versionVector: [initial.ref, ...initial.inheritedOwnSpecRefs],
+    histories: [issue],
+  }
+  expect(resolveSpecEffective(historical).ok).toBe(false)
+  expect(resolveSpecEffective({ ...historical, assessmentReplay: replay }).ok).toBe(true)
+  expect(resolveSpecEffective({ ...historical, assessmentReplay: { ...replay, fingerprint: '0'.repeat(64) } }).ok).toBe(
+    false,
+  )
+  expect(
+    resolveSpecEffective({ ...historical, assessmentReplay: { ...replay, uw: { ...SCOPE, target: 'issue:999999' } } })
+      .ok,
+  ).toBe(false)
+  const causal = await observeFixtureNativeWorld({
+    root: SCOPE,
+    nodes: [
+      {
+        scope: SCOPE,
+        title: 'Bounded workflow',
+        body: BODY,
+        updatedAt: '2026-10-21T00:00:00Z',
+        labels: ['size:S'],
+        parent: null,
+        children: [],
+        blockers: [],
+        state: 'OPEN',
+        stateReason: null,
+      },
+    ],
+    histories: [issue],
+    pullRequests: [],
+    commits: [],
+    comparisons: [],
+  })
+  expect(resolveOwnSpecAuthority(issue, [], causal, new Set(), replay)).toMatchObject({ ok: true })
   expect(resolveAcceptedSpec(mandated, [issue], { ...replay, fingerprint: '0'.repeat(64) })).toMatchObject({
     ok: false,
   })
@@ -101,7 +154,7 @@ test('observes only a linked authenticated pending expanded-context assessment',
       fingerprint: wrongInputs.fingerprint,
     }),
   ).toMatchObject({ ok: false })
-  const other = assessFixture(mandated, 'other-expanded-pending', initial, proposed, 'editorial')
+  const other = assessFixture(mandated, 'other-expanded-pending', initial, proposed, 'editorial', [history([mandated])])
   expect(
     resolveAcceptedSpec(mandated, [history([mandated, prior.start, negative, start, other.start])], replay),
   ).toMatchObject({ ok: false })

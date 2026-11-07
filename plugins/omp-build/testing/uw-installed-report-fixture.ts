@@ -1,7 +1,9 @@
-import { assessCauseDispositions, buildRecord } from '../dist/contracts.js'
+import { assessHistoricalCauseDispositions, buildRecord, recordsOf } from '../dist/contracts.js'
+import { encodeCriterionRecords } from './criterion-approval.ts'
+import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from './host-catalogue-fixture.ts'
 import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
-import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
 export function reportFixture(number: number, sourceNumber: number) {
   const f = roxabiWorkflowFixtures()
   const scope = { repository: 'acme/app', target: `acme/app#${number}` }
@@ -10,10 +12,23 @@ export function reportFixture(number: number, sourceNumber: number) {
   const binding = f.workflowBinding(source, mandate, `fix/${number}-save`, 'main')
   const graph = acceptedPullRequestReviewGraph({ mandate, binding, prefix: `report-${number}`, label: 'suggestion' })
   if (graph.inputs.manifest.spec.kind !== 'accepted') throw new Error('accepted specification required')
-  const assessment = assessCauseDispositions({
+  const own = f.historyFrom([mandate])
+  const nativeSource = encodeCriterionRecords(
+    recordsOf(graph.history).filter((record) => record.kind !== 'review'),
+    source,
+    roxabiRecordFixtures().projection,
+    'operator',
+    [own],
+  ).history
+  const decision = recordsOf(nativeSource).find(
+    (record) => record.kind === 'decision' && record.recordId === graph.decision.recordId,
+  )
+  if (decision?.kind !== 'decision') throw new Error('authenticated decision required')
+  const assessment = assessHistoricalCauseDispositions({
     context: { original: scope, effective: graph.inputs.manifest.spec.effective },
-    source: { kind: 'decision', decision: graph.decision },
-    histories: [f.historyFrom([mandate]), graph.history],
+    capture: synthesisActionCapture(decision, [nativeSource]),
+    source: { kind: 'decision', decision },
+    histories: [own, nativeSource],
     catalogues: fixtureHostReviewClassCatalogues(),
     adjudications: [],
   })

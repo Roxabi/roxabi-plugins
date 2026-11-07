@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
@@ -10,6 +9,7 @@ import type { Result } from '../engine/result.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
 import { acceptedActionInputs, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
+import { nativeCorrectionRecords } from '../testing/native-correction-records.ts'
 import { NATIVE_AUTHOR, submission, TEST_SCOPE } from '../testing/record-builders.ts'
 import { contribution } from '../testing/record-decisions.ts'
 import { observedComment } from '../testing/record-history.ts'
@@ -24,12 +24,9 @@ function valid(value: unknown): CanonicalRecord {
 }
 
 function fixtureRecords(): CanonicalRecord[] {
-  const raw: unknown = JSON.parse(
-    readFileSync(new URL('../engine/__tests__/fixtures/native-correction-records.json', import.meta.url), 'utf8'),
-  )
-  if (!Array.isArray(raw)) throw new Error('Expected correction records')
+  const raw = nativeCorrectionRecords()
   const plugin = standaloneReviewInputs().manifest.plugin
-  return raw.map(valid).map((record) => {
+  return raw.map((record) => {
     if (record.kind !== 'review-attempt') return record
     const slots = record.payload.slots.map((slot) => {
       if (slot.action === undefined) return slot

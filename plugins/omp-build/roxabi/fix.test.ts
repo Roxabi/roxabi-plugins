@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { ExternalRecordRef } from '../engine/record-references.ts'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { buildRecord } from '../engine/record-construction.ts'
+import { resolveAcceptedSpec } from '../engine/workflow-accepted-spec.ts'
 import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
 import { fixturePreparedAction } from '../testing/action-input-fixtures.ts'
 import { contribution } from '../testing/record-decisions.ts'
-import { history } from '../testing/record-history.ts'
+import { history, observedComment } from '../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { executeCorrection } from './correction-plan-execution.ts'
 import { reconstructFixCheckpoint } from './fix-checkpoint-state.ts'
@@ -104,10 +105,91 @@ describe('fix correction safety', () => {
     })
   })
 
+  it('keeps an authenticated live correction available despite an extra foreign legacy claim', () => {
+    const scope = { repository: 'Acme/app', target: 'Acme/app#42' }
+    const workflow = roxabiWorkflowFixtures()
+    const mandate = workflow.featureMandate(scope, { recordId: 'live-mandate' })
+    const evidence = contribution({
+      scope,
+      id: 'live-ci-evidence',
+      inventoryId: null,
+      content: 'operator-request',
+      rawAttempts: [{ attemptIndex: 0, data: null, raw: { candidateGitSHA: 'a'.repeat(40) }, partialText: null }],
+    })
+    const built = buildRecord({
+      version: 1,
+      ...scope,
+      runId: evidence.runId,
+      recordId: 'live-ci-request',
+      operationId: 'op-live-ci-request',
+      kind: 'fix-request',
+      payload: {
+        requestContributionId: evidence.recordId,
+        existingReviewId: null,
+        scope: 'correct the attributed CI failure',
+        originalSpec: {
+          uw: scope,
+          version: mandate.payload.ownSpec.version,
+          sourceAccepted: { scope, kind: 'mandate', recordId: mandate.recordId },
+        },
+        landing: false,
+      },
+    })
+    if (!built.ok) throw new Error(`Cannot build canonical fix request: ${JSON.stringify(built.diagnostics)}`)
+    const request = built.value
+    const confirmed = workflow.historyFrom([mandate, evidence, request])
+    expect(reconstructFixCheckpoint(confirmed)).toMatchObject({
+      status: 'blocked',
+      reason: 'unresolved-effect',
+      startedRequestIds: [request.recordId],
+    })
+    expect(reconstructFixCheckpoint(confirmed, request)).toEqual({ status: 'live-owned', requestId: request.recordId })
+    const legacy = observedComment({
+      locator: 'comment-foreign-legacy',
+      nativeId: 'foreign-legacy',
+      author: 'intruder',
+      body: '<!-- omp-build:fix-request -->',
+    })
+    const withLegacy = (author: string) =>
+      decodeHistory({
+        ...confirmed.source,
+        comments: [...confirmed.source.comments, { ...legacy, author }],
+      })
+    expect(reconstructFixCheckpoint(withLegacy(confirmed.source.expectedAuthor), request)).toMatchObject({
+      status: 'blocked',
+    })
+    const incomplete = observedComment({
+      locator: 'comment-incomplete',
+      nativeId: 'incomplete',
+      author: confirmed.source.expectedAuthor,
+      body: '<!-- omp-build-record v=1 kind=fix-request id=unfinished operationId=op-unfinished part=1/2 data=e30 -->\n# unfinished',
+    })
+    expect(
+      reconstructFixCheckpoint(
+        decodeHistory({
+          ...confirmed.source,
+          comments: [...confirmed.source.comments, incomplete],
+        }),
+        request,
+      ),
+    ).toMatchObject({ status: 'blocked' })
+    const competing = { ...request, recordId: 'other-live-request', operationId: 'op-other-live-request' }
+    const both = workflow.historyFrom([mandate, evidence, request, competing])
+    expect(reconstructFixCheckpoint(both, request)).toMatchObject({ status: 'blocked', reason: 'ambiguous' })
+    const foreign = withLegacy('intruder')
+    expect(foreign.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'fix-request', authority: 'foreign', status: 'legacy', record: null }),
+        expect.objectContaining({ kind: 'fix-request', recordId: request.recordId, status: 'complete' }),
+      ]),
+    )
+    expect(reconstructFixCheckpoint(foreign, request)).toEqual({ status: 'live-owned', requestId: request.recordId })
+  })
+
   it('requires a matching leaf mandate in the authenticated accepted topology', () => {
     const scope = { repository: 'Acme/app', target: 'Acme/app#42' }
     const childScope = { repository: 'Acme/app', target: 'Acme/app#43' }
-    const { featureMandate } = roxabiWorkflowFixtures()
+    const { featureMandate, epicMandate, historyFrom, ownSpecFromSnapshot } = roxabiWorkflowFixtures()
     const record = featureMandate(scope, { recordId: 'feature-mandate' })
     const child = featureMandate(childScope, { recordId: 'child-mandate' })
     const mandate: FixMandateView = {
@@ -127,15 +209,19 @@ describe('fix correction safety', () => {
       recordId: string
       kind: 'mandate'
     }
-    const source = { scope, recordId: mandate.recordId, kind: 'mandate' } satisfies ExternalRecordRef
-    const accepted = (children: AcceptedChildCommitment[]): AcceptedOwnSpec => ({
-      ref: { uw: scope, version: record.payload.ownSpec.version, sourceAccepted: source },
-      snapshot: record.payload.ownSpec.snapshot,
-      tier: record.payload.tier,
-      children,
-      chain: [{ kind: 'mandate', source, version: record.payload.ownSpec.version }],
-      sourceRefs: [source],
-    })
+    const accepted = (children: AcceptedChildCommitment[]) => {
+      const actual =
+        children.length === 0
+          ? record
+          : epicMandate(scope, children, {
+              recordId: record.recordId,
+              ownSpec: ownSpecFromSnapshot(scope, record.payload.ownSpec.snapshot),
+              tier: record.payload.tier,
+            })
+      const resolved = resolveAcceptedSpec(actual, [historyFrom([actual])])
+      if (!resolved.ok) throw new Error(`Unconfirmed fixture mandate: ${JSON.stringify(resolved.evidence)}`)
+      return resolved.spec
+    }
     const parentChildren = [
       {
         scope: childScope,

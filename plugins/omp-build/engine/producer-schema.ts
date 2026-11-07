@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { missingContextOutputSchema } from './action-context.ts'
+import { producerCriterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import {
   actionResultSchema,
@@ -12,6 +13,7 @@ import {
 } from './record-values.ts'
 import type { FindingInspection } from './result.ts'
 import { decisionSchema } from './review-schema.ts'
+import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
 import {
   ciAttributionSchema,
@@ -29,7 +31,7 @@ export const PRODUCER_OUTPUTS = [
   'spec-assessment',
   'plan',
   'plan-review',
-  'implementation',
+  'delivery-execution',
   'ci-attribution',
   'uw-normalization',
 ] as const
@@ -43,7 +45,11 @@ const producerSchemas = {
   'spec-assessment': z.union([specAssessmentSchema, missingContextOutputSchema]),
   plan: z.union([planOutputSchema, missingContextOutputSchema]),
   'plan-review': z.union([planReviewSchema, missingContextOutputSchema]),
-  implementation: producerImplementationOutputSchema,
+  'delivery-execution': z.union([
+    producerImplementationOutputSchema,
+    integrationOutputSchema.extend({ criteria: z.array(producerCriterionDeclarationSchema) }),
+    missingContextOutputSchema,
+  ]),
   'ci-attribution': z.union([ciAttributionSchema, missingContextOutputSchema]),
   'uw-normalization': z.union([normalizationJudgementSchema, missingContextOutputSchema]),
 } as const satisfies Record<ProducerOutput, z.ZodType>

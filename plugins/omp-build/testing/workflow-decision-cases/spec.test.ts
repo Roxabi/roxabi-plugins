@@ -1,18 +1,40 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { selectApplicableMandate } from '../../engine/workflow-mandate-admission.ts'
-import { fixtureCausal } from '../action-input-fixtures.ts'
+import { observeFixtureNativeWorld } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
+import { nativeDecisionBody, nativeDecisionMandate } from './support/native-decision-spec.ts'
 import { BODY, blank, SCOPE } from './support/workflow-decision-fixtures.ts'
 
 const { featureMandate } = roxabiWorkflowFixtures()
 
 describe('workflow decision specification authority', () => {
-  it('does not treat a mandate object outside the history as authority', () => {
-    const held = featureMandate(SCOPE, { body: BODY })
+  it('does not treat a mandate object outside the history as authority', async () => {
+    const held = nativeDecisionMandate(featureMandate(SCOPE, { body: BODY }))
     expect(held.kind).toBe('mandate')
     const issue = blank()
-    expect(selectApplicableMandate(issue, [], fixtureCausal([issue]))).toMatchObject({
+    const causal = await observeFixtureNativeWorld({
+      root: SCOPE,
+      nodes: [
+        {
+          scope: SCOPE,
+          title: 'Save the selected region',
+          body: nativeDecisionBody,
+          updatedAt: '2026-10-21T12:00:00Z',
+          labels: ['size:S'],
+          parent: null,
+          children: [],
+          blockers: [],
+          state: 'OPEN',
+          stateReason: null,
+        },
+      ],
+      histories: [issue],
+      pullRequests: [],
+      commits: [],
+      comparisons: [],
+    })
+    expect(selectApplicableMandate(issue, [], causal)).toMatchObject({
       status: 'refused',
       reason: 'missing',
     })

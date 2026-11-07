@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto'
 import type { IssueRef } from '../../issue-triage/skills/shared/domain/issue-write.ts'
-import { assessParentInsertionEngagement } from '../dist/contracts.js'
+import { assessParentInsertionEngagement, nativeObservationDigest } from '../dist/contracts.js'
 import type { CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import type { ParentEngagementReadPort } from './uw-parent-engagement.ts'
-import { nativeIssueObservationDigest } from './uw-proposal-preparation.ts'
 
 type ParentObservation = NonNullable<Extract<CreationContext, { kind: 'sister' }>['parentObservation']>
 
@@ -35,7 +34,12 @@ export async function observeCauseParent(
         }
   return {
     parent,
-    nativeDigest: nativeIssueObservationDigest(normalized),
+    nativeDigest: nativeObservationDigest({
+      ...normalized,
+      labels: [...normalized.labels],
+      children: [...normalized.children],
+      blockers: [...normalized.blockers],
+    }),
     historyDigest: createHash('sha256').update(JSON.stringify(own)).digest('hex'),
     state: selected.state,
     diagnostics: [...selected.diagnostics],

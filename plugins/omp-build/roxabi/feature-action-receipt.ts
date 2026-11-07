@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalActionOperands, mechanicalSpecDelta } from '../dist/contracts.js'
+import { canonicalActionOperands, capturedChildOwnSources, mechanicalSpecDelta } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import type { CiExact } from '../engine/workflow-action-operands.ts'
+import type { AssessmentProposalOrigin, CiExact } from '../engine/workflow-action-operands.ts'
 import type { ActionReceiptPayload, AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
 import {
   actionRequest,
@@ -64,7 +64,7 @@ function receiptOperandsMatch(input: Parameters<typeof sealReceipt>[0]): boolean
     return (
       operands?.action === input.action &&
       canonicalActionOperands(operands) ===
-        canonicalActionOperands({ action: input.action, exactInputs: input.exactInputs })
+        canonicalActionOperands({ action: input.action, origin: input.origin, exactInputs: input.exactInputs })
     )
   }
   if (input.action === 'attribute-ci') {
@@ -89,9 +89,10 @@ export async function sealReceipt(
     mandate: { scope: Scope; recordId: string; kind: 'mandate' }
     prepared: PreparedUwAction
   } & (
-    | { action: 'assess-spec'; exactInputs: AssessSpecExact }
+    | { action: 'assess-spec'; origin: AssessmentProposalOrigin; exactInputs: AssessSpecExact }
     | { action: 'attribute-ci'; exactInputs: CiExact }
     | { action: 'implement'; exactInputs: { mandateId: string; planActionId: string } }
+    | { action: 'integrate'; exactInputs: { mandateId: string; planActionId: string } }
   ),
 ): Promise<ContinueFeatureResult> {
   const operands = input.prepared.inputs.manifest.operands
@@ -106,6 +107,8 @@ export async function sealReceipt(
   }
   let payload: Extract<ActionReceiptPayload, { phase: 'start' }>
   if (input.action === 'implement') {
+    payload = { ...base, action: input.action, exactInputs: input.exactInputs }
+  } else if (input.action === 'integrate') {
     payload = { ...base, action: input.action, exactInputs: input.exactInputs }
   } else if (input.action === 'assess-spec' && operands?.action === 'assess-spec') {
     payload = { ...base, action: input.action, exactInputs: operands.exactInputs }
@@ -163,7 +166,7 @@ async function publishAssessmentReceipt(
       purpose: 'assess-spec',
       subject: uwSubject(context.mandateScope, input.target.status === 'pull-request' ? input.target.scope : null),
       code: code.code,
-      operands: { action: 'assess-spec', exactInputs },
+      operands: { action: 'assess-spec', origin: { kind: 'native-current' }, exactInputs },
     }),
   )
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
@@ -177,6 +180,7 @@ async function publishAssessmentReceipt(
     operationId: context.operationId,
     action: 'assess-spec',
     mandate: { scope: context.mandateScope, recordId: input.mandate.recordId, kind: 'mandate' },
+    origin: { kind: 'native-current' },
     exactInputs,
     prepared: prepared.value,
   })
@@ -188,26 +192,28 @@ export async function startAssessmentReceipt(
 ): Promise<ContinueFeatureResult> {
   if (input.mandate.kind !== 'mandate' || input.currentSpec === null || input.identityAllocations === null)
     return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  const accepted = input.loaded.resolveAcceptedSpec(input.mandate, [context.mandateHistory, ...input.evidence.parents])
+  const histories = input.evidence.causal.histories
+  const accepted = input.loaded.resolveAcceptedSpec(input.mandate, histories)
   if (!accepted.ok) return { kind: 'blocked', reason: 'mandate-spec-missing' }
+  const baseline = {
+    ref: accepted.spec.ref,
+    snapshot: accepted.spec.snapshot,
+    tier: accepted.spec.tier,
+    children: accepted.spec.children,
+    inheritedOwnSpecRefs: accepted.spec.inheritedOwnSpecRefs,
+    coverage: accepted.spec.coverage,
+  }
+  const childOwnSources = capturedChildOwnSources(baseline, input.currentSpec, histories, [])
+  if (childOwnSources === null) return blocks('assessment-child-authority-unavailable')
   return publishAssessmentReceipt(input, context, {
-    format: 'omp-build-spec-assessment/2',
-    accepted: {
-      ref: accepted.spec.ref,
-      snapshot: accepted.spec.snapshot,
-      tier: accepted.spec.tier,
-      children: accepted.spec.children,
-    },
+    format: 'omp-build-spec-assessment/3',
+    accepted: baseline,
     proposed: input.currentSpec,
+    attachedChildren: [],
+    attachedWayfinders: [],
+    childOwnSources: childOwnSources.childOwnSources,
     identityAllocations: input.identityAllocations,
-    mechanical: mechanicalSpecDelta(
-      {
-        snapshot: accepted.spec.snapshot,
-        tier: accepted.spec.tier,
-        children: accepted.spec.children,
-      },
-      input.currentSpec,
-    ),
+    mechanical: mechanicalSpecDelta(baseline, input.currentSpec),
   })
 }
 
@@ -245,10 +251,11 @@ export async function startCiAttributionReceipt(
     evidenceDigest: evidence.evidenceDigest,
     failures: evidence.failures,
   }
-  const approved = approvedMandateContext(input.loaded, input.mandate, [
-    context.mandateHistory,
-    ...input.evidence.parents,
-  ])
+  const approved = approvedMandateContext(
+    input.loaded,
+    input.mandate,
+    input.evidence.causal?.histories ?? [context.mandateHistory, ...input.evidence.parents],
+  )
   // Absent Spec context may stay soft for legitimate no-pre-PR / standalone attribution.
   // Present-invalid / ambiguous Spec chain must refuse — never collapse to prose absence.
   if (approved.status === 'invalid') {

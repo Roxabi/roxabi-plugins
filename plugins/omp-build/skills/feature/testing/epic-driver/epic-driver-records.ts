@@ -9,18 +9,20 @@ import {
   renderIssueSpecBody,
 } from '../../../../contracts.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../../../engine/action-input.ts'
+import { buildRecord } from '../../../../engine/record-construction.ts'
+import type { Scope } from '../../../../engine/record-values.ts'
+import { resolveSpecEffective } from '../../../../engine/spec-effective.ts'
+import { resolveAcceptedSpec } from '../../../../engine/workflow-accepted-spec.ts'
 import { acceptedActionInputs } from '../../../../testing/action-input-fixtures.ts'
-import {
-  committedFixturePlugin,
-  committedFixtureProjection,
-  committedFixtureRecords,
-} from '../../../../testing/committed-plugin-fixture.ts'
+import { committedFixturePlugin, committedFixtureProjection } from '../../../../testing/committed-plugin-fixture.ts'
 import { encodeCriterionRecords } from '../../../../testing/criterion-approval.ts'
-import { criterionDispositionRecords } from '../../../../testing/criterion-dispositions.ts'
+import { criterionDispositionRecords, graphFromSimulatedIssues } from '../../../../testing/criterion-dispositions.ts'
 import { criterionEpicReviewGraph } from '../../../../testing/criterion-range-approval.ts'
-import { submission } from '../../../../testing/record-builders.ts'
 import { epicReviewGraph } from '../../../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
+import { blockingReviewRecords } from './epic-driver-blocking-review.ts'
+import { readEpicFixtureIssues } from './epic-driver-native-graph.ts'
+import { type EpicParentWorld, prepareEpicParentReview } from './epic-driver-parent-review.ts'
 import { git, sandboxOf } from './epic-driver-sandbox.ts'
 
 const { projection: TEST_PROJECTION_CONFIG } = roxabiRecordFixtures()
@@ -93,6 +95,20 @@ export function issueComments(issue: number): Comment[] {
   return raw.map((comment) => ({ body: comment.body, author: comment.user.login }))
 }
 
+/** Read the exact unpaginated native responses installed by serveEpic. */
+export function epicFixtureGraph(root: Scope) {
+  if (root.repository !== 'o/r') throw new Error('Unexpected epic fixture repository')
+  const { issues, parentClaims } = readEpicFixtureIssues(root, sandboxOf().state)
+  const graph = graphFromSimulatedIssues(root, issues)
+  for (const node of graph.nodes) {
+    const number = Number(node.uw.target.slice(node.uw.target.lastIndexOf('#') + 1))
+    const parent =
+      node.parent === null ? null : Number(node.parent.target.slice(node.parent.target.lastIndexOf('#') + 1))
+    if (parentClaims.get(number) !== parent) throw new Error(`Native parent conflict at #${number}`)
+  }
+  return graph
+}
+
 export function eventPayloads(issue: number): Record<string, unknown>[] {
   return decodeHistory(recordHistory(issue, issueComments(issue))).operations.flatMap((operation) =>
     operation.record?.kind === 'epic-event' ? [operation.record.payload as Record<string, unknown>] : [],
@@ -107,7 +123,16 @@ export function pullReviewInputs(number: number, head: string) {
     .find((record) => record?.kind === 'workflow-binding')
   if (mandate?.kind !== 'mandate' || binding?.kind !== 'workflow-binding')
     throw new Error('bound PR review fixture needs its accepted mandate and binding')
-  const base = acceptedActionInputs(mandate, 'review')
+  const nativeGraph = epicFixtureGraph({ repository: mandate.repository, target: mandate.target })
+  const histories = nativeGraph.nodes.map((node) => {
+    const issue = Number(node.uw.target.slice(node.uw.target.lastIndexOf('#') + 1))
+    return decodeHistory(recordHistory(issue, issueComments(issue)))
+  })
+  const accepted = resolveAcceptedSpec(mandate, histories)
+  if (!accepted.ok) throw new Error(`Cannot resolve child accepted Spec: ${accepted.reason}`)
+  const effective = resolveSpecEffective({ mode: 'current', own: accepted.spec.ref, histories, graph: nativeGraph })
+  if (!effective.ok) throw new Error(`Cannot resolve child effective Spec: ${JSON.stringify(effective.diagnostics)}`)
+  const base = acceptedActionInputs(mandate, 'review', effective.value)
   const reference = (record: typeof mandate | typeof binding) => ({
     source: 'record' as const,
     record: {
@@ -138,46 +163,23 @@ export function pullReviewInputs(number: number, head: string) {
   return { ...base, manifest, fingerprint: actionInputDigest(manifest) }
 }
 
-export function epicDecisionHistory(range: string, blocking: boolean, criteriaSatisfied = false): Comment[] {
-  const [baseCommit, head] = range.split('..')
-  if (!baseCommit || !head) throw new Error(`invalid epic range ${range}`)
-  const mandate = decodeHistory(recordHistory(1, issueComments(1)))
-    .operations.map((operation) => operation.record)
-    .find((record) => record?.kind === 'mandate')
-  if (mandate?.kind !== 'mandate') throw new Error('epic review fixture needs its accepted parent mandate')
-  const base = acceptedActionInputs(mandate, 'review')
-  const manifest = {
-    ...base.manifest,
-    acceptedSources: [
-      {
-        source: 'record' as const,
-        record: {
-          scope: { repository: mandate.repository, target: mandate.target },
-          recordId: mandate.recordId,
-          kind: mandate.kind,
-        },
-        selector: '/payload',
-        digest: canonicalValueDigest(mandate.payload),
-      },
-    ],
-    code: { repository: mandate.repository, base: baseCommit, head, referenceCommit: head },
-    plugin: committedFixturePlugin(
-      import.meta.dirname,
-      base.manifest.plugin,
-      git(import.meta.dirname, 'rev-parse', 'HEAD'),
-    ),
-  }
-  const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+export async function epicDecisionHistory(
+  blocking: boolean,
+  criteriaSatisfied: boolean,
+  world: EpicParentWorld,
+): Promise<{ comments: Comment[]; range: string }> {
+  const prepared = await prepareEpicParentReview(world)
+  const { mandate, inputs, head, range } = prepared
   const projection = committedFixtureProjection(import.meta.dirname, inputs)
-  const options = {
-    mandate,
-    inputs,
-    head,
-    range,
-    prefix: `epic-${head.slice(0, 8)}`,
-    blocking,
-  }
-  const criterion = criteriaSatisfied || blocking ? criterionEpicReviewGraph(options) : null
+  const options = { mandate, inputs, head, range, prefix: `epic-${head.slice(0, 8)}`, blocking }
+  const criterion =
+    blocking || criteriaSatisfied
+      ? criterionEpicReviewGraph({
+          ...options,
+          issueRecords: prepared.issueRecords,
+          coverageReferences: prepared.coverageReferences,
+        })
+      : null
   const graph =
     criterion ??
     epicReviewGraph({
@@ -189,59 +191,24 @@ export function epicDecisionHistory(range: string, blocking: boolean, criteriaSa
       empty: true,
     })
   const root = graph.root
-  let records: CanonicalRecord[] = graph.records
-  if (blocking) {
-    if (criterion === null) throw new Error('Blocking epic review needs implementation evidence')
-    const selection = criterion.inputs.manifest.deliveryData.find((ref) => ref.role === 'implementation')
-    if (selection === undefined) throw new Error('Blocking epic review is missing implementation evidence')
-    const { role: _role, ...citation } = selection
-    const supported = (value: boolean) => ({
-      state: 'supported' as const,
-      value,
-      reason: 'The selected implementation record establishes this judgment',
-      references: [citation],
-    })
-    const judgment = {
-      ...criterion.decision.payload.judgment,
-      causes: criterion.decision.payload.judgment.causes.map((cause) => ({
-        ...cause,
-        judgment: { necessary: supported(true), urgent: supported(true), tooLarge: supported(false) },
-        proposedDisposition: 'fix-original' as const,
-      })),
-    }
-    const decision = { ...criterion.decision, payload: { ...criterion.decision.payload, judgment } }
-    const synthesis = {
-      ...criterion.synthesisContribution,
-      payload: {
-        ...criterion.synthesisContribution.payload,
-        structured: judgment,
-        rawAttempts: [
-          submission({
-            id: `child-${criterion.synthesisContribution.recordId}`,
-            structuredOutput: { status: 'valid', data: judgment },
-          }),
-        ],
-      },
-    }
-    records = criterion.records.map((record) => {
-      if (record.recordId === decision.recordId) return decision
-      if (record.recordId === synthesis.recordId) return synthesis
-      return record
-    })
-  }
-  const implementation = committedFixtureRecords(
-    import.meta.dirname,
-    criterion === null ? [] : criterion.issueRecords.filter((record) => record.kind !== 'mandate'),
-    inputs.manifest.plugin.commit,
+  const records = blocking ? blockingReviewRecords(criterion) : graph.records
+  const parentHistory = prepared.history
+  const nativeGraph = prepared.observation.graph
+  const otherHistories = prepared.observation.histories.filter(
+    (item) =>
+      item.source.scope.repository !== parentHistory.source.scope.repository ||
+      item.source.scope.target !== parentHistory.source.scope.target,
   )
-  const parentHistory = decodeHistory(recordHistory(1, issueComments(1)))
-  // Same-scope inputs must be in the encoded history, not just external histories.
-  // The parent already contains these canonical frames; return only new frames.
-  const seed = framedBodies([mandate], ME, [], projection)
-  const prefix = framedBodies([mandate, ...implementation, ...records], ME, [parentHistory], projection)
-    .slice(seed.length)
-    .map((body) => ({ body, author: ME }))
-  const before = decodeHistory(recordHistory(1, [...issueComments(1), ...prefix]))
+  const encoded = encodeCriterionRecords(
+    records,
+    parentHistory.source.scope,
+    projection,
+    ME,
+    otherHistories,
+    parentHistory,
+  )
+  const prefix = encoded.comments.map((comment) => ({ body: comment.body, author: ME }))
+  const before = encoded.history
   const decision = before.operations
     .map((operation) => operation.record)
     .find((record) => record?.kind === 'decision' && record.recordId === graph.decision.recordId)
@@ -249,8 +216,9 @@ export function epicDecisionHistory(range: string, blocking: boolean, criteriaSa
   const { dispositions } = criterionDispositionRecords(
     criterion?.inputs ?? inputs,
     decision,
-    [before],
+    [before, ...otherHistories],
     projection.catalogues,
+    nativeGraph,
   )
   const dispositionIds = dispositions.map((record) => record.recordId)
   const event = epicEvent(
@@ -266,8 +234,44 @@ export function epicDecisionHistory(range: string, blocking: boolean, criteriaSa
     },
     [decision.recordId, root.recordId, graph.synthesis.recordId],
   )
-  const final = encodeCriterionRecords([...dispositions, event], before.source.scope, projection, ME, [], before)
-  return [...prefix, ...final.comments.map((comment) => ({ body: comment.body, author: ME }))]
+  const dispositionRecords = encodeCriterionRecords(
+    dispositions,
+    before.source.scope,
+    projection,
+    ME,
+    otherHistories,
+    before,
+  )
+  const review =
+    criterion !== null && !blocking && criteriaSatisfied
+      ? buildRecord({
+          ...criterion.review,
+          payload: {
+            ...criterion.review.payload,
+            causeDispositionRefs: dispositions.map((record) => ({
+              scope: before.source.scope,
+              kind: 'cause-disposition' as const,
+              recordId: record.recordId,
+            })),
+          },
+        })
+      : null
+  if (review !== null && (!review.ok || review.value.kind !== 'review')) throw new Error('Invalid final Epic review')
+  const final = encodeCriterionRecords(
+    [...(review?.ok ? [review.value] : []), event],
+    before.source.scope,
+    projection,
+    ME,
+    otherHistories,
+    dispositionRecords.history,
+  )
+  return {
+    range,
+    comments: [...prefix, ...dispositionRecords.comments, ...final.comments].map((comment) => ({
+      body: comment.body,
+      author: ME,
+    })),
+  }
 }
 
 export { childNode, prNode } from './epic-driver-nodes.ts'

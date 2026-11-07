@@ -8,7 +8,14 @@ export function admitsConfirmingReviewBatchItem(
   ids: ReadonlySet<string>,
   names: ReadonlySet<string>,
 ): boolean {
-  const panel = /^panel-(\d+)-(.+)$/.exec(item.projection.taskName)
+  const { taskName, assignedChunk, chunks } = item.projection
+  const panel =
+    assignedChunk === null
+      ? chunks.length === 0 &&
+        item.request.subject.kind === 'uw' &&
+        item.request.subject.pullRequest === null &&
+        taskName === `panel-context-${item.role}`
+      : chunks.some((chunk) => chunk.index === assignedChunk) && taskName === `panel-${assignedChunk}-${item.role}`
   return (
     item.request.purpose === 'review' &&
     JSON.stringify({ ...item.request, actionId: '' }) === commonRequest &&
@@ -16,6 +23,6 @@ export function admitsConfirmingReviewBatchItem(
       commonProjection &&
     !ids.has(item.request.actionId) &&
     !names.has(item.projection.taskName) &&
-    (index === 0 || (panel !== null && Number(panel[1]) === item.projection.assignedChunk))
+    (index === 0 ? item.role === 'R-review-spec' : item.role !== 'R-review-spec' && panel)
   )
 }

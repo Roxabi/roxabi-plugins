@@ -26,6 +26,7 @@ export {
   validateReviewDecisionBindings,
 } from './engine/review-decision.ts'
 export { validateHistoricalReviewDecision } from './engine/review-fresh-decision.ts'
+export { authenticateIntegrationPin } from './engine/review-integration-pin.ts'
 export {
   type ReviewInterruptionPayload,
   type ReviewReplacementGrantPayload,

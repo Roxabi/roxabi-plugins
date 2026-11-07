@@ -1,4 +1,9 @@
 import { expect } from 'vitest'
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
+import { resolveSpecIdentityLedger } from '../../engine/uw-identity.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
+import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { nextStep } from './epic-next-step'
 import type { BranchFacts, ChildFacts, Facts, HookRecord, PrFacts, Report } from './epic-types'
 
@@ -17,36 +22,37 @@ export const on = (
   repo?: string,
 ): ChildFacts['blockedBy'][number] => (repo ? { number, state, repo } : { number, state })
 
-const VERSION = 'a'.repeat(64)
-const RAW_DIGEST = 'b'.repeat(64)
-
 export function acceptedOwnUw(number: number): ChildFacts['ownUw'] {
   const uw = { repository: 'o/r', target: `o/r#${number}` }
-  const source = { scope: uw, recordId: `mandate-${number}`, kind: 'mandate' as const }
-  const allocation = { scope: uw, recordId: `identity-${number}`, kind: 'spec-identity' as const }
+  const content = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement: 'it works' }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!content.ok) throw new Error('Invalid declared child Spec')
+  const body = renderIssueSpecBody(content.value)
+  const parsed = parseIssueSpecBody({ uw, raw: rawSource(uw.target, body, null) })
+  if (parsed.status !== 'conformant') throw new Error('Invalid native child Spec')
+  const fixtures = roxabiWorkflowFixtures()
+  const mandate = fixtures.featureMandate(uw, {
+    recordId: `mandate-${number}`,
+    body,
+    ownSpec: fixtures.ownSpecFromSnapshot(uw, parsed.snapshot),
+  })
+  const history = fixtures.historyFrom([mandate])
+  const resolved = resolveAcceptedSpec(mandate, [history])
+  if (!resolved.ok) throw new Error(`Unconfirmed fixture mandate: ${JSON.stringify(resolved.evidence)}`)
+  const identity = resolveSpecIdentityLedger({ uw, history, histories: [history], accepted: resolved.spec })
+  if (!identity.ok) throw new Error(`Unconfirmed fixture identity ledger: ${JSON.stringify(identity.diagnostics)}`)
   return {
     status: 'accepted',
     graphComplete: true,
-    identityAllocations: [{ id: 'C1', allocationRef: allocation }],
-    accepted: {
-      ref: { uw, version: VERSION, sourceAccepted: source },
-      snapshot: {
-        spec: {
-          format: 'omp-build-spec-content/1',
-          version: VERSION,
-          criteria: [{ id: 'C1', statement: 'it works' }],
-          invariants: [],
-          exclusions: [],
-          openQuestions: [],
-          sections: { origin: '', context: '', change: '' },
-        },
-        raw: { reference: `o/r#${number}`, body: '', bodySha256: RAW_DIGEST, lastEditedAt: null },
-      },
-      tier: 'S',
-      children: [],
-      chain: [{ kind: 'mandate', source, version: VERSION }],
-      sourceRefs: [source],
-    },
+    role: 'leaf',
+    identityAllocations: [...identity.value.allocations].map(([id, allocationRef]) => ({ id, allocationRef })),
+    accepted: resolved.spec,
   }
 }
 
@@ -117,6 +123,8 @@ export function facts(children: ChildFacts[], over: Partial<Facts> = {}): Facts 
     run: RUN,
     base: BASE,
     baseSha: sha('f'),
+    parentIntegration: { ok: true, value: null },
+    parentCompletion: null,
     tree: { clean: true, branch: null },
     baseCi: { state: 'green', failed: [], pending: [] },
     landingError: null,
@@ -131,7 +139,18 @@ export type Case = { name: string; facts: Facts; step: Record<string, unknown>; 
 
 export function decides({ facts: input, step, report }: Case) {
   const got = nextStep(input)
-  expect(got).toMatchObject(step)
+  expect(
+    got,
+    JSON.stringify({
+      got,
+      children: input.children.map(({ number, state, completion, blockedBy }) => ({
+        number,
+        state,
+        completion: completion ?? null,
+        blockedBy,
+      })),
+    }),
+  ).toMatchObject(step)
   if (report) expect(got.report).toMatchObject(report)
 }
 
@@ -154,7 +173,4 @@ export const RANGE = `${sha('1')}..${sha('c')}`
 export const FIX = child(4, { epicFix: true, state: 'CLOSED', prs: [landed(4, T3, sha('c'), sha('d'))] })
 export const FIXED = `${sha('1')}..${sha('d')}`
 
-export const review = (verdict: 'clean' | 'blocking', range: string, run = RUN) => ({ run, verdict, range })
 export const hook = (result: HookRecord['result'], at: string, run = RUN): HookRecord => ({ run, result, sha: at })
-/** All done and the final review clean for the current range. */
-export const reviewed = (hooks: HookRecord[]) => facts(DONE, { reviews: [review('clean', RANGE)], hooks })

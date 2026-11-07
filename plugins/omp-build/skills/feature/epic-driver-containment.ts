@@ -44,6 +44,13 @@ function ownedBranches(history: DecodedHistory, context: Owner): Set<string> {
 
 async function childHistory(context: Owner): Promise<DecodedHistory> {
   const history = await issueHistory(context.repo, context.full, context.number)
+  const hasOwnedMandate = history.operations.some(
+    (operation) =>
+      operation.status === 'complete' &&
+      operation.authority === 'accounted' &&
+      operation.record?.kind === 'mandate' &&
+      ownedMandate(operation.record, context),
+  )
   if (
     !history.source.complete ||
     history.operations.some((operation) => {
@@ -53,7 +60,11 @@ async function childHistory(context: Owner): Promise<DecodedHistory> {
         operation.claimedKinds.includes('mandate')
       return (
         claimsMandate &&
-        (operation.status !== 'complete' || operation.record?.kind !== 'mandate' || operation.authority === 'authority')
+        (operation.authority === 'foreign'
+          ? !hasOwnedMandate
+          : operation.status !== 'complete' ||
+            operation.record?.kind !== 'mandate' ||
+            operation.authority === 'authority')
       )
     })
   )

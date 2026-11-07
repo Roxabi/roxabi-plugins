@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  canonicalValueDigest,
   ciAttributionSchema,
   missingContextOutputSchema,
   planOutputSchema,
@@ -34,8 +35,26 @@ async function publishPlanReviewResult(
   const negativeChild = result.children.find((child) => child.contextBlock !== undefined)
   const negative = negativeChild === undefined ? null : missingContextOutputSchema.safeParse(negativeChild.structured)
   if (negative !== null && !negative.success) return { published: false, reason: 'plan-review-output-invalid' }
+  if (negativeChild?.id === null) return { published: false, reason: 'plan-review-slot-action-unbound' }
   const { slots } = context.opened.payload
-  const contributions: PlanReviewResultPayload['contributions'] = slots.flatMap(({ slotId, specialist }) => {
+  for (const slot of slots) {
+    const task = result.batch.tasks.tasks.find((entry) => entry.name === slot.slotId)
+    const children = result.children.filter((entry) => entry.expectedId === slot.slotId)
+    const child = children[0]
+    if (
+      slot.action === undefined ||
+      task?.agent !== slot.specialist ||
+      task.action === undefined ||
+      task.action.snapshot.actionId !== slot.action.actionId ||
+      canonicalValueDigest(task.action.inputs) !== canonicalValueDigest(slot.action.inputs) ||
+      children.length > 1 ||
+      (negative === null && child !== undefined && child.id === null) ||
+      (child?.contextBlock !== undefined &&
+        canonicalValueDigest(child.contextBlock.action) !== canonicalValueDigest(slot.action))
+    )
+      return { published: false, reason: 'plan-review-slot-action-unbound' }
+  }
+  const contributions: PlanReviewResultPayload['contributions'] = slots.flatMap(({ slotId, specialist, action }) => {
     const child = result.children.find((entry) => entry.expectedId === slotId) ?? null
     if (negative !== null && (child === null || child.id === null)) return []
     return [
@@ -49,7 +68,7 @@ async function publishPlanReviewResult(
           slotId,
           chunk: null,
           childId: child?.id ?? null,
-          ...(child?.contextBlock === undefined ? {} : { action: child.contextBlock.action }),
+          ...(child === null ? {} : { action }),
         },
         rawAttempts: child === null ? [] : child.submissions,
         native: child === null ? null : nativeOutcome(child, child.usable && child.structured !== null),
@@ -243,6 +262,15 @@ export async function publishNonImplementResult(input: {
   )
     return { published: false, reason: 'action-context-binding-mismatch' }
   if (isOpenedAction(context, 'plan-review')) return publishPlanReviewResult(context, input.result)
+  if (
+    isOpenedAction(context, 'assess-spec') &&
+    (input.result.children.length !== 1 ||
+      input.result.batch.tasks.tasks.length !== 1 ||
+      input.result.children[0]?.id === null ||
+      input.result.children[0]?.expectedId !== input.result.batch.tasks.tasks[0]?.name ||
+      (!input.result.children[0]?.usable && input.result.children[0]?.contextBlock === undefined))
+  )
+    return { published: false, reason: 'assess-spec-native-child-unconfirmed' }
   const child = input.result.children[0]
   if (!child) return { published: false, reason: 'missing-contribution' }
   if (isOpenedAction(context, 'plan')) return publishPlanResult(context, input.result, child)

@@ -389,6 +389,7 @@ describe('native batch controller ownership fences', () => {
     const controller = new NativeBatchController()
     const prepared = batch(['slot-a'])
     const clone = { ...prepared, tasks: { ...prepared.tasks, tasks: [...prepared.tasks.tasks] } }
+    expect(() => controller.settlementFor(clone)).toThrow('native batch has no owned settlement')
     let stopped = false
     controller.activate(prepared, {
       onComplete: async () => undefined,
@@ -427,11 +428,19 @@ describe('native batch controller ownership fences', () => {
       secondSettled = true
     })
     await onStopEntered.promise
+    const captured = controller.settlementFor(prepared)
+    let capturedSettled = false
+    void captured.then(() => {
+      capturedSettled = true
+    })
+    expect(capturedSettled).toBe(false)
     expect(secondSettled).toBe(false)
     expect(reasons).toEqual(['pause-terminal'])
     stopGate.resolve()
     await first
     await second
+    await captured
+    expect(capturedSettled).toBe(true)
     expect(controller.active()).toBeNull()
     expect(reasons).toEqual(['pause-terminal'])
   })

@@ -27,10 +27,15 @@ function batch(): ReviewActionBatch {
   ]
   return {
     actions: [
-      { request, projection: { taskName: 'spec', assignedChunk: null, contextWindow: 100_000, chunks } },
       {
+        role: 'R-review-spec',
+        request,
+        projection: { taskName: 'spec', assignedChunk: null, contextWindow: 100_000, chunks },
+      },
+      {
+        role: 'R-tester',
         request: { ...request, actionId: 'panel-b' },
-        projection: { taskName: 'panel-1-tester', assignedChunk: 1, contextWindow: 100_000, chunks },
+        projection: { taskName: 'panel-1-R-tester', assignedChunk: 1, contextWindow: 100_000, chunks },
       },
     ],
   }
@@ -127,7 +132,7 @@ test('batch seals distinct role handles and their assigned projections', async (
   expect(first.inputs.fingerprint).toBe(second.inputs.fingerprint)
   for (const [action, role, chunk] of [
     [first, 'spec', null],
-    [second, 'panel-1-tester', 1],
+    [second, 'panel-1-R-tester', 1],
   ] as const) {
     const directory = dirname(action.snapshot.indexPath)
     const assignment = JSON.parse(readFileSync(join(directory, 'review/assignment.json'), 'utf8'))

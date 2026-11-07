@@ -8,7 +8,7 @@ import { createCauseAdjudication } from '../uw-cause-adjudication.ts'
 import { historicalWorld } from './uw-cause-adjudication-historical-fixture.ts'
 
 it('confirms and persists a final successor to an unresolved Spec A hold after Spec B is accepted', async () => {
-  const world = historicalWorld(true)
+  const world = await historicalWorld(true)
   expect(world.acceptedA.ref.version).not.toEqual(world.acceptedB.ref.version)
   expect(world.pending.payload.outcome.state).toBe('pending-blocking')
   const current = await world.reader.readUw(world.uw)
@@ -50,7 +50,7 @@ it('confirms and persists a final successor to an unresolved Spec A hold after S
 })
 
 it('does not publish the historical adjudication when the operator declines', async () => {
-  const world = historicalWorld(false)
+  const world = await historicalWorld(false)
   const result = await world.adjudicate(world.request)
   expect(result.status, JSON.stringify(result)).toBe('refused')
   expect(world.prompts).toHaveLength(1)
@@ -58,7 +58,7 @@ it('does not publish the historical adjudication when the operator declines', as
 })
 
 it('rejects an adjudication without cited evidence before confirmation', async () => {
-  const world = historicalWorld(true)
+  const world = await historicalWorld(true)
   const result = await world.adjudicate({ ...world.request, references: [] })
   expect(result.status, JSON.stringify(result)).toBe('refused')
   expect(world.prompts).toEqual([])
@@ -69,7 +69,7 @@ it('refuses the first confirmed proposal when a competing adjudication advances 
   let beforeConfirmation: () => Promise<void> = async () => {
     throw new Error('Competing adjudication callback was not installed')
   }
-  const world = historicalWorld(true, () => beforeConfirmation())
+  const world = await historicalWorld(true, () => beforeConfirmation())
   let competingPrompts = 0
   let postsAfterCompetitor = 0
   let competingDisposition: string | undefined

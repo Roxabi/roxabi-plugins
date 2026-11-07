@@ -152,6 +152,19 @@ export async function prepareUwAction(
   return { ok: true, value: { inputs, snapshot: sealed.value } }
 }
 
+async function readReplaySources(rebuilt: ActionInputs, ports: UwActionPorts): Promise<Result<true>> {
+  for (const ref of rebuilt.manifest.repositoryReferences) {
+    const read = await ports.readPinnedFile(ref)
+    if (!read.ok) return read
+  }
+  const records = [...rebuilt.manifest.acceptedSources, ...rebuilt.manifest.deliveryData]
+  const selected = await ports.readRecords(records)
+  if (!selected.ok) return selected
+  if (selected.value.length !== records.length)
+    return actionFailure('record-unreadable', 'Selected record batch returned an unexpected number of values')
+  return { ok: true, value: true }
+}
+
 export async function replayUwActionInputs(
   input: { reviewed: ActionInputs; request: UwActionRequest; reviewedRoot?: ReviewRootRef },
   ports: UwActionPorts,
@@ -184,15 +197,8 @@ export async function replayUwActionInputs(
     fingerprint: '',
     stageSources: [...input.request.stageSources],
   }
-  for (const ref of rebuilt.manifest.repositoryReferences) {
-    const read = await scoped.readPinnedFile(ref)
-    if (!read.ok) return read
-  }
-  const records = [...rebuilt.manifest.acceptedSources, ...rebuilt.manifest.deliveryData]
-  const selected = await scoped.readRecords(records)
-  if (!selected.ok) return selected
-  if (selected.value.length !== records.length)
-    return actionFailure('record-unreadable', 'Selected record batch returned an unexpected number of values')
+  const sources = await readReplaySources(rebuilt, scoped)
+  if (!sources.ok) return sources
   rebuilt.fingerprint = actionInputDigest(rebuilt.manifest)
   const validated = validateActionInputs(rebuilt)
   if (!validated.ok) return { ok: false, diagnostics: validated.diagnostics }
@@ -200,6 +206,11 @@ export async function replayUwActionInputs(
   if (cited.length > 0) return { ok: false, diagnostics: cited }
   if (validated.value.fingerprint !== input.reviewed.fingerprint)
     return actionFailure('review-input-changed', 'Reconstructed action inputs do not match the reviewed fingerprint')
+  if (
+    input.request.purpose === 'integrate' &&
+    canonicalValueDigest(validated.value) !== canonicalValueDigest(input.reviewed)
+  )
+    return actionFailure('review-input-changed', 'Reconstructed integration binding does not match the reviewed inputs')
   return validated
 }
 export function storedReviewExpansion(

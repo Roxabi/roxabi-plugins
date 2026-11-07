@@ -19,7 +19,7 @@ Return format omp-build-cause-decision/1. Preserve every original exactly once i
 
 For each cause provide necessary, urgent, and tooLarge judgments. Each supported judgment has a nonblank reason and distinct authenticated observation references specific to that cause and dimension. Mark absent or disputed evidence missing or contested. Propose fix-original for necessary and urgent work that fits; sister-blocking for blocking work that is too large; sister-after for nonblocking necessary and urgent work that is too large; otherwise report. A blocking finding is necessary and urgent but unsupported, contested, or contradictory evidence requires proposedDisposition null and adjudication, not a blind fix.
 
-Provide exclusionClaims with sourceFindingId, target, exclusion, concern, and reason. Only explicitly excluded outside-Spec additional work is excluded; an accepted criterion, introduced regression, security defect, or invariant violation remains actionable. Separate excluded additional work from actionable work into distinct causes.
+Provide exclusionClaims with sourceFindingId, target, exclusion, concern, and reason. Copy the exact own exclusion reference or effective.inherited.exclusions[].ref from spec.json, including its pinned owner. Only explicitly excluded outside-Spec additional work is excluded; an accepted criterion, introduced regression, security defect, or invariant violation remains actionable. Separate excluded additional work from actionable work into distinct causes.
 
 Synthesize only confirmed contribution and recall records named by the index. Return the structured review decision. Do not invent a satisfied row from code or from memory.
 

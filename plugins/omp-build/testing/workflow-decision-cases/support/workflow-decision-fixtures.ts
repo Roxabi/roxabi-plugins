@@ -1,10 +1,16 @@
 import { decodeHistory } from '../../../adapters/github/history-codec.ts'
-import { FINDING_TARGET_FORMAT } from '../../../engine/finding-target-schema.ts'
+import { canonicalValueDigest } from '../../../engine/action-input.ts'
+import type { ActionInputs } from '../../../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../../engine/record-schema.ts'
 import type { Json, Scope } from '../../../engine/record-values.ts'
+import { resolveSpecEffective } from '../../../engine/spec-effective.ts'
+import type { SpecEffective } from '../../../engine/spec-effective-schema.ts'
+import { resolveAcceptedSpec } from '../../../engine/workflow-accepted-spec.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
+import type { PlanOutput } from '../../../engine/workflow-output-schema.ts'
 import type { WorkflowFacts } from '../../../engine/workflow-reconstruction-types.ts'
+import { pinAcceptedSources } from '../../../roxabi/uw-action-observe.ts'
 import { workflowConfigDigest } from '../../../roxabi/workflow-config-digest.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
 
@@ -79,6 +85,8 @@ export function facts(
             snapshot: mandate.payload.ownSpec.snapshot,
             tier: mandate.payload.tier,
             children: mandate.payload.children,
+            inheritedOwnSpecRefs: mandate.payload.inheritedOwnSpecRefs,
+            coverage: mandate.payload.coverage,
           },
     identityAllocations: mandate?.payload.ownSpec.identityAllocations ?? null,
     base: mandate?.payload.base ?? 'main',
@@ -117,54 +125,72 @@ export function shippedFacts(
   return { ...factsForMandate(mandate), pullRequest }
 }
 
-export function eligiblePlan(mandate: MandateRecord): CanonicalRecord[] {
-  const digest = WORKFLOW_FIXTURES.publishedPlanDigest()
-  return [
-    mandate,
-    ...WORKFLOW_FIXTURES.planDraftRecords(mandate),
-    WORKFLOW_FIXTURES.planReviewStart(mandate, 'act-plan-1', digest),
-    WORKFLOW_FIXTURES.planReviewRecord(mandate, 'act-plan-1', digest, [
-      WORKFLOW_FIXTURES.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
-      WORKFLOW_FIXTURES.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
-    ]),
-  ]
+export function authenticatedPlanFixtures(
+  mandate: MandateRecord,
+  histories: readonly DecodedHistory[],
+  effective?: SpecEffective,
+  planOutput?: PlanOutput,
+  codeRange?: ActionInputs['manifest']['code'],
+) {
+  const accepted = resolveAcceptedSpec(mandate, histories)
+  if (!accepted.ok) throw new Error(`Plan basis is not authenticated: ${JSON.stringify(accepted)}`)
+  const resolved = resolveSpecEffective({
+    mode: 'historical',
+    own: accepted.spec.ref,
+    versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
+    histories,
+  })
+  if (!resolved.ok) throw new Error(`Plan vector is not authenticated: ${JSON.stringify(resolved.diagnostics)}`)
+  if (effective !== undefined && canonicalValueDigest(effective) !== canonicalValueDigest(resolved.value))
+    throw new Error('Declared plan vector differs from the authenticated accepted vector')
+  const pins = pinAcceptedSources(histories, accepted.spec.sourceRefs)
+  if (!pins.ok) throw new Error(`Plan sources are not authenticated: ${JSON.stringify(pins.diagnostics)}`)
+  return {
+    workflow: roxabiWorkflowFixtures(resolved.value, planOutput, pins.value, codeRange),
+    version: accepted.spec.ref.version,
+  }
 }
 
-export function admittedImplement(mandate: MandateRecord): CanonicalRecord {
-  const result = WORKFLOW_FIXTURES.rejectedImplementResult(mandate)
-  if (
-    result.kind !== 'action-receipt' ||
-    result.payload.action !== 'implement' ||
-    result.payload.phase !== 'result' ||
-    result.payload.admission === null ||
-    result.payload.structured === null
-  ) {
-    throw new Error('expected a rejected implement result')
-  }
-  const own = {
-    uw: mandate.payload.ownSpec.uw,
-    version: mandate.payload.ownSpec.version,
-    sourceAccepted: {
-      scope: { repository: mandate.repository, target: mandate.target },
-      recordId: mandate.recordId,
-      kind: 'mandate' as const,
-    },
-  }
-  return {
-    ...result,
-    payload: {
-      ...result.payload,
-      structured: {
-        ...result.payload.structured,
-        criteria: mandate.payload.ownSpec.snapshot.spec.criteria.map(({ id }) => ({
-          target: { format: FINDING_TARGET_FORMAT, kind: 'criterion' as const, spec: own, id },
-          verification: 'unverified' as const,
-          reason: 'Synthetic fixture has no independent criterion evidence',
-        })),
-      },
-      admission: { ...result.payload.admission, admitted: true, remoteTip: HEAD },
-    },
-  }
+export function eligiblePlan(
+  mandate: MandateRecord,
+  histories: readonly DecodedHistory[],
+  effective?: SpecEffective,
+  planOutput?: PlanOutput,
+  codeRange?: ActionInputs['manifest']['code'],
+): CanonicalRecord[] {
+  const { workflow, version } = authenticatedPlanFixtures(mandate, histories, effective, planOutput, codeRange)
+  const digest = workflow.publishedPlanDigest()
+  return [
+    mandate,
+    ...workflow.planDraftRecords(mandate, 'act-plan-1', version),
+    workflow.planReviewStart(mandate, 'act-plan-1', digest, 'act-plan-review-1', version),
+    workflow.planReviewRecord(
+      mandate,
+      'act-plan-1',
+      digest,
+      [
+        workflow.clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
+        workflow.clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
+      ],
+      'act-plan-review-1',
+      version,
+    ),
+  ]
+}
+/** Bind the canonical plan fixtures to the explicitly declared checkout before framing them. */
+export function eligiblePlanAt(
+  mandate: MandateRecord,
+  commit: string,
+  histories: readonly DecodedHistory[],
+  effective?: SpecEffective,
+  planOutput?: PlanOutput,
+) {
+  return eligiblePlan(mandate, histories, effective, planOutput, {
+    repository: mandate.repository,
+    base: commit,
+    head: commit,
+    referenceCommit: commit,
+  })
 }
 
 export function hasAction(history: DecodedHistory, action: string): boolean {

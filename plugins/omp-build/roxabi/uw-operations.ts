@@ -1,14 +1,10 @@
 import type { calculateTier } from '../../issue-triage/skills/shared/domain/complexity.ts'
-import type {
-  IssueRef,
-  IssueWriteResult,
-  IssueWriter,
-  NativeIssueWritePlan,
-} from '../../issue-triage/skills/shared/domain/issue-write.ts'
+import type { IssueRef, IssueWriter } from '../../issue-triage/skills/shared/domain/issue-write.ts'
 import type { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { resolveSpecEffective } from '../engine/spec-effective.ts'
 import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
 import type { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
@@ -16,37 +12,40 @@ import type { NormalizationJudgement } from '../engine/uw-normalization-schema.t
 import { type ActionOperationPorts, actionOperationMethods } from './uw-action-operations.ts'
 import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import type {
+  CreatedUwRead,
   OperatorPort,
   OperatorResult,
   PreparedUwProposal,
   UwCreateInput,
   UwOperationResult,
   UwOperations,
-  UwProposal,
   UwProposalInput,
   UwRead,
 } from './uw-contract.ts'
 import { bindSuccessorWriter } from './uw-normalization-internal.ts'
 import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
-import { issueRef, observation } from './uw-operation-observation.ts'
+import { observation } from './uw-operation-observation.ts'
 import { insertionDiagnostics } from './uw-parent-admission.ts'
-import { readAfterEffect } from './uw-post-effect-read.ts'
+import { commitCreate, commitWrite } from './uw-proposal-commit.ts'
 import {
   parentRepositoryDiagnostics,
   prepareCreateProposal,
   prepareExistingProposal,
   sourceBindingDiagnostics,
-  staleWrite,
   type UwProposalPreparationPorts,
 } from './uw-proposal-preparation.ts'
+import { reopenUw } from './uw-reopen.ts'
 
 export type IdentityPublicationResult =
   | { status: 'confirmed' }
   | { status: 'refused' | 'partial' | 'uncertain'; diagnostics: readonly UwDiagnostic[] }
 
 export type UwOperationsPorts = {
+  abandon: UwOperations['abandon']
+  closeLinked: UwOperations['closeLinked']
   read(uw: Scope): Promise<UwRead>
-  readCreated(uw: Scope): Promise<UwRead>
+  readCreated(uw: Scope): Promise<CreatedUwRead>
+  adjustCauseDependency: UwOperations['adjustCauseDependency']
   listReports: UwOperations['listReports']
   writer: IssueWriter
   guardParent(parent: IssueRef): Promise<void>
@@ -61,9 +60,11 @@ export type UwOperationsPorts = {
       prepared: PreparedUwProposal,
       confirmation: OperatorConfirmationEvidence,
       writer: IssueWriter,
+      composedGuard?: CauseEffectGuard,
     ): Promise<UwOperationResult>
   }): Pick<UwOperations, 'adjudicateCause' | 'createSister' | 'promoteReport'>
   operator: OperatorPort
+  resolveSpecEffective: typeof resolveSpecEffective
   /** Engine/runtime values are loaded from the installed contracts facade by composition. */
   prepareSpecAllocation: typeof prepareSpecAllocation
   renderIssueSpecBody: typeof renderIssueSpecBody
@@ -87,95 +88,6 @@ function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
 }
 
-function issuePlan(proposal: UwProposal): NativeIssueWritePlan {
-  return {
-    repository: proposal.target.kind === 'existing' ? proposal.target.uw.repository : proposal.target.repository,
-    title: proposal.title,
-    body: proposal.renderedBody,
-    labels: proposal.writes.labels,
-    relations: proposal.writes.relations,
-  }
-}
-
-function writeDiagnostics(uw: Scope, result: IssueWriteResult): readonly UwDiagnostic[] {
-  if (result.status === 'written') return []
-  return result.diagnostics.map((item) => diagnostic(uw, item.code, item.message))
-}
-
-async function commitWrite(
-  input: UwProposalInput,
-  prepared: PreparedUwProposal,
-  confirmation: OperatorConfirmationEvidence,
-  ports: UwOperationsPorts,
-): Promise<UwOperationResult> {
-  const freshRead = await ports.read(input.uw)
-  const sourceDiagnostics = sourceBindingDiagnostics(input, freshRead)
-  if (sourceDiagnostics.length > 0) return { status: 'refused', diagnostics: sourceDiagnostics }
-  const freshIssue = observation(freshRead)
-  const target = issueRef(input.uw)
-  if (freshIssue === null || target === null || staleWrite(prepared, freshRead, freshIssue))
-    return {
-      status: 'refused',
-      diagnostics: [
-        diagnostic(
-          input.uw,
-          'proposal-stale',
-          'UW facts or identity ledger changed after the exact proposal was shown',
-        ),
-      ],
-    }
-  const parentDiagnostics = await insertionDiagnostics(prepared.proposal, ports)
-  if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
-  const publishesIdentity =
-    prepared.proposal.allocation.assignments.length > 0 ||
-    (prepared.proposal.expected?.acceptedPredecessor === null && prepared.proposal.allocation.retirements.length > 0)
-  let publishedIdentity = false
-  if (publishesIdentity) {
-    const published = await ports.publishIdentity({ uw: input.uw, proposal: prepared, confirmation })
-    if (published.status !== 'confirmed')
-      return published.status === 'refused'
-        ? { status: 'refused', diagnostics: published.diagnostics }
-        : { status: 'partial', uw: input.uw, diagnostics: published.diagnostics }
-    publishedIdentity = true
-  }
-  const written = await ports.writer.update(target, issuePlan(prepared.proposal), freshIssue)
-  if (written.status === 'written') return readAfterEffect('written', input.uw, () => ports.read(input.uw))
-  if (written.status === 'partial' || publishedIdentity)
-    return { status: 'partial', uw: input.uw, diagnostics: writeDiagnostics(input.uw, written) }
-  return { status: 'refused', diagnostics: writeDiagnostics(input.uw, written) }
-}
-
-function creationFailure(input: UwCreateInput, created: IssueWriteResult, ports: UwOperationsPorts): UwOperationResult {
-  const scope =
-    created.status === 'partial'
-      ? ports.scopeOf(created.issue)
-      : { repository: input.repository, target: `${input.repository}#0` }
-  return created.status === 'partial'
-    ? { status: 'partial', uw: scope, diagnostics: writeDiagnostics(scope, created) }
-    : { status: 'refused', diagnostics: writeDiagnostics(scope, created) }
-}
-
-async function commitCreate(
-  input: UwCreateInput,
-  prepared: PreparedUwProposal,
-  confirmation: OperatorConfirmationEvidence,
-  ports: UwOperationsPorts,
-  writer: IssueWriter,
-): Promise<UwOperationResult> {
-  const parentDiagnostics = await insertionDiagnostics(prepared.proposal, ports)
-  if (parentDiagnostics.length > 0) return { status: 'refused', diagnostics: parentDiagnostics }
-  const created = await writer.create(issuePlan(prepared.proposal))
-  if (created.status === 'uncertain')
-    return { status: 'uncertain', diagnostics: created.diagnostics.map(({ code, message }) => ({ code, message })) }
-  if (created.status !== 'written') return creationFailure(input, created, ports)
-  const uw = ports.scopeOf(created.observed.issue)
-  if (prepared.proposal.allocation.assignments.length > 0) {
-    const published = await ports.publishIdentity({ uw, proposal: prepared, confirmation })
-    if (published.status !== 'confirmed') return { status: 'partial', uw, diagnostics: published.diagnostics }
-  }
-  return readAfterEffect('created', uw, () => ports.readCreated(uw))
-}
-
 function preparedResult(
   prepared: PreparedUwProposal | { diagnostics: readonly UwDiagnostic[] },
 ): Result<PreparedUwProposal, UwDiagnostic> {
@@ -189,6 +101,23 @@ function confirmedResult(confirmed: OperatorResult<UwOperationResult>): UwOperat
 }
 
 export function createUwOperations(ports: UwOperationsPorts): UwOperations {
+  const effective = async (uw: Scope) => {
+    const read = await ports.read(uw)
+    if (read.observation.status !== 'complete')
+      return { ok: false as const, diagnostics: [...read.observation.diagnostics] }
+    if (read.accepted.status === 'refused') return { ok: false as const, diagnostics: [...read.accepted.diagnostics] }
+    if (read.accepted.status === 'absent')
+      return {
+        ok: false as const,
+        diagnostics: [diagnostic(uw, 'accepted-unavailable', 'No accepted own Spec exists')],
+      }
+    return ports.resolveSpecEffective({
+      mode: 'current',
+      own: read.accepted.value.ref,
+      histories: read.observation.histories,
+      graph: read.observation.graph,
+    })
+  }
   const proposalPorts: UwProposalPreparationPorts = ports
   const prepareExisting = async (
     input: UwProposalInput,
@@ -211,12 +140,35 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
 
   const causes = ports.causeOperations({
     prepare: (input, context) => prepareCreateProposal(input, proposalPorts, context),
-    commit: (input, prepared, confirmation, writer) => commitCreate(input, prepared, confirmation, ports, writer),
+    commit: (input, prepared, confirmation, writer, composedGuard) =>
+      commitCreate(input, prepared, confirmation, ports, writer, composedGuard),
   })
 
   const operations: UwOperations = {
     readUw: ports.read,
+    readEffective: effective,
+    async readCoverage(uw) {
+      const read = await ports.read(uw)
+      if (read.observation.status !== 'complete') return { ok: false, diagnostics: [...read.observation.diagnostics] }
+      if (read.accepted.status === 'refused') return { ok: false, diagnostics: [...read.accepted.diagnostics] }
+      if (read.accepted.status === 'absent')
+        return { ok: false, diagnostics: [diagnostic(uw, 'accepted-unavailable', 'No accepted own Spec exists')] }
+      const resolved = ports.resolveSpecEffective({
+        mode: 'current',
+        own: read.accepted.value.ref,
+        histories: read.observation.histories,
+        graph: read.observation.graph,
+      })
+      return resolved.ok ? { ok: true, value: read.accepted.value.coverage } : resolved
+    },
+    async readCompletion(uw) {
+      return (await ports.read(uw)).completion
+    },
+    reopen: (uw) => reopenUw(uw, ports),
     listReports: ports.listReports,
+    closeLinked: ports.closeLinked,
+    abandon: ports.abandon,
+    adjustCauseDependency: ports.adjustCauseDependency,
     ...causes,
     validateNormalization(request, value) {
       const parsed = ports.parseNormalization(request.uw, value)

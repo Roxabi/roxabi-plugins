@@ -1,5 +1,6 @@
 import { commentNodeResponse } from './sim-comment-proof.ts'
 import { containmentResponse } from './sim-containment.ts'
+import { DELIVERY_PULLS, deliveryPulls } from './sim-delivery-pulls.ts'
 import { recordedBase, rollupPage, settleAll } from './sim-git.ts'
 import { execInherited, writeStdout } from './sim-invocation.ts'
 import { toolingGraphql } from './sim-tooling.ts'
@@ -259,6 +260,7 @@ function lastEditedResponse(state: State, query: string, vars: Record<string, st
 }
 
 function specialQueryResponse(state: State, query: string, vars: Record<string, string>): unknown | undefined {
+  if (query === DELIVERY_PULLS) return deliveryPulls(state, vars.cursor)
   const containment = containmentResponse(state, query, vars, prNode)
   if (containment !== undefined) return containment
   if (query.includes('stateReason') && query.includes('blockedBy') && query.includes('subIssues')) {

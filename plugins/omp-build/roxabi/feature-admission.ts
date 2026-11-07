@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import { explicitParentHistories } from './feature-context.ts'
 import { type Contracts, type History, loadContracts } from './feature-engine.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 
@@ -78,7 +78,7 @@ async function readBindingContext(
   const parents = await explicitParentHistories(loaded, localMandate, options)
   if (!parents.ok) return { ok: false as const, reason: parents.reason }
   const authorityHistories = [...issueHistory.histories.slice(1), ...parents.parents]
-  const causal = await readFixUwCausalContext([issueRecord, ...authorityHistories], [], options)
+  const causal = await readFreshUwCausalContext(issueScope, [issueRecord, ...authorityHistories], options)
   if (!causal.ok) return { ok: false as const, reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
   const selected = loaded.selectApplicableMandate(issueRecord, authorityHistories, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null) {

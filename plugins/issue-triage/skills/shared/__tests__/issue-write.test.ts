@@ -17,6 +17,7 @@ function observation(number: number, patch: Partial<IssueWriteObservation> = {})
     title: `Issue ${number}`,
     body: `Body ${number}`,
     updatedAt: `2026-10-27T00:00:0${number}Z`,
+    nativeState: { state: 'OPEN', stateReason: null },
     labels: [],
     parent: null,
     children: [],
@@ -114,6 +115,12 @@ function statefulPorts(seed: readonly IssueWriteObservation[]): {
       touch(value)
       calls.push(`remove-blocker:${blocker.number}`)
     },
+    async setNativeState(ref, effect) {
+      const value = requiredIssue(ref)
+      value.nativeState = effect
+      touch(value)
+      calls.push('native-state')
+    },
   }
   return { ports, observations, calls }
 }
@@ -151,6 +158,88 @@ describe('calculateTier', () => {
 })
 
 describe('createIssueWriter', () => {
+  it('closes and reopens only state with exact readback, ignoring descriptive updatedAt', async () => {
+    const original = observation(1, { labels: ['ready'], children: [issue(2)] })
+    const { ports, calls } = statefulPorts([original])
+    const writer = createIssueWriter(ports)
+    const closed = await writer.setNativeState(
+      issue(1),
+      { state: 'CLOSED', stateReason: 'COMPLETED' },
+      { ...original, updatedAt: 'older' },
+    )
+    expect(closed).toMatchObject({
+      status: 'written',
+      observed: {
+        title: original.title,
+        body: original.body,
+        labels: ['ready'],
+        children: [issue(2)],
+        nativeState: { state: 'CLOSED', stateReason: 'COMPLETED' },
+      },
+    })
+    if (closed.status !== 'written') throw new Error('close failed')
+    const reopened = await writer.setNativeState(issue(1), { state: 'OPEN', stateReason: 'REOPENED' }, closed.observed)
+    expect(reopened).toMatchObject({
+      status: 'written',
+      observed: { nativeState: { state: 'OPEN', stateReason: 'REOPENED' }, labels: ['ready'], children: [issue(2)] },
+    })
+    expect(calls).toEqual([
+      'read:Acme/app#1',
+      'native-state',
+      'read:Acme/app#1',
+      'read:Acme/app#1',
+      'native-state',
+      'read:Acme/app#1',
+    ])
+  })
+
+  it('refuses drift in native state or other asserted facts before mutation', async () => {
+    const current = observation(1, { nativeState: { state: 'CLOSED', stateReason: 'NOT_PLANNED' } })
+    const { ports, calls } = statefulPorts([current])
+    const writer = createIssueWriter(ports)
+    for (const expected of [observation(1), { ...current, body: 'stale' }]) {
+      expect(await writer.setNativeState(issue(1), { state: 'OPEN', stateReason: null }, expected)).toMatchObject({
+        status: 'refused',
+      })
+    }
+    expect(calls).toEqual(['read:Acme/app#1', 'read:Acme/app#1'])
+  })
+
+  it('reports an unconfirmed effect and changed readback as partial', async () => {
+    const current = observation(1)
+    const { ports } = statefulPorts([current])
+    const writer = createIssueWriter(ports)
+    ports.setNativeState = async () => {
+      throw new Error('response lost')
+    }
+    expect(await writer.setNativeState(issue(1), { state: 'CLOSED', stateReason: 'COMPLETED' }, current)).toMatchObject(
+      { status: 'partial', completed: [] },
+    )
+    ports.setNativeState = async () => {}
+    expect(await writer.setNativeState(issue(1), { state: 'CLOSED', stateReason: 'COMPLETED' }, current)).toMatchObject(
+      { status: 'partial', completed: ['native-state'] },
+    )
+  })
+
+  it('refuses invalid effects and detects unrelated readback changes', async () => {
+    const current = observation(1)
+    const { ports, observations, calls } = statefulPorts([current])
+    const writer = createIssueWriter(ports)
+    expect(
+      await writer.setNativeState(issue(1), { state: 'CLOSED', stateReason: 'NOT_PLANNED' } as never, current),
+    ).toMatchObject({ status: 'refused' })
+    expect(calls).toEqual([])
+    ports.setNativeState = async () => {
+      const value = observations.get('Acme/app#1')
+      if (value === undefined) throw new Error('Declared issue observation is missing')
+      value.nativeState = { state: 'CLOSED', stateReason: 'COMPLETED' }
+      value.body = 'changed concurrently'
+    }
+    expect(await writer.setNativeState(issue(1), { state: 'CLOSED', stateReason: 'COMPLETED' }, current)).toMatchObject(
+      { status: 'partial', diagnostics: [{ code: 'write-conflict' }] },
+    )
+  })
+
   it('refuses a stale asserted issue without any mutation', async () => {
     const current = observation(1)
     const { ports, calls } = statefulPorts([current])

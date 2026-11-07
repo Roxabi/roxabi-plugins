@@ -63,7 +63,10 @@ function readSummary(value: object): string {
 function statusSummary(record: object, status: string, resultValue: object | null): string {
   const disposition = status === 'adjudicated' ? object(property(record, 'disposition')) : null
   const target =
-    scope(property(record, 'uw')) ?? scope(property(resultValue, 'uw')) ?? scope(property(disposition, 'scope'))
+    scope(property(record, 'uw')) ??
+    scope(property(resultValue, 'uw')) ??
+    scope(property(disposition, 'scope')) ??
+    scope(property(object(property(record, 'control')), 'scope'))
   const diagnostics = diagnosticCodes(record)
   const suffix = diagnostics.length === 0 ? '' : ` diagnostics=${diagnostics.join(',')}`
   return `uw-${status}: ${target ?? 'no-trustworthy-uw'}${suffix}`
@@ -86,6 +89,8 @@ function resultSummary(value: unknown): string {
   if (Array.isArray(value)) return `uw-result: success count=${value.length}`
   const record = object(value)
   if (record === null) return 'uw-result: malformed-result'
+  if (property(record, 'completions') instanceof Map && property(record, 'dependencies') instanceof Map)
+    return `uw-completion: calculated diagnostics=${diagnosticCodes(record).join(',') || 'none'}`
   if (Object.hasOwn(record, 'uw') && Object.hasOwn(record, 'parsed')) return readSummary(record)
   const status = string(property(record, 'status'))
   const resultValue = object(property(record, 'value'))

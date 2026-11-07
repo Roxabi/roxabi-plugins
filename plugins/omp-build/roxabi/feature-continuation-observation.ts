@@ -1,22 +1,20 @@
-import { assessUwAdmission, effectiveMandateRole } from '../dist/contracts.js'
+import { assessUwAdmission } from '../dist/contracts.js'
 import type { CurrentChildrenProjection } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
-import type { NativeSelector, SpecializedDecisions, WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
-import { epicStep } from '../skills/feature/epic-driver.ts'
+import type { WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
-import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
+import type { ContinueFeatureInput, ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { inhibition } from './feature-control.ts'
 import { assembleChantier, sameDeliveryCoordinates } from './feature-delivery-facts.ts'
 import { isRecord } from './feature-engine.ts'
 import type { FeatureObservation, FreshUwDeliveryAdmission } from './feature-observation-contract.ts'
-import { readReviewObservation } from './feature-review-observation.ts'
-import { reconcileWithdrawalHistories } from './fix-uw-histories.ts'
+import { readObservationDecisions } from './feature-review-observation.ts'
+import { reconcileWithdrawalContexts } from './fix-uw-histories.ts'
 import type { UwRead } from './uw-contract.ts'
-import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
-import { UwGraphUnavailableError } from './uw-read-port.ts'
+import { readAssessmentSpecFacts, readCurrentOwnSpecFacts } from './uw-current-facts.ts'
+import { createInstalledObservedUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { SUPPORTED_CONFIG_VERSIONS, WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { additionalRequirementsOf } from './workflow-overrides.ts'
@@ -35,11 +33,24 @@ async function currentSpecFacts(
   selected: SelectedFeature,
   read: UwRead | null,
   causal: WorkflowCausalContext,
-): Promise<CurrentSpecObservation> {
+  intent: Pick<ContinueFeatureInput, 'parentCoverage' | 'parentCoverageBasis'>,
+): Promise<CurrentSpecObservation | ContinueFeatureResult> {
   if (selected.reader === null || read === null)
     return { currentSpec: null, identityAllocations: null, deliveryAdmission: null }
   if (!read.identity.ok) return unavailable(read.identity.diagnostics)
-  const facts = await readCurrentOwnSpecFacts({ uw: selected.authority.scope, read, reader: selected.reader })
+  if (intent.parentCoverage !== undefined && intent.parentCoverageBasis === undefined)
+    return { kind: 'blocked', reason: 'parent-coverage-intent-changed' }
+  const facts =
+    read.accepted.status === 'accepted'
+      ? await readAssessmentSpecFacts({
+          uw: selected.authority.scope,
+          read,
+          coverage: intent.parentCoverage,
+          basis: intent.parentCoverageBasis,
+        })
+      : await readCurrentOwnSpecFacts({ uw: selected.authority.scope, read })
+  if (!facts.ok && 'coverageRequest' in facts)
+    return { kind: 'blocked', reason: facts.reason, coverageRequest: facts.coverageRequest }
   const currentChildren: CurrentChildrenProjection = facts.ok
     ? {
         ok: true,
@@ -54,6 +65,7 @@ async function currentSpecFacts(
     identities: read.identity.value,
     histories: causal.histories,
     catalogues: causal.catalogues,
+    completion: read.completion,
     phase: 'delivery-transition',
     currentChildren,
   })
@@ -65,8 +77,9 @@ async function currentSpecFacts(
 export async function readFeatureObservation(
   control: FeatureControl,
   selected: SelectedFeature,
+  intent: Pick<ContinueFeatureInput, 'parentCoverage' | 'parentCoverageBasis'> = {},
 ): Promise<FeatureObservation | ContinueFeatureResult> {
-  let observation = await assembleObservationBase(control, selected)
+  let observation = await assembleObservationBase(control, selected, intent)
   if ('kind' in observation) return observation
   const barriers: WithdrawalBarrier[] = []
   const decisions = await readObservationDecisions(selected, observation, barriers)
@@ -74,13 +87,13 @@ export async function readFeatureObservation(
   if (barriers.length > 0) {
     const scope = observation.delivery?.scope
     if (scope === undefined) return { kind: 'blocked', reason: 'fix-history-observation-drift' }
-    const refreshed = await assembleObservationBase(control, selected)
+    const refreshed = await assembleObservationBase(control, selected, intent)
     if ('kind' in refreshed) return refreshed
     if (!sameDeliveryCoordinates(observation.delivery, refreshed.delivery) || observation.merged !== refreshed.merged)
       return { kind: 'blocked', reason: 'delivery-observation-drift' }
-    const reconciled = reconcileWithdrawalHistories(
-      observation.evidence.causal.histories,
-      refreshed.evidence.causal.histories,
+    const reconciled = reconcileWithdrawalContexts(
+      observation.evidence.causal,
+      refreshed.evidence.causal,
       scope,
       barriers,
     )
@@ -109,20 +122,15 @@ async function readObservationUw(selected: SelectedFeature): Promise<UwRead | nu
   }
 }
 
-function isOrdinaryMergedDelivery(selected: SelectedFeature, merged: boolean): boolean {
-  const { mandate, acceptedSpec } = selected
-  return (
-    merged &&
-    mandate?.kind === 'mandate' &&
-    acceptedSpec !== null &&
-    effectiveMandateRole(mandate.payload.role, acceptedSpec) === 'feature' &&
-    !isRecord(mandate.payload.parent)
-  )
+function commonCompletion(read: UwRead | null, scope: { repository: string; target: string }): boolean {
+  if (read === null || read.observation.status !== 'complete') return false
+  return read.completion.completions.get(`${scope.repository}\0${scope.target}`)?.state === 'complete'
 }
 
 async function assembleObservationBase(
   control: FeatureControl,
   selected: SelectedFeature,
+  intent: Pick<ContinueFeatureInput, 'parentCoverage' | 'parentCoverageBasis'>,
 ): Promise<ObservationBase | ContinueFeatureResult> {
   const { authority, mandate, acceptedSpec } = selected
   const { context, target, history, scope, onPrincipal, identity } = authority
@@ -138,9 +146,16 @@ async function assembleObservationBase(
   const requirements = mandateRequirements(mandate?.payload.config)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
-  const ordinaryMergedDelivery = isOrdinaryMergedDelivery(selected, merged)
+  const currentRead =
+    uwRead === null
+      ? null
+      : await createInstalledObservedUwReadPort({ observation: evidence.causal.observation }).readUw(
+          selected.authority.scope,
+        )
+  const completedDelivery = merged && commonCompletion(currentRead, selected.authority.scope)
   const sessionCwd = identity.ok ? identity.sessionTop : null
-  const currentFacts = await currentSpecFacts(selected, uwRead, evidence.causal)
+  const currentFacts = await currentSpecFacts(selected, currentRead, evidence.causal, intent)
+  if ('kind' in currentFacts) return currentFacts
   return {
     evidence,
     delivery,
@@ -171,7 +186,7 @@ async function assembleObservationBase(
       explicitSelection: control === 'select' || control === 'new',
       explicitResume: control === 'resume',
       successorAntecedent: null,
-      endObligationsMet: ordinaryMergedDelivery,
+      endObligationsMet: completedDelivery,
       localInhibit: inhibition(scope) ?? null,
       failedChecks: null,
       evidenceDigest: null,
@@ -181,78 +196,6 @@ async function assembleObservationBase(
 function mandateRequirements(config: unknown): string[] {
   if (!isRecord(config)) return []
   return additionalRequirementsOf(config.effective)
-}
-async function readObservationDecisions(
-  selected: SelectedFeature,
-  observation: ObservationBase,
-  barriers: WithdrawalBarrier[],
-): Promise<(SpecializedDecisions & { reviewId: string | null }) | ContinueFeatureResult> {
-  const { authority, mandate, number, acceptedSpec } = selected
-  const { context, target } = authority
-  const { delivery, facts, merged } = observation
-  const review = await readReviewObservation(delivery, merged, context, barriers)
-  if (isContinuationResult(review)) return review
-  facts.failedChecks = review.failedChecks
-  facts.evidenceDigest = review.evidenceDigest
-  const epic = await readEpicStep(target, mandate, acceptedSpec, facts.currentSpec, context.cwd, number)
-  if (isContinuationResult(epic)) return epic
-  return buildSpecializedDecisions({
-    reviewStep: review.review,
-    reviewId: review.reviewId,
-    epicStep: epic,
-    ciWatchStatus: merged ? null : review.ciWatchStatus,
-    pullRequestOpen: delivery !== null,
-  })
-}
-
-function isContinuationResult(value: unknown): value is ContinueFeatureResult {
-  return value !== null && typeof value === 'object' && 'kind' in value
-}
-
-function canonicalChildren(
-  children: readonly { scope: { repository: string; target: string }; specVersion: string; tier: string }[],
-): string[] {
-  return children
-    .map((child) => `${child.scope.repository}\0${child.scope.target}\0${child.specVersion}\0${child.tier}`)
-    .sort()
-}
-
-function currentSpecMatchesAccepted(
-  currentSpec: WorkflowFacts['currentSpec'],
-  acceptedSpec: AcceptedOwnSpec | null,
-): boolean {
-  return (
-    currentSpec !== null &&
-    acceptedSpec !== null &&
-    currentSpec.snapshot.spec.version === acceptedSpec.ref.version &&
-    JSON.stringify(currentSpec.snapshot.spec) === JSON.stringify(acceptedSpec.snapshot.spec) &&
-    currentSpec.tier === acceptedSpec.tier &&
-    JSON.stringify(canonicalChildren(currentSpec.children)) === JSON.stringify(canonicalChildren(acceptedSpec.children))
-  )
-}
-
-async function readEpicStep(
-  target: SelectedFeature['authority']['target'],
-  mandate: SelectedFeature['mandate'],
-  acceptedSpec: AcceptedOwnSpec | null,
-  currentSpec: WorkflowFacts['currentSpec'],
-  cwd: string,
-  number: number,
-): Promise<SpecializedDecisions['epicStep'] | ContinueFeatureResult> {
-  if (
-    target.status !== 'issue' ||
-    mandate?.kind !== 'mandate' ||
-    acceptedSpec === null ||
-    !currentSpecMatchesAccepted(currentSpec, acceptedSpec) ||
-    effectiveMandateRole(mandate.payload.role, acceptedSpec) !== 'epic'
-  )
-    return null
-  try {
-    return (await epicStep(cwd, number)).name
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return { kind: 'blocked', reason: 'epic-step-failed', diagnostics: [{ code: 'epic-step-failed', message }] }
-  }
 }
 
 async function pullRequestMerged(
@@ -265,24 +208,5 @@ async function pullRequestMerged(
     return isRecord(parsed) && parsed.state === 'MERGED'
   } catch {
     return false
-  }
-}
-function buildSpecializedDecisions(input: {
-  reviewStep: SpecializedDecisions['reviewStep']
-  reviewId: string | null
-  epicStep: SpecializedDecisions['epicStep']
-  ciWatchStatus: SpecializedDecisions['ciWatchStatus']
-  pullRequestOpen: boolean
-}): SpecializedDecisions & { reviewId: string | null } {
-  const absent = (status: NativeSelector['status'] = 'absent'): NativeSelector => ({ status, evidence: [] })
-  return {
-    reviewStep: input.reviewStep,
-    reviewId: input.reviewId,
-    epicStep: input.epicStep,
-    epicLand: null,
-    ciWatchStatus: input.ciWatchStatus,
-    publish: absent(input.pullRequestOpen ? 'published' : 'absent'),
-    landing: absent(),
-    watch: absent(),
   }
 }

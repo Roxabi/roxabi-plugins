@@ -15,6 +15,7 @@ const { invokeOmpIncompleteNative } = await import('./feature-recovery-incomplet
 const { invokeOmpLiveInterleave } = await import('./feature-recovery-live-interleave.ts')
 const { observedIncompleteNativeResult } = await import('./feature-recovery-observed-native.ts')
 const { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } = await import('./feature-review-lifecycle.ts')
+const { invokeDispositionBoundary, invokeDispositionPartition } = await import('./fix-disposition-lifecycle.ts')
 const { invokeReviewRace } = await import('./feature-review-races.ts')
 const { invokeSuccessiveReviewLineage } = await import('./feature-review-lineage.ts')
 const { invokeRecallFixContinuation } = await import('./feature-review-recall.ts')
@@ -92,6 +93,7 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
         pr: payload.pr,
         code: payload.code,
         reference: payload.reference,
+        uw: await createInstalledUwOperations({ cwd: cwd ?? '', operator: noWriteOperator }),
       })
     case 'continuation-publish': {
       const continuation = await continueFeature()
@@ -149,6 +151,14 @@ async function invokeSdkDriver(operationName: string): Promise<unknown> {
       return invokeOmpReviewApplyFalsify(cwd ?? '')
     case 'omp-review-mixed-dispositions':
       return invokeOmpReviewApplyFalsify(cwd ?? '', true)
+    case 'omp-disposition-partition-valid':
+      return invokeDispositionPartition(cwd ?? '', false)
+    case 'omp-disposition-partition-broken':
+      return invokeDispositionPartition(cwd ?? '', true)
+    case 'omp-disposition-original-unavailable':
+      return invokeDispositionBoundary(cwd ?? '', 'original-history')
+    case 'omp-disposition-foreign-synthesis':
+      return invokeDispositionBoundary(cwd ?? '', 'foreign-synthesis')
     default:
       return invokeReviewDriver(operationName)
   }

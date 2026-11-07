@@ -3,9 +3,10 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { epicControlTarget } from '../skills/feature/epic-driver.ts'
 import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.js'
-import { type PullRequestList, parsePullRequestList } from './feature-disarm-discovery.ts'
+import { branchPrNumbers, type PullRequestList, parsePullRequestList } from './feature-disarm-discovery.ts'
 import { authenticateOwnPullRequests, type SelectedMandateAuthority } from './feature-disarm-ownership.ts'
 import { isRecord, type Scope } from './feature-engine.ts'
+import { classifyIssueReference } from './prepare-canonical-checkout.ts'
 
 export type ControlTarget =
   | { status: 'issue'; scope: Scope; issue: { number: number } }
@@ -142,35 +143,6 @@ async function disarmPullRequests(gh: Gh, cwd: string, numbers: Set<number>): Pr
   return { clean, evidence: disarmed }
 }
 
-function unmergedBranchPrNumber(pr: unknown): number | null | undefined {
-  if (
-    !isRecord(pr) ||
-    !Number.isSafeInteger(pr.number) ||
-    (pr.number as number) <= 0 ||
-    (pr.state !== 'open' && pr.state !== 'closed') ||
-    !('merged_at' in pr) ||
-    (pr.merged_at !== null && typeof pr.merged_at !== 'string') ||
-    (pr.state === 'open' && pr.merged_at !== null) ||
-    (typeof pr.merged_at === 'string' && !pr.merged_at)
-  )
-    return undefined
-  return pr.merged_at === null ? (pr.number as number) : null
-}
-
-async function branchPrNumbers(gh: Gh, cwd: string, endpoint: string): Promise<Set<number> | null> {
-  const numbers = new Set<number>()
-  for (let page = 1; ; page++) {
-    const results: unknown = JSON.parse(await gh(cwd, ['api', `${endpoint}&page=${page}`]))
-    if (!Array.isArray(results) || results.length > 100) return null
-    for (const pr of results) {
-      const number = unmergedBranchPrNumber(pr)
-      if (number === undefined) return null
-      if (number !== null) numbers.add(number)
-    }
-    if (results.length < 100) return numbers
-  }
-}
-
 /** Fence every unmerged PR targeting this repository from the branch before a push. */
 export async function disarmBranchBeforePush(
   gh: Gh,
@@ -198,12 +170,17 @@ async function discoverOwnPullRequests(
   authority: SelectedMandateAuthority | null,
 ): Promise<{ numbers: Set<number>; incomplete: boolean; evidence: unknown[] }> {
   const discovered = await discoverPullRequests(gh, cwd, target, branch)
+  const explicitPr =
+    target.status === 'pull-request' && role !== 'feature' && role !== 'epic' ? target.pullRequest.pr : null
+  if (explicitPr !== null) discovered.numbers.delete(explicitPr)
   const authentication =
-    role === 'feature' || role === 'epic'
-      ? await authenticateOwnPullRequests(gh, cwd, target.scope.repository, discovered.numbers, authority)
-      : null
+    explicitPr !== null && discovered.numbers.size === 0
+      ? null
+      : await authenticateOwnPullRequests(gh, cwd, target.scope.repository, discovered.numbers, authority)
+  const numbers = authentication?.numbers ?? new Set<number>()
+  if (explicitPr !== null) numbers.add(explicitPr)
   return {
-    numbers: authentication?.numbers ?? discovered.numbers,
+    numbers,
     incomplete: discovered.incomplete || authentication?.incomplete === true,
     evidence: [...discovered.evidence, ...(authentication === null ? [] : [{ ownership: authentication.evidence }])],
   }
@@ -253,9 +230,24 @@ export async function disarmKnownTarget(
   }
 }
 
+async function selectedLocalRepository(gh: Gh, cwd: string, repository: string): Promise<boolean> {
+  try {
+    const repo: unknown = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+    return isRecord(repo) && repo.nameWithOwner === repository
+  } catch {
+    return false
+  }
+}
+
 export async function disarmUnresolved(gh: Gh, cwd: string, reference: string): Promise<void> {
-  const number = Number(reference.replace(/^.*?(\d+)$/, '$1'))
-  if (!Number.isInteger(number) || number <= 0) return
+  const classified = classifyIssueReference(reference)
+  if ('reason' in classified || !Number.isSafeInteger(classified.number) || classified.number <= 0) return
+  const number = classified.number
+  let repository: string | null = null
+  if (classified.repository !== null) {
+    if (!(await selectedLocalRepository(gh, cwd, classified.repository))) return
+    repository = classified.repository
+  }
   let isPullRequest = false
   try {
     await gh(cwd, ['pr', 'view', String(number), '--json', 'number'])
@@ -272,21 +264,17 @@ export async function disarmUnresolved(gh: Gh, cwd: string, reference: string): 
     return
   }
   try {
-    const repoRaw = await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner'])
-    const repo: unknown = JSON.parse(repoRaw)
-    if (
-      repo === null ||
-      typeof repo !== 'object' ||
-      !('nameWithOwner' in repo) ||
-      typeof repo.nameWithOwner !== 'string'
-    )
-      return
+    if (repository === null) {
+      const repo: unknown = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
+      if (!isRecord(repo) || typeof repo.nameWithOwner !== 'string') return
+      repository = repo.nameWithOwner
+    }
     await disarmKnownTarget(
       gh,
       cwd,
       {
         status: 'issue',
-        scope: { repository: repo.nameWithOwner, target: `${repo.nameWithOwner}#${number}` },
+        scope: { repository, target: `${repository}#${number}` },
         issue: { number },
       },
       null,

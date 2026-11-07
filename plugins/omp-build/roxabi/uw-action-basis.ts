@@ -24,7 +24,7 @@ export type EvidenceObservation = {
 }
 
 export type CausalFactObservation = {
-  causal: WorkflowCausalContext
+  causal: Pick<WorkflowCausalContext, 'histories' | 'catalogues'>
   evidence: EvidenceObservation
 }
 export type ObserveCausalFacts = () => Promise<Result<CausalFactObservation>>

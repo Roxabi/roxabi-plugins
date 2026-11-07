@@ -1,8 +1,9 @@
 import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
-import { type UwGraphObservation, WAYFINDER_LABELS } from '../../engine/uw-graph.ts'
+import { scopeKey, type UwGraphObservation, WAYFINDER_LABELS } from '../../engine/uw-graph.ts'
 import { githubScope } from '../github/transport.ts'
 import type { GitHubOptions } from '../github/types.ts'
+import { metadataChangeDiagnostic, sameMetadata } from './uw-graph-metadata.ts'
 import { page } from './uw-graph-page.ts'
 import type { Connection, ConnectionName, GraphqlIssue, IssueRef, PartialNode } from './uw-graph-shape.ts'
 import { rawSource } from './uw-spec.ts'
@@ -60,6 +61,7 @@ async function collectPages<T>(
   scope: Scope,
   options: GitHubOptions,
   connection: PagedConnectionName,
+  base: GraphqlIssue,
   initial: Connection<T>,
 ): Promise<{ nodes: T[]; diagnostics: UwDiagnostic[] }> {
   const nodes = [...initial.nodes]
@@ -85,6 +87,8 @@ async function collectPages<T>(
     pageNumber += 1
     try {
       const next = await page(scope, options, cursorFor(connection, cursor))
+      if (!sameMetadata(base, next))
+        diagnostics.push(metadataChangeDiagnostic(scope, connection, pageNumber, cursor, base, next))
       current = pageConnection<T>(next, connection)
       nodes.push(...current.nodes)
     } catch (error) {
@@ -111,14 +115,24 @@ async function readNode(
   }
   const base = firstPage.value
   const [labelPages, childPages, blockerPages] = await Promise.all([
-    collectPages(scope, options, 'labels', base.labels),
-    collectPages(scope, options, 'children', base.subIssues),
-    collectPages(scope, options, 'blockers', base.blockedBy),
+    collectPages(scope, options, 'labels', base, base.labels),
+    collectPages(scope, options, 'children', base, base.subIssues),
+    collectPages(scope, options, 'blockers', base, base.blockedBy),
   ])
   const labels = labelPages.nodes.map((entry) => entry.name)
   const children = childPages.nodes.map(refScope)
   const blockers = blockerPages.nodes.map(refScope)
   const diagnostics = [...labelPages.diagnostics, ...childPages.diagnostics, ...blockerPages.diagnostics]
+  if (base.repository.nameWithOwner !== scope.repository)
+    diagnostics.push(
+      incomplete(
+        scope,
+        'state',
+        1,
+        undefined,
+        `Repository identity ${scope.repository} does not match GitHub canonical name ${base.repository.nameWithOwner}`,
+      ),
+    )
   const parent = base.parent === null ? null : refScope(base.parent)
   if (base.parent !== null && parent === null)
     diagnostics.push(
@@ -150,8 +164,8 @@ async function readNode(
 function enqueueAdjacent(node: PartialNode, descendantsOnly: boolean, queued: Set<string>, queue: Scope[]): void {
   const adjacentNodes = descendantsOnly ? node.children : [node.node.parent, ...node.children, ...node.blockers]
   for (const adjacent of adjacentNodes) {
-    if (adjacent !== null && !queued.has(adjacent.target)) {
-      queued.add(adjacent.target)
+    if (adjacent !== null && !queued.has(scopeKey(adjacent))) {
+      queued.add(scopeKey(adjacent))
       queue.push(adjacent)
     }
   }
@@ -163,7 +177,7 @@ async function loadClosure(
   descendantsOnly = false,
 ): Promise<{ partial: Map<string, PartialNode>; diagnostics: UwDiagnostic[] }> {
   const queue: Scope[] = [root]
-  const queued = new Set([root.target])
+  const queued = new Set([scopeKey(root)])
   const partial = new Map<string, PartialNode>()
   const diagnostics: UwDiagnostic[] = []
   while (queue.length > 0) {
@@ -178,7 +192,7 @@ async function loadClosure(
       const read = await readNode(scope, options, firstPages[index] as PromiseSettledResult<GraphqlIssue>)
       diagnostics.push(...read.diagnostics)
       if (read.node === null) continue
-      partial.set(scope.target, read.node)
+      partial.set(scopeKey(scope), read.node)
       enqueueAdjacent(read.node, descendantsOnly, queued, queue)
     }
   }
@@ -189,8 +203,11 @@ function reciprocalDiagnostics(partial: ReadonlyMap<string, PartialNode>): UwDia
   const diagnostics: UwDiagnostic[] = []
   for (const partialNode of partial.values()) {
     for (const child of partialNode.children) {
-      const observed = partial.get(child.target)
-      if (observed !== undefined && observed.node.parent?.target !== partialNode.node.uw.target) {
+      const observed = partial.get(scopeKey(child))
+      if (
+        observed !== undefined &&
+        (observed.node.parent === null || scopeKey(observed.node.parent) !== scopeKey(partialNode.node.uw))
+      ) {
         diagnostics.push(
           incomplete(
             partialNode.node.uw,
@@ -202,8 +219,8 @@ function reciprocalDiagnostics(partial: ReadonlyMap<string, PartialNode>): UwDia
         )
       }
     }
-    const parent = partialNode.node.parent === null ? undefined : partial.get(partialNode.node.parent.target)
-    if (parent !== undefined && !parent.children.some((child) => child.target === partialNode.node.uw.target)) {
+    const parent = partialNode.node.parent === null ? undefined : partial.get(scopeKey(partialNode.node.parent))
+    if (parent !== undefined && !parent.children.some((child) => scopeKey(child) === scopeKey(partialNode.node.uw))) {
       diagnostics.push(
         incomplete(
           partialNode.node.uw,
@@ -224,9 +241,8 @@ function reciprocalDiagnostics(partial: ReadonlyMap<string, PartialNode>): UwDia
  */
 export async function readUwGraph(root: Scope, options: GitHubOptions): Promise<UwGraphObservation> {
   const { partial, diagnostics } = await loadClosure(root, options)
-  diagnostics.push(...reciprocalDiagnostics(partial))
   const nodes = [...partial.values()].map((entry) => entry.node)
-  const rootNode = partial.get(root.target)
+  const rootNode = partial.get(scopeKey(root))
   if (diagnostics.length === 0 && rootNode !== undefined) {
     return { status: 'complete', root, nodes, observedAt: rootNode.node.updatedAt }
   }
@@ -238,9 +254,9 @@ export async function readUwSubtree(root: Scope, options: GitHubOptions): Promis
   const { partial, diagnostics } = await loadClosure(root, options, true)
   diagnostics.push(...reciprocalDiagnostics(partial))
   const nodes = [...partial.values()].map((entry) => entry.node)
-  const rootNode = partial.get(root.target)
+  const rootNode = partial.get(scopeKey(root))
   const parent = rootNode?.node.parent
-  if (parent !== null && parent !== undefined && partial.has(parent.target))
+  if (parent !== null && parent !== undefined && partial.has(scopeKey(parent)))
     diagnostics.push(incomplete(root, 'parent', 1, undefined, 'Native child relations cycle back to the subtree root'))
   if (diagnostics.length === 0 && rootNode !== undefined)
     return { status: 'complete', root, nodes, observedAt: rootNode.node.updatedAt }

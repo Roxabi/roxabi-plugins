@@ -153,6 +153,8 @@ function pauseConfirmationFor(
   mandate: MandateRecord,
   request: ControlRecord,
 ): ControlRecord | null {
+  if (request.payload.control !== 'pause-requested') return null
+  const controlId = request.payload.controlId
   const requestRef: ExternalRecordRef = {
     scope: { repository: request.repository, target: request.target },
     recordId: request.recordId,
@@ -162,7 +164,7 @@ function pauseConfirmationFor(
     controlsOf(history).find(
       (record) =>
         record.payload.control === 'pause-confirmed' &&
-        record.payload.controlId === request.payload.controlId &&
+        record.payload.controlId === controlId &&
         sameRef(record.payload.mandate, {
           scope: mandateScope(mandate),
           recordId: mandate.recordId,
@@ -225,11 +227,12 @@ export function outstandingPauseInAuthority(
 
 function pauseLifted(history: DecodedHistory, confirmation: ControlRecord): boolean {
   if (confirmation.payload.control !== 'pause-confirmed') return false
+  const { controlId, mandate } = confirmation.payload
   return controlsOf(history).some(
     (record) =>
       record.payload.control === 'resume' &&
-      record.payload.controlId === confirmation.payload.controlId &&
-      sameRef(record.payload.mandate, confirmation.payload.mandate) &&
+      record.payload.controlId === controlId &&
+      sameRef(record.payload.mandate, mandate) &&
       sameRef(record.payload.predecessor, {
         scope: { repository: confirmation.repository, target: confirmation.target },
         recordId: confirmation.recordId,

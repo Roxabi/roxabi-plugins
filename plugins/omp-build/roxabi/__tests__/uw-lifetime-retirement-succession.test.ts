@@ -17,6 +17,7 @@ import { type CriterionId, canonicalSpec, type SpecSnapshot, validateSpecIds } f
 import { resolveOwnSpecAuthority } from '../../engine/workflow-mandate-admission.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
 const uw: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
@@ -43,7 +44,7 @@ function snapshot(ids: readonly CriterionId[]) {
   if (parsed.status !== 'conformant') throw new Error('fixture Spec is not conformant')
   return parsed.snapshot
 }
-function graph(value: SpecSnapshot): UwGraphObservation {
+function graph(value: SpecSnapshot): Extract<UwGraphObservation, { status: 'complete' }> {
   return {
     status: 'complete',
     root: uw,
@@ -144,6 +145,7 @@ test('accepted retirement survives abandonment and a compatible successor, and c
       },
     }),
     'material',
+    [fixtures.historyFrom([allocation, mandate])],
   )
   const acceptance = acceptMaterialFixture(mandate, 'accept-withdraw-c1', assessed)
   const abandon = must(
@@ -166,32 +168,36 @@ test('accepted retirement survives abandonment and a compatible successor, and c
   const records = [allocation, mandate, assessed.start, assessed.result, acceptance]
   const activeHistory = history(records)
   const inactiveHistory = history([...records, abandon])
+  const activeObservation = await observedUwWithoutPullRequests({
+    graph: graph(retained),
+    histories: [activeHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
+  const inactiveObservation = await observedUwWithoutPullRequests({
+    graph: graph(retained),
+    histories: [inactiveHistory],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
   expect(activeHistory.source.complete).toBe(true)
   expect(activeHistory.operations.every((entry) => entry.status === 'complete' && entry.authority !== 'foreign')).toBe(
     true,
   )
   expect(
     resolveOwnSpecAuthority(activeHistory, [], {
-      histories: [activeHistory],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      histories: activeObservation.histories,
+      catalogues: activeObservation.catalogues,
+      observation: activeObservation,
     }),
   ).toMatchObject({ ok: true })
   expect(
     resolveOwnSpecAuthority(inactiveHistory, [], {
-      histories: [inactiveHistory],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      histories: inactiveObservation.histories,
+      catalogues: inactiveObservation.catalogues,
+      observation: inactiveObservation,
     }),
   ).toMatchObject({ ok: false })
-  const active = await createInstalledObservedUwReadPort({
-    graph: graph(retained),
-    histories: [activeHistory],
-    catalogues: fixtureHostReviewClassCatalogues(),
-  }).readUw(uw)
-  const inactive = await createInstalledObservedUwReadPort({
-    graph: graph(retained),
-    histories: [inactiveHistory],
-    catalogues: fixtureHostReviewClassCatalogues(),
-  }).readUw(uw)
+  const active = await createInstalledObservedUwReadPort({ observation: activeObservation }).readUw(uw)
+  const inactive = await createInstalledObservedUwReadPort({ observation: inactiveObservation }).readUw(uw)
   expect(active.accepted.status).toBe('accepted')
   expect(active.identity.ok && active.identity.value.retired.get('C1')?.recordId).toBe(acceptance.recordId)
   if (!inactive.identity.ok) throw new Error('inactive identity history must remain readable')
@@ -203,9 +209,11 @@ test('accepted retirement survives abandonment and a compatible successor, and c
     diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'spec-id-retired' })]),
   })
   const attemptedReuse = await createInstalledObservedUwReadPort({
-    graph: graph(original),
-    histories: [inactiveHistory],
-    catalogues: fixtureHostReviewClassCatalogues(),
+    observation: await observedUwWithoutPullRequests({
+      graph: graph(original),
+      histories: [inactiveHistory],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
   }).readUw(uw)
   expect.soft(attemptedReuse.admission.framed).toMatchObject({
     ok: false,
@@ -219,9 +227,11 @@ test('accepted retirement survives abandonment and a compatible successor, and c
     ownSpec: fixtures.ownSpecFromSnapshot(uw, retained),
   })
   const successorRead = await createInstalledObservedUwReadPort({
-    graph: graph(retained),
-    histories: [history([...records, abandon, successor])],
-    catalogues: fixtureHostReviewClassCatalogues(),
+    observation: await observedUwWithoutPullRequests({
+      graph: graph(retained),
+      histories: [history([...records, abandon, successor])],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
   }).readUw(uw)
   expect(successorRead.accepted.status).toBe('accepted')
   if (!successorRead.identity.ok) throw new Error('successor identity history must remain readable')
@@ -231,9 +241,11 @@ test('accepted retirement survives abandonment and a compatible successor, and c
     diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'spec-id-retired' })]),
   })
   const successorReuse = await createInstalledObservedUwReadPort({
-    graph: graph(original),
-    histories: [history([...records, abandon, successor])],
-    catalogues: fixtureHostReviewClassCatalogues(),
+    observation: await observedUwWithoutPullRequests({
+      graph: graph(original),
+      histories: [history([...records, abandon, successor])],
+      catalogues: fixtureHostReviewClassCatalogues(),
+    }),
   }).readUw(uw)
   expect(successorReuse.admission.framed).toMatchObject({
     ok: false,

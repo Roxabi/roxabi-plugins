@@ -1,8 +1,8 @@
 import type { FindingTarget } from './finding-target-schema.ts'
-import { equalScope } from './record-diagnostics.ts'
+import { equalScope, sameOwnSpecRef } from './record-diagnostics.ts'
 import type { Scope } from './record-values.ts'
 import type { Result } from './result.ts'
-import { type SpecEffective, sameOwnSpecRef } from './spec-effective.ts'
+import type { SpecEffective } from './spec-effective-schema.ts'
 
 export type CauseContext = { original: Scope; effective: SpecEffective }
 
@@ -25,6 +25,13 @@ export function validateLocalFindingTarget(input: {
           diagnostics: [{ code: 'finding-target-foreign', message: 'Outside-Spec target must name the original UW.' }],
         }
   }
+  if (
+    target.kind === 'invariant' &&
+    effective.inherited.invariants.some(
+      (item) => item.target.id === target.id && sameOwnSpecRef(item.target.spec, target.spec),
+    )
+  )
+    return { ok: true, value: target }
   if (!sameOwnSpecRef(target.spec, effective.own))
     return {
       ok: false,

@@ -42,18 +42,24 @@ describe('mergedLocalBranches', () => {
 
 describe('frameEpic', () => {
   const frame = (children: ChildFacts[], base = BASE) => frameEpic({ base, children })
+  // These are already-calculated frame inputs, not evidence of native delivery.
+  const pending = (number: number, over: Partial<ChildFacts> = {}) =>
+    child(number, { completion: 'not-complete', ...over })
 
-  it('drops completed and merged children from the order, but only native completion relieves a blocker', () => {
+  it('keeps an indeterminate merged child and its dependants held despite native closure', () => {
     expect(
       frame([
-        child(1, { state: 'CLOSED', stateReason: 'COMPLETED' }),
-        child(2, { prs: [landed(2, T1, sha('1'), sha('2'))] }),
-        child(3, { blockedBy: [{ number: 1, state: 'CLOSED', stateReason: 'COMPLETED' }, on(2)] }),
-        child(4, { blockedBy: [on(3)] }),
+        child(1, { state: 'CLOSED', stateReason: 'COMPLETED', completion: 'complete' }),
+        child(2, { prs: [landed(2, T1, sha('1'), sha('2'))], completion: 'indeterminate' }),
+        pending(3, {
+          blockedBy: [{ number: 1, state: 'CLOSED', stateReason: 'COMPLETED', dependency: 'satisfied' }, on(2)],
+        }),
+        pending(4, { blockedBy: [on(3)] }),
       ]),
     ).toEqual({
       order: [],
       blocked: [
+        { ticket: 2, blockers: [2] },
         { ticket: 3, blockers: [2] },
         { ticket: 4, blockers: [3] },
       ],
@@ -61,7 +67,7 @@ describe('frameEpic', () => {
   })
 
   it('orders by blocked_by, not by number', () => {
-    expect(frame([child(1, { blockedBy: [on(3)] }), child(3), child(2, { blockedBy: [on(1)] })])).toEqual({
+    expect(frame([pending(1, { blockedBy: [on(3)] }), pending(3), pending(2, { blockedBy: [on(1)] })])).toEqual({
       order: [3, 1, 2],
       blocked: [],
     })
@@ -70,10 +76,10 @@ describe('frameEpic', () => {
   it('reports an open out-of-epic blocker and its dependents as blocked, not as a cycle', () => {
     expect(
       frame([
-        child(1, { blockedBy: [on(900, 'OPEN', OTHER_REPO)] }),
-        child(2, { blockedBy: [on(1)] }),
-        child(3, { blockedBy: [on(42)] }),
-        child(4, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED' }] }),
+        pending(1, { blockedBy: [on(900, 'OPEN', OTHER_REPO)] }),
+        pending(2, { blockedBy: [on(1)] }),
+        pending(3, { blockedBy: [on(42)] }),
+        pending(4, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED', dependency: 'satisfied' }] }),
       ]),
     ).toEqual({
       order: [4],
@@ -86,7 +92,7 @@ describe('frameEpic', () => {
   })
 
   it('reserves cycle for a real cycle among open children', () => {
-    expect(frame([child(1, { blockedBy: [on(2)] }), child(2, { blockedBy: [on(1)] }), child(3)])).toEqual({
+    expect(frame([pending(1, { blockedBy: [on(2)] }), pending(2, { blockedBy: [on(1)] }), pending(3)])).toEqual({
       error: 'cycle: 1, 2',
     })
   })
@@ -104,18 +110,18 @@ describe('frameEpic', () => {
     })
   })
 
-  it('ignores a closed child with an incomplete UW observation', () => {
-    expect(frame([child(1, { state: 'CLOSED', ownUw: refusedOwnUw('incomplete') }), child(2)])).toEqual({
-      order: [2],
-      blocked: [],
+  it('holds a closed child whose UW observation is incomplete', () => {
+    expect(frame([child(1, { state: 'CLOSED', ownUw: refusedOwnUw('incomplete') }), pending(2)])).toEqual({
+      error: 'unsettled own UW: #1 (graph-incomplete)',
+      missing: [1],
     })
   })
 
-  it('ignores a merged child still open under staging-train, and names only the unsettled one', () => {
+  it('does not treat a merged PR as proof of completion for an unsettled child', () => {
     const merged = child(4, { ownUw: refusedOwnUw('incomplete'), prs: [landed(4, T1, sha('1'), sha('2'))] })
     expect(frame([merged, child(5, { ownUw: refusedOwnUw('changed-child', 'material-change-pending') })])).toEqual({
-      error: 'unsettled own UW: #5 (material-change-pending)',
-      missing: [5],
+      error: 'unsettled own UW: #4 (graph-incomplete), #5 (material-change-pending)',
+      missing: [4, 5],
     })
   })
 })

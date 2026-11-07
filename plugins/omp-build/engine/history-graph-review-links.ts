@@ -3,6 +3,7 @@ import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { unique } from './result.ts'
+import { hasIntegrationReviewPin, reviewSubjectBound } from './review-subject-binding.ts'
 
 type Review = Extract<CanonicalRecord, { kind: 'review' }>
 type ReviewAttempt = Extract<CanonicalRecord, { kind: 'review-attempt' }>
@@ -63,9 +64,10 @@ function validateReviewRoot(
     root?.kind !== 'review-attempt' ||
     root.payload.stage !== 'initial' ||
     root.payload.purpose !== 'review' ||
-    root.payload.subject.kind !== 'pull-request'
+    !reviewSubjectBound(root, root.payload) ||
+    (root.payload.subject.kind === 'epic-range' && !hasIntegrationReviewPin(root.payload.inputSnapshot))
   )
-    diagnostics.push(diagnostic('unbound', `Review ${review.recordId} is not bound to a pull-request subject`))
+    diagnostics.push(diagnostic('unbound', `Review ${review.recordId} is not bound to a valid review subject`))
 }
 
 function validateReviewDecisionRoot(

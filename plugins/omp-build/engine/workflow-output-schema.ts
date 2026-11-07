@@ -1,13 +1,100 @@
 import { z } from 'zod'
 import { missingContextItemSchema } from './action-context.ts'
-import { criterionDeclarationSchema, producerCriterionDeclarationSchema } from './criterion-evidence-schema.ts'
+import { recordInputRefSchema } from './action-input-refs.ts'
+import {
+  criterionDeclarationSchema,
+  observationRefSchema,
+  producerCriterionDeclarationSchema,
+} from './criterion-evidence-schema.ts'
+import { criterionTargetSchema, FINDING_TARGET_FORMAT } from './finding-target-schema.ts'
 import { specDigest } from './record-digests.ts'
 import { gitObjectIdSchema } from './record-references.ts'
 import { identifierSchema, implementationCommandSchema, jsonSchema, repoRelativePathSchema } from './record-values.ts'
-import { criterionIdSchema } from './uw-spec-schema.ts'
+import { scopeSchema, sha256Schema } from './schema-primitives.ts'
+import { criterionIdSchema, exclusionRefSchema, invariantIdSchema, ownSpecRefSchema } from './uw-spec-schema.ts'
+
+const constraintRefSchema = z.union([
+  z.strictObject({
+    kind: z.literal('accepted'),
+    target: z.union([
+      criterionTargetSchema,
+      z.strictObject({
+        format: z.literal(FINDING_TARGET_FORMAT),
+        kind: z.literal('invariant'),
+        spec: ownSpecRefSchema,
+        id: invariantIdSchema,
+      }),
+    ]),
+  }),
+  z.strictObject({ kind: z.literal('accepted-exclusion'), ref: exclusionRefSchema }),
+  z.strictObject({
+    kind: z.literal('engaged'),
+    parent: ownSpecRefSchema,
+    engagement: recordInputRefSchema,
+    child: scopeSchema,
+    version: sha256Schema,
+    element: z.union([
+      z.strictObject({ kind: z.literal('criterion'), id: criterionIdSchema }),
+      z.strictObject({ kind: z.literal('invariant'), id: invariantIdSchema }),
+      z.strictObject({ kind: z.literal('exclusion'), index: z.number().int().nonnegative() }),
+    ]),
+  }),
+  z.strictObject({
+    kind: z.literal('proposed'),
+    subject: z.union([
+      z.strictObject({ kind: z.literal('existing'), uw: scopeSchema }),
+      z.strictObject({ kind: z.literal('created-by'), operationId: z.string().min(1) }),
+    ]),
+    version: sha256Schema,
+    element: z.union([
+      z.strictObject({ kind: z.literal('criterion'), id: criterionIdSchema }),
+      z.strictObject({ kind: z.literal('invariant'), id: invariantIdSchema }),
+      z.strictObject({ kind: z.literal('exclusion'), index: z.number().int().nonnegative() }),
+    ]),
+  }),
+])
+const nonemptyConstraints = z.tuple([constraintRefSchema]).rest(constraintRefSchema)
+const nonemptyReferences = z.tuple([observationRefSchema]).rest(observationRefSchema)
+const compatibilitySchema = z.discriminatedUnion('state', [
+  z.strictObject({
+    state: z.literal('consistent'),
+    examined: nonemptyConstraints,
+    references: z.array(observationRefSchema),
+    reason: z.string().min(1),
+  }),
+  z.strictObject({
+    state: z.literal('conflicting'),
+    examined: nonemptyConstraints,
+    conflicts: z
+      .tuple([
+        z.strictObject({
+          left: constraintRefSchema,
+          right: constraintRefSchema,
+          reason: z.string().min(1),
+          references: nonemptyReferences,
+        }),
+      ])
+      .rest(
+        z.strictObject({
+          left: constraintRefSchema,
+          right: constraintRefSchema,
+          reason: z.string().min(1),
+          references: nonemptyReferences,
+        }),
+      ),
+  }),
+  z.strictObject({
+    state: z.literal('undetermined'),
+    examined: nonemptyConstraints,
+    constraints: nonemptyConstraints,
+    references: z.array(observationRefSchema),
+    reason: z.string().min(1),
+  }),
+])
 
 export const specAssessmentSchema = z.strictObject({
   classification: z.enum(['editorial', 'material', 'unknown']),
+  compatibility: compatibilitySchema,
 })
 export type SpecAssessment = z.infer<typeof specAssessmentSchema>
 export const planStepSchema = z.strictObject({

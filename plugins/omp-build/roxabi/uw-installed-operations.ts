@@ -1,42 +1,61 @@
 import type { IssueRef, IssueWriteObservation } from '../../issue-triage/skills/shared/domain/issue-write.ts'
-import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
+import type { Gh } from '../adapters/github/types.ts'
 import {
-  buildRecord,
-  buildSpecIdentityAllocation,
-  buildSpecIdentityProposedRetirement,
   calculateTier,
   createGhIssueWritePorts,
   createIssueWriter,
   githubScope,
   normalizationJudgementSchema,
   prepareSpecAllocation,
-  publishConfirmedWorkflowRecord,
-  readComposedWorkflowHistory,
+  readLandingFacts,
+  readUwCompletionObservation,
   readUwGraph,
   renderIssueSpecBody,
+  resolveSpecEffective,
   viewer,
 } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
-import type { SpecIdentityDraft } from '../engine/uw-identity.ts'
-import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { defaultGh } from './feature-engine.ts'
+import type { NativeBatch, NativePort } from './fix-contract.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import { createPublicationContextResolver } from './publication-context.ts'
-import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
+import { createUwAbandon } from './uw-abandon.ts'
+import type { TrustedHostPluginPin, UwActionPorts } from './uw-action-contract.ts'
 import { createCauseAdjudication } from './uw-cause-adjudication.ts'
+import { createCauseAdjustment } from './uw-cause-adjustment.ts'
 import { createCauseCreation } from './uw-cause-creation.ts'
 import { guardedCauseWriter } from './uw-cause-guard.ts'
-import type { OperatorPort, PreparedUwProposal, UwOperations, UwReadPort } from './uw-contract.ts'
-import { createProductionActionPorts, createProductionDeliveryPorts } from './uw-input-readers.ts'
+import type { CreatedUwReadPort, OperatorPort, UwOperations } from './uw-contract.ts'
+import { createIdentityPublisher } from './uw-identity-publication.ts'
+import {
+  createProductionActionPorts,
+  createProductionDeliveryPorts,
+  type ProductionReaderOptions,
+} from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
-import { diagnostic, diagnostics, listInstalledReports, postEffectDiagnostics } from './uw-installed-reports.ts'
+import { diagnostic, listInstalledReports } from './uw-installed-reports.ts'
+import { createLinkedClosure } from './uw-linked-closure.ts'
 import { createUwOperations } from './uw-operations.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
 import { guardParentInsertions, parentInsertionGuard } from './uw-parent-insertion.ts'
 import { createInstalledUwReadPort, readCreatedUw } from './uw-read-port.ts'
+import type { GitRunner } from './workflow-checkout.ts'
+
+/** Context-owned native execution capability; absent in noninteractive consumers. */
+export type UwNativeHost = {
+  native: NativePort
+  actionReaders: Readonly<{ git: GitRunner; createPorts(options: ProductionReaderOptions): UwActionPorts }>
+  signal: AbortSignal
+  onBatch(batch: NativeBatch): void
+  /** Call from settlement callback; the returned fence resolves after settlement and exact mask release. */
+  afterSettlement(batch: NativeBatch): Promise<void>
+  onStarted(input: {
+    creationOperationId: string
+    assessmentStart: ExternalRecordRef & { kind: 'action-receipt' }
+  }): void
+}
 
 export type InstalledUwOperationsOptions = {
   cwd: string
@@ -46,146 +65,11 @@ export type InstalledUwOperationsOptions = {
   readAuthor?: string
   pluginPin?: TrustedHostPluginPin
   artifactsDir?: string | null
+  nativeHost?: UwNativeHost
 }
 
 function scopeOf(issue: IssueRef): Scope {
   return githubScope(issue.repository, issue.number)
-}
-
-function sameScope(left: Scope, right: Scope): boolean {
-  return left.repository === right.repository && left.target === right.target
-}
-
-function sameRecord(
-  left: { scope: Scope; recordId: string; kind: string } | null,
-  right: { scope: Scope; recordId: string; kind: string },
-): boolean {
-  return (
-    left !== null && sameScope(left.scope, right.scope) && left.recordId === right.recordId && left.kind === right.kind
-  )
-}
-type IdentityPublicationFailure = {
-  status: 'refused' | 'partial' | 'uncertain'
-  diagnostics: readonly UwDiagnostic[]
-}
-type IdentityPublication = { status: 'confirmed' } | IdentityPublicationFailure
-type IdentityPublicationState = {
-  status: 'confirmed'
-  predecessor: ExternalRecordRef | null
-  knownEffect: boolean
-}
-
-function identityFailure(
-  knownEffect: boolean,
-  status: 'refused' | 'partial' | 'uncertain',
-  values: readonly UwDiagnostic[],
-): IdentityPublicationFailure {
-  return { status: knownEffect ? 'partial' : status, diagnostics: values }
-}
-type PublishedIdentity = { status: 'confirmed'; predecessor: ExternalRecordRef } | IdentityPublicationFailure
-
-async function publishIdentityDraft(
-  uw: Scope,
-  draft: UwResult<SpecIdentityDraft>,
-  github: GitHubOptions,
-): Promise<PublishedIdentity> {
-  if (!draft.ok) return { status: 'refused', diagnostics: draft.diagnostics }
-  const record = buildRecord(draft.value)
-  if (!record.ok) return { status: 'refused', diagnostics: diagnostics(uw, record.diagnostics) }
-  const history = await readComposedWorkflowHistory([uw], github)
-  if (!history.ok) return { status: 'refused', diagnostics: diagnostics(uw, history.diagnostics) }
-  const own = history.histories.find((entry) => sameScope(entry.source.scope, uw))
-  if (own === undefined)
-    return {
-      status: 'refused',
-      diagnostics: [diagnostic(uw, 'history-missing', 'Own UW history is absent before identity publication')],
-    }
-  const published = await publishConfirmedWorkflowRecord(
-    record.value,
-    github,
-    createPublicationContextResolver(github, null),
-  )
-  if (published.status !== 'confirmed')
-    return { status: published.status, diagnostics: diagnostics(uw, published.diagnostics) }
-  return {
-    status: 'confirmed',
-    predecessor: { scope: uw, recordId: record.value.recordId, kind: 'spec-identity' },
-  }
-}
-async function publishIdentityAllocation(
-  uw: Scope,
-  proposal: PreparedUwProposal,
-  confirmation: OperatorConfirmationEvidence,
-  github: GitHubOptions,
-): Promise<IdentityPublicationState | IdentityPublicationFailure> {
-  const allocation = proposal.proposal.allocation
-  if (allocation.assignments.length === 0)
-    return { status: 'confirmed', predecessor: allocation.ledgerHead, knownEffect: false }
-  const published = await publishIdentityDraft(
-    uw,
-    buildSpecIdentityAllocation({
-      uw,
-      plan: allocation,
-      proposalDigest: proposal.digest,
-      confirmation,
-      operationId: proposal.proposal.operationId,
-    }),
-    github,
-  )
-  return published.status === 'confirmed'
-    ? { status: 'confirmed', predecessor: published.predecessor, knownEffect: true }
-    : identityFailure(false, published.status, published.diagnostics)
-}
-
-async function publishIdentityRetirement(
-  uw: Scope,
-  proposal: PreparedUwProposal,
-  confirmation: OperatorConfirmationEvidence,
-  github: GitHubOptions,
-  state: IdentityPublicationState,
-): Promise<IdentityPublicationState | IdentityPublicationFailure> {
-  const allocation = proposal.proposal.allocation
-  const retirements = proposal.proposal.expected?.acceptedPredecessor === null ? allocation.retirements : []
-  if (retirements.length === 0) return state
-  if (state.predecessor === null)
-    return identityFailure(state.knownEffect, 'refused', [
-      diagnostic(uw, 'spec-ledger-conflict', 'Proposed retirement has no identity predecessor'),
-    ])
-  const published = await publishIdentityDraft(
-    uw,
-    buildSpecIdentityProposedRetirement({
-      uw,
-      plan: { ...allocation, retirements },
-      predecessor: state.predecessor,
-      proposalDigest: proposal.digest,
-      confirmation,
-      operationId: proposal.proposal.operationId,
-    }),
-    github,
-  )
-  return published.status === 'confirmed'
-    ? { status: 'confirmed', predecessor: published.predecessor, knownEffect: true }
-    : identityFailure(state.knownEffect, published.status, published.diagnostics)
-}
-
-async function confirmIdentityReadback(
-  uw: Scope,
-  predecessor: ExternalRecordRef | null,
-  reader: UwReadPort,
-): Promise<IdentityPublication> {
-  try {
-    const reread = await reader.readUw(uw)
-    if (predecessor !== null && reread.identity.ok && sameRecord(reread.identity.value.head, predecessor))
-      return { status: 'confirmed' }
-  } catch (error) {
-    return { status: 'partial', diagnostics: postEffectDiagnostics(uw, error) }
-  }
-  return {
-    status: 'partial',
-    diagnostics: [
-      diagnostic(uw, 'write-unconfirmed', 'Identity publication was not the confirmed ledger head after read-back'),
-    ],
-  }
 }
 
 /** Compose the installed reader, writer, authenticated publisher, and one-command UI capability. */
@@ -201,7 +85,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     writerLogin: authenticatedAuthor,
   })
   const reader = createInstalledUwReadPort({ cwd: input.cwd, gh, readAuthor: authenticatedAuthor })
-  const createdReader: UwReadPort = {
+  const createdReader: CreatedUwReadPort = {
     readUw: (uw) => readCreatedUw(uw, { cwd: input.cwd, gh, readAuthor: authenticatedAuthor }),
   }
   const completeReader = async (issue: IssueRef): Promise<IssueWriteObservation> => {
@@ -209,35 +93,13 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     return rootObservation(uw, { graph: await readUwGraph(uw, github) })
   }
   const guardParent = parentInsertionGuard(createParentEngagementReadPort(github))
-  const issuePorts = guardParentInsertions(
-    createGhIssueWritePorts({
-      gh: (args) => gh(input.cwd, [...args]),
-      read: completeReader,
-    }),
-    guardParent,
-  )
+  const rawIssuePorts = createGhIssueWritePorts({
+    gh: (args) => gh(input.cwd, [...args]),
+    read: completeReader,
+  })
+  const issuePorts = guardParentInsertions(rawIssuePorts, guardParent)
   const writer = createIssueWriter(issuePorts)
-  const publishIdentity = async ({
-    uw,
-    proposal,
-    confirmation,
-  }: {
-    uw: Scope
-    proposal: PreparedUwProposal
-    confirmation: OperatorConfirmationEvidence
-  }): Promise<IdentityPublication> => {
-    const allocated = await publishIdentityAllocation(uw, proposal, confirmation, github)
-    if (allocated.status !== 'confirmed') return allocated
-    const retired = await publishIdentityRetirement(uw, proposal, confirmation, github, allocated)
-    if (retired.status !== 'confirmed') return retired
-    return retired.knownEffect
-      ? confirmIdentityReadback(
-          uw,
-          retired.predecessor,
-          proposal.proposal.operation === 'create' ? createdReader : reader,
-        )
-      : { status: 'confirmed' }
-  }
+  const publishIdentity = createIdentityPublisher(github, reader, createdReader)
   const actionOptions = {
     cwd: input.cwd,
     gh,
@@ -247,8 +109,29 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   }
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
+    abandon: createUwAbandon({ operator: input.operator, reader, github }),
+    closeLinked: createLinkedClosure({
+      github,
+      readLanding: (pullRequest) =>
+        readLandingFacts(pullRequest, github, (histories) =>
+          loadReviewClassCatalogues({ histories, cwd: input.cwd, gh }),
+        ),
+      createWriter: (read) => createIssueWriter({ ...issuePorts, read }),
+    }),
     read: reader.readUw,
     readCreated: createdReader.readUw,
+    adjustCauseDependency: createCauseAdjustment({
+      operator: input.operator,
+      writer,
+      github,
+      readObservation: (uw, seeds) =>
+        readUwCompletionObservation(
+          uw,
+          github,
+          (histories) => loadReviewClassCatalogues({ histories, cwd: input.cwd, gh }),
+          seeds,
+        ),
+    }),
     listReports: (uw) => listInstalledReports(uw, github),
     guardParent,
     writer,
@@ -261,14 +144,23 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
           nativeReader: createdReader,
           github,
           operator: input.operator,
+          nativeHost: input.nativeHost,
+          actionOptions,
           prepare: backend.prepare,
           commit: backend.commit,
-          guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
+          guardedWriter: (beforeEffect, composedParent) =>
+            guardedCauseWriter(
+              issuePorts,
+              createIssueWriter,
+              beforeEffect,
+              composedParent === null ? undefined : { parent: composedParent, addChild: rawIssuePorts.addChild },
+            ),
         }),
       }
     },
     operator: input.operator,
     prepareSpecAllocation,
+    resolveSpecEffective,
     renderIssueSpecBody,
     calculateTier,
     parseNormalization(uw, value) {
@@ -290,6 +182,6 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     acceptMaterial,
     scopeOf,
     actions: createProductionActionPorts(actionOptions),
-    delivery: createProductionDeliveryPorts(actionOptions, reader.readUw),
+    delivery: createProductionDeliveryPorts(actionOptions),
   })
 }

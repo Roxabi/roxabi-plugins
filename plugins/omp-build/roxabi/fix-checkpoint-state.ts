@@ -39,6 +39,7 @@ function pendingOperationCheckpoint(history: DecodedHistory): FixCheckpoint | nu
   const diagnostics: string[] = []
   const startedRequestIds: string[] = []
   for (const operation of history.operations) {
+    if (operation.authority === 'foreign') continue
     const record = operation.record
     const kind = operation.kind ?? record?.kind ?? null
     const fixRelated =
@@ -62,7 +63,7 @@ function pendingOperationCheckpoint(history: DecodedHistory): FixCheckpoint | nu
 function completedRecords(history: DecodedHistory): Map<string, CanonicalRecord> | FixCheckpoint {
   const byId = new Map<string, CanonicalRecord>()
   for (const operation of history.operations) {
-    if (operation.status !== 'complete' || !operation.record) continue
+    if (operation.authority === 'foreign' || operation.status !== 'complete' || !operation.record) continue
     const prior = byId.get(operation.record.recordId)
     if (prior && JSON.stringify(prior) !== JSON.stringify(operation.record)) {
       return {

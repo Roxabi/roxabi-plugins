@@ -44,10 +44,12 @@ async function gitText(git: Git, cwd: string, args: string[]): Promise<string> {
 }
 
 async function verifyRangeCommits(git: Git, cwd: string, base: string, candidate: string): Promise<void> {
-  await Promise.all([
+  const observed = await Promise.all([
     gitText(git, cwd, ['rev-parse', '--verify', `${base}^{commit}`]),
     gitText(git, cwd, ['rev-parse', '--verify', `${candidate}^{commit}`]),
   ])
+  if (observed[0].trim() !== base || observed[1].trim() !== candidate)
+    throw new Error('epic range commits are not observed')
 }
 
 async function resolveEpicSemantic(cwd: string, repository: string, epic: number, issue: LiveIssueSpec, gh: Gh) {
@@ -110,7 +112,6 @@ export async function assembleEpicRangeInputs(input: {
     contextWindow,
     helper: join(assetDir, 'prepare_context.py'),
   })
-  if (!chunks.length) throw new Error('epic range has no diff')
   const { issueSpec, semanticContext, semanticCanon } = await resolveEpicSemantic(
     input.cwd,
     input.request.repository,

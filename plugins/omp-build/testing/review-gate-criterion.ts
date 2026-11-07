@@ -11,6 +11,7 @@ import {
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { fixtureReviewCatalogueReads } from './action-input-fixtures.ts'
 import { criterionReviewGraph } from './criterion-approval.ts'
+import { graphFromSimulatedIssues } from './criterion-dispositions.ts'
 import { type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, PR_EDITED, SCOPE } from './review-gate-gh.ts'
 import { roxabiRecordFixtures } from './roxabi-presets.ts'
@@ -68,6 +69,20 @@ export function boundReviewBodies(
     verdict,
     author: AUTOMATION,
     projection: { ...roxabiRecordFixtures().projection, catalogues },
+    graph: graphFromSimulatedIssues(ISSUE_SCOPE, [
+      {
+        number: 42,
+        title: 'Save selected region',
+        body: issue.body,
+        updatedAt: issue.updatedAt,
+        state: issue.state,
+        stateReason: null,
+        labels: issue.labels.map(({ name }) => name),
+        subIssues: [],
+        blockedBy: [],
+      },
+    ]),
+    contextHistories: [],
   })
   for (const comment of review.issueComments) {
     issue.comments.push({

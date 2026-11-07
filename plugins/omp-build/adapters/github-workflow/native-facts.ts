@@ -30,7 +30,7 @@ export async function readNativePullRequestFacts(
     '--repo',
     repository,
     '--json',
-    'number,state,headRefOid,headRefName,baseRefName,baseRefOid,author',
+    'number,state,headRefOid,headRefName,baseRefName,baseRefOid,mergeCommit,author',
   ])
   const parsed = object(parseJson(raw, `pull request #${pr}`))
   const authorObject = object(parsed?.author)
@@ -41,9 +41,11 @@ export async function readNativePullRequestFacts(
   const branch = parsed?.headRefName
   const base = parsed?.baseRefName
   const baseTip = parsed?.baseRefOid
+  const merge = parsed?.mergeCommit
+  const mergeCommit = merge === null ? null : object(merge)?.oid
   if (
     number !== pr ||
-    typeof state !== 'string' ||
+    (state !== 'OPEN' && state !== 'CLOSED' && state !== 'MERGED') ||
     typeof head !== 'string' ||
     !SHA.test(head) ||
     typeof branch !== 'string' ||
@@ -51,13 +53,15 @@ export async function readNativePullRequestFacts(
     typeof base !== 'string' ||
     base.length === 0 ||
     typeof baseTip !== 'string' ||
-    !SHA.test(baseTip)
+    !SHA.test(baseTip) ||
+    (mergeCommit !== null && (typeof mergeCommit !== 'string' || !SHA.test(mergeCommit))) ||
+    (state === 'MERGED' && mergeCommit === null)
   ) {
     throw new GitHubHistoryReadError(`Pull request #${pr} is unreadable`, [
       diagnostic('unreadable', `Pull request #${pr} native head/base facts are incomplete`),
     ])
   }
-  return { repository, pr, head, base, baseTip, branch, state, author }
+  return { repository, pr, head, base, baseTip, branch, state, mergeCommit, author }
 }
 
 /**

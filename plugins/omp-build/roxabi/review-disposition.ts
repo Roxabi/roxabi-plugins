@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { CanonicalRecord, DecodedHistory, DispositionSource, GitHubOptions, Ref } from '../dist/contracts.js'
-import { persistCauseDispositions } from './fix-disposition-execution.ts'
+import { persistCapturedCauseDispositions } from './fix-disposition-capture.ts'
 import { createFixDispositionStore } from './fix-disposition-store.ts'
 import { resolveFixOrigin } from './fix-origin.ts'
 import type { PreparedReviewInputs } from './review-contract.ts'
@@ -20,11 +20,13 @@ async function persistReviewSource(
   if (!origin.ok) throw new Error(`review-disposition-refused:${origin.diagnostics.join(',')}`)
   if (!isDeepStrictEqual(origin.value.effective, manifest.spec.effective))
     throw new Error('review-disposition-refused:correction-origin-stale')
-  const retained = await persistCauseDispositions(
-    { causeContext: origin.value },
+  const retained = await persistCapturedCauseDispositions(
+    origin.value,
     source,
     { runId: identity.runId, operationId: identity.operationId, nextRecordId: (kind) => identity.next(kind) },
     createFixDispositionStore(origin.value.original, options),
+    input.operations,
+    'authenticate-source',
   )
   if (!retained.ok) throw new Error(`review-disposition-refused:${retained.diagnostics.join(',')}`)
   return retained.value.refs

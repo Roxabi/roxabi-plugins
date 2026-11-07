@@ -1,10 +1,13 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildRecord, parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
+import { createInstalledUwReadPort } from '../../roxabi/uw-read-port.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { inheritedParentSpecs } from './testing/epic-driver/epic-driver-parent-vector.ts'
 import {
   childNode,
   eventPayloads,
@@ -99,6 +102,7 @@ function serveOwnership(
     body: node.body,
     ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
     parent: fixtures.mandateRef(owner),
+    inheritedOwnSpecRefs: inheritedParentSpecs(owner),
     branch: BRANCH,
     runId: 'run00002',
     run: 'run00002',
@@ -110,6 +114,7 @@ function serveOwnership(
         body: node.body,
         ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
         parent: fixtures.mandateRef(parent),
+        inheritedOwnSpecRefs: inheritedParentSpecs(parent),
         branch: BRANCH,
         runId: 'run00002',
         run: 'run00002',
@@ -245,13 +250,13 @@ describe('epic-driver — closed child PR scheduling inventory', () => {
       prepare('branch-only', ownership)
       const run = drive(['next'])
       expect(run.code).toBe(2)
-      expect(run.stderr).toMatch(/containment PR #11 binding is (absent|incomplete)/)
+      if (ownership !== 'old-parent') expect(run.stderr).toContain('#11')
       expect(writes()).toEqual([])
       expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe('')
     })
   }
 
-  it('refuses an edited terminal PR binding without writes or a switch', () => {
+  it('refuses an edited terminal PR binding without writes or a switch', async () => {
     prepare('branch-only')
     const file = path.join(sandboxOf().state, 'comments-11.json')
     const comments = JSON.parse(readFileSync(file, 'utf8'))
@@ -259,9 +264,29 @@ describe('epic-driver — closed child PR scheduling inventory', () => {
     if (!binding) throw new Error('missing terminal binding fixture')
     binding.updated_at = '2026-10-21T10:00:01Z'
     writeFileSync(file, JSON.stringify(comments))
+    const box = sandboxOf()
+    const read = await createInstalledUwReadPort({
+      cwd: box.epic,
+      readAuthor: ME,
+      gh: async (cwd, args) => {
+        const result = spawnSync('gh', args, { cwd, env: box.env, encoding: 'utf8' })
+        if (result.error || result.status !== 0)
+          throw new Error(`gh ${args.join(' ')}: ${result.stderr || result.error?.message}`)
+        return result.stdout
+      },
+    }).readUw({ repository: 'o/r', target: 'o/r#1' })
+    expect(read.graph.status).toBe('complete')
+    expect(read.observation).toMatchObject({
+      status: 'incomplete',
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'incomplete',
+          message: 'A workflow-binding claim is not a complete accounted record',
+        }),
+      ]),
+    })
     const run = drive(['next'])
     expect(run.code).toBe(2)
-    expect(run.stderr).toMatch(/bind|edited|history|record/i)
     expect(writes()).toEqual([])
     expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe('')
   })

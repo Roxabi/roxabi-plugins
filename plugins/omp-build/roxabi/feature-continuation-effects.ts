@@ -16,6 +16,8 @@ import type { FeatureObservation } from './feature-observation-contract.ts'
 type ContinueAtTarget = (
   input: ContinueFeatureInput,
   exactMandateRef?: ScopedRecordRef,
+  noImplicitResume?: boolean,
+  completedReport?: boolean,
 ) => Promise<ContinueFeatureResult>
 
 export async function coordinateContinuationEffects(
@@ -49,7 +51,7 @@ export async function coordinateContinuationEffects(
     case 'hook':
       return coordinateHook(input, exactMandateRef, authority, observation, number, continueAtTarget)
     case 'report':
-      return reportEpic(context.cwd, number)
+      return reportEpic(input, exactMandateRef, selected, continueAtTarget)
     default:
       return { kind: 'blocked', reason: `action-unwired:${action}` }
   }
@@ -137,7 +139,8 @@ async function continueEpicNext(
 ): Promise<ContinueFeatureResult> {
   try {
     const step = (await epicNext(cwd, epic, false)).step
-    return (step.action === 'start' || step.action === 'resume') && typeof step.ticket === 'number'
+    return (step.action === 'start' || step.action === 'resume' || step.action === 'parent') &&
+      typeof step.ticket === 'number'
       ? continueAtTarget({
           ...input,
           cwd,
@@ -219,11 +222,25 @@ async function coordinateHook(
   }
 }
 
-async function reportEpic(cwd: string, epic: number): Promise<ContinueFeatureResult> {
+async function reportEpic(
+  input: ContinueFeatureInput,
+  exactMandateRef: ScopedRecordRef | undefined,
+  selected: SelectedFeature,
+  continueAtTarget: ContinueAtTarget,
+): Promise<ContinueFeatureResult> {
+  const { context } = selected.authority
   try {
-    const step = await epicStep(cwd, epic)
+    const step = await epicStep(context.cwd, selected.number)
     const outcome = step.name === 'drop' ? 'drop' : 'complete'
-    await epicReport(cwd, epic, outcome, outcome === 'drop' ? 'epic-drop' : '')
+    await epicReport(context.cwd, selected.number, outcome, outcome === 'drop' ? 'epic-drop' : '')
+    if (outcome === 'complete' && selected.mandate?.payload.parent?.kind === 'mandate') {
+      return continueAtTarget(
+        { ...input, cwd: context.cwd, control: 'continue', principal: false, git: context.git, gh: context.gh },
+        exactMandateRef ?? selected.mandateRef ?? undefined,
+        true,
+        true,
+      )
+    }
     return { kind: 'terminal', reason: `epic-${outcome}` }
   } catch (error) {
     return { kind: 'blocked', reason: error instanceof Error ? error.message : 'epic-report-failed' }

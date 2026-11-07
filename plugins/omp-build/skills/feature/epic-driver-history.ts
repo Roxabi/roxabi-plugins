@@ -197,7 +197,7 @@ export async function reviewsFromEvents(repo: string, history: DecodedHistory): 
   const events = epicEvents(history).filter(({ payload }) => payload.event === 'epic-review')
   if (events.length === 0) return []
   const authorityHistory = classifyHistory(history).authorityHistory
-  const externalHistories = await citedReviewHistories(repo, authorityHistory)
+  const externalHistories = await citedReviewHistories(repo, history)
   const graph = validateRecordGraph(authorityHistory)
   if (!graph.ok) throw new Refused(`Epic review history is not admissible: ${diagnosticsText(graph.diagnostics)}`)
   const records = new Map(graph.value.map((record) => [record.recordId, record]))
@@ -239,7 +239,17 @@ export async function reviewsFromEvents(repo: string, history: DecodedHistory): 
         `Epic review event ${event.record.recordId} decision is not admissible: ${diagnosticsText(assessment.diagnostics)}`,
       )
     }
-    reviews.push({ run, range, verdict: assessment.verdict === 'Request changes' ? 'blocking' : 'clean' })
+    if (root.payload.stage !== 'initial' || root.payload.purpose !== 'review')
+      throw new Refused(`Epic review event ${event.record.recordId} does not bind an initial review root`)
+    const inputs = root.payload.inputSnapshot
+    if (inputs === null) throw new Refused(`Epic review event ${event.record.recordId} has no action inputs`)
+    reviews.push({
+      run,
+      range,
+      verdict: assessment.verdict === 'Request changes' ? 'blocking' : 'clean',
+      inputs,
+      decision: { scope: history.source.scope, kind: 'decision', recordId: decision.recordId },
+    })
   }
   return reviews
 }

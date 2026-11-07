@@ -1,11 +1,12 @@
 import { expect, test } from 'vitest'
 import {
+  assessFixture,
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../engine/__tests__/workflow-spec-assessment-support.ts'
 import { failedCheckEvidenceDigest } from '../engine/record-digests.ts'
-import { mechanicalSpecDelta } from '../engine/workflow-spec-assessment.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { shippedMandate } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { sealReceipt } from './feature-action-receipt.ts'
 import { dossierIndex, materializeActionFiles } from './uw-action-dossier.ts'
@@ -48,17 +49,14 @@ test('assessment dossier distinguishes accepted and proposed exact states', asyn
   if (mandate.kind !== 'mandate') throw new Error('expected mandate')
   const accepted = mandateAssessmentState(mandate)
   const proposed = proposedAssessmentState(accepted, { body: 'Changed proposal' })
-  const exactInputs = {
-    format: 'omp-build-spec-assessment/2' as const,
-    accepted,
-    proposed,
-    identityAllocations: mandate.payload.ownSpec.identityAllocations,
-    mechanical: mechanicalSpecDelta(accepted, proposed),
-  }
+  const assessment = assessFixture(mandate, 'dossier-assessment', accepted, proposed, 'material', [
+    roxabiWorkflowFixtures().historyFrom([mandate]),
+  ])
+  const exactInputs = assessment.result.payload.exactInputs
   const manifest = {
     ...standaloneReviewInputs().manifest,
     purpose: 'assess-spec' as const,
-    operands: { action: 'assess-spec' as const, exactInputs },
+    operands: { action: 'assess-spec' as const, origin: { kind: 'native-current' as const }, exactInputs },
   }
   const ports = {
     readCodeDiff: async () => ({ ok: true as const, value: Buffer.from('diff') }),

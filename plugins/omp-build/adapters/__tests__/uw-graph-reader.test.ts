@@ -1,69 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { validateUwGraph } from '../../engine/uw-graph.ts'
+import {
+  type GraphFixture as Fixture,
+  graphGh,
+  graphFixtureVariable as variable,
+} from '../../testing/uw-paginated-graph-fixture.ts'
 import { githubScope } from '../github/transport.ts'
 import type { Gh } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph.ts'
 import { readUwSubtree } from '../github-native/uw-graph-reader.ts'
-
-type Fixture = {
-  labels?: string[]
-  children?: number[]
-  blockers?: number[]
-  state?: 'OPEN' | 'CLOSED'
-  stateReason?: string | null
-  deny?: boolean
-}
-
-function variable(args: string[], name: string): string | undefined {
-  return args
-    .flatMap((arg, index) => (arg === '-f' || arg === '-F' ? [args[index + 1] ?? ''] : []))
-    .find((pair) => pair.startsWith(`${name}=`))
-    ?.slice(name.length + 1)
-}
-function page<T>(values: readonly T[], cursor: string | undefined, repeat = false) {
-  const parsedCursor = cursor === undefined ? 0 : Number(cursor)
-  const offset = Number.isSafeInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0
-  const nodes = values.slice(offset, offset + 100)
-  const next = offset + nodes.length
-  return {
-    nodes,
-    pageInfo: {
-      hasNextPage: next < values.length,
-      endCursor: next < values.length ? (repeat ? 'repeat' : String(next)) : null,
-    },
-  }
-}
-function graphGh(fixtures: Record<number, Fixture>, repeatLabels = false, repeatChildren = false): Gh {
-  return async (_cwd, args) => {
-    const number = Number(variable(args, 'number'))
-    const fixture = fixtures[number]
-    if (!fixture || fixture.deny) throw new Error(`issue #${number} is unreadable`)
-    const parent = Object.entries(fixtures).find(([, candidate]) => candidate.children?.includes(number))
-    const node = (child: number) => ({ number: child, repository: { nameWithOwner: 'acme/app' } })
-    return JSON.stringify({
-      data: {
-        repository: {
-          issue: {
-            number,
-            title: `UW ${number}`,
-            body: `body ${number}`,
-            updatedAt: `2026-10-27T12:00:${String(number).padStart(2, '0')}Z`,
-            state: fixture.state ?? 'OPEN',
-            stateReason: fixture.stateReason ?? null,
-            repository: { nameWithOwner: 'acme/app' },
-            parent: parent ? node(Number(parent[0])) : null,
-            labels: page(
-              (fixture.labels ?? []).map((name) => ({ name })),
-              variable(args, 'labelsCursor'),
-              repeatLabels,
-            ),
-            subIssues: page((fixture.children ?? []).map(node), variable(args, 'childrenCursor'), repeatChildren),
-            blockedBy: page((fixture.blockers ?? []).map(node), variable(args, 'blockersCursor')),
-          },
-        },
-      },
-    })
-  }
-}
 
 describe('readUwGraph', () => {
   it('independently exhausts >100 labels and children through the injected Gh transport', async () => {
@@ -78,6 +23,66 @@ describe('readUwGraph', () => {
     expect(graph).toMatchObject({ status: 'complete' })
     expect(graph.nodes).toHaveLength(102)
     expect(graph.nodes.find((node) => node.uw.target === 'acme/app#1')?.labels).toHaveLength(101)
+  })
+
+  it('refuses an uncanonical repository identity rather than joining it to another scope', async () => {
+    const graph = await readUwGraph(githubScope('Acme/App', 1), { cwd: '/fixture', gh: graphGh({ 1: {} }) })
+    expect(graph.status).toBe('incomplete')
+    if (graph.status !== 'incomplete') throw new Error('expected incomplete graph')
+    expect(graph.nodes.some((node) => node.uw.repository === 'acme/app')).toBe(false)
+    expect(graph.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          location: expect.objectContaining({ uw: githubScope('Acme/App', 1), connection: 'state' }),
+        }),
+      ]),
+    )
+  })
+
+  it('exhausts blocker pages and retains every referenced issue', async () => {
+    const blockers = Array.from({ length: 101 }, (_, index) => index + 2)
+    const fixtures: Record<number, Fixture> = { 1: { blockers } }
+    for (const blocker of blockers) fixtures[blocker] = {}
+    const graph = await readUwGraph(githubScope('acme/app', 1), { cwd: '/fixture', gh: graphGh(fixtures) })
+    expect(graph.status).toBe('complete')
+    expect(graph.nodes).toHaveLength(102)
+    expect(graph.nodes[0]?.blockers).toHaveLength(101)
+  })
+
+  it('retains both parent claims while holding an inconsistent hierarchy', async () => {
+    const graph = await readUwGraph(githubScope('acme/app', 1), {
+      cwd: '/fixture',
+      gh: graphGh({ 1: { children: [3], blockers: [2] }, 2: { children: [3] }, 3: {} }),
+    })
+    expect(graph.status).toBe('complete')
+    expect(validateUwGraph(graph)).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'multiple-parents' })]),
+    })
+    expect(graph.nodes.find((node) => node.uw.target === 'acme/app#1')?.children).toEqual([githubScope('acme/app', 3)])
+    expect(graph.nodes.find((node) => node.uw.target === 'acme/app#2')?.children).toEqual([githubScope('acme/app', 3)])
+    expect(graph.nodes.find((node) => node.uw.target === 'acme/app#3')?.parent).toEqual(githubScope('acme/app', 1))
+  })
+
+  it('retains first-page facts but refuses changed issue metadata on a later page', async () => {
+    const transport = graphGh({ 1: { labels: Array.from({ length: 101 }, (_, index) => `l${index}`) } })
+    const gh: Gh = async (cwd, args) => {
+      const response = JSON.parse(await transport(cwd, args))
+      if (variable(args, 'labelsCursor') !== undefined) response.data.repository.issue.state = 'CLOSED'
+      return JSON.stringify(response)
+    }
+    const graph = await readUwGraph(githubScope('acme/app', 1), { cwd: '/fixture', gh })
+    expect(graph.status).toBe('incomplete')
+    expect(graph.nodes[0]?.native.state).toBe('OPEN')
+    expect(graph.nodes[0]?.labels).toHaveLength(101)
+    if (graph.status !== 'incomplete') throw new Error('expected incomplete graph')
+    expect(graph.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'graph-incomplete',
+        location: expect.objectContaining({ connection: 'labels', page: 2 }),
+        message: expect.stringContaining('changed between pages'),
+      }),
+    )
   })
 
   it('retains a combined parent-child-blocker cycle as native facts for engine D8 validation', async () => {

@@ -9,6 +9,7 @@ type BindingCandidate =
   | { status: 'absent' }
   | { status: 'incomplete' | 'conflicting' | 'incompatible-format'; diagnostics: Diagnostic[] }
 type BindingRefusal = Extract<BindingCandidate, { status: 'incomplete' | 'conflicting' | 'incompatible-format' }>
+type SuccessorClaim = { status: 'none' } | BindingRefusal | { status: 'next'; ref: ExternalRecordRef }
 
 type BindingInput = {
   pullRequest: Scope
@@ -34,10 +35,7 @@ function claimsBinding(operation: DecodedHistory['operations'][number]): boolean
     operation.record?.kind === 'workflow-binding'
   )
 }
-function successorClaim(
-  history: DecodedHistory,
-  mandate: ExternalRecordRef,
-): { status: 'none' } | BindingRefusal | { status: 'next'; ref: ExternalRecordRef } {
+function successorClaim(history: DecodedHistory, mandate: ExternalRecordRef): SuccessorClaim {
   const controls = history.operations.filter(
     (operation) =>
       operation.authority !== 'foreign' &&
@@ -85,26 +83,40 @@ function uniqueBindings(bindings: WorkflowBindingRecord[]): BindingCandidate | W
   return [...byMandate.values()]
 }
 
+function authenticatedSuccessor(binding: WorkflowBindingRecord, histories: readonly DecodedHistory[]): SuccessorClaim {
+  const home = historyFor(binding.payload.mandate.scope, histories)
+  if (home === null || !home.source.complete) {
+    return bindingRefusal('incomplete', [diagnostic('incomplete', 'Binding mandate history is missing or incomplete')])
+  }
+  const problem = workflowOperationProblem(home)
+  if (problem === 'incompatible-format') {
+    const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem)
+    return bindingRefusal(problem, [
+      formatDiagnostic ?? diagnostic(problem, 'Binding mandate uses an incompatible format'),
+    ])
+  }
+  const uncertainControl = home.operations.find(
+    (operation) =>
+      operation.authority !== 'foreign' &&
+      (operation.kind === 'operator-control' ||
+        operation.claimedKinds.includes('operator-control') ||
+        operation.record?.kind === 'operator-control') &&
+      (operation.status !== 'complete' || operation.record === null),
+  )
+  if (uncertainControl !== undefined) {
+    const status = uncertainControl.status === 'conflict' ? 'conflicting' : 'incomplete'
+    return bindingRefusal(status, [diagnostic(status, 'Binding mandate has an unresolved operator-control claim')])
+  }
+  return successorClaim(home, binding.payload.mandate)
+}
+
 function successors(
   bindings: WorkflowBindingRecord[],
   histories: readonly DecodedHistory[],
 ): BindingCandidate | Map<string, string> {
   const next = new Map<string, string>()
   for (const binding of bindings) {
-    const home = historyFor(binding.payload.mandate.scope, histories)
-    if (home === null || !home.source.complete) {
-      return bindingRefusal('incomplete', [
-        diagnostic('incomplete', 'Binding mandate history is missing or incomplete'),
-      ])
-    }
-    const problem = workflowOperationProblem(home)
-    if (problem === 'incompatible-format') {
-      const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem)
-      return bindingRefusal(problem, [
-        formatDiagnostic ?? diagnostic(problem, 'Binding mandate uses an incompatible format'),
-      ])
-    }
-    const successor = successorClaim(home, binding.payload.mandate)
+    const successor = authenticatedSuccessor(binding, histories)
     if (
       successor.status === 'incomplete' ||
       successor.status === 'conflicting' ||
@@ -246,7 +258,16 @@ export function selectWorkflowBindingCandidate(input: BindingInput): BindingCand
   if (!history.source.complete)
     return bindingRefusal('incomplete', [diagnostic('incomplete', 'Pull request history is incomplete')])
   const claims = history.operations.filter((operation) => operation.authority !== 'foreign' && claimsBinding(operation))
-  if (claims.length === 0) return { status: 'absent' }
+  if (claims.length === 0) {
+    if (history.operations.some((operation) => operation.authority === 'foreign' && claimsBinding(operation)))
+      return bindingRefusal('incomplete', [
+        diagnostic('foreign', 'Foreign workflow-binding claim cannot establish absence'),
+      ])
+    const problem = workflowOperationProblem(history)
+    return problem === null
+      ? { status: 'absent' }
+      : bindingRefusal('incomplete', [diagnostic(problem, 'Pull request history cannot establish binding absence')])
+  }
   const invalid = invalidClaims(claims)
   if (invalid !== null) return invalid
   const records = recordsForClaims(claims, input)

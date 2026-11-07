@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { pinnedFileRefSchema, recordInputRefSchema } from './action-input-refs.ts'
+import { codeRangeSchema } from './code-range-schema.ts'
 import { unframedParserSchema } from './issue-spec-analysis-schema.ts'
 import { gitObjectIdSchema } from './record-references.ts'
 import { repoRelativePathSchema, scopeSchema, sha256Schema } from './schema-primitives.ts'
-import { specEffectiveSchema } from './spec-effective.ts'
+import { specEffectiveSchema } from './spec-effective-schema.ts'
 import { specRawSourceSchema, specSnapshotSchema } from './uw-spec-schema.ts'
 import { actionOperandsSchema, refineActionOperands } from './workflow-action-operands.ts'
 
@@ -21,6 +22,7 @@ export const deliveryDataRefSchema = recordInputRefSchema.extend({
     'plan',
     'plan-review',
     'implementation',
+    'integration',
     'criterion-evidence',
     'correction-lineage',
     'cause-state',
@@ -34,6 +36,7 @@ export const actionPurposeSchema = z.enum([
   'plan',
   'plan-review',
   'implement',
+  'integrate',
   'attribute-ci',
   'review',
   'correction',
@@ -63,12 +66,6 @@ export const actionSpecInputSchema = z.discriminatedUnion('kind', [
 ])
 export type ActionSpecInput = z.infer<typeof actionSpecInputSchema>
 
-const codeRefSchema = z.strictObject({
-  repository: z.string().min(1),
-  base: gitObjectIdSchema,
-  head: gitObjectIdSchema,
-  referenceCommit: gitObjectIdSchema,
-})
 const pluginPinSchema = z.strictObject({
   name: z.literal('omp-build'),
   version: z.string().min(1),
@@ -91,7 +88,7 @@ const actionInputManifestObject = z.strictObject({
   subject: actionSubjectSchema,
   spec: actionSpecInputSchema,
   operands: actionOperandsSchema.optional(),
-  code: codeRefSchema,
+  code: codeRangeSchema,
   acceptedSources: z.array(recordInputRefSchema),
   deliveryData: z.array(deliveryDataRefSchema),
   repositoryReferences: z.array(pinnedFileRefSchema),

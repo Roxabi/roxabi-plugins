@@ -7,7 +7,7 @@ import {
   readEpicStep,
 } from './epic-driver-control'
 import { next } from './epic-driver-next'
-import { Assisted, type EpicEffects, Refused, withEpicEffects } from './epic-driver-runtime'
+import { Assisted, currentEpicEffects, type EpicEffects, Refused, withEpicEffects } from './epic-driver-runtime'
 import { hook, markFix, report, review, stop } from './epic-driver-terminal'
 
 export type { EpicAuthority, EpicChildGrant } from './epic-driver-authority'
@@ -47,7 +47,7 @@ export function createEpicDriver(injected: EpicEffects = {}): EpicDriverPort {
   const bind =
     <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
     (...args: A): Promise<R> =>
-      withEpicEffects(injected, () => fn(...args))
+      withEpicEffects({ ...currentEpicEffects(), ...injected }, () => fn(...args))
   return {
     readEpicAuthority: bind(readEpicAuthority),
     frameEpicChildren: bind(frameEpicChildren),

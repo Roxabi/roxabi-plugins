@@ -1,3 +1,4 @@
+import type { ActionInputs } from './action-input-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 
@@ -5,6 +6,20 @@ type ReviewRoot = Extract<
   Extract<CanonicalRecord, { kind: 'review-attempt' }>['payload'],
   { stage: 'initial'; purpose: 'review' }
 >
+/** Structural shape only; the selected receipt is authenticated separately. */
+export function hasIntegrationReviewPin(inputs: ActionInputs): boolean {
+  const pins = inputs.manifest.deliveryData.filter((item) => item.role === 'integration')
+  const pin = pins[0]
+  const subject = inputs.manifest.subject
+  return (
+    pins.length === 1 &&
+    pin !== undefined &&
+    pin.record.kind === 'action-receipt' &&
+    pin.selector === '/payload/structured/code' &&
+    subject.kind === 'uw' &&
+    equalScope(pin.record.scope, subject.uw)
+  )
+}
 
 /** Bind a review root's actual scope and review mode to its immutable action inputs. */
 export function reviewSubjectBound(

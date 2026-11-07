@@ -3,11 +3,10 @@ import { projectAdditiveDeclarations } from './criterion-declaration-projection.
 import type { CodeVersion, CriterionDeclaration, CriterionEvidence, EvidenceRef } from './criterion-evidence-schema.ts'
 import type { CriterionVerdict, ExclusionClaim } from './criterion-verdict-schema.ts'
 import type { CriterionTarget } from './finding-target-schema.ts'
-import { sameRef } from './record-diagnostics.ts'
+import { sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
-import type { SpecEffective } from './spec-effective.ts'
-import { sameOwnSpecRef } from './spec-effective.ts'
+import type { SpecEffective } from './spec-effective-schema.ts'
 import type { PlanOutput } from './workflow-output-schema.ts'
 
 export type CriterionReviewInput = {
@@ -258,8 +257,12 @@ export function assessExclusion({
       diagnostics: [named('malformed', 'exclusion cannot waive a criterion, regression, security, or invariant')],
     }
   }
-  if (!sameOwnSpecRef(claim.exclusion.spec, spec.own) || claim.target.uw.repository !== spec.own.uw.repository) {
-    return { ok: false, diagnostics: [named('malformed', 'exclusion version is not the readable own Spec')] }
+  const ownExclusion = sameOwnSpecRef(claim.exclusion.spec, spec.own)
+  const inheritedExclusion = spec.inherited.exclusions.some(
+    (item) => item.ref.index === claim.exclusion.index && sameOwnSpecRef(item.ref.spec, claim.exclusion.spec),
+  )
+  if ((!ownExclusion && !inheritedExclusion) || claim.target.uw.repository !== spec.own.uw.repository) {
+    return { ok: false, diagnostics: [named('malformed', 'exclusion version is not a readable accepted Spec')] }
   }
   if (claim.target.uw.target !== spec.own.uw.target) {
     return { ok: false, diagnostics: [named('malformed', 'exclusion target is outside the accepted UW')] }
@@ -267,7 +270,7 @@ export function assessExclusion({
   if (
     !Number.isInteger(claim.exclusion.index) ||
     claim.exclusion.index < 0 ||
-    claim.exclusion.index >= spec.spec.exclusions.length
+    (ownExclusion && claim.exclusion.index >= spec.spec.exclusions.length)
   ) {
     return { ok: false, diagnostics: [named('malformed', 'exclusion index is not in the cited Spec version')] }
   }

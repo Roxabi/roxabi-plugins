@@ -3,12 +3,11 @@ import type { ActionInputs } from './action-input-schema.ts'
 import { resolveCauseActionInputs } from './cause-adjudication.ts'
 import type { CauseContext } from './finding-target.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { diagnostic, equalScope, sameOwnSpecRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
 import { originalContributionAction } from './review-original-action.ts'
-import { sameOwnSpecRef } from './spec-effective.ts'
 import { bindExternalRef } from './workflow-control.ts'
 
 type Pending = Extract<CanonicalRecord, { kind: 'cause-disposition' }>

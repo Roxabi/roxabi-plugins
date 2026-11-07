@@ -47,14 +47,6 @@ export function unknownWayfinderLabels(node: UwNativeNode): readonly string[] {
 export function isWayfinder(node: UwNativeNode): boolean {
   return knownWayfinderLabels(node).length > 0
 }
-export function isCompletedUw(node: UwNativeNode): boolean {
-  return (
-    !isWayfinder(node) &&
-    unknownWayfinderLabels(node).length === 0 &&
-    node.native.state === 'CLOSED' &&
-    node.native.stateReason === 'COMPLETED'
-  )
-}
 function diag(
   uw: Scope,
   code: string,
@@ -84,10 +76,20 @@ function appendChildren(
 ): void {
   for (const child of node.children) {
     if (child.repository !== node.uw.repository)
-      diagnostics.push(diag(node.uw, 'cross-repository-child', 'Child is cross-repository', 'children'))
+      diagnostics.push({
+        ...diag(node.uw, 'cross-repository-child', 'Child is cross-repository', 'children'),
+        related: [{ kind: 'native', uw: child, connection: 'parent' }],
+      })
     const childNode = nodes.get(scopeKey(child))
     if (!childNode) diagnostics.push(diag(node.uw, 'graph-incomplete', 'Child was not read', 'children'))
-    else if (!isWayfinder(childNode)) outgoing.push(scopeKey(child))
+    else {
+      outgoing.push(scopeKey(child))
+      if (childNode.parent === null || !sameScope(childNode.parent, node.uw))
+        diagnostics.push({
+          ...diag(node.uw, 'parent-child-conflict', 'Child does not name this parent', 'children'),
+          related: [{ kind: 'native', uw: child, connection: 'parent' }],
+        })
+    }
   }
 }
 
@@ -100,7 +102,7 @@ function appendBlockers(
   for (const blocker of node.blockers) {
     const blockerNode = nodes.get(scopeKey(blocker))
     if (!blockerNode) diagnostics.push(diag(node.uw, 'graph-incomplete', 'Blocker was not read', 'blockers'))
-    else if (!isWayfinder(blockerNode)) outgoing.push(scopeKey(blocker))
+    else outgoing.push(scopeKey(blocker))
   }
 }
 
@@ -112,13 +114,22 @@ function relationEdges(nodes: ReadonlyMap<string, UwNativeNode>, diagnostics: Uw
     edges.set(key, outgoing)
     if (knownWayfinderLabels(node).some((label) => !node.wayfinderLabels.includes(label)))
       diagnostics.push(diag(node.uw, 'graph-incomplete', 'Wayfinder projection lost raw label', 'labels'))
-    // Known wayfinder nodes stay in the observation set for reclassification,
-    // but do not contribute UW wait edges (D41).
-    if (isWayfinder(node)) continue
     appendChildren(node, nodes, outgoing, diagnostics)
     appendBlockers(node, nodes, outgoing, diagnostics)
-    if (node.parent !== null && !nodes.has(scopeKey(node.parent)))
-      diagnostics.push(diag(node.uw, 'graph-incomplete', 'Parent was not read', 'parent'))
+    if (node.parent !== null) {
+      const parent = nodes.get(scopeKey(node.parent))
+      if (!parent) diagnostics.push(diag(node.uw, 'graph-incomplete', 'Parent was not read', 'parent'))
+      else if (!parent.children.some((child) => sameScope(child, node.uw)))
+        diagnostics.push({
+          ...diag(node.uw, 'parent-child-conflict', 'Parent does not list this child', 'parent'),
+          related: [{ kind: 'native', uw: parent.uw, connection: 'children' }],
+        })
+      if (node.parent.repository !== node.uw.repository)
+        diagnostics.push({
+          ...diag(node.uw, 'cross-repository-child', 'Parent is cross-repository', 'parent'),
+          related: [{ kind: 'native', uw: node.parent, connection: 'children' }],
+        })
+    }
   }
   return edges
 }
@@ -145,10 +156,53 @@ function appendCycles(
   for (const key of nodes.keys()) walk(key)
 }
 
+function appendParentClaimDiagnostics(
+  graph: Extract<UwGraphObservation, { status: 'complete' }>,
+  diagnostics: UwDiagnostic[],
+): void {
+  const parents = new Map<string, Scope[]>()
+  for (const node of graph.nodes) {
+    for (const child of node.children) {
+      const key = scopeKey(child)
+      const claims = parents.get(key) ?? []
+      if (!claims.some((claim) => sameScope(claim, node.uw))) claims.push(node.uw)
+      parents.set(key, claims)
+    }
+  }
+  for (const node of graph.nodes) {
+    const claims = parents.get(scopeKey(node.uw)) ?? []
+    const parent = node.parent
+    if (parent && !claims.some((claim) => sameScope(claim, parent))) claims.push(parent)
+    if (claims.length > 1)
+      diagnostics.push({
+        ...diag(node.uw, 'multiple-parents', 'Child has multiple parent claims', 'parent'),
+        related: claims.map((uw) => ({ kind: 'native' as const, uw, connection: 'children' as const })),
+      })
+  }
+}
+
+function collectObservedNodes(
+  graph: Extract<UwGraphObservation, { status: 'complete' }>,
+  diagnostics: UwDiagnostic[],
+): Map<string, UwNativeNode> {
+  const nodes = new Map<string, UwNativeNode>()
+  for (const node of graph.nodes) {
+    const key = scopeKey(node.uw)
+    const previous = nodes.get(key)
+    if (previous && JSON.stringify(previous) !== JSON.stringify(node))
+      diagnostics.push(
+        diag(node.uw, 'graph-conflicting-observation', 'Conflicting native observations for the same UW', 'state'),
+      )
+    else if (!previous) nodes.set(key, node)
+  }
+  return nodes
+}
+
 export function validateUwGraph(graph: UwGraphObservation): UwCheck {
   if (graph.status === 'incomplete') return incompleteGraph(graph)
   const diagnostics: UwDiagnostic[] = []
-  const nodes = new Map(graph.nodes.map((node) => [scopeKey(node.uw), node]))
+  appendParentClaimDiagnostics(graph, diagnostics)
+  const nodes = collectObservedNodes(graph, diagnostics)
   if (!nodes.has(scopeKey(graph.root)))
     diagnostics.push(diag(graph.root, 'graph-incomplete', 'Root was not read', 'state'))
   const edges = relationEdges(nodes, diagnostics)

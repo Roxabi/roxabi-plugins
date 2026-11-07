@@ -8,6 +8,7 @@ import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
+import { eligiblePlan } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -23,15 +24,7 @@ const INCOMPLETE_NATIVE_TERMINAL = {
   exitCode: 1,
   structuredOutput: { status: 'invalid', data: { refusal: 'incomplete-native' } },
 }
-const {
-  clearPlanContribution,
-  featureMandate,
-  framedBodies,
-  planDraftRecords,
-  planReviewRecord,
-  planReviewStart,
-  publishedPlanDigest,
-} = roxabiWorkflowFixtures()
+const { featureMandate, framedBodies } = roxabiWorkflowFixtures()
 
 const roots = new Set<string>()
 
@@ -72,12 +65,14 @@ function history(box: Box) {
 
 function liveFeatureFixture(): { box: Box; checkout: string } {
   const box = sandbox({
-    base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
+    base: { '.dev/stack.yml': 'package_manager: bun\nrelease:\n  model: trunk\n', 'README.md': 'base\n' },
     branches: [{ name: BRANCH, from: 'main', commits: [] }],
     issues: [{ number: 42, title: 'feat: preserve region', labels: ['size:S'] }],
     prs: [],
   })
   roots.add(box.root)
+  git(box, box.root, ['--git-dir', box.origin, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
+  git(box, box.principal, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
   const checkout = path.join(box.root, 'feature')
   git(box, box.principal, ['worktree', 'add', '-q', checkout, BRANCH])
   const mandate = featureMandate(SCOPE, {
@@ -86,15 +81,7 @@ function liveFeatureFixture(): { box: Box; checkout: string } {
     ownSpec: FEATURE_SPEC.ownSpec,
     lineageHead: box.sha.main,
   })
-  const records = [
-    mandate,
-    ...planDraftRecords(mandate),
-    planReviewStart(mandate, 'act-plan-1', publishedPlanDigest()),
-    planReviewRecord(mandate, 'act-plan-1', publishedPlanDigest(), [
-      clearPlanContribution('slot-architect', 'R-workflow-plan-architect'),
-      clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
-    ]),
-  ]
+  const records = eligiblePlan(mandate, [roxabiWorkflowFixtures().historyFrom([mandate])])
   writeSim(box, (state) => {
     const issue = state.issues['42']
     if (issue === undefined) throw new Error('feature fixture is missing issue #42')
@@ -196,8 +183,12 @@ describe('feature native lifecycle through the installed OMP extension', () => {
       if (pull === undefined) throw new Error('feature fixture is missing pause disarm pull request')
       Object.assign(pull, { labels: [] })
     })
-    const cold = path.join(box.root, 'cold-after-unconfirmed')
-    git(box, box.root, ['clone', '-q', '--branch', BRANCH, box.origin, cold])
+    const coldPrincipal = path.join(box.root, 'cold-after-unconfirmed-principal')
+    const cold = path.join(box.root, 'cold-after-unconfirmed-checkout')
+    git(box, box.root, ['clone', '-q', box.origin, coldPrincipal])
+    git(box, coldPrincipal, ['remote', 'set-url', 'origin', 'https://github.com/acme/app.git'])
+    git(box, coldPrincipal, ['config', `url.${box.origin}.insteadOf`, 'https://github.com/acme/app.git'])
+    git(box, coldPrincipal, ['worktree', 'add', '-q', '-b', BRANCH, cold, `origin/${BRANCH}`])
     const callsBefore = readSim(box).calls.length
     const resumed = invoke<{ kind: string; reason: string }>(
       box,

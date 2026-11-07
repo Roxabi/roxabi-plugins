@@ -10,10 +10,12 @@ import {
   recordsOf,
   reviewClassCatalogueRef,
 } from '../../dist/contracts.js'
-import { causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
+import { causeFixtureGraph, causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
+import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInput, fixture } from '../../testing/uw-operations-fixture.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 
@@ -32,10 +34,23 @@ function independentHold() {
     label: 'issue',
   })
   if (other.inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted hold input')
+  const source = encodeCriterionRecords(
+    recordsOf(other.history).filter((record) => record.kind !== 'review'),
+    otherPr,
+    roxabiRecordFixtures().projection,
+    'operator',
+    [origin],
+  ).history
+  const decision = recordsOf(source).find(
+    (record) => record.kind === 'decision' && record.recordId === other.decision.recordId,
+  )
+  if (decision?.kind !== 'decision') throw new Error('expected authenticated hold decision')
   const assessed = assessCauseDispositions({
     context: { original: origin.source.scope, effective: other.inputs.manifest.spec.effective },
-    source: { kind: 'decision', decision: other.decision },
-    histories: [origin, other.history],
+    capture: synthesisActionCapture(decision, [source]),
+    graph: causeFixtureGraph(),
+    source: { kind: 'decision', decision },
+    histories: [origin, source],
     catalogues: fixtureHostReviewClassCatalogues(),
     adjudications: [],
   })
@@ -76,13 +91,13 @@ function independentHold() {
   })
   const completeHold = readCauseDispositionHeads({
     uw: origin.source.scope,
-    histories: [currentHoldHistory, other.history],
+    histories: [currentHoldHistory, source],
     catalogues: fixtureHostReviewClassCatalogues(),
   })
   expect(completeHold.ok, JSON.stringify(completeHold)).toBe(true)
   const missingEvidence = readCauseDispositionHeads({
     uw: origin.source.scope,
-    histories: [currentHoldHistory, other.history],
+    histories: [currentHoldHistory, source],
     catalogues: missingCatalogue,
   })
   expect(missingEvidence.ok).toBe(false)

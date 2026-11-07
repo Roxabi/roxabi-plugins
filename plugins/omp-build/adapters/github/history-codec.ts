@@ -59,17 +59,17 @@ function collectFrameGroups(history: History) {
   for (const comment of history.comments) {
     const frame = frameFrom(comment)
     if (frame === null) {
-      if (comment.author === history.expectedAuthor) {
-        const kind = legacyKind(comment.body)
-        if (kind !== null)
-          trusted.legacy.push({
-            operationId: null,
-            recordId: null,
-            kind,
-            status: 'legacy',
-            parts: [comment],
-            record: null,
-          })
+      const kind = legacyKind(comment.body)
+      if (kind !== null) {
+        const groups = comment.author === history.expectedAuthor ? trusted : foreign
+        groups.legacy.push({
+          operationId: null,
+          recordId: null,
+          kind,
+          status: 'legacy',
+          parts: [comment],
+          record: null,
+        })
       }
       continue
     }

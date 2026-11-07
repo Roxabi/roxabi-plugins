@@ -26,3 +26,15 @@ test('keeps presentation whitespace out of canonical Spec version while preservi
   })
   expect(diagnosticSchema.safeParse(bridged).success).toBe(true)
 })
+
+test('preserves a repository-only diagnostic without inventing an issue scope', () => {
+  const bridged = toDiagnostic({
+    code: 'creation-declined',
+    message: 'Not confirmed',
+    location: { kind: 'repository', repository: 'R/r' },
+    related: [],
+  })
+  expect(diagnosticSchema.safeParse(bridged).success).toBe(true)
+  expect(bridged.path).toBe('R/r')
+  expect(bridged.detail).toEqual({ uwLocation: { kind: 'repository', repository: 'R/r' }, related: [] })
+})

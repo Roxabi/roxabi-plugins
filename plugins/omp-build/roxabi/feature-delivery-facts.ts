@@ -14,7 +14,7 @@ import { explicitParentHistories } from './feature-context.ts'
 import { discoverDeliveryPr } from './feature-delivery-discovery.ts'
 import type { Contracts, History, Scope, WorkflowEvidence } from './feature-engine.ts'
 import { isRecord, payload } from './feature-engine.ts'
-import { composeObservedUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
+import { composeObservedUwCausalContext, readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwRead } from './uw-contract.ts'
 
@@ -96,7 +96,7 @@ async function composeChantier(
   const selected = [issue, ...(pullRequest === null ? [] : [pullRequest]), ...parents]
   const causal =
     uwRead === null
-      ? await readFixUwCausalContext(selected, [], options)
+      ? await readFreshUwCausalContext(issue.source.scope, selected, options)
       : await composeObservedUwCausalContext(uwRead, selected, options)
   if (!causal.ok)
     return {

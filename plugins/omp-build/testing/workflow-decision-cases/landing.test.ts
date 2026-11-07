@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
+import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { readUwCompletionObservation } from '../../adapters/github-workflow/uw-observation.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
-import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { requireLandingMandate } from '../../engine/workflow-landing-admission.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
-import { fixtureReviewClassCatalogues, workflowEvidence } from '../action-input-fixtures.ts'
+import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
+import {
+  type FixtureNativeWorld,
+  fixtureReviewClassCatalogues,
+  observeFixtureNativeWorld,
+} from '../action-input-fixtures.ts'
+import { readDeclaredNativeWorld } from '../declared-native-observation.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import {
-  BODY,
   blank,
   decisions,
   EPIC,
@@ -19,8 +25,8 @@ import {
   SCOPE,
 } from './support/workflow-decision-fixtures.ts'
 
+const workflow = roxabiWorkflowFixtures()
 const {
-  childSnapshot,
   epicMandate,
   featureMandate,
   fixOnlyMandate,
@@ -29,66 +35,113 @@ const {
   pauseConfirmed,
   pauseRequested,
   workflowBinding,
-} = roxabiWorkflowFixtures()
+} = workflow
 
-function landingInput(
+const body = strictSpecBody('Save keeps the selected region')
+const editedAt = '2026-10-21T12:00:00Z'
+const parsed = parseIssueSpecBody({ uw: SCOPE, raw: rawSource(SCOPE.target, body, editedAt) })
+if (parsed.status !== 'conformant') throw new Error('Expected conformant native Spec')
+const nativeSnapshot = parsed.snapshot
+const ownSpec = workflow.ownSpecFromSnapshot(SCOPE, parsed.snapshot)
+const parsedParent = parseIssueSpecBody({ uw: EPIC, raw: rawSource(EPIC.target, body, editedAt) })
+if (parsedParent.status !== 'conformant') throw new Error('Expected conformant native parent Spec')
+const parentOwnSpec = workflow.ownSpecFromSnapshot(EPIC, parsedParent.snapshot)
+const childCommitment = {
+  scope: SCOPE,
+  snapshot: parsed.snapshot,
+  specVersion: parsed.snapshot.spec.version,
+  tier: 'S' as const,
+}
+const rootNode = {
+  scope: SCOPE,
+  title: 'Save the selected region',
+  body,
+  updatedAt: editedAt,
+  labels: ['size:S'],
+  parent: null,
+  children: [],
+  blockers: [],
+  state: 'OPEN' as const,
+  stateReason: null,
+}
+const parentNodes: FixtureNativeWorld['nodes'] = [
+  { ...rootNode, parent: EPIC },
+  {
+    scope: EPIC,
+    title: 'Parent epic',
+    body,
+    updatedAt: editedAt,
+    labels: ['size:S'],
+    parent: null,
+    children: [SCOPE],
+    blockers: [],
+    state: 'OPEN',
+    stateReason: null,
+  },
+]
+const nativePulls: FixtureNativeWorld['pullRequests'] = [
+  {
+    scope: PR,
+    branch: 'feat/42-save',
+    base: 'main',
+    head: '1'.repeat(40),
+    baseTip: 'b'.repeat(40),
+    state: 'OPEN',
+    mergeCommit: null,
+    author: 'operator',
+  },
+]
+
+async function landingInput(
   histories: DecodedHistory[],
-  overrides: { digest?: string; inhibit?: 'pause' | 'abandon' | null; parentScopes?: Scope[] } = {},
+  mandate: MandateRecord | null,
+  nodes: FixtureNativeWorld['nodes'],
+  parentScopes: Scope[],
 ) {
-  const mandate =
-    histories
-      .flatMap((history) => history.operations)
-      .map((operation) => operation.record)
-      .find((record): record is MandateRecord => record?.kind === 'mandate') ?? null
-  const ownSpec = mandate?.payload.ownSpec
   const current = facts(mandate)
-  const uwGraph =
-    ownSpec === undefined
-      ? { status: 'incomplete' as const, root: SCOPE, nodes: [], observedAt: null, diagnostics: [] }
-      : {
-          status: 'complete' as const,
-          root: ownSpec.uw,
-          nodes: [
-            {
-              uw: ownSpec.uw,
-              title: 'Fixture UW',
-              raw: ownSpec.snapshot.raw,
-              updatedAt: ownSpec.snapshot.raw.lastEditedAt ?? '2026-10-27T12:00:00Z',
-              labels: ['size:S'],
-              wayfinderLabels: [],
-              parent: null,
-              children: [],
-              blockers: [],
-              native: { state: 'OPEN' as const, stateReason: null },
-            },
-          ],
-          observedAt: ownSpec.snapshot.raw.lastEditedAt ?? '2026-10-27T12:00:00Z',
-        }
-  return {
-    histories,
-    authorityHistories: histories,
-    catalogues: fixtureReviewClassCatalogues(),
-    native: {
-      branch: 'feat/42-save',
-      base: 'main',
-      pullRequest: PR,
-      linkedIssueScopes: [SCOPE],
+  const observation = await readDeclaredNativeWorld(
+    {
+      root: SCOPE,
+      nodes,
+      histories,
+      pullRequests: nativePulls,
+      commits: [],
+      comparisons: [
+        { repository: SCOPE.repository, base: 'b'.repeat(40), head: 'b'.repeat(40), status: 'identical', commits: [] },
+      ],
     },
-    parentScopes: overrides.parentScopes ?? [],
-    uwGraph,
+    fixtureReviewClassCatalogues,
+  )
+  return {
+    histories: observation.histories,
+    authorityHistories: observation.histories,
+    catalogues: observation.catalogues,
+    observation,
+    native: { branch: 'feat/42-save', base: 'main', pullRequest: PR, linkedIssueScopes: [SCOPE] },
+    parentScopes,
+    uwGraph: observation.graph,
     current: {
       productVersion: current.productVersion,
       configVersion: current.configVersion,
-      configDigest: overrides.digest ?? current.configDigest,
+      configDigest: current.configDigest,
       supportedConfigVersions: current.supportedConfigVersions,
-      proposedSpec:
-        ownSpec === undefined
-          ? { ok: false as const, diagnostics: [] }
-          : { ok: true as const, snapshot: ownSpec.snapshot },
+      proposedSpec: { ok: true as const, snapshot: nativeSnapshot },
       currentChildren: { ok: true as const, value: [] },
     },
-    localInhibit: overrides.inhibit ?? null,
+    localInhibit: null,
   }
+}
+
+async function decisionEvidence(issue: DecodedHistory) {
+  const causal = await observeFixtureNativeWorld({
+    root: SCOPE,
+    nodes: [rootNode],
+    histories: [issue],
+    pullRequests: [],
+    commits: [],
+    comparisons: [],
+  })
+  return { issue, pullRequest: null, parents: [], causal }
 }
 
 function expectAccounted(history: DecodedHistory): void {
@@ -97,71 +150,87 @@ function expectAccounted(history: DecodedHistory): void {
   expect(history.operations.some((operation) => operation.authority === 'authority')).toBe(false)
 }
 
-function boundLanding(mandate: CanonicalRecord, extra: DecodedHistory[] = [], parentScopes?: Scope[]) {
+function boundLanding(
+  mandate: MandateRecord,
+  nodes: FixtureNativeWorld['nodes'],
+  extra: DecodedHistory[],
+  parentScopes: Scope[],
+) {
   const issue = historyFrom([mandate], 'operator', 'operator', extra)
   const binding = workflowBinding(PR, mandate, 'feat/42-save', 'main')
   const pullRequest = historyFrom([binding], 'operator', 'operator', [issue, ...extra])
   expectAccounted(issue)
   expectAccounted(pullRequest)
-  return landingInput([issue, pullRequest, ...extra], { parentScopes })
+  return landingInput([issue, pullRequest, ...extra], mandate, nodes, parentScopes)
 }
 
 describe('workflow landing decisions', () => {
-  it('treats a mandate without a PR binding as missing, not fix-only', () => {
-    const mandate = fixOnlyMandate(SCOPE, { body: BODY })
-    const decision = requireLandingMandate(landingInput([historyFrom([mandate]), blank(PR)]))
+  it('treats a mandate without a PR binding as missing, not fix-only', async () => {
+    const mandate = fixOnlyMandate(SCOPE, { body, ownSpec })
+    const decision = requireLandingMandate(
+      await landingInput([historyFrom([mandate]), blank(PR)], mandate, [rootNode], []),
+    )
     expect(decision).toMatchObject({ ok: false, reason: 'missing' })
     expect(decision).not.toMatchObject({ reason: 'fix-only' })
   })
 
-  it('refuses a fix-only mandate when the accounted PR binding names it', () => {
-    const mandate = fixOnlyMandate(SCOPE, { body: BODY })
-    expect(requireLandingMandate(boundLanding(mandate))).toMatchObject({ ok: false, reason: 'fix-only' })
+  it('refuses a fix-only mandate when the accounted PR binding names it', async () => {
+    const mandate = fixOnlyMandate(SCOPE, { body, ownSpec })
+    expect(requireLandingMandate(await boundLanding(mandate, [rootNode], [], []))).toMatchObject({
+      ok: false,
+      reason: 'fix-only',
+    })
   })
 
-  it('does not refuse review or fix when the same mandate cannot land', () => {
-    const fix = fixOnlyMandate(SCOPE, { body: BODY, config: graphConfig('fix') })
+  it('does not refuse review or fix when the same mandate cannot land', async () => {
+    const fix = fixOnlyMandate(SCOPE, { body, ownSpec, config: graphConfig('fix') })
     const review = fixOnlyMandate(SCOPE, {
       recordId: 'mandate-review',
       operationId: 'op-mandate-review',
-      body: BODY,
+      body,
+      ownSpec,
       config: graphConfig('review'),
     })
     expect(
       reconstructWorkflow({
-        evidence: workflowEvidence(historyFrom([fix]), null, [], []),
+        evidence: await decisionEvidence(historyFrom([fix])),
         facts: factsForMandate(fix),
         decisions: decisions(),
       }),
     ).toMatchObject({ status: 'action', action: 'fix' })
     expect(
       reconstructWorkflow({
-        evidence: workflowEvidence(historyFrom([review]), null, [], []),
+        evidence: await decisionEvidence(historyFrom([review])),
         facts: factsForMandate(review),
         decisions: decisions(),
       }),
     ).toMatchObject({ status: 'action', action: 'review' })
-    expect(requireLandingMandate(boundLanding(fix))).toMatchObject({ ok: false, reason: 'fix-only' })
+    expect(requireLandingMandate(await boundLanding(fix, [rootNode], [], []))).toMatchObject({
+      ok: false,
+      reason: 'fix-only',
+    })
   })
 
-  it('does not claim paused when the local fence has no confirmed record', () => {
-    const mandate = featureMandate(SCOPE, { body: BODY })
-    expect(requireLandingMandate({ ...boundLanding(mandate), localInhibit: 'pause' })).toMatchObject({
+  it('does not claim paused when the local fence has no confirmed record', async () => {
+    const mandate = featureMandate(SCOPE, { body, ownSpec })
+    expect(
+      requireLandingMandate({ ...(await boundLanding(mandate, [rootNode], [], [])), localInhibit: 'pause' }),
+    ).toMatchObject({
       ok: false,
       reason: 'unconfirmed',
     })
   })
 
-  it('refuses when the current config digest is not the pinned digest', () => {
-    const mandate = featureMandate(SCOPE, { body: BODY })
-    const input = boundLanding(mandate)
+  it('refuses when the current config digest is not the pinned digest', async () => {
+    const mandate = featureMandate(SCOPE, { body, ownSpec })
+    const input = await boundLanding(mandate, [rootNode], [], [])
     input.current.configDigest = 'ab'.repeat(32)
     expect(requireLandingMandate(input)).toMatchObject({ ok: false, reason: 'config-drift' })
   })
 
-  it('admits one accounted binding with a matching authenticated UW graph and identity ledger', () => {
-    const mandate = featureMandate(SCOPE, { body: BODY })
-    const input = boundLanding(mandate)
+  it('admits one accounted binding with a matching authenticated UW graph and identity ledger', async () => {
+    const mandate = featureMandate(SCOPE, { body, ownSpec })
+    const input = await boundLanding(mandate, [rootNode], [], [])
     expect(input.parentScopes).toEqual([])
     const decision = requireLandingMandate(input)
     expect(decision.ok).toBe(true)
@@ -170,43 +239,82 @@ describe('workflow landing decisions', () => {
     expect(decision.scope).toEqual(SCOPE)
   })
 
-  it('refuses an incomplete graph read after the binding and accepted Spec are valid', () => {
-    const mandate = featureMandate(SCOPE, { body: BODY })
-    const input = boundLanding(mandate)
-    input.uwGraph = { status: 'incomplete', root: SCOPE, nodes: [], observedAt: null, diagnostics: [] }
-    expect(requireLandingMandate(input)).toMatchObject({ ok: false, reason: 'uw-not-deliverable' })
+  it('refuses an incomplete graph read after the binding and accepted Spec are valid', async () => {
+    const mandate = featureMandate(SCOPE, { body, ownSpec })
+    const input = await boundLanding(mandate, [rootNode], [], [])
+    const observation = await readUwCompletionObservation(
+      SCOPE,
+      {
+        cwd: '/fixture',
+        readAuthor: 'operator',
+        gh: async () => {
+          throw new Error('Native graph is unavailable')
+        },
+      },
+      async () => fixtureReviewClassCatalogues(),
+      [SCOPE],
+      input.histories,
+    )
+    expect(observation.status).toBe('incomplete')
+    expect(requireLandingMandate({ ...input, observation, uwGraph: observation.graph })).toMatchObject({
+      ok: false,
+      reason: 'incomplete',
+    })
   })
 
-  it('refuses an omitted epic parent as missing, not as an empty parent list', () => {
-    const child = featureMandate(SCOPE, { body: BODY })
-    const epic = epicMandate(EPIC, [childSnapshot(SCOPE, BODY)])
-    const decision = requireLandingMandate(boundLanding(child, [historyFrom([epic])]))
+  it('refuses an omitted epic parent as missing, not as an empty parent list', async () => {
+    const child = featureMandate(SCOPE, { body, ownSpec })
+    const epic = epicMandate(EPIC, [childCommitment], { body, ownSpec: parentOwnSpec })
+    const decision = requireLandingMandate(await boundLanding(child, parentNodes, [historyFrom([epic])], []))
     expect(decision).toMatchObject({ ok: false, reason: 'missing' })
   })
 
-  it('reports a paused parent as paused, not missing', () => {
-    const epic = epicMandate(EPIC, [childSnapshot(SCOPE, BODY)])
+  it('reports a paused parent as paused, not missing', async () => {
+    const epic = epicMandate(EPIC, [childCommitment], { body, ownSpec: parentOwnSpec })
     const request = pauseRequested(epic)
     const confirmed = pauseConfirmed(epic, request)
-    const child = featureMandate(SCOPE, { body: BODY, parent: mandateRef(epic) })
-    const decision = requireLandingMandate(boundLanding(child, [historyFrom([epic, request, confirmed])], [EPIC]))
+    const child = featureMandate(SCOPE, {
+      body,
+      ownSpec,
+      parent: mandateRef(epic),
+      inheritedOwnSpecRefs: [
+        {
+          uw: EPIC,
+          version: epic.payload.ownSpec.version,
+          sourceAccepted: { scope: EPIC, recordId: epic.recordId, kind: 'mandate' },
+        },
+      ],
+    })
+    const decision = requireLandingMandate(
+      await boundLanding(child, parentNodes, [historyFrom([epic, request, confirmed])], [EPIC]),
+    )
     expect(decision).toMatchObject({ ok: false, reason: 'paused' })
     expect(decision).not.toMatchObject({ reason: 'missing' })
   })
 
-  it('does not permit an absent, foreign, or conflicting binding', () => {
-    const mandate = featureMandate(SCOPE, { body: BODY })
-    const other = featureMandate(SCOPE, { recordId: 'mandate-other', operationId: 'op-mandate-other' })
+  it('does not permit an absent, foreign, or conflicting binding', async () => {
+    const mandate = featureMandate(SCOPE, { body, ownSpec })
+    const other = featureMandate(SCOPE, { body, ownSpec, recordId: 'mandate-other', operationId: 'op-mandate-other' })
     const issue = historyFrom([mandate, other])
     const binding = workflowBinding(PR, mandate, 'feat/42-save', 'main')
     const foreign = historyFrom([binding], 'stranger', 'operator', [issue])
     expect(foreign.operations[0]?.authority).toBe('foreign')
-    expect(requireLandingMandate(landingInput([historyFrom([mandate]), foreign])).ok).toBe(false)
+    const foreignInput = await landingInput([historyFrom([mandate]), foreign], mandate, [rootNode], [])
+    expect(foreignInput.observation.status).toBe('incomplete')
+    if (foreignInput.observation.status !== 'incomplete') throw new Error('Expected foreign binding refusal')
+    expect(foreignInput.observation.diagnostics).toContainEqual(expect.objectContaining({ code: 'foreign' }))
+    expect(requireLandingMandate(foreignInput)).toMatchObject({ ok: false, reason: 'incomplete' })
     const second = workflowBinding(PR, other, 'feat/42-save', 'main')
-    const conflicting = requireLandingMandate(
-      landingInput([issue, historyFrom([binding, second], 'operator', 'operator', [issue])]),
+    const conflictingInput = await landingInput(
+      [issue, historyFrom([binding, second], 'operator', 'operator', [issue])],
+      mandate,
+      [rootNode],
+      [],
     )
-    expect(conflicting).toMatchObject({ ok: false, reason: 'conflict' })
-    expect(conflicting.ok).toBe(false)
+    expect(conflictingInput.observation.status).toBe('complete')
+    const conflictingDecision = requireLandingMandate(conflictingInput)
+    expect(conflictingDecision).toMatchObject({ ok: false, reason: 'conflict' })
+    if (conflictingDecision.ok) throw new Error('Expected conflicting binding refusal')
+    expect(conflictingDecision.evidence).toContainEqual(expect.objectContaining({ code: 'conflicting' }))
   })
 })

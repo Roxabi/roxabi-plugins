@@ -1,24 +1,22 @@
 import { expect, it } from 'vitest'
+import { rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
+import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
-import { operation } from '../../testing/record-history.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest } from '../action-input.ts'
 import { assessCauseDispositions } from '../cause-disposition.ts'
 import { parseRecord } from '../record-construction.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { cataloguesForInputs, withPinnedCatalogue } from './cause-catalogue-fixture.ts'
-import { must } from './workflow-test-support.ts'
+import { history, must } from './workflow-test-support.ts'
 
 function assessClass(originalClass: string, downgrade = false, catalogue: 'valid' | 'absent' | 'forged' = 'valid') {
   const { graph: seed, context } = authenticatedReview()
   const binding = recordsOf(seed.history).find((record) => record.kind === 'workflow-binding')
   if (binding?.kind !== 'workflow-binding') throw new Error('Expected authenticated binding')
-  const mandate = roxabiWorkflowFixtures().featureMandate(context.original, {
-    recordId: 'mandate-42',
-    body: 'Save the selected region',
-  })
+  const mandate = causeFixtureMandate()
   const pinned = withPinnedCatalogue(seed.inputs)
   const plugin = pinned.manifest.plugin
   const files =
@@ -108,24 +106,37 @@ function assessClass(originalClass: string, downgrade = false, catalogue: 'valid
     }),
   )
   if (decision.kind !== 'decision') throw new Error('Expected decision')
-  const source = {
-    ...graph.history,
-    operations: graph.history.operations.map((entry) =>
-      entry.recordId === root.recordId
-        ? operation(root)
-        : entry.recordId === panel.recordId
-          ? operation(panel)
-          : entry.recordId === decision.recordId
-            ? operation(decision)
-            : entry.recordId === synthesis.recordId
-              ? operation(synthesis)
-              : entry,
+  const replacements = [root, panel, decision, synthesis]
+  const source = history(
+    recordsOf(graph.history).map((record) =>
+      must(parseRecord(replacements.find((replacement) => replacement.recordId === record.recordId) ?? record)),
     ),
-  }
+    graph.history.source.scope,
+  )
   return assessCauseDispositions({
     context,
+    capture: synthesisActionCapture(decision, [source]),
+    graph: {
+      status: 'complete',
+      root: context.original,
+      observedAt: '2026-10-27T12:00:00Z',
+      nodes: [
+        {
+          uw: context.original,
+          title: 'Save region',
+          raw: rawSource(context.original.target, mandate.payload.ownSpec.snapshot.raw.body, '2026-10-27T12:00:00Z'),
+          updatedAt: '2026-10-27T12:00:00Z',
+          labels: ['size:S'],
+          wayfinderLabels: [],
+          parent: null,
+          children: [],
+          blockers: [],
+          native: { state: 'OPEN', stateReason: null },
+        },
+      ],
+    },
     source: { kind: 'decision', decision },
-    histories: [roxabiWorkflowFixtures().historyFrom([mandate]), source],
+    histories: [history([mandate], context.original), source],
     adjudications: [],
     catalogues: cataloguesForInputs(inputs),
   })

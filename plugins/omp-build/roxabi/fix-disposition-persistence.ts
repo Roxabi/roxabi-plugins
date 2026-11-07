@@ -41,6 +41,7 @@ export async function saveDisposition(
 ): Promise<FixActionResult<Disposition>> {
   const digest = canonicalValueDigest({
     origin: outcome.origin,
+    versionVector: outcome.basis.versionVector,
     subject: outcome.subject,
     previous: outcome.previous,
     adjudication: outcome.adjudication,

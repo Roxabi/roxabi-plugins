@@ -6,7 +6,7 @@ import {
   readComposedWorkflowHistory,
   resolveAdjudicationContext,
   resolveAdjudicationSources,
-  resolveOwnSpecEffective,
+  resolveSpecEffective,
   validateCauseDispositionRecords,
 } from '../dist/contracts.js'
 import type { ObservationRef } from '../engine/criterion-evidence-schema.ts'
@@ -34,6 +34,22 @@ function home(histories: readonly DecodedHistory[], scope: Scope): DecodedHistor
   const found = histories.find((item) => same(item.source.scope, scope))
   if (!found) throw new Error('cause-history-missing')
   return found
+}
+
+function validateDispositionHistory(
+  ref: ExternalRecordRef & { kind: 'cause-disposition' },
+  histories: DecodedHistory[],
+  catalogues: ReviewClassCatalogues,
+): void {
+  const own = home(histories, ref.scope)
+  const records = own.operations.flatMap((item) =>
+    item.status === 'complete' && item.authority !== 'foreign' && item.record !== null ? [item.record] : [],
+  )
+  const validation = validateCauseDispositionRecords({ records, histories, catalogues })
+  if (validation.length) failure(validation)
+  const heads = readCauseDispositionHeads({ uw: ref.scope, histories, catalogues })
+  if (!heads.ok) failure(heads.diagnostics)
+  if (!heads.value.some((item) => item.recordId === ref.recordId)) throw new Error('cause-disposition-stale')
 }
 
 function sourceScopes(
@@ -72,7 +88,13 @@ export async function readAdjudicationPending(
   const disposition = bound.value
   const original = await reader.readUw(ref.scope)
   if (original.accepted.status !== 'accepted') throw new Error('correction-spec-not-accepted')
-  const effective = resolveOwnSpecEffective(original.accepted.value)
+  if (original.observation.status !== 'complete') throw new Error('cause-observation-incomplete')
+  const effective = resolveSpecEffective({
+    mode: 'current',
+    own: original.accepted.value.ref,
+    histories: original.observation.histories,
+    graph: original.observation.graph,
+  })
   if (!effective.ok) failure(effective.diagnostics)
   const currentContext = { original: ref.scope, effective: effective.value }
   const loaded = await readComposedWorkflowHistory(sourceScopes(disposition, currentContext, references), github)
@@ -91,14 +113,6 @@ export async function readAdjudicationPending(
   const context = origin.value
   const inputs = resolveAdjudicationSources({ pending: disposition, histories, context })
   if (!inputs.ok) failure(inputs.diagnostics)
-  const own = home(histories, ref.scope)
-  const records = own.operations.flatMap((item) =>
-    item.status === 'complete' && item.authority !== 'foreign' && item.record !== null ? [item.record] : [],
-  )
-  const validation = validateCauseDispositionRecords({ records, histories, catalogues })
-  if (validation.length) failure(validation)
-  const heads = readCauseDispositionHeads({ uw: ref.scope, histories, catalogues })
-  if (!heads.ok) failure(heads.diagnostics)
-  if (!heads.value.some((item) => item.recordId === ref.recordId)) throw new Error('cause-disposition-stale')
+  validateDispositionHistory(ref, histories, catalogues)
   return { disposition, histories, context, catalogues }
 }

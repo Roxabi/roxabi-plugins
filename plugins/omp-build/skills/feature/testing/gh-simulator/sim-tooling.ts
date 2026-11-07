@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inflateSync } from 'node:zlib'
 import type { Context } from './sim-command-context.ts'
-import { writeStdout } from './sim-invocation.ts'
+import { currentInvocation, writeStdout } from './sim-invocation.ts'
 import { statePath } from './sim-state.ts'
 import { fail } from './sim-types.ts'
 
@@ -22,21 +22,32 @@ const COMMIT = /^\/?repos\/Roxabi\/roxabi-plugins\/git\/commits\/([0-9a-f]{40})$
 const SHA = /^[0-9a-f]{40}$/
 const SKIP: Record<string, true> = { node_modules: true, dist: true, coverage: true, '.git': true }
 
-const gitEnv = { ...process.env }
-for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY']) {
-  delete gitEnv[key]
+function toolingGitEnv(): NodeJS.ProcessEnv {
+  const invocation = currentInvocation()
+  if (invocation.toolingEnv) return invocation.toolingEnv
+  const env = { ...invocation.env }
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY']) {
+    delete env[key]
+  }
+  env.GIT_AUTHOR_NAME = 'fixture'
+  env.GIT_AUTHOR_EMAIL = 'fixture@example.invalid'
+  env.GIT_COMMITTER_NAME = 'fixture'
+  env.GIT_COMMITTER_EMAIL = 'fixture@example.invalid'
+  env.GIT_AUTHOR_DATE = '2026-01-01T00:00:00Z'
+  env.GIT_COMMITTER_DATE = '2026-01-01T00:00:00Z'
+  invocation.toolingEnv = env
+  return env
 }
-gitEnv.GIT_AUTHOR_NAME = 'fixture'
-gitEnv.GIT_AUTHOR_EMAIL = 'fixture@example.invalid'
-gitEnv.GIT_COMMITTER_NAME = 'fixture'
-gitEnv.GIT_COMMITTER_EMAIL = 'fixture@example.invalid'
-gitEnv.GIT_AUTHOR_DATE = '2026-01-01T00:00:00Z'
-gitEnv.GIT_COMMITTER_DATE = '2026-01-01T00:00:00Z'
 
 function git(repo: string, args: string[], encoding: 'utf8'): string
 function git(repo: string, args: string[], encoding: 'buffer'): Buffer
 function git(repo: string, args: string[], encoding: 'utf8' | 'buffer'): string | Buffer {
-  return execFileSync('git', ['-C', repo, ...args], { encoding, env: gitEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+  return execFileSync('git', ['-C', repo, ...args], {
+    encoding,
+    cwd: currentInvocation().cwd,
+    env: toolingGitEnv(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
 }
 
 function copyTree(from: string, to: string): void {

@@ -1,21 +1,32 @@
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
 import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
 import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
+import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { operation } from '../../testing/record-history.ts'
-import { actionInputDigest } from '../action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
+import type { ActionInputs } from '../action-input-schema.ts'
 import { assessCauseDispositions } from '../cause-disposition.ts'
 import type { CauseContext } from '../finding-target.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
-import { resolveOwnSpecEffective } from '../spec-effective.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
+import { resolveSpecEffective } from '../spec-effective.ts'
+import { canonicalSpec } from '../uw-spec.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { recordsOf } from '../workflow-control.ts'
-import { withPinnedCatalogue } from './cause-catalogue-fixture.ts'
+import { isAssessResult } from '../workflow-spec-assessment.ts'
 import { appendAccountedRecords, ref } from './cause-hold-fixture.ts'
-import { lineageFixture } from './cause-lineage-fixture.ts'
-import { attachSamePrCriterionReview, createSamePrCriterionFixture } from './same-pr-criterion-fixture.ts'
+import { lineageFixture, lineageSeed } from './cause-lineage-fixture.ts'
+import {
+  attachSamePrCriterionReview,
+  createSamePrCriterionFixture,
+  type SamePrCriterionFixture,
+  type SamePrCriterionFixtureOptions,
+} from './same-pr-criterion-fixture.ts'
 import {
   acceptMaterialFixture,
   assessFixture,
@@ -24,8 +35,46 @@ import {
 } from './workflow-spec-assessment-support.ts'
 import { must } from './workflow-test-support.ts'
 
-export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
-  const initial = lineageFixture(1, false, TOOLING_COMMIT)
+export async function scenario(
+  kind: 'editorial' | 'material',
+  priorReviews: number,
+  native: {
+    baseHead: string
+    initialHead: string
+    currentHead: string
+    produce(context: {
+      mandate: SamePrCriterionFixtureOptions['mandate']
+      effective: SamePrCriterionFixtureOptions['effective']
+      binding: SamePrCriterionFixtureOptions['binding']
+      pullRequest: SamePrCriterionFixtureOptions['pullRequest']
+      head: string
+      prefix: string
+      histories: readonly DecodedHistory[]
+      nativeBody: string
+    }): Promise<{ records: CanonicalRecord[]; history: DecodedHistory; reviewInputs: ActionInputs }>
+  },
+) {
+  const seed = lineageSeed(TOOLING_COMMIT, native.baseHead)
+  let nativeBody = seed.body
+  const initialPrefix = `same-pr-${seed.context.effective.own.version.slice(0, 12)}-${native.initialHead.slice(0, 12)}`
+  const initialOptions = {
+    mandate: seed.mandate,
+    effective: seed.context.effective,
+    binding: seed.binding,
+    pullRequest: seed.graph.history.source.scope,
+    head: native.initialHead,
+    prefix: initialPrefix,
+  }
+  const initialProof = await createSamePrCriterionFixture({
+    ...initialOptions,
+    produce: () => native.produce({ ...initialOptions, histories: seed.histories, nativeBody }),
+  })
+  const initial = lineageFixture(1, false, TOOLING_COMMIT, {
+    inputs: initialProof.inputs,
+    verdict: initialProof.verdict,
+    authorityHistory: initialProof.authorityHistory,
+    lineageHead: native.baseHead,
+  })
   const originalDisposition = initial.transitions[0]?.pending
   if (!originalDisposition) throw new Error('Expected initial disposition')
   const oldReview = recordsOf(initial.source).find((record) => record.kind === 'review')
@@ -41,19 +90,41 @@ export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
       entry.recordId === oldReview.recordId ? operation(boundOldReview) : entry,
     ),
   }
-  const makeProof = (context: CauseContext, head?: string) =>
-    createSamePrCriterionFixture({
+  const proofs = new Map<string, SamePrCriterionFixture>()
+  proofs.set(`${canonicalValueDigest(initial.context.effective.own)}:${native.initialHead}`, initialProof)
+  const makeProof = async (context: CauseContext, head?: string) => {
+    const isInitial =
+      canonicalValueDigest(context.effective.own) === canonicalValueDigest(initial.context.effective.own)
+    const candidate = head ?? (isInitial ? native.initialHead : native.currentHead)
+    const key = `${canonicalValueDigest(context.effective.own)}:${candidate}`
+    const existing = proofs.get(key)
+    if (existing) return existing
+    const prefix = `same-pr-${context.effective.own.version.slice(0, 12)}-${candidate.slice(0, 12)}`
+    const options = {
       mandate: initial.mandate,
       effective: context.effective,
       binding,
       pullRequest: source.source.scope,
-      head: head ?? initial.inputs.manifest.code.head,
-      prefix: `same-pr-${context.effective.own.version.slice(0, 12)}-${(head ?? initial.inputs.manifest.code.head).slice(0, 12)}`,
+      head: candidate,
+      prefix,
+    }
+    const proof = await createSamePrCriterionFixture({
+      ...options,
+      produce: () => native.produce({ ...options, histories: [own, source], nativeBody }),
     })
-  const initialProof = makeProof(initial.context)
-  let own = appendAccountedRecords(initial.own, initialProof.authorityRecords)
-  const reviewInputs = (prefix: string, context: CauseContext, head?: string) => {
-    const proof = makeProof(context, head)
+    const observed = new Map(recordsOf(proof.authorityHistory).map((record) => [record.recordId, record]))
+    for (const record of recordsOf(own)) {
+      const persisted = observed.get(record.recordId)
+      if (!persisted || canonicalValueDigest(persisted) !== canonicalValueDigest(record))
+        throw new Error(`Native readback lost prior authority ${record.recordId}`)
+    }
+    own = proof.authorityHistory
+    proofs.set(key, proof)
+    return proof
+  }
+  let own = initial.own
+  const reviewInputs = async (prefix: string, context: CauseContext, head?: string) => {
+    const proof = await makeProof(context, head)
     const request: UwActionRequest = {
       actionId: `${prefix}-root`,
       purpose: 'review',
@@ -64,35 +135,20 @@ export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
     }
     const histories = [own, source]
     const historicalPins =
-      context.effective.own.version === initial.context.effective.own.version
+      canonicalValueDigest(context.effective.own) === canonicalValueDigest(initial.context.effective.own)
         ? []
         : must(causeActionData(request, histories, currentRootOutputRefs(request, histories), initial.catalogues))
-    const manifest = {
-      ...proof.inputs.manifest,
-      spec: { kind: 'accepted' as const, effective: context.effective },
-      plugin: initial.inputs.manifest.plugin,
-      repositoryReferences: initial.inputs.manifest.repositoryReferences,
-      code:
-        head === undefined
-          ? initial.inputs.manifest.code
-          : { ...initial.inputs.manifest.code, head, referenceCommit: head },
-      deliveryData: [...proof.inputs.manifest.deliveryData, ...historicalPins],
+    for (const pin of historicalPins) {
+      if (!proof.inputs.manifest.deliveryData.some((item) => canonicalValueDigest(item) === canonicalValueDigest(pin)))
+        throw new Error('Prepared review inputs omit historical cause closure')
     }
-    return withPinnedCatalogue({ ...proof.inputs, manifest, fingerprint: actionInputDigest(manifest) })
+    return proof.inputs
   }
-  source = attachSamePrCriterionReview(
-    source,
-    oldReview.recordId,
-    reviewInputs('initial', initial.context),
-    initialProof.verdict,
-  )
   const capturedInitialDecision = recordsOf(source).find((record) => record.recordId === initial.decision.recordId)
   if (capturedInitialDecision?.kind !== 'decision') throw new Error('Expected captured initial decision')
-  const addReview = (prefix: string, context: CauseContext, head?: string) => {
-    const inputs = reviewInputs(prefix, context, head)
-    const proof = makeProof(context, head)
-    if (!recordsOf(own).some((record) => record.recordId === proof.implementationResult.recordId))
-      own = appendAccountedRecords(own, proof.authorityRecords)
+  const addReview = async (prefix: string, context: CauseContext, head?: string) => {
+    const inputs = await reviewInputs(prefix, context, head)
+    const proof = await makeProof(context, head)
     const baseGraph = acceptedPullRequestReviewGraph({
       mandate: initial.mandate,
       binding,
@@ -113,6 +169,8 @@ export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
     const assessment = must(
       assessCauseDispositions({
         context,
+        capture: synthesisActionCapture(graph.decision, [source]),
+        graph: causeFixtureGraph(nativeBody),
         source: { kind: 'decision', decision: graph.decision },
         histories: [own, source],
         adjudications: [],
@@ -147,16 +205,65 @@ export function scenario(kind: 'editorial' | 'material', priorReviews: number) {
     }
     return { graph, inputs, review }
   }
-  for (let index = 1; index < priorReviews; index++) addReview(`old-review-${index}`, initial.context)
+  for (let index = 1; index < priorReviews; index++) await addReview(`old-review-${index}`, initial.context)
   const accepted = mandateAssessmentState(initial.mandate)
-  const proposed = proposedAssessmentState(accepted, { body: `Accepted ${kind} change` })
-  const amendment = assessFixture(initial.mandate, `same-pr-${kind}`, accepted, proposed, kind)
-  const suffix = [amendment.start, amendment.result]
+  const currentContent = accepted.snapshot.spec
+  const changedContent = must(
+    canonicalSpec({
+      ...currentContent,
+      criteria:
+        kind === 'material'
+          ? currentContent.criteria.map((criterion) => ({ ...criterion, statement: 'Accepted material change' }))
+          : currentContent.criteria,
+    }),
+  )
+  nativeBody = `${renderIssueSpecBody(changedContent, { complexity: 1 })}${kind === 'editorial' ? '\n' : ''}`
+  const parsed = parseIssueSpecBody({
+    uw: initial.context.original,
+    raw: rawSource(initial.context.original.target, nativeBody, '2026-10-27T12:00:00.000Z'),
+  })
+  if (parsed.status !== 'conformant') throw new Error('Expected conformant native Spec B')
+  const proposed = { ...proposedAssessmentState(accepted, { body: nativeBody }), snapshot: parsed.snapshot }
+  const draft = assessFixture(initial.mandate, `same-pr-${kind}`, accepted, proposed, kind, [own, source])
+  const bindAssessment = (record: CanonicalRecord) => {
+    if (record.kind !== 'action-receipt' || record.payload.action !== 'assess-spec')
+      throw new Error('Expected Spec assessment receipt')
+    const previous = record.payload.inputs
+    const manifest = {
+      ...previous.manifest,
+      code: {
+        repository: initial.context.original.repository,
+        base: native.baseHead,
+        head: native.initialHead,
+        referenceCommit: native.initialHead,
+      },
+    }
+    return must(
+      buildRecord({
+        ...record,
+        payload: { ...record.payload, inputs: { ...previous, manifest, fingerprint: actionInputDigest(manifest) } },
+      }),
+    )
+  }
+  const result = bindAssessment(draft.result)
+  if (!isAssessResult(result)) throw new Error('Expected bound Spec assessment result')
+  const amendment = { ...draft, start: bindAssessment(draft.start), result }
+  const suffix: CanonicalRecord[] = [amendment.start, amendment.result]
   if (kind === 'material') suffix.push(acceptMaterialFixture(initial.mandate, 'same-pr-material-accept', amendment))
   own = appendAccountedRecords(own, suffix)
   const current = resolveAcceptedSpec(initial.mandate, [own, source])
   if (!current.ok) throw new Error('Expected accepted Spec B')
-  const context = { original: initial.context.original, effective: must(resolveOwnSpecEffective(current.spec)) }
+  const context = {
+    original: initial.context.original,
+    effective: must(
+      resolveSpecEffective({
+        mode: 'historical',
+        own: current.spec.ref,
+        versionVector: [current.spec.ref, ...current.spec.inheritedOwnSpecRefs],
+        histories: [own, source],
+      }),
+    ),
+  }
   return {
     initial: { ...initial, decision: capturedInitialDecision },
     originalDisposition,

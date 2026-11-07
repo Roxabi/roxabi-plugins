@@ -79,6 +79,11 @@ export function createGhIssueWritePorts(options: GhIssueWritePortOptions): Issue
       args.push('--raw-field', `body=${input.body}`)
       await gh(args)
     },
+    async setNativeState(issue, effect): Promise<void> {
+      const args = ['api', '--method', 'PATCH', apiPath(issue), '--raw-field', `state=${effect.state.toLowerCase()}`]
+      if (effect.stateReason !== null) args.push('--raw-field', `state_reason=${effect.stateReason.toLowerCase()}`)
+      await gh(args)
+    },
     async updateLabels(issue, input): Promise<void> {
       const args = ['issue', 'edit', String(issue.number), '--repo', issue.repository]
       if (input.add.length) args.push('--add-label', input.add.join(','))

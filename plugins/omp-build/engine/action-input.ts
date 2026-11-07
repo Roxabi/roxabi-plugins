@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto'
+import { orderedCanonicalValue as ordered } from './canonical-value.ts'
+
+export { canonicalValueDigest } from './canonical-value.ts'
+
 import {
   type ActionInputManifest,
   type ActionInputs,
@@ -9,20 +13,10 @@ import {
 } from './action-input-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
+import { nativeObservationDigest } from './uw-native-observation-schema.ts'
 import type { ActionOperands } from './workflow-action-operands.ts'
 
 type RefLike = RecordInputRef | PinnedFileRef
-
-function ordered(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(ordered)
-  if (value !== null && typeof value === 'object') {
-    const source = value as Record<string, unknown>
-    const sorted: Record<string, unknown> = {}
-    for (const key of Object.keys(source).sort()) sorted[key] = ordered(source[key])
-    return sorted
-  }
-  return value
-}
 
 function recordIdentity(ref: RecordInputRef): string {
   return [
@@ -76,10 +70,14 @@ function durableOperands(operands: ActionOperands): unknown {
   const durableState = <T extends typeof operands.exactInputs.proposed>(state: T) => ({
     ...state,
     snapshot: { ...state.snapshot, raw: durableSource(state.snapshot.raw) },
-    children: state.children.map((child) => ({
-      ...child,
-      snapshot: { ...child.snapshot, raw: durableSource(child.snapshot.raw) },
-    })),
+    children: state.children.map((child) =>
+      'kind' in child
+        ? child
+        : {
+            ...child,
+            snapshot: { ...child.snapshot, raw: durableSource(child.snapshot.raw) },
+          },
+    ),
   })
   return {
     ...operands,
@@ -87,6 +85,11 @@ function durableOperands(operands: ActionOperands): unknown {
       ...operands.exactInputs,
       accepted: durableState(operands.exactInputs.accepted),
       proposed: durableState(operands.exactInputs.proposed),
+      attachedChildren: operands.exactInputs.attachedChildren.map((child) => ({
+        ...child,
+        snapshot: { ...child.snapshot, raw: durableSource(child.snapshot.raw) },
+      })),
+      attachedWayfinders: operands.exactInputs.attachedWayfinders.map(nativeObservationDigest),
     },
   }
 }
@@ -123,13 +126,6 @@ export function actionInputDigest(manifest: ActionInputManifest): string {
   return createHash('sha256').update(canonicalActionInput(manifest), 'utf8').digest('hex')
 }
 
-/** Canonical SHA-256 of one selected record value. Identity-sorts object keys; preserves array order. */
-export function canonicalValueDigest(value: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(ordered(value)), 'utf8')
-    .digest('hex')
-}
-
 function duplicate(refs: readonly RefLike[], label: string, diagnostics: Diagnostic[]): void {
   const seen = new Map<string, string>()
   for (const ref of refs) {
@@ -150,6 +146,7 @@ const ADMITTED_ROLE_SELECTOR: Record<DeliveryDataRef['role'], RegExp | null> = {
   plan: /^\/payload\/structured$/,
   'plan-review': /^\/payload\/(?:slots(?:\/\d+)?|contributions(?:\/\d+)?)$/,
   implementation: /^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+$/,
+  integration: /^\/payload\/structured\/code$/,
   'criterion-evidence': /^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+\/evidence\/\d+$/,
   'correction-lineage': /^\/payload$/,
   'cause-state': /^\/payload$/,

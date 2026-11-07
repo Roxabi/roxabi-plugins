@@ -12,7 +12,15 @@ async function promotionWorld() {
   const original = world.issues.get(42)
   if (!original) throw new Error('original issue missing')
   original.parent = 41
-  world.issues.set(41, { title: 'Parent', body: '', labels: [], parent: null, blockers: [], state: 'OPEN' })
+  world.issues.set(41, {
+    title: 'Parent',
+    body: '',
+    labels: [],
+    parent: null,
+    blockers: [],
+    state: 'OPEN',
+    stateReason: null,
+  })
   world.comments.set(41, [])
   const initial = createInput()
   const create = {

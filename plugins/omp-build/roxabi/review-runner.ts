@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from 'node:util'
-import type { GitHubOptions } from '../dist/contracts.js'
 import {
   type CanonicalRecord,
   decodeHistory,
+  type GitHubOptions,
   githubScope,
   parseRecord,
   readGitHubHistory,
@@ -31,6 +31,7 @@ import {
 } from './review-records'
 import { buildReviewContribution } from './review-runner-contribution.ts'
 import { reviewEvidenceReaders } from './review-runner-evidence.ts'
+import { requireInitialReviewAction } from './review-runner-initial-validation.ts'
 import { publishReviewInventory } from './review-runner-inventory'
 import { advanceReviewStage, createSynthesisBatch, finalizeReview } from './review-runner-outcomes'
 
@@ -71,15 +72,17 @@ export class CanonicalReviewRunner implements ReviewPublisher {
   }
 
   initialBatch(): PreparedReviewBatch {
+    const actions = this.input.actions
+    const specAction = actions.spec
+    if (specAction === undefined) throw new Error('review-action-unprepared')
+    requireInitialReviewAction(this.input, specAction)
     const panel = allocateReviewPanel({
+      subject: this.input.context.subject,
       chunks: this.input.chunks,
       roster: this.input.roster,
       config: this.input.config,
       commonContext: this.input.semantic.panel,
     })
-    const actions = this.input.actions
-    const specAction = actions.spec
-    if (specAction === undefined) throw new Error('review-action-unprepared')
     const fingerprint = specAction.inputs.fingerprint
     const specTask = deliveryTask({
       name: 'spec',
@@ -103,7 +106,7 @@ export class CanonicalReviewRunner implements ReviewPublisher {
         agent: task.agent,
         solutionSpace: task.solutionSpace,
         prepared,
-        procedure: 'Review the assigned chunk named by the index. Return structured findings only. Do not publish.',
+        procedure: task.task,
       })
     })
     const subject = this.input.context.subject

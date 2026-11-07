@@ -11,6 +11,7 @@ import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { freshOwnSpec } from '../feature-initial-mandate.ts'
 import { readCurrentChildrenProjection, readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
 import { historicalProjection } from '../uw-normalization-internal.ts'
@@ -89,6 +90,13 @@ test('abandoning a parent preserves factual child projection without restoring c
     operationId: 'child-c1-operation',
     ownSpec: fixtures.ownSpecFromSnapshot(child, childSnapshot),
     parent: { scope: parent, recordId: p1.recordId, kind: 'mandate' },
+    inheritedOwnSpecRefs: [
+      {
+        uw: parent,
+        version: p1.payload.ownSpec.version,
+        sourceAccepted: { scope: parent, recordId: p1.recordId, kind: 'mandate' },
+      },
+    ],
   })
   const abandon = must(
     buildRecord({
@@ -142,36 +150,43 @@ test('abandoning a parent preserves factual child projection without restoring c
       },
     ],
   }
-  const activeReader = createInstalledObservedUwReadPort({
+  const activeObservation = await observedUwWithoutPullRequests({
     graph,
     histories: [activeParent, childHistory],
     catalogues: fixtureHostReviewClassCatalogues(),
   })
-  const inactiveReader = createInstalledObservedUwReadPort({
+  const inactiveObservation = await observedUwWithoutPullRequests({
     graph,
     histories: [abandonedParent, childHistory],
     catalogues: fixtureHostReviewClassCatalogues(),
   })
+  const activeReader = createInstalledObservedUwReadPort({ observation: activeObservation })
+  const inactiveReader = createInstalledObservedUwReadPort({ observation: inactiveObservation })
   const activeParentRead = await activeReader.readUw(parent)
   const activeChildRead = await activeReader.readUw(child)
   expect(
     resolveOwnSpecAuthority(childHistory, [activeParent], {
-      histories: [childHistory, activeParent],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      histories: activeObservation.histories,
+      catalogues: activeObservation.catalogues,
+      observation: activeObservation,
     }),
   ).toMatchObject({ ok: true })
   expect(activeChildRead.accepted.status).toBe('accepted')
-  const activeFacts = await readCurrentOwnSpecFacts({ uw: parent, read: activeParentRead, reader: activeReader })
+  const activeFacts = await readCurrentOwnSpecFacts({ uw: parent, read: activeParentRead })
   expect(activeFacts).toMatchObject({ ok: true, value: { currentSpec: { children: [childGrant] } } })
-  expect(await freshOwnSpec(parent, activeParentRead, activeReader)).toMatchObject({ children: [childGrant] })
+  expect(await readCurrentChildrenProjection({ uw: parent, read: activeParentRead })).toEqual({
+    ok: true,
+    value: [{ scope: child, specVersion: childSnapshot.spec.version, tier: 'S' }],
+  })
 
   expect(abandonedParent.source.complete).toBe(true)
   expect(childHistory.source.complete).toBe(true)
   expect(resolveAcceptedSpec(c1, [abandonedParent, childHistory])).toMatchObject({ ok: true })
   expect(
     resolveOwnSpecAuthority(childHistory, [abandonedParent], {
-      histories: [childHistory, abandonedParent],
-      catalogues: fixtureHostReviewClassCatalogues(),
+      histories: inactiveObservation.histories,
+      catalogues: inactiveObservation.catalogues,
+      observation: inactiveObservation,
     }),
   ).toMatchObject({
     ok: false,
@@ -201,24 +216,21 @@ test('abandoning a parent preserves factual child projection without restoring c
       identities: childRead.identity.value,
       histories: childRead.histories,
       catalogues: childRead.catalogues,
+      completion: childRead.completion,
       phase: 'delivery-transition',
       currentChildren: { ok: true, value: [] },
     }).deliverable,
   ).toMatchObject({ ok: false })
 
-  const facts = await readCurrentOwnSpecFacts({ uw: parent, read: parentRead, reader: inactiveReader })
-  expect(facts).toMatchObject({ ok: true, value: { currentSpec: { children: [childGrant] } } })
-  expect(await freshOwnSpec(parent, parentRead, inactiveReader)).toMatchObject({ children: [childGrant] })
-
-  if (childRead.accepted.status !== 'refused') throw new Error('child acceptance fixture must be refused')
-  const syntheticRefusal = { ...activeChildRead, accepted: childRead.accepted }
-  const spreadRefusal = { ...childRead }
-  for (const unprovenRead of [syntheticRefusal, spreadRefusal]) {
-    expect(historicalProjection(unprovenRead)).toBeUndefined()
-    const reader = { readUw: async () => unprovenRead }
-    const unprovenParentRead = { ...parentRead, observedReader: reader }
-    const expected = { ok: false, diagnostics: childRead.accepted.diagnostics }
-    expect(await readCurrentOwnSpecFacts({ uw: parent, read: unprovenParentRead, reader })).toEqual(expected)
-    expect(await readCurrentChildrenProjection({ uw: parent, read: unprovenParentRead, reader })).toEqual(expected)
-  }
+  expect(await readCurrentChildrenProjection({ uw: parent, read: parentRead })).toEqual({
+    ok: true,
+    value: [{ scope: child, specVersion: childSnapshot.spec.version, tier: 'S' }],
+  })
+  expect(parentRead.accepted.status).toBe('refused')
+  if (parentRead.accepted.status !== 'refused') throw new Error('abandoned parent must refuse active authority')
+  expect(await readCurrentOwnSpecFacts({ uw: parent, read: parentRead })).toEqual({
+    ok: false,
+    diagnostics: parentRead.accepted.diagnostics,
+  })
+  expect(await freshOwnSpec(parent, parentRead, inactiveReader)).toMatchObject({ kind: 'blocked' })
 })

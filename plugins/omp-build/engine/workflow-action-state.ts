@@ -28,7 +28,8 @@ export function prePrStartsAbsent(history: DecodedHistory): boolean {
       record.kind === 'action-receipt' &&
       (record.payload.action === 'plan' ||
         record.payload.action === 'plan-review' ||
-        record.payload.action === 'implement'),
+        record.payload.action === 'implement' ||
+        record.payload.action === 'integrate'),
   )
 }
 export function adoptedOrConfirmed(

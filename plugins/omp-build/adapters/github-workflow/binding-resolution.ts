@@ -27,23 +27,25 @@ export type InitialBindingResolution =
       mandateHistories: DecodedHistory[]
       selected: BoundSelection
     }
-  | { ok: false; result: WorkflowBindingRead }
+  | { ok: false; result: Extract<WorkflowBindingRead, { ok: false }> }
 
 export type ParentMandateResolution =
   | { ok: true; parentScopes: Scope[]; parentHistories: DecodedHistory[] }
-  | { ok: false; result: WorkflowBindingRead }
+  | { ok: false; result: Extract<WorkflowBindingRead, { ok: false }> }
 
 export function bindingRefusal(
   status: 'absent' | 'partial' | 'conflicting' | 'unconfirmed' | 'incomplete' | 'incompatible-format' | 'unreadable',
   diagnostics: Diagnostic[],
   evidence?: Json,
-): WorkflowBindingRead {
+): Extract<WorkflowBindingRead, { ok: false }> {
   return evidence === undefined
     ? { ok: false, status, reason: status, diagnostics }
     : { ok: false, status, reason: status, diagnostics, evidence }
 }
 
-type BindingMandateHistories = { ok: true; histories: DecodedHistory[] } | { ok: false; result: WorkflowBindingRead }
+type BindingMandateHistories =
+  | { ok: true; histories: DecodedHistory[] }
+  | { ok: false; result: Extract<WorkflowBindingRead, { ok: false }> }
 
 function initialBindingSelection(
   prScope: Scope,

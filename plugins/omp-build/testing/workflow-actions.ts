@@ -1,7 +1,11 @@
+import { actionInputDigest } from '../engine/action-input.ts'
+import type { RecordInputRef } from '../engine/action-input-refs.ts'
+import type { ActionInputs } from '../engine/action-input-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Contribution, Json, NativeOutcome } from '../engine/record-values.ts'
+import type { SpecEffective } from '../engine/spec-effective-schema.ts'
 import type { MandateRecord, ReceiptRecord } from '../engine/workflow-control.ts'
 import { type PlanOutput, planDigest } from '../engine/workflow-output-schema.ts'
 import {
@@ -17,6 +21,9 @@ export type WorkflowActionFixtureContext = {
   planSlots: readonly PlanReviewSlot[]
   nativeOutcome: NativeOutcome
   head: string
+  effective?: SpecEffective
+  acceptedSources?: RecordInputRef[]
+  codeRange?: ActionInputs['manifest']['code']
 }
 
 function mustRecord(draft: Parameters<typeof buildRecord>[0]): CanonicalRecord {
@@ -59,8 +66,13 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
     recordId: string,
     operationId: string,
     payload: ReceiptDraft,
-  ): ReceiptRecord =>
-    mustReceipt({
+  ): ReceiptRecord => {
+    const base = acceptedActionInputs(mandate, payload.action, context.effective, context.codeRange)
+    const manifest =
+      context.acceptedSources === undefined
+        ? base.manifest
+        : { ...base.manifest, acceptedSources: context.acceptedSources }
+    return mustReceipt({
       version: 1,
       recordId,
       runId: mandate.runId,
@@ -70,10 +82,11 @@ export function createWorkflowActionFixtures(context: WorkflowActionFixtureConte
       kind: 'action-receipt',
       payload: actionReceiptPayloadSchema.parse({
         format: ACTION_RECEIPT_FORMAT,
-        inputs: acceptedActionInputs(mandate, payload.action),
+        inputs: { ...base, manifest, fingerprint: actionInputDigest(manifest) },
         ...payload,
       }),
     })
+  }
   const implementStart = (mandate: MandateRecord, actionId = 'act-implement-1') =>
     receipt(mandate, `${actionId}-start`, `op-${actionId}-start`, {
       phase: 'start',

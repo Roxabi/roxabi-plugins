@@ -1,5 +1,6 @@
 import { blockingLabels } from './cause-assessment.ts'
 import type { AssessmentState } from './cause-assessment-state.ts'
+import { authenticateCauseCapture } from './cause-capture-authentication.ts'
 import type { CauseAssessment, DispositionSource } from './cause-disposition.ts'
 import type { CauseDispositionPayload } from './cause-disposition-schema.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -82,6 +83,14 @@ function retainSource(
         diagnostic('cause-source-unconfirmed', `Source ${source.recordId} cannot be authenticated for retention`),
       ],
     }
+  const capture = authenticateCauseCapture({
+    context: input.context,
+    capture: base.basis.capture,
+    source: { kind: 'retained-output', contributions: [source], diagnostics: [] },
+    histories: input.histories,
+    catalogues: input.catalogues,
+  })
+  if (!capture.ok) return capture
   for (const finding of source.payload.findings) {
     const inspection = inspectFinding(finding.data, [])
     const blocking = inspection.knownLabel === null || blockingLabels.has(inspection.knownLabel)

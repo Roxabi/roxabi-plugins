@@ -22,17 +22,17 @@ import { defaultGh } from './feature-engine.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { diagnostic, home, issue } from './uw-cause-creation-support.ts'
-import type { CauseOperationResult, PreparedUwProposal, UwRead, UwReadPort } from './uw-contract.ts'
+import type { CauseOperationResult, CreatedUwRead, CreatedUwReadPort, PreparedUwProposal } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 
 type ReceiptArgs = {
-  input: { reader: UwReadPort; github: GitHubOptions }
+  input: { reader: CreatedUwReadPort; github: GitHubOptions }
   uw: Scope
   known: Scope
   mode: 'sister' | 'report-promotion'
   relation: 'original-blocked-by-sister' | 'sister-blocked-by-original'
   parentScope: Scope | null
-  result: { value: UwRead }
+  result: { value: CreatedUwRead }
   checked: { histories: readonly DecodedHistory[] }
   prepared: PreparedUwProposal
   proposal: CauseCreationProposal
@@ -43,7 +43,7 @@ type ReceiptArgs = {
 }
 
 export async function attachBlockingSister(
-  reader: UwReadPort,
+  reader: CreatedUwReadPort,
   writer: IssueWriter,
   uw: Scope,
   known: Scope,
@@ -121,24 +121,36 @@ function buildCauseReceipt(args: ReceiptArgs, identity: { scope: Scope; recordId
   })
 }
 
+function assertReceiptIdentity(
+  identity: { scope: Scope; recordId: string; kind: 'spec-identity' },
+  histories: readonly DecodedHistory[],
+  args: ReceiptArgs,
+): void {
+  const identityRecord = bindExternalRef(identity, home(histories, args.known))
+  if (
+    !identityRecord.ok ||
+    identityRecord.value.kind !== 'spec-identity' ||
+    identityRecord.value.payload.proposalDigest !== args.prepared.digest ||
+    identityRecord.value.payload.confirmation.operationId !== args.proposal.operationId
+  )
+    throw new Error('cause-identity-unconfirmed')
+}
+
 export async function publishCauseReceipt(args: ReceiptArgs): Promise<CauseOperationResult> {
-  const { input, uw, known, result, checked, prepared, proposal } = args
+  const { input, uw, known, result, checked } = args
   await assertRelations(args)
   if (!result.value.identity.ok || result.value.identity.value.head?.kind !== 'spec-identity')
     throw new Error('cause-identity-unconfirmed')
   const identity = { ...result.value.identity.value.head, kind: 'spec-identity' as const }
-  const scopes = [...checked.histories.map((entry) => entry.source.scope), known]
+  const scopes = [
+    ...checked.histories.map((entry) => entry.source.scope),
+    known,
+    ...(args.parentScope === null ? [] : [args.parentScope]),
+  ]
   const unique = [...new Map(scopes.map((scope) => [`${scope.repository}\0${scope.target}`, scope])).values()]
   const reread = await readComposedWorkflowHistory(unique, input.github)
   if (!reread.ok) throw new Error('cause-receipt-history-unavailable')
-  const identityRecord = bindExternalRef(identity, home(reread.histories, known))
-  if (
-    !identityRecord.ok ||
-    identityRecord.value.kind !== 'spec-identity' ||
-    identityRecord.value.payload.proposalDigest !== prepared.digest ||
-    identityRecord.value.payload.confirmation.operationId !== proposal.operationId
-  )
-    throw new Error('cause-identity-unconfirmed')
+  assertReceiptIdentity(identity, reread.histories, args)
   const receipt = buildCauseReceipt(args, identity)
   if (!receipt.ok)
     return {
@@ -186,6 +198,14 @@ export async function publishCauseReceipt(args: ReceiptArgs): Promise<CauseOpera
       uw: known,
       diagnostics: written.diagnostics.map((item) => diagnostic(known, item.code, item.message)),
     }
+  const confirmed = await readComposedWorkflowHistory(unique, input.github)
+  if (!confirmed.ok) throw new Error('cause-receipt-readback-unavailable')
+  const confirmedReceipt = bindExternalRef(
+    { scope: uw, recordId: receipt.value.recordId, kind: receipt.value.kind },
+    home(confirmed.histories, uw),
+  )
+  if (!confirmedReceipt.ok || JSON.stringify(confirmedReceipt.value) !== JSON.stringify(receipt.value))
+    throw new Error('cause-receipt-readback-unconfirmed')
   return {
     status: 'created',
     value: result.value,

@@ -63,6 +63,8 @@ Do not run a shell, write the worktree, publish, push, comment, or close.
 
 Review the plan named by the index once. Read each accepted criterion that plan maps, from the index, not from task text.
 
+Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions when reviewing the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.
+
 Report each blocking gap between a criterion id and the plan’s code or evidence mapping. A blocker has id, criterionId, and gap. Outcome clear has no blockers. Outcome blocking names every blocker.
 
 A clear outcome does not cover an accepted criterion id the plan omits. Do not return clear to override missing coverage or a missing verdict. Done when outcome is clear and blockers is empty, or outcome is blocking and every blocker has those three fields. This is the one specialist pass. It does not implement, open a pull request, or spend a fix round.

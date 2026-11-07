@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { decodeHistory, encodeRecord } from '../../adapters/github/history-codec.ts'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { nativeCorrectionRecords } from '../../testing/native-correction-records.ts'
 import { encodedAdmissionReviewGraph } from '../../testing/record-admission.ts'
 import { finding, NATIVE_AUTHOR, submission, TEST_HEAD, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
@@ -9,7 +9,7 @@ import { history, observedComment, operation } from '../../testing/record-histor
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { classifyHistory } from '../history-classification.ts'
 import { validateRecordGraph } from '../history-graph.ts'
-import { buildRecord, parseRecord } from '../record-construction.ts'
+import { buildRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
 import { validateDecision } from '../review-decision.ts'
 import type { ObservedComment } from '../review-schema.ts'
@@ -32,18 +32,7 @@ function correctionExternalHistories() {
   return [historyFrom([fixOnlyMandate({ repository: 'acme/widgets', target: 'acme/widgets#7' })])]
 }
 
-function correctionFixtureRecords() {
-  const raw: unknown = JSON.parse(
-    readFileSync(new URL('./fixtures/native-correction-records.json', import.meta.url), 'utf8'),
-  )
-  if (!Array.isArray(raw)) throw new Error('Expected correction record array')
-  return raw.map((value) => {
-    const parsed = parseRecord(value)
-    if (!parsed.ok)
-      throw new Error(`Invalid correction fixture: ${parsed.diagnostics.map(({ code }) => code).join(', ')}`)
-    return parsed.value
-  })
-}
+const correctionFixtureRecords = nativeCorrectionRecords
 
 function correctionFrameSet(records: ReturnType<typeof correctionFixtureRecords>) {
   const comments: ObservedComment[] = []

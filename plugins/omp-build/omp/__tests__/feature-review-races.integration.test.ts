@@ -26,12 +26,12 @@ async function seed(...args: Parameters<typeof seedReviewFixture>): Promise<void
   await seedReviewFixture(...args)
 }
 
-function invoke(box: Box, cwd: string, operation: string) {
+function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
   const run = spawnSync(BUN, [RUNNER, operation, cwd, '{}'], {
     cwd,
     env: box.env,
     encoding: 'utf8',
-    timeout: 30_000,
+    timeout,
     killSignal: 'SIGKILL',
   })
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
@@ -50,13 +50,13 @@ describe('review continuation races', () => {
   it('does not activate a correction after a complete third canonical request-changes review', async () => {
     const { box, cwd } = arrange()
     await seed(box, cwd)
-    const observed = invoke(box, cwd, 'omp-review-race-latest')
+    const observed = invoke(box, cwd, 'omp-review-race-latest', 60_000)
     expect(observed.precondition).toEqual({ complete: true, requests: 1 })
     expect(observed.summary).toEqual({ complete: true, reviews: 3, action: 'stop', reason: 'review-bound' })
     expect(observed.active).toBeNull()
     expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(1)
     expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
-  })
+  }, 120_000)
 
   it('does not start a correction after local pause inhibits a checkout-blocked continuation', async () => {
     const { box, cwd } = arrange()

@@ -2,6 +2,7 @@ import { decodeHistory } from '../../../../contracts.ts'
 import type { ActionInputs } from '../../../../engine/action-input-schema.ts'
 import { committedFixtureProjection } from '../../../../testing/committed-plugin-fixture.ts'
 import { criterionPullHistory, criterionReviewGraph } from '../../../../testing/criterion-approval.ts'
+import { graphFromSimulatedIssues } from '../../../../testing/criterion-dispositions.ts'
 import type { Comment } from './goal-scenario-domain.ts'
 import { callWorkflow, gh, readSim, toolingFixture } from './goal-scenario-sandbox.ts'
 
@@ -61,6 +62,23 @@ export function approve(pr: number, sha: string, cwd: string): void {
   const pull = readSim().prs[String(pr)]
   if (!pull) throw new Error(`approve #${pr}: missing PR`)
   const pullHistory = criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments)
+  const state = readSim()
+  const graph = graphFromSimulatedIssues(scope, Object.values(state.issues))
+  const contextHistories = graph.nodes
+    .filter((node) => node.uw.target !== scope.target)
+    .map((node) => {
+      const otherNumber = Number(node.uw.target.split('#').at(-1))
+      const other = state.issues[String(otherNumber)]
+      if (!other) throw new Error(`approve #${pr}: missing graph issue ${node.uw.target}`)
+      return decodeHistory({
+        scope: node.uw,
+        expectedAuthor: 'operator',
+        stopAuthor: null,
+        complete: true,
+        comments: nativeComments(otherNumber, other.comments),
+        diagnostics: [],
+      })
+    })
   const review = criterionReviewGraph({
     mandate,
     issueRecords,
@@ -70,6 +88,8 @@ export function approve(pr: number, sha: string, cwd: string): void {
     head: sha,
     inputs,
     projection: committedFixtureProjection(tooling.cwd, inputs),
+    graph,
+    contextHistories,
     prefix: `scenario-${pr}-${sha.slice(0, 8)}`,
     author: 'operator',
   })

@@ -1,26 +1,23 @@
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
-  createReviewClassCatalogues,
-  observeCauseSisters,
+  assessUwCompletion,
   parseIssueSpecBody,
-  readCauseHistoryClosure,
   readComposedWorkflowHistory,
+  readUwCompletionObservation,
   readUwGraph,
   resolveAcceptedSpec,
   resolveOwnSpecAuthority,
   resolveSpecIdentityLedger,
   selectApplicableMandate,
 } from '../dist/contracts.js'
-import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
-import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
-import type { UwRead, UwReadPort } from './uw-contract.ts'
+import type { CreatedUwRead, UwRead, UwReadPort } from './uw-contract.ts'
 import { assembleUwRead, type HistoryObservation, type InstalledUwContracts, refused } from './uw-read-state.ts'
 import { withTransitionAdmission } from './uw-read-transition.ts'
 
@@ -51,58 +48,22 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
   const github = readOptions(options)
   return {
     async readUw(uw): Promise<UwRead> {
-      const graph = await contracts.readUwGraph(uw, github)
-      const root = graph.nodes.find((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
+      const observation = await contracts.readUwCompletionObservation(uw, github, (histories) =>
+        loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() }),
+      )
+      const root = observation.graph.nodes.find(
+        (node) => node.uw.repository === uw.repository && node.uw.target === uw.target,
+      )
       if (root === undefined) {
         const diagnostics =
-          graph.status === 'incomplete' && graph.diagnostics.length > 0
-            ? graph.diagnostics
+          observation.status === 'incomplete'
+            ? observation.diagnostics
             : refused(uw, 'graph-root-missing', `UW graph root ${uw.target} is absent`)
         throw new UwGraphUnavailableError(diagnostics)
       }
-      const scopes = [
-        ...new Map(graph.nodes.map((node) => [`${node.uw.repository}\0${node.uw.target}`, node.uw])).values(),
-      ]
-      const composed = await contracts.readComposedWorkflowHistory(scopes, github)
-      if (!composed.ok) {
-        return assembleUwRead(contracts, {
-          uw,
-          graph,
-          history: { ok: false, reason: composed.reason, diagnostics: composed.diagnostics },
-          catalogues: createReviewClassCatalogues([]),
-        })
-      }
-      const closure = await readCauseHistoryClosure(composed.histories, (needed) =>
-        contracts.readComposedWorkflowHistory(needed, github),
-      )
-      if (!closure.ok) {
-        return assembleUwRead(contracts, {
-          uw,
-          graph,
-          history: { ok: false, reason: closure.reason, diagnostics: closure.diagnostics },
-          catalogues: createReviewClassCatalogues([]),
-        })
-      }
-      const catalogues = await loadReviewClassCatalogues({
-        histories: closure.histories,
-        cwd: options.cwd,
-        gh: options.gh ?? defaultGh(),
-      })
-      const observedGraph = await observeCauseSisters(
-        graph,
-        closure.histories,
-        (scope) => contracts.readUwGraph(scope, github),
-        catalogues,
-      )
-      const reader = createObservedUwReadPort(contracts, {
-        graph: observedGraph,
-        histories: closure.histories,
-        catalogues,
-        assessmentReplay: options.assessmentReplay,
-      })
+      const reader = createObservedUwReadPort(contracts, { observation, assessmentReplay: options.assessmentReplay })
       const read = await reader.readUw(uw)
-      read.causalObservation = { status: 'complete', histories: read.histories, catalogues: read.catalogues }
-      return withTransitionAdmission(contracts, read, reader)
+      return withTransitionAdmission(contracts, read)
     },
   }
 }
@@ -111,21 +72,37 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
 export function createObservedUwReadPort(
   contracts: InstalledUwContracts,
   input: {
-    graph: UwGraphObservation
-    histories: readonly DecodedHistory[]
-    catalogues: ReviewClassCatalogues
+    observation: UwCompletionObservation
     history?: HistoryObservation
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
 ): UwReadPort {
+  const completion = contracts.assessUwCompletion(input.observation)
+  const history: HistoryObservation =
+    input.history ??
+    (input.observation.status === 'complete'
+      ? { ok: true, histories: input.observation.histories }
+      : {
+          ok: false,
+          reason: 'incomplete',
+          histories: input.observation.histories,
+          diagnostics: input.observation.diagnostics,
+        })
+  const causalObservation: UwRead['causalObservation'] =
+    input.observation.status === 'complete' && history.ok && history.histories === input.observation.histories
+      ? { status: 'complete', histories: input.observation.histories, catalogues: input.observation.catalogues }
+      : { status: 'unavailable' }
   let reader: UwReadPort
   reader = {
     async readUw(uw): Promise<UwRead> {
       return assembleUwRead(contracts, {
         uw,
-        graph: input.graph,
-        history: input.history ?? { ok: true, histories: input.histories },
-        catalogues: input.catalogues,
+        graph: input.observation.graph,
+        history,
+        catalogues: input.observation.catalogues,
+        observation: input.observation,
+        causalObservation,
+        completion,
         observedReader: reader,
         assessmentReplay: input.assessmentReplay,
       })
@@ -136,6 +113,8 @@ export function createObservedUwReadPort(
 
 const installedUwContracts: InstalledUwContracts = {
   assessUwAdmission,
+  assessUwCompletion,
+  readUwCompletionObservation,
   parseIssueSpecBody,
   readComposedWorkflowHistory,
   readUwGraph,
@@ -150,7 +129,7 @@ export function createInstalledUwReadPort(options: InstalledUwReadOptions): UwRe
   return createUwReadPort(installedUwContracts, options)
 }
 /** Creation readback proves only native framing and the created issue's own identity ledger. */
-export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions): Promise<UwRead> {
+export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions): Promise<CreatedUwRead> {
   const github = readOptions(options)
   const graph = await installedUwContracts.readUwGraph(uw, github)
   if (
@@ -161,32 +140,30 @@ export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions):
   const composed = await installedUwContracts.readComposedWorkflowHistory([uw], github)
   if (!composed.ok)
     throw new UwGraphUnavailableError(refused(uw, 'history-incomplete', 'Created UW identity history is incomplete'))
-  const result = assembleUwRead(installedUwContracts, {
+  const root = graph.nodes.find((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
+  if (root === undefined) throw new TypeError("Cannot read properties of undefined (reading 'raw')")
+  const parsed = installedUwContracts.parseIssueSpecBody({ uw, raw: root.raw })
+  const proposed =
+    parsed.status === 'conformant'
+      ? { ok: true as const, snapshot: parsed.snapshot }
+      : { ok: false as const, diagnostics: [...parsed.diagnostics] }
+  const own = composed.histories.find(
+    (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
+  )
+  if (own === undefined)
+    throw new UwGraphUnavailableError(refused(uw, 'history-missing', 'Created UW identity history is absent'))
+  const identity = installedUwContracts.resolveSpecIdentityLedger({
     uw,
-    graph,
-    history: { ok: true, histories: composed.histories },
-    catalogues: await loadReviewClassCatalogues({
-      histories: composed.histories,
-      cwd: options.cwd,
-      gh: options.gh ?? defaultGh(),
-    }),
+    history: own,
+    histories: composed.histories,
+    accepted: null,
   })
-  const diagnostics = refused(uw, 'creation-read-only', 'Creation readback does not assess delivery admission')
-  return {
-    ...result,
-    accepted: { status: 'refused', diagnostics },
-    admission: {
-      framed: { ok: false, diagnostics },
-      deliverable: { ok: false, diagnostics },
-      applicability: 'own-only',
-    },
-  }
+  return { uw, parsed, proposed, identity, histories: composed.histories, graph }
 }
 
 export function createInstalledObservedUwReadPort(input: {
-  graph: UwGraphObservation
-  histories: readonly DecodedHistory[]
-  catalogues: ReviewClassCatalogues
+  observation: UwCompletionObservation
+  assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
 }): UwReadPort {
   return createObservedUwReadPort(installedUwContracts, input)
 }

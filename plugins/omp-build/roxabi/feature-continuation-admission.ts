@@ -9,8 +9,9 @@ import { asHistory } from './feature-delivery-facts.ts'
 import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 import { type Contracts, defaultGh, isRecord, loadContracts, type Scope } from './feature-engine.ts'
 import { issueReference } from './feature-selection.ts'
-import { type FixUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
+import { type FixUwCausalContext, readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { classifyIssueReference } from './prepare-canonical-checkout.ts'
 import { defaultGit, type SessionWorktreeIdentity, sessionWorktreeIdentity } from './workflow-checkout.ts'
 
 export type ResolvedTarget = Extract<
@@ -89,10 +90,21 @@ async function resolveNativeAuthority(
   context: FeatureContext,
 ): Promise<NativeAuthority | ContinueFeatureResult> {
   const options = { cwd: context.cwd, gh: context.gh }
+  const classified = classifyIssueReference(input.reference)
+  const qualified =
+    exactMandateRef === undefined && !('reason' in classified) && classified.repository !== null
+      ? context.engine.githubScope(classified.repository, classified.number)
+      : null
+  if (qualified !== null) {
+    const problem = await verifyRepository(context, qualified.repository)
+    if (problem !== null) return problem
+  }
   const target =
-    exactMandateRef === undefined
-      ? await context.engine.resolveNativeTarget(input.reference, options)
-      : await context.engine.resolveNativeScope(exactMandateRef.scope, options)
+    exactMandateRef !== undefined
+      ? await context.engine.resolveNativeScope(exactMandateRef.scope, options)
+      : qualified !== null
+        ? await context.engine.resolveNativeScope(qualified, options)
+        : await context.engine.resolveNativeTarget(input.reference, options)
   if (!isResolvedTarget(target)) return { kind: 'blocked', reason: target.status }
   const exactProblem = await validateExactTarget(target, exactMandateRef, context)
   if (exactProblem !== null) return exactProblem
@@ -120,7 +132,7 @@ async function validateExactTarget(
   ) {
     return { kind: 'blocked', reason: 'exact-mandate-scope' }
   }
-  return verifyExactRepository(context, exactMandateRef)
+  return verifyRepository(context, exactMandateRef.scope.repository)
 }
 
 async function resolvePullRequestScope(
@@ -141,13 +153,10 @@ async function resolvePullRequestScope(
   return history === null ? { kind: 'blocked', reason: 'binding-incomplete' } : history.source.scope
 }
 
-async function verifyExactRepository(
-  context: FeatureContext,
-  ref: ScopedRecordRef,
-): Promise<ContinueFeatureResult | null> {
+async function verifyRepository(context: FeatureContext, repository: string): Promise<ContinueFeatureResult | null> {
   try {
     const current: unknown = JSON.parse(await context.gh(context.cwd, ['repo', 'view', '--json', 'nameWithOwner']))
-    if (!isRecord(current) || current.nameWithOwner !== ref.scope.repository) {
+    if (!isRecord(current) || current.nameWithOwner !== repository) {
       return { kind: 'blocked', reason: 'repository-mismatch' }
     }
     return null
@@ -195,7 +204,7 @@ async function selectHistoryAuthority(
 ): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const parents = await mandateParentHistories(context.engine, history, options)
   if (!parents.ok) return disarmParents(input, native, context, parents.reason)
-  const causal = await readFixUwCausalContext([history, ...parents.parents], [], options)
+  const causal = await readFreshUwCausalContext(native.scope, [history, ...parents.parents], options)
   if (!causal.ok) return disarmParents(input, native, context, causal.diagnostics[0] ?? 'causal-history-unavailable')
   const selection = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
   if (

@@ -89,6 +89,13 @@ it.each([
       throw new Error('unexpected UW operation')
     }
     const operations: UwOperations = {
+      readEffective: unexpected,
+      readCoverage: unexpected,
+      readCompletion: unexpected,
+      adjustCauseDependency: unexpected,
+      reopen: unexpected,
+      abandon: unexpected,
+      closeLinked: unexpected,
       readUw: unexpected,
       listReports: unexpected,
       adjudicateCause: unexpected,

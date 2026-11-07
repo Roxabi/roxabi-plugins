@@ -1,48 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { specDigest } from '../../engine/record-digests.ts'
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
-import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
+import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
-import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
-import {
-  bridgeHarness,
-  cleanupFixtureActions,
-  fixtureAction,
-  root as nativeRoot,
-} from '../../testing/review-runtime-support.ts'
-import type { NativeBatch } from '../review-runtime/contracts.ts'
-import { NativeBatchController } from '../review-runtime/controller.ts'
-
-const root = {
-  ...consultableAgentRoot(),
-  cwd: '/repo/feature',
-  model: { contextWindow: 128_000 },
-  isIdle: () => true,
-}
+import { cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { batch, root } from './feature-command-lifecycle-fixture.ts'
 
 afterEach(() => {
   cleanupFixtureActions()
 })
-
-function batch(operationId = 'feature-op'): NativeBatch {
-  return {
-    operationId,
-    tasks: {
-      context: 'feature fixture',
-      tasks: [
-        {
-          name: 'R-workflow-plan',
-          agent: 'R-advisor',
-          task: 'plan',
-          solutionSpace: 'fixed fixture',
-          action: fixtureAction('R-workflow-plan'),
-        },
-      ],
-    },
-  }
-}
 
 function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow {
   return {
@@ -85,7 +54,6 @@ const review: PreparedEpicReview = {
 
 function admittedCiCorrection(): Extract<ContinueFeatureResult, { kind: 'admitted-ci-correction' }> {
   const scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
-  const body = 'C1: Preserve the confirmed CI correction scope.'
   const canonical = canonicalSpec({
     format: 'omp-build-spec-content/1',
     criteria: [{ id: 'C1', statement: 'Preserve the confirmed CI correction scope.' }],
@@ -95,22 +63,18 @@ function admittedCiCorrection(): Extract<ContinueFeatureResult, { kind: 'admitte
     sections: { origin: '', context: '', change: '' },
   })
   if (!canonical.ok) throw new Error('expected canonical correction Spec')
-  const source: AcceptedOwnSpec['ref']['sourceAccepted'] = {
-    scope,
+  const body = renderIssueSpecBody(canonical.value)
+  const parsed = parseIssueSpecBody({ uw: scope, raw: rawSource(scope.target, body, null) })
+  if (parsed.status !== 'conformant') throw new Error('expected native correction Spec')
+  const fixtures = roxabiWorkflowFixtures()
+  const mandate = fixtures.featureMandate(scope, {
     recordId: 'feature-mandate-42',
-    kind: 'mandate',
-  }
-  const ownSpec: AcceptedOwnSpec = {
-    ref: { uw: scope, version: canonical.value.version, sourceAccepted: source },
-    snapshot: {
-      spec: canonical.value,
-      raw: { reference: scope.target, body, bodySha256: specDigest(body), lastEditedAt: null },
-    },
-    tier: 'S',
-    children: [],
-    chain: [{ kind: 'mandate', source, version: canonical.value.version }],
-    sourceRefs: [source],
-  }
+    body,
+    ownSpec: fixtures.ownSpecFromSnapshot(scope, parsed.snapshot),
+  })
+  const resolved = resolveAcceptedSpec(mandate, [fixtures.historyFrom([mandate])])
+  if (!resolved.ok) throw new Error(`unconfirmed correction Spec: ${JSON.stringify(resolved.evidence)}`)
+  const ownSpec = resolved.spec
   return {
     kind: 'admitted-ci-correction',
     reference: '#42',
@@ -152,99 +116,6 @@ function handedWork(): ContinueFeatureResult[] {
     { kind: 'epic-final-review', review },
   ]
 }
-
-describe('feature continuation seam', () => {
-  it('does not capture a session identity before a batch is activated', () => {
-    const controller = new NativeBatchController()
-    const idleRoot = {
-      ...root,
-      sessionManager: {
-        getSessionId: () => {
-          throw new Error('unexpected session identity read')
-        },
-      },
-    }
-    expect(() => controller.observeRootContext(idleRoot as never)).not.toThrow()
-  })
-
-  it('drops an undelivered feature follow-up while continuation is inhibited', () => {
-    const controller = new NativeBatchController()
-    const prepared = batch('held')
-    controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
-    controller.markFeatureBatch(prepared)
-    expect(controller.announce(prepared)).toBe(true)
-    controller.inhibitFeatureContinuation()
-    expect(controller.consumeFollowUp()).toBeNull()
-    controller.inactive()
-    const next = batch('blocked')
-    controller.activate(next, { onComplete: async () => undefined, onStop: async () => undefined })
-    controller.markFeatureBatch(next)
-    expect(controller.announce(next)).toBe(false)
-    controller.releaseFeatureContinuation()
-    expect(controller.featureContinuationInhibited()).toBe(false)
-    expect(controller.announce(next)).toBe(true)
-  })
-
-  it('calls onSettled once after a confirmed complete result and not from agent_end', async () => {
-    const harness = bridgeHarness()
-    const { controller } = harness
-    const retainedRoot = { ...nativeRoot, ...root }
-    const prepared = batch('settled')
-    const task = prepared.tasks.tasks[0]
-    if (task === undefined) throw new Error('settlement fixture task is missing')
-    task.agent = 'R-workflow-plan'
-    task.action = fixtureAction('R-workflow-plan', 'R-workflow-plan')
-    let completed = 0
-    let settled = 0
-    controller.observeRootContext(retainedRoot as never)
-    controller.activate(prepared, {
-      onComplete: async () => {
-        completed += 1
-      },
-      onSettled: async () => {
-        settled += 1
-      },
-      onStop: async () => undefined,
-    })
-    controller.announce(prepared)
-    const data = {
-      steps: [
-        {
-          id: 'step-1',
-          change: 'Preserve the confirmed behavior',
-          doneWhen: 'The behavior is retained',
-          criterionIds: ['C1'],
-          evidence: 'Exercise the behavior',
-          paths: ['src/feature.ts'],
-        },
-      ],
-      resolutions: [],
-    }
-    await harness.admitChild(prepared, 'R-workflow-plan', 'task-call:0', {
-      toolCallId: 'task-call',
-      root: retainedRoot,
-    })
-    await harness.yieldChild('task-call:0', data)
-    await harness.settleBatch({
-      toolCallId: 'task-call',
-      errors: [],
-      results: [
-        {
-          index: 0,
-          id: 'task-call:0',
-          agent: 'R-workflow-plan',
-          exitCode: 0,
-          structuredOutput: { status: 'valid', data },
-        },
-      ],
-    })
-    expect(completed).toBe(1)
-    expect(settled).toBe(1)
-    await harness.emitBridge('agent_end', { willContinue: false }, retainedRoot)
-    expect(completed).toBe(1)
-    expect(settled).toBe(1)
-  })
-})
 
 describe('principal refusal stays one message', () => {
   function principal(continueFeature: FeatureWorkflow['continueFeature']) {
@@ -296,6 +167,77 @@ describe('principal refusal stays one message', () => {
     }
     return { sent, starts, value }
   }
+  it('passes the operator-selected coverage into a fresh continuation and does not invent assignments', async () => {
+    const scope = { repository: 'acme/app', target: 'acme/app#42' }
+    const child = { repository: 'acme/app', target: 'acme/app#43' }
+    const ancestor = { repository: 'acme/app', target: 'acme/app#40' }
+    const request = {
+      parent: { uw: scope, version: 'a'.repeat(64) },
+      accepted: null,
+      inheritedOwnSpecRefs: [
+        {
+          uw: ancestor,
+          version: 'c'.repeat(64),
+          sourceAccepted: { scope: ancestor, kind: 'mandate' as const, recordId: 'ancestor-mandate' },
+        },
+      ],
+      criteria: [{ id: 'C1', statement: 'Deliver' }],
+      children: [
+        {
+          scope: child,
+          specVersion: 'b'.repeat(64),
+          tier: 'S' as const,
+          criteria: [{ id: 'C1', statement: 'Implement' }],
+        },
+      ],
+    }
+    const coverage = {
+      parent: request.parent,
+      assignments: [{ criterion: 'C1' as const, children: [child] as [typeof child] }],
+    }
+    const received: unknown[] = []
+    const fixture = principal(async (input) => {
+      received.push({ coverage: input.parentCoverage, basis: input.parentCoverageBasis })
+      return input.parentCoverage === undefined
+        ? { kind: 'blocked', reason: 'parent-coverage-intent-required', coverageRequest: request }
+        : { kind: 'terminal', reason: 'complete' }
+    })
+    fixture.value.principal = false
+    fixture.value.requestParentCoverage = async (shown) => {
+      expect(shown).toEqual(request)
+      return { kind: 'proposed', coverage }
+    }
+    await runInstalledFeatureCommand('#42', fixture.value)
+    expect(received).toEqual([
+      { coverage: undefined, basis: undefined },
+      { coverage, basis: request },
+    ])
+  })
+
+  it('distinguishes explicit removal of final-child coverage from cancellation', async () => {
+    const scope = { repository: 'acme/app', target: 'acme/app#42' }
+    const source = { scope, kind: 'mandate' as const, recordId: 'parent-mandate' }
+    const request = {
+      parent: { uw: scope, version: 'a'.repeat(64) },
+      accepted: { own: { uw: scope, version: 'a'.repeat(64), sourceAccepted: source }, metadata: source },
+      inheritedOwnSpecRefs: [],
+      criteria: [{ id: 'C1', statement: 'Deliver' }],
+      children: [],
+    }
+    for (const answer of [{ kind: 'proposed' as const, coverage: null }, { kind: 'cancelled' as const }]) {
+      const received: unknown[] = []
+      const fixture = principal(async (input) => {
+        received.push(input.parentCoverage)
+        return input.parentCoverage === undefined
+          ? { kind: 'blocked', reason: 'parent-coverage-intent-required', coverageRequest: request }
+          : { kind: 'terminal', reason: 'complete' }
+      })
+      fixture.value.principal = false
+      fixture.value.requestParentCoverage = async () => answer
+      await runInstalledFeatureCommand('#42', fixture.value)
+      expect(received).toEqual(answer.kind === 'proposed' ? [undefined, null] : [undefined])
+    }
+  })
 
   it('sends the move instruction once when the workflow returns it', async () => {
     const fixture = principal(async (input) => ({

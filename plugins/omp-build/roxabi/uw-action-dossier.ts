@@ -6,7 +6,16 @@ import type { ActionInputManifest, ActionInputs, RecordInputRef, UwActionPorts }
 import { actionFailure } from './uw-action-result.ts'
 
 const REVIEW = new Set(['review', 'correction'])
-const WORKFLOW = new Set(['plan', 'plan-review', 'implement', 'attribute-ci', 'assess-spec', 'normalize', 'frame'])
+const WORKFLOW = new Set([
+  'plan',
+  'plan-review',
+  'implement',
+  'integrate',
+  'attribute-ci',
+  'assess-spec',
+  'normalize',
+  'frame',
+])
 
 export function suppliedProcedurePaths(purpose: string): readonly string[] {
   const profiles = REVIEW.has(purpose) ? nativeReviewProfiles : WORKFLOW.has(purpose) ? nativeFeatureProfiles : []
@@ -121,15 +130,23 @@ export function dossierIndex(manifest: ActionInputManifest, files: readonly { pa
     'Stage annex: stage/annex.json',
     'Spec version: ' + (spec.version ?? 'absent'),
     '',
+    ...(manifest.spec.kind === 'accepted'
+      ? [
+          '## Effective Spec',
+          'Read spec.json: effective.own and effective.spec contain the own accepted Spec; effective.versionVector is the complete pinned version vector. Apply own invariants and exclusions in effective.spec and every inherited invariant and exclusion in effective.inherited. Copy inherited invariant targets and exclusion refs exactly, including their owning Spec; do not retarget them to the own Spec.',
+          'Only effective.spec.criteria are this UW’s criterion obligations; ancestor criteria are not additional criterion rows.',
+          '',
+        ]
+      : []),
     ...(manifest.operands === undefined
       ? []
       : manifest.operands.action === 'assess-spec'
         ? ['## Exact inputs', 'Accepted state and proposed state: action/exact-inputs.json', '']
         : ['## Exact inputs', 'CI failures: action/exact-inputs.json', '']),
-    '## Criteria',
+    '## Own criteria',
     ...(spec.criteria.length === 0 ? ['- none'] : spec.criteria.map((item) => '- ' + item.id + ': ' + item.statement)),
     '',
-    '## Invariants',
+    '## Own invariants',
     ...(spec.invariants.length === 0
       ? ['- none']
       : spec.invariants.map((item) => '- ' + item.id + ': ' + item.statement)),

@@ -79,7 +79,7 @@ describe('missing-context producer contract', () => {
     }
   })
 
-  test('implementation uses blocked with explicit criterion declarations, not the generic negative', () => {
+  test('implementation uses blocked with explicit criterion declarations within delivery execution', () => {
     const blocked = {
       outcome: 'blocked',
       commitSHAs: [],
@@ -88,8 +88,9 @@ describe('missing-context producer contract', () => {
       reason: 'Missing policy',
       missing,
     }
-    expect(producerOutputValid('implementation', negative)).toBe(false)
-    expect(producerOutputValid('implementation', blocked)).toBe(true)
+    expect(producerImplementationOutputSchema.safeParse(negative).success).toBe(false)
+    expect(producerOutputValid('delivery-execution', negative)).toBe(true)
+    expect(producerOutputValid('delivery-execution', blocked)).toBe(true)
     expect(implementationOutputSchema.safeParse(blocked).success).toBe(true)
     expect(missingContextOf(blocked)).toEqual(missing)
     const withoutCriteria = { outcome: 'blocked', commitSHAs: [], commands: [], reason: 'Missing policy', missing }
@@ -100,7 +101,7 @@ describe('missing-context producer contract', () => {
     ]) {
       expect(producerImplementationOutputSchema.safeParse(malformed).success).toBe(false)
       expect(implementationOutputSchema.safeParse(malformed).success).toBe(false)
-      expect(producerOutputValid('implementation', malformed)).toBe(false)
+      expect(producerOutputValid('delivery-execution', malformed)).toBe(false)
     }
   })
 })

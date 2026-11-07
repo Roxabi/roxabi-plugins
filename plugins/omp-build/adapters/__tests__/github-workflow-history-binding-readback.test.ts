@@ -51,6 +51,7 @@ describe('GitHub workflow kind classification', () => {
       accepted,
       proposedAssessmentState(accepted, { body: 'Editorial assessment revision.' }),
       'material',
+      [decodeHistory(historyFrom(wire(mandate)))],
     )
     const control = acceptMaterialFixture(mandate, 'control-integrity', assessment)
     for (const record of [assessment.start, control, mandate]) {
@@ -247,7 +248,17 @@ describe('composed workflow history and landing binding readback', () => {
     )
   })
 
-  it('treats foreign-only binding claims as absent while retaining them in history', async () => {
+  it('refuses to establish binding absence from foreign-only claims', async () => {
+    const empty = await readWorkflowBinding(githubScope('acme/app', 42), {
+      cwd: '/fixture',
+      readAuthor: 'automation',
+      gh: fakeGh([
+        (args) => (args[0] === 'pr' && args[1] === 'view' ? prView() : undefined),
+        (args) => (String(args[1] ?? '').includes('/issues/42/comments') ? JSON.stringify([]) : undefined),
+      ]),
+    })
+    expect(empty).toMatchObject({ ok: false, reason: 'absent' })
+
     const result = await readWorkflowBinding(githubScope('acme/app', 42), {
       cwd: '/fixture',
       readAuthor: 'automation',
@@ -264,7 +275,11 @@ describe('composed workflow history and landing binding readback', () => {
             : undefined,
       ]),
     })
-    expect(result).toMatchObject({ ok: false, reason: 'absent' })
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'incomplete',
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'foreign' })]),
+    })
   })
 
   it('refuses composed history when a scope comment page is unreadable', async () => {

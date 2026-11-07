@@ -81,13 +81,15 @@ export function setupReviewGateFixture(): ReviewGateFixture {
     const pin = git(tools, ['rev-parse', 'HEAD'])
 
     git(root, ['init', '-q', '-b', 'main', candidate])
+    mkdirSync(path.join(candidate, '.dev'))
+    writeFileSync(path.join(candidate, '.dev/stack.yml'), 'release:\n  model: trunk\n')
     writeFileSync(path.join(candidate, 'base.txt'), 'base\n')
     git(candidate, ['add', '.'])
     git(candidate, ['commit', '-qm', 'base'])
     const base = git(candidate, ['rev-parse', 'HEAD'])
     writeFileSync(path.join(candidate, 'candidate.txt'), 'candidate\n')
     git(candidate, ['add', '.'])
-    git(candidate, ['commit', '-qm', 'candidate'])
+    git(candidate, ['commit', '-qm', 'feat: candidate (#42)'])
     const head = git(candidate, ['rev-parse', 'HEAD'])
 
     installFakeGh(bin)
@@ -123,6 +125,7 @@ export function setupReviewGateFixture(): ReviewGateFixture {
       GIT_CONFIG_VALUE_0: 'false',
       GATE_STATE: statePath,
       GATE_STATE_DIR: stateDir,
+      GATE_CANDIDATE: candidate,
       GATE_TOOLS: tools,
     }
     env[GITHUB_ENV] = AUTOMATION
@@ -239,6 +242,7 @@ export function attachBareOriginAtBase(fixture: ReviewGateFixture): string {
   git(fixture.candidate, ['remote', 'add', 'origin', 'https://github.com/acme/app.git'])
   git(fixture.candidate, ['config', `url.${resolved}.insteadOf`, 'https://github.com/acme/app.git'])
   git(fixture.candidate, ['update-ref', 'refs/remotes/origin/main', fixture.base])
+  git(fixture.candidate, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
   state.origin = resolved
   writeState(fixture, state)
   return resolved

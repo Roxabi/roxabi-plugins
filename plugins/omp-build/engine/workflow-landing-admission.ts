@@ -8,6 +8,8 @@ import {
   type CurrentChildrenProjection,
   type ProposedOwnSpecResult,
 } from './uw-admission.ts'
+import { assessUwCompletion } from './uw-completion.ts'
+import type { UwCompletionObservation } from './uw-completion-types.ts'
 import { toDiagnostics } from './uw-diagnostics.ts'
 import type { UwGraphObservation } from './uw-graph.ts'
 import { resolveSpecIdentityLedger } from './uw-identity.ts'
@@ -25,10 +27,11 @@ import {
   unliftedPause,
 } from './workflow-control.ts'
 import type { LandingMandateDecision, LandingRefusal } from './workflow-landing.ts'
+import { type LandingCandidate, selectedCandidate } from './workflow-landing-binding.ts'
 import type { MandateRefusal } from './workflow-mandate.ts'
 import { childCommitmentRefusal, selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { epicParentProblem } from './workflow-parent.ts'
-import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
+import type { WorkflowCausalContext } from './workflow-plan.ts'
 
 export type LandingMandateInput = {
   histories: readonly DecodedHistory[]
@@ -37,6 +40,7 @@ export type LandingMandateInput = {
   native: { branch: string; base: string; pullRequest: Scope; linkedIssueScopes: readonly Scope[] }
   parentScopes: readonly Scope[]
   uwGraph: UwGraphObservation
+  observation: UwCompletionObservation
   current: {
     productVersion: string
     configVersion: string
@@ -47,8 +51,6 @@ export type LandingMandateInput = {
   }
   localInhibit: 'pause' | 'abandon' | null
 }
-
-type LandingCandidate = { mandate: MandateRecord; home: DecodedHistory }
 
 function landingRefusal(reason: LandingRefusal, evidence: Diagnostic[]): LandingMandateDecision {
   return { ok: false, reason, evidence }
@@ -64,15 +66,6 @@ function incompleteListedParent(
       return landingRefusal('incomplete', [diagnostic('incomplete', 'A listed parent history is incomplete')])
   }
   return null
-}
-
-function landingBindingReason(
-  selection: Exclude<WorkflowBindingSelection, { status: 'bound' | 'absent' }>,
-): LandingRefusal {
-  if (selection.status === 'conflicting') return 'conflict'
-  if (selection.status === 'incompatible-format') return 'incompatible-format'
-  if (selection.status === 'incomplete') return 'incomplete'
-  return 'unknown-binding'
 }
 
 function landingReason(reason: MandateRefusal): LandingRefusal {
@@ -97,27 +90,13 @@ function landingReason(reason: MandateRefusal): LandingRefusal {
   }
 }
 
-function selectedCandidate(input: LandingMandateInput): LandingCandidate | LandingMandateDecision {
-  const selected = selectWorkflowBinding({
-    pullRequest: input.native.pullRequest,
-    histories: input.authorityHistories,
-    native: { branch: input.native.branch, base: input.native.base },
-  })
-  if (selected.status === 'absent')
-    return landingRefusal('missing', [diagnostic('missing', 'No workflow binding exists on the pull request')])
-  if (selected.status !== 'bound') return landingRefusal(landingBindingReason(selected), selected.diagnostics)
-  const home = historyFor(mandateScope(selected.mandateRecord), input.authorityHistories)
-  if (home === null)
-    return landingRefusal('missing-history', [diagnostic('missing-history', 'Mandate history is missing')])
-  return { mandate: selected.mandateRecord, home }
-}
-
-function directAuthority(candidate: LandingCandidate, input: LandingMandateInput): LandingMandateDecision | null {
+function directAuthority(
+  candidate: LandingCandidate,
+  input: LandingMandateInput,
+  causal: WorkflowCausalContext,
+): LandingMandateDecision | null {
   const { mandate, home } = candidate
-  const omission = epicParentProblem(mandate, input.authorityHistories, {
-    histories: input.histories,
-    catalogues: input.catalogues,
-  })
+  const omission = epicParentProblem(mandate, input.authorityHistories, causal)
   if (omission !== null) return landingRefusal(landingReason(omission.reason), omission.evidence)
   if (input.localInhibit !== null && confirmedPause(home, mandate) === null && !abandoned(home, mandate))
     return landingRefusal('unconfirmed', [diagnostic('unconfirmed', 'Local inhibit has no confirmed control record')])
@@ -143,7 +122,11 @@ function acceptedReason(reason: 'incomplete' | 'ambiguous' | 'material-spec' | '
   return 'incomplete'
 }
 
-function parentAuthority(candidate: LandingCandidate, input: LandingMandateInput): LandingMandateDecision | null {
+function parentAuthority(
+  candidate: LandingCandidate,
+  input: LandingMandateInput,
+  causal: WorkflowCausalContext,
+): LandingMandateDecision | null {
   const { mandate } = candidate
   if (mandate.payload.parent === null) return null
   const parentHistory = historyFor(mandate.payload.parent.scope, input.authorityHistories)
@@ -153,10 +136,7 @@ function parentAuthority(candidate: LandingCandidate, input: LandingMandateInput
   if (!parent.ok) return landingRefusal('incomplete', parent.diagnostics)
   if (parent.value.kind !== 'mandate')
     return landingRefusal('unknown-binding', [diagnostic('kind-mismatch', 'Parent reference is not a mandate')])
-  const parentSelection = selectApplicableMandate(parentHistory, input.authorityHistories, {
-    histories: input.histories,
-    catalogues: input.catalogues,
-  })
+  const parentSelection = selectApplicableMandate(parentHistory, input.authorityHistories, causal)
   if (parentSelection.status === 'refused')
     return landingRefusal(landingReason(parentSelection.reason), parentSelection.evidence)
   if (
@@ -216,6 +196,17 @@ function uwAdmissionAuthority(candidate: LandingCandidate, input: LandingMandate
     return landingRefusal('uw-not-deliverable', [
       diagnostic('graph-incomplete', 'Fresh native graph is not rooted at the selected own UW'),
     ])
+  if (
+    input.observation.status !== 'complete' ||
+    input.observation.root.repository !== ownUw.repository ||
+    input.observation.root.target !== ownUw.target
+  )
+    return landingRefusal('uw-not-deliverable', [
+      diagnostic(
+        'observation-mismatch',
+        'Landing must use the same complete graph and histories as its completion observation',
+      ),
+    ])
   const ownHistory = historyFor(ownUw, input.histories)
   if (ownHistory === null)
     return landingRefusal('missing-history', [diagnostic('missing-history', 'Own UW identity history is missing')])
@@ -237,6 +228,7 @@ function uwAdmissionAuthority(candidate: LandingCandidate, input: LandingMandate
     identities: identities.value,
     histories: input.histories,
     catalogues: input.catalogues,
+    completion: assessUwCompletion(input.observation),
     phase: 'landing',
     currentChildren: input.current.currentChildren,
   })
@@ -246,18 +238,32 @@ function uwAdmissionAuthority(candidate: LandingCandidate, input: LandingMandate
 }
 
 export function requireLandingMandate(input: LandingMandateInput): LandingMandateDecision {
-  const causalDiagnostics = workflowCausalDiagnostics(input.authorityHistories, {
+  if (input.observation.status !== 'complete')
+    return landingRefusal('incomplete', toDiagnostics(input.observation.diagnostics))
+  if (
+    JSON.stringify(input.observation.graph) !== JSON.stringify(input.uwGraph) ||
+    JSON.stringify(input.observation.histories) !== JSON.stringify(input.histories)
+  )
+    return landingRefusal('uw-not-deliverable', [
+      diagnostic(
+        'observation-mismatch',
+        'Landing must use the same complete graph and histories as its completion observation',
+      ),
+    ])
+  const causal: WorkflowCausalContext = {
     histories: input.histories,
     catalogues: input.catalogues,
-  })
+    observation: input.observation,
+  }
+  const causalDiagnostics = workflowCausalDiagnostics(input.authorityHistories, causal)
   if (causalDiagnostics.length > 0) return landingRefusal('incomplete', causalDiagnostics)
   const listed = incompleteListedParent(input.parentScopes, input.authorityHistories)
   if (listed !== null) return listed
   const selected = selectedCandidate(input)
   if ('ok' in selected) return selected
-  const direct = directAuthority(selected, input)
+  const direct = directAuthority(selected, input, causal)
   if (direct !== null) return direct
-  const parent = parentAuthority(selected, input)
+  const parent = parentAuthority(selected, input, causal)
   if (parent !== null) return parent
   const current = currentAuthority(selected, input)
   if (current !== null) return current

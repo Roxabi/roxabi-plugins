@@ -5,7 +5,9 @@ import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { RecordProjectionConfig } from '../engine/result.ts'
+import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import {
   type ApprovedChild,
   createWorkflowSpecFixtures,
@@ -30,6 +32,8 @@ type MandateOverrides = {
   config?: WorkflowFixtureContext['config']
   ownSpec?: WorkflowOwnSpec
   tier?: ApprovedChild['tier']
+  inheritedOwnSpecRefs?: OwnSpecRef[]
+  coverage?: ParentCoverage | null
 }
 
 function mustRecord(draft: Parameters<typeof buildRecord>[0]): CanonicalRecord {
@@ -52,19 +56,22 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     recordId: record.recordId,
     kind: record.kind,
   })
+  const featureIdentity = (overrides: MandateOverrides) => ({
+    recordId: overrides.recordId ?? 'mandate-feature-1',
+    runId: overrides.runId ?? 'run00001',
+    operationId: overrides.operationId ?? 'op-mandate-feature-1',
+  })
   const featureMandate = (scope: Scope, overrides: MandateOverrides = {}) => {
     const body = overrides.body ?? '## Acceptance\n- [ ] Save keeps the selected region'
     return mustMandate({
       version: 1,
-      recordId: overrides.recordId ?? 'mandate-feature-1',
-      runId: overrides.runId ?? 'run00001',
-      operationId: overrides.operationId ?? 'op-mandate-feature-1',
+      ...featureIdentity(overrides),
       repository: scope.repository,
       target: scope.target,
       kind: 'mandate',
       payload: {
         role: 'feature',
-        format: 'omp-build-mandate/3',
+        format: 'omp-build-mandate/4',
         run: overrides.run ?? 'run00001',
         children: [],
         branch: overrides.branch === undefined ? 'feat/42-save' : overrides.branch,
@@ -74,6 +81,8 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
         parent: overrides.parent ?? null,
         antecedent: overrides.antecedent ?? null,
         ownSpec: overrides.ownSpec ?? ownSpec(scope, body),
+        inheritedOwnSpecRefs: overrides.inheritedOwnSpecRefs ?? [],
+        coverage: overrides.coverage ?? null,
         tier: overrides.tier ?? 'S',
         permissions: { landing: true, correct: true },
       },
@@ -81,6 +90,18 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
   }
   const epicMandate = (scope: Scope, children: ApprovedChild[], overrides: MandateOverrides = {}) => {
     const body = overrides.body ?? '## Acceptance\n- [ ] Deliver the epic'
+    const spec = overrides.ownSpec ?? ownSpec(scope, body)
+    const firstChild = children[0]
+    const coverage: ParentCoverage | null =
+      firstChild === undefined
+        ? null
+        : {
+            parent: { uw: scope, version: spec.version },
+            assignments: spec.snapshot.spec.criteria.map((criterion) => ({
+              criterion: criterion.id,
+              children: [firstChild.scope, ...children.slice(1).map((child) => child.scope)],
+            })),
+          }
     return mustMandate({
       version: 1,
       recordId: overrides.recordId ?? 'mandate-epic-1',
@@ -91,7 +112,7 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'epic',
-        format: 'omp-build-mandate/3',
+        format: 'omp-build-mandate/4',
         run: overrides.run ?? 'run00001',
         children,
         branch: null,
@@ -100,7 +121,9 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
         parent: null,
         antecedent: null,
-        ownSpec: overrides.ownSpec ?? ownSpec(scope, body),
+        ownSpec: spec,
+        inheritedOwnSpecRefs: overrides.inheritedOwnSpecRefs ?? [],
+        coverage: overrides.coverage === undefined ? coverage : overrides.coverage,
         tier: overrides.tier ?? 'S',
         permissions: { landing: true, correct: true },
       },
@@ -118,7 +141,7 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
       kind: 'mandate',
       payload: {
         role: 'fix-only',
-        format: 'omp-build-mandate/3',
+        format: 'omp-build-mandate/4',
         run: null,
         children: [],
         branch: overrides.branch ?? 'fix/42-save',
@@ -128,6 +151,8 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
         parent: overrides.parent ?? null,
         antecedent: overrides.antecedent ?? null,
         ownSpec: overrides.ownSpec ?? ownSpec(scope, body),
+        inheritedOwnSpecRefs: overrides.inheritedOwnSpecRefs ?? [],
+        coverage: overrides.coverage ?? null,
         tier: overrides.tier ?? 'S',
         permissions: { landing: false, correct: true },
       },

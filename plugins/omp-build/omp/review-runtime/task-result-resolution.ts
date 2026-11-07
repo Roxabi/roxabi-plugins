@@ -74,12 +74,20 @@ function guardedChildMatches(
   const identityMatches = childIdentityMatches(active, task, taskIndex, value, child)
   const guard = child.id === null ? undefined : active.guardedChildren.get(child.id)
   const profile = [...nativeFeatureProfiles, ...nativeReviewProfiles].find((candidate) => candidate.name === task.agent)
+  const purpose = task.action?.inputs.manifest.purpose
+  const outcome = object(child.structured) ? child.structured.outcome : undefined
+  const purposeMatches =
+    profile?.output !== 'delivery-execution' ||
+    (purpose === 'implement' &&
+      (outcome === 'implemented' || outcome === 'blocked' || outcome === 'missing-context')) ||
+    (purpose === 'integrate' && (outcome === 'integrated' || outcome === 'missing-context'))
   return (
     identityMatches &&
     !!guard?.valid &&
     guard.yieldData !== null &&
     isDeepStrictEqual(guard.yieldData, child.structured) &&
     !!profile &&
+    purposeMatches &&
     producerOutputValid(profile.output, child.structured)
   )
 }

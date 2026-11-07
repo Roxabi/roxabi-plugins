@@ -70,9 +70,11 @@ export async function readWithAuthor(
       if (parsed.length < 100) break
     }
   } catch (error) {
-    if (error instanceof GitHubHistoryReadError) throw error
-    const message = error instanceof Error ? error.message : String(error)
-    throw new GitHubHistoryReadError('GitHub comments could not be read', [diagnostic('github-read-failed', message)])
+    const diagnostics =
+      error instanceof GitHubHistoryReadError
+        ? error.diagnostics
+        : [diagnostic('github-read-failed', error instanceof Error ? error.message : String(error))]
+    return { scope, expectedAuthor, stopAuthor, complete: false, comments, diagnostics }
   }
   return { scope, expectedAuthor, stopAuthor, complete: true, comments, diagnostics: [] }
 }

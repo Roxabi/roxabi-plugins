@@ -1,13 +1,13 @@
+import { canonicalValueDigest } from '../../dist/contracts.js'
+import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import { ticketOfBranch } from './epic-claims'
-import { epicDiffRange } from './epic-close'
-import { finalizationBlock, hookStatus } from './epic-finalization'
 import { branchFor } from './epic-naming'
+import { completionStep } from './epic-next-completion'
 import { hasFramedOwnUw, ownUwRefusal } from './epic-own-uw'
-import { isDone, mergedPr, openBlockers, stopOf, summarize, topological } from './epic-progress'
+import { childCompleted, childSchedulable, openBlockers, stopOf, summarize, topological } from './epic-progress'
 import type { ChildFacts, Facts, PrFacts, Report, Step } from './epic-types'
 
 type Candidate = { pending: ChildFacts[]; target: ChildFacts | null }
-type MergedChild = { child: ChildFacts; pr: PrFacts }
 
 /** The one next action of an Epic run, from GitHub and git state alone. */
 export function nextStep(facts: Facts): Step {
@@ -22,12 +22,17 @@ export function nextStep(facts: Facts): Step {
 
 function nextCandidate(facts: Facts): Candidate {
   const byNumber = new Map(facts.children.map((child) => [child.number, child]))
-  const pending = facts.children.filter((child) => !isDone(child, facts.base))
+  const pending = facts.children.filter((child) => !childCompleted(child, facts.base))
   return { pending, target: candidateTarget(actionableChildren(pending, facts, byNumber), facts, byNumber) }
 }
 
 function actionableChildren(pending: ChildFacts[], facts: Facts, byNumber: Map<number, ChildFacts>): ChildFacts[] {
-  return pending.filter((child) => !stopOf(child, facts.run) && openBlockers(child, byNumber, facts.base).length === 0)
+  return pending.filter(
+    (child) =>
+      childSchedulable(child, facts.run) &&
+      !stopOf(child, facts.run) &&
+      openBlockers(child, byNumber, facts.base).length === 0,
+  )
 }
 
 function candidateTarget(actionable: ChildFacts[], facts: Facts, byNumber: Map<number, ChildFacts>): ChildFacts | null {
@@ -46,7 +51,13 @@ function candidateTarget(actionable: ChildFacts[], facts: Facts, byNumber: Map<n
 
 function childStep(facts: Facts, target: ChildFacts, report: Report): Step {
   const early = earlyChildStep(facts, target, report)
-  return early ?? branchStep(facts, target, report)
+  if (early) return early
+  if (target.ownUw.status !== 'refused' && target.ownUw.role === 'parent') {
+    if (target.prs.length !== 0 || target.branches.length !== 0)
+      return stopBranchMismatch(target.number, `Parent #${target.number} has a child branch or PR`, report)
+    return { action: 'parent', ticket: target.number, reason: `#${target.number} is the next Parent`, report }
+  }
+  return branchStep(facts, target, report)
 }
 
 function earlyChildStep(facts: Facts, target: ChildFacts, report: Report): Step | null {
@@ -95,9 +106,19 @@ function branchStep(facts: Facts, target: ChildFacts, report: Report): Step {
 
   const name = pr?.head ?? names[0] ?? null
   const head = name ?? branchFor(target)
-  const closed = closedBranchStep(target, head, ticket, report)
+  const closed = terminalBranchStep(target, head, ticket, report)
   if (closed) return closed
-  if (name === null) return { action: 'start', ticket, branch: head, reason: `#${ticket} is next in order`, report }
+  if (name === null)
+    return {
+      action: 'start',
+      ticket,
+      branch: head,
+      reason:
+        target.initialMandate?.status === 'ready'
+          ? `#${ticket} is Parent-committed and framed; establishing its first mandate while dependency completion remains held`
+          : `#${ticket} is next in order`,
+      report,
+    }
 
   return existingBranchStep(target, pr, name, ticket, report)
 }
@@ -125,12 +146,13 @@ function ambiguousBranchStep(pr: PrFacts | null, names: string[], ticket: number
   return stopBranchMismatch(ticket, `several branches claim #${ticket}: ${names.join(', ')}`, report)
 }
 
-function closedBranchStep(target: ChildFacts, head: string, ticket: number, report: Report): Step | null {
-  const closed = target.prs.find((candidate) => candidate.state === 'CLOSED' && candidate.head === head)
-  if (!closed) return null
+function terminalBranchStep(target: ChildFacts, head: string, ticket: number, report: Report): Step | null {
+  const terminal = target.prs.find((candidate) => candidate.state !== 'OPEN' && candidate.head === head)
+  if (!terminal) return null
+  const state = terminal.state === 'MERGED' ? 'merged without calculated child completion' : 'closed unmerged'
   return stopBranchMismatch(
     ticket,
-    `PR #${closed.number} on ${head} was closed unmerged; a new PR needs a superseding branch`,
+    `PR #${terminal.number} on ${head} was ${state}; a new PR needs a superseding branch`,
     report,
   )
 }
@@ -180,37 +202,81 @@ function noProgressStep(pending: ChildFacts[], report: Report): Step {
   return {
     action: 'drop',
     stop: 'no-progress',
-    reason: `no actionable child while ${pending.map((child) => `#${child.number}`).join(', ')} remain open`,
+    reason: `no actionable child while ${pending.map((child) => `#${child.number}${child.initialMandate?.status === 'held' ? ` (${child.initialMandate.reason})` : ''}`).join(', ')} remain open`,
     report,
   }
 }
 
 function finalStep(facts: Facts, report: Report): Step {
-  const merged = mergedChildren(facts)
-  if (!merged.length) return completionStep(facts, report, null)
-
-  const first = merged[0]?.pr
-  if (!first?.baseSha)
-    return { action: 'drop', stop: 'driver-error', reason: `PR #${first?.number} has no merge base`, report }
-
-  const diff = epicDiffRange(
-    merged.map(({ child, pr }) => ({ number: child.number, baseSha: pr.baseSha ?? '', mergeSha: pr.mergeSha })),
-  )
-  if ('error' in diff) return { action: 'drop', stop: 'driver-error', reason: diff.error, report }
-
-  const end = diff.range.split('..')[1]
-  const review = facts.reviews.filter((entry) => entry.range.split('..')[1] === end).at(-1)
-  if (!review)
-    return { action: 'final-review', stage: 'review', range: diff.range, reason: `no review of ${diff.range}`, report }
-  if (review.verdict === 'blocking') return blockingReviewStep(facts, diff.range, report)
-  return completionStep(facts, report, `final review clean at ${end}`)
+  const integration = facts.parentIntegration
+  if (!integration.ok)
+    return {
+      action: 'drop',
+      stop: 'driver-error',
+      reason: integration.diagnostics.map((item) => item.message).join('; '),
+      report,
+    }
+  if (integration.value === null) return { action: 'integrate', reason: 'Parent own integration is required', report }
+  const { code } = integration.value
+  return reviewedRangeStep(facts, report, `${code.base}..${code.head}`)
 }
 
-function mergedChildren(facts: Facts): MergedChild[] {
-  return facts.children
-    .map((child) => ({ child, pr: mergedPr(child, facts.base) }))
-    .filter((entry): entry is MergedChild => entry.pr !== null)
-    .sort((a, b) => (a.pr.mergedAt ?? '').localeCompare(b.pr.mergedAt ?? ''))
+function reviewedRangeStep(facts: Facts, report: Report, range: string): Step {
+  const end = range.split('..')[1]
+  const review = facts.reviews
+    .filter((entry) => entry.range === range && currentEpicReviewInputs(facts, entry.inputs))
+    .at(-1)
+  if (!review) return { action: 'final-review', stage: 'review', range, reason: `no review of ${range}`, report }
+  if (review.verdict === 'blocking') return blockingReviewStep(facts, range, report)
+  if (facts.parentCompletion?.state !== 'complete')
+    return {
+      action: 'drop',
+      stop: 'driver-error',
+      reason:
+        facts.parentCompletion === null
+          ? 'Canonical Parent completion is unavailable'
+          : facts.parentCompletion.diagnostics.map((item) => item.message).join('; '),
+      report,
+    }
+  if (
+    !facts.parentCompletion.sources.some(
+      (source) =>
+        source.kind === review.decision.kind &&
+        source.recordId === review.decision.recordId &&
+        source.scope.repository === review.decision.scope.repository &&
+        source.scope.target === review.decision.scope.target,
+    )
+  )
+    return {
+      action: 'drop',
+      stop: 'driver-error',
+      reason: 'Canonical Parent completion does not cite the current review decision',
+      report,
+    }
+  return completionStep(facts, report, `final review clean at ${end}`)
+}
+export function currentEpicReviewInputs(facts: Facts, inputs: ActionInputs): boolean {
+  const current = facts.parentIntegration
+  if (!current.ok || current.value === null) return false
+  const expected = current.value
+  const manifest = inputs.manifest
+  const pins = manifest.deliveryData.filter((item) => item.role === 'integration')
+  const integration = pins[0]
+  if (
+    pins.length !== 1 ||
+    integration === undefined ||
+    manifest.code.base !== expected.code.base ||
+    manifest.code.head !== expected.code.head ||
+    manifest.code.repository !== expected.code.repository ||
+    manifest.code.referenceCommit !== expected.code.head
+  )
+    return false
+  const { role: _role, ...pin } = integration
+  return (
+    canonicalValueDigest(pin) === canonicalValueDigest(expected.source) &&
+    canonicalValueDigest(manifest.spec) === canonicalValueDigest(expected.spec) &&
+    canonicalValueDigest(manifest.acceptedSources) === canonicalValueDigest(expected.acceptedSources)
+  )
 }
 
 function blockingReviewStep(facts: Facts, range: string, report: Report): Step {
@@ -229,16 +295,4 @@ function blockingReviewStep(facts: Facts, range: string, report: Report): Step {
     reason: 'the final review is still blocking after its fix round',
     report,
   }
-}
-
-function completionStep(facts: Facts, report: Report, postMergeReason: string | null): Step {
-  const blocked = finalizationBlock(facts, report)
-  if (blocked) return blocked
-
-  const hook = hookStatus(facts)
-  if (hook.state === 'failed') return { action: 'drop', stop: 'hook-failed', reason: hook.detail, report }
-  if (hook.state === 'stale') return { action: 'drop', stop: 'hook-stale', reason: hook.detail, report }
-  if (postMergeReason === null) return { action: 'complete', reason: 'every child closed and none merged', report }
-  if (hook.state === 'done') return { action: 'complete', reason: hook.detail, report }
-  return { action: 'post-merge', reason: postMergeReason, report }
 }
