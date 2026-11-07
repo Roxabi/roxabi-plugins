@@ -117,7 +117,7 @@ async function confirmAncestorCommitment(
     !commitment ||
     commitment.tier !== facts.value.currentSpec.tier ||
     commitment.specVersion !== facts.value.currentSpec.snapshot.spec.version ||
-    canonicalValueDigest(commitment.snapshot) !== canonicalValueDigest(facts.value.currentSpec.snapshot) ||
+    canonicalValueDigest(commitment.snapshot.spec) !== canonicalValueDigest(facts.value.currentSpec.snapshot.spec) ||
     canonicalValueDigest(facts.value.currentSpec.inheritedOwnSpecRefs) !==
       canonicalValueDigest([accepted.value.ref, ...accepted.value.inheritedOwnSpecRefs])
   )

@@ -14922,6 +14922,8 @@ function stateEngagementProblem(state, parent, input) {
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, state.ref.uw));
   if (!node || (parent === undefined ? node.parent !== null : node.parent === null || !equalScope(node.parent, parent.ref.uw)))
     return refusal(input, "effective-native-ancestry-mismatch", "Complete native ancestry does not match accepted inheritance");
+  if (isWayfinder(node) || unknownWayfinderLabels(node).length)
+    return refusal({ ...input, own: state.ref }, "effective-wayfinder-not-uw", `Accepted UW ${state.ref.uw.repository} ${state.ref.uw.target} is currently classified as a Wayfinder`);
   const currentProblem = currentOwnSpecProblem(node, state);
   if (currentProblem !== null)
     return refusal({ ...input, own: state.ref }, currentProblem, `Accepted UW ${state.ref.uw.repository} ${state.ref.uw.target} current native Spec or tier differs from its accepted state`);
@@ -14970,9 +14972,16 @@ function acceptedAt(ref, input) {
   const history = historyFor(ref.uw, input.histories);
   if (history === null || !history.source.complete)
     return null;
+  if (input.mode === "current") {
+    const mandate = selectedMandate(history);
+    if (!("kind" in mandate) || mandate.kind !== "mandate")
+      return null;
+    const result = resolveAcceptedSpec(mandate, input.histories);
+    return result.ok && sameOwnSpecRef(result.spec.ref, ref) ? result.spec : null;
+  }
   const matches = [];
   for (const mandate of mandatesOf(history)) {
-    const result = input.mode === "current" ? resolveAcceptedSpec(mandate, input.histories) : resolveAcceptedSpecAt(mandate, input.histories, ref, input.assessmentReplay);
+    const result = resolveAcceptedSpecAt(mandate, input.histories, ref, input.assessmentReplay);
     if (result.ok && sameOwnSpecRef(result.spec.ref, ref))
       matches.push(result.spec);
   }

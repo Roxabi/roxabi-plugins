@@ -100,6 +100,35 @@ test('completes an open leaf only after authenticated review and the actual boun
   )
 })
 
+test.each(['wayfinder:task', 'wayfinder:unrecognized'])(
+  'a delivered managed leaf with %s holds its dependency',
+  async (label) => {
+    const fixture = await deliveredLeaf()
+    const key = scopeKey(fixture.uw)
+    const baseline = assessUwCompletion(fixture.observation)
+    expect(baseline.completions.get(key)).toMatchObject({ state: 'complete', role: 'leaf' })
+    expect(baseline.dependencies.get(key)).toMatchObject({ state: 'satisfied', basis: { kind: 'accepted-uw' } })
+    const native = fixture.observation.graph.nodes.find((item) => scopeKey(item.uw) === key)
+    if (!native) throw new Error('Expected native leaf')
+    expect(native.labels).toEqual(['size:S'])
+    expect(native.wayfinderLabels).toEqual([])
+    const observation = {
+      ...fixture.observation,
+      graph: {
+        ...fixture.observation.graph,
+        nodes: fixture.observation.graph.nodes.map((item) =>
+          scopeKey(item.uw) === key
+            ? { ...item, labels: [...item.labels, label], wayfinderLabels: label === 'wayfinder:task' ? [label] : [] }
+            : item,
+        ),
+      },
+    }
+    const changed = assessUwCompletion(observation)
+    expect(changed.completions.get(key)?.state).not.toBe('complete')
+    expect(changed.dependencies.get(key)).toMatchObject({ state: 'held' })
+  },
+)
+
 test('a materially changed current leaf Spec cannot complete or satisfy a managed dependency', async () => {
   const fixture = await deliveredLeaf()
   const key = scopeKey(fixture.uw)

@@ -2,7 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwResult } from './uw-diagnostics.ts'
-import { type UwGraphObservation, validateUwGraph } from './uw-graph.ts'
+import { isWayfinder, type UwGraphObservation, unknownWayfinderLabels, validateUwGraph } from './uw-graph.ts'
 import { currentOwnSpecProblem } from './uw-spec-currentness.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
@@ -95,6 +95,12 @@ function stateEngagementProblem(
       input,
       'effective-native-ancestry-mismatch',
       'Complete native ancestry does not match accepted inheritance',
+    )
+  if (isWayfinder(node) || unknownWayfinderLabels(node).length)
+    return refusal(
+      { ...input, own: state.ref },
+      'effective-wayfinder-not-uw',
+      `Accepted UW ${state.ref.uw.repository} ${state.ref.uw.target} is currently classified as a Wayfinder`,
     )
   const currentProblem = currentOwnSpecProblem(node, state)
   if (currentProblem !== null)

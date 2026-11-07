@@ -89,7 +89,7 @@ function matchesCommitment(parent: UwRead, child: UwRead, root: UwRead['graph'][
     labels.length === 1 &&
     labels[0] === `size:${grant.tier}` &&
     grant.specVersion === child.proposed.snapshot.spec.version &&
-    canonicalValueDigest(grant.snapshot) === canonicalValueDigest(child.proposed.snapshot)
+    canonicalValueDigest(grant.snapshot.spec) === canonicalValueDigest(child.proposed.snapshot.spec)
   )
 }
 

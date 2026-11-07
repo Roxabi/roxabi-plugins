@@ -1,9 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { Scope } from '../engine/record-values.ts'
+import { canonicalSpec } from '../engine/uw-spec.ts'
 import { criterionIdSchema } from '../engine/uw-spec-schema.ts'
 import { withEpicEffects } from '../skills/feature/epic-driver-runtime.ts'
+import { initialMandateReadiness } from '../skills/feature/epic-initial-mandate.ts'
 import { A, B, C, EPIC } from '../skills/feature/testing/goal/goal-scenario-domain.ts'
 import {
   dispose,
@@ -14,6 +17,7 @@ import {
   writeSim,
 } from '../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
+import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
 import { prepareCanonicalCheckout } from './prepare-canonical-checkout.ts'
 import type { UwOperations } from './uw-contract.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
@@ -128,6 +132,109 @@ async function coverageIntent(request: Parameters<typeof continueFeature>[0]) {
     },
   }
 }
+
+async function observeInitialChild(operations: UwOperations, parent: Scope, child: Scope) {
+  const parentRead = await operations.readUw(parent)
+  if (!parentRead.observedReader) throw new Error('Expected same-cut observed reader')
+  const childRead = await parentRead.observedReader.readUw(child)
+  return {
+    parent: parentRead,
+    child: childRead,
+    readiness: await initialMandateReadiness(parentRead, parentRead.admission, childRead),
+  }
+}
+
+async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: Scope, middle: Scope) {
+  const baseline = await operations.readUw(middle)
+  if (baseline.parsed.status !== 'conformant') throw new Error('Expected conformant middle Spec')
+  const original = baseline.parsed.snapshot
+  expect(await resolveParentWorktreeAnchor({ subject: middle, read: baseline })).toEqual({ ok: true, anchor: root })
+  const material = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement: 'lands with materially different requirements' }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!material.ok) throw new Error('Expected conformant material Spec')
+  expect(material.value.version).not.toBe(original.spec.version)
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing nested parent')
+    Object.assign(issue, {
+      body: renderIssueSpecBody(material.value, { complexity: 1 }),
+      updatedAt: '2026-01-02T00:00:00Z',
+    })
+  })
+  expect((await resolveParentWorktreeAnchor({ subject: middle, read: await operations.readUw(middle) })).ok).toBe(false)
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing nested parent')
+    Object.assign(issue, { body: original.raw.body, labels: ['size:S'] })
+  })
+  expect((await resolveParentWorktreeAnchor({ subject: middle, read: await operations.readUw(middle) })).ok).toBe(false)
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing nested parent')
+    Object.assign(issue, { body: `${original.raw.body}\n`, labels: ['size:F-lite'], updatedAt: '2026-01-03T00:00:00Z' })
+  })
+  const current = await operations.readUw(middle)
+  if (current.parsed.status !== 'conformant') throw new Error('Expected conformant presentation edit')
+  expect(current.parsed.snapshot.spec.version).toBe(original.spec.version)
+  expect(current.parsed.snapshot.raw.bodySha256).not.toBe(original.raw.bodySha256)
+  expect(current.parsed.snapshot.raw.lastEditedAt).toBe('2026-01-03T00:00:00Z')
+  expect(await resolveParentWorktreeAnchor({ subject: middle, read: current })).toEqual({ ok: true, anchor: root })
+}
+
+it('keeps an unmandated accepted child ready after presentation-only native editing', async () => {
+  const { operations, parent, child, request } = await parentFixture()
+  const intent = await coverageIntent(request)
+  await continueFeature({ ...request, ...intent })
+  const baseline = await observeInitialChild(operations, parent, child)
+  expect(baseline.parent.accepted.status).toBe('accepted')
+  expect(baseline.child.accepted.status).toBe('absent')
+  expect(baseline.readiness).toEqual({ status: 'ready' })
+  if (baseline.child.parsed.status !== 'conformant') throw new Error('Expected conformant child Spec')
+  const original = baseline.child.parsed.snapshot
+  const material = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement: 'lands with materially different requirements' }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!material.ok) throw new Error('Expected conformant material Spec')
+  expect(material.value.version).not.toBe(original.spec.version)
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing child issue')
+    Object.assign(issue, {
+      body: renderIssueSpecBody(material.value, { complexity: 1 }),
+      updatedAt: '2026-01-02T00:00:00Z',
+    })
+  })
+  expect((await observeInitialChild(operations, parent, child)).readiness.status).toBe('held')
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing child issue')
+    Object.assign(issue, { body: original.raw.body, labels: ['size:S'] })
+  })
+  expect((await observeInitialChild(operations, parent, child)).readiness.status).toBe('held')
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing child issue')
+    Object.assign(issue, { body: `${original.raw.body}\n`, labels: ['size:F-lite'], updatedAt: '2026-01-03T00:00:00Z' })
+  })
+  const current = await observeInitialChild(operations, parent, child)
+  expect(current.child.accepted.status).toBe('absent')
+  if (current.child.parsed.status !== 'conformant') throw new Error('Expected conformant presentation edit')
+  expect(current.child.parsed.snapshot.spec.version).toBe(original.spec.version)
+  expect(current.child.parsed.snapshot.raw.bodySha256).not.toBe(original.raw.bodySha256)
+  expect(current.child.parsed.snapshot.raw.lastEditedAt).toBe('2026-01-03T00:00:00Z')
+  expect(current.readiness).toEqual({ status: 'ready' })
+})
 
 it('publishes the first parent and child mandates in the same real parent checkout', async () => {
   const { before, cwd, operations, parent, child, request } = await parentFixture()
@@ -292,6 +399,7 @@ it('schedules a parent child and its leaf in the root parent worktree without a 
   expect((await operations.readUw(leaf)).accepted.status).toBe('absent')
   expect(git(cwd, ['branch', '--show-current'])).toBe('')
   expect(git(principal, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin'])).toBe(initialRefs)
+  await exerciseMiddleAnchorPresentation(operations, parent, middle)
   const leafResult = await withEpicEffects(effects, () => continueFeature(middleRequest))
   const leafRead = await operations.readUw(leaf)
   expect(leafRead.accepted.status, JSON.stringify(leafResult)).toBe('accepted')

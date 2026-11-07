@@ -10,6 +10,7 @@ import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecAt } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { historyFor, mandatesOf } from './workflow-control.ts'
+import { selectedMandate } from './workflow-mandate-admission.ts'
 import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 export type SpecEffectiveRequest = { own: OwnSpecRef; histories: readonly DecodedHistory[] } & (
@@ -27,12 +28,15 @@ function refusal(own: OwnSpecRef, code: string, message: string): UwResult<never
 function acceptedAt(ref: OwnSpecRef, input: SpecEffectiveRequest): AcceptedOwnSpec | null {
   const history = historyFor(ref.uw, input.histories)
   if (history === null || !history.source.complete) return null
+  if (input.mode === 'current') {
+    const mandate = selectedMandate(history)
+    if (!('kind' in mandate) || mandate.kind !== 'mandate') return null
+    const result = resolveAcceptedSpec(mandate, input.histories)
+    return result.ok && sameOwnSpecRef(result.spec.ref, ref) ? result.spec : null
+  }
   const matches: AcceptedOwnSpec[] = []
   for (const mandate of mandatesOf(history)) {
-    const result =
-      input.mode === 'current'
-        ? resolveAcceptedSpec(mandate, input.histories)
-        : resolveAcceptedSpecAt(mandate, input.histories, ref, input.assessmentReplay)
+    const result = resolveAcceptedSpecAt(mandate, input.histories, ref, input.assessmentReplay)
     if (result.ok && sameOwnSpecRef(result.spec.ref, ref)) matches.push(result.spec)
   }
   const [match] = matches
