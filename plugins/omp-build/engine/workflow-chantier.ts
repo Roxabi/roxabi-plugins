@@ -9,6 +9,17 @@ export function workflowCausalDiagnostics(
   selected: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
 ): Diagnostic[] {
+  if (
+    causal.observation.status !== 'complete' ||
+    causal.observation.histories !== causal.histories ||
+    causal.observation.catalogues !== causal.catalogues
+  )
+    return [
+      diagnostic(
+        'fix-history-observation-drift',
+        'Causal context must share the complete observation histories and catalogues',
+      ),
+    ]
   const observed = new Map<string, DecodedHistory>()
   for (const history of causal.histories) {
     const key = `${history.source.scope.repository}\0${history.source.scope.target}`
@@ -18,7 +29,8 @@ export function workflowCausalDiagnostics(
   }
   for (const history of selected) {
     const key = `${history.source.scope.repository}\0${history.source.scope.target}`
-    if (JSON.stringify(observed.get(key)) !== JSON.stringify(history))
+    const captured = observed.get(key)
+    if (captured !== history && JSON.stringify(captured) !== JSON.stringify(history))
       return [diagnostic('fix-history-observation-drift', 'Selected workflow history differs from causal observation')]
   }
   return []

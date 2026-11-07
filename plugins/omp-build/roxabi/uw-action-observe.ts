@@ -1,5 +1,3 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   canonicalValueDigest,
@@ -14,20 +12,27 @@ import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { ActionInputManifest, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { actionFailure, isGitSha, jsonPointer } from './uw-action-result.ts'
 import { type CorrectionActionCode, correctionObservation } from './uw-correction-observation.ts'
 import { correctionAnchorsValid, correctionWorktreeValid } from './uw-correction-observe-check.ts'
+import type { CreatedChildAssessment } from './uw-created-child-candidate.ts'
 import { checkoutRepository } from './uw-git-bytes.ts'
 import { readReviewInputHistories } from './uw-input-readers.ts'
-import type { GitRunner } from './workflow-checkout.ts'
+import { defaultGit, type GitRunner } from './workflow-checkout.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
-const execFileAsync = promisify(execFile)
 const BASE_PURPOSE: Record<string, true> = { plan: true, 'plan-review': true }
 
-export type ActionFactSource = { cwd: string; gh: Gh; readAuthor?: string }
+export type ActionFactSource = {
+  cwd: string
+  gh: Gh
+  git?: GitRunner
+  readAuthor?: string
+  createdChildAssessment?: CreatedChildAssessment
+}
 
 function sameRecord(record: CanonicalRecord, ref: ExternalRecordRef): boolean {
   return (
@@ -42,7 +47,11 @@ export async function readHistories(
   scopes: readonly Scope[],
   source: ActionFactSource,
 ): Promise<Result<DecodedHistory[]>> {
-  const options: GitHubOptions = { cwd: source.cwd, gh: source.gh, readAuthor: source.readAuthor }
+  const options: GitHubOptions = withRoxabiGitHubPolicy({
+    cwd: source.cwd,
+    gh: source.gh,
+    readAuthor: source.readAuthor,
+  })
   const decoded: DecodedHistory[] = []
   for (const scope of scopes) {
     try {
@@ -85,21 +94,45 @@ export function sourceRef(home: readonly DecodedHistory[], ref: ExternalRecordRe
   return actionFailure('record-unreadable', 'Accepted source is absent from its scope')
 }
 
+export function pinAcceptedSources(
+  histories: readonly DecodedHistory[],
+  refs: readonly ExternalRecordRef[],
+): Result<RecordInputRef[]> {
+  const pins = new Map<string, RecordInputRef>()
+  for (const ref of refs) {
+    const pin = sourceRef(histories, ref)
+    if (!pin.ok) return pin
+    const key = JSON.stringify([pin.value.record, pin.value.selector])
+    const previous = pins.get(key)
+    if (previous !== undefined && canonicalValueDigest(previous) !== canonicalValueDigest(pin.value))
+      return actionFailure('record-unreadable', 'Conflicting authenticated source pins')
+    pins.set(key, pin.value)
+  }
+  return { ok: true, value: [...pins.values()] }
+}
+
 async function mergedReviewBase(
   request: UwActionRequest,
   cwd: string,
   state: string | undefined,
   merge: string | undefined,
   currentBase: string,
+  git: GitRunner,
 ): Promise<boolean> {
   if (request.purpose !== 'review' || state !== 'MERGED' || typeof merge !== 'string' || !isGitSha(merge)) return false
   try {
-    const [first, second] = await Promise.all([
-      execFileAsync('git', ['-C', cwd, 'rev-parse', '--verify', `${merge}^1`], { encoding: 'utf8' }),
-      execFileAsync('git', ['-C', cwd, 'rev-parse', '--verify', `${merge}^2`], { encoding: 'utf8' }),
-      execFileAsync('git', ['-C', cwd, 'merge-base', '--is-ancestor', merge, currentBase], { encoding: 'utf8' }),
+    const [first, second, ancestor] = await Promise.all([
+      git(cwd, ['rev-parse', '--verify', `${merge}^1`]),
+      git(cwd, ['rev-parse', '--verify', `${merge}^2`]),
+      git(cwd, ['merge-base', '--is-ancestor', merge, currentBase]),
     ])
-    return first.stdout.trim() === request.code.base && second.stdout.trim() === request.code.head
+    return (
+      first.code === 0 &&
+      second.code === 0 &&
+      ancestor.code === 0 &&
+      first.stdout.trim() === request.code.base &&
+      second.stdout.trim() === request.code.head
+    )
   } catch {
     return false
   }
@@ -173,17 +206,23 @@ async function observePull(
       `Observed PR head ${parsed.headRefOid ?? 'absent'} does not match ${request.code.head}`,
     )
   }
-  const selectedBase = await execFileAsync(
-    'git',
-    ['-C', correction?.cwd ?? source.cwd, 'rev-parse', `origin/${parsed.baseRefName}`],
-    {
-      encoding: 'utf8',
-    },
-  ).catch(() => null)
+  const git = source.git ?? defaultGit()
+  const selectedBase = await git(correction?.cwd ?? source.cwd, ['rev-parse', `origin/${parsed.baseRefName}`]).catch(
+    () => null,
+  )
   if (
     selectedBase === null ||
+    selectedBase.code !== 0 ||
+    !isGitSha(selectedBase.stdout.trim()) ||
     (selectedBase.stdout.trim() !== request.code.base &&
-      !(await mergedReviewBase(request, source.cwd, parsed.state, parsed.mergeCommit?.oid, selectedBase.stdout.trim())))
+      !(await mergedReviewBase(
+        request,
+        source.cwd,
+        parsed.state,
+        parsed.mergeCommit?.oid,
+        selectedBase.stdout.trim(),
+        git,
+      )))
   ) {
     return actionFailure('action-code-moved', 'Selected origin base does not match the requested base')
   }
@@ -204,8 +243,8 @@ export async function observeCode(
   }
   const pull = request.subject.pullRequest
   if (pull === null) {
-    const head = await execFileAsync('git', ['-C', source.cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
-    if (head.stdout.trim() !== code.head)
+    const head = await (source.git ?? defaultGit())(source.cwd, ['rev-parse', 'HEAD'])
+    if (head.code !== 0 || !isGitSha(head.stdout.trim()) || head.stdout.trim() !== code.head)
       return actionFailure('action-code-moved', 'Worktree HEAD does not match the requested code head')
     return { ok: true, value: { branch: 'HEAD', baseName: 'HEAD' } }
   }
@@ -215,16 +254,8 @@ export async function observeCode(
 export async function configuration(
   cwd: string,
   commit: string,
+  git: GitRunner = defaultGit(),
 ): Promise<Result<ActionInputManifest['configuration']>> {
-  const git: GitRunner = async (directory, args) => {
-    try {
-      const shown = await execFileAsync('git', ['-C', directory, ...args], { encoding: 'utf8' })
-      return { code: 0, stdout: shown.stdout, stderr: shown.stderr }
-    } catch (error) {
-      const failed = error as { code?: number; stdout?: string; stderr?: string }
-      return { code: failed.code ?? 1, stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' }
-    }
-  }
   const effective = await readEffectiveFixConfig({ cwd, commit, git })
   if (!effective.ok) return { ok: false, diagnostics: effective.diagnostics }
   return {

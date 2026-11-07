@@ -11,7 +11,7 @@ type UnassignedInput = {
   records: ReadonlyMap<string, CanonicalRecord>
   bindings: DecisionBindings
   decisionRef: Ref<'decision'>
-  base: Pick<CauseDispositionPayload, 'format' | 'origin' | 'previous' | 'adjudication'>
+  base: Pick<CauseDispositionPayload, 'format' | 'origin' | 'basis' | 'previous' | 'adjudication'>
   outcomes: CauseDispositionPayload[]
 }
 

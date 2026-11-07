@@ -53,7 +53,13 @@ function settleInstalledWatch(
         return
       }
       try {
-        const next = await host.workflow.consumeWatchExit({ cwd, pr, code: result.code, reference })
+        const next = await host.workflow.consumeWatchExit({
+          cwd,
+          pr,
+          code: result.code,
+          reference,
+          ...(host.uw === undefined ? {} : { uw: host.uw }),
+        })
         await deliver(next)
       } catch (error) {
         await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { operation } from '../../testing/record-history.ts'
@@ -215,6 +217,26 @@ function assess(
   return must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(decision, [source]),
+      graph: {
+        status: 'complete',
+        root: uw,
+        observedAt: '2026-10-27T12:00:00.000Z',
+        nodes: [
+          {
+            uw,
+            title: 'Save region',
+            raw: rawSource(uw.target, body, '2026-10-27T12:00:00.000Z'),
+            updatedAt: '2026-10-27T12:00:00.000Z',
+            labels: ['size:S'],
+            wayfinderLabels: [],
+            parent: null,
+            children: [],
+            blockers: [],
+            native: { state: 'OPEN', stateReason: null },
+          },
+        ],
+      },
       source: { kind: 'decision', decision },
       histories: [fixtures.historyFrom([mandate]), source],
       catalogues: fixtureReviewClassCatalogues(),

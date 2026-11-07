@@ -1,7 +1,9 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
+import { causeDependencyAdjustmentProposalSchema } from '../../engine/cause-dependency-adjustment-schema.ts'
+import { nativeObservationDigest } from '../../engine/uw-native-observation-schema.ts'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
-import type { PreparedUwProposal } from '../../roxabi/uw-contract.ts'
+import type { PreparedUwProposal, PreparedUwReopen } from '../../roxabi/uw-contract.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { createOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
@@ -21,7 +23,7 @@ function materialProposal(): PreparedMaterialAcceptance {
   return {
     digest: '8e6e37f6c1d14723bc8d8e4b5565d928',
     proposal: {
-      format: 'omp-build-material-acceptance/1',
+      format: 'omp-build-material-acceptance/2',
       operationId: 'accept-material-acme-widgets-42',
       uw: { repository: 'acme/widgets', target: 'acme/widgets#42' },
       mandate: {
@@ -56,6 +58,136 @@ function interactiveContext(confirm: () => Promise<boolean>): ExtensionContext {
 }
 
 describe('native operator confirmation capability', () => {
+  it('shows composed parent consent before the single creation confirmation', async () => {
+    const prepared = {
+      digest: 'c'.repeat(64),
+      proposal: {
+        format: 'omp-build-uw-proposal/1',
+        operationId: 'create-42',
+        operation: 'create',
+        target: { kind: 'create', repository: 'acme/widgets' },
+        title: 'New child',
+        creation: { kind: 'sister', original: { repository: 'acme/widgets', target: 'acme/widgets#42' } },
+        draft: {},
+        parentAcceptance: {
+          parentOperationId: 'parent-accept-42',
+          slot: { kind: 'created-by', operationId: 'create-42' },
+        },
+      },
+    } as unknown as PreparedUwProposal
+    let displayed = ''
+    let executed = false
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          displayed = message
+          return false
+        },
+      },
+    } as unknown as ExtensionContext
+    const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
+      executed = true
+    })
+    expect(result.status).toBe('refused')
+    expect(executed).toBe(false)
+    expect(displayed).toContain('parent acceptance:')
+    expect(displayed).toContain('parent-accept-42')
+    expect(displayed).toContain('create-42')
+  })
+
+  it('shows the exact raw state and REOPENED effect before confirmation', async () => {
+    const prepared = {
+      digest: 'b'.repeat(64),
+      proposal: {
+        format: 'omp-build-uw-reopen/1',
+        operationId: 'reopen-42',
+        uw: { repository: 'acme/widgets', target: 'acme/widgets#42' },
+        accepted: {},
+        before: { nativeState: { state: 'CLOSED', stateReason: 'NOT_PLANNED' } },
+        effect: { state: 'OPEN', stateReason: 'REOPENED' },
+      },
+    } as PreparedUwReopen
+    let displayed = ''
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          displayed = message
+          return false
+        },
+      },
+    } as unknown as ExtensionContext
+    let executed = false
+    await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
+      executed = true
+    })
+    expect(executed).toBe(false)
+    expect(displayed).toContain('NOT_PLANNED')
+    expect(displayed).toContain('REOPENED')
+  })
+
+  it('displays causal and native changes separately and does not execute a declined adjustment', async () => {
+    const origin = { repository: 'acme/widgets', target: 'acme/widgets#42' }
+    const blocker = { repository: 'acme/widgets', target: 'acme/widgets#43' }
+    const mandate = { scope: origin, recordId: 'mandate-1', kind: 'mandate' as const }
+    const accepted = { uw: origin, version: 'b'.repeat(64), sourceAccepted: mandate }
+    const before = {
+      issue: { repository: origin.repository, number: 42 },
+      title: 'Origin',
+      body: 'Exact body',
+      updatedAt: '2026-01-01T00:00:00Z',
+      nativeState: { state: 'OPEN' as const, stateReason: null },
+      labels: [],
+      parent: null,
+      children: [],
+      blockers: [{ repository: blocker.repository, number: 43 }],
+    }
+    const prepared = {
+      digest: 'a'.repeat(64),
+      proposal: causeDependencyAdjustmentProposalSchema.parse({
+        format: 'omp-build-cause-dependency-adjustment/1',
+        operationId: 'adjust-42',
+        controlId: 'adjust-control',
+        origin,
+        mandate,
+        accepted,
+        versionVector: [accepted],
+        disposition: { scope: origin, recordId: 'disposition-1', kind: 'cause-disposition' },
+        receipt: { scope: origin, recordId: 'receipt-1', kind: 'debt-receipt' },
+        predecessor: { scope: origin, recordId: 'receipt-1', kind: 'debt-receipt' },
+        change: { kind: 'withdraw' },
+        nativeEffect: { kind: 'update-blockers', remove: [blocker], add: [] },
+        reason: 'No longer needed',
+        references: [],
+        before,
+        nativeObservationDigest: nativeObservationDigest(before),
+        histories: [{ scope: origin, digest: 'c'.repeat(64) }],
+        nativeGraph: { root: origin, rows: [{ uw: origin, digest: nativeObservationDigest(before) }] },
+      }),
+    }
+    let displayed = ''
+    let executed = false
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          displayed = message
+          return false
+        },
+      },
+    } as unknown as ExtensionContext
+    const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
+      executed = true
+    })
+    expect(result.status).toBe('refused')
+    expect(executed).toBe(false)
+    expect(displayed).toContain('causal change:')
+    expect(displayed).toContain('withdraw')
+    expect(displayed).toContain('native effect:')
+    expect(displayed).toContain('acme/widgets#43')
+  })
+
   it('shows the exact adjudication and does not execute it when declined', async () => {
     const uw = { repository: 'acme/widgets', target: 'acme/widgets#42' }
     const prepared = {

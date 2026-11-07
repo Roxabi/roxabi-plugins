@@ -1,4 +1,4 @@
-import { sameOwnSpecRef } from '../dist/contracts.js'
+import { type PreparedCauseCapture, sameOwnSpecRef } from '../dist/contracts.js'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { NativeCorrectionExecutionOptions } from './correction-execution-contract.ts'
 import { createNativeCorrectionExecution } from './correction-native-execution.ts'
@@ -15,7 +15,7 @@ import {
 } from './fix-contributions-synthesis.ts'
 import { correctionObservationRefs } from './fix-correction-observation-refs.ts'
 import { correctionCriterionReceipt } from './fix-criterion-receipt.ts'
-import { persistCauseDispositions } from './fix-disposition-execution.ts'
+import { capturePreparedIntake, persistCapturedCauseDispositions } from './fix-disposition-capture.ts'
 import { admitStoredDecision, authorizeCorrectionContinuation, correctionStarted } from './fix-execution-authority.ts'
 import {
   type DefaultFixRequest,
@@ -33,13 +33,16 @@ export async function executeDecision(
   decision: Extract<FixRecord, { kind: 'decision' }>,
   product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore' | 'github'>,
   identity: FixIdentity,
+  capture: PreparedCauseCapture | 'authenticate-source',
 ): Promise<FixActionResult<FixRecord>> {
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const disposition = await persistCauseDispositions(
-    prepared,
+  const disposition = await persistCapturedCauseDispositions(
+    prepared.causeContext,
     { kind: 'decision', decision },
     identity,
     product.dispositionStore,
+    product.runtime.uw,
+    capture,
   )
   if (!disposition.ok) return disposition
   if (disposition.value.pending) return failure('correction-disposition-pending-blocking')
@@ -68,11 +71,13 @@ export async function executeDecision(
       if (!origin.ok) return origin
       if (!sameOwnSpecRef(origin.value.effective.own, prepared.causeContext.effective.own))
         return failure('correction-origin-stale')
-      const current = await persistCauseDispositions(
-        prepared,
+      const current = await persistCapturedCauseDispositions(
+        prepared.causeContext,
         { kind: 'decision', decision },
         identity,
         product.dispositionStore,
+        product.runtime.uw,
+        capture,
       )
       if (!current.ok) return current
       if (current.value.pending || JSON.stringify(current.value.refs) !== JSON.stringify(disposition.value.refs))
@@ -145,6 +150,8 @@ export async function runDefaultFixWorkflow(
     product.runtime.signal,
   )
   if (!prepared.ok) return prepared
+  const intakeCapture = capturePreparedIntake(prepared.value)
+  if (!intakeCapture.ok) return intakeCapture
   const preservedIntake = await dispatchNativeBatch<{ result: NativeBatchResult; records: FixRecord[] }>(
     product.native,
     prepared.value.batch,
@@ -168,9 +175,15 @@ export async function runDefaultFixWorkflow(
   if (!preservedIntake.ok) return preservedIntake
   const intake = assessFixIntake(prepared.value, preservedIntake.value.result, preservedIntake.value.records)
   if (!intake.complete)
-    return retainFailedOutput(prepared.value, intake.records, intake.diagnostics, product, input.identity, [
-      `native-intake-incomplete:${intake.diagnostics.join(';')}`,
-    ])
+    return retainFailedOutput(
+      prepared.value,
+      intake.records,
+      intake.diagnostics,
+      product,
+      input.identity,
+      [`native-intake-incomplete:${intake.diagnostics.join(';')}`],
+      intakeCapture.value,
+    )
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   const synthesis = await prepareCorrectionSynthesis(
     prepared.value,
@@ -219,14 +232,17 @@ export async function runDefaultFixWorkflow(
       product,
       input.identity,
       decision.diagnostics,
+      synthesis.value.capture,
     )
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   if (decision.value.kind !== 'decision') return failure('correction-synthesis-decision-invalid')
-  const retainedDecision = await persistCauseDispositions(
-    prepared.value,
+  const retainedDecision = await persistCapturedCauseDispositions(
+    prepared.value.causeContext,
     { kind: 'decision', decision: decision.value },
     input.identity,
     product.dispositionStore,
+    product.runtime.uw,
+    synthesis.value.capture,
   )
   if (!retainedDecision.ok) return retainedDecision
   const admission = await admitStoredDecision(
@@ -242,6 +258,7 @@ export async function runDefaultFixWorkflow(
     decision.value as Extract<FixRecord, { kind: 'decision' }>,
     product,
     input.identity,
+    synthesis.value.capture,
   )
 }
 
@@ -251,11 +268,13 @@ export async function runReviewBoundFixWorkflow(
   product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore' | 'github'>,
   identity: FixIdentity,
 ): Promise<FixActionResult<FixRecord>> {
-  const retainedDecision = await persistCauseDispositions(
-    prepared,
+  const retainedDecision = await persistCapturedCauseDispositions(
+    prepared.causeContext,
     { kind: 'decision', decision },
     identity,
     product.dispositionStore,
+    product.runtime.uw,
+    'authenticate-source',
   )
   if (!retainedDecision.ok) return retainedDecision
   const admission = await admitStoredDecision(
@@ -265,5 +284,5 @@ export async function runReviewBoundFixWorkflow(
     'review-fix-history-unreadable',
   )
   if (!admission.ok) return admission
-  return executeDecision(prepared, decision, product, identity)
+  return executeDecision(prepared, decision, product, identity, 'authenticate-source')
 }

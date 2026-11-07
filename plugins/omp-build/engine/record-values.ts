@@ -8,6 +8,7 @@ import {
 import { type CriterionVerdict, criterionVerdictSchema } from './criterion-verdict-schema.ts'
 import { findingTargetSchema } from './finding-target-schema.ts'
 import {
+  diagnosticSchema,
   identifierSchema,
   jsonSchema,
   repoRelativePathSchema,
@@ -16,19 +17,8 @@ import {
   shaSchema,
 } from './schema-primitives.ts'
 
-export type { Json, Scope } from './schema-primitives.ts'
-export { identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema, shaSchema }
-
-export const diagnosticSchema = z.strictObject({
-  code: z.string().min(1),
-  message: z.string(),
-  recordId: z.string().min(1).optional(),
-  operationId: z.string().min(1).optional(),
-  findingId: z.string().min(1).optional(),
-  path: z.string().min(1).optional(),
-  detail: jsonSchema.optional(),
-})
-export type Diagnostic = z.infer<typeof diagnosticSchema>
+export type { Diagnostic, Json, Scope } from './schema-primitives.ts'
+export { diagnosticSchema, identifierSchema, jsonSchema, repoRelativePathSchema, scopeSchema, sha256Schema, shaSchema }
 
 export const labelSchema = z.enum([
   'issue',

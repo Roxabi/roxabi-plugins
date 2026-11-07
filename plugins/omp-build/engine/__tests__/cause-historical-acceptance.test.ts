@@ -1,13 +1,15 @@
 import { expect, it } from 'vitest'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
+import { contributionActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
-import { operation } from '../../testing/record-history.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { assessCauseDispositions, validateCauseDispositionRecords } from '../cause-disposition.ts'
 import { assessCauseHolds } from '../cause-hold.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
+import { projectUwWaits } from '../uw-waits.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
+import { recordsOf } from '../workflow-control.ts'
 import {
   acceptMaterialFixture,
   assessFixture,
@@ -21,11 +23,7 @@ it.each(['editorial', 'material'] as const)(
   (classification) => {
     const { graph, context } = authenticatedReview()
     const catalogues = fixtureReviewClassCatalogues()
-    const fixtures = roxabiWorkflowFixtures()
-    const mandate = fixtures.featureMandate(context.original, {
-      recordId: 'mandate-42',
-      body: 'Save the selected region',
-    })
+    const mandate = causeFixtureMandate()
     const original = graph.panel.payload.findings?.[0]
     if (!original || original.data === null || typeof original.data !== 'object' || Array.isArray(original.data))
       throw new Error('Expected original finding')
@@ -45,16 +43,16 @@ it.each(['editorial', 'material'] as const)(
       }),
     )
     if (panel.kind !== 'contribution') throw new Error('Expected contribution')
-    const source = {
-      ...graph.history,
-      operations: graph.history.operations.map((entry) =>
-        entry.recordId === panel.recordId ? operation(panel) : entry,
-      ),
-    }
+    const source = history(
+      recordsOf(graph.history).map((record) => (record.recordId === panel.recordId ? panel : record)),
+      graph.history.source.scope,
+    )
     const initial = history([mandate])
     const assessed = must(
       assessCauseDispositions({
         context,
+        capture: contributionActionCapture(panel, [source]),
+        graph: causeFixtureGraph(),
         source: { kind: 'retained-output', contributions: [panel], diagnostics: [] },
         histories: [initial, source],
         catalogues,
@@ -77,7 +75,7 @@ it.each(['editorial', 'material'] as const)(
     )
     const accepted = mandateAssessmentState(mandate)
     const next = proposedAssessmentState(accepted, { body: 'Editorial clarification of selected region' })
-    const amendment = assessFixture(mandate, 'historical-amendment', accepted, next, classification)
+    const amendment = assessFixture(mandate, 'historical-amendment', accepted, next, classification, [initial, source])
     const control =
       classification === 'material' ? acceptMaterialFixture(mandate, 'accept-historical-material', amendment) : null
     const before = history([mandate, report])
@@ -88,14 +86,12 @@ it.each(['editorial', 'material'] as const)(
     })
     expect(validateCauseDispositionRecords({ records: [report], histories: [before, source], catalogues })).toEqual([])
     expect(validateCauseDispositionRecords({ records: [report], histories: [after, source], catalogues })).toEqual([])
-    expect(
-      assessCauseHolds({
-        uw: context.original,
-        histories: [after, source],
-        catalogues,
-        graph: { status: 'complete', root: context.original, nodes: [], observedAt: '2026-10-27T12:00:00.000Z' },
-      }),
-    ).toEqual([])
+    const waits = projectUwWaits({
+      graph: causeFixtureGraph('Editorial clarification of selected region'),
+      histories: [after, source],
+      catalogues,
+    })
+    expect(assessCauseHolds({ uw: context.original, waits, dependencies: new Map() })).toEqual([])
     const forged = must(
       parseRecord({
         ...report,

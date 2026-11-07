@@ -9,17 +9,14 @@ import { canonicalSpec } from '../engine/uw-spec.ts'
 import { SPEC_CONTENT_FORMAT } from '../engine/uw-spec-schema.ts'
 import { createProductionActionPorts } from '../roxabi/uw-input-readers.ts'
 import { confirmedReviewSemanticContext } from '../skills/feature/workflow-review-input.js'
-import { freshReviewInputs, standaloneReviewInputs } from './action-input-fixtures.ts'
-import {
-  committedFixtureInputs,
-  committedFixtureProjection,
-  committedFixtureRecords,
-} from './committed-plugin-fixture.ts'
-import { criterionImplementationRecords } from './criterion-accepted-plan.ts'
+import { acceptedActionInputs, freshReviewInputs, standaloneReviewInputs } from './action-input-fixtures.ts'
+import { committedFixtureInputs, committedFixtureProjection } from './committed-plugin-fixture.ts'
 import { encodedAdmissionReviewGraph } from './record-admission.ts'
 import { type BoundCriterionFixture, boundReviewBodies, type CriterionFixture } from './review-gate-criterion.ts'
 import { git, type ReviewGateFixture, readState, writeState } from './review-gate-fixture.ts'
 import { AUTOMATION, type IssueState, PR_EDITED, PR_TEXT, SCOPE, type StoredComment } from './review-gate-gh.ts'
+import { nativeMandateRecords } from './review-gate-native-mandate.ts'
+import { recordKind } from './review-gate-record-kind.ts'
 import { assembleActionInputs } from './review-input-assembly.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
@@ -120,15 +117,29 @@ export async function seedMandate(fixture: ReviewGateFixture, spec = SPEC): Prom
     operationId: 'op-mandate-feature-1',
     branch: 'feat/7-fixture',
     base: 'main',
-    lineageHead: fixture.head,
+    lineageHead: fixture.base,
     body: spec,
     ownSpec: ownSpecFromSnapshot(ISSUE_SCOPE, parsed.snapshot),
   })
-  const issueRecords = committedFixtureRecords(
-    fixture.tools,
-    criterionImplementationRecords(mandate, fixture.head),
-    fixture.pin,
-  )
+  const plugin = committedFixtureInputs(fixture.tools, acceptedActionInputs(mandate, 'plan'), fixture.pin).manifest
+    .plugin
+  const existing = readState(fixture)
+  const pullHistory = decodeHistory({
+    scope: SCOPE,
+    expectedAuthor: AUTOMATION,
+    stopAuthor: null,
+    complete: true,
+    diagnostics: [],
+    comments: existing.comments.map((comment) => ({
+      locator: `${SCOPE.target}:${comment.id}`,
+      nativeId: String(comment.id),
+      body: comment.body,
+      author: comment.user.login,
+      createdAt: comment.created_at,
+      updatedAt: comment.updated_at,
+    })),
+  })
+  const issueRecords = await nativeMandateRecords(fixture, spec, mandate, plugin, pullHistory)
   fixtureCriteria.set(fixture, { mandate, issueRecords })
   const binding = workflowBinding(SCOPE, mandate, 'feat/7-fixture', 'main')
   const state = readState(fixture)
@@ -262,7 +273,7 @@ export function advanceOriginNormativeStack(fixture: ReviewGateFixture, origin: 
   return git(stage, ['rev-parse', 'HEAD'])
 }
 
-function gateGh(fixture: ReviewGateFixture) {
+export function gateGh(fixture: ReviewGateFixture) {
   return async (_cwd: string, args: string[]) => {
     const targetArgs =
       args[0] === 'pr'
@@ -273,18 +284,6 @@ function gateGh(fixture: ReviewGateFixture) {
     const result = spawnSync('gh', targetArgs, { cwd: fixture.tools, env: fixture.env, encoding: 'utf8' })
     if (result.status !== 0) throw new Error(String(result.stderr || result.stdout))
     return String(result.stdout).trim()
-  }
-}
-
-function recordKind(body: string): string | null {
-  const framed = /^<!-- omp-build-record v=1 kind=([a-z][a-z0-9-]*) /.exec(body)
-  if (framed?.[1]) return framed[1]
-  try {
-    const parsed: unknown = JSON.parse(body)
-    if (!parsed || typeof parsed !== 'object' || !('kind' in parsed) || typeof parsed.kind !== 'string') return null
-    return parsed.kind
-  } catch {
-    return null
   }
 }
 

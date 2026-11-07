@@ -1,7 +1,8 @@
+import type { PreparedCauseCapture } from '../dist/contracts.js'
 import type { createNativeCorrectionExecution } from './correction-native-execution.ts'
 import type { FixActionResult, FixIdentity, FixRecord, PreparedFix } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
-import { persistCauseDispositions } from './fix-disposition-execution.ts'
+import { persistCapturedCauseDispositions } from './fix-disposition-capture.ts'
 import type { DefaultFixWorkflow } from './fix-execution-policy.ts'
 
 export async function pushAndReadHead(
@@ -27,9 +28,10 @@ export async function retainFailedOutput(
   product: DefaultFixWorkflow,
   identity: FixIdentity,
   refusal: string[],
+  capture: PreparedCauseCapture | 'authenticate-source',
 ): Promise<FixActionResult<never>> {
-  const retained = await persistCauseDispositions(
-    prepared,
+  const retained = await persistCapturedCauseDispositions(
+    prepared.causeContext,
     {
       kind: 'retained-output',
       contributions: records.filter(
@@ -39,6 +41,8 @@ export async function retainFailedOutput(
     },
     identity,
     product.dispositionStore,
+    product.runtime.uw,
+    capture,
   )
   return retained.ok ? failure(...refusal) : retained
 }

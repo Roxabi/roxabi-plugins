@@ -4,6 +4,7 @@ import type { SpecSnapshot } from '../../engine/uw-spec.ts'
 import type { UwRead, UwReadPort } from '../../roxabi/uw-contract.ts'
 import { readCurrentChildrenProjection } from '../../roxabi/uw-current-facts.ts'
 import { Refused, uwReadPort } from './epic-driver-runtime'
+import { type InitialMandateReadiness, initialMandateReadiness } from './epic-initial-mandate'
 import type { OwnUwObservation } from './epic-types'
 
 type OwnUwDiagnostic = Extract<OwnUwObservation, { status: 'refused' }>['diagnostics'][number]
@@ -13,10 +14,21 @@ type OwnUwTier = Extract<OwnUwObservation, { status: 'framed' }>['tier']
 
 export type CanonicalEpic = {
   full: string
+  parent: OwnUwRead
   parentAdmission: UwAdmission
   native: Map<string, OwnUwRead['graph']['nodes'][number]>
   nodes: OwnUwRead['graph']['nodes'][number][]
   ownUws: Map<number, OwnUwObservation>
+  initialMandates: Map<number, InitialMandateReadiness>
+  completion: OwnUwRead['completion']
+}
+
+export function epicDependency(canonical: CanonicalEpic, scope: { repository: string; target: string }) {
+  return canonical.completion.dependencies.get(`${scope.repository}\0${scope.target}`)?.state ?? 'held'
+}
+
+export function epicChildCompletion(canonical: CanonicalEpic, scope: { repository: string; target: string }) {
+  return canonical.completion.completions.get(`${scope.repository}\0${scope.target}`)?.state ?? 'indeterminate'
 }
 
 function diagnostic(uw: { repository: string; target: string }, code: string, message: string): OwnUwDiagnostic {
@@ -84,9 +96,16 @@ function settledOwnUw(
     diagnostics.push(diagnostic(uw, 'tier-missing', 'Own UW has no native tier'))
     return null
   }
+  const children = projectNativeUwChildren({ uw, graph: read.graph, accepted: read.accepted })
+  if (!children.ok) {
+    diagnostics.push(...children.diagnostics)
+    return null
+  }
+  const role = children.value.length > 0 ? 'parent' : 'leaf'
   if (read.accepted.status === 'absent')
     return {
       status: 'framed',
+      role,
       snapshot: proposed.snapshot,
       tier,
       graphComplete: true,
@@ -95,7 +114,7 @@ function settledOwnUw(
   const accepted = acceptedOwnSpec(read, proposed.snapshot, uw, tier, diagnostics)
   return accepted === null
     ? null
-    : { status: 'accepted', accepted, graphComplete: true, identityAllocations: allocations }
+    : { status: 'accepted', role, accepted, graphComplete: true, identityAllocations: allocations }
 }
 
 function refusalObservation(diagnostics: OwnUwDiagnostic[]): Extract<OwnUwObservation, { status: 'refused' }> {
@@ -110,17 +129,20 @@ function refusalObservation(diagnostics: OwnUwDiagnostic[]): Extract<OwnUwObserv
 async function observeOwnUw(
   readUw: UwReadPort['readUw'],
   uw: { repository: string; target: string },
-): Promise<OwnUwObservation> {
+): Promise<{ own: OwnUwObservation; read: OwnUwRead | null }> {
   try {
     const read = await readUw(uw)
     const diagnostics = observationDiagnostics(read)
     const allocations = identityAllocations(read)
-    return settledOwnUw(read, uw, diagnostics, allocations) ?? refusalObservation(diagnostics)
+    return { own: settledOwnUw(read, uw, diagnostics, allocations) ?? refusalObservation(diagnostics), read }
   } catch (error) {
     return {
-      status: 'refused',
-      reason: 'incomplete',
-      diagnostics: [diagnostic(uw, 'graph-incomplete', error instanceof Error ? error.message : String(error))],
+      own: {
+        status: 'refused',
+        reason: 'incomplete',
+        diagnostics: [diagnostic(uw, 'graph-incomplete', error instanceof Error ? error.message : String(error))],
+      },
+      read: null,
     }
   }
 }
@@ -143,6 +165,7 @@ export async function readCanonicalEpic(repo: string, epic: number, full: string
     throw new Refused(
       `epic #${epic} native graph is incomplete: ${parent.graph.diagnostics.map((entry) => entry.message).join('; ')}`,
     )
+  if (parent.observation.status !== 'complete') throw new Refused(`epic #${epic} completion observation is incomplete`)
   const native = new Map(parent.graph.nodes.map((node) => [`${node.uw.repository}\0${node.uw.target}`, node]))
   const root = native.get(`${scope.repository}\0${scope.target}`)
   if (root === undefined) throw new Refused(`epic #${epic} was not observed in its native graph`)
@@ -153,13 +176,9 @@ export async function readCanonicalEpic(repo: string, epic: number, full: string
     if (child === undefined) throw new Refused(`native child ${childScope.target} was not observed`)
     return isWayfinder(child) ? [] : [child]
   })
-  const observedReader = parent.observedReader ?? reader
-  const [currentChildren, ownUws] = await Promise.all([
-    readCurrentChildrenProjection({ uw: scope, read: parent, reader: observedReader }),
-    Promise.all(
-      nodes.map(async (node) => [issueNumber(node.uw), await observeOwnUw(observedReader.readUw, node.uw)] as const),
-    ),
-  ])
+  const observedReader = parent.observedReader
+  if (observedReader === undefined) throw new Refused(`epic #${epic} has no same-cut child projection`)
+  const currentChildren = await readCurrentChildrenProjection({ uw: scope, read: parent })
   const parentAdmission = parent.identity.ok
     ? assessUwAdmission({
         uw: scope,
@@ -169,9 +188,32 @@ export async function readCanonicalEpic(repo: string, epic: number, full: string
         identities: parent.identity.value,
         histories: parent.histories,
         catalogues: parent.catalogues,
+        completion: parent.completion,
         phase: 'delivery-transition',
         currentChildren,
       })
     : parent.admission
-  return { full, parentAdmission, native, nodes, ownUws: new Map(ownUws) }
+  const observed = await Promise.all(
+    nodes.map(async (node) => {
+      const { own, read } = await observeOwnUw(observedReader.readUw, node.uw)
+      return {
+        number: issueNumber(node.uw),
+        own,
+        initial:
+          read === null
+            ? { status: 'held' as const, reason: 'Child same-cut observation is unavailable' }
+            : await initialMandateReadiness(parent, parentAdmission, read),
+      }
+    }),
+  )
+  return {
+    full,
+    parent,
+    parentAdmission,
+    native,
+    nodes,
+    ownUws: new Map(observed.map((item) => [item.number, item.own])),
+    initialMandates: new Map(observed.map((item) => [item.number, item.initial])),
+    completion: parent.completion,
+  }
 }

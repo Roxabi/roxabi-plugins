@@ -1,23 +1,51 @@
 import { createHash } from 'node:crypto'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { encodeParts } from '../adapters/github/history-encoder.ts'
+import { rawSource } from '../adapters/github-native/uw-spec.ts'
 import { actionInputDigest } from '../engine/action-input.ts'
 import { assessCauseDispositions } from '../engine/cause-disposition.ts'
 import { causeCreationProposalSchema } from '../engine/cause-disposition-schema.ts'
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import { recordsOf } from '../engine/workflow-control.ts'
 import { fixtureReviewClassCatalogues } from './action-input-fixtures.ts'
+import { causeFixtureMandate, causeFixtureSnapshot, causeFixtureScope as uw } from './cause-input-specification.ts'
+import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { submission } from './record-builders.ts'
 import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
-import { observedComment, operation as observedOperation } from './record-history.ts'
+import { operation as observedOperation } from './record-history.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
-const uw: Scope = { repository: 'acme/app', target: 'acme/app#42' }
 const sister: Scope = { repository: 'acme/app', target: 'acme/app#43' }
 const foreign: Scope = { repository: 'acme/app', target: 'acme/app#44' }
 const now = '2026-10-27T12:00:00.000Z'
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const fixtures = roxabiWorkflowFixtures()
-const mandate = fixtures.featureMandate(uw, { recordId: 'mandate-42', body: 'Save the selected region' })
+const mandate = causeFixtureMandate()
+
+/** The declared native issue for the region fixture, independent of its mandate records. */
+export function causeFixtureGraph(body = causeFixtureSnapshot.raw.body) {
+  return {
+    status: 'complete' as const,
+    root: uw,
+    observedAt: now,
+    nodes: [
+      {
+        uw,
+        title: 'Save region',
+        raw: rawSource(uw.target, body, now),
+        updatedAt: now,
+        labels: ['size:S'],
+        wayfinderLabels: [],
+        parent: null,
+        children: [],
+        blockers: [],
+        native: { state: 'OPEN' as const, stateReason: null },
+      },
+    ],
+  }
+}
 const evidence = {
   source: 'git-file' as const,
   repository: uw.repository,
@@ -36,22 +64,27 @@ function ref<K extends CanonicalRecord>(record: K): { scope: Scope; recordId: st
     kind: record.kind,
   }
 }
+function framedHistory(scope: Scope, records: readonly CanonicalRecord[]) {
+  const comments = records.flatMap((record) => must(encodeParts(must(parseRecord(record)), `# ${record.kind}`, 65536)))
+  return decodeHistory({
+    scope,
+    expectedAuthor: 'operator',
+    stopAuthor: null,
+    complete: true,
+    diagnostics: [],
+    comments: comments.map((body, index) => ({
+      locator: `comment-${index + 1}`,
+      nativeId: String(index + 1),
+      body,
+      author: 'operator',
+      createdAt: '2026-10-27T12:00:00Z',
+      updatedAt: '2026-10-27T12:00:00Z',
+    })),
+  })
+}
 export function causeOriginalHistory(records: CanonicalRecord[] = []) {
-  const baseline = fixtures.historyFrom([mandate])
-  return {
-    ...baseline,
-    operations: [
-      ...baseline.operations,
-      ...records.map((record) =>
-        observedOperation(record, {
-          authority: 'accounted',
-          parts: [
-            observedComment({ author: 'operator', locator: `comment-${record.recordId}`, nativeId: record.recordId }),
-          ],
-        }),
-      ),
-    ],
-  }
+  const initial = fixtures.historyFrom([mandate])
+  return framedHistory(uw, [...recordsOf(initial), ...records])
 }
 export function authenticatedReview(sisterDisposition = false) {
   const binding = fixtures.workflowBinding(foreign, mandate, 'feat/42-save', 'main')
@@ -60,7 +93,16 @@ export function authenticatedReview(sisterDisposition = false) {
   const manifest = { ...base.inputs.manifest, repositoryReferences: [evidence] }
   const inputs = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }
   if (inputs.manifest.spec.kind !== 'accepted') throw new Error('Expected accepted Spec inputs')
-  const graph = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'admission-source', inputs, label: 'issue' })
+  const generated = acceptedPullRequestReviewGraph({
+    mandate,
+    binding,
+    prefix: 'admission-source',
+    inputs,
+    label: 'issue',
+  })
+  const decision = must(parseRecord(generated.decision))
+  if (decision.kind !== 'decision') throw new Error('Expected review decision')
+  const graph = { ...generated, decision, history: framedHistory(foreign, recordsOf(generated.history)) }
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   if (!sisterDisposition) return { graph, context }
   const cause = graph.decision.payload.judgment.causes[0]
@@ -107,7 +149,10 @@ export function authenticatedReview(sisterDisposition = false) {
       return item
     }),
   }
-  return { graph: { ...graph, decision: changedDecision, history: updatedHistory }, context }
+  return {
+    graph: { ...graph, decision: changedDecision, history: framedHistory(foreign, recordsOf(updatedHistory)) },
+    context,
+  }
 }
 
 export function sisterRecords() {
@@ -115,6 +160,8 @@ export function sisterRecords() {
   const assessment = must(
     assessCauseDispositions({
       context,
+      capture: synthesisActionCapture(graph.decision, [graph.history]),
+      graph: causeFixtureGraph(),
       source: { kind: 'decision', decision: graph.decision },
       histories: [causeOriginalHistory(), graph.history],
       catalogues: fixtureReviewClassCatalogues(),
@@ -178,6 +225,7 @@ export function sisterRecords() {
       parentObservation: null,
       relation: 'original-blocked-by-sister' as const,
     },
+    parentAcceptance: null,
   })
   const proposalDigest = digest(proposal)
   const confirmation = {

@@ -2,12 +2,20 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, it, vi } from 'vitest'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { rawSource } from '../adapters/github-native/uw-spec.ts'
 import * as contracts from '../contracts.ts'
 import { canonicalValueDigest } from '../dist/contracts.js'
 import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
+import { createNativeImplementationTransport } from '../testing/native-implementation-transport.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { BODY, SCOPE } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
+import { observedUwWithoutPullRequests } from '../testing/uw-completion-observation.ts'
+import {
+  authenticatedPlanFixtures,
+  BODY,
+  SCOPE,
+} from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import * as delivery from './delivery-action.ts'
 import * as engine from './feature-engine.ts'
 import { planAction } from './feature-plan-start.ts'
@@ -18,8 +26,9 @@ import { createProductionInputPorts } from './uw-input-readers.ts'
 
 it('prepares one amendment from the selected draft and both original specialist review values', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'plan-amendment-preparation-'))
-  const fixtures = roxabiWorkflowFixtures()
-  const mandate = fixtures.featureMandate(SCOPE, { body: BODY })
+  const baseFixtures = roxabiWorkflowFixtures()
+  const mandate = baseFixtures.featureMandate(SCOPE, { body: BODY })
+  const fixtures = authenticatedPlanFixtures(mandate, [baseFixtures.historyFrom([mandate])]).workflow
   const draft = fixtures.planDraftRecords(mandate)
   const review = fixtures.planReviewRecord(mandate, 'act-plan-1', fixtures.publishedPlanDigest(), [
     fixtures.blockingPlanContribution('slot-architect', 'R-workflow-plan-architect', 'plan-block-1'),
@@ -27,17 +36,42 @@ it('prepares one amendment from the selected draft and both original specialist 
   ])
   if (review.payload.phase !== 'result' || review.payload.action !== 'plan-review')
     throw new Error('expected review result')
-  const history = fixtures.historyFrom([
+  const fixtureHistory = fixtures.historyFrom([
     mandate,
     ...draft,
     fixtures.planReviewStart(mandate, 'act-plan-1', fixtures.publishedPlanDigest()),
     review,
   ])
+  const history = decodeHistory({ ...fixtureHistory.source, stopAuthor: 'github-actions[bot]' })
+  const date = '2026-10-27T12:00:00.000Z'
+  const observation = await observedUwWithoutPullRequests({
+    graph: {
+      status: 'complete',
+      root: SCOPE,
+      observedAt: date,
+      nodes: [
+        {
+          uw: SCOPE,
+          title: 'Plan amendment',
+          raw: rawSource(SCOPE.target, BODY, date),
+          updatedAt: date,
+          labels: ['size:S'],
+          wayfinderLabels: [],
+          parent: null,
+          children: [],
+          blockers: [],
+          native: { state: 'OPEN', stateReason: null },
+        },
+      ],
+    },
+    histories: [history],
+    catalogues: fixtureHostReviewClassCatalogues(),
+  })
   const evidence = {
     issue: history,
     pullRequest: null,
     parents: [],
-    causal: { histories: [history], catalogues: fixtureHostReviewClassCatalogues() },
+    causal: { histories: observation.histories, catalogues: observation.catalogues, observation },
   }
   const base = standaloneReviewInputs()
   const pluginBytes = Buffer.from('fixture plugin')
@@ -47,14 +81,23 @@ it('prepares one amendment from the selected draft and both original specialist 
   const config = vi
     .spyOn(actionObserve, 'configuration')
     .mockResolvedValue({ ok: true, value: base.manifest.configuration })
-  const histories = vi.spyOn(actionObserve, 'readHistories').mockResolvedValue({ ok: true, value: [history] })
   const publish = vi.spyOn(engine, 'publishRecord').mockResolvedValue({ ok: true })
   const confirm = vi.spyOn(delivery, 'confirmStartReadback').mockResolvedValue({ ok: true })
   try {
-    const gh = async () => {
-      throw new Error('unexpected live GitHub read')
-    }
-    const { readPinnedFiles: _readPinnedFiles, ...production } = createProductionInputPorts({ cwd: directory, gh })
+    const { gh } = createNativeImplementationTransport({
+      repository: SCOPE.repository,
+      author: 'operator',
+      histories: [history],
+      graph: observation.graph,
+      commits: new Map(),
+      pulls: new Map(),
+      comparisons: new Map(),
+    })
+    const { readPinnedFiles: _readPinnedFiles, ...production } = createProductionInputPorts({
+      cwd: directory,
+      gh,
+      readAuthor: 'operator',
+    })
     const ports: UwActionPorts = {
       ...production,
       readPinnedFile: async () => ({ ok: true, value: pluginBytes }),
@@ -134,7 +177,6 @@ it('prepares one amendment from the selected draft and both original specialist 
   } finally {
     observe.mockRestore()
     config.mockRestore()
-    histories.mockRestore()
     publish.mockRestore()
     confirm.mockRestore()
     rmSync(directory, { recursive: true, force: true })

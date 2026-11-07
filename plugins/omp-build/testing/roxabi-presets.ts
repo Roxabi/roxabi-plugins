@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import type { RecordInputRef } from '../engine/action-input-refs.ts'
+import type { ActionInputs } from '../engine/action-input-schema.ts'
+import type { SpecEffective } from '../engine/spec-effective-schema.ts'
 import type { PlanOutput } from '../engine/workflow-output-schema.ts'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
 import { configPinDigest, effectiveWorkflowConfig, shippedProductVersion } from '../roxabi/workflow-config-digest.ts'
@@ -43,21 +46,29 @@ const PLAN_SLOTS: readonly PlanReviewSlot[] = [
 ]
 
 /** Product-only workflow composition; generic workflow fixtures never load these facts. */
-export function roxabiWorkflowFixtures() {
+export function roxabiWorkflowFixtures(
+  resolved?: SpecEffective,
+  planOutput: PlanOutput = PLAN_OUTPUT,
+  acceptedSources?: RecordInputRef[],
+  codeRange?: ActionInputs['manifest']['code'],
+) {
   const productVersion = shippedProductVersion()
   const effective = effectiveWorkflowConfig(productVersion, [])
   const context = {
     productVersion,
     config: { version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(effective), effective },
-    head: '1111111111111111111111111111111111111111',
+    head: codeRange?.head ?? '1111111111111111111111111111111111111111',
     editedAt: '2026-10-21T12:00:00Z',
   }
   const workflow = createWorkflowFixtures(context)
   const actions = createWorkflowActionFixtures({
-    planOutput: PLAN_OUTPUT,
+    planOutput,
     planSlots: PLAN_SLOTS,
     nativeOutcome: { completion: 'completed', strict: 'valid', raw: null },
     head: context.head,
+    effective: resolved,
+    acceptedSources,
+    codeRange,
   })
   return {
     ...workflow,

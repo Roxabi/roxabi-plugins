@@ -13,8 +13,10 @@ import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { type AttributedCiCorrectionInput, diagnosticCodes, objectValue } from './fix-mandate-types.ts'
-import { type FixUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
+import { composeObservedUwCausalContext, type FixUwCausalContext } from './fix-uw-histories.ts'
 import type { UwRead } from './uw-contract.ts'
+import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
+import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 import { defaultGit } from './workflow-checkout.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 import { SUPPORTED_CONFIG_VERSIONS } from './workflow-graph.ts'
@@ -173,8 +175,10 @@ async function currentFixFacts(
   input: Pick<AttributedCiCorrectionInput, 'cwd' | 'options'>,
 ): Promise<FixActionResult<CurrentFixFacts>> {
   if (!uw.identity.ok) return failure('fix-own-uw-unsettled', ...uw.identity.diagnostics.map((item) => item.code))
-  const causal = await readFixUwCausalContext(uw.histories, histories, { ...input.options, cwd: input.cwd })
+  const causal = await composeObservedUwCausalContext(uw, histories, { ...input.options, cwd: input.cwd })
   if (!causal.ok) return causal
+  uw = await createInstalledObservedUwReadPort({ observation: causal.value.observation }).readUw(uw.uw)
+  if (!uw.identity.ok) return failure('fix-own-uw-unsettled')
   const admission = assessUwAdmission({
     uw: uw.uw,
     graph: uw.graph,
@@ -185,6 +189,7 @@ async function currentFixFacts(
     currentChildren: { ok: true, value: [] },
     histories: causal.value.histories,
     catalogues: causal.value.catalogues,
+    completion: uw.completion,
   })
   if (!admission.deliverable.ok)
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
@@ -196,10 +201,12 @@ async function currentFixFacts(
   if (tiers.length !== 1 || tiers[0] === undefined) return failure('fix-own-uw-unsettled')
   const tier = nativeTier(tiers[0])
   if (tier === null) return failure('fix-own-uw-unsettled')
+  const current = await readCurrentOwnSpecFacts({ uw: uw.uw, read: uw })
+  if (!current.ok) return failure('fix-own-uw-unsettled', ...current.diagnostics.map((item) => item.code))
   return {
     ok: true,
     value: {
-      currentSpec: { snapshot: uw.proposed.snapshot, tier, children: [] },
+      currentSpec: current.value.currentSpec,
       identityAllocations: [...uw.identity.value.allocations.values()],
       causal: causal.value,
     },

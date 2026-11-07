@@ -43,6 +43,7 @@ export function actionRequiresFeatureCheckout(action: string): boolean {
   return (
     action === 'plan' ||
     action === 'implement' ||
+    action === 'integrate' ||
     action === 'assess-spec' ||
     action === 'attribute-ci' ||
     action === 'publish' ||
@@ -67,10 +68,9 @@ export async function requireMandateCheckout(input: {
   const prepared = await prepareFeatureCheckout({
     git: input.git,
     sessionCwd: input.cwd,
-    branch,
+    target: { kind: 'branch', branch, attachExisting: true },
     base,
     repository: input.scope.repository,
-    detached: false,
   })
   if (prepared.status === 'blocked') return { kind: 'blocked', reason: prepared.reason }
   if (prepared.status === 'move') {

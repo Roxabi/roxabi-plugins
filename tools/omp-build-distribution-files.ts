@@ -8,7 +8,8 @@ const managedDirectories = ['agents', 'dist'] as const
 
 export function gitBytes(root: string, args: string[]): Buffer {
   try {
-    return execFileSync('git', args, { cwd: root })
+    // Generated contracts can exceed the process default 1 MiB buffer.
+    return execFileSync('git', args, { cwd: root, maxBuffer: 64 * 1024 * 1024 })
   } catch (error) {
     const result = error as { stderr?: Buffer; status?: number }
     throw new Error(

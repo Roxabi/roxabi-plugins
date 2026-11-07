@@ -1,59 +1,38 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../contracts.ts'
-import { actionInputDigest, canonicalValueDigest } from '../../engine/action-input.ts'
+import { buildRecord } from '../../engine/record-construction.ts'
 import { recordsOf } from '../../engine/workflow-control.ts'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
-import { committedFixturePlugin, committedFixtureProjection } from '../../testing/committed-plugin-fixture.ts'
+import { committedFixtureProjection } from '../../testing/committed-plugin-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { criterionDispositionRecords } from '../../testing/criterion-dispositions.ts'
 import { criterionEpicReviewGraph } from '../../testing/criterion-range-approval.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { contribution } from '../../testing/record-decisions.ts'
-import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
 import { landedEpic } from './testing/epic-driver/epic-driver-landed-fixture.ts'
+import { type EpicParentWorld, prepareEpicParentReview } from './testing/epic-driver/epic-driver-parent-review.ts'
 import {
-  childNode,
   eventPayloads,
   issueComments,
   ME,
   recordHistory,
   serveComments,
 } from './testing/epic-driver/epic-driver-records.ts'
-import { cleanupSandbox, drive, git } from './testing/epic-driver/epic-driver-sandbox.ts'
+import { cleanupSandbox, drive } from './testing/epic-driver/epic-driver-sandbox.ts'
 
 afterEach(cleanupSandbox)
 
-function causalEpicReview(range: string, disposition: 'report' | 'fix-original') {
-  const [baseCommit, head] = range.split('..')
-  if (!baseCommit || !head) throw new Error('Expected an Epic range')
+async function causalEpicReview(world: EpicParentWorld, disposition: 'report' | 'fix-original') {
+  const prepared = await prepareEpicParentReview(world)
+  const { mandate, inputs, head, range, issueRecords, coverageReferences } = prepared
   const scope = { repository: 'o/r', target: 'o/r#1' }
   const initial = decodeHistory(recordHistory(1, issueComments(1)))
-  const mandate = recordsOf(initial).find((record) => record.kind === 'mandate')
-  if (mandate?.kind !== 'mandate') throw new Error('Expected accepted Epic mandate')
-  const base = acceptedActionInputs(mandate, 'review')
-  const manifest = {
-    ...base.manifest,
-    acceptedSources: [
-      {
-        source: 'record' as const,
-        record: { scope, recordId: mandate.recordId, kind: mandate.kind },
-        selector: '/payload',
-        digest: canonicalValueDigest(mandate.payload),
-      },
-    ],
-    code: { repository: mandate.repository, base: baseCommit, head, referenceCommit: head },
-    plugin: committedFixturePlugin(
-      import.meta.dirname,
-      base.manifest.plugin,
-      git(import.meta.dirname, 'rev-parse', 'HEAD'),
-    ),
-  }
-  const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
   const graph = criterionEpicReviewGraph({
     mandate,
     inputs,
     head,
     range,
+    issueRecords,
+    coverageReferences,
     prefix: `causal-${head.slice(0, 8)}`,
     blocking: true,
   })
@@ -120,35 +99,57 @@ function causalEpicReview(range: string, disposition: 'report' | 'fix-original')
       }),
     ],
   })
-  const implementation = graph.issueRecords.filter((record) => record.kind !== 'mandate')
+  const otherHistories = prepared.observation.histories.filter(
+    (history) => history.source.scope.target !== scope.target,
+  )
   const before = encodeCriterionRecords(
-    [...implementation, graph.root, graph.spec, panel, graph.synthesis, synthesis, decision],
+    [graph.root, graph.spec, panel, graph.synthesis, synthesis, decision],
     scope,
     projection,
     ME,
-    [],
+    otherHistories,
     initial,
   )
   const authenticated = recordsOf(before.history).find((record) => record.recordId === decision.recordId)
   if (authenticated?.kind !== 'decision') throw new Error('Expected authenticated Epic decision')
-  const assessed = criterionDispositionRecords(graph.inputs, authenticated, [before.history], projection.catalogues)
-  const persisted = encodeCriterionRecords(assessed.dispositions, scope, projection, ME, [], before.history)
+  const nativeGraph = prepared.observation.graph
+  const assessed = criterionDispositionRecords(
+    graph.inputs,
+    authenticated,
+    [before.history, ...otherHistories],
+    projection.catalogues,
+    nativeGraph,
+  )
+  const persisted = encodeCriterionRecords(assessed.dispositions, scope, projection, ME, otherHistories, before.history)
+  const review = buildRecord({
+    ...graph.review,
+    payload: {
+      ...graph.review.payload,
+      causeDispositionRefs: assessed.dispositions.map((record) => ({
+        scope,
+        kind: 'cause-disposition' as const,
+        recordId: record.recordId,
+      })),
+    },
+  })
+  if (!review.ok || review.value.kind !== 'review') throw new Error('Invalid Epic review with dispositions')
+  const final = encodeCriterionRecords([review.value], scope, projection, ME, otherHistories, persisted.history)
   serveComments(1, [
     ...issueComments(1),
     ...before.comments.map(({ body }) => ({ body, author: ME })),
     ...persisted.comments.map(({ body }) => ({ body, author: ME })),
+    ...final.comments.map(({ body }) => ({ body, author: ME })),
   ])
-  return { decisionId: decision.recordId, inventoryIds: [graph.root.recordId, graph.synthesis.recordId] }
+  return { range, decisionId: decision.recordId, inventoryIds: [graph.root.recordId, graph.synthesis.recordId] }
 }
 
 describe('epic-driver — canonical final review history', () => {
   it.each([
     { disposition: 'report' as const, step: { action: 'post-merge' } },
     { disposition: 'fix-original' as const, step: { action: 'final-review', stage: 'fix-ticket' } },
-  ])('binds and replays the effective $disposition verdict', ({ disposition, step }) => {
-    const { range, merged } = landedEpic()
-    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
-    const { decisionId, inventoryIds } = causalEpicReview(range, disposition)
+  ])('binds and replays the effective $disposition verdict', async ({ disposition, step }) => {
+    const world = await landedEpic()
+    const { range, decisionId, inventoryIds } = await causalEpicReview(world, disposition)
     const stored = recordsOf(decodeHistory(recordHistory(1, issueComments(1))))
     expect(stored.filter((record) => record.kind === 'cause-disposition')).toEqual([
       expect.objectContaining({
@@ -174,10 +175,9 @@ describe('epic-driver — canonical final review history', () => {
     expect(replay.json().step).toMatchObject(step)
   })
 
-  it('refuses initial binding when the assessed disposition is not persisted', () => {
-    const { range, merged } = landedEpic()
-    serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
-    const { decisionId } = causalEpicReview(range, 'fix-original')
+  it('refuses initial binding when the assessed disposition is not persisted', async () => {
+    const world = await landedEpic()
+    const { range, decisionId } = await causalEpicReview(world, 'fix-original')
     const comments = issueComments(1)
     const operation = decodeHistory(recordHistory(1, comments)).operations.find(
       ({ record }) => record?.kind === 'cause-disposition',

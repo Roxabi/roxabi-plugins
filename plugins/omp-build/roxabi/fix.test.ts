@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ExternalRecordRef } from '../engine/record-references.ts'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import { resolveAcceptedSpec } from '../engine/workflow-accepted-spec.ts'
 import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
 import { fixturePreparedAction } from '../testing/action-input-fixtures.ts'
 import { contribution } from '../testing/record-decisions.ts'
@@ -107,7 +106,7 @@ describe('fix correction safety', () => {
   it('requires a matching leaf mandate in the authenticated accepted topology', () => {
     const scope = { repository: 'Acme/app', target: 'Acme/app#42' }
     const childScope = { repository: 'Acme/app', target: 'Acme/app#43' }
-    const { featureMandate } = roxabiWorkflowFixtures()
+    const { featureMandate, epicMandate, historyFrom, ownSpecFromSnapshot } = roxabiWorkflowFixtures()
     const record = featureMandate(scope, { recordId: 'feature-mandate' })
     const child = featureMandate(childScope, { recordId: 'child-mandate' })
     const mandate: FixMandateView = {
@@ -127,15 +126,19 @@ describe('fix correction safety', () => {
       recordId: string
       kind: 'mandate'
     }
-    const source = { scope, recordId: mandate.recordId, kind: 'mandate' } satisfies ExternalRecordRef
-    const accepted = (children: AcceptedChildCommitment[]): AcceptedOwnSpec => ({
-      ref: { uw: scope, version: record.payload.ownSpec.version, sourceAccepted: source },
-      snapshot: record.payload.ownSpec.snapshot,
-      tier: record.payload.tier,
-      children,
-      chain: [{ kind: 'mandate', source, version: record.payload.ownSpec.version }],
-      sourceRefs: [source],
-    })
+    const accepted = (children: AcceptedChildCommitment[]) => {
+      const actual =
+        children.length === 0
+          ? record
+          : epicMandate(scope, children, {
+              recordId: record.recordId,
+              ownSpec: ownSpecFromSnapshot(scope, record.payload.ownSpec.snapshot),
+              tier: record.payload.tier,
+            })
+      const resolved = resolveAcceptedSpec(actual, [historyFrom([actual])])
+      if (!resolved.ok) throw new Error(`Unconfirmed fixture mandate: ${JSON.stringify(resolved.evidence)}`)
+      return resolved.spec
+    }
     const parentChildren = [
       {
         scope: childScope,

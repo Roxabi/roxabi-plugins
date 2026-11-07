@@ -19,7 +19,7 @@ import {
   type FixMandateView,
   mandateView,
 } from './fix-mandate-types.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { extendObservedUwCausalContext, readFreshUwCausalContext } from './fix-uw-histories.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
@@ -43,6 +43,59 @@ export function matchesRequiredFeatureMandate(
   )
 }
 
+function checkFixCheckpoint(
+  history: DecodedHistory,
+  trustedLiveRequest: Extract<FixRecord, { kind: 'fix-request' }> | undefined,
+  histories: readonly DecodedHistory[],
+): FixActionResult<void> {
+  const checkpoint = reconstructFixCheckpoint(
+    history,
+    trustedLiveRequest,
+    histories.filter(
+      (item) =>
+        item.source.scope.repository !== history.source.scope.repository ||
+        item.source.scope.target !== history.source.scope.target,
+    ),
+  )
+  if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
+  return { ok: true, value: undefined }
+}
+
+function decideSelectedAuthority(
+  selected:
+    | { status: 'missing' }
+    | {
+        status: 'applicable'
+        mandate: FixMandateView
+        execution: CorrectionExecutionRights
+        acceptedSpec: AcceptedOwnSpec
+      },
+  input: {
+    target: FixTarget
+    requiredFeatureMandate?: ScopedRecordRef & { kind: 'mandate' }
+  },
+): FixActionResult<FixAuthorityDecision> {
+  if (selected.status === 'missing') return { ok: true, value: { status: 'missing' } }
+  if (selected.execution.landing !== false) return failure('fix-mandate-execution-denied')
+  const mandate = selected.mandate
+  if (
+    input.requiredFeatureMandate !== undefined &&
+    !matchesRequiredFeatureMandate(input.requiredFeatureMandate, mandate, selected.acceptedSpec)
+  ) {
+    return failure('feature-mandate-required')
+  }
+  return {
+    ok: true,
+    value: {
+      status: 'reuse',
+      mandate,
+      execution: selected.execution,
+      sameScope: mandate.repository === input.target.repository && mandate.target === input.target.target,
+      uw: selected.acceptedSpec.ref.uw,
+    },
+  }
+}
+
 export async function decideFixAuthority(input: {
   target: FixTarget
   options: GitHubOptions
@@ -62,22 +115,18 @@ export async function decideFixAuthority(input: {
     ...(linked.value.history === null ? [] : [linked.value.history]),
     ...linked.value.externalHistories,
   ]
-  const causal = await readFixUwCausalContext(
-    linked.value.currentSpec === null ? selectedHistories : linked.value.currentSpec.causal.histories,
-    selectedHistories,
-    input.options,
-  )
+  if (linked.value.currentSpec === null && input.target.kind === 'pull-request') return failure('fix-own-uw-required')
+  const causal =
+    linked.value.currentSpec === null
+      ? await readFreshUwCausalContext(
+          { repository: input.target.repository, target: input.target.target },
+          selectedHistories,
+          input.options,
+        )
+      : await extendObservedUwCausalContext(linked.value.currentSpec.causal, selectedHistories, input.options)
   if (!causal.ok) return causal
-  const checkpoint = reconstructFixCheckpoint(
-    history,
-    input.trustedLiveRequest,
-    causal.value.histories.filter(
-      (item) =>
-        item.source.scope.repository !== history.source.scope.repository ||
-        item.source.scope.target !== history.source.scope.target,
-    ),
-  )
-  if (checkpoint.status === 'blocked') return failure(...checkpoint.diagnostics)
+  const checkpoint = checkFixCheckpoint(history, input.trustedLiveRequest, causal.value.histories)
+  if (!checkpoint.ok) return checkpoint
   const selected = await resolveCorrectionMandate({
     target: input.target,
     history,
@@ -90,25 +139,7 @@ export async function decideFixAuthority(input: {
     currentSpec: linked.value.currentSpec,
   })
   if (!selected.ok) return selected
-  if (selected.value.status === 'missing') return { ok: true, value: { status: 'missing' } }
-  if (selected.value.execution.landing !== false) return failure('fix-mandate-execution-denied')
-  const mandate = selected.value.mandate
-  if (
-    input.requiredFeatureMandate !== undefined &&
-    !matchesRequiredFeatureMandate(input.requiredFeatureMandate, mandate, selected.value.acceptedSpec)
-  ) {
-    return failure('feature-mandate-required')
-  }
-  return {
-    ok: true,
-    value: {
-      status: 'reuse',
-      mandate,
-      execution: selected.value.execution,
-      sameScope: mandate.repository === input.target.repository && mandate.target === input.target.target,
-      uw: selected.value.acceptedSpec.ref.uw,
-    },
-  }
+  return decideSelectedAuthority(selected.value, input)
 }
 
 export async function confirmFixContinuation(input: {
@@ -145,6 +176,8 @@ export async function loadFixOnlyDraft(input: {
   ownSpec: Extract<MandatePayload, { role: 'fix-only' }>['ownSpec']
   tier: Extract<MandatePayload, { role: 'fix-only' }>['tier']
   children: Extract<MandatePayload, { role: 'fix-only' }>['children']
+  inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
+  coverage: MandatePayload['coverage']
   parent: FixMandateView['parent']
   antecedent: FixMandateView['antecedent']
 }): Promise<FixActionResult<FixOnlyMandateDraft>> {
@@ -173,6 +206,8 @@ export async function loadFixOnlyDraft(input: {
       ownSpec: input.ownSpec,
       tier: input.tier,
       children: input.children,
+      inheritedOwnSpecRefs: input.inheritedOwnSpecRefs,
+      coverage: input.coverage,
       config: { version: config.version, digest: config.digest, effective: config.effective as Json },
       parent: input.parent,
       antecedent: input.antecedent,

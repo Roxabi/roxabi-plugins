@@ -298,7 +298,9 @@ test('does not retire an omitted proposal, but recognizes authenticated accepted
       sections: { origin: '', context: '', change: '' },
     },
   })
-  const assessment = assessFixture(mandated, 'withdraw-c1', state, proposed, 'material')
+  const assessment = assessFixture(mandated, 'withdraw-c1', state, proposed, 'material', [
+    workflowHistory([first, second, mandated], UW),
+  ])
   const acceptedRetirement = acceptMaterialFixture(mandated, 'accept-retire-c1', assessment)
   const historical = workflowHistory(
     [first, second, mandated, assessment.start, assessment.result, acceptedRetirement],

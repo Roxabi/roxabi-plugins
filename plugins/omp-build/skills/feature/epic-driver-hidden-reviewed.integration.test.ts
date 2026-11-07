@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { seedAuthorization } from './testing/epic-driver/epic-driver-authorization-fixture.ts'
+import { inheritedParentSpecs } from './testing/epic-driver/epic-driver-parent-vector.ts'
 import {
   childNode,
   epicEvent,
@@ -66,6 +67,7 @@ function prepare(stopped: boolean, labels: 'hidden' | 'complete' | 'unreadable' 
     body: node.body,
     ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
     parent: fixtures.mandateRef(parent),
+    inheritedOwnSpecRefs: inheritedParentSpecs(parent),
     branch: BRANCH,
     runId: 'run00002',
     run: 'run00002',

@@ -3,6 +3,7 @@ import { missingContextOutputSchema } from './action-context.ts'
 import { actionInputsSchema } from './action-input-schema.ts'
 import { externalRecordRefSchema } from './record-references.ts'
 import { diagnosticSchema, identifierSchema, nativeOutcomeSchema } from './record-values.ts'
+import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
 
 import {
@@ -23,6 +24,7 @@ import {
   type ImplementationAdmissionCommand,
   implementationAdmissionCommandSchema,
   implementExactSchema,
+  integrationExactSchema,
   nestedPlanContributionSchema,
   normalizeExactSchema,
   PLAN_REVIEW_SPECIALISTS,
@@ -55,6 +57,7 @@ export const workflowReceiptActionSchema = z.enum([
   'plan',
   'plan-review',
   'implement',
+  'integrate',
   'attribute-ci',
   'normalize',
 ])
@@ -155,6 +158,12 @@ const [implementStart, implementResult] = actionReceipt(
   ]),
   mandated,
 )
+const [integrateStart, integrateResult] = actionReceipt(
+  'integrate',
+  integrationExactSchema,
+  z.union([integrationOutputSchema, missingContextOutputSchema]),
+  mandated,
+)
 const [ciStart, ciResult] = actionReceipt(
   'attribute-ci',
   ciExactSchema,
@@ -181,6 +190,8 @@ export type ActionReceiptPayload =
   | z.infer<typeof planReviewResult>
   | z.infer<typeof implementStart>
   | z.infer<typeof implementResult>
+  | z.infer<typeof integrateStart>
+  | z.infer<typeof integrateResult>
   | z.infer<typeof ciStart>
   | z.infer<typeof ciResult>
   | z.infer<typeof normalizeStart>
@@ -190,6 +201,7 @@ const taggedActionReceipts = z.discriminatedUnion('action', [
   z.discriminatedUnion('phase', [planStart, planResult]),
   z.discriminatedUnion('phase', [planReviewStart, planReviewResult]),
   z.discriminatedUnion('phase', [implementStart, implementResult]),
+  z.discriminatedUnion('phase', [integrateStart, integrateResult]),
   z.discriminatedUnion('phase', [ciStart, ciResult]),
   z.discriminatedUnion('phase', [normalizeStart, normalizeResult]),
 ])

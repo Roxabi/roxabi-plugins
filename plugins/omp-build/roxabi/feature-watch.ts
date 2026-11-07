@@ -11,6 +11,7 @@ function reenterFeature(input: {
   reference: string
   gh?: Gh
   git?: GitRunner
+  uw?: Parameters<typeof continueFeature>[0]['uw']
 }): Promise<ContinueFeatureResult> {
   return continueFeature({
     cwd: input.cwd,
@@ -19,6 +20,7 @@ function reenterFeature(input: {
     principal: false,
     gh: input.gh,
     git: input.git,
+    uw: input.uw,
     read: createInstalledUwReadPort({ cwd: input.cwd, gh: input.gh }),
   })
 }
@@ -30,6 +32,7 @@ export async function consumeWatchExit(input: {
   reference: string
   gh?: Gh
   git?: GitRunner
+  uw?: Parameters<typeof continueFeature>[0]['uw']
 }): Promise<ContinueFeatureResult> {
   if (input.reference.trim().length === 0) return { kind: 'blocked', reason: 'watch-reference-missing' }
   const landed = await applyCiWatchExit(input.cwd, input.pr, input.code, { gh: input.gh, git: input.git })
@@ -39,5 +42,5 @@ export async function consumeWatchExit(input: {
     return watch === null ? { kind: 'blocked', reason: 'watch-missing' } : { kind: 'watch', command: watch }
   }
   if (outcome.action === 'stop' || outcome.action === 'blocked') return { kind: 'terminal', reason: outcome.reason }
-  return reenterFeature({ cwd: input.cwd, reference: input.reference, gh: input.gh, git: input.git })
+  return reenterFeature({ cwd: input.cwd, reference: input.reference, gh: input.gh, git: input.git, uw: input.uw })
 }

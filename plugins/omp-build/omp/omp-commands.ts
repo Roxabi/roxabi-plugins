@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
@@ -17,7 +17,7 @@ import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { bindHostPluginPin } from './host-plugin-pin.ts'
 import { hostUwFactory, resolveFeatureUw } from './host-uw-operations.ts'
-import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
+import { INSTALL_ROOT } from './install-root'
 import {
   type OmpBuildExtensionApi,
   ownedFixRunFor,
@@ -32,8 +32,10 @@ import {
 import { rootContext } from './omp-feature-session'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
 import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
+import { requestParentCoverage } from './omp-parent-coverage.ts'
 import { dispatchDefaultReview, prepareInstalledEpicRangeReview } from './omp-review-dispatch'
 import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
+import { registerSkillCommand } from './omp-skill-command-runtime.ts'
 import { SKILL_COMMANDS } from './omp-skill-commands.ts'
 import { registerUwCommand, type UwOperationsFactory } from './omp-uw-command.ts'
 import { registerPrepareCheckoutTool } from './prepare-checkout-tool.ts'
@@ -51,13 +53,6 @@ export type OmpBuildExtensionOptions = {
   principalCwd?: (cwd: string) => boolean
   prepareReview?: typeof prepareReviewInputs
   startFeatureFix?: (input: FeatureReviewFix) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
-}
-
-function stripFrontmatter(markdown: string): string {
-  if (!markdown.startsWith('---\n')) return markdown
-  const end = markdown.indexOf('\n---\n', 4)
-  if (end === -1) return markdown
-  return markdown.slice(end + 5)
 }
 
 const requireFromIndex = createRequire(import.meta.url)
@@ -123,6 +118,7 @@ function createFeatureCommandHost(
     native: createNativeReviewPort(pi, controller),
     send: async (message) => reportFeatureTerminalStatus(pi, message),
     status: (message) => ctx.ui?.setStatus?.('omp-build-watch', message),
+    requestParentCoverage: (request) => requestParentCoverage(ctx, request),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
     releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
@@ -173,7 +169,7 @@ async function runFeatureCommand(
   if (workflow === undefined) return
   const operator = beginFeatureUwOperation(pi, createOperatorConfirmation(ctx))
   let uw: FeatureCommandHost['uw']
-  if (parsed.control !== 'pause' && parsed.control !== 'abandon' && options.featureWorkflow === undefined) {
+  if (parsed.control !== 'pause' && options.featureWorkflow === undefined) {
     try {
       uw = await resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin)
     } catch (error) {
@@ -190,57 +186,6 @@ async function runFeatureCommand(
     cancelFeatureUwOperation(pi)
     throw error
   }
-}
-
-function readSkillBody(
-  pi: OmpBuildExtensionApi,
-  name: string,
-  skillPath: string,
-  installRoot: string,
-  exists: (path: string) => boolean,
-): string | undefined {
-  const install = installRootStatus(installRoot, exists)
-  if (!install.present) {
-    pi.sendUserMessage(`/${name}: ${replacedInstallRootMessage(install.root, install.version)}`)
-    return undefined
-  }
-  try {
-    return readFileSync(skillPath, 'utf8')
-  } catch (error) {
-    pi.sendUserMessage(
-      `/${name}: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
-    )
-    return undefined
-  }
-}
-
-function registerSkillCommand(
-  pi: OmpBuildExtensionApi,
-  name: string,
-  skill: string,
-  description: string,
-  requires: readonly string[],
-  installRoot: string,
-  skillsDir: string,
-  exists: (path: string) => boolean,
-): void {
-  const skillDir = join(skillsDir, skill)
-  pi.registerCommand(name, {
-    description,
-    handler: async (args) => {
-      const raw = readSkillBody(pi, name, join(skillDir, 'SKILL.md'), installRoot, exists)
-      if (raw === undefined) return
-      const missing = requires.filter((requiredSkill) => !exists(join(skillsDir, requiredSkill, 'SKILL.md')))
-      const banner = missing.length
-        ? `> **\`/${name}\` is partially installed**: ${missing.map((requiredSkill) => `\`${requiredSkill}\``).join(', ')} — no SKILL.md under ${skillsDir}. Every step of this body that names one of those stops there. Reinstall omp-build.\n`
-        : ''
-      const body = stripFrontmatter(raw).trim()
-      const trimmedArgs = args.trim()
-      pi.sendUserMessage(
-        [banner, body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
-      )
-    },
-  })
 }
 
 export function registerOmpCommandsAndTools(

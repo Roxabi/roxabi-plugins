@@ -11,8 +11,8 @@ import {
 } from './record-values.ts'
 import { sameRefMeaning } from './workflow-mandate-schema.ts'
 
-export type { AssessSpecExact, CiExact } from './workflow-action-operands.ts'
-export { assessSpecExactSchema, ciExactSchema } from './workflow-action-operands.ts'
+export type { AssessSpecExact, CiExact, IntegrationExact } from './workflow-action-operands.ts'
+export { assessSpecExactSchema, ciExactSchema, integrationExactSchema } from './workflow-action-operands.ts'
 
 import { planBlockerRefSchema } from './workflow-output-schema.ts'
 import type { ActionReceiptPayload } from './workflow-receipt-schema.ts'
@@ -194,7 +194,7 @@ function refineMandatedReceipt(receipt: MandatedReceipt, context: z.RefinementCt
 
 export function refineActionReceipt(receipt: ActionReceiptPayload, context: z.RefinementCtx): void {
   const checked = validateParsedActionInputs(receipt.inputs)
-  if (receipt.action === 'assess-spec' || receipt.action === 'attribute-ci') {
+  if (receipt.action === 'assess-spec' || receipt.action === 'attribute-ci' || receipt.action === 'integrate') {
     const operands = receipt.inputs.manifest.operands
     if (
       operands?.action !== receipt.action ||

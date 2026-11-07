@@ -13,6 +13,7 @@ import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import { failedCheckEvidenceDigest } from '../../engine/record-digests.ts'
 import { criterionReviewGraph } from '../../testing/criterion-approval.ts'
+import { graphFromSimulatedIssues } from '../../testing/criterion-dispositions.ts'
 import {
   arrangeReviewFixture,
   REVIEW_BRANCH as BRANCH,
@@ -126,6 +127,8 @@ function appendApprovedReview(box: Box, cwd: string): void {
     head,
     inputs,
     projection,
+    graph: graphFromSimulatedIssues(SCOPE, Object.values(readSim(box).issues)),
+    contextHistories: [],
     author: 'operator',
     verdict: 'Approve (clean)',
     prefix: 'feature-ci-handoff',
@@ -414,8 +417,11 @@ it.each(['editorial', 'material'] as const)(
         snapshot: middleSnapshot,
         tier: accepted.tier,
         children: accepted.children,
+        inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
+        coverage: accepted.coverage,
       },
       classification,
+      [workflow.historyFrom([mandate])],
     )
     const control =
       classification === 'material' ? acceptMaterialFixture(mandate, 'accepted-material', assessment) : null

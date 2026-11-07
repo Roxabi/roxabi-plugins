@@ -2,10 +2,11 @@ import { assessCauseHolds } from './cause-hold.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import type { Scope } from './record-values.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
+import { resolveSpecEffective } from './spec-effective.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
+import type { UwCompletionAssessment } from './uw-completion-types.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import {
-  isCompletedUw,
   isWayfinder,
   sameScope,
   scopeKey,
@@ -18,7 +19,7 @@ import {
 import type { SpecIdentityLedger } from './uw-identity.ts'
 import { type SpecSnapshot, type UwTier, validateSpecIds } from './uw-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
-import type { AssessSpecExact } from './workflow-receipt-schema.ts'
+import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
 export type ProposedOwnSpecResult =
   | { ok: true; snapshot: SpecSnapshot }
   | { ok: false; diagnostics: readonly UwDiagnostic[] }
@@ -29,7 +30,7 @@ export type AcceptedOwnSpecResult =
 export type CurrentChildrenProjection =
   | {
       ok: true
-      value: readonly Pick<AssessSpecExact['proposed']['children'][number], 'scope' | 'specVersion' | 'tier'>[]
+      value: readonly Pick<AcceptedChildCommitment, 'scope' | 'specVersion' | 'tier'>[]
     }
   | { ok: false; diagnostics: readonly UwDiagnostic[] }
 type UwAdmissionBase = {
@@ -40,6 +41,7 @@ type UwAdmissionBase = {
   identities: SpecIdentityLedger
   histories: readonly DecodedHistory[]
   catalogues: ReviewClassCatalogues
+  completion: UwCompletionAssessment
 }
 type InitialUwAdmissionInput = UwAdmissionBase & { phase: 'initial-selection' }
 type TransitionUwAdmissionInput = UwAdmissionBase & {
@@ -47,7 +49,7 @@ type TransitionUwAdmissionInput = UwAdmissionBase & {
   currentChildren: CurrentChildrenProjection
 }
 type UwAdmissionInput = InitialUwAdmissionInput | TransitionUwAdmissionInput
-export type UwAdmission = { framed: UwCheck; deliverable: UwCheck; applicability: 'own-only' }
+export type UwAdmission = { framed: UwCheck; deliverable: UwCheck; applicability: 'resolved' | 'unresolved' }
 function diag(
   uw: Scope,
   code: string,
@@ -109,28 +111,33 @@ function framingDiagnostics(input: UwAdmissionInput, root: UwNativeNode | undefi
   return diagnostics
 }
 
-function blockerDiagnostics(root: UwNativeNode, nodes: ReadonlyMap<string, UwNativeNode>): UwDiagnostic[] {
+function blockerDiagnostics(root: UwNativeNode, input: UwAdmissionInput): UwDiagnostic[] {
   const diagnostics: UwDiagnostic[] = []
   for (const scope of root.blockers) {
-    const blocker = nodes.get(scopeKey(scope))
-    if (blocker === undefined) continue
-    if (isWayfinder(blocker) || unknownWayfinderLabels(blocker).length)
+    const blocker = input.graph.nodes.find((candidate) => sameScope(candidate.uw, scope))
+    if (blocker && (isWayfinder(blocker) || unknownWayfinderLabels(blocker).length)) {
       diagnostics.push(
         diag(root.uw, 'dependency-not-uw', `Blocker ${scope.target} is not a UW`, 'blockers', {
           uw: scope,
           connection: 'labels',
         }),
       )
-    else if (!isCompletedUw(blocker))
+      continue
+    }
+    const resolution = input.completion.dependencies.get(scopeKey(scope))
+    if (resolution?.state !== 'satisfied') {
+      const node = input.graph.nodes.find((candidate) => sameScope(candidate.uw, scope))
+      const state = node ? `${node.native.state}/${node.native.stateReason ?? 'unknown'}` : 'unreadable'
       diagnostics.push(
         diag(
           root.uw,
           'blocker-not-completed',
-          `Blocker ${scope.target} is ${blocker.native.state}/${blocker.native.stateReason ?? 'unknown'}`,
+          `Blocker ${scope.repository}#${scope.target} completion is not established (${state})`,
           'blockers',
           { uw: scope, connection: 'state' },
         ),
       )
+    }
   }
   return diagnostics
 }
@@ -235,16 +242,26 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw))
   const framed = framingDiagnostics(input, root)
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics]
+  let applicability: UwAdmission['applicability'] = 'unresolved'
+  if (input.accepted.status === 'accepted') {
+    const effective = resolveSpecEffective({
+      mode: 'current',
+      own: input.accepted.value.ref,
+      histories: input.histories,
+      graph: input.graph,
+    })
+    if (effective.ok) applicability = 'resolved'
+    else deliverable.push(...effective.diagnostics)
+  }
   if (root !== undefined) {
     const nodes = new Map(input.graph.nodes.map((node) => [scopeKey(node.uw), node]))
-    deliverable.push(...blockerDiagnostics(root, nodes), ...transitionDiagnostics(input, root, nodes))
+    deliverable.push(...blockerDiagnostics(root, input), ...transitionDiagnostics(input, root, nodes))
   }
   if (input.accepted.status === 'accepted') {
     for (const hold of assessCauseHolds({
       uw: input.uw,
-      histories: input.histories,
-      graph: input.graph,
-      catalogues: input.catalogues,
+      waits: input.completion.waits,
+      dependencies: input.completion.dependencies,
     })) {
       deliverable.push(
         diag(input.uw, hold.code, hold.recordId === undefined ? hold.message : `${hold.message} (${hold.recordId})`),
@@ -254,6 +271,6 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   return {
     framed: { ok: framed.length === 0, diagnostics: framed },
     deliverable: { ok: deliverable.length === 0, diagnostics: deliverable },
-    applicability: 'own-only',
+    applicability,
   }
 }

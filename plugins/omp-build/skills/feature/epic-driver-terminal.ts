@@ -1,10 +1,4 @@
-import {
-  type CanonicalRecord,
-  classifyHistory,
-  type DecodedHistory,
-  validateFreshDecision,
-  validateRecordGraph,
-} from '../../dist/contracts.js'
+import { type DecodedHistory, validateFreshDecision } from '../../dist/contracts.js'
 import type { UwAdmission } from '../../engine/uw-admission.ts'
 import { loadReviewClassCatalogues } from '../../roxabi/review-class-catalogues.ts'
 import { assertChildGrant, type EpicAuthority, evidenceText, readEpicAuthority } from './epic-driver-authority'
@@ -15,9 +9,10 @@ import { adapterOptions, citedReviewHistories, diagnosticsText } from './epic-dr
 import { epicEvents, reviewDispositionIds } from './epic-driver-history'
 import { type Disarm, publishEpicEvent, ticketStop } from './epic-driver-publication'
 import { reportPayload, reportText } from './epic-driver-report'
+import { reviewDecisionGraph } from './epic-driver-review-graph'
 import { git, Refused } from './epic-driver-runtime'
 import { hookStatus } from './epic-finalization'
-import { nextStep } from './epic-next-step'
+import { currentEpicReviewInputs, nextStep } from './epic-next-step'
 import { summarize } from './epic-progress'
 import { STICKY_STOPS, stopClass, TICKET_STOPS } from './epic-stops'
 import type { Facts } from './epic-types'
@@ -76,36 +71,13 @@ export async function review(
   if (step.action !== 'final-review' || step.stage !== 'review' || step.range !== range) {
     throw new Refused(`the driver expects no final review of ${range} (next: ${step.action})`)
   }
-  const authorityHistory = classifyHistory(epicHistory).authorityHistory
-  const graph = validateRecordGraph(authorityHistory)
-  if (!graph.ok) throw new Refused(`Epic review history is not admissible: ${diagnosticsText(graph.diagnostics)}`)
-  const records = new Map(graph.value.map((record) => [record.recordId, record]))
-  const decision = records.get(decisionRecord)
-  if (decision?.kind !== 'decision')
-    throw new Refused(`--decision-record ${decisionRecord} is not a canonical decision`)
-  const synthesis = records.get(decision.payload.originalContributionId)
-  const synthesisInventory =
-    synthesis?.kind === 'contribution' && synthesis.payload.inventoryId !== null
-      ? records.get(synthesis.payload.inventoryId)
-      : null
-  const root =
-    synthesisInventory?.kind === 'review-attempt' ? records.get(synthesisInventory.payload.rootAttemptId) : null
-  if (
-    root?.kind !== 'review-attempt' ||
-    root.payload.stage !== 'initial' ||
-    root.payload.purpose !== 'review' ||
-    root.payload.subject.kind !== 'epic-range' ||
-    root.payload.subject.range !== range
-  ) {
-    throw new Refused(`--decision-record ${decisionRecord} is not bound to the exact Epic range ${range}`)
-  }
-  const inventoryIds = [...records.values()]
-    .filter(
-      (record): record is Extract<CanonicalRecord, { kind: 'review-attempt' }> =>
-        record.kind === 'review-attempt' && record.payload.rootAttemptId === root.recordId,
-    )
-    .map((record) => record.recordId)
-  const externalHistories = await citedReviewHistories(repo, authorityHistory)
+  const { authorityHistory, decision, inputSnapshot, inventoryIds } = reviewDecisionGraph(
+    epicHistory,
+    decisionRecord,
+    range,
+    facts,
+  )
+  const externalHistories = await citedReviewHistories(repo, epicHistory)
   const options = adapterOptions(repo)
   const catalogues = await loadReviewClassCatalogues({
     histories: [epicHistory, ...externalHistories],
@@ -136,6 +108,17 @@ export async function review(
       `--decision-record ${decisionRecord} is not admissible: ${diagnosticsText(assessment.diagnostics)}`,
     )
   }
+  const fresh = await gather(repo, epic, run, base)
+  requireDeliveryAdmission(epic, fresh.parentAdmission)
+  for (const child of fresh.facts.children) child.prs = await readChildPrInventory(repo, authority, child)
+  const freshStep = nextStep(fresh.facts)
+  if (
+    freshStep.action !== 'final-review' ||
+    freshStep.stage !== 'review' ||
+    freshStep.range !== range ||
+    !currentEpicReviewInputs(fresh.facts, inputSnapshot)
+  )
+    throw new Refused('Parent integration or accepted context changed before final review publication')
   await publishEpicEvent(
     repo,
     epic,
@@ -165,7 +148,9 @@ export async function markFix(repo: string, epic: number, ticket: number): Promi
   if (step.action !== 'final-review' || step.stage !== 'fix-ticket') {
     throw new Refused(`the driver expects no final-review fix ticket (next: ${step.action})`)
   }
-  const source = [...facts.reviews].reverse().find((review) => review.range === step.range)
+  const source = [...facts.reviews]
+    .reverse()
+    .find((review) => review.range === step.range && currentEpicReviewInputs(facts, review.inputs))
   if (source?.verdict !== 'blocking') {
     throw new Refused(`the current final review for ${step.range} is not a blocking canonical decision`)
   }

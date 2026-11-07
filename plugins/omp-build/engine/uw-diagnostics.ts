@@ -7,6 +7,7 @@ import { specItemIdSchema } from './uw-spec-schema.ts'
 
 const position = z.strictObject({ line: z.number().int().positive(), column: z.number().int().positive() })
 export const uwLocationSchema = z.union([
+  z.strictObject({ kind: z.literal('repository'), repository: z.string().min(1) }),
   z.strictObject({
     kind: z.literal('body'),
     uw: scopeSchema,
@@ -39,6 +40,7 @@ export const uwDiagnosticSchema = z.strictObject({
 export type UwDiagnostic = z.infer<typeof uwDiagnosticSchema>
 export type UwResult<T> = Result<T, UwDiagnostic>
 function encoded(location: UwLocation): Json {
+  if (location.kind === 'repository') return { kind: 'repository', repository: location.repository }
   if (location.kind === 'record')
     return {
       kind: 'record',
@@ -72,6 +74,7 @@ function encoded(location: UwLocation): Json {
   }
 }
 function path(location: UwLocation): string {
+  if (location.kind === 'repository') return location.repository
   if (location.kind === 'record')
     return `${location.ref.scope.repository}#${location.ref.scope.target} record.${location.ref.recordId}`
   if (location.kind === 'spec') return `${location.uw.repository}#${location.uw.target} spec.${location.path.join('.')}`

@@ -1,10 +1,9 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import { failedCheckEvidenceDigest } from './record-digests.ts'
-import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
+import { assessSpecCompletion } from './workflow-assessment-completion.ts'
+import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
 import { implementationCompletion } from './workflow-implementation-completion.ts'
@@ -12,16 +11,7 @@ import { ciAttributionSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
 
-import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
-import {
-  type AssessResultRecord,
-  isAssessResult,
-  mechanicalSpecDelta,
-  sameAssessedState,
-  sameCurrentAssessedState,
-} from './workflow-spec-assessment.ts'
-import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
 export function actionCompletion(
   action: WorkflowGraphAction,
@@ -143,84 +133,6 @@ function receiptProgress(
   if (starts.some((start) => !results.some((result) => result.payload.actionId === start.payload.actionId)))
     return 'uncertain'
   return results.length > 0 ? 'confirmed' : 'uncertain'
-}
-
-function assessSpecCompletion(
-  evidence: WorkflowEvidence,
-  facts: WorkflowFacts | null,
-  mandate: MandateRecord | null,
-): ActionCompletion {
-  if (facts === null || mandate === null || facts.currentSpec === null || facts.identityAllocations === null) {
-    return { status: 'not-started', evidence: [] }
-  }
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
-  if (!accepted.ok) return { status: 'uncertain', evidence: accepted.evidence }
-  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
-  const exactInputs: AssessSpecExact = {
-    format: 'omp-build-spec-assessment/2',
-    accepted: {
-      ref: accepted.spec.ref,
-      snapshot: accepted.spec.snapshot,
-      tier: accepted.spec.tier,
-      children: accepted.spec.children,
-    },
-    proposed: facts.currentSpec,
-    identityAllocations: facts.identityAllocations,
-    mechanical: mechanicalSpecDelta(
-      {
-        snapshot: accepted.spec.snapshot,
-        tier: accepted.spec.tier,
-        children: accepted.spec.children,
-      },
-      facts.currentSpec,
-    ),
-  }
-  const receipts = recordsOf(evidence.issue).filter((record): record is ReceiptRecord =>
-    isMatchingAssessment(record, mandateRef, exactInputs),
-  )
-  const negativeIds = new Set(receipts.filter(workflowContextNegative).map((record) => record.payload.actionId))
-  const starts = receipts.filter(
-    (record) => record.payload.phase === 'start' && !negativeIds.has(record.payload.actionId),
-  )
-  const results = receipts.filter(
-    (record): record is AssessResultRecord => isAssessResult(record) && !negativeIds.has(record.payload.actionId),
-  )
-  if (starts.length === 0 && results.length === 0) return { status: 'not-started', evidence: [] }
-  if (starts.length !== 1 || results.length !== 1) {
-    return {
-      status: 'uncertain',
-      evidence: [diagnostic('unconfirmed', 'Current spec assessment is not uniquely paired')],
-    }
-  }
-  const result = results[0]
-  if (result === undefined) {
-    return { status: 'uncertain', evidence: [diagnostic('unconfirmed', 'Current spec assessment is missing')] }
-  }
-  const authenticated = authenticatedAssessResult(result, evidence.causal.histories, mandateRef)
-  return authenticated.ok
-    ? { status: 'confirmed', evidence: [] }
-    : { status: 'uncertain', evidence: authenticated.evidence }
-}
-
-function isMatchingAssessment(
-  record: CanonicalRecord,
-  mandateRef: ExternalRecordRef,
-  exactInputs: AssessSpecExact,
-): boolean {
-  if (
-    record.kind !== 'action-receipt' ||
-    record.payload.action !== 'assess-spec' ||
-    !sameRef(record.payload.mandate, mandateRef)
-  )
-    return false
-  const inputs = record.payload.exactInputs
-  return (
-    inputs.format === exactInputs.format &&
-    sameAssessedState(inputs.accepted, exactInputs.accepted) &&
-    sameCurrentAssessedState(inputs.proposed, exactInputs.proposed) &&
-    JSON.stringify(inputs.identityAllocations) === JSON.stringify(exactInputs.identityAllocations) &&
-    JSON.stringify(inputs.mechanical) === JSON.stringify(exactInputs.mechanical)
-  )
 }
 
 function ciAttributionCompletion(

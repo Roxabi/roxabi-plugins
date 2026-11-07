@@ -2,68 +2,30 @@ import { readFileSync } from 'node:fs'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import {
   causeAdjudicationInputSchema,
+  causeDependencyAdjustmentInputSchema,
   causeSisterInputSchema,
   githubScope,
   reportPromotionInputSchema,
   uwCreateInputSchema,
   uwProposalInputSchema,
 } from '../dist/contracts.js'
-import { type DurableUwCommand, executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
+import { executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
 import type { UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
+import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import { beginFeatureUwOperation, cancelFeatureUwOperation } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { type CommandOperatorPort, createOperatorConfirmation } from './omp-operator-confirmation.ts'
+import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
+import { type ParsedUwCommand, parseCreateCommand, parseIssueCommand, parseProposalCommand } from './omp-uw-parse.ts'
 import { reportResult } from './omp-uw-result.ts'
 export type UwOperationsFactory = (input: {
   cwd: string
   operator: CommandOperatorPort
   artifactsDir: string | null
+  nativeHost?: UwNativeHost
 }) => Promise<UwOperations> | UwOperations
-
-type ParsedUwCommand =
-  | { kind: 'read' | 'reports'; repository: string; number: number }
-  | { kind: 'propose' | 'write'; repository: string; number: number; proposalFile: string }
-  | { kind: 'create'; repository: string; proposalFile: string }
-  | { kind: 'adjudicate' | 'sister' | 'promote-report'; requestFile: string }
-  | { kind: 'accept-material'; repository: string; number: number }
-  | { kind: 'invalid'; reason: string }
-  | DurableUwCommand
-
-function issueReference(value: string): { repository: string; number: number } | null {
-  const match = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$/.exec(value)
-  const repository = match?.[1]
-  const number = Number(match?.[2])
-  return repository === undefined || !Number.isSafeInteger(number) ? null : { repository, number }
-}
-
-function proposalFile(tokens: readonly string[]): string | null {
-  return tokens.length === 2 && tokens[0] === '--proposal-file' && tokens[1] !== undefined && tokens[1] !== ''
-    ? tokens[1]
-    : null
-}
-
-function parseIssueCommand(kind: 'read' | 'reports' | 'accept-material', tokens: readonly string[]): ParsedUwCommand {
-  const ref = issueReference(tokens[0] ?? '')
-  return ref === null || tokens.length !== 1 ? { kind: 'invalid', reason: 'uw-reference-invalid' } : { kind, ...ref }
-}
-
-function parseProposalCommand(kind: 'propose' | 'write', tokens: readonly string[]): ParsedUwCommand {
-  const ref = issueReference(tokens[0] ?? '')
-  const file = proposalFile(tokens.slice(1))
-  return ref === null || file === null
-    ? { kind: 'invalid', reason: 'uw-proposal-file-required' }
-    : { kind, ...ref, proposalFile: file }
-}
-
-function parseCreateCommand(tokens: readonly string[]): ParsedUwCommand {
-  const repository = tokens[0]
-  const file = proposalFile(tokens.slice(1))
-  return repository === undefined || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || file === null
-    ? { kind: 'invalid', reason: 'uw-create-invalid' }
-    : { kind: 'create', repository, proposalFile: file }
-}
 
 export function parseUwCommand(args: string): ParsedUwCommand {
   const [command, ...tokens] = args.trim().split(/\s+/).filter(Boolean)
@@ -72,7 +34,12 @@ export function parseUwCommand(args: string): ParsedUwCommand {
   switch (command) {
     case 'read':
     case 'reports':
+    case 'read-effective':
+    case 'read-coverage':
+    case 'read-completion':
     case 'accept-material':
+    case 'reopen':
+    case 'abandon':
       return parseIssueCommand(command, tokens)
     case 'propose':
     case 'write':
@@ -82,6 +49,7 @@ export function parseUwCommand(args: string): ParsedUwCommand {
     case 'adjudicate':
     case 'sister':
     case 'promote-report':
+    case 'adjust-cause-dependency':
       return tokens.length === 2 && tokens[0] === '--request-file' && tokens[1]
         ? { kind: command, requestFile: tokens[1] }
         : { kind: 'invalid', reason: 'uw-request-file-required' }
@@ -142,6 +110,16 @@ async function executeUwCommand(
   switch (parsed.kind) {
     case 'read':
       return executeRead(parsed.repository, parsed.number, operations)
+    case 'read-effective':
+      return { kind: 'result', value: await operations.readEffective(githubScope(parsed.repository, parsed.number)) }
+    case 'read-coverage':
+      return { kind: 'result', value: await operations.readCoverage(githubScope(parsed.repository, parsed.number)) }
+    case 'read-completion':
+      return { kind: 'result', value: await operations.readCompletion(githubScope(parsed.repository, parsed.number)) }
+    case 'reopen':
+      return { kind: 'result', value: await operations.reopen(githubScope(parsed.repository, parsed.number)) }
+    case 'abandon':
+      return { kind: 'result', value: await operations.abandon(githubScope(parsed.repository, parsed.number)) }
     case 'reports':
       return { kind: 'result', value: await operations.listReports(githubScope(parsed.repository, parsed.number)) }
     case 'adjudicate': {
@@ -160,6 +138,12 @@ async function executeUwCommand(
       const input = reportPromotionInputSchema.safeParse(proposal(parsed.requestFile))
       return input.success
         ? { kind: 'result', value: await operations.promoteReport(input.data) }
+        : { kind: 'stopped', reason: 'uw-request-invalid' }
+    }
+    case 'adjust-cause-dependency': {
+      const input = causeDependencyAdjustmentInputSchema.safeParse(proposal(parsed.requestFile))
+      return input.success
+        ? { kind: 'result', value: await operations.adjustCauseDependency(input.data) }
         : { kind: 'stopped', reason: 'uw-request-invalid' }
     }
     case 'accept-material':
@@ -192,6 +176,19 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
       }
       const privateOperator = createOperatorConfirmation(ctx)
       const ownsRootCapability = rootContext(ctx)
+      if (ownsRootCapability && (parsed.kind === 'sister' || parsed.kind === 'promote-report')) {
+        await runNativeUwOperation(pi, ctx, privateOperator, async (operator, nativeHost) => {
+          const operations = await factory({
+            cwd: ctx.cwd,
+            operator,
+            artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
+            nativeHost,
+          })
+          const outcome = await executeUwCommand(parsed, operations)
+          if (!nativeHost.signal.aborted) reportOutcome(pi, ctx, outcome)
+        })
+        return
+      }
       const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
       try {
         reportOutcome(

@@ -6,7 +6,7 @@ import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { RecordInputRef, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
 import { field, inventoryIdsOf } from './uw-action-record-fields.ts'
 import { actionFailure } from './uw-action-result.ts'
-import { refuseOutsideStage } from './uw-action-stage-closure.ts'
+import { type IntegrationStageObservation, refuseOutsideStage } from './uw-action-stage-closure.ts'
 import { cites } from './uw-record-cites.ts'
 
 /** Only populated by the authenticated contribution resolver, never by the command envelope. */
@@ -20,7 +20,11 @@ function actionResultSelector(kind: string, selector: string): boolean {
   if (selector === '/payload') return true
   if (kind === 'action-receipt' && (selectorAdmitted('plan', selector) || selectorAdmitted('plan-review', selector)))
     return true
-  return selectorAdmitted('implementation', selector) || selectorAdmitted('criterion-evidence', selector)
+  return (
+    selectorAdmitted('implementation', selector) ||
+    selectorAdmitted('integration', selector) ||
+    selectorAdmitted('criterion-evidence', selector)
+  )
 }
 
 function reviewRecordSelector(kind: string, selector: string): boolean {
@@ -218,11 +222,12 @@ export function assertCurrentOutputClosure(
   normative: readonly RecordInputRef[],
   reviewedRoot?: ReviewRootRef,
   expansionRoot?: VerifiedExpansionRoot,
+  integration?: IntegrationStageObservation,
 ): Result<true> {
   const records = histories.flatMap((history) => recordsOf(history))
   const { roots, inventories, scope } = rootedAttempts(records, request, reviewedRoot, expansionRoot)
   const outputs = ownedOutputs(records, roots, inventories, scope)
-  const stage = refuseOutsideStage(request, outputs, histories, catalogues)
+  const stage = refuseOutsideStage(request, outputs, histories, catalogues, integration)
   if (!stage.ok) return stage
   const checkedRequest =
     expansionRoot?.negativeRef === undefined

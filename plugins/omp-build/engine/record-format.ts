@@ -3,7 +3,7 @@ import type { Diagnostic } from './record-values.ts'
 
 export const REVIEW_INPUT_FORMAT = 'omp-build:review-input/4'
 
-export const MANDATE_FORMAT = 'omp-build-mandate/3'
+export const MANDATE_FORMAT = 'omp-build-mandate/4'
 
 function incompatible(message: string): Diagnostic {
   return { code: incompatibleFormat, message }
@@ -20,7 +20,7 @@ function mandateFormatDiagnostic(record: Record<string, unknown>): Diagnostic | 
     (payload as Record<string, unknown>).format !== MANDATE_FORMAT
   )
     return incompatible(
-      `Mandate format must be ${MANDATE_FORMAT} with ownSpec, tier and children; pre-#897 mandates cannot authorize workflow`,
+      `Mandate format must be ${MANDATE_FORMAT} with ownSpec, tier, children, inheritance and coverage; historical formats cannot authorize workflow`,
     )
   return null
 }
@@ -58,9 +58,23 @@ function assessmentFormatDiagnostic(record: Record<string, unknown>): Diagnostic
     exactInputs === null ||
     typeof exactInputs !== 'object' ||
     Array.isArray(exactInputs) ||
-    (exactInputs as Record<string, unknown>).format !== 'omp-build-spec-assessment/2'
+    (exactInputs as Record<string, unknown>).format !== 'omp-build-spec-assessment/3'
   )
-    return incompatible('Spec assessment must use omp-build-spec-assessment/2 exact state')
+    return incompatible('Spec assessment must use omp-build-spec-assessment/3 exact state')
+  if (
+    !Array.isArray((exactInputs as Record<string, unknown>).attachedChildren) ||
+    !Array.isArray((exactInputs as Record<string, unknown>).attachedWayfinders)
+  )
+    return incompatible('Spec assessment must explicitly capture attached children and wayfinders')
+  const inputs = receipt.inputs
+  if (inputs === null || typeof inputs !== 'object' || Array.isArray(inputs))
+    return incompatible('Spec assessment must seal an explicit proposal origin')
+  const manifest = (inputs as Record<string, unknown>).manifest
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest))
+    return incompatible('Spec assessment must seal an explicit proposal origin')
+  const operands = (manifest as Record<string, unknown>).operands
+  if (operands === null || typeof operands !== 'object' || Array.isArray(operands) || !('origin' in operands))
+    return incompatible('Spec assessment must seal an explicit proposal origin')
   return null
 }
 

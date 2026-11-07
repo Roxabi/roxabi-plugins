@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, watch, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { executeSimCommand } from './sim-execution.ts'
 import { base, dispose, openState, pull, run, saved } from './sim-transport-fixture.ts'
 
 const CLI = join(import.meta.dirname, 'gh-simulator.ts')
@@ -50,6 +51,66 @@ function green() {
 }
 
 describe('simulator transport git effects', () => {
+  it('keeps scoped native worlds and real Git effects isolated without changing ambient environment', () => {
+    const leftGit = originWith({ 'feat/a': 'left world\n' })
+    const rightGit = originWith({ 'feat/a': 'right world\n' })
+    const leftSha = leftGit.shas['feat/a']
+    const rightSha = rightGit.shas['feat/a']
+    if (leftSha === undefined || rightSha === undefined) throw new Error('fixture branch commits missing')
+    const left = openState(
+      base({
+        origin: leftGit.origin,
+        requiredChecks: ['ci'],
+        checks: { [leftSha]: green() },
+        prs: {
+          10: pull(10, 'feat/a', leftSha, {
+            labels: ['reviewed'],
+            autoMerge: { enabledAt: '2026-01-01T00:00:00Z', matchHeadCommit: leftSha },
+          }),
+        },
+      }),
+    )
+    const right = openState(
+      base({
+        origin: rightGit.origin,
+        requiredChecks: ['ci'],
+        checks: { [rightSha]: green() },
+        prs: { 10: pull(10, 'feat/a', rightSha, { labels: ['reviewed'] }) },
+      }),
+    )
+    const ambient = { ...process.env }
+    const invoke = (box: typeof left, args: string[]) =>
+      executeSimCommand(args, {
+        cwd: box.root,
+        env: { ...process.env, GH_SIM_STATE: box.file, HOME: box.root, PATH: `${box.root}:${process.env.PATH ?? ''}` },
+        readStdin: () => '',
+      })
+    try {
+      const rightBase = git(rightGit.origin, ['rev-parse', 'refs/heads/main'])
+      expect(invoke(left, ['pr', 'view', '10']).status).toBe(0)
+      const merged = saved(left.file).prs['10']
+      expect(merged?.state).toBe('MERGED')
+      expect(merged?.mergeCommit?.parents[1]).toBe(leftSha)
+      expect(git(leftGit.origin, ['rev-parse', 'refs/heads/main^2'])).toBe(leftSha)
+      const wrong = invoke(right, ['pr', 'merge', '10', '--auto', '--merge', '--match-head-commit', leftSha])
+      expect(wrong.status).toBe(1)
+      expect(wrong.stderr).toContain('match-head-commit')
+      expect(saved(right.file).prs['10']).toMatchObject({ state: 'OPEN', autoMerge: null })
+      expect(git(rightGit.origin, ['rev-parse', 'refs/heads/main'])).toBe(rightBase)
+      expect(invoke(right, ['pr', 'merge', '10', '--auto', '--merge', '--match-head-commit', rightSha]).status).toBe(0)
+      expect(invoke(right, ['pr', 'view', '10']).status).toBe(0)
+      expect(saved(right.file).prs['10']?.mergeCommit?.parents[1]).toBe(rightSha)
+      expect(git(rightGit.origin, ['rev-parse', 'refs/heads/main^2'])).toBe(rightSha)
+      expect(saved(left.file).prs['10']?.mergeCommit?.parents[1]).toBe(leftSha)
+      expect({ ...process.env }).toEqual(ambient)
+    } finally {
+      dispose(left.root)
+      dispose(right.root)
+      dispose(leftGit.root)
+      dispose(rightGit.root)
+    }
+  })
+
   it('refuses a wrong pin and an already-enabled pin without merging', () => {
     const gitBox = originWith({ 'feat/a': 'left\n' })
     const sha = gitBox.shas['feat/a']

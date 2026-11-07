@@ -1,135 +1,76 @@
 import { describe, expect, test } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { fixtureCausal } from '../../testing/action-input-fixtures.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { buildRecord } from '../record-construction.ts'
-import { specDigest } from '../record-digests.ts'
+import { buildRecord, parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
-import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
-import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
-import { BODY, binding, DIGEST, featureMandate, history, mandate, SCOPE } from './workflow-test-support.ts'
+import { binding, featureMandate, history, must, SCOPE } from './workflow-test-support.ts'
 
 describe('workflow bound work behavior', () => {
-  test('returns the exact accepted own Spec and refuses malformed or inactive bindings', () => {
-    const mandated = featureMandate()
-    const current = 'ship the bounded workflow, clarified'
-    const accepted = mandateAssessmentState(mandated)
-    const proposed = proposedAssessmentState(accepted, { body: current })
-    const assessment = assessFixture(mandated, 'assess-1', accepted, proposed, 'editorial')
+  test('records-only standalone review refuses missing or conflicting binding evidence', () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
+    const empty = history([], pr)
     const native = { branch: 'feature/bounded', base: 'main' }
-    const issue = history([mandated, assessment.start, assessment.result])
-    const boundHistories = [issue, history([binding(mandated, pr)], pr)]
-    const bound = resolveBoundWork({
-      use: 'review',
-      explicitSelection: true,
-      pullRequest: pr,
-      histories: boundHistories,
-      causal: fixtureCausal(boundHistories),
-      native,
-      currentSpec: proposed,
-    })
-    expect(bound).toMatchObject({
-      status: 'applicable',
-      drift: 'settled',
-      permissions: { landing: true, correct: true },
-      acceptedSpec: {
-        snapshot: assessment.result.payload.exactInputs.proposed.snapshot,
-        tier: 'S',
-      },
-      configIdentity: { additionalRequirements: [], digest: DIGEST },
-    })
-    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({
-      ok: true,
-      spec: {
-        snapshot: assessment.result.payload.exactInputs.proposed.snapshot,
-        chain: [{ kind: 'mandate' }, { kind: 'editorial', source: { recordId: 'assess-1' } }],
-      },
-    })
-    const emptyPull = history([], pr)
-    expect(
-      resolveBoundWork({
-        use: 'review',
-        explicitSelection: true,
-        pullRequest: pr,
-        histories: [emptyPull],
-        causal: fixtureCausal([emptyPull]),
-        native,
-      }),
-    ).toEqual({
+    const input = { use: 'review' as const, explicitSelection: true, pullRequest: pr, native }
+    const causal = fixtureCausal([empty])
+    expect(resolveBoundWork({ ...input, histories: [empty], causal })).toEqual({
       status: 'standalone',
       binding: 'absent',
     })
+    expect(selectWorkflowBinding({ pullRequest: pr, histories: [empty], native })).toEqual({ status: 'absent' })
     expect(
       resolveBoundWork({
-        use: 'landing',
-        explicitSelection: true,
-        pullRequest: pr,
-        histories: [emptyPull],
-        causal: fixtureCausal([emptyPull]),
-        native,
+        ...input,
+        histories: [empty],
+        causal: { ...causal, histories: [empty, empty] },
       }),
-    ).toMatchObject({
-      status: 'refused',
-      reason: 'missing',
-    })
-    const incompleteBinding = history([binding(mandated, pr)], pr)
+    ).toMatchObject({ status: 'refused', reason: 'incomplete' })
+    const incomplete = { ...empty, source: { ...empty.source, complete: false } }
     expect(
       resolveBoundWork({
-        use: 'review',
-        explicitSelection: true,
-        pullRequest: pr,
-        histories: [incompleteBinding],
-        causal: fixtureCausal([incompleteBinding]),
-        native,
+        ...input,
+        histories: [incomplete],
+        causal: fixtureCausal([incomplete]),
       }),
-    ).toMatchObject({
-      status: 'refused',
-      reason: 'incomplete',
+    ).toMatchObject({ status: 'refused', reason: 'incomplete' })
+    const bound = history([binding(featureMandate(), pr)], pr)
+    const foreign = decodeHistory({
+      ...bound.source,
+      comments: bound.source.comments.map((comment) => ({ ...comment, author: 'stranger' })),
     })
-    const fixOnly = mandate()
-    const fixHistories = [history([fixOnly]), history([binding(fixOnly, pr)], pr)]
     expect(
       resolveBoundWork({
-        use: 'landing',
-        explicitSelection: false,
-        pullRequest: pr,
-        histories: fixHistories,
-        causal: fixtureCausal(fixHistories),
-        native,
+        ...input,
+        histories: [foreign],
+        causal: fixtureCausal([foreign]),
       }),
-    ).toMatchObject({ status: 'refused', reason: 'fix-only' })
-  })
-  test('foreign binding observations cannot compete with bound or standalone review', () => {
-    const mandated = featureMandate()
-    const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
-    const native = { branch: 'feature/bounded', base: 'main' }
-    const boundHistory = history([binding(mandated, pr)], pr)
-    const authentic = boundHistory.operations[0]
-    if (authentic === undefined) throw new Error('fixture requires binding')
-    const foreign = { ...authentic, authority: 'foreign' as const, status: 'incomplete' as const, record: null }
-    const noisy = { ...boundHistory, operations: [authentic, foreign] }
-    const input = { explicitSelection: true, pullRequest: pr, native }
-    const noisyHistories = [history([mandated]), noisy]
+    ).toMatchObject({ status: 'refused', reason: 'incomplete' })
+    expect(selectWorkflowBinding({ pullRequest: pr, histories: [foreign], native }).status).not.toBe('absent')
+    const original = bound.source.comments[0]
+    if (original === undefined) throw new Error('expected a native binding comment')
+    for (const body of [
+      '<!-- omp-build-record v=1 kind=workflow-binding id=broken operationId=broken part=1/2 data=abcd -->\npartial',
+      '<!-- omp-build-record v=1 kind=workflow-binding id=broken operationId=broken part=1/1 data=! -->\nmalformed',
+    ]) {
+      const damaged = decodeHistory({ ...bound.source, comments: [{ ...original, body }] })
+      expect(selectWorkflowBinding({ pullRequest: pr, histories: [damaged], native }).status).not.toBe('absent')
+      expect(
+        resolveBoundWork({
+          ...input,
+          histories: [damaged],
+          causal: fixtureCausal([damaged]),
+        }),
+      ).toMatchObject({ status: 'refused' })
+    }
+    const selected = [history([featureMandate()]), bound]
     expect(
-      resolveBoundWork({ ...input, use: 'review', histories: noisyHistories, causal: fixtureCausal(noisyHistories) }),
-    ).toMatchObject({
-      status: 'applicable',
-    })
-    const foreignOnly = { ...boundHistory, operations: [foreign] }
-    expect(
-      resolveBoundWork({ ...input, use: 'review', histories: [foreignOnly], causal: fixtureCausal([foreignOnly]) }),
-    ).toEqual({
-      status: 'standalone',
-      binding: 'absent',
-    })
-    expect(
-      resolveBoundWork({ ...input, use: 'landing', histories: [foreignOnly], causal: fixtureCausal([foreignOnly]) }),
-    ).toMatchObject({
-      status: 'refused',
-      reason: 'missing',
-    })
+      resolveBoundWork({
+        ...input,
+        histories: selected,
+        causal: fixtureCausal(selected),
+      }),
+    ).toMatchObject({ status: 'refused', reason: 'incomplete' })
   })
   test('binding ignores foreign successor controls but refuses incomplete expected-author controls', () => {
     const mandated = featureMandate()
@@ -146,8 +87,7 @@ describe('workflow bound work behavior', () => {
       payload: { control: 'select-successor', controlId: 'foreign-select', mandate: successor, predecessor, successor },
     })
     if (!built.ok) throw new Error('fixture requires successor control')
-    const control = history([built.value]).operations[0]
-    if (control === undefined) throw new Error('fixture requires control observation')
+    const control = history([built.value])
     const home = history([mandated])
     const prHistory = history([binding(mandated, pr)], pr)
     const input = {
@@ -155,95 +95,72 @@ describe('workflow bound work behavior', () => {
       native: { branch: 'feature/bounded', base: 'main' },
       histories: [home, prHistory],
     }
-    const foreign = { ...control, authority: 'foreign' as const }
+    const foreign = decodeHistory({
+      ...home.source,
+      comments: [
+        ...home.source.comments,
+        ...control.source.comments.map((comment, index) => ({
+          ...comment,
+          locator: `${SCOPE.target}:comment:${1001 + index}`,
+          nativeId: String(1001 + index),
+          author: 'stranger',
+        })),
+      ],
+    })
     expect(
       selectWorkflowBinding({
         ...input,
-        histories: [{ ...home, operations: [...home.operations, foreign] }, prHistory],
+        histories: [foreign, prHistory],
       }),
     ).toMatchObject({ status: 'bound', binding: { recordId: `binding-${mandated.recordId}` } })
-    const invalid = { ...control, status: 'invalid' as const }
+    const incomplete = decodeHistory({
+      ...home.source,
+      comments: [
+        ...home.source.comments,
+        ...control.source.comments.map((comment, index) => ({
+          ...comment,
+          locator: `${SCOPE.target}:comment:${1001 + index}`,
+          nativeId: String(1001 + index),
+          body: comment.body.replace('part=1/1', 'part=1/2'),
+        })),
+      ],
+    })
     expect(
       selectWorkflowBinding({
         ...input,
-        histories: [{ ...home, operations: [...home.operations, invalid] }, prHistory],
+        histories: [incomplete, prHistory],
       }),
     ).toMatchObject({ status: 'incomplete' })
-  })
-  test('ignores child read-date drift while preserving canonical child drift detection', () => {
-    const fixtures = roxabiWorkflowFixtures()
-    const child: Scope = { repository: SCOPE.repository, target: 'acme/app#43' }
-    const mandated = fixtures.epicMandate(SCOPE, [fixtures.childSnapshot(child, 'child C1')], {
-      recordId: 'epic-bound',
-      runId: 'bound001',
-      operationId: 'op-epic-bound',
-      body: BODY,
+    const next = must(
+      parseRecord({
+        ...mandated,
+        recordId: successor.recordId,
+        operationId: 'op-next-mandate',
+        inputs: [mandated.recordId, ...mandated.inputs],
+        payload: { ...mandated.payload, antecedent: predecessor },
+      }),
+    )
+    const chainHome = history([mandated, next, built.value])
+    const chainPr = history([binding(mandated, pr), binding(next, pr)], pr)
+    expect(selectWorkflowBinding({ ...input, histories: [chainHome, chainPr] })).toMatchObject({
+      status: 'bound',
+      mandate: successor,
     })
-    const accepted = mandateAssessmentState(mandated)
-    const commitment = accepted.children[0]
-    if (commitment === undefined) throw new Error('fixture epic has no child commitment')
-    const pr: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
-    const histories = [history([mandated]), history([binding(mandated, pr)], pr)]
-    const input = {
-      use: 'review' as const,
-      explicitSelection: true,
-      pullRequest: pr,
-      histories,
-      causal: fixtureCausal(histories),
-      native: { branch: 'feature/bounded', base: 'main' },
-    }
-    const datedOnly = proposedAssessmentState(accepted, {
-      body: BODY,
-      children: [
-        {
-          ...commitment,
-          snapshot: {
-            ...commitment.snapshot,
-            raw: { ...commitment.snapshot.raw, lastEditedAt: '2026-10-22T00:00:00Z' },
-          },
-        },
-      ],
+    const unresolved = must(
+      parseRecord({ ...built.value, recordId: 'unresolved-select', operationId: 'op-unresolved-select' }),
+    )
+    const unresolvedComments = history([unresolved]).source.comments.map((comment, index) => ({
+      ...comment,
+      locator: `${SCOPE.target}:comment:${2001 + index}`,
+      nativeId: String(2001 + index),
+      body: comment.body.replace('part=1/1', 'part=1/2'),
+    }))
+    const uncertainChainHome = decodeHistory({
+      ...chainHome.source,
+      comments: [...chainHome.source.comments, ...unresolvedComments],
     })
-    expect(resolveBoundWork({ ...input, currentSpec: datedOnly })).toMatchObject({
-      status: 'applicable',
-      drift: 'settled',
-    })
-    const childVersionChanged = proposedAssessmentState(accepted, {
-      body: BODY,
-      children: [fixtures.childSnapshot(child, 'child C2')],
-    })
-    expect(resolveBoundWork({ ...input, currentSpec: childVersionChanged })).toMatchObject({
-      status: 'applicable',
-      drift: 'differs',
-    })
-    const childTierChanged = proposedAssessmentState(accepted, {
-      body: BODY,
-      children: [{ ...commitment, tier: 'F-lite' }],
-    })
-    expect(resolveBoundWork({ ...input, currentSpec: childTierChanged })).toMatchObject({
-      status: 'applicable',
-      drift: 'differs',
-    })
-    const changedRawBody = 'child C1 rewritten'
-    const childRawChanged = proposedAssessmentState(accepted, {
-      body: BODY,
-      children: [
-        {
-          ...commitment,
-          snapshot: {
-            ...commitment.snapshot,
-            raw: {
-              ...commitment.snapshot.raw,
-              body: changedRawBody,
-              bodySha256: specDigest(changedRawBody),
-            },
-          },
-        },
-      ],
-    })
-    expect(resolveBoundWork({ ...input, currentSpec: childRawChanged })).toMatchObject({
-      status: 'applicable',
-      drift: 'differs',
+    expect(selectWorkflowBinding({ ...input, histories: [uncertainChainHome, chainPr] })).toMatchObject({
+      status: 'incomplete',
     })
   })
 })

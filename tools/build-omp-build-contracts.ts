@@ -117,7 +117,7 @@ function writeProfile(
 ): void {
   const outputSchema = JSON.stringify(producerJsonSchema(profile.output))
   if (
-    profile.output === 'implementation' &&
+    profile.output === 'delivery-execution' &&
     (outputSchema.includes('proofToolCallId') || outputSchema.includes('proofUnavailableReason'))
   ) {
     throw new Error(`implementation producer schema still requires a single proof: ${profile.name}`)

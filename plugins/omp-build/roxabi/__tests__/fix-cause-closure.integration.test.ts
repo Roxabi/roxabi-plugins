@@ -7,6 +7,7 @@ import { expect, it } from 'vitest'
 import { nativeComment, wire } from '../../adapters/__tests__/github-workflow-support.ts'
 import * as contracts from '../../dist/contracts.js'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
+import { deliverCreatedSister } from '../../testing/sister-delivery-fixture.ts'
 import { linkedIssueBinding } from '../fix-checkpoint-binding.ts'
 import { authorizeFixAction } from '../fix-ci-evidence.ts'
 import type { FixTarget } from '../fix-contract.ts'
@@ -83,7 +84,9 @@ it.each([
     expect((await world.operations.createSister(world.request(0))).status).toBe('created')
     const first = world.issues.get(43)
     if (!first) throw new Error('actual sister issue must exist')
+    await deliverCreatedSister(world)
     first.state = 'CLOSED'
+    first.stateReason = 'COMPLETED'
     const github = withRoxabiGitHubPolicy({ cwd: '/fixture', gh: world.gh, readAuthor: 'automation' })
     const reader = createInstalledUwReadPort(github)
     const authentic = await reader.readUw(world.context.original)

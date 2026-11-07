@@ -7,9 +7,10 @@ import { identifierSchema, type Scope } from './record-values.ts'
 import type { Result } from './result.ts'
 import type { OperatorConfirmationEvidence } from './uw-identity-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
 import { type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
-import { specAssessmentSchema } from './workflow-output-schema.ts'
+import { evaluateCandidate } from './workflow-material-assessment.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import {
   type AssessmentClassification,
@@ -20,12 +21,10 @@ import {
   mechanicalSpecDelta,
   type PreparedMaterialAcceptance,
   requiresMaterialAcceptance,
-  sameAssessedState,
   sameCurrentAssessedState,
   sameMechanicalDelta,
 } from './workflow-spec-assessment.ts'
 import { receiptRef } from './workflow-spec-authentication.ts'
-import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
 export type MaterialAcceptanceInput = {
   uw: Scope
@@ -58,10 +57,6 @@ function materialFailure(code: string, message: string): Result<never> {
   return fail([diagnostic(code, message)])
 }
 
-type CandidateOutcome =
-  | { status: 'candidate'; record: AssessResultRecord; classification: AssessmentClassification }
-  | { status: 'stale' }
-
 function isCurrentCandidate(
   record: CanonicalRecord,
   input: MaterialAcceptanceInput,
@@ -76,32 +71,11 @@ function isCurrentCandidate(
   )
 }
 
-function evaluateCandidate(
-  record: AssessResultRecord,
-  histories: readonly DecodedHistory[],
-  mandate: ExternalRecordRef,
-  accepted: AssessSpecExact['accepted'],
-): Result<CandidateOutcome> {
-  if (!specAssessmentSchema.safeParse(record.payload.structured).success)
-    return materialFailure('material-assessment-malformed', 'Material assessment output is malformed')
-  const authenticated = authenticatedAssessResult(record, histories, mandate)
-  if (!authenticated.ok) return fail(authenticated.evidence)
-  const exact = record.payload.exactInputs
-  if (!sameAssessedState(exact.accepted, accepted)) return { ok: true, value: { status: 'stale' } }
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
-  if (!sameMechanicalDelta(mechanical, exact.mechanical))
-    return materialFailure('material-assessment-malformed', 'Material assessment mechanical delta is inconsistent')
-  const classification = specAssessmentSchema.parse(record.payload.structured).classification
-  if (!requiresMaterialAcceptance(mechanical, classification))
-    return materialFailure('material-assessment-not-material', 'Assessment does not require material acceptance')
-  return { ok: true, value: { status: 'candidate', record: authenticated.record, classification } }
-}
-
 function matchingAssessments(
   records: readonly CanonicalRecord[],
   input: MaterialAcceptanceInput,
   mandate: ExternalRecordRef,
-  accepted: AssessSpecExact['accepted'],
+  accepted: AcceptedOwnSpec,
   requiredAssessment?: ExternalRecordRef,
 ): Result<{
   candidates: Array<{ record: AssessResultRecord; classification: AssessmentClassification }>
@@ -153,13 +127,7 @@ function selectMaterialAcceptance(
       'Material acceptance operation ID is already present in mandate history',
     )
   const mandate: ExternalRecordRef = { scope, recordId: input.mandate.recordId, kind: 'mandate' }
-  const acceptedState: AssessSpecExact['accepted'] = {
-    ref: accepted.spec.ref,
-    snapshot: accepted.spec.snapshot,
-    tier: accepted.spec.tier,
-    children: accepted.spec.children,
-  }
-  const matches = matchingAssessments(records, input, mandate, acceptedState, requiredAssessment)
+  const matches = matchingAssessments(records, input, mandate, accepted.spec, requiredAssessment)
   if (!matches.ok) return matches
   const { candidates, stale } = matches.value
 
@@ -177,12 +145,15 @@ function selectMaterialAcceptance(
         : 'No authenticated material assessment matches the current proposal',
     )
 
+  const predecessor = accepted.spec.chain.at(-1)
+  if (predecessor === undefined)
+    return materialFailure('material-proposal-invalid', 'Accepted Spec chain has no predecessor')
   const proposal: MaterialAcceptanceProposal = {
-    format: 'omp-build-material-acceptance/1',
+    format: 'omp-build-material-acceptance/2',
     operationId: input.operationId,
     uw: accepted.spec.ref.uw,
     mandate,
-    predecessor: accepted.spec.ref.sourceAccepted,
+    predecessor: predecessor.source,
     assessment: receiptRef(assessment.record),
     classification: assessment.classification,
     exactInputs: assessment.record.payload.exactInputs,
@@ -201,6 +172,17 @@ export function prepareMaterialAcceptance(input: MaterialAcceptanceInput): Resul
     },
   }
 }
+export function prepareMaterialAcceptanceForAssessment(
+  input: MaterialAcceptanceInput,
+  assessment: ExternalRecordRef,
+): Result<PreparedMaterialAcceptance> {
+  const selected = selectMaterialAcceptance(input, assessment)
+  if (!selected.ok) return selected
+  return {
+    ok: true,
+    value: { proposal: selected.value.proposal, digest: materialAcceptanceDigest(selected.value.proposal) },
+  }
+}
 
 export function recheckMaterialAcceptance(input: {
   prepared: PreparedMaterialAcceptance
@@ -208,7 +190,7 @@ export function recheckMaterialAcceptance(input: {
   mandate: MandateRecord
 }): Result<PreparedMaterialAcceptance> {
   const { proposal, digest } = input.prepared
-  if (proposal.format !== 'omp-build-material-acceptance/1' || digest !== materialAcceptanceDigest(proposal))
+  if (proposal.format !== 'omp-build-material-acceptance/2' || digest !== materialAcceptanceDigest(proposal))
     return materialFailure('material-proposal-invalid', 'Prepared material proposal digest is invalid')
   const selected = selectMaterialAcceptance(
     {
@@ -233,9 +215,10 @@ export function recheckMaterialAcceptance(input: {
 export function buildMaterialAcceptanceControl(
   prepared: PreparedMaterialAcceptance,
   confirmation: OperatorConfirmationEvidence,
+  context: { histories: readonly DecodedHistory[]; mandate: MandateRecord },
 ): Result<Extract<CanonicalRecord, { kind: 'operator-control' }>> {
   const { proposal, digest } = prepared
-  if (proposal.format !== 'omp-build-material-acceptance/1' || digest !== materialAcceptanceDigest(proposal))
+  if (proposal.format !== 'omp-build-material-acceptance/2' || digest !== materialAcceptanceDigest(proposal))
     return materialFailure('material-proposal-invalid', 'Prepared material proposal digest is invalid')
   const mechanical = mechanicalSpecDelta(proposal.exactInputs.accepted, proposal.exactInputs.proposed)
   if (
@@ -245,7 +228,11 @@ export function buildMaterialAcceptanceControl(
     return materialFailure('material-proposal-invalid', 'Prepared material proposal is not an authenticated change')
   if (
     !equalScope(proposal.uw, proposal.exactInputs.accepted.ref.uw) ||
-    !sameRef(proposal.predecessor, proposal.exactInputs.accepted.ref.sourceAccepted) ||
+    !sameRef(proposal.mandate, {
+      scope: mandateScope(context.mandate),
+      recordId: context.mandate.recordId,
+      kind: 'mandate',
+    }) ||
     proposal.mandate.kind !== 'mandate' ||
     proposal.assessment.kind !== 'action-receipt'
   )
@@ -255,6 +242,8 @@ export function buildMaterialAcceptanceControl(
       'material-confirmation-mismatch',
       'Operator confirmation does not bind the prepared material proposal',
     )
+  const fresh = recheckMaterialAcceptance({ prepared, ...context })
+  if (!fresh.ok) return fresh
   return buildRecord({
     repository: proposal.mandate.scope.repository,
     target: proposal.mandate.scope.target,
@@ -271,6 +260,7 @@ export function buildMaterialAcceptanceControl(
       assessment: proposal.assessment,
       specVersion: proposal.exactInputs.proposed.snapshot.spec.version,
       proposalDigest: digest,
+      authorization: { kind: 'direct' },
       confirmation,
       identityDelta: { retired: [...proposal.exactInputs.mechanical.removed] },
     },

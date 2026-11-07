@@ -1,19 +1,13 @@
 import { z } from 'zod'
+import { causeDependencyNativePlanSchema } from './cause-dependency-adjustment-schema.ts'
+import { observationRefSchema } from './criterion-evidence-schema.ts'
+import { externalRecordRefSchema } from './record-references.ts'
 import { scopeSchema, sha256Schema } from './record-values.ts'
 import { complexityFactorsSchema, normalizationDecisionSchema, tierOverrideSchema } from './uw-normalization-schema.ts'
 import { specDraftSchema } from './uw-spec-schema.ts'
+import { repositorySchema, writesSchema } from './uw-write-intent-schema.ts'
 
-const repositorySchema = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
-const issueRefSchema = z.strictObject({ repository: repositorySchema, number: z.number().int().positive() })
-const labelIntentSchema = z.strictObject({ add: z.array(z.string().min(1)), remove: z.array(z.string().min(1)) })
-const relationIntentSchema = z.strictObject({
-  parent: issueRefSchema.nullable().optional(),
-  addChildren: z.array(issueRefSchema),
-  removeChildren: z.array(issueRefSchema),
-  addBlockers: z.array(issueRefSchema),
-  removeBlockers: z.array(issueRefSchema),
-})
-export const writesSchema = z.strictObject({ labels: labelIntentSchema, relations: relationIntentSchema })
+export { writesSchema } from './uw-write-intent-schema.ts'
 
 const shared = {
   draft: specDraftSchema,
@@ -29,3 +23,22 @@ export const uwProposalInputSchema = z.strictObject({ uw: scopeSchema, sourceBod
 export const uwCreateInputSchema = z.strictObject({ repository: repositorySchema, ...shared })
 export type UwProposalInputJson = z.infer<typeof uwProposalInputSchema>
 export type UwCreateInputJson = z.infer<typeof uwCreateInputSchema>
+
+/** Decision inputs only: observed facts and execution readback are supplied by the host. */
+export const causeDependencyAdjustmentInputSchema = z.strictObject({
+  origin: scopeSchema,
+  disposition: externalRecordRefSchema.extend({ kind: z.literal('cause-disposition') }),
+  receipt: externalRecordRefSchema.extend({ kind: z.literal('debt-receipt') }),
+  predecessor: z.union([
+    externalRecordRefSchema.extend({ kind: z.literal('debt-receipt') }),
+    externalRecordRefSchema.extend({ kind: z.literal('operator-control') }),
+  ]),
+  change: z.discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal('withdraw') }),
+    z.strictObject({ kind: z.literal('replace'), blocker: scopeSchema }),
+  ]),
+  nativeEffect: causeDependencyNativePlanSchema,
+  reason: z.string().trim().min(1),
+  references: z.array(observationRefSchema),
+})
+export type CauseDependencyAdjustmentInputJson = z.infer<typeof causeDependencyAdjustmentInputSchema>

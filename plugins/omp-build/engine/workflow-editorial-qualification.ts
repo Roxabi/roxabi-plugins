@@ -4,6 +4,7 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import { workflowContextNegative } from './workflow-context-terminal.ts'
+import type { SpecAssessment } from './workflow-output-schema.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
 import {
   type AssessResultRecord,
@@ -26,6 +27,7 @@ type EditorialQualificationInput = {
   histories: readonly DecodedHistory[]
   mandateRef: ExternalRecordRef
   applied: ReadonlySet<string>
+  deferCompatibility: (record: AssessResultRecord, assessment: SpecAssessment, refusal?: SpecChainFailure) => void
   accepted: AcceptedOwnSpec
 }
 
@@ -46,6 +48,8 @@ function applicableAssessment(
       snapshot: accepted.snapshot,
       tier: accepted.tier,
       children: accepted.children,
+      inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
+      coverage: accepted.coverage,
     })
   )
 }
@@ -61,6 +65,12 @@ export function qualifyEditorialCandidate(
   const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured)
   if (!parsed.success)
     return { status: 'refused', result: specChainFailure('incomplete', 'Applicable spec assessment is malformed') }
+  if (parsed.data.compatibility.state !== 'consistent') {
+    const result = specChainFailure('material-spec', `Constraint compatibility is ${parsed.data.compatibility.state}`)
+    input.deferCompatibility(authenticated.record, parsed.data, result)
+    return { status: 'refused', result }
+  }
+  input.deferCompatibility(authenticated.record, parsed.data)
   const exact = authenticated.record.payload.exactInputs
   const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
   if (!sameMechanicalDelta(mechanical, exact.mechanical))

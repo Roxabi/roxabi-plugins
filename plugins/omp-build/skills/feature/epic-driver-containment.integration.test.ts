@@ -17,9 +17,14 @@ import {
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../../engine/__tests__/workflow-spec-assessment-support.ts'
+import { actionInputDigest } from '../../engine/action-input.ts'
+import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { isAssessResult } from '../../engine/workflow-spec-assessment.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { serveBoundEpic } from './testing/epic-driver/epic-driver-bound-fixture.ts'
+import { landedEpic } from './testing/epic-driver/epic-driver-landed-fixture.ts'
+import { installEpicBlocker } from './testing/epic-driver/epic-driver-native.ts'
+import { expectCompleteEpicObservation } from './testing/epic-driver/epic-driver-observation.ts'
 import {
   childNode,
   epicDecisionHistory,
@@ -44,6 +49,23 @@ function snapshot(scope: { repository: string; target: string }, body: string) {
   const parsed = parseIssueSpecBody({ uw: scope, raw: rawSource(scope.target, body, '2026-10-21T12:00:00Z') })
   if (parsed.status !== 'conformant') throw new Error(`fixture Spec ${scope.target} is ${parsed.status}`)
   return parsed.snapshot
+}
+
+function assessmentAtCheckout(seed: ReturnType<typeof assessFixture>, epic: string) {
+  if (seed.start.kind !== 'action-receipt') throw new Error('Expected assessment START')
+  const head = git(epic, 'rev-parse', 'HEAD')
+  if (git(epic, 'rev-parse', 'refs/remotes/origin/main') !== head)
+    throw new Error('Assessment checkout does not match the observed base')
+  const manifest = {
+    ...seed.start.payload.inputs.manifest,
+    code: { repository: 'o/r', base: head, head, referenceCommit: head },
+  }
+  const inputs = { ...seed.start.payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+  const start = buildRecord({ ...seed.start, payload: { ...seed.start.payload, inputs } })
+  const result = buildRecord({ ...seed.result, payload: { ...seed.result.payload, inputs } })
+  if (!start.ok || start.value.kind !== 'action-receipt' || !result.ok || !isAssessResult(result.value))
+    throw new Error('Assessment with observed Git code is invalid')
+  return { ...seed, start: start.value, result: result.value }
 }
 
 function prepareArmedChild(change: Change | 'none', foreignParent = false, historicalEpic = false): void {
@@ -86,14 +108,25 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false, histo
   })
   // First-mandate publication records the current branch and sets role from
   // child commitments, even when the initial role is Epic.
+  const historicalParent = historicalEpic
+    ? fixtures.epicMandate(
+        childScope,
+        [fixtures.childSnapshot({ repository: 'o/r', target: 'o/r#3' }, 'historic grandchild')],
+        {
+          body: node.body,
+          ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
+        },
+      )
+    : null
   const built = parseRecord(
-    historicalEpic
+    historicalParent !== null
       ? {
           ...featureMandate,
           payload: {
             ...featureMandate.payload,
             role: 'epic',
-            children: [fixtures.childSnapshot({ repository: 'o/r', target: 'o/r#3' }, 'historic grandchild')],
+            children: historicalParent.payload.children,
+            coverage: historicalParent.payload.coverage,
           },
         }
       : featureMandate,
@@ -104,7 +137,14 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false, histo
   if (historicalEpic) {
     const initial = mandateAssessmentState(childMandate)
     const proposed = proposedAssessmentState(initial, { body: node.body, children: [] })
-    const assessment = assessFixture(childMandate, 'child-accept-leaf', initial, proposed, 'material')
+    const assessment = assessmentAtCheckout(
+      assessFixture(childMandate, 'child-accept-leaf', initial, proposed, 'material', [
+        fixtures.historyFrom([childMandate], ME, ME, [fixtures.historyFrom([owner])]),
+        fixtures.historyFrom([owner]),
+        decodeHistory(recordHistory(3)),
+      ]),
+      epic,
+    )
     records.push(
       assessment.start,
       assessment.result,
@@ -248,9 +288,10 @@ describe('epic-driver — accepted child containment after topology drift', () =
     else expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'goal-report', outcome: 'drop' }))
   })
 
-  it.each(['control', 'drop'])('%s contains the bound child that was originally an Epic', (action) => {
+  it.each(['control', 'drop'])('%s contains the bound child that was originally an Epic', async (action) => {
     prepareArmedChild('removed', false, true)
     clearIssuePrLinks()
+    if (action === 'control') await expectCompleteEpicObservation()
     const run = drive(
       action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
     )
@@ -361,11 +402,19 @@ function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent' | 'epic'): void {
   const records: CanonicalRecord[] = [mandate]
   if (role === 'accepted-parent') {
     const initial = mandateAssessmentState(mandate)
+    if (epicMandate.payload.coverage === null) throw new Error('Expected declared parent coverage')
     const proposed = {
       ...proposedAssessmentState(initial, { body, children: epicMandate.payload.children }),
       snapshot: initial.snapshot,
+      coverage: epicMandate.payload.coverage,
     }
-    const assessment = assessFixture(mandate, 'root-accept-parent', initial, proposed, 'material')
+    const assessment = assessmentAtCheckout(
+      assessFixture(mandate, 'root-accept-parent', initial, proposed, 'material', [
+        fixtures.historyFrom([mandate], ME, ME),
+        decodeHistory(recordHistory(2)),
+      ]),
+      epic,
+    )
     records.push(assessment.start, assessment.result, acceptMaterialFixture(mandate, 'accept-root-parent', assessment))
   }
   const rootHistory = fixtures.historyFrom(records, ME, ME)
@@ -425,8 +474,9 @@ describe('epic-driver — own bound PR containment', () => {
     expectDisarmed()
   })
 
-  it.each(['control', 'drop'])('%s contains the retained own PR after a leaf accepts a child', (action) => {
+  it.each(['control', 'drop'])('%s contains the retained own PR after a leaf accepts a child', async (action) => {
     prepareArmedOwnPr('accepted-parent')
+    if (action === 'control') await expectCompleteEpicObservation()
     const run = drive(
       action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
     )
@@ -448,29 +498,12 @@ describe('epic-driver — own bound PR containment', () => {
   })
 })
 
-function prepareFinalReview(blocking: boolean): string {
-  const { principal, epic, state } = sandbox()
-  const base = git(principal, 'rev-parse', 'HEAD')
-  writeFileSync(path.join(principal, 'delivered.txt'), 'delivered\n')
-  git(principal, 'add', '.')
-  git(principal, 'commit', '-qm', 'feat(x): first child (#2)')
-  git(principal, 'push', '-q', 'origin', 'main')
-  const merge = git(principal, 'rev-parse', 'HEAD')
-  git(epic, 'fetch', '-q', 'origin')
-  const range = `${base}..${merge}`
-  const merged = prNode(10, 'feat/2-first-child', 'c'.repeat(40), {
-    state: 'MERGED',
-    mergedAt: '2026-09-30T10:00:00Z',
-    mergeCommit: { oid: merge, parents: { nodes: [{ oid: base }] } },
-  })
-  serveEpic([childNode(3, 'fix(y): independent blocker')])
-  const blockerPath = path.join(state, 'uw-3.json')
-  const blocker = JSON.parse(readFileSync(blockerPath, 'utf8'))
-  blocker.data.repository.issue.parent = null
-  writeFileSync(blockerPath, JSON.stringify(blocker))
-  serveBoundEpic(childNode(2, 'feat(x): first child', { state: 'CLOSED', prs: [merged] }), 10, 'feat/2-first-child')
-  const history = epicDecisionHistory(range, blocking)
+async function prepareFinalReview(blocking: boolean): Promise<string> {
+  const world = await landedEpic({ 'delivered.txt': 'delivered\n' })
+  installEpicBlocker()
+  const { range, comments: history } = await epicDecisionHistory(blocking, !blocking, world)
   serveComments(1, [...issueComments(1), ...(blocking ? history : history.slice(0, -1))])
+  writeFileSync(path.join(sandboxOf().state, 'writes.log'), '')
   return range
 }
 
@@ -491,8 +524,8 @@ function reviewRequest() {
 }
 
 describe('epic-driver — fresh admission before final review advancement', () => {
-  it.each<'blocker' | 'tier'>(['blocker', 'tier'])('refuses mark-fix after parent %s drift', (change) => {
-    prepareFinalReview(true)
+  it.each<'blocker' | 'tier'>(['blocker', 'tier'])('refuses mark-fix after parent %s drift', async (change) => {
+    await prepareFinalReview(true)
     changeParent(change)
     const run = drive(['mark-fix', '--ticket', '2'])
     expect(run.code, run.stderr).toBe(2)
@@ -500,8 +533,8 @@ describe('epic-driver — fresh admission before final review advancement', () =
     expect(eventPayloads(2)).not.toContainEqual(expect.objectContaining({ event: 'epic-fix' }))
   })
 
-  it('allows mark-fix with the same unchanged accepted parent', () => {
-    prepareFinalReview(true)
+  it('allows mark-fix with the same unchanged accepted parent', async () => {
+    await prepareFinalReview(true)
     const run = drive(['mark-fix', '--ticket', '2'])
     expect(run.code, run.stderr).toBe(0)
     expect(eventPayloads(2)).toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
@@ -509,8 +542,8 @@ describe('epic-driver — fresh admission before final review advancement', () =
 
   it.each<'blocker' | 'tier'>(['blocker', 'tier'])(
     'refuses a fresh final-review request after parent %s drift',
-    (change) => {
-      prepareFinalReview(false)
+    async (change) => {
+      await prepareFinalReview(false)
       changeParent(change)
       const run = reviewRequest()
       expect(run.status, run.stderr).toBe(2)
@@ -518,8 +551,8 @@ describe('epic-driver — fresh admission before final review advancement', () =
     },
   )
 
-  it('authorizes a fresh final-review request for the unchanged accepted parent', () => {
-    const range = prepareFinalReview(false)
+  it('authorizes a fresh final-review request for the unchanged accepted parent', async () => {
+    const range = await prepareFinalReview(false)
     const run = reviewRequest()
     expect(run.status, run.stderr).toBe(0)
     expect(JSON.parse(run.stdout)).toMatchObject({ target: 'o/r#1', range })

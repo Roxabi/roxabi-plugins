@@ -9,6 +9,7 @@ import {
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../engine/__tests__/workflow-spec-assessment-support.ts'
+import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
 import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
@@ -17,6 +18,7 @@ import { git, readSim, sandbox, writeSim } from '../testing/sandbox/sandbox-repo
 import type { Box } from '../testing/sandbox/sandbox-types.ts'
 
 const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
+const ABANDON = path.resolve(import.meta.dirname, './feature-containment-abandon-fixture.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const ROOT = { repository: 'acme/app', target: 'acme/app#42' }
 const CHILD = { repository: 'acme/app', target: 'acme/app#43' }
@@ -56,14 +58,55 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false): { box: 
       run: 'run00001',
     },
   )
+  const child = fixtures.featureMandate(CHILD, {
+    body: childSpec.body,
+    ownSpec: childSpec.ownSpec,
+    recordId: 'child-mandate',
+    parent: fixtures.mandateRef(root),
+    inheritedOwnSpecRefs: [
+      { uw: ROOT, version: root.payload.ownSpec.version, sourceAccepted: fixtures.mandateRef(root) },
+    ],
+  })
+  const initialRootHistory = fixtures.historyFrom([root], 'operator', 'operator')
+  let childHistory = fixtures.historyFrom([child], 'operator', 'operator', [initialRootHistory])
   const rootRecords: CanonicalRecord[] = [root]
+  if (historicalEpic) {
+    writeSim(box, (state) => {
+      const rootIssue = state.issues['42']
+      const childIssue = state.issues['43']
+      if (!rootIssue || !childIssue) throw new Error('missing native fixture')
+      rootIssue.body = rootSpec.body
+      rootIssue.subIssues = [43]
+      rootIssue.comments.push(
+        ...fixtures.framedBodies([root], 'operator').map((body) => ({ author: 'operator', body })),
+      )
+      childIssue.body = childSpec.body
+      childIssue.comments.push(
+        ...fixtures
+          .framedBodies([child], 'operator', [initialRootHistory])
+          .map((body) => ({ author: 'operator', body })),
+      )
+    })
+    const artifacts = path.join(box.root, 'abandon-artifacts')
+    mkdirSync(artifacts, { recursive: true })
+    const run = spawnSync(BUN, [ABANDON, cwd, artifacts], {
+      cwd,
+      env: box.env,
+      encoding: 'utf8',
+    })
+    if (run.status !== 0) throw new Error(`Child abandonment failed: ${run.stderr}\n${run.stdout}`)
+    childHistory = JSON.parse(run.stdout) as DecodedHistory
+  }
   if (historicalEpic) {
     const initial = mandateAssessmentState(root)
     const proposed = proposedAssessmentState(initial, { body: rootSpec.body, children: [] })
-    const assessment = assessFixture(root, 'root-accept-leaf', initial, proposed, 'material')
+    const assessment = assessFixture(root, 'root-accept-leaf', initial, proposed, 'material', [
+      initialRootHistory,
+      childHistory,
+    ])
     rootRecords.push(assessment.start, assessment.result, acceptMaterialFixture(root, 'accept-root-leaf', assessment))
-    const rootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator')
-    const accepted = resolveAcceptedSpec(root, [rootHistory])
+    const rootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator', [childHistory])
+    const accepted = resolveAcceptedSpec(root, [rootHistory, childHistory])
     if (!accepted.ok) throw new Error(`historical root acceptance refused: ${accepted.reason}`)
     expect(root.payload.role).toBe('epic')
     expect(effectiveMandateRole(root.payload.role, accepted.spec)).toBe('feature')
@@ -96,10 +139,17 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false): { box: 
     if (!rootIssue || !childIssue || !foreignIssue || !pr) throw new Error('missing native fixture')
     rootIssue.body = rootSpec.body
     rootIssue.subIssues = historicalEpic ? [] : [43]
-    rootIssue.comments.push(
-      ...fixtures.framedBodies(rootRecords, 'operator').map((body) => ({ author: 'operator', body })),
-    )
+    rootIssue.comments = fixtures
+      .framedBodies(rootRecords, 'operator', historicalEpic ? [childHistory] : [])
+      .map((body) => ({ author: 'operator', body }))
     childIssue.body = childSpec.body
+    if (!historicalEpic) {
+      childIssue.comments.push(
+        ...fixtures
+          .framedBodies([child], 'operator', [initialRootHistory])
+          .map((body) => ({ author: 'operator', body })),
+      )
+    }
     foreignIssue.body = foreignSpec.body
     foreignIssue.comments.push(
       ...fixtures.framedBodies([foreign], 'operator').map((body) => ({ author: 'operator', body })),
@@ -113,10 +163,13 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false): { box: 
   return { box, cwd }
 }
 
-function control(box: Box, cwd: string, action: 'pause' | 'abandon') {
+function control(box: Box, cwd: string, action: 'pause' | 'abandon', confirmedAbandon = false) {
   const home = path.join(box.root, `home-${action}`)
   mkdirSync(home, { recursive: true })
-  const run = spawnSync(BUN, [RUNNER, 'continue', cwd, JSON.stringify({ reference: '#42', control: action })], {
+  const args = confirmedAbandon
+    ? [ABANDON, cwd, home, 'root']
+    : [RUNNER, 'continue', cwd, JSON.stringify({ reference: '#42', control: action })]
+  const run = spawnSync(BUN, args, {
     cwd,
     env: { ...box.env, HOME: home },
     encoding: 'utf8',
@@ -159,7 +212,7 @@ describe('Epic own-lane containment through public controls', () => {
     '%s disarms an own PR bound to the selected Epic mandate',
     (action) => {
       const { box, cwd } = fixture('selected')
-      const result = control(box, cwd, action)
+      const result = control(box, cwd, action, action === 'abandon')
       const state = readSim(box)
       expect(state.prs['7']).toMatchObject({ labels: [], autoMerge: null })
       expect(state.calls).toEqual(

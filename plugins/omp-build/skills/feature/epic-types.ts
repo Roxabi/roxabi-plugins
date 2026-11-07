@@ -1,7 +1,11 @@
+import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import type { ExternalRecordRef } from '../../engine/record-references.ts'
+import type { UwCompletion } from '../../engine/uw-completion-types.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import type { SpecSnapshot, UwTier } from '../../engine/uw-spec.ts'
 import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
+import type { ParentIntegrationRead } from '../../roxabi/uw-parent-current-integration.ts'
+import type { InitialMandateReadiness } from './epic-initial-mandate'
 import type { SharedStop, TicketStop } from './epic-stops'
 
 // ── Facts ─────────────────────────────────────────────────────────────────────
@@ -37,6 +41,7 @@ export type BranchFacts = {
 
 export type FramedOwnUw = {
   status: 'framed'
+  role: 'parent' | 'leaf'
   snapshot: SpecSnapshot
   tier: UwTier
   graphComplete: true
@@ -45,6 +50,7 @@ export type FramedOwnUw = {
 
 export type AcceptedOwnUw = {
   status: 'accepted'
+  role: 'parent' | 'leaf'
   accepted: AcceptedOwnSpec
   /** The complete graph was observed in this gather, not inferred from an issue body. */
   graphComplete: true
@@ -64,23 +70,44 @@ export type ChildFacts = {
   number: number
   title: string
   state: 'OPEN' | 'CLOSED'
-  /** GitHub's native close reason; only CLOSED/COMPLETED relieves a dependency. */
+  /** Descriptive native close reason; never completion authority. */
   stateReason?: string | null
   labels: string[]
   body: string
   /** Fresh shared-reader authority for this exact child scope; never body-derived. */
   ownUw: OwnUwObservation
+  /** Same-cut permission to establish the first mandate, not completion authority. */
+  initialMandate?: InitialMandateReadiness
+  /** Calculated in the same complete observation as the Epic graph. */
+  completion?: 'complete' | 'not-complete' | 'indeterminate' | 'abandoned'
+  completionCode?: {
+    role: 'leaf' | 'parent'
+    code: import('../../engine/code-range-schema.ts').CodeRange
+    sources: readonly ExternalRecordRef[]
+  }
   /** A complete canonical `epic-fix` event authored on this child issue. */
   epicFix: boolean
   /** Canonical blocker facts from the parent-rooted UW graph. */
-  blockedBy: { number: number; state: 'OPEN' | 'CLOSED'; stateReason?: string | null; repo?: string }[]
+  blockedBy: {
+    number: number
+    state: 'OPEN' | 'CLOSED'
+    stateReason?: string | null
+    repo?: string
+    dependency?: 'satisfied' | 'held'
+  }[]
   stops: { run: string; reason: string }[]
   prs: PrFacts[]
   branches: BranchFacts[]
 }
 
 export type BaseCi = { state: 'red' | 'green' | 'pending' | 'none' | 'unread'; failed: string[]; pending: string[] }
-export type EpicReview = { run: string; verdict: 'clean' | 'blocking'; range: string }
+export type EpicReview = {
+  run: string
+  verdict: 'clean' | 'blocking'
+  range: string
+  inputs: ActionInputs
+  decision: ExternalRecordRef
+}
 export type HookRecord = { run: string; result: 'started' | 'ok' | 'skipped' | 'failed'; sha: string }
 
 export type Facts = {
@@ -89,6 +116,8 @@ export type Facts = {
   base: string
   /** `refs/remotes/origin/<base>` after the fetch. */
   baseSha: string
+  parentIntegration: ParentIntegrationRead
+  parentCompletion: UwCompletion | null
   tree: { clean: boolean; branch: string | null }
   baseCi: BaseCi
   /** Why `.dev/stack.yml` `landing` cannot be read, or `null`. A shared-state stop. */
@@ -111,8 +140,10 @@ export type Report = {
 
 export type Step = { reason: string; report: Report } & (
   | { action: 'start'; ticket: number; branch: string }
+  | { action: 'parent'; ticket: number }
   | { action: 'resume'; ticket: number; branch: string; pr: PrFacts | null }
   | { action: 'stop'; ticket: number; stop: TicketStop }
+  | { action: 'integrate' }
   | { action: 'final-review'; stage: 'review' | 'fix-ticket'; range: string }
   | { action: 'post-merge' }
   | { action: 'complete' }
@@ -130,7 +161,9 @@ export type EpicStepName =
   | 'drop'
 
 /** Flatten `final-review` stage `fix-ticket`. Not a second selector. */
-export function epicStepName(step: Step): EpicStepName {
+export function epicStepName(step: Step): EpicStepName | null {
+  if (step.action === 'integrate') return null
+  if (step.action === 'parent') return 'start'
   if (step.action === 'final-review') return step.stage === 'fix-ticket' ? 'fix-ticket' : 'final-review'
   return step.action
 }

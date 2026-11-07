@@ -1,17 +1,38 @@
 import { writeFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { contentReading, evidenceDeclaration } from '../../engine/__tests__/criterion-admission-fixture.ts'
+import { actionInputDigest } from '../../engine/action-input.ts'
 import { producerImplementationOutputSchema } from '../../engine/workflow-output-schema.ts'
 import { hostCompletedStructured } from '../../roxabi/feature-implementation-receipt.ts'
 import { implementNativeOutcome } from '../../roxabi/feature-native-outcome.ts'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { batch, bridgeHarness, cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import type { NativeChildResult } from '../review-runtime/contracts.ts'
 
 const root = consultableAgentRoot()
 afterEach(() => cleanupFixtureActions())
 
-const reading = contentReading()
+const originalReading = contentReading()
+const mandate = roxabiWorkflowFixtures().featureMandate(originalReading.target.spec.uw, {
+  body: '## Acceptance\n- [ ] reload keeps the selected region',
+})
+const acceptedInputs = acceptedActionInputs(mandate, 'implement')
+if (acceptedInputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted implementation spec')
+const reading = {
+  ...originalReading,
+  target: { ...originalReading.target, spec: acceptedInputs.manifest.spec.effective.own },
+}
+const manifest = {
+  ...acceptedInputs.manifest,
+  code: {
+    ...acceptedInputs.manifest.code,
+    head: reading.code.commit,
+    referenceCommit: reading.code.commit,
+  },
+}
+const implementationInputs = { ...acceptedInputs, manifest, fingerprint: actionInputDigest(manifest) }
 const { provenance: _provenance, ...producerReading } = reading
 const target = reading.target
 
@@ -40,7 +61,7 @@ async function capture(options: {
   const prepared = batch(['observation-action'])
   const task = prepared.tasks.tasks[0]
   if (task === undefined) throw new Error('expected a task')
-  const action = fixtureAction('observation-action', 'R-workflow-implement')
+  const action = fixtureAction('observation-action', 'R-workflow-implement', implementationInputs)
   task.action = action
   task.agent = 'R-workflow-implement'
   const children: NativeChildResult[] = []

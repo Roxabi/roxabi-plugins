@@ -1,15 +1,17 @@
+import { canonicalValueDigest } from './action-input.ts'
 import { nativeResultValid } from './delivery-observation-authentication.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
-import { recordsOf } from './workflow-control.ts'
+import { bindExternalRef, recordsOf } from './workflow-control.ts'
 import { planOutputSchema } from './workflow-output-schema.ts'
 
 export {
   citedOperationIntegrity,
   implementationReceiptEligible,
+  integrationReceiptEligible,
   nativeResultValid,
   observationAuthenticationDiagnostics,
   observationRefDiagnostics,
@@ -30,6 +32,26 @@ export function planReceiptEligible(record: Receipt): boolean {
     nativeResultValid(record) &&
     record.payload.phase === 'result' &&
     planOutputSchema.safeParse(record.payload.structured).success
+  )
+}
+
+export function integrationStartPaired(history: DecodedHistory, result: Receipt): boolean {
+  if (result.payload.action !== 'integrate' || result.payload.phase !== 'result') return false
+  const payload = result.payload
+  const bound = bindExternalRef(payload.start, history)
+  if (!bound.ok) return false
+  const record = bound.value
+  return (
+    record.kind === 'action-receipt' &&
+    record.payload.action === 'integrate' &&
+    record.payload.phase === 'start' &&
+    record.recordId === payload.start.recordId &&
+    record.repository === payload.start.scope.repository &&
+    record.target === payload.start.scope.target &&
+    record.payload.actionId === payload.actionId &&
+    sameRef(record.payload.mandate, payload.mandate) &&
+    canonicalValueDigest(record.payload.inputs) === canonicalValueDigest(payload.inputs) &&
+    canonicalValueDigest(record.payload.exactInputs) === canonicalValueDigest(payload.exactInputs)
   )
 }
 

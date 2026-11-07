@@ -9,8 +9,10 @@ import {
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { externalRef, objectValue } from './fix-mandate-types.ts'
-import { type FixUwCausalContext, readFixUwCausalContext } from './fix-uw-histories.ts'
+import { composeObservedUwCausalContext, type FixUwCausalContext } from './fix-uw-histories.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
+import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
+import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 
 export function liveNativeBranch(value: unknown): { branch: string; base: string } | null {
   const native = objectValue(objectValue(value)?.native)
@@ -158,8 +160,10 @@ async function freshBoundOwnSpec(
     return failure('fix-own-uw-unreadable')
   }
   if (!read.identity.ok) return failure('fix-own-uw-unsettled', ...read.identity.diagnostics.map((item) => item.code))
-  const causal = await readFixUwCausalContext(read.histories, histories, options)
+  const causal = await composeObservedUwCausalContext(read, histories, options)
   if (!causal.ok) return causal
+  read = await createInstalledObservedUwReadPort({ observation: causal.value.observation }).readUw(scope)
+  if (!read.identity.ok) return failure('fix-own-uw-unsettled')
   const admission = assessUwAdmission({
     uw: scope,
     graph: read.graph,
@@ -170,6 +174,7 @@ async function freshBoundOwnSpec(
     currentChildren: { ok: true, value: [] },
     histories: causal.value.histories,
     catalogues: causal.value.catalogues,
+    completion: read.completion,
   })
   if (!admission.deliverable.ok)
     return failure('fix-own-uw-unsettled', ...admission.deliverable.diagnostics.map((item) => item.code))
@@ -177,16 +182,12 @@ async function freshBoundOwnSpec(
   const root = read.graph.nodes.find((node) => sameScope(node.uw, scope))
   const children = projectNativeUwChildren({ uw: scope, graph: read.graph, accepted: read.accepted })
   if (root === undefined || !children.ok || children.value.length !== 0) return failure('fix-own-uw-unsettled')
-  const tiers = root.labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
-  const tierLabel = tiers[0]
-  if (tiers.length !== 1 || tierLabel === undefined) return failure('fix-own-uw-unsettled')
-  const tier = tierLabel === 'size:S' ? 'S' : tierLabel === 'size:F-lite' ? 'F-lite' : 'F-full'
+  const current = await readCurrentOwnSpecFacts({ uw: scope, read })
+  if (!current.ok) return failure('fix-own-uw-unsettled', ...current.diagnostics.map((item) => item.code))
   return {
     ok: true,
     value: {
-      snapshot: read.proposed.snapshot,
-      tier,
-      children: [],
+      ...current.value.currentSpec,
       ownSpec: read.accepted.value,
       causal: causal.value,
       read,

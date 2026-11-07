@@ -1,10 +1,12 @@
-import type { ScopedRecordRef } from '../dist/contracts.js'
+import { canonicalValueDigest, type ScopedRecordRef } from '../dist/contracts.js'
+import type { RecordInputRef } from '../engine/action-input-schema.ts'
 import { type EpicRangeReviewRequest, epicBindReview, epicFinalReviewRequest } from '../skills/feature/epic-driver'
 import { actionRequest, codePin, prepareDeliveryAction, prepareRefusal, uwSubject } from './delivery-action.ts'
 import { assembleEpicRangeInputs } from './epic-range-inputs'
 import {
   type AcceptedEpicSemantic,
   acceptedEpicSemantic,
+  canonicalSpecMatches,
   epicSemanticCanon,
   type LiveEpicSpec,
 } from './epic-range-semantic'
@@ -51,9 +53,7 @@ function capturedSemanticMatches(
     semantic !== undefined &&
     semantic.mode === 'bound' &&
     sameMandate(semantic, mandateRef) &&
-    semantic.acceptedSpec.reference === semantic.currentSpec.reference &&
-    semantic.acceptedSpec.body === semantic.currentSpec.body &&
-    semantic.acceptedSpec.digest === semantic.currentSpec.digest
+    canonicalSpecMatches(mandateRef.scope, semantic.acceptedSpec, semantic.currentSpec)
   )
 }
 
@@ -67,8 +67,46 @@ function acceptedSemanticMatches(
     accepted !== null &&
     accepted.semanticContext.mode === 'bound' &&
     sameMandate(accepted.semanticContext, mandateRef) &&
-    specMatches(accepted.spec, live) &&
+    canonicalSpecMatches(mandateRef.scope, accepted.spec, live) &&
     accepted.semanticCanon === epicSemanticCanon(captured)
+  )
+}
+function matchesIntegration(action: PreparedUwAction, integration: RecordInputRef): boolean {
+  const pins = action.inputs.manifest.deliveryData.filter((item) => item.role === 'integration')
+  const first = pins[0]
+  if (pins.length !== 1 || first === undefined) return false
+  const { role: _role, ...pin } = first
+  return canonicalValueDigest(pin) === canonicalValueDigest(integration)
+}
+
+function requestMatches(current: EpicRangeReviewRequest, requested: EpicRangeReviewRequest): boolean {
+  return (
+    current.repository === requested.repository &&
+    current.target === requested.target &&
+    current.runId === requested.runId &&
+    current.range === requested.range &&
+    current.candidateGitSHA === requested.candidateGitSHA &&
+    canonicalValueDigest(current.integration) === canonicalValueDigest(requested.integration)
+  )
+}
+
+function requirePanelChunk(assignedChunk: number | null, chunks: readonly { index: number }[], name: string): void {
+  if (assignedChunk !== null && !chunks.some((chunk) => chunk.index === assignedChunk)) {
+    throw new Error(`panel task names an absent chunk: ${name}`)
+  }
+}
+
+function commitsMatch(
+  code: PreparedUwAction['inputs']['manifest']['code'],
+  baseRead: { code: number; stdout: string },
+  headRead: { code: number; stdout: string },
+): boolean {
+  return (
+    baseRead.code === 0 &&
+    headRead.code === 0 &&
+    baseRead.stdout.trim() === code.base &&
+    headRead.stdout.trim() === code.head &&
+    code.referenceCommit === code.head
   )
 }
 
@@ -89,6 +127,9 @@ export async function prepareEpicFinalReviewMaterials(input: {
   const assembled = await assembleEpicRangeInputs(input)
   const context = assembled.context
   const epic = context.number
+  const initialRequest = await epicFinalReviewRequest(input.cwd, epic)
+  if (canonicalValueDigest(initialRequest) !== canonicalValueDigest(input.request))
+    throw new Error('epic-range-context-mismatch')
   const capturedSemantic = assembled.observedEvidence.semanticContext
   if (capturedSemantic === undefined || !capturedSemanticMatches(capturedSemantic, input.mandateRef)) {
     throw new Error('epic-bound-semantic-mismatch')
@@ -100,41 +141,49 @@ export async function prepareEpicFinalReviewMaterials(input: {
     throw new Error('epic-bound-semantic-mismatch')
   }
 
+  const validatePinnedIntegration = async (): Promise<{ ok: true } | { ok: false; reason: string }> => {
+    const code = specAction.inputs.manifest.code
+    const [baseRead, headRead] = await Promise.all([
+      input.git(input.cwd, ['rev-parse', '--verify', `${code.base}^{commit}`]),
+      input.git(input.cwd, ['rev-parse', '--verify', `${code.head}^{commit}`]),
+    ])
+    if (!commitsMatch(code, baseRead, headRead)) return { ok: false, reason: 'epic-range-commits-unreadable' }
+    const refreshed = await prepareDeliveryAction(
+      input.operations,
+      actionRequest({
+        actionId: `${assembled.context.operationId}:spec`,
+        purpose: 'review',
+        subject: uwSubject({ repository: input.request.repository, target: input.request.target }, null),
+        code: specAction.inputs.manifest.code,
+      }),
+      { ...projection, taskName: 'spec', assignedChunk: null },
+    )
+    if (
+      !refreshed.ok ||
+      refreshed.value.inputs.fingerprint !== specAction.inputs.fingerprint ||
+      !matchesIntegration(refreshed.value, input.request.integration)
+    )
+      return { ok: false, reason: 'epic-integration-context-mismatch' }
+    return { ok: true }
+  }
+
   const validate = async (): Promise<{ ok: true } | { ok: false; reason: string }> => {
     try {
       const current = await epicFinalReviewRequest(input.cwd, epic)
-      if (
-        current.repository !== input.request.repository ||
-        current.target !== input.request.target ||
-        current.runId !== input.request.runId ||
-        current.range !== input.request.range ||
-        current.candidateGitSHA !== input.request.candidateGitSHA
-      ) {
+      if (!requestMatches(current, input.request)) {
         return { ok: false, reason: 'epic-range-context-mismatch' }
       }
 
       const live = await readEpicLiveSpec(input.cwd, input.request.repository, input.request.target, epic, input.gh)
       const accepted = await acceptedEpicSemantic(input.cwd, input.request.repository, epic, live, input.gh)
-      if (
-        accepted === null ||
-        capturedSemantic.mode !== 'bound' ||
-        accepted.semanticContext.mode !== 'bound' ||
-        !sameMandate(accepted.semanticContext, input.mandateRef) ||
-        !specMatches(accepted.spec, live) ||
-        accepted.semanticCanon !== epicSemanticCanon(capturedSemantic)
-      ) {
+      if (!acceptedSemanticMatches(accepted, live, input.mandateRef, capturedSemantic)) {
         return { ok: false, reason: 'epic-bound-semantic-unreadable' }
       }
 
-      const capturedLive = capturedSemantic.currentSpec
-      if (
-        live.reference !== capturedLive.reference ||
-        live.body !== capturedLive.body ||
-        live.digest !== capturedLive.digest
-      ) {
+      if (!specMatches(capturedSemantic.currentSpec, live)) {
         return { ok: false, reason: 'epic-live-spec-mismatch' }
       }
-      return { ok: true }
+      return await validatePinnedIntegration()
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : String(error) }
     }
@@ -147,12 +196,6 @@ export async function prepareEpicFinalReviewMaterials(input: {
     assembled.context.candidateGitSHA,
   )
   if (!pinned.ok) throw new Error('code-unobserved')
-  const panel = allocateReviewPanel({
-    chunks: assembled.chunks,
-    roster: assembled.roster,
-    config: assembled.config,
-    commonContext: 'Review the assigned chunk named by the index. Return structured findings only.',
-  })
   const projection = { contextWindow: assembled.contextWindow, chunks: assembled.chunks }
   const specPrepared = await prepareDeliveryAction(
     input.operations,
@@ -166,13 +209,20 @@ export async function prepareEpicFinalReviewMaterials(input: {
   )
   if (!specPrepared.ok) throw new Error(prepareRefusal(specPrepared.diagnostics))
   const specAction = specPrepared.value
+  if (!matchesIntegration(specAction, input.request.integration)) throw new Error('epic-integration-context-mismatch')
+  const initialAuthorization = await validate()
+  if (!initialAuthorization.ok) throw new Error(initialAuthorization.reason)
+  const panel = allocateReviewPanel({
+    subject: assembled.context.subject,
+    chunks: assembled.chunks,
+    roster: assembled.roster,
+    config: assembled.config,
+    commonContext: 'Review the assigned chunk named by the index. Return structured findings only.',
+  })
   const actions: Record<string, PreparedUwAction> = { spec: specAction }
   for (const task of panel.tasks) {
-    const match = /^panel-(\d+)-(.+)$/.exec(task.name)
-    const assignedChunk = match === null ? null : Number(match[1])
-    if (assignedChunk === null || !assembled.chunks.some((chunk) => chunk.index === assignedChunk)) {
-      throw new Error(`panel task names an absent chunk: ${task.name}`)
-    }
+    const assignedChunk = task.assignedChunk
+    requirePanelChunk(assignedChunk, assembled.chunks, task.name)
     const prepared = await prepareDeliveryAction(
       input.operations,
       actionRequest({

@@ -7,13 +7,15 @@ import {
   assessCauseDispositions,
   buildRecord,
   causeAdjudicationProposalSchema,
+  recordsOf,
   resolveCauseActionInputs,
 } from '../../dist/contracts.js'
 import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
-import { observedComment, operation } from '../../testing/record-history.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { reportFixture, subtreeGraph } from '../../testing/uw-installed-report-fixture.ts'
 import { fixture } from '../../testing/uw-operations-fixture.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
@@ -64,6 +66,10 @@ it.each([false, true])(
 
 it('lists the final report but not its superseded authenticated pending predecessor', async () => {
   const { graph, context } = authenticatedReview()
+  const decision = recordsOf(graph.history).find(
+    (record) => record.kind === 'decision' && record.recordId === graph.decision.recordId,
+  )
+  if (decision?.kind !== 'decision') throw new Error('authenticated decision required')
   const f = roxabiWorkflowFixtures()
   const mandate = f.featureMandate(context.original, { recordId: 'mandate-42', body: 'Save the selected region' })
   let own = f.historyFrom([mandate])
@@ -75,7 +81,9 @@ it('lists the final report but not its superseded authenticated pending predeces
     required(
       assessCauseDispositions({
         context,
-        source: { kind: 'decision', decision: graph.decision },
+        capture: synthesisActionCapture(decision, [graph.history]),
+        graph: causeFixtureGraph(),
+        source: { kind: 'decision', decision },
         histories: [own, graph.history],
         catalogues: fixtureHostReviewClassCatalogues(),
         adjudications,
@@ -96,11 +104,15 @@ it('lists the final report but not its superseded authenticated pending predeces
     }),
   )
   if (pending.kind !== 'cause-disposition') throw new Error('pending disposition expected')
-  own = {
-    ...own,
-    operations: [...own.operations, operation(pending, { parts: [observedComment({ author: 'operator' })] })],
-  }
-  const inputs = required(resolveCauseActionInputs({ decision: graph.decision, history: graph.history, context }))
+  own = encodeCriterionRecords(
+    [pending],
+    context.original,
+    roxabiRecordFixtures().projection,
+    'operator',
+    [graph.history],
+    own,
+  ).history
+  const inputs = required(resolveCauseActionInputs({ decision, history: graph.history, context }))
   const citation = inputs.flatMap((item) => item.manifest.repositoryReferences)[0]
   const rejected = initial.subject.findings[0]
   if (!citation || !rejected) throw new Error('authenticated evidence and finding required')
@@ -140,10 +152,14 @@ it('lists the final report but not its superseded authenticated pending predeces
     }),
   )
   if (adjudication.kind !== 'cause-operation') throw new Error('adjudication expected')
-  own = {
-    ...own,
-    operations: [...own.operations, operation(adjudication, { parts: [observedComment({ author: 'operator' })] })],
-  }
+  own = encodeCriterionRecords(
+    [adjudication],
+    context.original,
+    roxabiRecordFixtures().projection,
+    'operator',
+    [graph.history],
+    own,
+  ).history
   const assessed = assess([adjudication])
   const outcome = assessed.outcomes.find((item) => item.previous?.recordId === pending.recordId)
   if (outcome?.outcome.state !== 'final' || outcome.outcome.disposition !== 'report')
@@ -159,7 +175,15 @@ it('lists the final report but not its superseded authenticated pending predeces
       payload: outcome,
     }),
   )
-  const bodies = [...own.source.comments.map((comment) => comment.body), ...[pending, adjudication, final].map(wire)]
+  const completed = encodeCriterionRecords(
+    [final],
+    context.original,
+    roxabiRecordFixtures().projection,
+    'operator',
+    [graph.history],
+    own,
+  ).history
+  const bodies = completed.source.comments.map((comment) => comment.body)
   const gh: Gh = async (_cwd, args) => {
     const catalogue = fixtureCatalogueGhResponse(args)
     if (catalogue !== null) return catalogue

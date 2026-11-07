@@ -43,7 +43,7 @@ describe('implementation producer schema', () => {
     const claim = citation()
     expect(producerImplementationOutputSchema.safeParse(claim).success).toBe(true)
     expect(implementationOutputSchema.safeParse(claim).success).toBe(false)
-    const form = JSON.stringify(producerJsonSchema('implementation'))
+    const form = JSON.stringify(producerJsonSchema('delivery-execution'))
     expect(form).not.toContain('proofToolCallId')
     expect(form).not.toContain('proofUnavailableReason')
     expect(form).toContain('toolCallId')

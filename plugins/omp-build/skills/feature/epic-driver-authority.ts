@@ -9,7 +9,7 @@ import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-schema.ts'
 import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
-import { readFixUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
+import { readFreshUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
 import { configCompatibility } from '../../roxabi/workflow-overrides.ts'
 import type { CanonicalEpic } from './epic-driver-canonical'
 import { gather } from './epic-driver-gather'
@@ -18,7 +18,7 @@ import { Assisted, currentEpicEffects, Refused } from './epic-driver-runtime'
 import { frameEpic } from './epic-frame'
 import { BASE_NAME, RUN_ID } from './epic-naming'
 import { hasFramedOwnUw, ownUwRefusal } from './epic-own-uw'
-import { isDone } from './epic-progress'
+import { childCompleted } from './epic-progress'
 import type { Facts } from './epic-types'
 
 // ── Confirmed mandate ─────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ export async function readEpicAuthority(repo: string, epic: number): Promise<Epi
     throw new Refused(`epic #${epic} history is incomplete; continuation is not confirmed`)
   }
   const external = await parentMandateHistories(repo, history)
-  const causal = await readFixUwCausalContext([history, ...external], [], adapterOptions(repo))
+  const causal = await readFreshUwCausalContext(history.source.scope, [history, ...external], adapterOptions(repo))
   if (!causal.ok) throw new Refused(`epic causal history unavailable: ${causal.diagnostics.join(',')}`)
   const mandate = selectedMandate(history, external, causal.value, epic)
   const inhibit = localInhibit(history, mandate.recordId)
@@ -181,13 +181,13 @@ export function frameCurrentChildren(
     throw new Refused('current native epic children differ from the accepted own Spec')
   }
   for (const child of facts.children) {
-    if (!isDone(child, authority.base)) assertChildGrant(authority, facts, child.number)
+    if (!childCompleted(child, authority.base)) assertChildGrant(authority, facts, child.number)
   }
   if (!parentAdmission.deliverable.ok)
     throw new Refused(
       `epic #${authority.epic} native delivery admission refused: ${evidenceText(parentAdmission.deliverable.diagnostics)}`,
     )
-  const framed = frameEpic({ base: authority.base, children: facts.children })
+  const framed = frameEpic({ base: authority.base, run: authority.run, children: facts.children })
   if ('error' in framed) throw new Refused(framed.error)
   return framed
 }

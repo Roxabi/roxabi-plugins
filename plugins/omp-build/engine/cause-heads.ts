@@ -78,7 +78,11 @@ function validateRecord(record: Disposition, state: State): void {
     validateSuccessor(record, state)
     return
   }
-  const identity = canonicalValueDigest([record.payload.origin, record.payload.subject])
+  const identity = canonicalValueDigest([
+    record.payload.origin,
+    record.payload.basis.versionVector,
+    record.payload.subject,
+  ])
   if (state.initial.has(identity))
     state.diagnostics.push(diagnostic('cause-duplicate-initial', `Duplicate initial disposition ${record.recordId}`))
   state.initial.add(identity)

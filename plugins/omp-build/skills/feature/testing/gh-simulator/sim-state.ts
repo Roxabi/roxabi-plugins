@@ -1,9 +1,10 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { currentInvocation } from './sim-invocation.ts'
 
 import { fail, type State, stamp } from './sim-types.ts'
 
 export function statePath(): string {
-  const path = process.env.GH_SIM_STATE
+  const path = currentInvocation().env.GH_SIM_STATE
   if (!path) fail('gh: GH_SIM_STATE is unset')
   return path
 }

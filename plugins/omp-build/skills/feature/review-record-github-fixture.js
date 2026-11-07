@@ -1,10 +1,11 @@
 import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
 import core from '../../vendor/kit-head-authorization/index.cjs'
+import { nativeGraphResponse } from './review-record-native-fixture.js'
 import { toolingGh } from './review-record-pin.js'
 
 const TIME = '2026-01-01T00:03:00Z'
 
-function authorizationTransport({ history, state, fixture, historyPage }) {
+function authorizationTransport({ history, state, fixture, historyPage, native }) {
   const prefix = `repos/${fixture.repository}`
   const receiptRows = []
   const repositoryId = 1
@@ -40,7 +41,7 @@ function authorizationTransport({ history, state, fixture, historyPage }) {
         pullRequest: fixture.pr,
         headSha: state.head,
         baseRef: 'main',
-        baseSha: fixture.heads[0],
+        baseSha: native.base,
         lane: 'reviewed',
         source: 'native',
         previous: null,
@@ -101,7 +102,7 @@ function authorizationTransport({ history, state, fixture, historyPage }) {
   }
   function scopeResponse(endpoint) {
     if (endpoint === `${prefix}/git/ref/heads/main`)
-      return JSON.stringify({ ref: 'refs/heads/main', object: { sha: fixture.heads[0] } })
+      return JSON.stringify({ ref: 'refs/heads/main', object: { sha: native.base } })
     if (endpoint === prefix) return JSON.stringify({ id: repositoryId })
     if (endpoint === `${prefix}/pulls/${fixture.pr}`)
       return JSON.stringify({
@@ -109,7 +110,7 @@ function authorizationTransport({ history, state, fixture, historyPage }) {
         number: fixture.pr,
         user: { id: 101 },
         head: { sha: state.head },
-        base: { ref: 'main', sha: fixture.heads[0], repo: { id: repositoryId } },
+        base: { ref: 'main', sha: native.base, repo: { id: repositoryId } },
       })
     return null
   }
@@ -140,68 +141,38 @@ function commentPage(path) {
   return match === null ? null : { issue: Number(match[1]), page: path.match(/[?&]page=(\d+)/)?.[1] ?? '1' }
 }
 
-function pullView(fields, fixture, state) {
+function pullView(fields, fixture, state, native) {
   return JSON.stringify({
     ...(fields.includes('number') && { number: fixture.pr }),
     ...(fields.includes('headRefOid') && { headRefOid: state.head }),
     ...(fields.includes('headRefName') && { headRefName: 'feat/save' }),
     ...(fields.includes('state') && { state: 'OPEN' }),
+    ...(fields.includes('mergeCommit') && { mergeCommit: null }),
     ...(fields.includes('labels') && { labels: state.label ? [{ name: 'reviewed' }] : [] }),
     ...(fields.includes('autoMergeRequest') && { autoMergeRequest: state.auto ? { enabledAt: 'now' } : null }),
     ...(fields.includes('mergeStateStatus') && { mergeStateStatus: 'CLEAN' }),
     ...(fields.includes('baseRefName') && { baseRefName: 'main' }),
-    ...(fields.includes('baseRefOid') && { baseRefOid: fixture.heads[0] }),
+    ...(fields.includes('baseRefOid') && { baseRefOid: native.base }),
     ...(fields.includes('author') && { author: { login: fixture.author } }),
     ...(fields.includes('body') && { body: '' }),
     ...(fields.includes('updatedAt') && { updatedAt: null }),
   })
 }
 
+function historySlice(history, page, historyPage) {
+  const number = Number(page)
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error(`invalid fixture comment page ${page}`)
+  const comments = JSON.parse(historyPage(history))
+  return JSON.stringify(comments.slice((number - 1) * 100, number * 100))
+}
+
 function issueComments(page, history, issueHistory, fixture, historyPage) {
-  if (page.page !== '1') return '[]'
   if (page.issue === fixture.issue) {
     if (issueHistory === null) throw new Error(`unexpected mandate history read for #${fixture.issue}`)
-    return historyPage(issueHistory)
+    return historySlice(issueHistory, page.page, historyPage)
   }
-  if (page.issue === fixture.pr) return historyPage(history)
+  if (page.issue === fixture.pr) return historySlice(history, page.page, historyPage)
   return null
-}
-
-function graphConnection(nodes) {
-  return { nodes, pageInfo: { hasNextPage: false, endCursor: null } }
-}
-
-function nativeGraphResponse(args, fixture) {
-  const query = args.find((arg) => String(arg).startsWith('query='))
-  if (
-    typeof query !== 'string' ||
-    !query.includes('number title body updatedAt state stateReason repository') ||
-    !query.includes('labels(first: 100, after: $labelsCursor)') ||
-    !query.includes('subIssues(first: 100, after: $childrenCursor)') ||
-    !query.includes('blockedBy(first: 100, after: $blockersCursor)')
-  )
-    return null
-  const number = args.find((arg) => String(arg).startsWith('number='))
-  if (number !== `number=${fixture.issue}`) throw new Error(`unexpected native graph issue: ${number}`)
-  return JSON.stringify({
-    data: {
-      repository: {
-        issue: {
-          number: fixture.issue,
-          title: 'Save selected region',
-          body: fixture.spec,
-          updatedAt: '2026-10-21T12:00:00Z',
-          state: 'OPEN',
-          stateReason: null,
-          repository: { nameWithOwner: fixture.repository },
-          parent: null,
-          labels: graphConnection([{ name: 'size:S' }]),
-          subIssues: graphConnection([]),
-          blockedBy: graphConnection([]),
-        },
-      },
-    },
-  })
 }
 
 function apiResponse(args, history, issueHistory, fixture, historyPage) {
@@ -232,8 +203,10 @@ function publishComment(args, history, fixture) {
   return JSON.stringify({ id: Number(nativeId), body, user: { login: fixture.author } })
 }
 
-function apiCommand(args, history, issueHistory, fixture, historyPage) {
+function apiCommand(args, history, issueHistory, fixture, historyPage, native) {
   if (args[0] !== 'api') return null
+  const nativeResponse = native.response(args)
+  if (nativeResponse !== null) return nativeResponse
   const response = apiResponse(args, history, issueHistory, fixture, historyPage)
   if (response !== null) return response
   return args.includes('POST') || (args.includes('--method') && args.includes('POST'))
@@ -252,8 +225,10 @@ function issueView(args, fixture) {
     : null
 }
 
-function pullRequestView(args, fixture, state) {
-  return args[0] === 'pr' && args[1] === 'view' ? pullView(String(args.at(-1)).split(','), fixture, state) : null
+function pullRequestView(args, fixture, state, native) {
+  return args[0] === 'pr' && args[1] === 'view'
+    ? pullView(String(args.at(-1)).split(','), fixture, state, native)
+    : null
 }
 
 function disarmCommand(args, state) {
@@ -269,8 +244,8 @@ function disarmCommand(args, state) {
   return null
 }
 
-export function createGateGh({ history, issueHistory, state, calls, fixture, historyPage }) {
-  const authorization = authorizationTransport({ history, state, fixture, historyPage })
+export function createGateGh({ history, issueHistory, state, calls, fixture, historyPage, native }) {
+  const authorization = authorizationTransport({ history, state, fixture, historyPage, native })
   return async (_cwd, args) => {
     calls.push(args)
     const fixtureCatalogue = fixtureCatalogueGhResponse(args)
@@ -280,9 +255,9 @@ export function createGateGh({ history, issueHistory, state, calls, fixture, his
     if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: fixture.repository })
     for (const route of [
       () => authorization(args),
-      () => apiCommand(args, history, issueHistory, fixture, historyPage),
+      () => apiCommand(args, history, issueHistory, fixture, historyPage, native),
       () => issueView(args, fixture),
-      () => pullRequestView(args, fixture, state),
+      () => pullRequestView(args, fixture, state, native),
       () => disarmCommand(args, state),
     ]) {
       const response = route()

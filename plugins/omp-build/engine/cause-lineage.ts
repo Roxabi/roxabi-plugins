@@ -89,7 +89,8 @@ function confirmedPredecessor(
     payload.confirmation.operationId !== proposal.operationId ||
     predecessor.value.payload.outcome.state !== 'pending-blocking' ||
     canonicalValueDigest(predecessor.value.payload.subject) !== canonicalValueDigest(cursor.payload.subject) ||
-    canonicalValueDigest(predecessor.value.payload.origin) !== canonicalValueDigest(cursor.payload.origin)
+    canonicalValueDigest(predecessor.value.payload.origin) !== canonicalValueDigest(cursor.payload.origin) ||
+    canonicalValueDigest(predecessor.value.payload.basis) !== canonicalValueDigest(cursor.payload.basis)
   )
     return {
       ok: false,

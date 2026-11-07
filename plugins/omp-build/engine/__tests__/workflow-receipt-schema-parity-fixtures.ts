@@ -9,7 +9,7 @@ import {
   proposedAssessmentState,
   shippedFeatureMandate,
 } from './workflow-spec-assessment-support.ts'
-import { SCOPE } from './workflow-test-support.ts'
+import { history, SCOPE } from './workflow-test-support.ts'
 
 export function fixtures() {
   const workflow = roxabiWorkflowFixtures()
@@ -22,6 +22,7 @@ export function fixtures() {
     accepted,
     proposedAssessmentState(accepted, { body: 'A revised proposal' }),
     'material',
+    [history([mandate])],
   )
   if (assessment.start.kind !== 'action-receipt') throw new Error('expected assessment start')
   const proposed = { kind: 'proposed' as const, uw: SCOPE, snapshot: assessment.proposed.snapshot }

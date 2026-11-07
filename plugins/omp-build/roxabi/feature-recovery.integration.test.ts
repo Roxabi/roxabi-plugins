@@ -1,68 +1,24 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
-import type { ActionInputs } from '../engine/action-input-schema.ts'
 import authorization from '../skills/feature/head-authorization.cjs'
-import { criterionImplementationRecords } from '../testing/criterion-accepted-plan.ts'
-import { criterionPullHistory, criterionReviewGraph } from '../testing/criterion-approval.ts'
 import {
   BRANCH,
   cleanupFeatureRecoveryRoots,
+  confirmedFeatureFixture,
   featureFixture,
   OBSERVED_INCOMPLETE_NATIVE_TERMINAL,
   recoveryAuthorization,
   SCOPE,
   trackFeatureRecoveryRoot,
 } from '../testing/feature-recovery-fixture.ts'
-import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
-import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { git, readSim, sandbox, WORKFLOW, worktree, writeSim } from '../testing/sandbox/sandbox-repository.ts'
+import { git, readSim, sandbox, writeSim } from '../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../testing/sandbox/sandbox-types.ts'
-
-const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
-const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
-
-function plainSpec() {
-  return {
-    base: {
-      '.dev/stack.yml': 'landing:\n  mode: merge-on-green\n',
-      'src/a.ts': 'export const add = (a, b) => a + b\n',
-    },
-    branches: [
-      {
-        name: 'fix/5-plain',
-        from: 'main',
-        commits: [
-          {
-            message: 'fix: plain (#5)',
-            files: { 'src/a.ts': 'export const add = (a, b) => a + b\nexport const plain = true\n' },
-          },
-        ],
-      },
-    ],
-    issues: [{ number: 5, title: 'fix: plain', issueType: 'fix', labels: ['size:S'] }],
-    prs: [{ number: 30, branch: 'fix/5-plain', title: 'fix: plain', body: 'Closes #5\n', closes: [5] }],
-  }
-}
-
-const { projection } = roxabiRecordFixtures()
-const { framedBodies, linkedLandingAuthority } = roxabiWorkflowFixtures()
+import { coldCheckout, effectCalls, invoke } from './feature-recovery-process-fixture.ts'
 
 afterEach(cleanupFeatureRecoveryRoots)
-
-function invoke<T>(box: Box, cwd: string, home: string, operation: string, payload: object): T {
-  mkdirSync(home, { recursive: true })
-  const run = spawnSync(BUN, [RUNNER, operation, cwd, JSON.stringify(payload)], {
-    cwd,
-    env: { ...box.env, HOME: home },
-    encoding: 'utf8',
-  })
-  if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
-  return JSON.parse(run.stdout) as T
-}
 
 function history(box: Box, number = 42) {
   const comments = readSim(box).issues[String(number)]?.comments ?? []
@@ -81,50 +37,6 @@ function history(box: Box, number = 42) {
     })),
     diagnostics: [],
   })
-}
-
-function effectCalls(box: Box, start: number): string[][] {
-  return readSim(box)
-    .calls.slice(start)
-    .filter((args) => {
-      const joined = args.join(' ')
-      const method = args.indexOf('--method')
-      return (
-        (method !== -1 && args[method + 1]?.toUpperCase() !== 'GET') ||
-        /\b(comment|edit|merge)\b/.test(joined) ||
-        (args[0] === 'workflow' && args[1] === 'run')
-      )
-    })
-}
-
-function coldCheckout(box: Box, name: string, branch = BRANCH): string {
-  const principal = path.join(box.root, `${name}-principal`)
-  const checkout = path.join(box.root, `${name}-checkout`)
-  git(box, box.root, ['clone', '-q', box.origin, principal])
-  git(box, principal, ['remote', 'set-url', 'origin', 'https://github.com/acme/app.git'])
-  git(box, principal, ['config', `url.${box.origin}.insteadOf`, 'https://github.com/acme/app.git'])
-  git(box, principal, ['worktree', 'add', '-q', '-b', branch, checkout, `origin/${branch}`])
-  return checkout
-}
-
-function workflowRead(box: Box, cwd: string, pr: number, head: string) {
-  const run = spawnSync(BUN, [WORKFLOW, 'captureReviewInput', cwd, JSON.stringify({ pr, head })], {
-    cwd,
-    env: box.env,
-    encoding: 'utf8',
-  })
-  if (run.status !== 0) throw new Error(`captureReviewInput failed: ${run.stderr}`)
-  return JSON.parse(run.stdout) as { ok: boolean; input?: string | null; inputs?: ActionInputs; reason?: string }
-}
-
-function land(box: Box, cwd: string, pr: number): { status: string } {
-  const run = spawnSync(
-    BUN,
-    [WORKFLOW, 'landPr', cwd, JSON.stringify({ pr, landing: { mode: 'native', required_checks: ['ci'] } })],
-    { cwd, env: box.env, encoding: 'utf8' },
-  )
-  if (run.status !== 0) throw new Error(`landPr failed: ${run.stderr}`)
-  return JSON.parse(run.stdout) as { status: string }
 }
 
 describe('proof sandbox construction', () => {
@@ -423,98 +335,8 @@ describe('feature recovery terminal and publication witnesses', () => {
     ).toBe(true)
   })
 
-  it('cold-observes a real MERGED native landing without new effects', () => {
-    const box = sandbox(plainSpec())
-    trackFeatureRecoveryRoot(box.root)
-    const pr = 30
-    const issueNumber = 5
-    const branch = 'fix/5-plain'
-    const head = box.sha[branch]
-    const baseTip = box.sha.main
-    if (head === undefined || baseTip === undefined) throw new Error('plain landing fixture missing commit')
-    const checkout = worktree(box, 'merged-landing', head)
-    const issue = readSim(box).issues[String(issueNumber)]
-    if (issue === undefined) throw new Error('plain landing fixture missing issue')
-    const landingScope = { repository: 'acme/app', target: `acme/app#${issueNumber}` }
-    const landingSpec = nativeFeatureSpec(landingScope, 'lands')
-    writeSim(box, (state) => {
-      const linkedIssue = state.issues[String(issueNumber)]
-      if (linkedIssue === undefined) throw new Error('plain landing fixture missing issue')
-      linkedIssue.body = landingSpec.body
-    })
-    const authority = linkedLandingAuthority({
-      repository: 'acme/app',
-      issueNumber,
-      prNumber: pr,
-      branch,
-      base: 'main',
-      issueBody: landingSpec.body,
-      ownSpec: landingSpec.ownSpec,
-      lineageHead: head,
-      author: 'operator',
-    })
-    const issueRecords = criterionImplementationRecords(authority.mandate, head)
-    writeSim(box, (state) => {
-      const pull = state.prs[String(pr)]
-      const linkedIssue = state.issues[String(issueNumber)]
-      if (pull === undefined || linkedIssue === undefined) throw new Error('plain landing authority endpoints missing')
-      pull.comments = authority.bindingBodies.map((body) => ({ author: 'operator', body }))
-      linkedIssue.comments = framedBodies(issueRecords, 'operator').map((body) => ({ author: 'operator', body }))
-    })
-    const captured = workflowRead(box, checkout, pr, head)
-    if (captured.ok !== true || typeof captured.input !== 'string' || captured.inputs === undefined) {
-      throw new Error(`captureReviewInput refused: ${JSON.stringify(captured)}`)
-    }
-    const inputs = captured.inputs
-    writeSim(box, (state) => {
-      const pull = state.prs[String(pr)]
-      if (pull === undefined) throw new Error('plain landing PR missing')
-      const issue = state.issues[String(issueNumber)]
-      if (issue === undefined) throw new Error('plain landing origin missing')
-      const review = criterionReviewGraph({
-        mandate: authority.mandate,
-        issueRecords,
-        pullHistory: criterionPullHistory({ repository: 'acme/app', target: `acme/app#${pr}` }, pull.comments),
-        scope: { repository: 'acme/app', target: `acme/app#${pr}` },
-        head,
-        inputs,
-        projection,
-        author: 'operator',
-        verdict: 'Approve (clean)',
-        prefix: 'feature-recovery-merged',
-      })
-      issue.comments.push(...review.issueComments.map(({ body }) => ({ author: 'operator', body })))
-      pull.comments.push(...review.comments.map(({ body }) => ({ author: 'operator', body })))
-      state.checks[head] = [
-        {
-          name: 'ci',
-          status: 'completed',
-          conclusion: 'success',
-          workflowName: 'ci',
-          startedAt: '2026-01-01T00:00:00Z',
-        },
-      ]
-    })
-    expect(land(box, checkout, pr)).toEqual({ status: 'merged' })
-    const merged = readSim(box).prs[String(pr)]
-    expect(merged?.state).toBe('MERGED')
-    expect(merged?.mergeCommit?.parents).toEqual([baseTip, head])
-    expect(git(box, box.root, ['--git-dir', box.origin, 'rev-parse', 'refs/heads/main'])).toBe(merged?.mergeCommit?.oid)
-
-    const cold = coldCheckout(box, 'merged-cold', branch)
-    const callsBefore = readSim(box).calls.length
-    expect(
-      invoke<{ kind: string; reason: string }>(box, cold, path.join(box.root, 'home-merged-cold'), 'watch', {
-        pr,
-        code: 0,
-        reference: '#5',
-      }),
-    ).toMatchObject({ kind: 'terminal', reason: 'done' })
-    expect(effectCalls(box, callsBefore)).toEqual([])
-  })
-
-  it('continues a cold command UW through simulated publication into a fresh review', () => {
-    const { box } = featureFixture('confirmed-implementation')
+  it('continues a cold command UW through simulated publication into a fresh review', async () => {
+    const { box } = await confirmedFeatureFixture()
     const cold = coldCheckout(box, 'publication-command')
 
     const observed = invoke<{ kind: string; pr: number }>(

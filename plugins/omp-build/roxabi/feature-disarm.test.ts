@@ -16,7 +16,7 @@ const { epicControlTarget } = vi.hoisted(() => ({ epicControlTarget: vi.fn() }))
 
 vi.mock('../skills/feature/epic-driver.ts', () => ({ epicControlTarget }))
 
-import { disarmBranchBeforePush, disarmKnownTarget } from './feature-disarm.ts'
+import { disarmBranchBeforePush, disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 
 type Gate = { reviewed: boolean; autoMerge: boolean }
 type GhReply = { output: string }
@@ -126,6 +126,23 @@ describe('branch push withdrawal discovery', () => {
       expect(await disarmBranchBeforePush(async () => response, '/repo', 'acme/app', 'feat/42')).toBe(false)
     },
   )
+
+  it('withdraws every unmerged branch PR, including closed PRs, but not merged PRs', async () => {
+    const fixture = ghForDiscovery('[]')
+    const gh = async (cwd: string, args: string[]) => {
+      if (args[0] === 'api' && args[1]?.includes('/pulls?state=all&head=')) {
+        return JSON.stringify([
+          { number: 9, state: 'open', merged_at: null },
+          { number: 10, state: 'closed', merged_at: null },
+          { number: 11, state: 'closed', merged_at: '2026-01-01T00:00:00Z' },
+        ])
+      }
+      return fixture.gh(cwd, args)
+    }
+    expect(await disarmBranchBeforePush(gh, '/workspace', 'acme/app', 'feat/42')).toBe(true)
+    expect(fixture.comments(9).some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
+    expect(fixture.comments(10).some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
+  })
 
   it('refuses when a discovered PR cannot be withdrawn', async () => {
     const gh = async (_cwd: string, args: string[]) => {
@@ -274,5 +291,44 @@ describe('Feature pause disarm discovery', () => {
       clean: false,
       evidence: { note: 'pull-request-list-incomplete', discovery: { children: { incomplete: true } } },
     })
+  })
+})
+
+describe('unresolved explicit reference containment', () => {
+  function localPullRequest() {
+    const gate = { reviewed: true, autoMerge: true }
+    const gates = new Map([[42, gate]])
+    const box = openState(
+      base({
+        remoteRefs: { main: 'b'.repeat(40) },
+        prs: { 42: pull(42, 'feat/42', 'a'.repeat(40), { baseRefOid: 'b'.repeat(40) }) },
+      }),
+    )
+    simulatorRoots.push(box.root)
+    const gh = async (_cwd: string, args: string[]) => {
+      if (args[0] === 'api' || (args[0] === 'repo' && args[1] === 'view')) {
+        const response = run(box.file, args, box.root)
+        if (response.status !== 0) throw new Error(response.stderr)
+        return response.stdout.trim()
+      }
+      const reply = gateReply(args, gates)
+      if (reply !== null) return reply.output
+      throw new Error(`unexpected gh call: ${args.join(' ')}`)
+    }
+    return { gh, gate, comments: () => saved(box.file).prs['42'].comments.map((comment) => comment.body) }
+  }
+
+  it.each(['42', '#42', 'acme/app#42'])('still disarms the explicitly selected local PR %s', async (reference) => {
+    const fixture = localPullRequest()
+    await disarmUnresolved(fixture.gh, '/workspace', reference)
+    expect(fixture.gate).toEqual({ reviewed: false, autoMerge: false })
+    expect(fixture.comments().some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
+  })
+
+  it('does not disarm the local PR sharing a foreign selected reference number', async () => {
+    const fixture = localPullRequest()
+    await disarmUnresolved(fixture.gh, '/workspace', 'other/service#42')
+    expect(fixture.gate).toEqual({ reviewed: true, autoMerge: true })
+    expect(fixture.comments()).toEqual([])
   })
 })

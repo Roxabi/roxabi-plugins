@@ -46,6 +46,7 @@ async function materialDecisionResult(
       return { kind: 'blocked', reason: 'material-decision-partial', diagnostics: material.diagnostics }
     case 'written':
     case 'created':
+    case 'abandoned':
       return { kind: 'blocked', reason: 'material-decision-not-accepted' }
   }
 }

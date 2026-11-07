@@ -23,6 +23,7 @@ function fixture() {
       title: 'Parent',
       body: '',
       updatedAt: '',
+      nativeState: { state: 'OPEN', stateReason: null },
       labels: [],
       parent: null,
       children: [],
@@ -49,6 +50,9 @@ function fixture() {
     },
     removeBlocker: async () => {
       effects.push('remove-blocker')
+    },
+    setNativeState: async () => {
+      effects.push('native-state')
     },
   }
   return { effects, ports }
@@ -87,4 +91,16 @@ it('keeps an unconfirmed native create uncertain instead of retrying', async () 
   const writer = guardedCauseWriter(ports, createIssueWriter, async () => {})
   await expect(writer.create(plan)).resolves.toMatchObject({ status: 'uncertain' })
   expect(effects).toEqual(['create'])
+})
+
+it('guards the native state primitive exposed by the same writer', async () => {
+  const { effects, ports } = fixture()
+  const writer = guardedCauseWriter(ports, createIssueWriter, async ({ primitive }) => {
+    if (primitive === 'native-state') throw new Error('parent changed')
+  })
+  const expected = await ports.read(issue)
+  await expect(
+    writer.setNativeState(issue, { state: 'CLOSED', stateReason: 'COMPLETED' }, expected),
+  ).resolves.toMatchObject({ status: 'partial', issue })
+  expect(effects).toEqual([])
 })

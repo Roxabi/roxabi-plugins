@@ -1,4 +1,4 @@
-import type { DecodedHistory, Scope } from '../dist/contracts.js'
+import type { AcceptedOwnSpec, AssessSpecExact, DecodedHistory, Scope } from '../dist/contracts.js'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { authorizeFixAction, evidenceDigestOf, readLiveCiEvidence, receiptFailures } from './fix-ci-evidence.ts'
 import type { FixActionResult, ReviewStepResult } from './fix-contract.ts'
@@ -12,7 +12,7 @@ import {
   completeRecord,
   objectValue,
 } from './fix-mandate-types.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { extendObservedUwCausalContext } from './fix-uw-histories.ts'
 
 export function confirmedChangeAttribution(
   history: DecodedHistory,
@@ -75,6 +75,19 @@ function sameCorrectionUw(expected: CiCorrectionAdmission['uw'], actual: CiCorre
   )
 }
 
+function correctionUw(
+  currentSpec: AssessSpecExact['proposed'] & { ownSpec: AcceptedOwnSpec },
+  expectedUw: CiCorrectionAdmission['uw'] | null,
+): FixActionResult<CiCorrectionAdmission['uw']> {
+  if (currentSpec.children.some((child) => !('scope' in child))) return failure('fix-own-uw-unsettled')
+  const uw = {
+    ownSpec: currentSpec.ownSpec,
+    children: currentSpec.children.filter((child) => 'scope' in child),
+  }
+  if (expectedUw !== null && !sameCorrectionUw(expectedUw, uw)) return failure('fix-own-uw-unsettled')
+  return { ok: true, value: uw }
+}
+
 async function admitBoundCiCorrection(
   input: AttributedCiCorrectionInput,
   history: DecodedHistory,
@@ -84,17 +97,14 @@ async function admitBoundCiCorrection(
   const linked = await linkedIssueBinding(input.target, input.options, input.uw)
   if (!linked.ok) return linked
   if (linked.value.currentSpec === null) return failure('fix-own-uw-unsettled')
-  const currentUw = {
-    ownSpec: linked.value.currentSpec.ownSpec,
-    children: linked.value.currentSpec.children,
-  }
-  if (expectedUw !== null && !sameCorrectionUw(expectedUw, currentUw)) return failure('fix-own-uw-unsettled')
+  const currentUw = correctionUw(linked.value.currentSpec, expectedUw)
+  if (!currentUw.ok) return currentUw
   if (input.target.candidateGitSHA === null) return failure('ci-correction-not-pull-request')
   const head = input.target.candidateGitSHA
   const live = await readLiveCiEvidence(input, head)
   if (!live.ok) return live
-  const causal = await readFixUwCausalContext(
-    linked.value.currentSpec.causal.histories,
+  const causal = await extendObservedUwCausalContext(
+    linked.value.currentSpec.causal,
     [history, ...(linked.value.history === null ? [] : [linked.value.history]), ...linked.value.externalHistories],
     input.options,
   )
@@ -144,7 +154,7 @@ async function admitBoundCiCorrection(
       remaining: classified.remaining,
       attributionRecordId: input.attributionRecordId,
       candidateGitSHA: input.target.candidateGitSHA,
-      uw: currentUw,
+      uw: currentUw.value,
       mandateRecordId: mandate.value.mandate.recordId,
       failedChecks: authorized.value,
     },

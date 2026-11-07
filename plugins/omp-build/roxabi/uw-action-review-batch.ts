@@ -1,5 +1,6 @@
 import { canonicalValueDigest } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
+import { nativePanelProfileByRole } from './native-review-profiles.ts'
 import type {
   CurrentActionFacts,
   PreparedUwAction,
@@ -64,14 +65,22 @@ function capturedPorts(ports: UwActionPorts, facts: ReadonlyMap<string, CurrentA
 }
 
 function isPanel(item: ReviewActionBatch['actions'][number]): boolean {
-  const panel = /^panel-(\d+)-(.+)$/.exec(item.projection.taskName)
-  return panel !== null && Number(panel[1]) === item.projection.assignedChunk
+  const { taskName, assignedChunk, chunks } = item.projection
+  if (item.role === 'R-review-spec' || !Object.hasOwn(nativePanelProfileByRole, item.role)) return false
+  if (assignedChunk === null)
+    return (
+      chunks.length === 0 &&
+      item.request.subject.kind === 'uw' &&
+      item.request.subject.pullRequest === null &&
+      taskName === `panel-context-${item.role}`
+    )
+  return chunks.some((chunk) => chunk.index === assignedChunk) && taskName === `panel-${assignedChunk}-${item.role}`
 }
 
 function validateBatch(input: ReviewActionBatch): Result<readonly UwActionRequest[]> {
   const first = input.actions[0]
   if (first === undefined) return actionFailure('action-input-missing', 'Initial review batch is empty')
-  if (first.projection.taskName !== 'spec' || first.projection.assignedChunk !== null)
+  if (first.role !== 'R-review-spec' || first.projection.taskName !== 'spec' || first.projection.assignedChunk !== null)
     return actionFailure('action-input-missing', 'Initial review batch must start with the spec role')
   const common = (request: UwActionRequest) => canonicalValueDigest({ ...request, actionId: '' })
   const projection = (item: typeof first) =>

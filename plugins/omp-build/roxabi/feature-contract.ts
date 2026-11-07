@@ -1,8 +1,8 @@
 import type { Gh } from '../adapters/github/types.ts'
-import type { ScopedRecordRef } from '../engine/record-references.ts'
+import type { ExternalRecordRef, ScopedRecordRef } from '../engine/record-references.ts'
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { AcceptedChildCommitment } from '../engine/workflow-mandate-schema.ts'
+import type { AcceptedChildCommitment, ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
@@ -30,6 +30,19 @@ export type FeatureReviewFix = {
   requiredFeatureMandate: ScopedRecordRef & { kind: 'mandate' }
 }
 
+export type ParentCoverageRequest = {
+  parent: ParentCoverage['parent']
+  accepted: { own: AcceptedOwnSpec['ref']; metadata: ExternalRecordRef } | null
+  inheritedOwnSpecRefs: AcceptedOwnSpec['inheritedOwnSpecRefs']
+  criteria: readonly { id: string; statement: string }[]
+  children: readonly {
+    scope: AcceptedChildCommitment['scope']
+    specVersion: string
+    tier: AcceptedChildCommitment['tier']
+    criteria: readonly { id: string; statement: string }[]
+  }[]
+}
+
 export type ContinueFeatureResult =
   | { kind: 'action'; node: string; followUp: NativeBatch; start: ScopedRecordRef }
   | { kind: 'watch'; command: string }
@@ -42,7 +55,7 @@ export type ContinueFeatureResult =
       attributionRecordId: string
       uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
     }
-  | { kind: 'blocked'; reason: string; diagnostics?: readonly Diagnostic[] }
+  | { kind: 'blocked'; reason: string; diagnostics?: readonly Diagnostic[]; coverageRequest?: ParentCoverageRequest }
   | { kind: 'paused'; confirmed: boolean; reason: string }
   | { kind: 'abandoned'; confirmed: boolean }
   | { kind: 'terminal'; reason: string; diagnostics?: readonly Diagnostic[] }
@@ -59,6 +72,9 @@ export type ContinueFeatureInput = {
   gh?: Gh
   uw?: UwOperations
   read?: UwReadPort
+  /** Explicit proposed coverage; null is a deliberate leaf proposal. */
+  parentCoverage?: ParentCoverage | null
+  parentCoverageBasis?: ParentCoverageRequest
   /** Trusted host composition only. Omit for the ordinary published pin. */
   pluginPin?: TrustedHostPluginPin
 }
@@ -85,6 +101,7 @@ export type FeatureWorkflow = {
     reference: string
     gh?: Gh
     git?: GitRunner
+    uw?: UwOperations
   }): Promise<ContinueFeatureResult>
   publishFeatureNativeResult(input: {
     cwd: string
@@ -110,6 +127,9 @@ export type FeatureCommandHost = {
   native: FeatureNativePort
   send: (text: string) => Promise<void>
   status: (text: string | undefined) => void
+  requestParentCoverage?: (
+    request: ParentCoverageRequest,
+  ) => Promise<{ kind: 'proposed'; coverage: ParentCoverage | null } | { kind: 'cancelled' }>
   inhibitFeatureContinuation: () => void
   releaseFeatureContinuation: () => void
   featureContinuationInhibited: () => boolean

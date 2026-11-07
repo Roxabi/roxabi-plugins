@@ -10,7 +10,7 @@ import { reviewInitialData } from './feature-review-lifecycle.ts'
 import { citedHistory, history } from './feature-review-race-history.ts'
 import { nextReviewRecords } from './feature-review-race-reviews.ts'
 import { reviewDecision } from './feature-review-synthesis-sources.ts'
-import { createReviewDriver, type ReviewDriver } from './native-review-driver.ts'
+import { createReviewDriver } from './native-review-driver.ts'
 
 type Mode = 'latest' | 'pause'
 
@@ -34,7 +34,9 @@ function waitFor(file: string): Promise<void> {
   if (existsSync(file)) done()
   return promise
 }
-function gitBarrier(kind: 'preflight' | 'checkout') {
+type GitBarrier = { started: Promise<void>; release(): void; close(): void }
+
+function gitBarrier(kind: 'preflight' | 'checkout'): GitBarrier {
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
   const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-git-'))
@@ -119,11 +121,6 @@ async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'check
   return { complete: true, action: step.action, requests: requests.length }
 }
 
-async function settleReview(driver: ReviewDriver): Promise<void> {
-  await driver.settle(reviewInitialData)
-  await driver.settle((task) => reviewDecision(task.task))
-}
-
 type Cleanup = () => void | Promise<void>
 
 async function cleanupRace(steps: readonly Cleanup[]): Promise<unknown[]> {
@@ -156,15 +153,18 @@ async function completeRace<T>(work: () => Promise<T>, cleanup: () => Promise<un
 
 async function latest(cwd: string) {
   const driver = await createReviewDriver(cwd)
-  const barrier = gitBarrier('preflight')
+  let barrier: GitBarrier | null = null
   let settling: Promise<void> | null = null
   return completeRace(
     async () => {
-      settling = settleReview(driver)
-      await barrier.started
+      await driver.settle(reviewInitialData)
+      const armed = gitBarrier('preflight')
+      barrier = armed
+      settling = driver.settle((task) => reviewDecision(task.task))
+      await armed.started
       const precondition = await continuationPrerequisites(cwd, 'preflight')
       const summary = await nextReviewRecords(cwd)
-      barrier.release()
+      armed.release()
       await settling
       const finalHistory = await history(cwd)
       return {
@@ -177,12 +177,12 @@ async function latest(cwd: string) {
     },
     () =>
       cleanupRace([
-        () => barrier.release(),
+        () => barrier?.release(),
         async () => {
           if (settling !== null) await settling
         },
         () => driver.controller.stop('race-cleanup'),
-        () => barrier.close(),
+        () => barrier?.close(),
       ]),
     'review latest race cleanup failed',
   )
@@ -190,13 +190,16 @@ async function latest(cwd: string) {
 
 async function pause(cwd: string) {
   const driver = await createReviewDriver(cwd)
-  const barrier = gitBarrier('checkout')
+  let barrier: GitBarrier | null = null
   let closePost: { failed(): boolean; refused: Promise<void>; close(): void } | null = null
   let settling: Promise<void> | null = null
   return completeRace(
     async () => {
-      settling = settleReview(driver)
-      await barrier.started
+      await driver.settle(reviewInitialData)
+      const armed = gitBarrier('checkout')
+      barrier = armed
+      settling = driver.settle((task) => reviewDecision(task.task))
+      await armed.started
       const precondition = await continuationPrerequisites(cwd, 'checkout')
       if (driver.fixRun() !== undefined) throw new Error('fix-run-started-before-pause')
       closePost = failNextPost()
@@ -211,7 +214,7 @@ async function pause(cwd: string) {
       closePost.close()
       closePost = null
       execFileSync('gh', ['repo', 'view', 'acme/app', '--json', 'nameWithOwner'], { cwd, encoding: 'utf8' })
-      barrier.release()
+      armed.release()
       await Promise.all([pausing, settling])
       const finalHistory = await history(cwd)
       return {
@@ -225,13 +228,13 @@ async function pause(cwd: string) {
     },
     () =>
       cleanupRace([
-        () => barrier.release(),
+        () => barrier?.release(),
         async () => {
           if (settling !== null) await settling
         },
         () => closePost?.close(),
         () => driver.controller.stop('race-cleanup'),
-        () => barrier.close(),
+        () => barrier?.close(),
       ]),
     'review pause race cleanup failed',
   )

@@ -1,13 +1,27 @@
-import { isWayfinder, unknownWayfinderLabels } from '../dist/contracts.js'
+import {
+  isWayfinder,
+  parseIssueSpecBody,
+  resolveCurrentInheritedOwnSpecRefs,
+  resolveSpecIdentityLedger,
+  unknownWayfinderLabels,
+} from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { CurrentChildrenProjection } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
-import type { UwRead, UwReadPort } from './uw-contract.ts'
-import { historicalProjection } from './uw-normalization-internal.ts'
+import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
+import type { ParentCoverageRequest } from './feature-contract.ts'
+import { assessmentCoverageFacts } from './uw-assessment-coverage.ts'
+import type { UwRead } from './uw-contract.ts'
+import { projectObservedOwnSpecFacts } from './uw-read-state.ts'
+
+const factualReadContracts = { parseIssueSpecBody, resolveSpecIdentityLedger }
+
+type CurrentChildCommitment = Extract<AssessSpecExact['proposed']['children'][number], { scope: Scope }>
 
 export type CurrentOwnSpecFacts = {
-  currentSpec: AssessSpecExact['proposed']
+  currentSpec: Omit<AssessSpecExact['proposed'], 'children'> & { children: CurrentChildCommitment[] }
   identityAllocations: AssessSpecExact['identityAllocations']
 }
 
@@ -42,7 +56,7 @@ function tier(
 
 function allocationRefs(
   uw: Scope,
-  read: UwRead,
+  read: Pick<UwRead, 'identity' | 'proposed'>,
 ): CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['identityAllocations']> {
   if (!read.identity.ok) return { ok: false, diagnostics: read.identity.diagnostics }
   if (!read.proposed.ok) return { ok: false, diagnostics: read.proposed.diagnostics }
@@ -61,9 +75,17 @@ function allocationRefs(
   return { ok: true, value: references }
 }
 
-function root(uw: Scope, read: UwRead): CurrentOwnSpecFactsResult<NonNullable<UwRead['graph']['nodes'][number]>> {
-  if (read.graph.status !== 'complete') return { ok: false, diagnostics: read.graph.diagnostics }
-  const node = read.graph.nodes.find((candidate) => sameScope(candidate.uw, uw))
+function root(
+  uw: Scope,
+  observation: UwRead['observation'],
+): CurrentOwnSpecFactsResult<UwRead['graph']['nodes'][number]> {
+  if (observation === undefined)
+    return {
+      ok: false,
+      diagnostics: [diagnostic(uw, 'observation-missing', 'Current facts require a complete joint observation')],
+    }
+  if (observation.status !== 'complete') return { ok: false, diagnostics: observation.diagnostics }
+  const node = observation.graph.nodes.find((candidate) => sameScope(candidate.uw, uw))
   if (node === undefined)
     return { ok: false, diagnostics: [diagnostic(uw, 'graph-root-missing', 'UW graph root is absent')] }
   const unknownWayfinders = unknownWayfinderLabels(node)
@@ -77,64 +99,81 @@ function root(uw: Scope, read: UwRead): CurrentOwnSpecFactsResult<NonNullable<Uw
   return { ok: true, value: node }
 }
 
-type CurrentChildCommitment = CurrentOwnSpecFacts['currentSpec']['children'][number]
-
-async function childCommitment(
+function childCommitment(
   child: Scope,
-  reader: UwReadPort,
-): Promise<CurrentOwnSpecFactsResult<CurrentChildCommitment | null>> {
-  const childRead = await reader.readUw(child)
-  const childRoot = root(child, childRead)
+  observation: UwRead['observation'],
+  assessmentReplay?: AssessmentReplayContext,
+): CurrentOwnSpecFactsResult<CurrentChildCommitment | null> {
+  const childRoot = root(child, observation)
   if (!childRoot.ok) return childRoot
   if (isWayfinder(childRoot.value)) return { ok: true, value: null }
-  if (!childRead.admission.framed.ok) return { ok: false, diagnostics: childRead.admission.framed.diagnostics }
-  if (childRead.accepted.status === 'refused' && historicalProjection(childRead) === undefined)
-    return { ok: false, diagnostics: childRead.accepted.diagnostics }
-  if (!childRead.proposed.ok) return { ok: false, diagnostics: childRead.proposed.diagnostics }
-  const allocations = allocationRefs(child, childRead)
+  const observed = projectObservedOwnSpecFacts(factualReadContracts, { uw: child, observation, assessmentReplay })
+  if (!observed.ok) return observed
+  const facts = observed.value
+  if (!facts.proposed.ok) return { ok: false, diagnostics: facts.proposed.diagnostics }
+  const allocations = allocationRefs(child, facts)
   if (!allocations.ok) return allocations
-  const childTier = tier(child, childRoot.value.labels)
+  const childTier = tier(child, facts.node.labels)
   if (!childTier.ok) return childTier
   return {
     ok: true,
     value: {
       scope: child,
-      specVersion: childRead.proposed.snapshot.spec.version,
-      snapshot: childRead.proposed.snapshot,
+      specVersion: facts.proposed.snapshot.spec.version,
+      snapshot: facts.proposed.snapshot,
       tier: childTier.value,
     },
   }
 }
 
-async function currentChildCommitments(input: {
-  uw: Scope
-  read: UwRead
-  reader: UwReadPort
-}): Promise<CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['currentSpec']['children']>> {
-  const rootNode = root(input.uw, input.read)
-  if (!rootNode.ok) return rootNode
+/** Project any observed candidates from one complete cut, without admission, own mandate or I/O. */
+export function projectObservedChildCommitments(input: {
+  scopes: readonly Scope[]
+  observation: UwRead['observation']
+  assessmentReplay?: AssessmentReplayContext
+}): CurrentOwnSpecFactsResult<CurrentChildCommitment[]> {
+  if (input.observation.status !== 'complete') return { ok: false, diagnostics: input.observation.diagnostics }
   const commitments: CurrentChildCommitment[] = []
-  const reader = input.read.observedReader ?? input.reader
-  const childScopes = [...rootNode.value.children].sort((left, right) => {
+  const childScopes = [...input.scopes].sort((left, right) => {
     const leftKey = `${left.repository}\0${left.target}`
     const rightKey = `${right.repository}\0${right.target}`
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
   })
+  let previous: Scope | undefined
   for (const child of childScopes) {
-    const commitment = await childCommitment(child, reader)
+    if (previous !== undefined && sameScope(previous, child))
+      return {
+        ok: false,
+        diagnostics: [diagnostic(child, 'child-scope-duplicate', 'Candidate child scopes must be unique')],
+      }
+    previous = child
+    const commitment = childCommitment(child, input.observation, input.assessmentReplay)
     if (!commitment.ok) return commitment
     if (commitment.value !== null) commitments.push(commitment.value)
   }
   return { ok: true, value: commitments }
 }
 
+function currentChildCommitments(input: {
+  uw: Scope
+  read: UwRead
+  assessmentReplay?: AssessmentReplayContext
+}): CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['currentSpec']['children']> {
+  const rootNode = root(input.uw, input.read.observation)
+  if (!rootNode.ok) return rootNode
+  return projectObservedChildCommitments({
+    scopes: rootNode.value.children,
+    observation: input.read.observation,
+    assessmentReplay: input.assessmentReplay,
+  })
+}
+
 /** Current child commitments are native/proposed observations, never accepted child snapshots. */
 export async function readCurrentChildrenProjection(input: {
   uw: Scope
   read: UwRead
-  reader: UwReadPort
 }): Promise<CurrentChildrenProjection> {
-  const commitments = await currentChildCommitments(input)
+  const commitments = currentChildCommitments(input)
   return commitments.ok
     ? {
         ok: true,
@@ -149,12 +188,18 @@ export async function readCurrentChildrenProjection(input: {
  * from their accepted delivery states; accepted replay remains the engine's
  * baseline for material delta calculation.
  */
-export async function readCurrentOwnSpecFacts(input: {
+export async function readCurrentFramingFacts(input: {
   uw: Scope
   read: UwRead
-  reader: UwReadPort
-}): Promise<CurrentOwnSpecFactsResult<CurrentOwnSpecFacts>> {
-  const rootNode = root(input.uw, input.read)
+  assessmentReplay?: AssessmentReplayContext
+}): Promise<
+  CurrentOwnSpecFactsResult<
+    Omit<CurrentOwnSpecFacts, 'currentSpec'> & {
+      currentSpec: Omit<CurrentOwnSpecFacts['currentSpec'], 'coverage'>
+    }
+  >
+> {
+  const rootNode = root(input.uw, input.read.observation)
   if (!rootNode.ok) return rootNode
   if (isWayfinder(rootNode.value))
     return {
@@ -166,13 +211,67 @@ export async function readCurrentOwnSpecFacts(input: {
   if (!ownAllocations.ok) return ownAllocations
   const ownTier = tier(input.uw, rootNode.value.labels)
   if (!ownTier.ok) return ownTier
-  const children = await currentChildCommitments(input)
+  const children = currentChildCommitments(input)
   if (!children.ok) return children
+  const inherited = resolveCurrentInheritedOwnSpecRefs(
+    input.uw,
+    input.read.observation.graph,
+    input.read.observation.histories,
+    input.assessmentReplay,
+  )
+  if (!inherited.ok) return inherited
   return {
     ok: true,
     value: {
-      currentSpec: { snapshot: input.read.proposed.snapshot, tier: ownTier.value, children: children.value },
+      currentSpec: {
+        snapshot: input.read.proposed.snapshot,
+        tier: ownTier.value,
+        children: children.value,
+        inheritedOwnSpecRefs: [...inherited.value],
+      },
       identityAllocations: ownAllocations.value,
     },
   }
+}
+
+export async function readCurrentOwnSpecFacts(input: {
+  uw: Scope
+  read: UwRead
+  assessmentReplay?: AssessmentReplayContext
+}): Promise<CurrentOwnSpecFactsResult<CurrentOwnSpecFacts>> {
+  const framing = await readCurrentFramingFacts(input)
+  if (!framing.ok) return framing
+  if (input.read.accepted.status === 'refused') return { ok: false, diagnostics: input.read.accepted.diagnostics }
+  const baseline = input.read.accepted.status === 'accepted' ? input.read.accepted.value : null
+  return {
+    ok: true,
+    value: {
+      currentSpec: {
+        ...framing.value.currentSpec,
+        // Coverage remains authenticated metadata; changed assignments require explicit operator input.
+        coverage: baseline?.coverage ?? null,
+      },
+      identityAllocations: framing.value.identityAllocations,
+    },
+  }
+}
+
+/** Rebuild a proposal from one observed cut; supplied coverage is intent, not authority. */
+export async function readAssessmentSpecFacts(input: {
+  uw: Scope
+  read: UwRead
+  assessmentReplay?: AssessmentReplayContext
+  coverage?: ParentCoverage | null
+  basis?: ParentCoverageRequest
+}): Promise<
+  | CurrentOwnSpecFactsResult<CurrentOwnSpecFacts>
+  | {
+      ok: false
+      coverageRequest: ParentCoverageRequest
+      reason: string
+    }
+> {
+  const framing = await readCurrentFramingFacts(input)
+  if (!framing.ok) return framing
+  return assessmentCoverageFacts(input, framing)
 }

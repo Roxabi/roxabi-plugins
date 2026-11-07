@@ -14,12 +14,12 @@ import {
   unusableOwnedReplacement,
 } from './result-replacement.ts'
 import { isolatedReceivedSettlement, ownsBatchPresentation, settleStoppedBatch } from './settlement'
+import { nativeSpawnRefusal } from './spawn-guard.ts'
 import {
   type ActiveBatch,
   clearBatchSettleAbort,
   createActiveBatch,
   rememberBatchTerminal,
-  spawnRefusal,
   watchBatchSettleAbort,
 } from './state'
 import { releaseTaskMask } from './task-mask-lease'
@@ -50,6 +50,12 @@ export class NativeBatchController {
     const active = this.#active
     if (active === null) return Promise.resolve()
     return this.#terminalByBatch.get(active.batch) ?? Promise.resolve()
+  }
+  /** Capture the real owned terminal fence while its callback is settling. */
+  settlementFor(batch: NativeBatch): Promise<void> {
+    const terminal = this.#terminalByBatch.get(batch)
+    if (terminal === undefined) throw new Error('native batch has no owned settlement')
+    return terminal
   }
   bindHostGit(observer: HostGitObserver): void {
     this.#observeHostGit = observer
@@ -176,14 +182,7 @@ export class NativeBatchController {
     finish?.()
   }
   allowSpawn(event: BeforeSubagentSpawnEvent): string | null {
-    const active = this.#active
-    if (!active) return null
-    if (event.spawnKey === undefined || !active.childSlots.has(event.spawnKey)) return null
-    const refusal = spawnRefusal(active, event)
-    if (refusal !== null) return refusal
-    const index = event.spawnKey === undefined ? undefined : active.childSlots.get(event.spawnKey)
-    if (index === undefined || !active.models[index]) return 'native child model route unavailable'
-    return null
+    return nativeSpawnRefusal(this.#active, event)
   }
   executedChild(batch: NativeBatch, id: string, sessionId: string) {
     const active = this.#active

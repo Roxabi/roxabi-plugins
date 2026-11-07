@@ -3,6 +3,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { inheritedParentSpecs } from './testing/epic-driver/epic-driver-parent-vector.ts'
 import {
   childNode,
   epicEvent,
@@ -55,6 +56,7 @@ function prepareBranchOnly(stopped = false): void {
     body: node.body,
     ownSpec: fixtures.ownSpecFromSnapshot(childScope, childSnapshot),
     parent: fixtures.mandateRef(parent),
+    inheritedOwnSpecRefs: inheritedParentSpecs(parent),
     branch: BRANCH,
     runId: 'run00002',
     run: 'run00002',
@@ -158,7 +160,7 @@ describe('epic-driver — branch-only child PR inventory', () => {
     prepareBranchOnly()
     const run = drive(['next'])
     expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({
+    expect(run.json(), JSON.stringify(run.json())).toMatchObject({
       step: { action: 'resume', ticket: 2, branch: BRANCH },
       disarmed: 'disarmed',
       reconciled: [],
@@ -192,7 +194,11 @@ describe('epic-driver — branch-only child PR inventory', () => {
     serveEpic([childNode(2, 'feat(x): first child')])
     const run = drive(['next'])
     expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({ step: { action: 'start', ticket: 2 }, disarmed: null, reconciled: [] })
+    expect(run.json(), JSON.stringify(run.json())).toMatchObject({
+      step: { action: 'start', ticket: 2 },
+      disarmed: null,
+      reconciled: [],
+    })
     expect(writes()).toEqual([])
     expect(stops()).toEqual([])
   })

@@ -3,7 +3,10 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeEpicPullRequest } from '../../adapters/github-native/epic-children.ts'
+import { validateComposedWorkflowHistories } from '../../adapters/github-workflow/history.ts'
+import * as contracts from '../../contracts.ts'
 import { disarmKnownTarget } from '../../roxabi/feature-disarm.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { armedPullRequests } from './epic-driver-github.ts'
 import * as epicRuntime from './epic-driver-runtime.ts'
 import authorization from './head-authorization.cjs'
@@ -53,6 +56,31 @@ function fixture() {
   }
   return { ...box, gh, args, update, grant }
 }
+
+function selectedIssueAuthority() {
+  const fixtures = roxabiWorkflowFixtures()
+  const scope = contracts.githubScope('acme/app', 42)
+  const mandate = fixtures.featureMandate(scope, { branch: 'feature' })
+  const mandateHistory = fixtures.historyFrom([mandate])
+  const binding = fixtures.workflowBinding(contracts.githubScope('acme/app', 10), mandate, 'feature', 'main')
+  const pullHistory = fixtures.historyFrom([binding], 'operator', 'operator', [mandateHistory])
+  const histories = [pullHistory, mandateHistory]
+  const validated = validateComposedWorkflowHistories(histories)
+  if (!validated.ok) throw new Error(`invalid fixture histories: ${validated.reason}`)
+  return {
+    mandate: fixtures.mandateRef(mandate),
+    loaded: {
+      ...contracts,
+      readComposedWorkflowHistory: async () => ({
+        ok: true as const,
+        scopes: histories.map((history) => history.source.scope),
+        histories,
+        records: validated.records,
+      }),
+    },
+  }
+}
+
 it('does not publish a manual grant when withdrawal crosses slow admission', async () => {
   const f = fixture()
   try {
@@ -131,8 +159,11 @@ it.each(['issue', 'pull-request'] as const)(
               scope: { repository: 'acme/app', target: 'acme/app#10' },
               pullRequest: { pr: 10 },
             }
-      expect(await disarmKnownTarget(f.gh, f.root, target, 'fix-only')).toMatchObject({ clean: true })
-      expect((await authorization.readAuthorization(f.args)).allowed).toBe(false)
+      const authority = kind === 'issue' ? selectedIssueAuthority() : null
+      expect(await disarmKnownTarget(f.gh, f.root, target, 'fix-only', null, authority)).toMatchObject({ clean: true })
+      const withdrawn = await authorization.readAuthorization(f.args)
+      expect(withdrawn.allowed).toBe(false)
+      expect(withdrawn.receipt?.record?.kind).toBe('withdraw')
       await expect(
         authorization.issueAuthorization({
           ...f.args,
@@ -148,6 +179,31 @@ it.each(['issue', 'pull-request'] as const)(
     }
   },
 )
+
+it('does not withdraw a linked closed PR without selected ownership authority', async () => {
+  const f = fixture()
+  try {
+    await f.grant('unowned-control-grant')
+    f.update((state) => {
+      state.prs['10'].state = 'CLOSED'
+      state.prs['10'].closes = [42]
+    })
+    const before = await authorization.readAuthorization(f.args)
+    const target = {
+      status: 'issue' as const,
+      scope: { repository: 'acme/app', target: 'acme/app#42' },
+      issue: { number: 42 },
+    }
+    expect(await disarmKnownTarget(f.gh, f.root, target, 'fix-only')).toMatchObject({ clean: false })
+    const after = await authorization.readAuthorization(f.args)
+    expect(before.allowed).toBe(true)
+    expect(after.allowed).toBe(true)
+    expect(after.receipt?.id).toBe(before.receipt?.id)
+    expect(saved(f.file).prs['10'].comments.some((comment) => comment.body.includes('"kind":"withdraw"'))).toBe(false)
+  } finally {
+    dispose(f.root)
+  }
+})
 
 it.each([0, 4])('fences an in-flight grant on stopped watcher exit %s without an existing arm', async (code) => {
   const f = fixture()

@@ -3,8 +3,11 @@ import { encodeParts } from '../../adapters/github/history-encoder.ts'
 import { githubScope } from '../../adapters/github/transport.ts'
 import type { Gh } from '../../adapters/github/types.ts'
 import { type DecodedHistory, parseRecord } from '../../dist/contracts.js'
+import { actionInputDigest } from '../../engine/action-input.ts'
 import { recoveryFixture, recoverySmokeCwd } from '../../roxabi/review-recovery-gh-test-support.ts'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { epicReviewGraph } from '../../testing/record-graphs.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import * as github from './epic-driver-github.ts'
 import { publishEpicEvent } from './epic-driver-publication.ts'
 import * as runtime from './epic-driver-runtime.ts'
@@ -23,7 +26,26 @@ afterEach(() => vi.restoreAllMocks())
 
 async function seedEpicReview(fixture: { gh: Gh; history: () => Promise<DecodedHistory> }, range: string) {
   const scope = githubScope('acme/app', 42)
-  const graph = epicReviewGraph({ scope, range, head: 'c'.repeat(40), prefix: 'owned-epic' })
+  const workflow = roxabiWorkflowFixtures()
+  const mandate = workflow.epicMandate(scope, [])
+  const accepted = acceptedActionInputs(mandate, 'review')
+  const [base, head] = range.split('..')
+  if (base === undefined || head === undefined) throw new Error('Expected complete range')
+  const manifest = {
+    ...accepted.manifest,
+    code: { ...accepted.manifest.code, repository: scope.repository, base, head },
+  }
+  const inputs = { ...accepted, manifest, fingerprint: actionInputDigest(manifest) }
+  const graph = epicReviewGraph({ scope, range, head, inputs, prefix: 'owned-epic' })
+  for (const body of workflow.framedBodies([mandate], 'automation'))
+    await fixture.gh(recoverySmokeCwd, [
+      'api',
+      '--method',
+      'POST',
+      'repos/acme/app/issues/42/comments',
+      '-f',
+      `body=${body}`,
+    ])
   for (const record of graph.records) {
     const parsed = parseRecord(record)
     if (!parsed.ok) throw new Error(`invalid review fixture: ${JSON.stringify(parsed.diagnostics)}`)

@@ -28,10 +28,31 @@ const operations = {
   createSister: async () => {
     throw new Error('unexpected-operations')
   },
+  adjustCauseDependency: async () => {
+    throw new Error('unexpected-operations')
+  },
   promoteReport: async () => {
     throw new Error('unexpected-operations')
   },
   readUw: async () => {
+    throw new Error('unexpected-operations')
+  },
+  readEffective: async () => {
+    throw new Error('unexpected-operations')
+  },
+  readCoverage: async () => {
+    throw new Error('unexpected-operations')
+  },
+  readCompletion: async () => {
+    throw new Error('unexpected-operations')
+  },
+  closeLinked: async () => {
+    throw new Error('unexpected-operations')
+  },
+  reopen: async () => {
+    throw new Error('unexpected-operations')
+  },
+  abandon: async () => {
     throw new Error('unexpected-operations')
   },
   prepare: async () => {

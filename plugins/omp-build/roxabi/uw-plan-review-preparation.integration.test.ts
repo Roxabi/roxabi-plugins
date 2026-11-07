@@ -4,19 +4,55 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import {
+  assessFixture,
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../engine/__tests__/workflow-spec-assessment-support.ts'
 import { featureMandate, SCOPE } from '../engine/__tests__/workflow-test-support.ts'
-import { mechanicalSpecDelta } from '../engine/workflow-spec-assessment.ts'
+import type { DecodedHistory } from '../engine/history-schema.ts'
+import type { Scope } from '../engine/record-values.ts'
+import type { SpecRawSource } from '../engine/uw-spec.ts'
 import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { createNativeImplementationTransport } from '../testing/native-implementation-transport.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
+import { authenticatedPlanFixtures } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { prepareDeliveryAction } from './delivery-action.ts'
 import type { UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
 import * as actionObserve from './uw-action-observe.ts'
 import { actionOperationMethods } from './uw-action-operations.ts'
 import { sha256Bytes } from './uw-action-result.ts'
 import { createProductionActionPorts, createProductionInputPorts } from './uw-input-readers.ts'
+
+function nativeTransport(raw: SpecRawSource, history: DecodedHistory, blockers: Scope[] = []) {
+  const date = '2026-10-27T12:00:00Z'
+  return createNativeImplementationTransport({
+    repository: SCOPE.repository,
+    author: 'operator',
+    histories: [history],
+    graph: {
+      status: 'complete',
+      root: SCOPE,
+      observedAt: date,
+      nodes: [
+        {
+          uw: SCOPE,
+          title: 'Selected UW',
+          raw,
+          updatedAt: date,
+          labels: ['size:S'],
+          wayfinderLabels: [],
+          parent: null,
+          children: [],
+          blockers,
+          native: { state: 'OPEN', stateReason: null },
+        },
+      ],
+    },
+    commits: new Map(),
+    pulls: new Map(),
+    comparisons: new Map(),
+  })
+}
 
 it('prepares plan and plan-review against the same accepted UW Spec', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'plan-review-preparation-'))
@@ -32,13 +68,11 @@ it('prepares plan and plan-review against the same accepted UW Spec', async () =
     ok: true,
     value: base.manifest.configuration,
   })
-  const histories = vi.spyOn(actionObserve, 'readHistories').mockResolvedValue({ ok: true, value: [decoded] })
   try {
     const { readPinnedFiles: _readPinnedFiles, ...production } = createProductionInputPorts({
       cwd: directory,
-      gh: async () => {
-        throw new Error('accepted Spec must not read the proposed issue body')
-      },
+      gh: nativeTransport(mandate.payload.ownSpec.snapshot.raw, decoded).gh,
+      readAuthor: 'operator',
     })
     let placement = 0
     const ports: UwActionPorts = {
@@ -96,7 +130,6 @@ it('prepares plan and plan-review against the same accepted UW Spec', async () =
   } finally {
     observe.mockRestore()
     config.mockRestore()
-    histories.mockRestore()
     rmSync(directory, { recursive: true, force: true })
   }
 })
@@ -116,34 +149,16 @@ it('preserves the missing adjacent native source in assessment preparation diagn
     ok: true,
     value: base.manifest.configuration,
   })
-  const histories = vi.spyOn(actionObserve, 'readHistories').mockResolvedValue({ ok: true, value: [decoded] })
   try {
-    const empty = { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } }
+    const transport = nativeTransport(mandate.payload.ownSpec.snapshot.raw, decoded, [
+      { repository: 'acme/app', target: 'acme/app#43' },
+    ])
     const production = createProductionActionPorts({
       cwd: directory,
-      gh: async (_cwd, args) => {
-        const number = args.find((arg) => arg.startsWith('number='))?.slice('number='.length)
-        if (number === '43') throw new Error('adjacent issue #43 is unreadable')
-        if (number !== '42') throw new Error('unexpected history read')
-        return JSON.stringify({
-          data: {
-            repository: {
-              issue: {
-                number: 42,
-                title: 'Selected UW',
-                body: mandate.payload.ownSpec.snapshot.raw.body,
-                updatedAt: '2026-10-27T12:00:00Z',
-                state: 'OPEN',
-                stateReason: null,
-                repository: { nameWithOwner: 'acme/app' },
-                parent: null,
-                labels: { ...empty, nodes: [{ name: 'size:S' }] },
-                subIssues: empty,
-                blockedBy: { ...empty, nodes: [{ number: 43, repository: { nameWithOwner: 'acme/app' } }] },
-              },
-            },
-          },
-        })
+      readAuthor: 'operator',
+      gh: async (cwd, args) => {
+        if (args.includes('number=43')) throw new Error('adjacent issue #43 is unreadable')
+        return transport.gh(cwd, args)
       },
     })
     const ports: UwActionPorts = {
@@ -172,13 +187,10 @@ it('preserves the missing adjacent native source in assessment preparation diagn
       expandedContext: [],
       operands: {
         action: 'assess-spec',
-        exactInputs: {
-          format: 'omp-build-spec-assessment/2',
-          accepted,
-          proposed,
-          identityAllocations: mandate.payload.ownSpec.identityAllocations,
-          mechanical: mechanicalSpecDelta(accepted, proposed),
-        },
+        origin: { kind: 'native-current' },
+        exactInputs: assessFixture(mandate, 'assessment-incomplete-graph-fixture', accepted, proposed, 'editorial', [
+          decoded,
+        ]).result.payload.exactInputs,
       },
     }
     const result = await prepareDeliveryAction(operations, request)
@@ -202,7 +214,6 @@ it('preserves the missing adjacent native source in assessment preparation diagn
   } finally {
     observe.mockRestore()
     config.mockRestore()
-    histories.mockRestore()
     rmSync(directory, { recursive: true, force: true })
   }
 })
@@ -212,7 +223,8 @@ it('materializes the selected draft module glossary for each plan specialist at 
   const git = (...args: string[]) => execFileSync('git', ['-C', directory, ...args], { encoding: 'utf8' }).trim()
   const workflow = roxabiWorkflowFixtures()
   const mandate = featureMandate()
-  const decoded = workflow.historyFrom([mandate, ...workflow.planDraftRecords(mandate)])
+  const plan = authenticatedPlanFixtures(mandate, [workflow.historyFrom([mandate])]).workflow
+  const decoded = workflow.historyFrom([mandate, ...plan.planDraftRecords(mandate)])
   const base = standaloneReviewInputs()
   const pluginBytes = Buffer.from('fixture plugin')
   const observe = vi.spyOn(actionObserve, 'observeCode').mockResolvedValue({
@@ -223,7 +235,6 @@ it('materializes the selected draft module glossary for each plan specialist at 
     ok: true,
     value: base.manifest.configuration,
   })
-  const histories = vi.spyOn(actionObserve, 'readHistories').mockResolvedValue({ ok: true, value: [decoded] })
   try {
     git('init')
     git('config', 'user.name', 'fixture')
@@ -237,9 +248,8 @@ it('materializes the selected draft module glossary for each plan specialist at 
     writeFileSync(join(directory, 'src/GLOSSARY.md'), 'dirty glossary')
     const production = createProductionInputPorts({
       cwd: directory,
-      gh: async () => {
-        throw new Error('unexpected GitHub read')
-      },
+      gh: nativeTransport(mandate.payload.ownSpec.snapshot.raw, decoded).gh,
+      readAuthor: 'operator',
     })
     const snapshots: { path: string; bytes: Uint8Array }[][] = []
     const ports: UwActionPorts = {
@@ -301,7 +311,6 @@ it('materializes the selected draft module glossary for each plan specialist at 
   } finally {
     observe.mockRestore()
     config.mockRestore()
-    histories.mockRestore()
     rmSync(directory, { recursive: true, force: true })
   }
 })

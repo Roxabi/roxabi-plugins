@@ -7,8 +7,8 @@ import {
 import { NATIVE_AUTHOR, reviewRoot, TEST_HEAD } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
 import { history, observedComment, operation } from '../../testing/record-history.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import {
-  admittedImplement,
   eligiblePlan,
   shippedMandate,
 } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
@@ -25,9 +25,16 @@ import type { CanonicalRecord } from '../record-schema.ts'
 import type { Diagnostic } from '../record-values.ts'
 import { validateDecision } from '../review-decision.ts'
 import { reviewCandidateCode } from '../review-inventory-input.ts'
-import { bindExternalRef, type MandateRecord, mandateScope, type ReceiptRecord } from '../workflow-control.ts'
+import {
+  bindExternalRef,
+  type MandateRecord,
+  mandateScope,
+  type ReceiptRecord,
+  recordsOf,
+} from '../workflow-control.ts'
 import type { ActionReceiptPayload } from '../workflow-receipt-schema.ts'
-import { evidenceDeclaration, passingTest } from './criterion-admission-fixture.ts'
+import { evidenceDeclaration } from './criterion-admission-fixture.ts'
+import { deliveredLeaf } from './uw-delivery-proof-fixture.ts'
 import { binding } from './workflow-test-support.ts'
 
 type PlanResult = ReceiptRecord & {
@@ -79,7 +86,7 @@ function boundReview(mandate: MandateRecord) {
 }
 
 function planResult(mandate: MandateRecord): PlanResult {
-  const found = eligiblePlan(mandate).find(isPlanResult)
+  const found = eligiblePlan(mandate, [roxabiWorkflowFixtures().historyFrom([mandate])]).find(isPlanResult)
   if (found === undefined) throw new Error('produced plan result missing')
   return found
 }
@@ -103,34 +110,6 @@ function refFor(
   }
 }
 
-function headedImplement(receipt: ImplementResult, head: string): ImplementResult {
-  if (receipt.payload.admission === null) throw new Error('implement admission missing')
-  return {
-    ...receipt,
-    payload: {
-      ...receipt.payload,
-      admission: { ...receipt.payload.admission, admitted: true, remoteTip: head },
-    },
-  }
-}
-
-function implementStart(result: ImplementResult): ReceiptRecord {
-  return {
-    ...result,
-    recordId: `${result.recordId}-start`,
-    operationId: `${result.operationId}-start`,
-    payload: {
-      format: result.payload.format,
-      phase: 'start',
-      action: 'implement',
-      actionId: result.payload.actionId,
-      mandate: result.payload.mandate,
-      inputs: result.payload.inputs,
-      exactInputs: result.payload.exactInputs,
-    },
-  }
-}
-
 describe('authorized criterion delivery admission', () => {
   test('keeps a produced plan with a null admission eligible', () => {
     const mandate = shippedMandate()
@@ -139,7 +118,18 @@ describe('authorized criterion delivery admission', () => {
     expect(plan.payload.admission).toBeNull()
     const diagnostics: Diagnostic[] = []
     selectedDeclarations(
-      [scoped([mandate, ...eligiblePlan(mandate)], mandate), bound.bindingHistory],
+      [
+        scoped(
+          [
+            ...recordsOf(roxabiWorkflowFixtures().historyFrom([mandate])).filter(
+              (record) => record.kind === 'spec-identity',
+            ),
+            ...eligiblePlan(mandate, [roxabiWorkflowFixtures().historyFrom([mandate])]),
+          ],
+          mandate,
+        ),
+        bound.bindingHistory,
+      ],
       {
         ...bound.inputs,
         manifest: {
@@ -171,16 +161,25 @@ describe('authorized criterion delivery admission', () => {
     expect(validateProspectiveRecord(review, history([])).length).toBeGreaterThan(0)
   })
 
-  test('refuses an implementation start from another mandate', () => {
-    const current = shippedMandate()
-    const old = { ...current, recordId: 'mandate-old' }
+  test('refuses an implementation start from another mandate', async () => {
+    const fixture = await deliveredLeaf()
+    const positive: Diagnostic[] = []
+    selectedDeclarations(fixture.observation.histories, fixture.inputs, positive, fixtureReviewClassCatalogues())
+    expect(positive).toEqual([])
+    const current = { ...fixture.mandate, recordId: 'mandate-current', operationId: 'mandate-current-op' }
     const plan = planResult(current)
     const bound = boundReview(current)
     const inputs = bound.inputs
-    const receipt = admittedImplement(old)
-    if (!isImplementResult(receipt)) throw new Error('implement shape')
-    const headed = headedImplement(receipt, inputs.manifest.code.head)
-    const start = implementStart(headed)
+    const headed = fixture.implementation
+    if (!isImplementResult(headed)) throw new Error('implement shape')
+    const issue = fixture.observation.histories.find((item) => item.source.scope.target === fixture.uw.target)
+    const start =
+      issue &&
+      recordsOf(issue).find(
+        (record) =>
+          record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'start',
+      )
+    if (!start) throw new Error('authenticated implementation start missing')
     const diagnostics: Diagnostic[] = []
     selectedDeclarations(
       [scoped([current, plan, start, headed], current), bound.bindingHistory],
@@ -197,9 +196,8 @@ describe('authorized criterion delivery admission', () => {
     expect(codes(diagnostics)).toContain('unconfirmed')
   })
 
-  test('refuses a forged external author and a mismatched operation id', () => {
-    const mandate = shippedMandate()
-    const receipt = admittedImplement(mandate)
+  test('refuses a forged external author and a mismatched operation id', async () => {
+    const { mandate, implementation: receipt } = await deliveredLeaf()
     const authored = operation(receipt, {
       parts: [observedComment({ locator: 'forged-author', nativeId: '101', author: 'forger' })],
     })
@@ -253,79 +251,30 @@ describe('authorized criterion delivery admission', () => {
     expect(admitted.verdict).not.toBe('Approve with comments')
   })
 
-  test('refuses unresolved version-claim and code-link references before admission', () => {
-    const mandate = shippedMandate()
-    const bound = boundReview(mandate)
-    const inputs = bound.inputs
-    if (inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted spec')
-    const head = inputs.manifest.code.head
-    const plan = planResult(mandate)
-    const base = passingTest('C1')
-    if (base.method !== 'test') throw new Error('expected test evidence')
-    const receipt = admittedImplement(mandate)
+  test('refuses unresolved version-claim and code-link references before admission', async () => {
+    const fixture = await deliveredLeaf()
+    const { mandate, inputs, implementation: receipt, head } = fixture
     if (!isImplementResult(receipt) || receipt.payload.structured === null)
-      throw new Error('expected an implementation result')
-    const aligned = criterionEvidenceSchema.parse({
-      ...base,
-      provenance: { ...base.provenance, actionId: receipt.payload.actionId },
-      target: { ...base.target, spec: inputs.manifest.spec.effective.own },
-      code: { repository: mandate.payload.ownSpec.uw.repository, commit: head },
-      after: {
-        ...base.after,
-        versionClaim: {
-          ...base.after.versionClaim,
-          code: { repository: mandate.payload.ownSpec.uw.repository, commit: head },
-          references: [],
-        },
-      },
-    })
-    if (aligned.method !== 'test') throw new Error('expected test evidence')
+      throw new Error('expected a genuinely published implementation result')
+    const declaration = receipt.payload.structured.criteria[0]
+    if (declaration?.verification !== 'evidence' || !declaration.evidence[0])
+      throw new Error('expected captured implementation evidence')
+    const aligned = criterionEvidenceSchema.parse(declaration.evidence[0])
+    if (aligned.method !== 'test') throw new Error('expected captured test evidence')
     const structured = receipt.payload.structured
-    const withCriteria = (evidence: typeof aligned): ImplementResult =>
-      headedImplement(
-        {
-          ...receipt,
-          payload: {
-            ...receipt.payload,
-            structured: { ...structured, criteria: [evidenceDeclaration(evidence)] },
-            native: {
-              ...receipt.payload.native,
-              bashCalls: [
-                {
-                  toolCallId: aligned.after.run.toolCallId,
-                  input: { command: aligned.after.run.command },
-                  effectiveCwd: aligned.after.run.context.probeCwd,
-                  result: { output: 'PASS selected region survived reload' },
-                  exitCode: aligned.after.run.exitCode,
-                },
-              ],
-            },
-          },
-        },
-        head,
-      )
+    // Deliberately corrupt only the negative receipt; the control below remains the real published record.
+    const withCriteria = (evidence: typeof aligned): ImplementResult => ({
+      ...receipt,
+      payload: { ...receipt.payload, structured: { ...structured, criteria: [evidenceDeclaration(evidence)] } },
+    })
     const missing = recordInputRefSchema.parse({
       source: 'record',
       record: { scope: mandateScope(mandate), kind: 'contribution', recordId: 'missing-link' },
       selector: '/recordId',
       digest: canonicalValueDigest('missing-link'),
     })
-    const clearReceipt = withCriteria(aligned)
     const clearDiagnostics: Diagnostic[] = []
-    selectedDeclarations(
-      [scoped([mandate, plan, implementStart(clearReceipt), clearReceipt], mandate), bound.bindingHistory],
-      {
-        ...inputs,
-        manifest: {
-          ...inputs.manifest,
-          deliveryData: [
-            refFor(clearReceipt, 'implementation', '/payload/structured', clearReceipt.payload.structured),
-          ],
-        },
-      },
-      clearDiagnostics,
-      fixtureReviewClassCatalogues(),
-    )
+    selectedDeclarations(fixture.observation.histories, inputs, clearDiagnostics, fixtureReviewClassCatalogues())
     const unresolved = criterionEvidenceSchema.parse({
       ...aligned,
       after: { ...aligned.after, versionClaim: { ...aligned.after.versionClaim, references: [missing] } },
@@ -333,8 +282,17 @@ describe('authorized criterion delivery admission', () => {
     if (unresolved.method !== 'test') throw new Error('expected test evidence')
     const refusedReceipt = withCriteria(unresolved)
     const refusedDiagnostics: Diagnostic[] = []
+    const original = fixture.review.issueHistory
+    const forgedHistory = roxabiWorkflowFixtures().historyFrom(
+      recordsOf(original).map((record) => (record.recordId === receipt.recordId ? refusedReceipt : record)),
+      'operator',
+      'operator',
+    )
     selectedDeclarations(
-      [scoped([mandate, plan, implementStart(refusedReceipt), refusedReceipt], mandate), bound.bindingHistory],
+      [
+        forgedHistory,
+        ...fixture.observation.histories.filter((item) => item.source.scope.target !== fixture.uw.target),
+      ],
       {
         ...inputs,
         manifest: {

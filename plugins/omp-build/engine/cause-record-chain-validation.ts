@@ -15,7 +15,7 @@ export function validateCauseChain(
   diagnostics: Diagnostic[],
 ): void {
   const payload = record.payload
-  const identity = JSON.stringify([payload.origin, payload.subject])
+  const identity = JSON.stringify([payload.origin, payload.basis.versionVector, payload.subject])
   if (payload.previous === null) {
     if (payload.adjudication !== null)
       diagnostics.push(diagnostic('cause-chain-invalid', `Initial disposition ${record.recordId} has an adjudication`))
@@ -37,7 +37,8 @@ export function validateCauseChain(
   if (
     previous?.payload.outcome.state !== 'pending-blocking' ||
     JSON.stringify(previous.payload.subject) !== JSON.stringify(payload.subject) ||
-    JSON.stringify(previous.payload.origin) !== JSON.stringify(payload.origin)
+    JSON.stringify(previous.payload.origin) !== JSON.stringify(payload.origin) ||
+    JSON.stringify(previous.payload.basis) !== JSON.stringify(payload.basis)
   )
     diagnostics.push(
       diagnostic('cause-chain-invalid', `Disposition ${record.recordId} has no matching pending predecessor`),

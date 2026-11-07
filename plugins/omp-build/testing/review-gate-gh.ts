@@ -1,5 +1,6 @@
 import { chmodSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { reviewGateGraphProgram } from './review-gate-graph-program.ts'
 
 export type StoredComment = {
   id: number
@@ -42,6 +43,7 @@ export const PR_EDITED = '2026-10-21T00:00:00Z'
 export function fakeGhProgram(): string {
   const tooling = JSON.stringify(path.resolve(import.meta.dirname, 'review-gate-tooling-gh.ts'))
   return `#!/usr/bin/env bun
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { toolingGh } from ${tooling}
@@ -83,37 +85,7 @@ function issueOf(number) {
   if (!issue) fail('missing issue ' + number)
   return issue
 }
-function graphConnection(nodes) {
-  return { nodes, pageInfo: { hasNextPage: false, endCursor: null } }
-}
-function graphVariable(name) {
-  const entry = argv.find((value) => value.startsWith(name + '='))
-  return entry === undefined ? undefined : entry.slice(name.length + 1)
-}
-function nativeGraphIssue(number) {
-  const issue = issueOf(number)
-  return {
-    number: Number(number),
-    title: number === '7' ? 'Feature' : 'Save selected region',
-    body: issue.body,
-    updatedAt: issue.updatedAt,
-    state: issue.state,
-    stateReason: null,
-    repository: { nameWithOwner: 'acme/app' },
-    parent: null,
-    labels: graphConnection(issue.labels.map((label) => ({ name: label.name }))),
-    subIssues: graphConnection([]),
-    blockedBy: graphConnection([]),
-  }
-}
-function isNativeGraphQuery(query) {
-  return (
-    query.includes('number title body updatedAt state stateReason repository') &&
-    query.includes('labels(first: 100, after: $labelsCursor)') &&
-    query.includes('subIssues(first: 100, after: $childrenCursor)') &&
-    query.includes('blockedBy(first: 100, after: $blockersCursor)')
-  )
-}
+${reviewGateGraphProgram}
 
 function main() {
   const pinned = toolingGh(argv, process.env.GATE_TOOLS)
@@ -132,6 +104,11 @@ function main() {
   if (argv[0] === 'api' && argv[1] === 'graphql') {
     if (!argv.some((value) => value.startsWith('query='))) fail('unexpected gh GraphQL argv')
     const query = argv.find((value) => value.startsWith('query='))
+    if (query === 'query=query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}') {
+      if (graphVariable('owner') !== 'acme' || graphVariable('name') !== 'app' || graphVariable('cursor') !== undefined) fail('unexpected pull enumeration scope or cursor')
+      output({ data: { repository: { pullRequests: { nodes: [{ number: 7, headRefName: 'feat/7-fixture', baseRefName: 'main', repository: { nameWithOwner: 'acme/app' } }], pageInfo: { hasNextPage: false, endCursor: null } } } } })
+      return
+    }
     if (isNativeGraphQuery(query)) {
       const number = graphVariable('number')
       if (number === undefined || !/^[1-9]\\d*$/.test(number)) fail('missing native graph issue number')
@@ -159,17 +136,41 @@ function main() {
     return
   }
   if (argv[0] === 'issue' && argv[1] === 'view') {
-    if (flag('--repo') !== 'acme/app' || flag('--json') !== 'body,updatedAt,state,labels') fail('unexpected issue view')
+    const selected = flag('--json')
+    if (flag('--repo') !== 'acme/app' || (selected !== 'body,updatedAt,state,labels' && selected !== 'title,body,labels,updatedAt')) fail('unexpected issue view')
     if (argv[2] === '7' && !state.issues?.['7']) {
-      output({ body: state.prBody, updatedAt: state.prEditedAt ?? null, state: 'OPEN', labels: [] })
+      output(selected === 'title,body,labels,updatedAt'
+        ? { title: 'Feature', body: state.prBody, updatedAt: state.prEditedAt ?? null, labels: [] }
+        : { body: state.prBody, updatedAt: state.prEditedAt ?? null, state: 'OPEN', labels: [] })
       return
     }
     const issue = issueOf(argv[2])
-    output({ body: issue.body, updatedAt: issue.updatedAt ?? null, state: issue.state ?? 'OPEN', labels: issue.labels })
+    output(selected === 'title,body,labels,updatedAt'
+      ? { title: 'Save selected region', body: issue.body, updatedAt: issue.updatedAt ?? null, labels: issue.labels }
+      : { body: issue.body, updatedAt: issue.updatedAt ?? null, state: issue.state ?? 'OPEN', labels: issue.labels })
     return
   }
   if (argv[0] === 'api') {
     const endpoint = argv.find((value) => value.startsWith('repos/'))
+    const gitCommit = endpoint?.match(/^repos\\/acme\\/app\\/git\\/commits\\/([a-f0-9]{40})$/)
+    const gitCompare = endpoint?.match(/^repos\\/acme\\/app\\/compare\\/([a-f0-9]{40})\\.\\.\\.([a-f0-9]{40})\\?per_page=100&page=([1-9][0-9]*)$/)
+    if ((gitCommit || gitCompare) && !argv.includes('--method')) {
+      const git = (...args) => execFileSync('git', ['-C', process.env.GATE_CANDIDATE, ...args], { encoding: 'utf8' }).trim()
+      const commit = (sha) => {
+        const [actual, ...parents] = git('rev-list', '--parents', '-n', '1', sha).split(' ')
+        if (actual !== sha) fail('unknown commit')
+        return { sha: actual, parents: parents.map((parent) => ({ sha: parent })) }
+      }
+      if (gitCommit) { output(commit(gitCommit[1])); return }
+      const base = gitCompare[1], head = gitCompare[2], page = Number(gitCompare[3])
+      commit(base); commit(head)
+      if (!Number.isSafeInteger(page)) fail('invalid comparison page')
+      const ahead = git('rev-list', '--reverse', base + '..' + head).split('\\n').filter(Boolean)
+      const behind = git('rev-list', '--count', head + '..' + base)
+      const status = ahead.length === 0 ? (behind === '0' ? 'identical' : 'behind') : (behind === '0' ? 'ahead' : 'diverged')
+      output({ status, total_commits: ahead.length, commits: ahead.slice((page - 1) * 100, page * 100).map(commit) })
+      return
+    }
     const pathOnly = endpoint?.split('?')[0] ?? ''
     const match = pathOnly.match(/^repos\\/acme\\/app\\/issues\\/(\\d+)(\\/comments)?$/)
     if (!match) fail('unexpected gh api endpoint')
@@ -177,17 +178,18 @@ function main() {
     const commentsPath = Boolean(match[2])
     if (number === '7' && commentsPath && existsSync(join(process.env.GATE_STATE_DIR ?? '', 'comments.fail'))) process.exit(17)
     if (argv.includes('--method')) {
-      if (number !== '7' || argv.length !== 6 || argv[1] !== '--method' || argv[2] !== 'POST' || argv[4] !== '-f') fail('unexpected gh api method')
+      if (!commentsPath || argv.length !== 6 || argv[1] !== '--method' || argv[2] !== 'POST' || argv[4] !== '-f') fail('unexpected gh api method')
       const field = argv[5]
       if (!field?.startsWith('body=')) fail('missing comment body')
       const comment = {
         id: state.nextCommentId++,
         body: field.slice('body='.length),
         user: { login: actor() },
-        created_at: '2026-10-21T00:00:00Z',
-        updated_at: '2026-10-21T00:00:00Z',
+        created_at: number === '7' ? '2026-10-21T00:00:00Z' : '2026-10-23T00:00:00Z',
+        updated_at: number === '7' ? '2026-10-21T00:00:00Z' : '2026-10-23T00:00:00Z',
       }
-      state.comments.push(comment)
+      if (number === '7') state.comments.push(comment)
+      else issueOf(number).comments.push(comment)
       output(comment)
       return
     }
@@ -216,6 +218,13 @@ function main() {
       user: { login: actor() },
       comments: issue.comments.map((comment) => ({ body: comment.body, user: comment.user })),
     })
+    return
+  }
+  if (argv[0] === 'pr' && argv[1] === 'list') {
+    if (flag('--repo') !== 'acme/app' || flag('--state') !== 'all' || flag('--limit') !== '30' ||
+        flag('--json') !== 'number,isCrossRepository,state') fail('unexpected gh pr list')
+    const matches = flag('--head') === 'feat/7-fixture' && flag('--base') === 'main'
+    output(matches ? [{ number: 7, isCrossRepository: false, state: 'OPEN' }] : [])
     return
   }
   if (argv[0] === 'pr' && argv[1] === 'view' && argv[2] === '7') {

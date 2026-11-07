@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { assessUwAdmission } from '../../engine/uw-admission.ts'
+import { assessUwCompletion } from '../../engine/uw-completion.ts'
 import type { UwGraphObservation } from '../../engine/uw-graph.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
+import { decodeHistory } from '../github/history-codec.ts'
 import { githubScope } from '../github/transport.ts'
 import type { Gh } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph.ts'
@@ -65,7 +68,7 @@ function transport(route: Route): Gh {
   }
 }
 
-function admission(graph: UwGraphObservation) {
+async function admission(graph: UwGraphObservation) {
   const spec = canonicalSpec({
     format: 'omp-build-spec-content/1',
     criteria: [{ id: 'C1', statement: 'Deliver the own commitment' }],
@@ -77,6 +80,36 @@ function admission(graph: UwGraphObservation) {
   if (!spec.ok) throw new Error('invalid test spec')
   const rootNode = graph.nodes.find((node) => node.uw.target === root.target)
   if (!rootNode) throw new Error('missing test root')
+  const histories = graph.nodes.map((node) =>
+    decodeHistory({
+      scope: node.uw,
+      expectedAuthor: 'operator',
+      stopAuthor: null,
+      complete: true,
+      comments: [],
+      diagnostics: [],
+    }),
+  )
+  const catalogues = fixtureReviewClassCatalogues()
+  const firstDiagnostic = graph.status === 'incomplete' ? graph.diagnostics[0] : undefined
+  if (graph.status === 'incomplete' && firstDiagnostic === undefined)
+    throw new Error('Incomplete graph lacks its diagnostic')
+  const observation =
+    graph.status === 'complete'
+      ? await observedUwWithoutPullRequests({ graph, histories, catalogues })
+      : firstDiagnostic === undefined
+        ? (() => {
+            throw new Error('Missing incomplete graph diagnostic')
+          })()
+        : {
+            status: 'incomplete' as const,
+            root,
+            graph,
+            histories,
+            catalogues,
+            delivery: [],
+            diagnostics: [firstDiagnostic, ...graph.diagnostics.slice(1)] as const,
+          }
   return assessUwAdmission({
     uw: root,
     graph,
@@ -90,8 +123,9 @@ function admission(graph: UwGraphObservation) {
       allocations: new Map([['C1', { scope: root, recordId: 'identity-C1', kind: 'spec-identity' }]]),
       retired: new Map(),
     },
-    histories: [],
-    catalogues: fixtureReviewClassCatalogues(),
+    histories: observation.histories,
+    catalogues,
+    completion: assessUwCompletion(observation),
     phase: 'initial-selection',
   })
 }
@@ -106,11 +140,11 @@ describe('native graph issue coordinates', () => {
     const completed = await read('correct-completed')
     expect(open.status).toBe('complete')
     expect(completed.status).toBe('complete')
-    expect(admission(open).deliverable.diagnostics).toContainEqual(
+    expect((await admission(open)).deliverable.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'blocker-not-completed' }),
     )
-    expect(admission(open).deliverable.ok).toBe(false)
-    expect(admission(completed).deliverable.ok).toBe(true)
+    expect((await admission(open)).deliverable.ok).toBe(false)
+    expect((await admission(completed)).deliverable.ok).toBe(true)
     const paginated = await read('correct-label-page')
     expect(paginated.status).toBe('complete')
     expect(paginated.nodes.find((node) => node.uw.target === blocker.target)?.labels).toEqual([
@@ -121,7 +155,7 @@ describe('native graph issue coordinates', () => {
 
   it('rejects a same-repository completed issue returned for the open blocker on its first page', async () => {
     const graph = await read('wrong-first')
-    const result = admission(graph)
+    const result = await admission(graph)
     expect(result.deliverable.ok).toBe(false)
     expect(graph.status).toBe('incomplete')
     if (graph.status !== 'incomplete') throw new Error('expected incomplete graph')
@@ -136,7 +170,7 @@ describe('native graph issue coordinates', () => {
 
   it('rejects a different issue on a subsequent connection page without merging its labels', async () => {
     const graph = await read('wrong-label-page')
-    const result = admission(graph)
+    const result = await admission(graph)
     expect(result.deliverable.ok).toBe(false)
     expect(graph.status).toBe('incomplete')
     if (graph.status !== 'incomplete') throw new Error('expected incomplete graph')

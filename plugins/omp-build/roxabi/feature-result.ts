@@ -10,10 +10,12 @@ import { scopeNumber } from './feature-delivery-facts.ts'
 import { disarmBranchBeforePush } from './feature-disarm.ts'
 import { defaultGh, publishRecord } from './feature-engine.ts'
 import { admitImplementationEvidence } from './feature-implementation-admission.ts'
+import { authorizedImplementationPush } from './feature-implementation-authorization.ts'
 import { publishImplementationNegative } from './feature-implementation-negative.ts'
 import { claimedToolCallIds, refusedImplementationPayload } from './feature-implementation-receipt.ts'
+import { publishIntegrationResult } from './feature-integration-result.ts'
 import { hasObservedNativeCapture, implementNativeOutcome } from './feature-native-outcome.ts'
-import { authorizedImplementationPush, proveAuthorizedBranch } from './feature-publication.ts'
+import { proveAuthorizedBranch } from './feature-publication.ts'
 import { bindImplementationResult, type ImplementationResultBinding } from './feature-result-binding.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { defaultGit } from './workflow-checkout.ts'
@@ -170,26 +172,37 @@ async function publishImplementedResult(
     : { published: false, retained: false, reason: published.reason }
 }
 
-export async function publishFeatureNativeResult(input: {
+type FeatureNativeResultInput = {
   cwd: string
   result: NativeBatchResult
   start: ScopedRecordRef
   startHead?: string
   git?: GitRunner
   gh?: Gh
-}): Promise<FeatureNativePublication> {
+}
+
+async function publishOtherActionResult(
+  input: FeatureNativeResultInput,
+  gh: Gh,
+): Promise<FeatureNativePublication | null> {
+  const integrate = input.result.batch.tasks.tasks.some((task) => task.action?.inputs.manifest.purpose === 'integrate')
+  if (!integrate && input.result.batch.tasks.tasks.some((task) => task.agent === 'R-workflow-implement')) return null
+  const published = integrate
+    ? await publishIntegrationResult({ ...input, gh, git: input.git ?? defaultGit() })
+    : await publishNonImplementResult({ ...input, gh })
+  return published.published
+    ? {
+        published: true,
+        retained: true,
+        receipt: { scope: input.start.scope, recordId: published.recordId, kind: 'action-receipt' },
+      }
+    : { published: false, retained: false, reason: published.reason }
+}
+
+export async function publishFeatureNativeResult(input: FeatureNativeResultInput): Promise<FeatureNativePublication> {
   const gh = input.gh ?? defaultGh()
-  const implement = input.result.batch.tasks.tasks.some((task) => task.agent === 'R-workflow-implement')
-  if (!implement) {
-    const published = await publishNonImplementResult({ ...input, gh })
-    return published.published
-      ? {
-          published: true,
-          retained: true,
-          receipt: { scope: input.start.scope, recordId: published.recordId, kind: 'action-receipt' },
-        }
-      : { published: false, retained: false, reason: published.reason }
-  }
+  const other = await publishOtherActionResult(input, gh)
+  if (other !== null) return other
   const git = input.git ?? defaultGit()
   const binding = await bindImplementationResult({ ...input, gh })
   if ('reason' in binding) return { published: false, retained: false, reason: binding.reason }

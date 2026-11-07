@@ -68,7 +68,7 @@ export type ReviewActionProjection = Readonly<{
 }>
 
 export type ReviewActionBatch = {
-  actions: readonly { request: UwActionRequest; projection: ReviewActionProjection }[]
+  actions: readonly { role: string; request: UwActionRequest; projection: ReviewActionProjection }[]
 }
 
 export type CurrentActionFacts = {

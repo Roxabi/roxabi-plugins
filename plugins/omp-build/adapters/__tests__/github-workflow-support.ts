@@ -62,6 +62,7 @@ export function prView(overrides: Record<string, unknown> = {}): string {
     headRefName: 'feat/7-work',
     baseRefName: 'main',
     baseRefOid: BASE_TIP,
+    mergeCommit: null,
     author: { login: 'operator' },
     ...overrides,
   })
@@ -109,6 +110,7 @@ export function issueMandate(
   recordId = 'mandate-1',
   parent: CanonicalRecord | null = null,
 ): CanonicalRecord {
+  if (parent !== null && parent.kind !== 'mandate') throw new Error('fixture parent must be a mandate')
   return mustRecord(
     buildFixOnlyMandate({
       scope,
@@ -122,6 +124,22 @@ export function issueMandate(
       ownSpec: fixtureOwnSpec(scope),
       tier: 'F-lite',
       children: [],
+      inheritedOwnSpecRefs:
+        parent === null
+          ? []
+          : [
+              {
+                uw: parent.payload.ownSpec.uw,
+                version: parent.payload.ownSpec.version,
+                sourceAccepted: {
+                  scope: { repository: parent.repository, target: parent.target },
+                  recordId: parent.recordId,
+                  kind: 'mandate',
+                },
+              },
+              ...parent.payload.inheritedOwnSpecRefs,
+            ],
+      coverage: null,
       config: {
         version: 'catalogue-1',
         digest: 'a'.repeat(64),

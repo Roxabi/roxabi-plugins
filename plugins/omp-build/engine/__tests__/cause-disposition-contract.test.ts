@@ -25,8 +25,9 @@ function retainedDisposition(id: string) {
       operationId: `op-${id}`,
       kind: 'cause-disposition',
       payload: {
-        format: 'omp-build-cause-disposition/1',
+        format: 'omp-build-cause-disposition/2',
         origin: own,
+        basis: { versionVector: [own], capture: null },
         subject: {
           kind: 'rule-error',
           source: { scope, kind: 'decision', recordId: 'decision' },
@@ -48,6 +49,11 @@ describe('cause disposition contract', () => {
     expect(selectorAdmitted('cause-state', '/payload')).toBe(true)
     expect(selectorAdmitted('cause-state', '/payload/outcome')).toBe(false)
     expect(selectorAdmitted('cause-state', '/raw')).toBe(false)
+  })
+  it('admits integration evidence only at its exact structured code selector', () => {
+    expect(selectorAdmitted('integration', '/payload/structured/code')).toBe(true)
+    expect(selectorAdmitted('integration', '/payload/structured')).toBe(false)
+    expect(selectorAdmitted('integration', '/payload/structured/code/head')).toBe(false)
   })
   it('rejects cause-state pins to another UW or an unrelated record kind', () => {
     const input = acceptedActionInputs(featureMandate(), 'review')

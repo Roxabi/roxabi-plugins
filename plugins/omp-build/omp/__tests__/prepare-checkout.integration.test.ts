@@ -5,36 +5,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import ompBuildExtension from '../index.ts'
+import { GH } from './prepare-checkout-github-fixture.ts'
 
 const STACK = '{"release":{"model":"trunk"}}\n'
-const GH = `#!/bin/sh
-printf '%s\\n' "$*" >> "$GH_LOG"
-case "$*" in
-  "repo view --json nameWithOwner")
-    printf '%s' '{"nameWithOwner":"Acme/app"}' ;;
-  "issue view 11 --repo Acme/app --json title,body,labels,updatedAt")
-    printf '%s' '{"title":"feat(app): first child","body":"not authority","labels":[],"updatedAt":"2026-01-01T00:00:00Z"}' ;;
-  "issue view 12 --repo Acme/app --json title,body,labels,updatedAt")
-    printf '%s' '{"title":"fix(app): second child","body":"not authority","labels":[],"updatedAt":"2026-01-01T00:00:00Z"}' ;;
-  "issue view 13 --repo Acme/app --json title,body,labels,updatedAt")
-    echo missing >&2
-    exit 1 ;;
-  "api repos/Acme/app/issues/11")
-    printf '%s' '{"number":11,"state":"open","body":"not authority"}' ;;
-  "api repos/Acme/app/issues/12")
-    printf '%s' '{"number":12,"state":"open","body":"not authority"}' ;;
-  "api repos/Acme/app/issues/13")
-    echo missing >&2
-    exit 1 ;;
-  "api repos/Acme/app/issues/7")
-    printf '%s' '{"number":7,"state":"open","body":"not authority","pull_request":{"url":"https://example.invalid/7"}}' ;;
-  "pr view 7 --repo Acme/app --json number,state,headRefOid,headRefName,baseRefName,baseRefOid,author")
-    printf '%s' '{"number":7,"state":"OPEN","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRefName":"feat/7-existing","baseRefName":"main","baseRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","author":{"login":"operator"}}' ;;
-  *)
-    echo "unexpected gh: $*" >&2
-    exit 1 ;;
-esac
-`
 const roots = new Set<string>()
 const saved = {
   PATH: process.env.PATH,
@@ -166,9 +139,77 @@ describe('installed prepare-checkout entry', () => {
     process.env.PATH = saved.PATH
     process.env.OMP_WORKTREE_DIR = saved.OMP_WORKTREE_DIR
     process.env.GH_LOG = saved.GH_LOG
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     for (const root of roots) rmSync(root, { recursive: true, force: true })
     roots.clear()
+  })
+
+  it('prepares one detached parent checkout without creating a parent branch or authority', async () => {
+    const box = principal()
+    const refs = git(box.repo, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin'])
+    const first = await prepare(tool, box.repo, '#14')
+    expect(first.status).toBe('move')
+    if (first.path === undefined) throw new Error('missing parent checkout path')
+    expect(first.instruction).toBe(`/move ${first.path}`)
+    expect(git(first.path, ['branch', '--show-current'])).toBe('')
+    expect(git(first.path, ['rev-parse', 'HEAD'])).toBe(box.head)
+    expect(git(box.repo, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin'])).toBe(refs)
+    expect(await prepare(tool, box.repo, 'Acme/app#14')).toEqual(first)
+    vi.stubEnv('GH_PARENT_TITLE', 'fix(app): renamed parent')
+    expect(await prepare(tool, box.repo, '#14')).toEqual(first)
+    expect(await prepare(tool, first.path, '#14')).toEqual({ status: 'ready', cwd: first.path, principal: false })
+    const worktrees = git(box.repo, ['worktree', 'list', '--porcelain'])
+    expect(worktrees.split('\n').filter((line) => line.startsWith('worktree '))).toHaveLength(2)
+    expect(existsSync(join(git(first.path, ['rev-parse', '--git-dir']), 'omp-build-bootstrapped'))).toBe(false)
+    expect(messages).toEqual([])
+    expect(ghLog(box.log).some((line) => /comment|pr /.test(line))).toBe(false)
+  })
+
+  it('does not adopt another detached worktree or an occupied unregistered parent path', async () => {
+    const box = principal()
+    const unrelated = join(box.root, 'unrelated')
+    git(box.repo, ['worktree', 'add', '-q', '--detach', unrelated, box.head])
+    const prepared = await prepare(tool, box.repo, '#14')
+    expect(prepared.status).toBe('move')
+    if (prepared.path === undefined) throw new Error('missing parent checkout path')
+    expect(prepared.path).not.toBe(unrelated)
+    expect(await prepare(tool, unrelated, '#14')).toEqual(prepared)
+    git(box.repo, ['worktree', 'remove', prepared.path])
+    mkdirSync(prepared.path)
+    writeFileSync(join(prepared.path, 'occupied'), 'do not overwrite')
+    const refused = await prepare(tool, box.repo, '#14')
+    expect(refused.status).toBe('blocked')
+    expect(readFileSync(join(prepared.path, 'occupied'), 'utf8')).toBe('do not overwrite')
+    expect(git(unrelated, ['branch', '--show-current'])).toBe('')
+    expect(messages).toEqual([])
+  })
+
+  it('refuses incomplete native parent relations without creating a checkout', async () => {
+    const box = principal()
+    vi.stubEnv('GH_GRAPH_INCOMPLETE', 'yes')
+    const result = await prepare(tool, box.repo, '#14')
+    expect(result.status).toBe('blocked')
+    expect(
+      git(box.repo, ['worktree', 'list', '--porcelain'])
+        .split('\n')
+        .filter((line) => line.startsWith('worktree ')),
+    ).toHaveLength(1)
+    expect(git(box.repo, ['branch', '--show-current'])).toBe('main')
+    expect(messages).toEqual([])
+  })
+
+  it('refuses an unknown wayfinder classification rather than treating the child as absent', async () => {
+    const box = principal()
+    vi.stubEnv('GH_UNKNOWN_WAYFINDER', 'yes')
+    const result = await prepare(tool, box.repo, '#14')
+    expect(result.status).toBe('blocked')
+    expect(
+      git(box.repo, ['worktree', 'list', '--porcelain'])
+        .split('\n')
+        .filter((line) => line.startsWith('worktree ')),
+    ).toHaveLength(1)
+    expect(messages).toEqual([])
   })
 
   it('prepares a real checkout from the principal and does not publish authority', async () => {
@@ -183,7 +224,7 @@ describe('installed prepare-checkout entry', () => {
     expect(existsSync(join(git(path, ['rev-parse', '--git-dir']), 'omp-build-bootstrapped'))).toBe(false)
     expect(messages).toEqual([])
     expect(ghLog(box.log).some((line) => /comment|pr /.test(line))).toBe(false)
-    expect(ghLog(box.log).filter((line) => line.startsWith('api '))).toEqual(['api repos/Acme/app/issues/11'])
+    expect(ghLog(box.log).filter((line) => line.startsWith('api repos/'))).toEqual(['api repos/Acme/app/issues/11'])
   })
 
   it('reuses the same checkout and reports ready only from that checkout', async () => {

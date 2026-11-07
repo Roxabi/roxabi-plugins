@@ -55,7 +55,7 @@ async function trustedLandingWorkflowConfig(gitCwd, gitFn, baseTip, productVersi
   }
 }
 
-async function currentSpecProjection(facts, catalogues) {
+async function currentSpecProjection(facts) {
   const currentFacts = await import('../../roxabi/uw-current-facts.ts')
   const readerFactory = await import('../../roxabi/uw-read-port.ts')
   if (
@@ -82,9 +82,7 @@ async function currentSpecProjection(facts, catalogues) {
     return { proposedSpec: { ok: false, diagnostics }, currentChildren: { ok: false, diagnostics } }
   }
   const reader = readerFactory.createInstalledObservedUwReadPort({
-    graph: facts.uwGraph,
-    histories: facts.histories,
-    catalogues,
+    observation: facts.observation,
   })
   const read = await reader.readUw(facts.uwGraph.root)
   return {
@@ -190,8 +188,9 @@ export async function currentLandingMandate(cwd, pr, ghFn, native, gitFn = gitRe
   const productVersion = currentProductVersion(contracts)
   const config = await trustedLandingWorkflowConfig(gitCwd, gitFn, native.baseTip, productVersion)
   const catalogues = facts.catalogues
-  const current = await currentSpecProjection(facts, catalogues)
+  const current = await currentSpecProjection(facts)
   const decision = contracts.requireLandingMandate({
+    observation: facts.observation,
     histories: facts.histories,
     authorityHistories: facts.authorityHistories,
     catalogues,

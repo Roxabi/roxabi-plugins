@@ -1,39 +1,21 @@
+import { canonicalValueDigest } from './canonical-value.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { sameRef } from './record-diagnostics.ts'
+import { sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
-import { sameOwnSpecRef } from './spec-effective.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './workflow-accepted-spec-types.ts'
-import {
-  bindExternalRef,
-  type ControlRecord,
-  historyFor,
-  type MandateRecord,
-  recordsOf,
-  workflowOperationProblem,
-} from './workflow-control.ts'
+import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import { qualifyEditorialCandidate } from './workflow-editorial-qualification.ts'
-import { specAssessmentSchema } from './workflow-output-schema.ts'
-import {
-  type AssessResultRecord,
-  type MaterialAcceptanceProposal,
-  materialAcceptanceDigest,
-  mechanicalSpecDelta,
-  requiresMaterialAcceptance,
-  sameAssessedState,
-  sameMechanicalDelta,
-  specChainFailure,
-} from './workflow-spec-assessment.ts'
+import { concreteAcceptedStateSchema } from './workflow-mandate-schema.ts'
+import { type MaterialControl, materialContinuation } from './workflow-material-continuation.ts'
+import type { SpecAssessment } from './workflow-output-schema.ts'
+import { type AssessResultRecord, specChainFailure } from './workflow-spec-assessment.ts'
 import { receiptRef } from './workflow-spec-authentication.ts'
-import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
 type SpecChainFailure = Extract<AcceptedSpecResult, { ok: false }>
 type EditorialCandidates =
   | { status: 'refused'; result: SpecChainFailure }
   | { status: 'candidates'; editorials: AssessResultRecord[]; materialClaims: number }
-type MaterialControl = ControlRecord & {
-  payload: Extract<ControlRecord['payload'], { control: 'accept-material' }>
-}
 type Continuation =
   | { status: 'complete' }
   | { status: 'refused'; result: SpecChainFailure }
@@ -52,11 +34,18 @@ function editorialCandidates(
   mandateRef: ExternalRecordRef,
   applied: ReadonlySet<string>,
   accepted: AcceptedOwnSpec,
+  deferCompatibility: (record: AssessResultRecord, assessment: SpecAssessment, refusal?: SpecChainFailure) => void,
 ): EditorialCandidates {
   const editorials: AssessResultRecord[] = []
   let materialClaims = 0
   for (const record of recordsOf(home)) {
-    const qualified = qualifyEditorialCandidate(record, { histories, mandateRef, applied, accepted })
+    const qualified = qualifyEditorialCandidate(record, {
+      histories,
+      mandateRef,
+      applied,
+      accepted,
+      deferCompatibility,
+    })
     if (qualified.status === 'refused') return qualified
     if (qualified.status === 'material') {
       materialClaims += 1
@@ -83,88 +72,6 @@ function materialCandidates(
   )
 }
 
-function bindingFailure(diagnostics: SpecChainFailure['evidence']): SpecChainFailure {
-  const code = diagnostics[0]?.code
-  return {
-    ok: false,
-    reason:
-      code === 'conflict' || code === 'ambiguous'
-        ? 'ambiguous'
-        : code === 'missing-history'
-          ? 'missing-history'
-          : 'incomplete',
-    evidence: diagnostics,
-  }
-}
-
-function materialContinuation(
-  material: MaterialControl,
-  histories: readonly DecodedHistory[],
-  mandateRef: ExternalRecordRef,
-  predecessor: ExternalRecordRef,
-  accepted: AcceptedOwnSpec,
-): { ok: true; assessment: AssessResultRecord } | { ok: false; result: SpecChainFailure } {
-  const assessmentHistory = historyFor(material.payload.assessment.scope, histories)
-  if (assessmentHistory === null)
-    return { ok: false, result: specChainFailure('missing-history', 'Spec assessment history is missing') }
-  const problem = workflowOperationProblem(assessmentHistory)
-  if (problem === 'ambiguous')
-    return { ok: false, result: specChainFailure('ambiguous', 'Spec assessment history conflicts') }
-  if (problem === 'unconfirmed' || problem === 'incomplete')
-    return { ok: false, result: specChainFailure('incomplete', 'Spec assessment history is not confirmed', problem) }
-  const bound = bindExternalRef(material.payload.assessment, assessmentHistory)
-  if (!bound.ok) return { ok: false, result: bindingFailure(bound.diagnostics) }
-  const authenticated = authenticatedAssessResult(bound.value, histories, mandateRef)
-  if (!authenticated.ok) return { ok: false, result: authenticated }
-  const assessment = authenticated.record
-  const parsed = specAssessmentSchema.safeParse(assessment.payload.structured)
-  if (!parsed.success)
-    return { ok: false, result: specChainFailure('incomplete', 'Applicable spec assessment is malformed') }
-  const exact = assessment.payload.exactInputs
-  if (
-    !sameAssessedState(exact.accepted, {
-      ref: accepted.ref,
-      snapshot: accepted.snapshot,
-      tier: accepted.tier,
-      children: accepted.children,
-    })
-  )
-    return {
-      ok: false,
-      result: specChainFailure('material-spec', 'Material assessment does not continue the accepted Spec'),
-    }
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
-  if (!sameMechanicalDelta(mechanical, exact.mechanical))
-    return { ok: false, result: specChainFailure('incomplete', 'Material assessment mechanical delta is inconsistent') }
-  if (!requiresMaterialAcceptance(mechanical, parsed.data.classification))
-    return {
-      ok: false,
-      result: specChainFailure('material-spec', 'Material assessment does not require material acceptance'),
-    }
-  const proposal: MaterialAcceptanceProposal = {
-    format: 'omp-build-material-acceptance/1',
-    operationId: material.operationId,
-    uw: accepted.ref.uw,
-    mandate: mandateRef,
-    predecessor,
-    assessment: material.payload.assessment,
-    classification: parsed.data.classification,
-    exactInputs: exact,
-  }
-  if (
-    material.payload.specVersion !== exact.proposed.snapshot.spec.version ||
-    material.payload.proposalDigest !== materialAcceptanceDigest(proposal) ||
-    material.payload.confirmation.operationId !== proposal.operationId ||
-    material.payload.confirmation.proposalDigest !== material.payload.proposalDigest ||
-    JSON.stringify(material.payload.identityDelta.retired) !== JSON.stringify(mechanical.removed)
-  )
-    return {
-      ok: false,
-      result: specChainFailure('material-spec', 'Material acceptance does not bind the exact proposal'),
-    }
-  return { ok: true, assessment }
-}
-
 function nextAcceptedSpecStep(input: {
   home: DecodedHistory
   histories: readonly DecodedHistory[]
@@ -172,9 +79,10 @@ function nextAcceptedSpecStep(input: {
   applied: ReadonlySet<string>
   accepted: AcceptedOwnSpec
   predecessor: ExternalRecordRef
+  deferCompatibility: (record: AssessResultRecord, assessment: SpecAssessment, refusal?: SpecChainFailure) => void
 }): Continuation {
-  const { home, histories, mandateRef, applied, accepted, predecessor } = input
-  const candidates = editorialCandidates(home, histories, mandateRef, applied, accepted)
+  const { home, histories, mandateRef, applied, accepted, predecessor, deferCompatibility } = input
+  const candidates = editorialCandidates(home, histories, mandateRef, applied, accepted, deferCompatibility)
   if (candidates.status === 'refused') return candidates
   const materials = materialCandidates(home, mandateRef, applied, predecessor)
   if (
@@ -188,7 +96,13 @@ function nextAcceptedSpecStep(input: {
     }
   const editorial = candidates.editorials[0]
   if (editorial !== undefined) {
-    const proposed = editorial.payload.exactInputs.proposed
+    const parsedProposed = concreteAcceptedStateSchema.safeParse(editorial.payload.exactInputs.proposed)
+    if (!parsedProposed.success)
+      return {
+        status: 'refused',
+        result: specChainFailure('material-spec', 'Editorial acceptance cannot bind a created child slot'),
+      }
+    const proposed = parsedProposed.data
     const source = receiptRef(editorial)
     return {
       status: 'continued',
@@ -197,6 +111,8 @@ function nextAcceptedSpecStep(input: {
         snapshot: proposed.snapshot,
         tier: proposed.tier,
         children: proposed.children,
+        inheritedOwnSpecRefs: proposed.inheritedOwnSpecRefs,
+        coverage: proposed.coverage,
         chain: accepted.chain,
         sourceRefs: accepted.sourceRefs,
       },
@@ -208,17 +124,26 @@ function nextAcceptedSpecStep(input: {
   }
   const material = materials[0]
   if (material === undefined) return { status: 'complete' }
-  const continued = materialContinuation(material, histories, mandateRef, predecessor, accepted)
+  const continued = materialContinuation(material, histories, mandateRef, predecessor, accepted, deferCompatibility)
   if (!continued.ok) return { status: 'refused', result: continued.result }
-  const proposed = continued.assessment.payload.exactInputs.proposed
+  const proposed = continued.state
   const source = receiptRef(material)
+  const sameOwn =
+    accepted.tier === proposed.tier &&
+    canonicalValueDigest(accepted.inheritedOwnSpecRefs) === canonicalValueDigest(proposed.inheritedOwnSpecRefs) &&
+    canonicalValueDigest({ ...accepted.snapshot, raw: { ...accepted.snapshot.raw, lastEditedAt: null } }) ===
+      canonicalValueDigest({ ...proposed.snapshot, raw: { ...proposed.snapshot.raw, lastEditedAt: null } })
   return {
     status: 'continued',
     spec: {
-      ref: { uw: accepted.ref.uw, version: proposed.snapshot.spec.version, sourceAccepted: source },
-      snapshot: proposed.snapshot,
+      ref: sameOwn
+        ? accepted.ref
+        : { uw: accepted.ref.uw, version: proposed.snapshot.spec.version, sourceAccepted: source },
+      snapshot: sameOwn ? accepted.snapshot : proposed.snapshot,
       tier: proposed.tier,
       children: proposed.children,
+      inheritedOwnSpecRefs: proposed.inheritedOwnSpecRefs,
+      coverage: proposed.coverage,
       chain: accepted.chain,
       sourceRefs: accepted.sourceRefs,
     },
@@ -244,6 +169,7 @@ export function resolveAcceptedSpecChain(input: {
   target?: OwnSpecRef
   prefixes?: AcceptedOwnSpec[]
   scope: ExternalRecordRef['scope']
+  deferCompatibility: (record: AssessResultRecord, assessment: SpecAssessment, refusal?: SpecChainFailure) => void
 }): AcceptedSpecResult {
   const { confirmed, home, histories, mandateRef } = input
   const initial: AcceptedOwnSpec = {
@@ -255,6 +181,8 @@ export function resolveAcceptedSpecChain(input: {
     snapshot: confirmed.payload.ownSpec.snapshot,
     tier: confirmed.payload.tier,
     children: confirmed.payload.children,
+    inheritedOwnSpecRefs: confirmed.payload.inheritedOwnSpecRefs,
+    coverage: confirmed.payload.coverage,
     chain: [{ kind: 'mandate', source: mandateRef, version: confirmed.payload.ownSpec.version }],
     sourceRefs: [mandateRef, ...confirmed.payload.ownSpec.identityAllocations],
   }
@@ -264,7 +192,15 @@ export function resolveAcceptedSpecChain(input: {
   let selected = input.target && sameOwnSpecRef(initial.ref, input.target) ? initial : undefined
   let predecessor = mandateRef
   for (let guard = 0; guard < recordsOf(home).length + 1; guard += 1) {
-    const step = nextAcceptedSpecStep({ home, histories, mandateRef, applied, accepted, predecessor })
+    const step = nextAcceptedSpecStep({
+      home,
+      histories,
+      mandateRef,
+      applied,
+      accepted,
+      predecessor,
+      deferCompatibility: input.deferCompatibility,
+    })
     if (step.status === 'refused') return step.result
     if (step.status === 'complete') break
     accepted = {
@@ -272,7 +208,7 @@ export function resolveAcceptedSpecChain(input: {
       chain: [...accepted.chain, step.step],
       sourceRefs: [...accepted.sourceRefs, ...step.refs],
     }
-    if (input.target && sameOwnSpecRef(accepted.ref, input.target)) selected = accepted
+    if (input.target && selected === undefined && sameOwnSpecRef(accepted.ref, input.target)) selected = accepted
     input.prefixes?.push(accepted)
     predecessor = step.predecessor
     applied.add(step.applied)

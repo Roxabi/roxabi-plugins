@@ -5,13 +5,15 @@ import { causeAdjudicationProposalSchema } from '../../engine/cause-disposition-
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
-import { resolveOwnSpecEffective } from '../../engine/spec-effective.ts'
+import { resolveSpecEffective } from '../../engine/spec-effective.ts'
 import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import { recordsOf } from '../../engine/workflow-control.ts'
 import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
+import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { readAuthenticatedCause } from '../uw-cause-read.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
@@ -35,13 +37,20 @@ it('reads the final sister disposition after two authenticated sequential adjudi
   const uw = fixtureContext.original
   const mandate = fixtures.featureMandate(uw, { recordId: 'mandate-42', body: 'Save the selected region' })
   let own = fixtures.historyFrom([mandate])
-  const sourceRecords = recordsOf(graph.history).filter((record) => record.kind !== 'review')
-  const source = encodeCriterionRecords(sourceRecords, graph.history.source.scope, projection, 'operator', [
-    own,
-  ]).history
+  const source = graph.history
   const accepted = resolveAcceptedSpec(mandate, [own, source])
   if (!accepted.ok) throw new Error(`Fixture accepted Spec unavailable: ${accepted.reason}`)
-  const context = { original: uw, effective: must(resolveOwnSpecEffective(accepted.spec)) }
+  const context = {
+    original: uw,
+    effective: must(
+      resolveSpecEffective({
+        mode: 'historical',
+        own: accepted.spec.ref,
+        versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
+        histories: [own, source],
+      }),
+    ),
+  }
   const decision = recordsOf(source).find(
     (record) => record.kind === 'decision' && record.recordId === graph.decision.recordId,
   )
@@ -57,6 +66,8 @@ it('reads the final sister disposition after two authenticated sequential adjudi
     must(
       assessCauseDispositions({
         context,
+        capture: synthesisActionCapture(decision, [source]),
+        graph: causeFixtureGraph(),
         source: { kind: 'decision', decision },
         histories: [own, source],
         catalogues: fixtureReviewClassCatalogues(),
@@ -181,27 +192,29 @@ it('reads the final sister disposition after two authenticated sequential adjudi
   // This observed reader does not claim a completed causal closure; the cause
   // reader independently re-reads and authenticates the actual GitHub history.
   const reader = createInstalledObservedUwReadPort({
-    graph: {
-      status: 'complete',
-      root: uw,
-      observedAt: '2026-10-27T12:00:00.000Z',
-      nodes: [
-        {
-          uw,
-          title: 'Save the selected region',
-          raw: mandate.payload.ownSpec.snapshot.raw,
-          updatedAt: '2026-10-27T12:00:00.000Z',
-          labels: [`size:${mandate.payload.tier}`],
-          wayfinderLabels: [],
-          parent: null,
-          children: [],
-          blockers: [],
-          native: { state: 'OPEN', stateReason: null },
-        },
-      ],
-    },
-    histories: [own, source],
-    catalogues: fixtureReviewClassCatalogues(),
+    observation: await observedUwWithoutPullRequests({
+      graph: {
+        status: 'complete',
+        root: uw,
+        observedAt: '2026-10-27T12:00:00.000Z',
+        nodes: [
+          {
+            uw,
+            title: 'Save the selected region',
+            raw: mandate.payload.ownSpec.snapshot.raw,
+            updatedAt: '2026-10-27T12:00:00.000Z',
+            labels: [`size:${mandate.payload.tier}`],
+            wayfinderLabels: [],
+            parent: null,
+            children: [],
+            blockers: [],
+            native: { state: 'OPEN', stateReason: null },
+          },
+        ],
+      },
+      histories: [own, source],
+      catalogues: fixtureReviewClassCatalogues(),
+    }),
   })
   const read = await readAuthenticatedCause(ref(two.next), reader, github)
   expect(read.disposition).toEqual(two.next)

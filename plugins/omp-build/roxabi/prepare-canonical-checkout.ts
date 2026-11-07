@@ -1,13 +1,19 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { readSelectionIssueView } from '../adapters/github-native/issue-views.ts'
 import { resolveNativeTarget } from '../adapters/github-workflow/native-facts.ts'
+import { readUwGraph } from '../dist/contracts.js'
+import type { Scope } from '../engine/record-values.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
+import { checkoutTarget } from './feature-checkout-target.ts'
 import { defaultGh } from './feature-engine.ts'
 import { resolveBase } from './feature-mandate.ts'
+import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
 import { issueReference } from './feature-selection.ts'
+import { createInstalledUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
 import {
   type CheckoutPreparation,
   defaultGit,
+  type FeatureCheckoutTarget,
   type GitRunner,
   prepareFeatureCheckout,
   sessionWorktreeIdentity,
@@ -63,21 +69,18 @@ async function readIssue(gh: Gh, cwd: string, repository: string, number: number
 async function prepareBranch(input: {
   git: GitRunner
   sessionCwd: string
-  branch: string
+  target: FeatureCheckoutTarget
   base: string
   repository: string
-  attachExisting?: boolean
 }): Promise<CheckoutPreparation> {
   let prepared: CheckoutPreparation = { status: 'blocked', reason: 'worktree-add-failed' }
   for (let attempt = 0; attempt < ADD_ATTEMPTS; attempt++) {
     prepared = await prepareFeatureCheckout({
       git: input.git,
       sessionCwd: input.sessionCwd,
-      branch: input.branch,
+      target: input.target,
       base: input.base,
       repository: input.repository,
-      detached: false,
-      attachExisting: input.attachExisting === true,
     })
     if (prepared.status !== 'blocked' || prepared.reason !== 'worktree-add-failed') return prepared
     if (attempt < ADD_ATTEMPTS - 1) {
@@ -116,22 +119,68 @@ export async function prepareCanonicalCheckout(input: {
     return prepareBranch({
       git,
       sessionCwd: input.sessionCwd,
-      branch: target.pullRequest.branch,
+      target: { kind: 'branch', branch: target.pullRequest.branch, attachExisting: true },
       base: target.pullRequest.base,
       repository: repository.repository,
-      attachExisting: true,
     })
   }
   if (target.status !== 'issue') return { status: 'blocked', reason: 'issue-unreadable' }
-  const issue = await readIssue(gh, identity.principalTop, repository.repository, classified.number)
-  if ('reason' in issue) return { status: 'blocked', reason: issue.reason }
+  const checkout = await resolveIssueCheckout({
+    gh,
+    cwd: identity.principalTop,
+    repository: repository.repository,
+    number: classified.number,
+    scope: target.scope,
+  })
+  if ('status' in checkout) return checkout
   const base = await resolveBase(git, identity.principalTop)
   if ('reason' in base) return { status: 'blocked', reason: base.reason }
   return prepareBranch({
     git,
     sessionCwd: input.sessionCwd,
-    branch: branchFor({ number: classified.number, title: issue.title, labels: issue.labels }),
+    target: checkout,
     base: base.base,
     repository: repository.repository,
   })
+}
+
+async function resolveIssueCheckout(input: {
+  gh: Gh
+  cwd: string
+  repository: string
+  number: number
+  scope: Scope
+}): Promise<FeatureCheckoutTarget | CheckoutPreparation> {
+  const { gh, cwd, repository, number, scope } = input
+  const issue = await readIssue(gh, cwd, repository, number)
+  if ('reason' in issue) return { status: 'blocked', reason: issue.reason }
+  const graph = await readUwGraph(scope, { cwd, gh })
+  const projected = checkoutTarget({
+    uw: scope,
+    graph,
+    accepted: { status: 'absent' },
+    branch: branchFor({ number, title: issue.title, labels: issue.labels }),
+  })
+  if ('kind' in projected) return { status: 'blocked', reason: projected.reason }
+  const root = graph.nodes.find((node) => node.uw.repository === scope.repository && node.uw.target === scope.target)
+  if (root === undefined) return { status: 'blocked', reason: 'graph-root-missing' }
+  if (root.parent !== null) return resolveParentCheckout(scope, cwd, gh)
+  return projected.target
+}
+
+async function resolveParentCheckout(
+  scope: Scope,
+  cwd: string,
+  gh: Gh,
+): Promise<FeatureCheckoutTarget | CheckoutPreparation> {
+  try {
+    const reader = createInstalledUwReadPort({ cwd, gh })
+    const read = await reader.readUw(scope)
+    const anchor = await resolveParentWorktreeAnchor({ subject: scope, read })
+    if (!anchor.ok) return { status: 'blocked', reason: anchor.reason }
+    return { kind: 'parent', uw: anchor.anchor }
+  } catch (error) {
+    if (error instanceof UwGraphUnavailableError) return { status: 'blocked', reason: 'uw-graph-unavailable' }
+    throw error
+  }
 }

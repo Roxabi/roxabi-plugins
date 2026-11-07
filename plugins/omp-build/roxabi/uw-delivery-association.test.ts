@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest'
+import { createUwDeliveryFactReader } from '../adapters/github-workflow/uw-delivery-facts.ts'
 import { criterionDeclarationSchema } from '../engine/criterion-evidence-schema.ts'
 import { FINDING_TARGET_FORMAT } from '../engine/finding-target-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
@@ -6,12 +7,8 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { bindExternalRef } from '../engine/workflow-control.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { fixture } from '../testing/uw-operations-fixture.ts'
-import { collectDeclarations } from './uw-delivery-collect.ts'
-import { readUwDelivery, type UwDeliveryReadPorts } from './uw-delivery-read.ts'
-import { readDeliveryHistories } from './uw-input-linked.ts'
 
-const UW42: Scope = { repository: 'acme/app', target: 'acme/app#42' }
+const UW42: Scope = { repository: 'other/repo', target: 'other/repo#42' }
 const UW99: Scope = { repository: 'acme/app', target: 'acme/app#99' }
 const PR77: Scope = { repository: 'other/repo', target: 'other/repo#77' }
 const TIP = 'a'.repeat(40)
@@ -129,22 +126,17 @@ function gh(payload: unknown, pulls?: unknown, extraComments: unknown[] = [], ex
   }
 }
 
-function ports(
+function readFacts(
   timeline: unknown,
   pulls?: unknown,
   extraComments: unknown[] = [],
   extraMandateComments: unknown[] = [],
-): UwDeliveryReadPorts {
-  const readUw = fixture().operations.readUw
-  return {
-    readUw,
-    readDeliveryHistories: (uw) =>
-      readDeliveryHistories(uw, {
-        cwd: '/tmp',
-        gh: gh(timeline, pulls, extraComments, extraMandateComments),
-        readAuthor: 'operator',
-      }),
-  }
+) {
+  return createUwDeliveryFactReader({
+    cwd: '/tmp',
+    gh: gh(timeline, pulls, extraComments, extraMandateComments),
+    readAuthor: 'operator',
+  }).read(UW42, [])
 }
 
 it('keeps a PR bound to another UW out of this delivery and does not rewrite its repository', async () => {
@@ -152,14 +144,10 @@ it('keeps a PR bound to another UW out of this delivery and does not rewrite its
   const decoded = receiptHistory.operations.find((item) => item.record?.recordId === 'pr77-receipt')?.record
   expect(decoded?.repository).toBe(PR77.repository)
   expect(decoded?.target).toBe(PR77.target)
-  const skipped = collectDeclarations(UW42, [receiptHistory], [])
-  expect(skipped.map((item) => item.receipt.record.recordId)).not.toContain('pr77-receipt')
-  const stamped = collectDeclarations(UW99, [receiptHistory], [])
-  expect(stamped.map((item) => item.receipt.record.scope)).toContainEqual(PR77)
-  const read = await readUwDelivery(UW42, ports({ data: null }, completePulls()))
+  const read = await readFacts({ data: null }, completePulls())
   expect(read.ok).toBe(true)
   if (!read.ok) return
-  expect(read.value.declarations.map((item) => item.receipt.record.recordId)).not.toContain('pr77-receipt')
+  expect(read.value.facts.pullRequests).toEqual([])
   expect(calls.some((item) => item.includes('repos/other/repo/issues/77/comments'))).toBe(true)
   expect(calls.some((item) => item.includes('repos/acme/app/issues/77'))).toBe(false)
   expect(calls.some((item) => item.includes('repos/acme/app/issues/99/comments'))).toBe(true)
@@ -169,15 +157,15 @@ it('ignores foreign binding and mandate identity collisions on an unrelated enum
   const foreign = (id: number, body: string) => ({ ...comment(id, body), user: { login: 'foreign' } })
   const bindingNoise = bindingBodies.map((body, index) => foreign(100 + index, body))
   const mandateNoise = mandateBodies.map((body, index) => foreign(200 + index, body))
-  const read = await readUwDelivery(UW42, ports({ data: null }, completePulls(), bindingNoise, mandateNoise))
+  const read = await readFacts({ data: null }, completePulls(), bindingNoise, mandateNoise)
   expect(read.ok).toBe(true)
   if (!read.ok) return
-  expect(read.value.declarations.map((item) => item.receipt.record.recordId)).not.toContain('pr77-receipt')
+  expect(read.value.facts.pullRequests).toEqual([])
 })
 
 it('refuses an unresolved expected-author binding on an unrelated enumerated PR', async () => {
   const malformed = '<!-- omp-build-record v=1 kind=workflow-binding id=bad operationId=bad-op part=1/2 data=e30 -->'
-  const read = await readUwDelivery(UW42, ports({ data: null }, completePulls(), [comment(100, malformed)]))
+  const read = await readFacts({ data: null }, completePulls(), [comment(100, malformed)])
   expect(read.ok).toBe(false)
 })
 
@@ -224,7 +212,53 @@ it('refuses an incomplete, malformed, or paginated enumeration instead of succee
     },
   ]
   for (const timeline of cases) {
-    const read = await readUwDelivery(UW42, ports(timeline))
+    const read = await readFacts(timeline)
     expect(read.ok).toBe(false)
   }
+})
+
+it('refuses noncanonical repository spelling rather than treating a binding as absent', async () => {
+  const page = completePulls()
+  const first = page.data.repository.pullRequests.nodes[0]
+  if (!first) throw new Error('Expected pull request')
+  first.repository.nameWithOwner = 'Other/Repo'
+  const result = await readFacts({}, page)
+  expect(result.ok).toBe(false)
+  if (!result.ok) expect(result.diagnostics[0]?.message).toContain('canonical')
+})
+
+it('refuses conflicting duplicate pull-request identities before binding selection', async () => {
+  const page = completePulls()
+  const first = page.data.repository.pullRequests.nodes[0]
+  if (!first) throw new Error('Expected pull request')
+  page.data.repository.pullRequests.nodes.push({ ...first, headRefName: 'different-branch' })
+  const result = await readFacts({}, page)
+  expect(result.ok).toBe(false)
+  if (!result.ok) expect(result.diagnostics[0]?.message).toContain('Conflicting')
+})
+
+it('enumerates repository pull requests once per observation across multiple UW reads', async () => {
+  let pages = 0
+  const reader = createUwDeliveryFactReader({
+    cwd: '/tmp',
+    readAuthor: 'operator',
+    gh: async () => {
+      pages += 1
+      return JSON.stringify({
+        data: {
+          repository: {
+            pullRequests: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      })
+    },
+  })
+  const first = await reader.read(UW42, [])
+  const second = await reader.read({ repository: 'other/repo', target: 'other/repo#43' }, [])
+  expect(first.ok).toBe(true)
+  expect(second.ok).toBe(true)
+  expect(pages).toBe(1)
 })

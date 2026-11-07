@@ -43,7 +43,7 @@ function resolveOrigin(input: AdjudicationEvidence, frame: CauseValidationFrame)
   const bound = bindExternalRef({ scope, kind: 'cause-disposition', recordId: input.pending.recordId }, history)
   if (!bound.ok || canonicalValueDigest(bound.value) !== canonicalValueDigest(input.pending))
     return failure('Pending disposition is not authenticated')
-  return historicalCauseContext(frame, input.pending.payload.origin)
+  return historicalCauseContext(frame, input.pending.payload.origin, input.pending.payload.basis.versionVector)
 }
 
 export function resolveAdjudicationContext(input: AdjudicationEvidence): Result<CauseContext> {
@@ -98,6 +98,7 @@ function assessCause(
   const assessed = assessValidatedCauseDispositions(
     {
       context: input.context,
+      capture: input.pending.payload.basis.capture,
       source: { kind: 'decision', decision: decision.value },
       histories: input.histories,
       catalogues: frame.catalogues,

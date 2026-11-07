@@ -7,10 +7,12 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { specDigest } from '../record-digests.ts'
 import type { ExternalRecordRef } from '../record-references.ts'
 import type { Scope } from '../record-values.ts'
-import { assessUwAdmission } from '../uw-admission.ts'
+import { assessUwAdmission as assessAdmission } from '../uw-admission.ts'
+import { assessUwCompletion } from '../uw-completion.ts'
 import { type UwGraphObservation, type UwNativeNode, validateUwGraph } from '../uw-graph.ts'
 import type { SpecIdentityLedger } from '../uw-identity.ts'
 import { canonicalSpec, type SpecItemId, type SpecSnapshot } from '../uw-spec.ts'
+import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
 
 const ROOT: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
@@ -76,7 +78,7 @@ function node(input: {
   }
 }
 
-function graph(nodes: readonly UwNativeNode[], root = ROOT): UwGraphObservation {
+function graph(nodes: readonly UwNativeNode[], root = ROOT): Extract<UwGraphObservation, { status: 'complete' }> {
   return { status: 'complete', root, nodes, observedAt: OBSERVED_AT }
 }
 
@@ -94,6 +96,7 @@ function ledger(ids: readonly ('C1' | 'C2')[] = ['C1']): SpecIdentityLedger {
 }
 
 function accepted(value: SpecSnapshot, children: AcceptedOwnSpec['children'] = []): AcceptedOwnSpec {
+  const [first, ...otherChildren] = children
   return {
     ref: {
       uw: ROOT,
@@ -103,6 +106,17 @@ function accepted(value: SpecSnapshot, children: AcceptedOwnSpec['children'] = [
     snapshot: value,
     tier: 'S',
     children,
+    inheritedOwnSpecRefs: [],
+    coverage:
+      first !== undefined
+        ? {
+            parent: { uw: ROOT, version: value.spec.version },
+            assignments: value.spec.criteria.map((criterion) => ({
+              criterion: criterion.id,
+              children: [first.scope, ...otherChildren.map((child) => child.scope)] as [Scope, ...Scope[]],
+            })),
+          }
+        : null,
     chain: [
       {
         kind: 'mandate',
@@ -116,6 +130,57 @@ function accepted(value: SpecSnapshot, children: AcceptedOwnSpec['children'] = [
 
 function codes(check: { diagnostics: readonly { code: string }[] }): string[] {
   return check.diagnostics.map((diagnostic) => diagnostic.code)
+}
+
+type AdmissionInput = Parameters<typeof assessAdmission>[0]
+type FixtureAdmissionInput = AdmissionInput extends infer T
+  ? T extends AdmissionInput
+    ? Omit<T, 'completion'> & { completion?: T['completion'] }
+    : never
+  : never
+function assessUwAdmission(input: FixtureAdmissionInput) {
+  const histories = [...input.histories]
+  for (const native of input.graph.nodes) {
+    if (
+      !histories.some(
+        (entry) =>
+          entry.source.scope.repository === native.uw.repository && entry.source.scope.target === native.uw.target,
+      )
+    )
+      histories.push(
+        decodeHistory({
+          scope: native.uw,
+          expectedAuthor: 'operator',
+          stopAuthor: 'operator',
+          complete: true,
+          comments: [],
+          diagnostics: [],
+        }),
+      )
+  }
+  const completion =
+    input.completion ??
+    assessUwCompletion({
+      status: input.graph.status,
+      root: input.uw,
+      graph: input.graph,
+      histories,
+      catalogues: input.catalogues,
+      delivery: input.graph.nodes.map((native) => ({ uw: native.uw, pullRequests: [], integrations: [], commits: [] })),
+      ...(input.graph.status === 'incomplete'
+        ? {
+            diagnostics: [
+              input.graph.diagnostics[0] ?? {
+                code: 'graph-incomplete',
+                message: 'Graph is incomplete',
+                location: { kind: 'native' as const, uw: input.uw, connection: 'state' as const },
+                related: [],
+              },
+            ] as const,
+          }
+        : {}),
+    } as Parameters<typeof assessUwCompletion>[0])
+  return assessAdmission({ ...input, completion } as AdmissionInput)
 }
 test('refuses an accepted UW when a parser draft has no diagnostics', async () => {
   const body = renderIssueSpecBody(snapshot().spec, { complexity: 5 })
@@ -132,14 +197,24 @@ test('refuses an accepted UW when a parser draft has no diagnostics', async () =
   expect(draft.diagnostics).toEqual([])
 
   const baseline = createInstalledObservedUwReadPort({
-    graph: graph([{ ...node({ uw: ROOT }), raw: source }]),
-    histories: [history],
-    catalogues: fixtureReviewClassCatalogues(),
+    observation: {
+      status: 'complete',
+      root: ROOT,
+      graph: graph([{ ...node({ uw: ROOT }), raw: source }]),
+      histories: [history],
+      catalogues: fixtureReviewClassCatalogues(),
+      delivery: [{ uw: ROOT, pullRequests: [], integrations: [], commits: [] }],
+    },
   })
   const changed = createInstalledObservedUwReadPort({
-    graph: graph([{ ...node({ uw: ROOT }), raw: draftSource }]),
-    histories: [history],
-    catalogues: fixtureReviewClassCatalogues(),
+    observation: {
+      status: 'complete',
+      root: ROOT,
+      graph: graph([{ ...node({ uw: ROOT }), raw: draftSource }]),
+      histories: [history],
+      catalogues: fixtureReviewClassCatalogues(),
+      delivery: [{ uw: ROOT, pullRequests: [], integrations: [], commits: [] }],
+    },
   })
   const before = await baseline.readUw(ROOT)
   const read = await changed.readUw(ROOT)
@@ -203,7 +278,11 @@ test('frames the own Spec only, requiring an explicit native tier and no open qu
     currentChildren: { ok: true, value: [] },
   })
 
-  expect(initiallyFramed).toMatchObject({ applicability: 'own-only', framed: { ok: true }, deliverable: { ok: true } })
+  expect(initiallyFramed).toMatchObject({
+    applicability: 'unresolved',
+    framed: { ok: true },
+    deliverable: { ok: true },
+  })
   expect(codes(landingWithoutAcceptance.deliverable)).toContain('own-spec-unaccepted')
   expect(codes(unframed.framed)).toEqual(expect.arrayContaining(['tier-missing', 'open-question']))
 })
@@ -254,6 +333,52 @@ test('lifts a dependency only when its native state is CLOSED with exactly COMPL
   expect(blockerDiagnostic).toBeDefined()
   expect(JSON.stringify(blockerDiagnostic)).toContain(BLOCKER.target)
   expect(JSON.stringify(blockerDiagnostic)).toContain('NOT_PLANNED')
+})
+
+test('does not lift a managed blocker on native completion without authenticated delivery', () => {
+  const fixtures = roxabiWorkflowFixtures()
+  const blockerSnapshot = snapshot([{ id: 'C1', statement: 'Deliver the blocker commitment' }], [], BLOCKER)
+  const mandate = fixtures.featureMandate(BLOCKER, {
+    ownSpec: fixtures.ownSpecFromSnapshot(BLOCKER, blockerSnapshot),
+  })
+  const blockerHistory = fixtures.historyFrom([mandate])
+  expect(resolveAcceptedSpec(mandate, [blockerHistory])).toMatchObject({ ok: true })
+  const observation = {
+    status: 'complete' as const,
+    root: ROOT,
+    graph: {
+      status: 'complete' as const,
+      root: ROOT,
+      observedAt: OBSERVED_AT,
+      nodes: [
+        node({ uw: ROOT, blockers: [BLOCKER] }),
+        node({ uw: BLOCKER, state: 'CLOSED', stateReason: 'COMPLETED' }),
+      ],
+    },
+    histories: [...NO_CAUSE_HISTORY, blockerHistory],
+    catalogues: fixtureReviewClassCatalogues(),
+    delivery: [{ uw: BLOCKER, pullRequests: [], integrations: [], commits: [] }],
+  }
+  const completion = assessUwCompletion(observation)
+
+  const admission = assessUwAdmission({
+    histories: observation.histories,
+    catalogues: observation.catalogues,
+    completion,
+    uw: ROOT,
+    graph: observation.graph,
+    proposed: { ok: true, snapshot: snapshot() },
+    accepted: { status: 'absent' },
+    identities: ledger(),
+    phase: 'initial-selection',
+  })
+
+  expect(admission.deliverable.ok).toBe(false)
+  expect(completion.dependencies.get(`${BLOCKER.repository}\u0000${BLOCKER.target}`)).toMatchObject({
+    basis: { kind: 'accepted-uw' },
+    state: 'held',
+    completion: { state: expect.not.stringMatching(/^complete$/) },
+  })
 })
 
 test('validates the combined hierarchy and dependency closure across repositories', () => {
@@ -416,4 +541,34 @@ test('requires root child membership and a canonical child projection without tr
   expect(codes(missingTier.deliverable)).not.toContain('material-change-pending')
   expect(codes(unavailableProjection.deliverable)).toContain('current-child-projection-incomplete')
   expect(codes(unavailableProjection.deliverable)).not.toContain('material-change-pending')
+})
+
+test('refuses competing parents and nonreciprocal hierarchy claims without collapsing their locations', () => {
+  const second: Scope = { repository: ROOT.repository, target: 'acme/payments#43' }
+  const observed = graph([
+    node({ uw: ROOT, children: [CHILD] }),
+    node({ uw: second, children: [CHILD] }),
+    node({ uw: CHILD, parent: ROOT }),
+  ])
+  const result = validateUwGraph(observed)
+  expect(codes(result)).toContain('multiple-parents')
+  const conflict = result.diagnostics.find((entry) => entry.code === 'multiple-parents')
+  expect(conflict?.related).toEqual(
+    expect.arrayContaining([expect.objectContaining({ uw: ROOT }), expect.objectContaining({ uw: second })]),
+  )
+  expect(codes(result)).toContain('parent-child-conflict')
+})
+
+test('rejects hierarchy cycles even through a wayfinder', () => {
+  const observed = graph([
+    node({ uw: ROOT, children: [CHILD], parent: CHILD }),
+    node({
+      uw: CHILD,
+      children: [ROOT],
+      parent: ROOT,
+      labels: ['wayfinder:task'],
+      wayfinderLabels: ['wayfinder:task'],
+    }),
+  ])
+  expect(codes(validateUwGraph(observed))).toContain('graph-cycle')
 })

@@ -224,7 +224,11 @@ export function registerReviewGateRefusalCases(): void {
       const result = runReviewGate(fixture)
 
       expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, allowed: false, reason: 'unreadable' })
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: false,
+        allowed: false,
+        detail: expect.arrayContaining([expect.objectContaining({ code: 'incomplete' })]),
+      })
       expect(result.stderr).toBe('')
     })
   })

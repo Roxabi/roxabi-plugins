@@ -17,6 +17,8 @@ Do not run a shell, write the worktree, publish, push, comment, or close.
 
 Map every accepted criterion id named by the index to the pinned code and the evidence that will prove it. Reuse patterns already in that pinned tree. A recovered or amended plan uses the same index, not a dumped prior result.
 
+Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions in the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.
+
 1. Read the accepted criteria and the pinned base paths the index names.
 
 2. Map each criterion id to the code it changes, the evidence that will prove it, and the relative git paths that change.

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { GitHubOptions } from '../dist/contracts.js'
 import {
+  acceptedMetadataOwner,
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
   publishConfirmedWorkflowRecord,
-  readComposedWorkflowHistory,
   recheckMaterialAcceptance,
   resolveOwnSpecAuthority,
   sameCurrentAssessedState,
@@ -15,11 +15,11 @@ import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { OwnSpecAuthority } from '../engine/workflow-mandate-admission.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
 import { createInstalledMaterialAcceptance } from './material-acceptance-service.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 import type { OperatorPort, UwOperationResult, UwRead, UwReadPort } from './uw-contract.ts'
-import { type CurrentOwnSpecFacts, readCurrentOwnSpecFacts } from './uw-current-facts.ts'
+import { type CurrentOwnSpecFacts, readAssessmentSpecFacts } from './uw-current-facts.ts'
 import { UwGraphUnavailableError } from './uw-read-port.ts'
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
@@ -132,10 +132,28 @@ async function readMaterialPublication(
     return { status: 'partial', uw, diagnostics: postEffectDiagnostics(uw, error) }
   }
   const expected = { scope: uw, recordId, kind: 'operator-control' }
+  const step = reread.accepted.status === 'accepted' ? reread.accepted.value.chain.at(-1) : undefined
+  const owner =
+    step === undefined || reread.observation.status !== 'complete'
+      ? null
+      : acceptedMetadataOwner(step, reread.observation.histories)
   if (
     reread.accepted.status === 'accepted' &&
-    sameRecord(reread.accepted.value.ref.sourceAccepted, expected) &&
-    reread.accepted.value.ref.version === prepared.proposal.exactInputs.proposed.snapshot.spec.version
+    step !== undefined &&
+    sameRecord(step.source, expected) &&
+    owner?.ok &&
+    sameRecord(owner.value.record, prepared.proposal.assessment) &&
+    owner.value.selector === '/payload/exactInputs/proposed' &&
+    sameCurrentAssessedState(
+      {
+        snapshot: reread.accepted.value.snapshot,
+        tier: reread.accepted.value.tier,
+        children: reread.accepted.value.children,
+        inheritedOwnSpecRefs: reread.accepted.value.inheritedOwnSpecRefs,
+        coverage: reread.accepted.value.coverage,
+      },
+      prepared.proposal.exactInputs.proposed,
+    )
   )
     return { status: 'accepted', value: reread }
   return {
@@ -153,15 +171,19 @@ export function createInstalledMaterialOperations(input: {
 }): (uw: Scope) => Promise<UwOperationResult> {
   const materialFacts = async (uw: Scope) => {
     const read = await input.reader.readUw(uw)
-    const current = await readCurrentOwnSpecFacts({ uw, read, reader: input.reader })
-    if (!current.ok) return { ok: false as const, diagnostics: current.diagnostics }
+    const current = await readAssessmentSpecFacts({ uw, read })
+    if (!current.ok)
+      return {
+        ok: false as const,
+        diagnostics:
+          'diagnostics' in current
+            ? current.diagnostics
+            : [diagnostic(uw, current.reason, 'No unique current assessed coverage proposal')],
+      }
     if (read.graph.status !== 'complete') return { ok: false as const, diagnostics: read.graph.diagnostics }
-    const scopes = [
-      ...new Map(read.graph.nodes.map((node) => [`${node.uw.repository}\0${node.uw.target}`, node.uw])).values(),
-    ]
-    const composed = await readComposedWorkflowHistory(scopes, input.github)
-    if (!composed.ok) return { ok: false as const, diagnostics: diagnostics(uw, composed.diagnostics) }
-    const causal = await readFixUwCausalContext(read.histories, composed.histories, input.github)
+    if (read.observation.status !== 'complete') return { ok: false as const, diagnostics: read.observation.diagnostics }
+    const histories = read.observation.histories
+    const causal = await composeObservedUwCausalContext(read, histories, input.github)
     if (!causal.ok)
       return {
         ok: false as const,
@@ -170,12 +192,12 @@ export function createInstalledMaterialOperations(input: {
           causal.diagnostics.map((code) => ({ code })),
         ),
       }
-    const authority = materialAuthority(uw, composed.histories, current.value.currentSpec, causal.value)
+    const authority = materialAuthority(uw, histories, current.value.currentSpec, causal.value)
     if (!authority.ok) return { ok: false as const, diagnostics: authority.diagnostics }
     return {
       ok: true as const,
       value: {
-        histories: composed.histories,
+        histories,
         mandate: authority.value.mandate,
         currentProposed: current.value.currentSpec,
         identityAllocations: current.value.identityAllocations,
@@ -226,7 +248,10 @@ export function createInstalledMaterialOperations(input: {
     async commit({ prepared, confirmation }) {
       const current = await materialRecheck(prepared)
       if (!current.ok) return { status: 'refused', diagnostics: current.diagnostics }
-      const record = buildMaterialAcceptanceControl(current.value.prepared, confirmation)
+      const record = buildMaterialAcceptanceControl(current.value.prepared, confirmation, {
+        histories: current.value.facts.histories,
+        mandate: current.value.facts.mandate,
+      })
       if (!record.ok) return { status: 'refused', diagnostics: diagnostics(prepared.proposal.uw, record.diagnostics) }
       const home = current.value.facts.histories.find((entry) => sameScope(entry.source.scope, prepared.proposal.uw))
       if (home === undefined)

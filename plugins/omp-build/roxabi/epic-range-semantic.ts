@@ -1,4 +1,11 @@
-import { readFixUwCausalContext } from './fix-uw-histories.ts'
+import {
+  canonicalValueDigest,
+  parseIssueSpecBody,
+  rawSource,
+  type ScopedRecordRef,
+  specDigest,
+} from '../dist/contracts.js'
+import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import type { Gh } from './review-input-contract'
 import { confirmedReviewSemanticContext, reviewSemanticCanon } from './review-semantic-canon'
@@ -19,6 +26,23 @@ export type LiveEpicSpec = {
   lastEditedAt: string | null
   labels: readonly string[]
 }
+
+export function canonicalSpecMatches(
+  uw: ScopedRecordRef['scope'],
+  accepted: AcceptedEpicSemantic['spec'],
+  live: AcceptedEpicSemantic['spec'],
+): boolean {
+  if (accepted.reference !== live.reference) return false
+  if (accepted.digest !== specDigest(accepted.body) || live.digest !== specDigest(live.body)) return false
+  const left = parseIssueSpecBody({ uw, raw: rawSource(accepted.reference, accepted.body, accepted.lastEditedAt) })
+  const right = parseIssueSpecBody({ uw, raw: rawSource(live.reference, live.body, live.lastEditedAt) })
+  return (
+    left.status === 'conformant' &&
+    right.status === 'conformant' &&
+    canonicalValueDigest(left.snapshot.spec) === canonicalValueDigest(right.snapshot.spec)
+  )
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -65,7 +89,11 @@ export async function acceptedEpicSemantic(
   const history = composed.histories[0]
   if (history === undefined) return null
   const parents = composed.histories.slice(1)
-  const causal = await readFixUwCausalContext(composed.histories, [], withRoxabiGitHubPolicy({ cwd, gh }))
+  const causal = await readFreshUwCausalContext(
+    history.source.scope,
+    composed.histories,
+    withRoxabiGitHubPolicy({ cwd, gh }),
+  )
   if (!causal.ok) return null
   const selected = contracts.selectApplicableMandate(history, parents, causal.value)
   if (selected.status !== 'applicable') return null

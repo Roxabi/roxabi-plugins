@@ -84,13 +84,11 @@ export function slotsForInitial(specTask: NativeTask, panel: ReviewPanel): Revie
     sourceFindingIds: [],
   }
   const panelSlots = panel.tasks.map((task) => {
-    const match = /^panel-(\d+)-(.+)$/.exec(task.name)
-    if (!match) throw new Error(`panel task has no canonical slot name: ${task.name}`)
     return {
       slotId: task.name,
       phase: 'panel' as const,
-      role: match[2],
-      chunk: Number(match[1]),
+      role: task.role,
+      chunk: task.assignedChunk,
       required: true,
       output: 'findings' as const,
       classId: null,

@@ -4,7 +4,7 @@ import type { IssueWriteObservation } from '../../issue-triage/skills/shared/dom
 import type { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import type { UwDiagnostic, UwLocation } from '../engine/uw-diagnostics.ts'
 import type { prepareSpecAllocation, SpecIdentityLedger } from '../engine/uw-identity.ts'
 import type {
   PreparedUwProposal,
@@ -37,6 +37,7 @@ export function nativeIssueObservationDigest(observed: IssueWriteObservation): s
       JSON.stringify({
         title: observed.title,
         body: observed.body,
+        nativeState: observed.nativeState,
         labels: [...observed.labels],
         parent: observed.parent,
         children: observed.children,
@@ -66,8 +67,16 @@ export function parentRepositoryDiagnostics(input: UwProposalInput | UwCreateInp
   const parent = input.writes.relations.parent
   const repository = 'uw' in input ? input.uw.repository : input.repository
   if (parent === undefined || parent === null || parent.repository === repository) return []
-  const uw = 'uw' in input ? input.uw : { repository, target: `${repository}#0` }
-  return [diagnostic(uw, 'cross-repository-parent', 'A UW parent must be in the same repository as the UW')]
+  const location: UwLocation =
+    'uw' in input ? { kind: 'native', uw: input.uw, connection: 'state' } : { kind: 'repository', repository }
+  return [
+    {
+      code: 'cross-repository-parent',
+      message: 'A UW parent must be in the same repository as the UW',
+      location,
+      related: [],
+    },
+  ]
 }
 
 function sameRef(left: UwWritePrecondition['ledgerHead'], right: UwWritePrecondition['ledgerHead']): boolean {
@@ -87,8 +96,8 @@ export function staleWrite(prepared: PreparedUwProposal, read: UwRead, fresh: Is
   const expected = prepared.proposal.expected
   const historical = expected?.successorHistoryDigest === undefined ? undefined : historicalProjection(read)
   const predecessor =
-    historical?.accepted.ref.sourceAccepted ??
-    (read.accepted.status === 'accepted' ? read.accepted.value.ref.sourceAccepted : null)
+    historical?.accepted.chain.at(-1)?.source ??
+    (read.accepted.status === 'accepted' ? (read.accepted.value.chain.at(-1)?.source ?? null) : null)
   return (
     !read.identity.ok ||
     expected === null ||
@@ -202,8 +211,8 @@ export function prepareExistingProposal(
   return assemblePlan(
     input,
     read.identity.value,
-    historical?.accepted.ref.sourceAccepted ??
-      (read.accepted.status === 'accepted' ? read.accepted.value.ref.sourceAccepted : null),
+    historical?.accepted.chain.at(-1)?.source ??
+      (read.accepted.status === 'accepted' ? (read.accepted.value.chain.at(-1)?.source ?? null) : null),
     observed,
     successorNormalization || input.normalization.length > 0 ? 'normalize' : 'write',
     ports,
@@ -235,13 +244,28 @@ export function prepareCreateProposal(
     title: input.title,
     body: '',
     updatedAt: '',
+    nativeState: { state: 'OPEN', stateReason: null },
     labels: [],
     parent: null,
     children: [],
     blockers: [],
   }
   const prepared = assemblePlan(provisional, ledger, null, observed, 'create', ports)
-  if ('diagnostics' in prepared) return prepared
+  if ('diagnostics' in prepared) {
+    const location = (value: UwLocation): UwLocation => {
+      const uw = value.kind === 'record' ? value.ref.scope : value.kind === 'repository' ? null : value.uw
+      return uw !== null && uw.repository === provisional.uw.repository && uw.target === provisional.uw.target
+        ? { kind: 'repository', repository: input.repository }
+        : value
+    }
+    return {
+      diagnostics: prepared.diagnostics.map((item) => ({
+        ...item,
+        location: location(item.location),
+        related: item.related.map(location),
+      })),
+    }
+  }
   const proposal: UwProposal = {
     ...prepared.proposal,
     target: { kind: 'create', repository: input.repository },

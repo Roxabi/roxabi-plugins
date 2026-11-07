@@ -9,7 +9,7 @@ import {
   sameOperation,
 } from './publisher-validation.ts'
 import { readWithAuthor } from './transport.ts'
-import { diagnostic, type GitHubOptions, gh, parseComment, targetNumber } from './types.ts'
+import { diagnostic, GitHubHistoryReadError, type GitHubOptions, gh, parseComment, targetNumber } from './types.ts'
 
 export type PublicationWriteResult = { status: 'recovered'; history: DecodedHistory } | PublicationFailure | null
 
@@ -19,7 +19,11 @@ export async function freshHistory(
   expectedAuthor: string,
   stopAuthor: string | null,
 ): Promise<DecodedHistory> {
-  return decodeHistory(await readWithAuthor(record, options, expectedAuthor, stopAuthor))
+  const history = await readWithAuthor(record, options, expectedAuthor, stopAuthor)
+  if (!history.complete) {
+    throw new GitHubHistoryReadError('GitHub publication history is incomplete', history.diagnostics)
+  }
+  return decodeHistory(history)
 }
 
 async function postComment(record: CanonicalRecord, body: string, options: GitHubOptions): Promise<string> {

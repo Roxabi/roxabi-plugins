@@ -241,6 +241,8 @@ export type FixOnlyMandateDraft = {
   ownSpec: Extract<MandatePayload, { role: 'fix-only' }>['ownSpec']
   tier: Extract<MandatePayload, { role: 'fix-only' }>['tier']
   children: Extract<MandatePayload, { role: 'fix-only' }>['children']
+  inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
+  coverage: MandatePayload['coverage']
   config: { version: string; digest: string; effective: Json }
   parent: { scope: Scope; recordId: string; kind: string } | null
   antecedent: { scope: Scope; recordId: string; kind: string } | null
@@ -274,6 +276,8 @@ export async function buildConfirmedFixOnlyMandate(
     ownSpec: draft.ownSpec,
     tier: draft.tier,
     children: draft.children,
+    inheritedOwnSpecRefs: draft.inheritedOwnSpecRefs,
+    coverage: draft.coverage,
     config: draft.config,
     parent: parent.value,
     antecedent: antecedent.value,

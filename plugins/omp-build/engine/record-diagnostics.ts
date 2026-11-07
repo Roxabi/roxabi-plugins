@@ -1,4 +1,5 @@
 import type { Diagnostic, Json, Scope } from './record-values.ts'
+import type { OwnSpecRef } from './uw-spec-schema.ts'
 
 export const incompatibleFormat = 'incompatible-format'
 
@@ -29,4 +30,12 @@ export function equalScope(left: Scope, right: Scope): boolean {
 
 export function sameRef(left: RecordReference, right: RecordReference): boolean {
   return left.recordId === right.recordId && left.kind === right.kind && equalScope(left.scope, right.scope)
+}
+
+export function sameOwnSpecRef(left: OwnSpecRef, right: OwnSpecRef): boolean {
+  return (
+    left.version === right.version &&
+    equalScope(left.uw, right.uw) &&
+    sameRef(left.sourceAccepted, right.sourceAccepted)
+  )
 }

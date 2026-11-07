@@ -24,15 +24,19 @@ function incompleteOperationDiagnostic(
 }
 
 function appendCompleteRecord(record: CanonicalRecord, collection: RecordCollection): void {
-  const existing = collection.byRecordId.get(record.recordId)
+  const key = `${record.repository}\0${record.target}\0${record.recordId}`
+  const existing = collection.byRecordId.get(key)
   if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(record)) {
     collection.diagnostics.push(
-      diagnostic('ambiguous', `Record ${record.recordId} has conflicting complete publications across scopes`),
+      diagnostic(
+        'ambiguous',
+        `Record ${record.recordId} has conflicting complete publications at ${record.repository} ${record.target}`,
+      ),
     )
     return
   }
   if (existing === undefined) {
-    collection.byRecordId.set(record.recordId, record)
+    collection.byRecordId.set(key, record)
     collection.records.push(record)
   }
 }
@@ -60,7 +64,6 @@ function collectRecords(histories: readonly DecodedHistory[]): {
       collection.diagnostics.push(
         diagnostic('incomplete', `History for ${history.source.scope.target} is not a complete native read`),
       )
-      continue
     }
     collectCompleteHistoryOperations(history, collection)
     collection.diagnostics.push(...history.diagnostics)
@@ -96,6 +99,38 @@ async function readSources(scopes: readonly Scope[], options: GitHubOptions): Pr
   return outcomes
 }
 
+function collectReadOutcomes(
+  scopes: readonly Scope[],
+  outcomes: PromiseSettledResult<History>[],
+): { histories: DecodedHistory[]; failures: Diagnostic[]; unreadable: boolean } {
+  const histories: DecodedHistory[] = []
+  const failures: Diagnostic[] = []
+  let unreadable = false
+  for (let index = 0; index < scopes.length; index += 1) {
+    const scope = scopes[index]
+    const outcome = outcomes[index]
+    if (outcome.status === 'rejected') {
+      unreadable = true
+      const detail =
+        outcome.reason instanceof GitHubHistoryReadError
+          ? outcome.reason.diagnostics
+          : [diagnostic('github-read-failed', String(outcome.reason))]
+      failures.push(diagnostic('incomplete', `Cannot read history for ${scope.repository} ${scope.target}`), ...detail)
+      continue
+    }
+    const source = outcome.value
+    histories.push(decodeHistory(source))
+    if (!source.complete) {
+      unreadable = true
+      failures.push(
+        diagnostic('incomplete', `Native history for ${scope.repository} ${scope.target} is incomplete`),
+        ...source.diagnostics,
+      )
+    }
+  }
+  return { histories, failures, unreadable }
+}
+
 /**
  * Compose only the linked scopes actually required. Scopes stay opaque outside
  * this adapter; callers pass Scope values from githubScope / native association.
@@ -112,7 +147,7 @@ export async function readComposedWorkflowHistory(
       histories: [],
     }
   }
-  if (new Set(scopes.map((scope) => scope.target)).size !== scopes.length) {
+  if (new Set(scopes.map((scope) => `${scope.repository}\0${scope.target}`)).size !== scopes.length) {
     return {
       ok: false,
       reason: 'ambiguous',
@@ -120,33 +155,16 @@ export async function readComposedWorkflowHistory(
       histories: [],
     }
   }
-  const histories: DecodedHistory[] = []
-  const outcomes = await readSources(scopes, options)
-  try {
-    for (let index = 0; index < scopes.length; index += 1) {
-      const scope = scopes[index]
-      const outcome = outcomes[index]
-      if (outcome.status === 'rejected') throw outcome.reason
-      const source = outcome.value
-      if (!source.complete) {
-        return {
-          ok: false,
-          reason: 'incomplete',
-          diagnostics: [diagnostic('incomplete', `Native history for ${scope.target} is incomplete`)],
-          histories,
-          evidence: { scope },
-        }
-      }
-      histories.push(decodeHistory(source))
-    }
-  } catch (error) {
-    const diagnostics =
-      error instanceof GitHubHistoryReadError
-        ? error.diagnostics
-        : [diagnostic('github-read-failed', error instanceof Error ? error.message : String(error))]
-    return { ok: false, reason: 'unreadable', diagnostics, histories }
-  }
+  const { histories, failures, unreadable } = collectReadOutcomes(scopes, await readSources(scopes, options))
   const validated = validateComposedWorkflowHistories(histories)
+  if (failures.length > 0)
+    return {
+      ok: false,
+      reason:
+        !validated.ok && validated.reason === 'ambiguous' ? 'ambiguous' : unreadable ? 'unreadable' : 'incomplete',
+      diagnostics: [...failures, ...(!validated.ok ? validated.diagnostics : [])],
+      histories,
+    }
   if (!validated.ok) return { ok: false, reason: validated.reason, diagnostics: validated.diagnostics, histories }
   return { ok: true, scopes: [...scopes], histories, records: validated.records }
 }

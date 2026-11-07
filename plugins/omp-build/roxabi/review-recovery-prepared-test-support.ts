@@ -16,11 +16,11 @@ const manifest = { ...base.manifest, code: { ...base.manifest.code, base: 'c'.re
 const fresh = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
 export const recoveryFreshInput = fresh.fingerprint
 
-function freshPreparedAction(taskName: string, prepared: PreparedReviewInputs) {
+function freshPreparedAction(taskName: string, assignedChunk: number | null, prepared: PreparedReviewInputs) {
   const directory = mkdtempSync(join(tmpdir(), 'recovery-grant-'))
   const projection = {
     taskName,
-    assignedChunk: taskName === 'spec' ? null : Number(taskName.split('-')[1]),
+    assignedChunk,
     contextWindow: prepared.contextWindow,
     chunks: prepared.chunks,
   }
@@ -125,13 +125,17 @@ export function preparedReview(): { ok: true; value: PreparedReviewInputs } {
     operations: fixtureUwOperations(),
   }
   const panel = allocateReviewPanel({
+    subject: prepared.context.subject,
     chunks: prepared.chunks,
     roster: prepared.roster,
     config: prepared.config,
     commonContext: prepared.semantic.prompts.panel,
   })
   prepared.actions = Object.fromEntries(
-    ['spec', ...panel.tasks.map((task) => task.name)].map((name) => [name, freshPreparedAction(name, prepared)]),
+    [{ name: 'spec', assignedChunk: null }, ...panel.tasks].map(({ name, assignedChunk }) => [
+      name,
+      freshPreparedAction(name, assignedChunk, prepared),
+    ]),
   )
   return { ok: true, value: prepared }
 }

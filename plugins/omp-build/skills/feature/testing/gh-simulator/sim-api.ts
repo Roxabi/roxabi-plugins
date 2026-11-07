@@ -2,8 +2,10 @@ import { existsSync, writeFileSync } from 'node:fs'
 
 import { apiVariables } from './sim-authorization-variables.ts'
 import type { Context, Route } from './sim-command-context.ts'
+import { apiDeliveryGit } from './sim-commit-metadata.ts'
 import { recordedBase, tip } from './sim-git.ts'
 import { commentsForNumber, commentThreadForNumber, emit, graphql, one, varsOf } from './sim-graphql.ts'
+import { currentInvocation } from './sim-invocation.ts'
 import { toolingBlobRoute } from './sim-tooling.ts'
 import type { Comment } from './sim-types.ts'
 import { closesOf, fail, fullName, type Pull, stamp } from './sim-types.ts'
@@ -179,9 +181,11 @@ function commentPath(context: Context): RegExpMatchArray | undefined {
 }
 
 function pauseCommentPost(body: string): void {
-  const match = process.env.GH_SIM_COMMENT_BARRIER_MATCH
-  const started = process.env.GH_SIM_COMMENT_BARRIER_STARTED
-  const release = process.env.GH_SIM_COMMENT_BARRIER_RELEASE
+  const {
+    GH_SIM_COMMENT_BARRIER_MATCH: match,
+    GH_SIM_COMMENT_BARRIER_STARTED: started,
+    GH_SIM_COMMENT_BARRIER_RELEASE: release,
+  } = currentInvocation().env
   if (!match || !started || !release || !body.includes(match)) return
   writeFileSync(started, 'started\n')
   const sleeper = new Int32Array(new SharedArrayBuffer(4))
@@ -272,6 +276,7 @@ function apiEmptyResponses(context: Context): boolean {
 
 const API_ROUTES: readonly Route[] = [
   toolingBlobRoute,
+  apiDeliveryGit,
   apiUser,
   apiGraphql,
   apiAuthorizationScope,

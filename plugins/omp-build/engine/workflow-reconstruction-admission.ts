@@ -1,37 +1,24 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
-import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
-import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   abandoned,
   confirmedPause,
   type MandateRecord,
-  mandateScope,
   mandatesOf,
   outstandingPauseInAuthority,
   outstandingPauseRequest,
-  recordsOf,
   workflowOperationProblem,
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from './workflow-mandate-admission.ts'
-import { specAssessmentSchema } from './workflow-output-schema.ts'
 import type { WorkflowCausalContext, WorkflowEvidence } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
+import { assessmentDecision } from './workflow-reconstruction-assessment.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import { sessionEvidence, sessionReady } from './workflow-session.ts'
-import {
-  type AssessResultRecord,
-  isAssessResult,
-  isMechanical,
-  mechanicalSpecDelta,
-  sameAssessedState,
-  sameCurrentAssessedState,
-} from './workflow-spec-assessment.ts'
-import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 import { walkWorkflow } from './workflow-walk.ts'
 
 type ReconstructionInput = { evidence: WorkflowEvidence; facts: WorkflowFacts; decisions: SpecializedDecisions }
@@ -160,87 +147,6 @@ function localAuthorityDecision(
   return null
 }
 
-function matchingAssessments(
-  history: DecodedHistory,
-  mandate: MandateRecord,
-  facts: WorkflowFacts,
-): AssessResultRecord[] {
-  const currentSpec = facts.currentSpec
-  if (currentSpec === null) return []
-  return recordsOf(history).filter(
-    (record): record is AssessResultRecord =>
-      isAssessResult(record) &&
-      !(workflowContextNegative(record) && workflowContextTerminal(history, 'assess-spec') === 'clear') &&
-      sameRef(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }) &&
-      sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),
-  )
-}
-
-function assessmentDecision(
-  assessments: readonly AssessResultRecord[],
-  mandate: MandateRecord,
-  histories: readonly DecodedHistory[],
-): WorkflowDecision | null {
-  if (assessments.length === 0) return null
-  const accepted = resolveAcceptedSpec(mandate, histories)
-  if (!accepted.ok) return { status: 'terminal', reason: 'spec-ambiguous', evidence: accepted.evidence }
-  const qualified = assessments.filter((assessment) =>
-    sameAssessedState(assessment.payload.exactInputs.accepted, {
-      ref: accepted.spec.ref,
-      snapshot: accepted.spec.snapshot,
-      tier: accepted.spec.tier,
-      children: accepted.spec.children,
-    }),
-  )
-  if (qualified.length > 1) {
-    return {
-      status: 'terminal',
-      reason: 'spec-ambiguous',
-      evidence: [diagnostic('spec-ambiguous', 'Competing assessments match the active Spec pair')],
-    }
-  }
-  const assessment = qualified[0]
-  return assessment === undefined ? null : authenticatedAssessmentDecision(assessment, mandate, histories)
-}
-
-function authenticatedAssessmentDecision(
-  assessment: AssessResultRecord,
-  mandate: MandateRecord,
-  histories: readonly DecodedHistory[],
-): WorkflowDecision | null {
-  const authenticated = authenticatedAssessResult(assessment, histories, {
-    scope: mandateScope(mandate),
-    recordId: mandate.recordId,
-    kind: 'mandate',
-  })
-  if (!authenticated.ok) return { status: 'terminal', reason: 'spec-ambiguous', evidence: authenticated.evidence }
-  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured)
-  if (!parsed.success) {
-    return {
-      status: 'terminal',
-      reason: 'spec-ambiguous',
-      evidence: [diagnostic('spec-ambiguous', 'Spec assessment result is malformed')],
-    }
-  }
-  const exact = authenticated.record.payload.exactInputs
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed)
-  if (
-    isMechanical(mechanical) ||
-    parsed.data.classification === 'unknown' ||
-    parsed.data.classification === 'material'
-  ) {
-    return blocked('spec-decision-required', [
-      diagnostic(
-        'spec-decision-required',
-        parsed.data.classification === 'unknown'
-          ? 'Authenticated Spec assessment requires an operator decision'
-          : 'Material spec change has no operator decision',
-      ),
-    ])
-  }
-  return null
-}
-
 function bindingDecision(
   decision: WorkflowDecision,
   input: ReconstructionInput,
@@ -284,11 +190,7 @@ export function reconstructWorkflow(input: ReconstructionInput): WorkflowDecisio
   const local = localAuthorityDecision(selected.mandate, history, externalHistories, input.facts)
   if (local !== null) return local
   if (!sessionReady(input.facts)) return blocked('session-cwd', sessionEvidence(input.facts))
-  const assessment = assessmentDecision(
-    matchingAssessments(history, selected.mandate, input.facts),
-    selected.mandate,
-    input.evidence.causal.histories,
-  )
+  const assessment = assessmentDecision(history, selected.mandate, input.facts, input.evidence.causal.histories)
   if (assessment !== null) return assessment
   const graph = executableGraph(selected.mandate)
   if (!graph.ok) return blocked('unsupported-graph', graph.diagnostics)

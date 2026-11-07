@@ -3,16 +3,25 @@ import { branchFor } from './epic-naming'
 import {
   branch,
   type Case,
-  child,
   decides,
   facts,
+  on as fixtureBlocker,
+  child as fixtureChild,
   head,
   OTHER_REPO,
-  on,
   pr,
   refusedOwnUw,
   sha,
 } from './epic-transition.fixture'
+import type { ChildFacts } from './epic-types'
+
+// Pure selector scenarios explicitly declare a pending completion, regardless of native state.
+const child = (number: number, over: Partial<ChildFacts> = {}) =>
+  fixtureChild(number, { completion: 'not-complete', ...over })
+const on = (number: number, state: 'OPEN' | 'CLOSED' = 'OPEN', repo?: string): ChildFacts['blockedBy'][number] => ({
+  ...fixtureBlocker(number, state, repo),
+  dependency: 'held',
+})
 
 describe('nextStep', () => {
   describe('order and blockers', () => {
@@ -41,11 +50,11 @@ describe('nextStep', () => {
       {
         name: 'closed in-epic and out-of-epic blockers → the child is actionable',
         facts: facts([
-          child(1, { state: 'CLOSED', stateReason: 'COMPLETED' }),
+          child(1, { state: 'CLOSED', stateReason: 'COMPLETED', completion: 'complete' }),
           child(2, {
             blockedBy: [
-              { number: 1, state: 'CLOSED', stateReason: 'COMPLETED' },
-              { number: 900, state: 'CLOSED', stateReason: 'COMPLETED', repo: OTHER_REPO },
+              { number: 1, state: 'CLOSED', stateReason: 'COMPLETED', dependency: 'satisfied' },
+              { number: 900, state: 'CLOSED', stateReason: 'COMPLETED', repo: OTHER_REPO, dependency: 'satisfied' },
             ],
           }),
         ]),
@@ -60,15 +69,19 @@ describe('nextStep', () => {
       },
       {
         name: 'a blocker in another repo is not the sibling with the same number',
-        facts: facts([child(1, { state: 'CLOSED' }), child(2, { blockedBy: [on(1, 'OPEN', OTHER_REPO)] }), child(3)]),
+        facts: facts([
+          child(1, { state: 'CLOSED', completion: 'complete' }),
+          child(2, { blockedBy: [on(1, 'OPEN', OTHER_REPO)] }),
+          child(3),
+        ]),
         step: { action: 'start', ticket: 3 },
         report: { closed: [1], skipped: [{ ticket: 2, blockers: [1] }] },
       },
       {
-        name: 'a same-repo blocker outside the epic counts by its own state',
+        name: 'a same-repo blocker outside the epic counts by its declared dependency result',
         facts: facts([
           child(1, { blockedBy: [on(42)] }),
-          child(2, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED' }] }),
+          child(2, { blockedBy: [{ number: 43, state: 'CLOSED', stateReason: 'COMPLETED', dependency: 'satisfied' }] }),
         ]),
         step: { action: 'start', ticket: 2 },
         report: { skipped: [{ ticket: 1, blockers: [42] }] },
