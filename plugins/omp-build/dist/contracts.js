@@ -330,8 +330,10 @@ async function applyPlan(ports, issue, plan, baseline, completed) {
       await ports.removeChild(issue, child);
       completed.push(`remove-child:${keyOf(child)}`);
     }
-    await ports.patch(issue, { title: plan.title, body: plan.body });
-    completed.push("patch");
+    if (plan.body !== baseline.body || plan.title !== undefined && plan.title !== baseline.title) {
+      await ports.patch(issue, { title: plan.title, body: plan.body });
+      completed.push("patch");
+    }
   } catch (error) {
     return {
       status: "partial",
@@ -7139,6 +7141,7 @@ var KIND_NAMES = [
   "stop",
   "epic-event",
   "spec-identity",
+  "framing-receipt",
   "mandate",
   "operator-control",
   "action-receipt",
@@ -7149,6 +7152,7 @@ var KIND_NAMES = [
 var kindSchema = _enum(KIND_NAMES);
 var WORKFLOW_RECORD_KINDS = [
   "spec-identity",
+  "framing-receipt",
   "mandate",
   "operator-control",
   "action-receipt",
@@ -7959,14 +7963,13 @@ function relationEdges(nodes, diagnostics) {
   }
   return edges;
 }
-function appendCycles(nodes, edges, diagnostics) {
+function cycleKeys(edges) {
   const visiting = new Set;
   const done = new Set;
+  const cycles = [];
   const walk = (key) => {
     if (visiting.has(key)) {
-      const node = nodes.get(key);
-      if (node)
-        diagnostics.push(diag(node.uw, "graph-cycle", "Combined hierarchy/blocker cycle", "state"));
+      cycles.push(key);
       return;
     }
     if (done.has(key))
@@ -7977,8 +7980,16 @@ function appendCycles(nodes, edges, diagnostics) {
     visiting.delete(key);
     done.add(key);
   };
-  for (const key of nodes.keys())
+  for (const key of edges.keys())
     walk(key);
+  return cycles;
+}
+function appendCycles(nodes, edges, diagnostics) {
+  for (const key of cycleKeys(edges)) {
+    const node = nodes.get(key);
+    if (node)
+      diagnostics.push(diag(node.uw, "graph-cycle", "Combined hierarchy/blocker cycle", "state"));
+  }
 }
 function appendParentClaimDiagnostics(graph, diagnostics) {
   const parents = new Map;
@@ -8003,9 +8014,9 @@ function appendParentClaimDiagnostics(graph, diagnostics) {
       });
   }
 }
-function collectObservedNodes(graph, diagnostics) {
+function collectObservedNodes(observed, diagnostics) {
   const nodes = new Map;
-  for (const node of graph.nodes) {
+  for (const node of observed) {
     const key = scopeKey(node.uw);
     const previous = nodes.get(key);
     if (previous && JSON.stringify(previous) !== JSON.stringify(node))
@@ -8015,12 +8026,17 @@ function collectObservedNodes(graph, diagnostics) {
   }
   return nodes;
 }
+function relationGraph(observed) {
+  const diagnostics = [];
+  const nodes = collectObservedNodes(observed, diagnostics);
+  return { edges: relationEdges(nodes, diagnostics), diagnostics };
+}
 function validateUwGraph(graph) {
   if (graph.status === "incomplete")
     return incompleteGraph(graph);
   const diagnostics = [];
   appendParentClaimDiagnostics(graph, diagnostics);
-  const nodes = collectObservedNodes(graph, diagnostics);
+  const nodes = collectObservedNodes(graph.nodes, diagnostics);
   if (!nodes.has(scopeKey(graph.root)))
     diagnostics.push(diag(graph.root, "graph-incomplete", "Root was not read", "state"));
   const edges = relationEdges(nodes, diagnostics);
@@ -8265,14 +8281,32 @@ var common = {
   proposalDigest: sha256Schema,
   confirmation: operatorConfirmationEvidenceSchema
 };
-var specIdentityPayloadSchema = discriminatedUnion("event", [
-  strictObject({
-    ...common,
-    event: literal("allocate"),
-    allocations: array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })).min(1)
-  }),
+var framingMemberAuthorizationSchema = strictObject({
+  kind: literal("framing-member"),
+  intent: externalRecordRefSchema.extend({ kind: literal("framing-receipt") }),
+  claim: externalRecordRefSchema.extend({ kind: literal("framing-receipt") }),
+  binding: externalRecordRefSchema.extend({ kind: literal("framing-receipt") }),
+  member: string2().min(1),
+  memberDigest: sha256Schema,
+  confirmation: operatorConfirmationEvidenceSchema
+});
+var allocationsSchema = array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })).min(1);
+var singletonIdentityPayloadSchema = discriminatedUnion("event", [
+  strictObject({ ...common, event: literal("allocate"), allocations: allocationsSchema }),
   strictObject({ ...common, event: literal("retire-proposed"), ids: array(specItemIdSchema).min(1) })
 ]);
+var aggregateCommon = {
+  format: literal("omp-build-spec-identity/2"),
+  predecessor: externalRecordRefSchema.nullable(),
+  proposalDigest: sha256Schema,
+  confirmation: operatorConfirmationEvidenceSchema,
+  aggregate: framingMemberAuthorizationSchema
+};
+var aggregateIdentityPayloadSchema = discriminatedUnion("event", [
+  strictObject({ ...aggregateCommon, event: literal("allocate"), allocations: allocationsSchema }),
+  strictObject({ ...aggregateCommon, event: literal("retire-proposed"), ids: array(specItemIdSchema).min(1) })
+]);
+var specIdentityPayloadSchema = union([singletonIdentityPayloadSchema, aggregateIdentityPayloadSchema]);
 
 // plugins/omp-build/engine/workflow-parent-coverage-refinement.ts
 function refinePopulatedParentCoverage(value, coverage, context) {
@@ -9685,6 +9719,302 @@ var reviewReplacementGrantPayloadSchema = strictObject({
   binding: workflowBindingRefSchema
 });
 
+// plugins/omp-build/engine/framing-context-schema.ts
+var FRAMING_PROCEDURE_FILES = {
+  grilling: "skills/feature/framing-procedures/grilling.md",
+  "domain-modeling": "skills/feature/framing-procedures/domain-modeling.md",
+  "codebase-design": "skills/feature/framing-procedures/codebase-design.md"
+};
+var framingStageSchema = _enum(["grilling", "domain-modeling", "codebase-design"]);
+var framingProcedureManifestSchema = strictObject({
+  format: literal("omp-build-framing-procedures/1"),
+  plugin: pluginPinSchema,
+  procedures: tuple([
+    strictObject({ stage: literal("grilling"), file: pinnedFileRefSchema }),
+    strictObject({ stage: literal("domain-modeling"), file: pinnedFileRefSchema }),
+    strictObject({ stage: literal("codebase-design"), file: pinnedFileRefSchema })
+  ]),
+  digest: sha256Schema
+});
+var framingInvocationBindingSchema = strictObject({
+  extensionInstanceId: string2().min(1),
+  sessionId: string2().min(1),
+  agentId: string2().min(1),
+  generation: number2().int().nonnegative(),
+  revision: number2().int().nonnegative(),
+  sourceDigest: sha256Schema,
+  procedures: framingProcedureManifestSchema
+});
+// plugins/omp-build/engine/uw-framing-schema.ts
+var framingMemberKeySchema = string2().min(1);
+var framingMaterialIdSchema = string2().regex(/^m[1-9][0-9]*$/);
+var framingMaterialCaptureSchema = strictObject({
+  id: framingMaterialIdSchema,
+  producer: _enum(["to-spec", "to-tickets"]),
+  origin: strictObject({
+    kind: literal("operator-entry"),
+    sessionId: string2().min(1),
+    entryId: string2().min(1)
+  }),
+  raw: specRawSourceSchema
+});
+var framingSourceOriginSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("native"), member: framingMemberKeySchema }),
+  strictObject({ kind: literal("material"), id: framingMaterialIdSchema })
+]);
+var framingAccountedDecisionSchema = strictObject({ origin: framingSourceOriginSchema.nullable(), decision: normalizationDecisionSchema }).superRefine((value, ctx) => {
+  if (value.decision.kind === "new" !== (value.origin === null))
+    ctx.addIssue({ code: "custom", message: "New decisions alone have no source origin" });
+});
+var framingObligationSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("existing"), id: specItemIdSchema }),
+  strictObject({ kind: literal("new"), draftKey: string2().min(1) })
+]);
+var framingSourceRefSchema = strictObject({ origin: framingSourceOriginSchema, span: sourceSpanSchema2 });
+var framingDestinationMergeSchema = strictObject({
+  target: framingObligationSchema,
+  sources: array(framingSourceRefSchema).min(2),
+  reason: string2().trim().min(1)
+});
+var framingSlotSelectionSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("command"), reference: string2().min(1) }),
+  strictObject({
+    kind: literal("operator-reference"),
+    text: union([
+      literal("accepted-args"),
+      strictObject({ sessionId: string2().min(1), entryId: string2().min(1) })
+    ]),
+    reference: string2().min(1)
+  }),
+  strictObject({ kind: literal("native-child"), parent: framingMemberKeySchema, reference: string2().min(1) })
+]);
+var framingMemberSlotSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("existing"),
+    key: framingMemberKeySchema,
+    uw: scopeSchema,
+    sourceBodySha256: sha256Schema,
+    selection: framingSlotSelectionSchema,
+    observed: strictObject({
+      nativeParent: scopeSchema.nullable(),
+      children: array(scopeSchema),
+      blockers: array(scopeSchema)
+    })
+  }),
+  strictObject({ kind: literal("new"), key: framingMemberKeySchema, repository: repositorySchema })
+]);
+var framingEdgeSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("parent-child"), parent: framingMemberKeySchema, child: framingMemberKeySchema }),
+  strictObject({ kind: literal("blocker"), dependent: framingMemberKeySchema, blocker: framingMemberKeySchema })
+]);
+var framingCoverageIntentSchema = strictObject({
+  parent: framingMemberKeySchema,
+  assignments: array(strictObject({ criterion: framingObligationSchema, children: array(framingMemberKeySchema).min(1) }))
+});
+var framingSourceBindingSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("free-text"),
+    acceptedArgs: string2().min(1),
+    bodySha256: sha256Schema,
+    repository: repositorySchema,
+    materials: array(framingMaterialCaptureSchema)
+  }),
+  strictObject({
+    kind: literal("issue"),
+    uw: scopeSchema,
+    body: specRawSourceSchema,
+    parserDigest: sha256Schema,
+    nativeDigest: sha256Schema,
+    ledgerHead: externalRecordRefSchema.nullable(),
+    historyDigest: sha256Schema,
+    engagementDigest: sha256Schema,
+    materials: array(framingMaterialCaptureSchema)
+  })
+]);
+var framingMemberSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("uw"),
+    slot: framingMemberSlotSchema,
+    draft: specDraftSchema,
+    title: string2().trim().min(1),
+    factors: complexityFactorsSchema,
+    tierOverride: tierOverrideSchema,
+    normalization: array(framingAccountedDecisionSchema),
+    merges: array(framingDestinationMergeSchema),
+    labels: strictObject({ add: array(string2().min(1)), remove: array(string2().min(1)) })
+  }),
+  strictObject({
+    kind: literal("wayfinder"),
+    slot: framingMemberSlotSchema,
+    title: string2().trim().min(1),
+    body: string2(),
+    label: _enum([
+      "wayfinder:map",
+      "wayfinder:grilling",
+      "wayfinder:research",
+      "wayfinder:prototype",
+      "wayfinder:task"
+    ])
+  })
+]);
+var framingAggregateInputSchema = strictObject({
+  kind: _enum(["uw", "wayfinder"]),
+  root: framingMemberKeySchema,
+  members: array(framingMemberSchema).min(1),
+  edges: array(framingEdgeSchema),
+  coverage: array(framingCoverageIntentSchema),
+  foundations: array(strictObject({ parent: framingMemberKeySchema, child: framingMemberKeySchema })),
+  source: framingSourceBindingSchema
+}).superRefine((value, ctx) => {
+  const members = new Map(value.members.map((member) => [member.slot.key, member]));
+  if (members.size !== value.members.length)
+    ctx.addIssue({ code: "custom", path: ["members"], message: "Member keys must be unique" });
+  const root = members.get(value.root);
+  if (!root || root.kind !== value.kind)
+    ctx.addIssue({ code: "custom", path: ["root"], message: "Root must name a member of the aggregate kind" });
+  for (const [index, edge] of value.edges.entries()) {
+    const endpoints = edge.kind === "parent-child" ? [edge.parent, edge.child] : [edge.dependent, edge.blocker];
+    if (endpoints[0] === endpoints[1] || endpoints.some((key) => members.get(key)?.kind !== "uw"))
+      ctx.addIssue({ code: "custom", path: ["edges", index], message: "Edges require two distinct UW members" });
+  }
+});
+
+// plugins/omp-build/engine/uw-framing-receipt-schema.ts
+var framingReceiptRefSchema = externalRecordRefSchema.extend({ kind: literal("framing-receipt") });
+var framingMaterialSchema = framingMaterialCaptureSchema.extend({
+  conversion: _enum(["converted", "not-applicable"]),
+  parser: strictObject({
+    status: _enum(["conformant", "draft", "legacy", "malformed"]),
+    analysis: issueSpecAnalysisSchema,
+    analysisDigest: sha256Schema
+  })
+});
+var framingAllocationSchema = strictObject({
+  ledgerHead: externalRecordRefSchema.nullable(),
+  assignments: array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })),
+  retirements: array(specItemIdSchema),
+  spec: specSchema
+});
+var preparedFramingMemberSchema = strictObject({
+  key: framingMemberKeySchema,
+  ordinal: number2().int().nonnegative(),
+  slot: framingMemberSlotSchema,
+  memberDigest: sha256Schema,
+  allocation: framingAllocationSchema.nullable(),
+  renderedBody: string2(),
+  tier: uwTierSchema.nullable(),
+  inherited: array(ownSpecRefSchema),
+  nativeDigest: sha256Schema.nullable(),
+  nativeAnalysis: strictObject({
+    status: _enum(["conformant", "draft", "legacy", "malformed"]),
+    analysis: issueSpecAnalysisSchema,
+    analysisDigest: sha256Schema
+  }).nullable(),
+  historyDigest: sha256Schema.nullable(),
+  engagementDigest: sha256Schema.nullable()
+});
+var framingProposalSchema = strictObject({
+  format: literal("omp-build-uw-framing/1"),
+  operationId: string2().min(1),
+  target: discriminatedUnion("kind", [
+    strictObject({ kind: literal("existing"), uw: scopeSchema }),
+    strictObject({ kind: literal("create"), repository: string2().min(1) })
+  ]),
+  input: framingAggregateInputSchema,
+  invocation: framingInvocationBindingSchema,
+  materials: array(framingMaterialSchema),
+  members: array(preparedFramingMemberSchema).min(1)
+});
+var resultEdgeSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("parent-child"),
+    parent: scopeSchema,
+    child: scopeSchema,
+    origin: _enum(["observed", "written"])
+  }),
+  strictObject({
+    kind: literal("blocker"),
+    dependent: scopeSchema,
+    blocker: scopeSchema,
+    origin: _enum(["observed", "written"])
+  })
+]);
+var boundFramingCoverageIntentSchema = strictObject({
+  parent: scopeSchema,
+  parentVersion: sha256Schema,
+  criteria: array(strictObject({ id: string2().min(1), statement: string2() })),
+  children: array(strictObject({
+    scope: scopeSchema,
+    specVersion: sha256Schema,
+    tier: uwTierSchema,
+    criteria: array(strictObject({ id: string2().min(1), statement: string2() }))
+  })),
+  coverage: parentCoverageSchema,
+  ancestors: array(discriminatedUnion("kind", [
+    strictObject({ kind: literal("accepted"), own: ownSpecRefSchema, metadata: externalRecordRefSchema }),
+    strictObject({
+      kind: literal("framing-member"),
+      member: framingMemberKeySchema,
+      scope: scopeSchema,
+      specVersion: sha256Schema,
+      tier: uwTierSchema,
+      acceptedStateDigest: sha256Schema
+    })
+  ])),
+  aggregateIntent: framingReceiptRefSchema,
+  aggregateResult: framingReceiptRefSchema
+});
+var framingReceiptPayloadSchema = discriminatedUnion("phase", [
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("intent"),
+    root: scopeSchema,
+    proposal: framingProposalSchema,
+    proposalDigest: sha256Schema,
+    confirmation: operatorConfirmationEvidenceSchema,
+    native: nativeIssueObservationSchema
+  }),
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("member-binding"),
+    intent: framingReceiptRefSchema,
+    member: framingMemberKeySchema,
+    memberDigest: sha256Schema
+  }),
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("member-claim"),
+    intent: framingReceiptRefSchema,
+    member: framingMemberKeySchema,
+    ordinal: number2().int().nonnegative(),
+    memberDigest: sha256Schema,
+    scope: scopeSchema,
+    slot: _enum(["existing", "new"]),
+    binding: framingReceiptRefSchema.nullable(),
+    native: nativeIssueObservationSchema
+  }),
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("result"),
+    intent: framingReceiptRefSchema,
+    claims: array(framingReceiptRefSchema),
+    bindings: array(framingReceiptRefSchema),
+    identities: array(externalRecordRefSchema),
+    members: array(strictObject({
+      key: framingMemberKeySchema,
+      scope: scopeSchema,
+      memberDigest: sha256Schema,
+      binding: framingReceiptRefSchema,
+      snapshot: specSnapshotSchema.nullable(),
+      tier: uwTierSchema.nullable()
+    })),
+    edges: array(resultEdgeSchema),
+    coverage: array(boundFramingCoverageIntentSchema.omit({ aggregateResult: true })),
+    graphDigest: sha256Schema,
+    identityDigest: sha256Schema
+  })
+]);
+
 // plugins/omp-build/engine/uw-integration-schema.ts
 var integrationOutputSchema = strictObject({
   outcome: literal("integrated"),
@@ -10205,6 +10535,7 @@ var recordSchema = discriminatedUnion("kind", [
   record2("stop", stopSchema),
   record2("epic-event", jsonSchema),
   record2("spec-identity", specIdentityPayloadSchema),
+  record2("framing-receipt", framingReceiptPayloadSchema),
   record2("mandate", mandatePayloadSchema),
   record2("operator-control", operatorControlPayloadSchema),
   record2("action-receipt", actionReceiptPayloadSchema),
@@ -10293,9 +10624,31 @@ function scopedRefsOf(record) {
       const p = record.payload;
       return [p.report, p.operation, p.identity];
     }
+    case "framing-receipt": {
+      const payload = record.payload;
+      if (payload.phase === "intent")
+        return payload.proposal.members.flatMap((member) => [
+          ...member.inherited.map((own) => own.sourceAccepted),
+          ...member.allocation?.ledgerHead ? [member.allocation.ledgerHead] : []
+        ]);
+      if (payload.phase === "member-binding")
+        return [payload.intent];
+      if (payload.phase === "member-claim")
+        return payload.binding === null ? [payload.intent] : [payload.intent, payload.binding];
+      return [
+        payload.intent,
+        ...payload.claims,
+        ...payload.bindings,
+        ...payload.identities,
+        ...payload.coverage.flatMap((coverage) => coverage.ancestors.flatMap((ancestor) => ancestor.kind === "accepted" ? [ancestor.own.sourceAccepted, ancestor.metadata] : []))
+      ];
+    }
     case "spec-identity": {
       const payload = record.payload;
-      return payload.predecessor === null ? [] : [payload.predecessor];
+      const refs = payload.predecessor === null ? [] : [payload.predecessor];
+      if (payload.format === "omp-build-spec-identity/2")
+        refs.push(payload.aggregate.intent, payload.aggregate.claim, payload.aggregate.binding);
+      return refs;
     }
     case "mandate": {
       const payload = record.payload;
@@ -10425,6 +10778,7 @@ function derivedInputs(draft) {
         ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId)
       ];
     case "spec-identity":
+    case "framing-receipt":
     case "mandate":
     case "operator-control":
     case "action-receipt":
@@ -11497,7 +11851,10 @@ function canonicalSpec(content) {
     diagnostics: [{ code: "spec-invalid", message: parsed.error.issues.map((issue) => issue.message).join("; ") }]
   };
 }
-function validateSpecIds(spec, ledger) {
+function validatePlannedSpecIds(spec, identity, repository) {
+  return validateIds(spec, identity, () => ({ kind: "repository", repository }));
+}
+function validateIds(spec, identity, locate) {
   const diagnostics = [];
   const seen = new Set;
   for (const [section, items] of [
@@ -11509,7 +11866,7 @@ function validateSpecIds(spec, ledger) {
         diagnostics.push({
           code: "spec-id-duplicate",
           message: `Spec item ${item.id} is repeated`,
-          location: location(ledger.uw, [section, index], item.id),
+          location: locate([section, index], item.id),
           related: []
         });
       seen.add(item.id);
@@ -11520,7 +11877,7 @@ function validateSpecIds(spec, ledger) {
     diagnostics.push(...parsed.error.issues.map((issue) => ({
       code: "spec-invalid",
       message: issue.message,
-      location: location(ledger.uw, issue.path.map((part) => typeof part === "symbol" ? String(part) : part)),
+      location: locate(issue.path.map((part) => typeof part === "symbol" ? String(part) : part)),
       related: []
     })));
   if (!parsed.success)
@@ -11530,23 +11887,32 @@ function validateSpecIds(spec, ledger) {
     ["invariants", spec.invariants]
   ]) {
     items.forEach((item, index) => {
-      if (ledger.retired.has(item.id))
+      if (identity.retired.has(item.id))
         diagnostics.push({
           code: "spec-id-retired",
           message: `Spec item ${item.id} is retired`,
-          location: location(ledger.uw, [section, index], item.id),
+          location: locate([section, index], item.id),
           related: []
         });
-      else if (!ledger.allocations.has(item.id))
+      else if (!identity.allocated.has(item.id))
         diagnostics.push({
           code: "spec-id-unallocated",
           message: `Spec item ${item.id} has no durable allocation`,
-          location: location(ledger.uw, [section, index], item.id),
+          location: locate([section, index], item.id),
           related: []
         });
     });
   }
   return diagnostics.length === 0 ? { ok: true, value: spec } : { ok: false, diagnostics };
+}
+function validateSpecIds(spec, ledger) {
+  return validateIds(spec, { allocated: ledger.allocations, retired: ledger.retired }, (path, id) => location(ledger.uw, path, id));
+}
+function validateSpecIdsWithPlan(spec, ledger, planned) {
+  return validateIds(spec, {
+    allocated: { has: (id) => planned.has(id) || ledger.allocations.has(id) },
+    retired: ledger.retired
+  }, (path, id) => location(ledger.uw, path, id));
 }
 
 // plugins/omp-build/adapters/github-native/uw-spec-text-codec.ts
@@ -11837,11 +12203,16 @@ var SPEC_HEADINGS = [
 ];
 var LEGACY_HEADINGS = /^(?:acceptance criteria|critères d[’']acceptation|critères|criteria)$/i;
 var LITERAL_ITEM = /^- (.*)$/;
-function bodyLocation(uw, span, section) {
-  return { kind: "body", uw, section, start: span.start, end: span.end };
+function bodyLocation(subject, span, section) {
+  return subject.kind === "uw" ? { kind: "body", uw: subject.uw, section, start: span.start, end: span.end } : { kind: "repository", repository: subject.repository };
 }
 function bodyDiagnostic(uw, code, message, span, section) {
-  return { code, message, location: bodyLocation(uw, span, section), related: [] };
+  return {
+    code,
+    message: uw.kind === "material" ? `material ${uw.material} ${span.start.line}:${span.start.column}: ${message}` : message,
+    location: bodyLocation(uw, span, section),
+    related: []
+  };
 }
 function sourceSpan(startLine, endLine, lines) {
   const endText = lines[endLine - 1] ?? "";
@@ -12224,24 +12595,30 @@ function analysis(criteria, invariants, content, preserved) {
     preservedContent: preserved.map(({ span, source, section }) => section === null ? { span, text: source } : { span, text: source, sectionHint: section })
   };
 }
-function parseIssueSpecBody(input) {
-  const parsed = parseSpecBody(input.uw, input.raw);
+function parseSubject(subject, raw) {
+  const parsed = parseSpecBody(subject, raw);
   const source = analysis(parsed.criterionBlocks, parsed.invariantBlocks, parsed.contentBlocks, parsed.preserved);
   if (parsed.status === "conformant" && parsed.content !== undefined) {
     return {
       status: "conformant",
-      snapshot: { spec: parsed.content, raw: input.raw },
+      snapshot: { spec: parsed.content, raw },
       diagnostics: [],
       analysis: source
     };
   }
   if (parsed.status === "draft" && parsed.draft !== undefined) {
-    return { status: "draft", draft: parsed.draft, raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
+    return { status: "draft", draft: parsed.draft, raw, diagnostics: parsed.diagnostics, analysis: source };
   }
   if (parsed.status === "legacy") {
-    return { status: "legacy", raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
+    return { status: "legacy", raw, diagnostics: parsed.diagnostics, analysis: source };
   }
-  return { status: "malformed", raw: input.raw, diagnostics: parsed.diagnostics, analysis: source };
+  return { status: "malformed", raw, diagnostics: parsed.diagnostics, analysis: source };
+}
+function parseIssueSpecBody(input) {
+  return parseSubject({ kind: "uw", uw: input.uw }, input.raw);
+}
+function parseSpecMaterial(input) {
+  return parseSubject({ kind: "material", repository: input.repository, material: input.material }, input.raw);
 }
 
 // plugins/omp-build/engine/uw-spec-currentness.ts
@@ -12265,8 +12642,207 @@ function currentOwnSpecProblem(node, accepted) {
   return tiers === 1 && matching ? null : "tier-changed";
 }
 
-// plugins/omp-build/engine/uw-identity-allocation.ts
+// plugins/omp-build/engine/uw-framing-registry.ts
 function diagnostic3(uw, code, message) {
+  return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
+}
+function ref3(record) {
+  return {
+    kind: "framing-receipt",
+    recordId: record.recordId,
+    scope: { repository: record.repository, target: record.target }
+  };
+}
+function receipts(history) {
+  return history.operations.flatMap((op) => op.authority !== "foreign" && op.status === "complete" && op.record?.kind === "framing-receipt" ? [op.record] : []);
+}
+function failed(history) {
+  return !history.source.complete || history.operations.some((op) => op.authority !== "foreign" && (op.kind === "framing-receipt" || op.claimedKinds.includes("framing-receipt")) && (op.status !== "complete" || op.record?.kind !== "framing-receipt"));
+}
+function conflict(scope, message) {
+  return { ok: false, diagnostics: [diagnostic3(scope, "framing-binding-conflict", message)] };
+}
+function sealedIntent(all, intent) {
+  const intents = all.filter((record) => record.payload.phase === "intent");
+  const matching = intents.filter((record) => sameRef2(ref3(record), intent));
+  const entry = matching[0];
+  if (matching.length !== 1 || intents.length !== 1 || entry === undefined)
+    return conflict(intent.scope, "Intent is missing or duplicated");
+  const p = entry.payload;
+  if (p.phase !== "intent")
+    return conflict(intent.scope, "Invalid intent");
+  if (!sameScope(p.root, intent.scope) || p.proposal.operationId !== p.confirmation.operationId || p.proposalDigest !== p.confirmation.proposalDigest || p.proposalDigest !== canonicalValueDigest(p.proposal))
+    return conflict(intent.scope, "Intent proposal or original approval does not match");
+  return { ok: true, value: p };
+}
+function sealedMembers(p, scope) {
+  const members = new Map;
+  for (const member of p.proposal.members) {
+    const { memberDigest, ...sealedMember } = member;
+    if (members.has(member.key) || member.key !== member.slot.key || memberDigest !== canonicalValueDigest(sealedMember))
+      return conflict(scope, "Duplicate, mismatched, or altered member");
+    members.set(member.key, { slot: member.slot.kind, memberDigest });
+  }
+  return { ok: true, value: members };
+}
+function claimPlanProblem(payload, state) {
+  const member = state.members.get(payload.member);
+  const planned = state.sealed.proposal.members[payload.ordinal];
+  if (!member || !planned || planned.key !== payload.member || member.slot !== payload.slot || member.memberDigest !== payload.memberDigest || state.claims.has(payload.member) || state.scopes.has(scopeKey(payload.scope)))
+    return "Member claim conflicts with sealed plan or another claim";
+  if (planned.slot.kind === "existing" && !sameScope(planned.slot.uw, payload.scope))
+    return "Existing member claim changed scope";
+  if (planned.slot.kind === "new" && planned.slot.repository !== payload.scope.repository)
+    return "New member claim changed repository";
+  if (payload.native.issue.repository !== payload.scope.repository || payload.scope.target !== `${payload.scope.repository}#${payload.native.issue.number}`)
+    return "Member native observation names another issue";
+  return null;
+}
+function claimHomeProblem(payload, state) {
+  const isRoot = payload.member === state.sealed.proposal.input.root;
+  const binding = payload.binding;
+  const homed = isRoot ? binding === null : binding !== null && sameScope(binding.scope, payload.scope);
+  if (isRoot !== sameScope(payload.scope, state.intent.scope) || !homed)
+    return "Claim has wrong binding home";
+  const target = state.sealed.proposal.target;
+  const moved = target.kind === "existing" && !sameScope(target.uw, payload.scope) || target.kind === "create" && target.repository !== payload.scope.repository;
+  return isRoot && moved ? "Root claim differs from the approved target" : null;
+}
+function registerReceipt(record, state) {
+  const payload = record.payload;
+  if (payload.phase === "intent")
+    return null;
+  if (!sameRef2(payload.intent, state.intent))
+    return "Root history contains a receipt for another intent";
+  if (payload.phase === "member-binding")
+    return "Member binding is homed on root";
+  if (payload.phase === "result") {
+    if (state.result !== null)
+      return "Duplicate result";
+    state.result = { ref: ref3(record), payload };
+    return null;
+  }
+  const problem = claimPlanProblem(payload, state) ?? claimHomeProblem(payload, state);
+  if (problem !== null)
+    return problem;
+  state.scopes.add(scopeKey(payload.scope));
+  state.claims.set(payload.member, {
+    claim: ref3(record),
+    scope: payload.scope,
+    binding: payload.binding ?? ref3(record)
+  });
+  return null;
+}
+function reconstructFramingRegistry(root, intent) {
+  if (!sameScope(root.source.scope, intent.scope) || failed(root))
+    return {
+      ok: false,
+      diagnostics: [diagnostic3(intent.scope, "framing-aggregate-unreadable", "Complete intent history is unavailable")]
+    };
+  const all = receipts(root);
+  const sealed = sealedIntent(all, intent);
+  if (!sealed.ok)
+    return sealed;
+  const members = sealedMembers(sealed.value, intent.scope);
+  if (!members.ok)
+    return members;
+  const state = {
+    intent,
+    sealed: sealed.value,
+    members: members.value,
+    claims: new Map,
+    scopes: new Set,
+    result: null
+  };
+  for (const record of all) {
+    const problem = registerReceipt(record, state);
+    if (problem !== null)
+      return conflict(intent.scope, problem);
+  }
+  return {
+    ok: true,
+    value: {
+      intent,
+      proposal: sealed.value.proposal,
+      confirmation: sealed.value.confirmation,
+      members: members.value,
+      claims: state.claims,
+      result: state.result?.ref ?? null,
+      resultPayload: state.result?.payload ?? null
+    }
+  };
+}
+
+// plugins/omp-build/engine/uw-framing-authorization.ts
+function memberBindingMatches(own, authorization) {
+  const bindings = receipts(own).flatMap((record) => record.payload.phase === "member-binding" && sameRef2(record.payload.intent, authorization.intent) ? [{ ref: ref3(record), payload: record.payload }] : []);
+  const binding = bindings[0];
+  return bindings.length === 1 && binding !== undefined && sameRef2(binding.ref, authorization.binding) && binding.payload.member === authorization.member && binding.payload.memberDigest === authorization.memberDigest;
+}
+function approvalProblem(member, registry, authorization, payload) {
+  const approval = canonicalValueDigest(registry.confirmation);
+  if (member.memberDigest !== authorization.memberDigest || payload.proposalDigest !== member.memberDigest || canonicalValueDigest(authorization.confirmation) !== approval || canonicalValueDigest(payload.confirmation) !== approval || canonicalValueDigest(payload.aggregate) !== canonicalValueDigest(authorization))
+    return "Original approval or member digest differs from intent";
+  const allocation = member.allocation;
+  if (allocation === null || payload.event === "allocate" && canonicalValueDigest(payload.allocations) !== canonicalValueDigest(allocation.assignments) || payload.event === "retire-proposed" && canonicalValueDigest(payload.ids) !== canonicalValueDigest(allocation.retirements))
+    return "Identity event differs from sealed allocation";
+  return null;
+}
+function sameOptionalRef(left, right) {
+  return left === null || right === null ? left === right : sameRef2(left, right);
+}
+function retiresOwnAllocation(own, uw, predecessor, authorization) {
+  const records = own.operations.filter((op) => op.authority !== "foreign" && op.status === "complete" && op.record?.kind === "spec-identity" && op.record.recordId === predecessor.recordId);
+  const prior = records[0]?.record;
+  return records.length === 1 && prior?.kind === "spec-identity" && prior.payload.format === "omp-build-spec-identity/2" && prior.payload.event === "allocate" && sameScope(predecessor.scope, uw) && predecessor.kind === "spec-identity" && canonicalValueDigest(prior.payload.aggregate) === canonicalValueDigest(authorization);
+}
+function predecessorProblem(member, own, uw, authorization, payload) {
+  const allocation = member.allocation;
+  if (allocation === null)
+    return "Identity event differs from sealed allocation";
+  if (payload.event === "allocate")
+    return sameOptionalRef(allocation.ledgerHead, payload.predecessor) ? null : "Allocation predecessor differs from the sealed ledger head";
+  if (payload.event !== "retire-proposed")
+    return null;
+  const predecessor = payload.predecessor;
+  if (predecessor === null)
+    return "Retirement predecessor is missing";
+  if (allocation.assignments.length === 0)
+    return allocation.ledgerHead !== null && sameRef2(allocation.ledgerHead, predecessor) ? null : "Retirement predecessor differs from the sealed ledger head";
+  return retiresOwnAllocation(own, uw, predecessor, authorization) ? null : "Retirement predecessor is not this member allocation";
+}
+function validateFramingAuthorization(input) {
+  const { uw, histories, authorization, payload } = input;
+  const roots = histories.filter((history) => sameScope(history.source.scope, authorization.intent.scope));
+  const owns = histories.filter((history) => sameScope(history.source.scope, uw));
+  const root = roots[0];
+  const own = owns[0];
+  if (roots.length !== 1 || owns.length !== 1 || root === undefined || own === undefined || failed(root) || failed(own))
+    return {
+      ok: false,
+      diagnostics: [diagnostic3(uw, "framing-registry-unreadable", "Complete registry and member history are required")]
+    };
+  const registry = reconstructFramingRegistry(root, authorization.intent);
+  if (!registry.ok)
+    return registry;
+  const claim = registry.value.claims.get(authorization.member);
+  const member = registry.value.proposal.members.find((item) => item.key === authorization.member);
+  if (!claim || !member || !sameScope(claim.scope, uw) || !sameRef2(claim.claim, authorization.claim) || !sameRef2(claim.binding, authorization.binding))
+    return {
+      ok: false,
+      diagnostics: [diagnostic3(uw, "framing-binding-unregistered", "Identity has no matching registry claim")]
+    };
+  if (!sameScope(uw, authorization.intent.scope) && !memberBindingMatches(own, authorization))
+    return {
+      ok: false,
+      diagnostics: [diagnostic3(uw, "framing-binding-unregistered", "Member binding is missing or mismatched")]
+    };
+  const problem = approvalProblem(member, registry.value, authorization, payload) ?? predecessorProblem(member, own, uw, authorization, payload);
+  return problem === null ? { ok: true, value: true } : conflict(uw, problem);
+}
+
+// plugins/omp-build/engine/uw-identity-allocation.ts
+function diagnostic4(uw, code, message) {
   return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
 function nextSpecItemId(id) {
@@ -12300,33 +12876,30 @@ function allocateInvariants(items, value, assignments) {
     return { id, statement: item.statement };
   });
 }
-function pending(ledger, assignments) {
-  const reference = { scope: ledger.uw, recordId: "pending", kind: "spec-identity" };
-  const entries = [];
-  for (const { id } of assignments)
-    entries.push([id, reference]);
-  return new Map([...ledger.allocations, ...entries]);
-}
 function proposedRetirements(ledger, spec) {
   const active = new Set([...spec.criteria, ...spec.invariants].map((item) => item.id));
   return [...ledger.allocations.keys()].filter((id) => !active.has(id) && !ledger.retired.has(id));
 }
-function buildSpecAllocationPlan(draft, ledger) {
+function allocateCandidate(draft, nextCriterion, nextInvariant) {
   const assignments = [];
   const candidate = canonicalSpec({
     format: "omp-build-spec-content/1",
-    criteria: allocateCriteria(draft.criteria, ledger.nextCriterion, assignments),
-    invariants: allocateInvariants(draft.invariants, ledger.nextInvariant, assignments),
+    criteria: allocateCriteria(draft.criteria, nextCriterion, assignments),
+    invariants: allocateInvariants(draft.invariants, nextInvariant, assignments),
     exclusions: draft.exclusions,
     openQuestions: draft.openQuestions,
     sections: draft.sections
   });
+  return { assignments, candidate };
+}
+function buildSpecAllocationPlan(draft, ledger) {
+  const { assignments, candidate } = allocateCandidate(draft, ledger.nextCriterion, ledger.nextInvariant);
   if (!candidate.ok)
     return {
       ok: false,
-      diagnostics: candidate.diagnostics.map((item) => diagnostic3(ledger.uw, item.code, item.message))
+      diagnostics: candidate.diagnostics.map((item) => diagnostic4(ledger.uw, item.code, item.message))
     };
-  const confirmed = validateSpecIds(candidate.value, { ...ledger, allocations: pending(ledger, assignments) });
+  const confirmed = validateSpecIdsWithPlan(candidate.value, ledger, new Set(assignments.map((item) => item.id)));
   return confirmed.ok ? {
     ok: true,
     value: {
@@ -12337,6 +12910,24 @@ function buildSpecAllocationPlan(draft, ledger) {
     }
   } : confirmed;
 }
+function buildNewSpecAllocationPlan(draft, repository) {
+  const { assignments, candidate } = allocateCandidate(draft, "1", "1");
+  if (!candidate.ok)
+    return {
+      ok: false,
+      diagnostics: candidate.diagnostics.map((item) => ({
+        code: item.code,
+        message: item.message,
+        location: { kind: "repository", repository },
+        related: []
+      }))
+    };
+  const confirmed = validatePlannedSpecIds(candidate.value, {
+    allocated: new Set(assignments.map((item) => item.id)),
+    retired: new Set
+  }, repository);
+  return confirmed.ok ? { ok: true, value: { ledgerHead: null, assignments, retirements: [], spec: confirmed.value } } : confirmed;
+}
 
 // plugins/omp-build/engine/uw-identity-replay.ts
 function replayForMandate(history, mandate, assessmentReplay) {
@@ -12346,7 +12937,7 @@ function replayForMandate(history, mandate, assessmentReplay) {
     kind: "mandate"
   }));
 }
-function diagnostic4(uw, code, message) {
+function diagnostic5(uw, code, message) {
   return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
 function same2(left, right) {
@@ -12369,7 +12960,7 @@ function applyAllocations(replay, allocations, ref, uw, diagnostics) {
   for (const allocation of allocations) {
     const required = allocation.id.startsWith("C") ? nextCriterionId(replay.nextCriterion) : nextInvariantId(replay.nextInvariant);
     if (replay.allocations.has(allocation.id) || allocation.id !== required) {
-      diagnostics.push(diagnostic4(uw, "spec-ledger-conflict", `Invalid allocation ${allocation.id}`));
+      diagnostics.push(diagnostic5(uw, "spec-ledger-conflict", `Invalid allocation ${allocation.id}`));
       continue;
     }
     replay.allocations.set(allocation.id, ref);
@@ -12382,14 +12973,14 @@ function applyAllocations(replay, allocations, ref, uw, diagnostics) {
 function applyProposedRetirements(replay, ids, ref, uw, diagnostics) {
   for (const id of ids) {
     if (!replay.allocations.has(id) || replay.retired.has(id))
-      diagnostics.push(diagnostic4(uw, "spec-ledger-conflict", `Invalid retirement ${id}`));
+      diagnostics.push(diagnostic5(uw, "spec-ledger-conflict", `Invalid retirement ${id}`));
     else
       replay.retired.set(id, ref);
   }
 }
 function applyIdentityRecord(replay, entry, uw, diagnostics) {
   if (!same2(entry.payload.predecessor, replay.head)) {
-    diagnostics.push(diagnostic4(uw, "spec-ledger-conflict", "Identity ledger fork or predecessor mismatch"));
+    diagnostics.push(diagnostic5(uw, "spec-ledger-conflict", "Identity ledger fork or predecessor mismatch"));
     return;
   }
   if (entry.payload.event === "allocate")
@@ -12398,7 +12989,7 @@ function applyIdentityRecord(replay, entry, uw, diagnostics) {
     applyProposedRetirements(replay, entry.payload.ids, entry.ref, uw, diagnostics);
   replay.head = entry.ref;
 }
-function replaySpecIdentityHistory(history, uw, diagnostics) {
+function replaySpecIdentityHistory(history, uw, diagnostics, histories) {
   const replay = {
     allocations: new Map,
     retired: new Map,
@@ -12411,8 +13002,19 @@ function replaySpecIdentityHistory(history, uw, diagnostics) {
       continue;
     const entry = record3(operation);
     if (entry === null)
-      diagnostics.push(diagnostic4(uw, "spec-ledger-incomplete", "Identity record is incomplete or unauthenticated"));
-    else
+      diagnostics.push(diagnostic5(uw, "spec-ledger-incomplete", "Identity record is incomplete or unauthenticated"));
+    else if (entry.payload.format === "omp-build-spec-identity/2") {
+      const authorized = validateFramingAuthorization({
+        uw,
+        histories,
+        authorization: entry.payload.aggregate,
+        payload: entry.payload
+      });
+      if (!authorized.ok)
+        diagnostics.push(...authorized.diagnostics);
+      else
+        applyIdentityRecord(replay, entry, uw, diagnostics);
+    } else
       applyIdentityRecord(replay, entry, uw, diagnostics);
   }
   return replay;
@@ -16338,7 +16940,7 @@ var failure4 = () => ({
   ok: false,
   diagnostics: [diagnostic2("record-unreadable", "Correction historical basis is missing or inconsistent")]
 });
-var ref3 = (record) => ({
+var ref4 = (record) => ({
   source: "record",
   record: {
     scope: { repository: record.repository, target: record.target },
@@ -16355,7 +16957,7 @@ function correctionDecision(history, records, source, inventory, inputs, catalog
     return failure4();
   const matching = records.filter((record) => record.kind === "decision" && record.recordId === decisionRef.record.recordId);
   const decision = matching[0];
-  if (matching.length !== 1 || decision?.kind !== "decision" || !accounted(history, decision) || canonicalValueDigest(ref3(decision)) !== canonicalValueDigest(decisionRef) || !inventory.inputs.includes(decision.recordId) || !source.inputs.includes(decision.recordId))
+  if (matching.length !== 1 || decision?.kind !== "decision" || !accounted(history, decision) || canonicalValueDigest(ref4(decision)) !== canonicalValueDigest(decisionRef) || !inventory.inputs.includes(decision.recordId) || !source.inputs.includes(decision.recordId))
     return failure4();
   const bindings = validateDecisionBindings(decision, history, catalogues);
   if (!bindings.admissible)
@@ -16373,7 +16975,7 @@ function correctionBinding(subject, histories, basis) {
     return failure4();
   const bindings = recordsOf(history).filter((record) => record.kind === "workflow-binding" && record.recordId === bindingRef.record.recordId);
   const binding = bindings[0];
-  if (bindings.length !== 1 || binding?.kind !== "workflow-binding" || !accounted(history, binding) || canonicalValueDigest(ref3(binding)) !== canonicalValueDigest(bindingRef) || binding.payload.branch !== basis.branch || binding.payload.base !== basis.base)
+  if (bindings.length !== 1 || binding?.kind !== "workflow-binding" || !accounted(history, binding) || canonicalValueDigest(ref4(binding)) !== canonicalValueDigest(bindingRef) || binding.payload.branch !== basis.branch || binding.payload.base !== basis.base)
     return failure4();
   return { ok: true, value: { bindingRef, bindingRecord: binding } };
 }
@@ -16447,7 +17049,7 @@ function resolveHistoricalCorrectionBasis(input) {
   ];
   return {
     ok: true,
-    value: { inputs, requestRef: ref3(fix), decisionRef, ...basis, bindingRef, lineage }
+    value: { inputs, requestRef: ref4(fix), decisionRef, ...basis, bindingRef, lineage }
   };
 }
 
@@ -20475,7 +21077,7 @@ var HEADER = /^<!-- omp-build-record v=(1) kind=([a-z][a-z0-9-]*) id=([^\s<>]+) 
 var RECORD_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 var encoder = new TextEncoder;
 var decoder = new TextDecoder("utf-8", { fatal: true });
-function diagnostic5(code, message, detail) {
+function diagnostic6(code, message, detail) {
   return detail === undefined ? { code, message } : { code, message, detail };
 }
 function utf8(value) {
@@ -20518,7 +21120,7 @@ function targetNumber(scope) {
   const number = separator > 0 ? Number(scope.target.slice(separator + 1)) : Number.NaN;
   if (!RECORD_REPOSITORY.test(scope.repository) || repository !== scope.repository || !Number.isSafeInteger(number) || number < 1) {
     throw new GitHubHistoryReadError("GitHub scope is invalid", [
-      diagnostic5("invalid-scope", `Scope ${scope.target} is not a GitHub repository issue target`)
+      diagnostic6("invalid-scope", `Scope ${scope.target} is not a GitHub repository issue target`)
     ]);
   }
   return number;
@@ -20526,7 +21128,7 @@ function targetNumber(scope) {
 function parseComment(value, scope, page, index) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new GitHubHistoryReadError("GitHub returned an invalid comment object", [
-      diagnostic5("invalid-github-response", "Comment pagination returned a non-object")
+      diagnostic6("invalid-github-response", "Comment pagination returned a non-object")
     ]);
   }
   const entry = value;
@@ -20550,7 +21152,7 @@ async function resolveViewerLogin(options) {
   const login = (await gh(options)(options.cwd, ["api", "user", "--jq", ".login"])).trim();
   if (!login || /\s/.test(login)) {
     throw new GitHubHistoryReadError("GitHub did not return a native login", [
-      diagnostic5("missing-native-author", "GitHub viewer login is absent or invalid")
+      diagnostic6("missing-native-author", "GitHub viewer login is absent or invalid")
     ]);
   }
   return login;
@@ -20686,16 +21288,16 @@ function textPrefix(value, offset, byteLimit) {
 }
 function encodeParts(record, projection, maxCommentBytes) {
   if (!Number.isSafeInteger(maxCommentBytes) || maxCommentBytes < 1)
-    return failure6([diagnostic5("invalid-limit", "Comment byte limit must be a positive safe integer")]);
+    return failure6([diagnostic6("invalid-limit", "Comment byte limit must be a positive safe integer")]);
   try {
     encodeURIComponent(record.recordId);
     encodeURIComponent(record.operationId);
   } catch {
-    return failure6([diagnostic5("invalid-framing", "Record and operation IDs must be valid Unicode identifiers")]);
+    return failure6([diagnostic6("invalid-framing", "Record and operation IDs must be valid Unicode identifiers")]);
   }
   const serialized = JSON.stringify(record);
   if (!canonicalUtf8(serialized) || !canonicalUtf8(projection))
-    return failure6([diagnostic5("invalid-encoding", "Record projection is not canonical UTF-8")]);
+    return failure6([diagnostic6("invalid-encoding", "Record projection is not canonical UTF-8")]);
   const encoded = base64url2(utf8(serialized));
   const maximumParts = encoded.length + utf8Bytes(projection) + 1;
   for (let total = 1;total <= maximumParts; total += 1) {
@@ -20722,7 +21324,7 @@ ${text.text}`);
       return { ok: true, value: parts };
   }
   return failure6([
-    diagnostic5("comment-too-large", "The record and complete human projection cannot fit the requested comment byte limit")
+    diagnostic6("comment-too-large", "The record and complete human projection cannot fit the requested comment byte limit")
   ]);
 }
 
@@ -20738,7 +21340,7 @@ function frameFrom(comment) {
       operationId: clue.operationId,
       recordId: clue.recordId,
       kind: clue.kind,
-      diagnostic: diagnostic5("invalid-framing", `Comment ${comment.locator} has a malformed canonical record header`)
+      diagnostic: diagnostic6("invalid-framing", `Comment ${comment.locator} has a malformed canonical record header`)
     };
   }
   const [, version, kind, recordIdText, operationIdText, partText, totalText, data] = match;
@@ -20750,7 +21352,7 @@ function frameFrom(comment) {
       operationId,
       recordId,
       kind,
-      diagnostic: diagnostic5("invalid-framing", `Comment ${comment.locator} has non-canonical record identifiers`)
+      diagnostic: diagnostic6("invalid-framing", `Comment ${comment.locator} has non-canonical record identifiers`)
     };
   }
   const part = Number(partText);
@@ -20761,7 +21363,7 @@ function frameFrom(comment) {
       operationId,
       recordId,
       kind,
-      diagnostic: diagnostic5("invalid-framing", `Comment ${comment.locator} has an invalid part range`)
+      diagnostic: diagnostic6("invalid-framing", `Comment ${comment.locator} has an invalid part range`)
     };
   }
   return { comment, version, kind, recordId, operationId, part, total, data };
@@ -20837,25 +21439,25 @@ function decodeParts(scope, expectedAuthor, stopAuthor, operationId, frames) {
     throw new Error("decodeParts requires a frame");
   if (hasConflictingMetadata(frames, first)) {
     return invalid5(operationId, first, "conflict", parts, [
-      diagnostic5("conflicting-duplicate", `Operation ${operationId} repeats conflicting metadata`)
+      diagnostic6("conflicting-duplicate", `Operation ${operationId} repeats conflicting metadata`)
     ]);
   }
   const author = nativeWriter(frames, first);
   const frameParts = collectPartFrames(frames);
   if (frameParts.conflict !== null) {
     return invalid5(operationId, first, "conflict", parts, [
-      diagnostic5("conflicting-duplicate", `Operation ${operationId} has conflicting part ${frameParts.conflict}`)
+      diagnostic6("conflicting-duplicate", `Operation ${operationId} has conflicting part ${frameParts.conflict}`)
     ]);
   }
   if (missingPart(frameParts.frames, first.total)) {
     return invalid5(operationId, first, "incomplete", parts, [
-      diagnostic5("incomplete", `Operation ${operationId} is missing required publication parts`)
+      diagnostic6("incomplete", `Operation ${operationId} is missing required publication parts`)
     ]);
   }
   const text = decodeData(frameParts.frames);
   if (text === null) {
     return invalid5(operationId, first, "invalid", parts, [
-      diagnostic5("invalid-encoding", `Operation ${operationId} has non-canonical UTF-8/base64url data`)
+      diagnostic6("invalid-encoding", `Operation ${operationId} has non-canonical UTF-8/base64url data`)
     ]);
   }
   let raw;
@@ -20863,24 +21465,24 @@ function decodeParts(scope, expectedAuthor, stopAuthor, operationId, frames) {
     raw = JSON.parse(text);
   } catch {
     return invalid5(operationId, first, "invalid", parts, [
-      diagnostic5("invalid-json", `Operation ${operationId} data is not JSON`)
+      diagnostic6("invalid-json", `Operation ${operationId} data is not JSON`)
     ]);
   }
   const parsed = parseRecord(raw);
   const headerAuthorized = author !== null && nativeAuthorMatches(author, expectedAuthor, stopAuthor, first.kind, frames);
   if (!parsed.ok) {
     return !headerAuthorized ? invalid5(operationId, first, "invalid", parts, [
-      diagnostic5("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)
+      diagnostic6("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)
     ]) : invalid5(operationId, first, "invalid", parts, parsed.diagnostics);
   }
   if (JSON.stringify(parsed.value) !== text) {
-    return invalid5(operationId, first, "invalid", parts, [diagnostic5("non-canonical-json", `Operation ${operationId} data is not canonical JSON`)], parsed.value.kind);
+    return invalid5(operationId, first, "invalid", parts, [diagnostic6("non-canonical-json", `Operation ${operationId} data is not canonical JSON`)], parsed.value.kind);
   }
   if (author === null || !nativeAuthorMatches(author, expectedAuthor, stopAuthor, parsed.value.kind, frames)) {
-    return invalid5(operationId, first, "invalid", parts, [diagnostic5("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)], parsed.value.kind);
+    return invalid5(operationId, first, "invalid", parts, [diagnostic6("native-author-mismatch", `Operation ${operationId} has a wrong or inconsistent native writer`)], parsed.value.kind);
   }
   if (!headerMatchesRecord(scope, operationId, first, parsed.value)) {
-    return invalid5(operationId, first, "invalid", parts, [diagnostic5("header-metadata-mismatch", `Operation ${operationId} header metadata does not bind its record`)], parsed.value.kind);
+    return invalid5(operationId, first, "invalid", parts, [diagnostic6("header-metadata-mismatch", `Operation ${operationId} header metadata does not bind its record`)], parsed.value.kind);
   }
   return {
     operation: {
@@ -20992,13 +21594,13 @@ function immutableTrustedWorkflowOperations(decoded) {
     } : recordIntegrity(operation.parts, operation.record);
     if (refusal === null)
       return operation;
-    diagnostics.push(...withOperationId([diagnostic5(refusal.reason, refusal.detail)], operation.operationId));
+    diagnostics.push(...withOperationId([diagnostic6(refusal.reason, refusal.detail)], operation.operationId));
     return { ...operation, status: "invalid", record: null };
   });
   return { operations, diagnostics: [...decoded.diagnostics, ...diagnostics] };
 }
 function legacyDiagnostics(legacy) {
-  return legacy.map((operation) => diagnostic5("legacy-format", `Legacy record marker at ${operation.parts[0]?.locator ?? "unknown"} cannot be admitted`));
+  return legacy.map((operation) => diagnostic6("legacy-format", `Legacy record marker at ${operation.parts[0]?.locator ?? "unknown"} cannot be admitted`));
 }
 function decodeHistory(history) {
   const { trusted, foreign, trustedComments } = collectFrameGroups(history);
@@ -21034,24 +21636,24 @@ function sameOperation(record, operation) {
   return parsed.ok && operation.authority !== "foreign" && operation.operationId === parsed.value.operationId && operation.status === "complete" && operation.record !== null && JSON.stringify(parsed.value) === JSON.stringify(operation.record);
 }
 function publicationReadDiagnostics(error) {
-  return error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))];
+  return error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))];
 }
 function publicationAuthorizationDiagnostics(record, options, expectedAuthor, writer, stopAuthor) {
   if (options.writeAuthor !== undefined && options.writeAuthor !== writer) {
     return [
-      diagnostic5("native-author-mismatch", `Authenticated GitHub writer ${writer} is not configured writer ${options.writeAuthor}`)
+      diagnostic6("native-author-mismatch", `Authenticated GitHub writer ${writer} is not configured writer ${options.writeAuthor}`)
     ];
   }
   if (writer === expectedAuthor || writer === stopAuthor && stopBotMayAuthor([record.kind]))
     return null;
-  return [diagnostic5("native-author-mismatch", `GitHub writer ${writer} is not authorized for ${record.kind}`)];
+  return [diagnostic6("native-author-mismatch", `GitHub writer ${writer} is not authorized for ${record.kind}`)];
 }
 function operationConflictDiagnostics(record, sameId, incomplete) {
   if (sameId.length === incomplete.length && !incomplete.some((operation) => operation.recordId !== record.recordId || operation.kind !== record.kind)) {
     return null;
   }
   return [
-    diagnostic5("operation-conflict", `Operation ${record.operationId} is already present but does not match this record`)
+    diagnostic6("operation-conflict", `Operation ${record.operationId} is already present but does not match this record`)
   ];
 }
 function retainedPartConflictDiagnostics(record, incomplete, expectedBodies) {
@@ -21059,7 +21661,7 @@ function retainedPartConflictDiagnostics(record, incomplete, expectedBodies) {
   if (!retainedBodies.some((body) => !expectedBodies.has(body)))
     return null;
   return [
-    diagnostic5("operation-conflict", `Operation ${record.operationId} has publication parts that differ from this record`)
+    diagnostic6("operation-conflict", `Operation ${record.operationId} has publication parts that differ from this record`)
   ];
 }
 function publicationFailure(status, history, diagnostics) {
@@ -21076,12 +21678,12 @@ function githubScope(repository, number) {
 function validateAuthors(expectedAuthor, stopAuthor) {
   if (!expectedAuthor || /\s/.test(expectedAuthor)) {
     throw new GitHubHistoryReadError("GitHub expected author is invalid", [
-      diagnostic5("missing-native-author", "Expected GitHub author is absent or invalid")
+      diagnostic6("missing-native-author", "Expected GitHub author is absent or invalid")
     ]);
   }
   if (stopAuthor !== null && (!stopAuthor || /\s/.test(stopAuthor))) {
     throw new GitHubHistoryReadError("GitHub stop author is invalid", [
-      diagnostic5("missing-native-author", "Stop GitHub author is absent or invalid")
+      diagnostic6("missing-native-author", "Stop GitHub author is absent or invalid")
     ]);
   }
 }
@@ -21095,12 +21697,12 @@ async function readCommentPage(scope, number, page, options) {
     parsed = JSON.parse(output);
   } catch {
     throw new GitHubHistoryReadError("GitHub comment page is not JSON", [
-      diagnostic5("invalid-github-response", `Comment page ${page} is not valid JSON`)
+      diagnostic6("invalid-github-response", `Comment page ${page} is not valid JSON`)
     ]);
   }
   if (!Array.isArray(parsed)) {
     throw new GitHubHistoryReadError("GitHub comment page is not an array", [
-      diagnostic5("invalid-github-response", `Comment page ${page} is not an array`)
+      diagnostic6("invalid-github-response", `Comment page ${page} is not an array`)
     ]);
   }
   return parsed;
@@ -21110,14 +21712,33 @@ async function readWithAuthor(scope, options, expectedAuthor, stopAuthor) {
   validateAuthors(expectedAuthor, stopAuthor);
   const comments = [];
   try {
+    let previous = null;
     for (let page = 1;; page += 1) {
       const parsed = await readCommentPage(scope, number, page, options);
-      comments.push(...parsed.map((entry, index) => parseComment(entry, scope, page, index)));
+      const current = parsed.map((entry, index) => parseComment(entry, scope, page, index));
+      comments.push(...current);
+      if (previous !== null) {
+        const priorPage = previous;
+        const verification = await readCommentPage(scope, number, page - 1, options);
+        const changed = verification.length !== priorPage.length || verification.some((entry, index) => {
+          const before = priorPage[index];
+          const after = parseComment(entry, scope, page - 1, index);
+          return before === undefined || before.nativeId === null || before.nativeId !== after.nativeId || before.body !== after.body || before.author !== after.author || before.createdAt !== after.createdAt || before.updatedAt !== after.updatedAt;
+        });
+        if (changed) {
+          throw new GitHubHistoryReadError("GitHub comment page changed during pagination", [
+            diagnostic6("github-pagination-changed", `Comment page ${page - 1} changed while page ${page} was read`, {
+              page: page - 1
+            })
+          ]);
+        }
+      }
       if (parsed.length < 100)
         break;
+      previous = current;
     }
   } catch (error) {
-    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))];
+    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))];
     return { scope, expectedAuthor, stopAuthor, complete: false, comments, diagnostics };
   }
   return { scope, expectedAuthor, stopAuthor, complete: true, comments, diagnostics: [] };
@@ -21149,7 +21770,7 @@ function parsePostedComment(response, record, current) {
     return parseComment(JSON.parse(response), record, 0, 0);
   } catch (error) {
     return publicationFailure("uncertain", current, [
-      diagnostic5("invalid-github-response", error instanceof Error ? error.message : String(error))
+      diagnostic6("invalid-github-response", error instanceof Error ? error.message : String(error))
     ]);
   }
 }
@@ -21163,7 +21784,7 @@ async function reconcileFailedPost(record, current, options, expectedAuthor, sto
   if (afterFailure !== undefined)
     return { status: "recovered", history: current };
   return publicationFailure("uncertain", current, [
-    diagnostic5("github-write-uncertain", error instanceof Error ? error.message : String(error))
+    diagnostic6("github-write-uncertain", error instanceof Error ? error.message : String(error))
   ]);
 }
 async function rejectUnexpectedWriter(record, current, options, expectedAuthor, stopAuthor, posted, writer) {
@@ -21173,7 +21794,7 @@ async function rejectUnexpectedWriter(record, current, options, expectedAuthor, 
     return publicationFailure("uncertain", current, publicationReadDiagnostics(readError));
   }
   return publicationFailure("uncertain", current, [
-    diagnostic5("native-author-mismatch", `GitHub POST response writer ${posted.author ?? "unknown"} is not ${writer}`)
+    diagnostic6("native-author-mismatch", `GitHub POST response writer ${posted.author ?? "unknown"} is not ${writer}`)
   ]);
 }
 async function publishMissingBodies(record, bodies, current, options, expectedAuthor, writer, stopAuthor) {
@@ -21183,7 +21804,7 @@ async function publishMissingBodies(record, bodies, current, options, expectedAu
       continue;
     if (options.canPublish?.() === false)
       return publicationFailure("uncertain", current, [
-        diagnostic5("publication-ownership-revoked", "Publication ownership was revoked before the record write")
+        diagnostic6("publication-ownership-revoked", "Publication ownership was revoked before the record write")
       ]);
     let response;
     try {
@@ -21206,7 +21827,7 @@ async function confirmReadBack(record, current, resolveContext, externalHistorie
   const readBack = current.operations.find((operation) => sameOperation(record, operation));
   if (readBack === undefined)
     return publicationFailure("uncertain", current, [
-      diagnostic5("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
+      diagnostic6("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
     ]);
   try {
     const latest = await resolveContext({ record, history: current, externalHistories });
@@ -21314,13 +21935,13 @@ function object5(value) {
 function splitRepository(repository) {
   if (!RECORD_REPOSITORY.test(repository)) {
     throw new GitHubHistoryReadError("GitHub repository is invalid", [
-      diagnostic5("invalid-scope", `Repository ${repository} is not owner/name`)
+      diagnostic6("invalid-scope", `Repository ${repository} is not owner/name`)
     ]);
   }
   const [owner, name] = repository.split("/");
   if (!owner || !name) {
     throw new GitHubHistoryReadError("GitHub repository is invalid", [
-      diagnostic5("invalid-scope", `Repository ${repository} is not owner/name`)
+      diagnostic6("invalid-scope", `Repository ${repository} is not owner/name`)
     ]);
   }
   return { owner, name };
@@ -21330,7 +21951,7 @@ function parseJson(raw, label) {
     return JSON.parse(raw);
   } catch {
     throw new GitHubHistoryReadError(`${label} is not JSON`, [
-      diagnostic5("invalid-github-response", `${label} is not valid JSON`)
+      diagnostic6("invalid-github-response", `${label} is not valid JSON`)
     ]);
   }
 }
@@ -21348,17 +21969,17 @@ async function graphqlVariables(options, query, variables) {
   const parsed = object5(parseJson(raw, "GitHub GraphQL response"));
   if (parsed === null) {
     throw new GitHubHistoryReadError("GitHub GraphQL response is invalid", [
-      diagnostic5("invalid-github-response", "GraphQL response is not an object")
+      diagnostic6("invalid-github-response", "GraphQL response is not an object")
     ]);
   }
   if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
     throw new GitHubHistoryReadError("GitHub GraphQL returned errors", [
-      diagnostic5("github-read-failed", "GraphQL errors prevent a complete native read", parsed.errors)
+      diagnostic6("github-read-failed", "GraphQL errors prevent a complete native read", parsed.errors)
     ]);
   }
   if (!("data" in parsed) || parsed.data === null || parsed.data === undefined) {
     throw new GitHubHistoryReadError("GitHub GraphQL data is absent", [
-      diagnostic5("incomplete", "GraphQL data is absent")
+      diagnostic6("incomplete", "GraphQL data is absent")
     ]);
   }
   return parsed.data;
@@ -21367,7 +21988,7 @@ async function resolveRepository(options, repository) {
   if (repository !== undefined) {
     if (!RECORD_REPOSITORY.test(repository)) {
       throw new GitHubHistoryReadError("GitHub repository is invalid", [
-        diagnostic5("invalid-scope", `Repository ${repository} is not owner/name`)
+        diagnostic6("invalid-scope", `Repository ${repository} is not owner/name`)
       ]);
     }
     return repository;
@@ -21377,7 +21998,7 @@ async function resolveRepository(options, repository) {
   const nameWithOwner = parsed?.nameWithOwner;
   if (typeof nameWithOwner !== "string" || !RECORD_REPOSITORY.test(nameWithOwner)) {
     throw new GitHubHistoryReadError("GitHub repository identity is unreadable", [
-      diagnostic5("unreadable", "gh repo view did not return nameWithOwner")
+      diagnostic6("unreadable", "gh repo view did not return nameWithOwner")
     ]);
   }
   return nameWithOwner;
@@ -21390,7 +22011,7 @@ function scopeNumber(scope) {
   const number = separator > 0 ? Number(scope.target.slice(separator + 1)) : Number.NaN;
   if (!RECORD_REPOSITORY.test(scope.repository) || repository !== scope.repository || !Number.isSafeInteger(number) || number < 1) {
     throw new GitHubHistoryReadError("GitHub scope is invalid", [
-      diagnostic5("invalid-scope", `Scope ${scope.target} is not a GitHub repository issue target`)
+      diagnostic6("invalid-scope", `Scope ${scope.target} is not a GitHub repository issue target`)
     ]);
   }
   return number;
@@ -21398,7 +22019,7 @@ function scopeNumber(scope) {
 async function readNativeIssueFacts(repository, number, options) {
   if (!POSITIVE_INT.test(String(number))) {
     throw new GitHubHistoryReadError("GitHub issue number is invalid", [
-      diagnostic5("invalid-scope", `Issue number ${number} is invalid`)
+      diagnostic6("invalid-scope", `Issue number ${number} is invalid`)
     ]);
   }
   const raw = await gh(options)(options.cwd, ["api", `repos/${repository}/issues/${number}`]);
@@ -21410,7 +22031,7 @@ async function readNativeIssueFacts(repository, number, options) {
   const body = parsed?.body;
   if (parsed === null || returnedNumber !== number || state !== "open" && state !== "closed" || typeof state !== "string" || typeof body !== "string") {
     throw new GitHubHistoryReadError(`Issue #${number} is unreadable`, [
-      diagnostic5("unreadable", `Issue #${number} native payload is incomplete`)
+      diagnostic6("unreadable", `Issue #${number} native payload is incomplete`)
     ]);
   }
   return {
@@ -21435,7 +22056,7 @@ function referenceNumber(reference) {
 async function readNativePullRequestFacts(repository, pr, options) {
   if (!POSITIVE_INT.test(String(pr))) {
     throw new GitHubHistoryReadError("GitHub pull request number is invalid", [
-      diagnostic5("invalid-scope", `Pull request number ${pr} is invalid`)
+      diagnostic6("invalid-scope", `Pull request number ${pr} is invalid`)
     ]);
   }
   const raw = await gh(options)(options.cwd, [
@@ -21460,7 +22081,7 @@ async function readNativePullRequestFacts(repository, pr, options) {
   const mergeCommit = merge === null ? null : object5(merge)?.oid;
   if (number !== pr || state !== "OPEN" && state !== "CLOSED" && state !== "MERGED" || typeof head !== "string" || !SHA.test(head) || typeof branch !== "string" || branch.length === 0 || typeof base !== "string" || base.length === 0 || typeof baseTip !== "string" || !SHA.test(baseTip) || mergeCommit !== null && (typeof mergeCommit !== "string" || !SHA.test(mergeCommit)) || state === "MERGED" && mergeCommit === null) {
     throw new GitHubHistoryReadError(`Pull request #${pr} is unreadable`, [
-      diagnostic5("unreadable", `Pull request #${pr} native head/base facts are incomplete`)
+      diagnostic6("unreadable", `Pull request #${pr} native head/base facts are incomplete`)
     ]);
   }
   return { repository, pr, head, base, baseTip, branch, state, mergeCommit, author };
@@ -21471,7 +22092,7 @@ async function resolveNativeTarget(reference, options, repository) {
     if (number === null)
       return {
         status: "refused",
-        diagnostics: [diagnostic5("invalid-reference", `Reference ${JSON.stringify(reference)} is not an issue or PR`)]
+        diagnostics: [diagnostic6("invalid-reference", `Reference ${JSON.stringify(reference)} is not an issue or PR`)]
       };
     const resolvedRepository = await resolveRepository(options, repository);
     const issue = await readNativeIssueFacts(resolvedRepository, number, options);
@@ -21489,7 +22110,7 @@ async function resolveNativeTarget(reference, options, repository) {
     }
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))]
+      diagnostics: [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))]
     };
   }
 }
@@ -21501,7 +22122,7 @@ async function resolveNativeScope(scope, options) {
       return { status: "refused", diagnostics: error.diagnostics };
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))]
+      diagnostics: [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))]
     };
   }
 }
@@ -21535,21 +22156,21 @@ function linkedIssueAssociation(data, facts, repository, pr) {
     return {
       status: "incomplete",
       diagnostics: [
-        diagnostic5("incomplete", `PR #${pr} closing-issue association is incomplete or conflicts with head/base facts`)
+        diagnostic6("incomplete", `PR #${pr} closing-issue association is incomplete or conflicts with head/base facts`)
       ]
     };
   }
   if (nodes.length > 25) {
     return {
       status: "incomplete",
-      diagnostics: [diagnostic5("incomplete", `PR #${pr} has more closing issues than one page can prove`)]
+      diagnostics: [diagnostic6("incomplete", `PR #${pr} has more closing issues than one page can prove`)]
     };
   }
   const numbers = closingIssueNumbers(nodes);
   if (numbers === null) {
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("unreadable", `PR #${pr} closing-issue node is unreadable`)]
+      diagnostics: [diagnostic6("unreadable", `PR #${pr} closing-issue node is unreadable`)]
     };
   }
   const unique = [...new Set(numbers)];
@@ -21558,7 +22179,7 @@ function linkedIssueAssociation(data, facts, repository, pr) {
   if (unique.length > 1) {
     return {
       status: "ambiguous",
-      diagnostics: [diagnostic5("ambiguous", `PR #${pr} closes multiple issues`, { numbers: unique })]
+      diagnostics: [diagnostic6("ambiguous", `PR #${pr} closes multiple issues`, { numbers: unique })]
     };
   }
   const linked = unique[0];
@@ -21570,7 +22191,7 @@ function issueParentAssociation(data, number) {
   if (issue === null || issue.number !== number) {
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("unreadable", `Issue #${number} parent association is unreadable`)]
+      diagnostics: [diagnostic6("unreadable", `Issue #${number} parent association is unreadable`)]
     };
   }
   if (!("parent" in issue) || issue.parent === null || issue.parent === undefined)
@@ -21582,7 +22203,7 @@ function issueParentAssociation(data, number) {
   if (parent === null || typeof parentNumber !== "number" || !Number.isSafeInteger(parentNumber) || parentNumber < 1 || typeof parentRepository !== "string" || !RECORD_REPOSITORY.test(parentRepository)) {
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("unreadable", `Issue #${number} parent payload is incomplete`)]
+      diagnostics: [diagnostic6("unreadable", `Issue #${number} parent payload is incomplete`)]
     };
   }
   return { status: "linked", scope: githubScope(parentRepository, parentNumber), number: parentNumber };
@@ -21617,7 +22238,7 @@ async function readLinkedIssueAssociation(repository, pr, options) {
     }
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))]
+      diagnostics: [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))]
     };
   }
 }
@@ -21632,7 +22253,7 @@ async function readIssueParentAssociation(repository, number, options) {
     }
     return {
       status: "unreadable",
-      diagnostics: [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))]
+      diagnostics: [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))]
     };
   }
 }
@@ -21915,7 +22536,7 @@ async function readBindingMandateHistories(prHistory, options) {
     if (!history.source.complete) {
       return {
         ok: false,
-        result: bindingRefusal2("incomplete", [diagnostic5("incomplete", "Binding mandate history is incomplete")])
+        result: bindingRefusal2("incomplete", [diagnostic6("incomplete", "Binding mandate history is incomplete")])
       };
     }
     histories.push(history);
@@ -21927,7 +22548,7 @@ async function resolveInitialWorkflowBinding(prScope, options) {
   const pullRequest = await readNativePullRequestFacts(prScope.repository, pr, options);
   const prHistory = decodeHistory(await readGitHubHistory(prScope, options));
   if (!prHistory.source.complete) {
-    return { ok: false, result: bindingRefusal2("incomplete", [diagnostic5("incomplete", "PR history is incomplete")]) };
+    return { ok: false, result: bindingRefusal2("incomplete", [diagnostic6("incomplete", "PR history is incomplete")]) };
   }
   let mandateHistories = [];
   let selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest);
@@ -21941,7 +22562,7 @@ async function resolveInitialWorkflowBinding(prScope, options) {
   if (selected.status !== "bound") {
     return {
       ok: false,
-      result: bindingRefusal2(selected.status, selected.status === "absent" ? [diagnostic5("absent", "PR has no workflow-binding")] : selected.diagnostics)
+      result: bindingRefusal2(selected.status, selected.status === "absent" ? [diagnostic6("absent", "PR has no workflow-binding")] : selected.diagnostics)
     };
   }
   return { ok: true, pullRequest, prHistory, mandateHistories, selected };
@@ -21955,14 +22576,14 @@ async function readParentMandateChain(mandate, knownHistories, options) {
     if (parent.kind !== "mandate") {
       return {
         ok: false,
-        result: bindingRefusal2("conflicting", [diagnostic5("kind-mismatch", "Mandate parent is not a mandate")])
+        result: bindingRefusal2("conflicting", [diagnostic6("kind-mismatch", "Mandate parent is not a mandate")])
       };
     }
     const key = refKey(parent);
     if (seenParents.has(key)) {
       return {
         ok: false,
-        result: bindingRefusal2("conflicting", [diagnostic5("conflicting", "Mandate parent chain cycles")])
+        result: bindingRefusal2("conflicting", [diagnostic6("conflicting", "Mandate parent chain cycles")])
       };
     }
     seenParents.add(key);
@@ -21972,7 +22593,7 @@ async function readParentMandateChain(mandate, knownHistories, options) {
       if (!parentHistory.source.complete) {
         return {
           ok: false,
-          result: bindingRefusal2("incomplete", [diagnostic5("incomplete", "Parent mandate history is incomplete")])
+          result: bindingRefusal2("incomplete", [diagnostic6("incomplete", "Parent mandate history is incomplete")])
         };
       }
       parentHistories.push(parentHistory);
@@ -21982,7 +22603,7 @@ async function readParentMandateChain(mandate, knownHistories, options) {
       return {
         ok: false,
         result: bindingRefusal2("incompatible-format", [
-          formatDiagnostic ?? diagnostic5("incompatible-format", "Parent mandate uses an incompatible format")
+          formatDiagnostic ?? diagnostic6("incompatible-format", "Parent mandate uses an incompatible format")
         ])
       };
     }
@@ -21990,7 +22611,7 @@ async function readParentMandateChain(mandate, knownHistories, options) {
     if (parentRecord === null) {
       return {
         ok: false,
-        result: bindingRefusal2("incomplete", [diagnostic5("incomplete", "Parent mandate record is not confirmed")])
+        result: bindingRefusal2("incomplete", [diagnostic6("incomplete", "Parent mandate record is not confirmed")])
       };
     }
     parentScopes.push(parent.scope);
@@ -22346,13 +22967,13 @@ function projectUwWaits(input) {
 function incompleteOperationDiagnostic(history, operation) {
   if (operation.status !== "incomplete" && operation.status !== "conflict")
     return null;
-  return diagnostic5(operation.status === "incomplete" ? "incomplete" : "ambiguous", `Operation ${operation.operationId ?? "unknown"} on ${history.source.scope.target} is ${operation.status}`);
+  return diagnostic6(operation.status === "incomplete" ? "incomplete" : "ambiguous", `Operation ${operation.operationId ?? "unknown"} on ${history.source.scope.target} is ${operation.status}`);
 }
 function appendCompleteRecord(record, collection) {
   const key = `${record.repository}\x00${record.target}\x00${record.recordId}`;
   const existing = collection.byRecordId.get(key);
   if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(record)) {
-    collection.diagnostics.push(diagnostic5("ambiguous", `Record ${record.recordId} has conflicting complete publications at ${record.repository} ${record.target}`));
+    collection.diagnostics.push(diagnostic6("ambiguous", `Record ${record.recordId} has conflicting complete publications at ${record.repository} ${record.target}`));
     return;
   }
   if (existing === undefined) {
@@ -22378,7 +22999,7 @@ function collectRecords(histories) {
   const collection = { records: [], diagnostics: [], byRecordId: new Map };
   for (const history of histories) {
     if (!history.source.complete) {
-      collection.diagnostics.push(diagnostic5("incomplete", `History for ${history.source.scope.target} is not a complete native read`));
+      collection.diagnostics.push(diagnostic6("incomplete", `History for ${history.source.scope.target} is not a complete native read`));
     }
     collectCompleteHistoryOperations(history, collection);
     collection.diagnostics.push(...history.diagnostics);
@@ -22413,15 +23034,15 @@ function collectReadOutcomes(scopes, outcomes) {
     const outcome = outcomes[index];
     if (outcome.status === "rejected") {
       unreadable = true;
-      const detail = outcome.reason instanceof GitHubHistoryReadError ? outcome.reason.diagnostics : [diagnostic5("github-read-failed", String(outcome.reason))];
-      failures.push(diagnostic5("incomplete", `Cannot read history for ${scope.repository} ${scope.target}`), ...detail);
+      const detail = outcome.reason instanceof GitHubHistoryReadError ? outcome.reason.diagnostics : [diagnostic6("github-read-failed", String(outcome.reason))];
+      failures.push(diagnostic6("incomplete", `Cannot read history for ${scope.repository} ${scope.target}`), ...detail);
       continue;
     }
     const source = outcome.value;
     histories.push(decodeHistory(source));
     if (!source.complete) {
       unreadable = true;
-      failures.push(diagnostic5("incomplete", `Native history for ${scope.repository} ${scope.target} is incomplete`), ...source.diagnostics);
+      failures.push(diagnostic6("incomplete", `Native history for ${scope.repository} ${scope.target} is incomplete`), ...source.diagnostics);
     }
   }
   return { histories, failures, unreadable };
@@ -22431,7 +23052,7 @@ async function readComposedWorkflowHistory(scopes, options) {
     return {
       ok: false,
       reason: "incomplete",
-      diagnostics: [diagnostic5("incomplete", "Composed workflow history requires at least one scope")],
+      diagnostics: [diagnostic6("incomplete", "Composed workflow history requires at least one scope")],
       histories: []
     };
   }
@@ -22439,7 +23060,7 @@ async function readComposedWorkflowHistory(scopes, options) {
     return {
       ok: false,
       reason: "ambiguous",
-      diagnostics: [diagnostic5("ambiguous", "Composed workflow history received duplicate scopes")],
+      diagnostics: [diagnostic6("ambiguous", "Composed workflow history received duplicate scopes")],
       histories: []
     };
   }
@@ -23082,6 +23703,21 @@ class UwObservationCut {
 }
 
 // plugins/omp-build/adapters/github-workflow/uw-observation.ts
+function receiptScopes(payload) {
+  if (payload.phase === "intent")
+    return payload.proposal.members.flatMap((member) => member.slot.kind === "existing" ? [member.slot.uw] : []);
+  if (payload.phase === "member-claim")
+    return [payload.scope];
+  if (payload.phase === "result")
+    return payload.members.map((member) => member.scope);
+  return [];
+}
+function framingMemberScopes(history) {
+  return history.operations.flatMap((operation) => {
+    const record = operation.status === "complete" && operation.authority !== "foreign" ? operation.record : null;
+    return record?.kind === "framing-receipt" ? receiptScopes(record.payload) : [];
+  });
+}
 async function readUwCompletionObservation(root, options, loadCatalogues, additionalScopes = [], additionalHistories = []) {
   const collector = new UwObservationCollector(root, options, loadCatalogues, additionalScopes, additionalHistories);
   return collector.read();
@@ -23166,13 +23802,18 @@ class UwObservationCollector {
         continue;
       this.historySeen.add(key);
       progressed = true;
-      const observed = await readComposedWorkflowHistory([scope], this.options);
-      for (const history of observed.histories)
-        this.cut.addHistory(history);
-      if (!observed.ok)
-        this.cut.diagnostics.push(...observed.diagnostics.map((entry) => this.cut.issue(scope, entry.code, entry.message)));
+      await this.readHistory(scope);
     }
     return progressed;
+  }
+  async readHistory(scope) {
+    const observed = await readComposedWorkflowHistory([scope], this.options);
+    for (const history of observed.histories)
+      this.cut.addHistory(history);
+    for (const history of observed.histories)
+      this.requireGraphs(framingMemberScopes(history));
+    if (!observed.ok)
+      this.cut.diagnostics.push(...observed.diagnostics.map((entry) => this.cut.issue(scope, entry.code, entry.message)));
   }
   async refreshCatalogues() {
     try {
@@ -23235,7 +23876,7 @@ async function readBoundWorkflow(prScope, options) {
     const { pullRequest, prHistory, mandateHistories, selected } = resolved;
     const mandateHistory = historyFor(selected.mandate.scope, [prHistory, ...mandateHistories]);
     if (mandateHistory === null) {
-      return bindingRefusal2("incomplete", [diagnostic5("incomplete", "Binding mandate history is missing")]);
+      return bindingRefusal2("incomplete", [diagnostic6("incomplete", "Binding mandate history is missing")]);
     }
     const parentResolution = await readParentMandateChain(selected.mandateRecord, [prHistory, ...mandateHistories], options);
     if (!parentResolution.ok)
@@ -23258,7 +23899,7 @@ async function readBoundWorkflow(prScope, options) {
       }
     };
   } catch (error) {
-    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))];
+    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))];
     return bindingRefusal2("unreadable", diagnostics);
   }
 }
@@ -23270,7 +23911,7 @@ async function readWorkflowBinding(prScope, options) {
   try {
     return { ok: true, value: { ...value, uwGraph: await readUwGraph(root, options) } };
   } catch (error) {
-    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic5("github-read-failed", error instanceof Error ? error.message : String(error))];
+    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic6("github-read-failed", error instanceof Error ? error.message : String(error))];
     return bindingRefusal2("unreadable", diagnostics);
   }
 }
@@ -23286,7 +23927,7 @@ function mergeObservedHistories(known, observed) {
       return {
         ok: false,
         diagnostics: [
-          diagnostic5("conflicting", `Workflow history for ${history.source.scope.target} changed during landing observation`)
+          diagnostic6("conflicting", `Workflow history for ${history.source.scope.target} changed during landing observation`)
         ]
       };
     }
@@ -23337,7 +23978,7 @@ function appendHistories(histories, observed, pending) {
       return {
         ok: false,
         reason: "ambiguous",
-        diagnostics: [diagnostic5("ambiguous", `Unexpected or duplicate history for ${history.source.scope.target}`)],
+        diagnostics: [diagnostic6("ambiguous", `Unexpected or duplicate history for ${history.source.scope.target}`)],
         histories: [...histories.values()]
       };
     histories.set(id, history);
@@ -23346,7 +23987,7 @@ function appendHistories(histories, observed, pending) {
     return {
       ok: false,
       reason: "incomplete",
-      diagnostics: [diagnostic5("incomplete", "Referenced history was not returned")],
+      diagnostics: [diagnostic6("incomplete", "Referenced history was not returned")],
       histories: [...histories.values()]
     };
   return null;
@@ -24733,263 +25374,6 @@ function prepareReviewReplacementInventoryPublication(input) {
     runId: input.runId
   });
 }
-// plugins/omp-build/engine/cause-dependency-adjustment-decision.ts
-function fail3(origin, message) {
-  return {
-    ok: false,
-    diagnostics: [
-      {
-        code: "cause-adjustment-unavailable",
-        message,
-        location: { kind: "native", uw: origin, connection: "blockers" },
-        related: []
-      }
-    ]
-  };
-}
-function withdrawnTarget(input, history, predecessor, target) {
-  let cursor = input.receipt;
-  const controls = recordsOf(history).filter((record) => record.kind === "operator-control" && record.payload.control === "adjust-cause-dependency");
-  while (!sameRef2(cursor, predecessor)) {
-    const next = controls.filter((record) => record.kind === "operator-control" && record.payload.control === "adjust-cause-dependency" && sameRef2(record.payload.proposal.predecessor, cursor));
-    const record = next[0];
-    if (next.length !== 1 || record?.kind !== "operator-control" || record.payload.control !== "adjust-cause-dependency")
-      return fail3(input.origin, "Prior causal chain cannot be reconstructed");
-    if (record.payload.proposal.change.kind === "replace")
-      target = record.payload.proposal.change.blocker;
-    cursor = { scope: input.origin, recordId: record.recordId, kind: "operator-control" };
-  }
-  return { ok: true, value: target };
-}
-function currentDecision(input, history, waits) {
-  const match = waits.causeWaits.filter((item) => equalScope(item.origin, input.origin) && sameRef2(item.disposition, input.disposition) && sameRef2(item.receipt, input.receipt));
-  const current = match[0];
-  if (match.length !== 1 || current === undefined || current.state === "held" || waits.diagnostics.some((entry) => entry.code !== "wait-cycle"))
-    return fail3(input.origin, "The current cause and complete wait graph cannot be authenticated");
-  const predecessor = current.control ?? input.receipt;
-  if (!sameRef2(predecessor, input.predecessor))
-    return fail3(input.origin, "The decision does not extend the unique current predecessor");
-  const receipt = recordsOf(history).find((record) => record.kind === "debt-receipt" && record.recordId === input.receipt.recordId);
-  if (receipt?.kind !== "debt-receipt")
-    return fail3(input.origin, "Original sister receipt is unavailable");
-  const target = current.state === "required" ? current.target : receipt.payload.sister;
-  if (current.state !== "withdrawn")
-    return { ok: true, value: { predecessor, target } };
-  const resolved = withdrawnTarget(input, history, predecessor, target);
-  return resolved.ok ? { ok: true, value: { predecessor, target: resolved.value } } : resolved;
-}
-function replacementCycles(input, waits) {
-  if (input.change.kind !== "replace")
-    return [];
-  const edges = waits.requirements.filter((edge) => !(edge.source.kind === "blocking-sister" && sameRef2(edge.source.receipt, input.receipt)) && !(edge.source.kind === "native-blocker" && equalScope(edge.from, input.origin) && input.nativeEffect.kind === "update-blockers" && input.nativeEffect.remove.some((scope) => equalScope(scope, edge.to))));
-  edges.push({
-    from: input.origin,
-    to: input.change.blocker,
-    source: { kind: "blocking-sister", disposition: input.disposition, receipt: input.receipt, control: null }
-  });
-  if (input.nativeEffect.kind === "update-blockers")
-    for (const to of input.nativeEffect.add)
-      edges.push({ from: input.origin, to, source: { kind: "native-blocker" } });
-  return waitCycleDiagnostics(edges);
-}
-function historicalTarget(p, history, target) {
-  let cursor = p.predecessor;
-  const seen = new Set;
-  while (cursor.kind === "operator-control") {
-    if (seen.has(cursor.recordId))
-      return fail3(p.origin, "Prior causal chain contains a cycle");
-    seen.add(cursor.recordId);
-    const record = recordsOf(history).find((item) => item.kind === "operator-control" && item.recordId === cursor.recordId);
-    if (record?.kind !== "operator-control" || record.payload.control !== "adjust-cause-dependency")
-      return fail3(p.origin, "Prior causal chain is unavailable");
-    if (record.payload.proposal.change.kind === "replace")
-      return { ok: true, value: record.payload.proposal.change.blocker };
-    cursor = record.payload.proposal.predecessor;
-  }
-  return { ok: true, value: target };
-}
-function effectTarget(p, baseline) {
-  const history = historyFor(p.origin, baseline.histories);
-  const receipt = history && recordsOf(history).find((record) => record.kind === "debt-receipt" && record.recordId === p.receipt.recordId);
-  if (receipt?.kind !== "debt-receipt")
-    return fail3(p.origin, "Original receipt is unavailable");
-  const waits = projectUwWaits({
-    graph: baseline.graph,
-    histories: baseline.histories,
-    catalogues: baseline.catalogues
-  });
-  const current = waits.causeWaits.find((item) => sameRef2(item.receipt, p.receipt) && equalScope(item.origin, p.origin));
-  const target = current?.state === "required" ? current.target : receipt.payload.sister;
-  return current?.state === "withdrawn" && history ? historicalTarget(p, history, target) : { ok: true, value: target };
-}
-
-// plugins/omp-build/engine/cause-dependency-adjustment-observation.ts
-function issue3(scope) {
-  const prefix = `${scope.repository}#`;
-  const suffix = scope.target.startsWith(prefix) ? scope.target.slice(prefix.length) : "";
-  const number = /^[1-9][0-9]*$/.test(suffix) ? Number(suffix) : NaN;
-  return Number.isSafeInteger(number) && number > 0 ? { repository: scope.repository, number } : null;
-}
-function native(node) {
-  const id = issue3(node.uw);
-  const parent = node.parent === null ? null : issue3(node.parent);
-  const children = node.children.map(issue3);
-  const blockers = node.blockers.map(issue3);
-  if (id === null || node.parent !== null && parent === null || children.some((item) => item === null) || blockers.some((item) => item === null))
-    return null;
-  return {
-    issue: id,
-    title: node.title,
-    body: node.raw.body,
-    updatedAt: node.updatedAt,
-    nativeState: node.native,
-    labels: [...node.labels],
-    parent,
-    children,
-    blockers
-  };
-}
-function inventory(observation) {
-  const histories = observation.histories.map((item) => ({ scope: item.source.scope, digest: canonicalValueDigest(item) })).sort((a, b) => scopeKey(a.scope).localeCompare(scopeKey(b.scope)));
-  const nodes = observation.graph.nodes.map((node) => ({ scope: node.uw, value: native(node) }));
-  if (new Set(histories.map((item) => scopeKey(item.scope))).size !== histories.length || new Set(nodes.map((item) => scopeKey(item.scope))).size !== nodes.length || observation.histories.some((item) => !item.source.complete))
-    return null;
-  const rows = [];
-  for (const entry of nodes) {
-    if (entry.value === null)
-      return null;
-    rows.push({ uw: entry.scope, digest: nativeObservationDigest(entry.value) });
-  }
-  const nativeGraph = {
-    root: observation.graph.root,
-    rows: rows.sort((a, b) => scopeKey(a.uw).localeCompare(scopeKey(b.uw)))
-  };
-  return { histories, nativeGraph };
-}
-
-// plugins/omp-build/engine/cause-dependency-adjustment.ts
-function authenticatedAdjustmentReferences(input, history) {
-  const disposition = recordsOf(history).find((record) => record.kind === "cause-disposition" && record.recordId === input.disposition.recordId);
-  return disposition?.kind === "cause-disposition" && causeAdjustmentReferencesValid(input.references, disposition, input.observation.histories);
-}
-function prepareCauseDependencyAdjustment(input) {
-  const { origin, observation } = input;
-  if (observation.status !== "complete" || !equalScope(observation.graph.root, origin))
-    return fail3(origin, "A complete origin-rooted native and workflow observation is required");
-  const captured = inventory(observation);
-  const history = historyFor(origin, observation.histories);
-  const node = observation.graph.nodes.find((entry) => equalScope(entry.uw, origin));
-  const before = node === undefined ? null : native(node);
-  if (!captured || !history || !before)
-    return fail3(origin, "Origin facts or unique complete histories are unavailable");
-  const authority = resolveOwnSpecAuthority(history, observation.histories.filter((item) => item !== history), { histories: observation.histories, catalogues: observation.catalogues, observation });
-  if (!authority.ok)
-    return fail3(origin, "Active current mandate and accepted Spec cannot be authenticated");
-  const selected = authority.value.mandate;
-  const accepted = { ok: true, spec: authority.value.accepted };
-  const effective = resolveSpecEffectiveForControl({
-    mode: "current",
-    own: accepted.spec.ref,
-    histories: observation.histories,
-    graph: observation.graph
-  });
-  if (!effective.ok)
-    return effective;
-  if (!authenticatedAdjustmentReferences(input, history))
-    return fail3(origin, "A decision reference cannot be authenticated");
-  const waits = projectUwWaits({
-    graph: observation.graph,
-    histories: observation.histories,
-    catalogues: observation.catalogues
-  });
-  const decision = currentDecision(input, history, waits);
-  if (!decision.ok)
-    return decision;
-  const { predecessor, target } = decision.value;
-  if (input.change.kind === "replace") {
-    const blocker = input.change.blocker;
-    if (!observation.graph.nodes.some((entry) => equalScope(entry.uw, blocker)))
-      return fail3(origin, "Replacement facts were not included in the native observation");
-  }
-  const parsed = causeDependencyAdjustmentProposalSchema.safeParse({
-    format: "omp-build-cause-dependency-adjustment/1",
-    operationId: input.operationId,
-    controlId: input.controlId,
-    origin,
-    mandate: { scope: origin, recordId: selected.recordId, kind: "mandate" },
-    accepted: accepted.spec.ref,
-    versionVector: effective.value.versionVector,
-    disposition: input.disposition,
-    receipt: input.receipt,
-    predecessor,
-    change: input.change,
-    reason: input.reason,
-    references: input.references,
-    before,
-    nativeObservationDigest: nativeObservationDigest(before),
-    histories: captured.histories,
-    nativeGraph: captured.nativeGraph,
-    nativeEffect: input.nativeEffect
-  });
-  if (!parsed.success || causeAdjustmentExpectedEffect(parsed.data, target) === null)
-    return fail3(origin, "The proposal or explicit native blocker delta is invalid");
-  const cycles = replacementCycles(input, waits);
-  if (cycles.length)
-    return { ok: false, diagnostics: cycles };
-  return { ok: true, value: { proposal: parsed.data, digest: canonicalValueDigest(parsed.data) } };
-}
-function recheckCauseDependencyAdjustment(prepared, observation) {
-  const p = prepared.proposal;
-  const checked = prepareCauseDependencyAdjustment({
-    operationId: p.operationId,
-    controlId: p.controlId,
-    origin: p.origin,
-    disposition: p.disposition,
-    receipt: p.receipt,
-    predecessor: p.predecessor,
-    change: p.change,
-    nativeEffect: p.nativeEffect,
-    reason: p.reason,
-    references: p.references,
-    observation
-  });
-  if (!checked.ok)
-    return checked;
-  const normalized = {
-    ...checked.value.proposal,
-    before: { ...checked.value.proposal.before, updatedAt: p.before.updatedAt }
-  };
-  return prepared.digest === canonicalValueDigest(p) && canonicalValueDigest(normalized) === prepared.digest ? { ok: true, value: prepared } : fail3(p.origin, "Facts or authority changed after confirmation");
-}
-function recheckCauseDependencyAdjustmentEffect(prepared, observed, observation) {
-  const p = prepared.proposal;
-  if (observation.status !== "complete")
-    return fail3(p.origin, "Post-effect observation is incomplete");
-  const node = observation.graph.nodes.find((entry) => equalScope(entry.uw, p.origin));
-  const actual = node && native(node);
-  if (!actual || nativeObservationDigest(actual) !== nativeObservationDigest(observed))
-    return fail3(p.origin, "Writer and fresh native readback disagree");
-  const scope = (ref) => ({
-    repository: ref.repository,
-    target: `${ref.repository}#${ref.number}`
-  });
-  const before = p.before;
-  const baseline = {
-    ...observation,
-    graph: {
-      ...observation.graph,
-      nodes: observation.graph.nodes.map((entry) => equalScope(entry.uw, p.origin) ? { ...entry, blockers: before.blockers.map(scope) } : entry)
-    }
-  };
-  const checked = recheckCauseDependencyAdjustment(prepared, baseline);
-  if (!checked.ok)
-    return checked;
-  const target = effectTarget(p, baseline);
-  if (!target.ok)
-    return target;
-  const expected = causeAdjustmentExpectedEffect(p, target.value);
-  return expected !== null && nativeObservationDigest(expected) === nativeObservationDigest(actual) ? checked : fail3(p.origin, "Native result exceeds the confirmed blocker delta");
-}
 // plugins/omp-build/engine/cause-hold.ts
 function assessCauseHolds(input) {
   const diagnostics = [];
@@ -25012,104 +25396,314 @@ function assessCauseHolds(input) {
   }
   return diagnostics;
 }
-// plugins/omp-build/engine/history-schema.ts
-var historySchema = strictObject({
-  scope: scopeSchema,
-  expectedAuthor: string2().min(1),
-  stopAuthor: string2().min(1).nullable(),
-  complete: boolean2(),
-  comments: array(observedCommentSchema),
-  diagnostics: array(diagnosticSchema)
-});
-var operationAuthoritySchema = _enum(["authority", "foreign", "accounted"]);
-var operationReadSchema = strictObject({
-  operationId: string2().min(1).nullable(),
-  recordId: string2().min(1).nullable(),
-  kind: string2().min(1).nullable(),
-  status: _enum(["complete", "incomplete", "conflict", "invalid", "legacy"]),
-  parts: array(observedCommentSchema),
-  record: recordSchema.nullable(),
-  claimedKinds: array(string2().min(1)).refine((kinds) => new Set(kinds).size === kinds.length, "claimed kinds must be distinct"),
-  authority: operationAuthoritySchema
-});
-var decodedHistorySchema = strictObject({
-  source: historySchema,
-  operations: array(operationReadSchema),
-  diagnostics: array(diagnosticSchema)
-});
-// plugins/omp-build/engine/native-terminal.ts
-function object6(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+
+// plugins/omp-build/engine/uw-framing-hold.ts
+function diagnostic7(uw, code, message) {
+  return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
-function inspectNativeTerminal(value) {
-  if (!object6(value))
-    return { structured: null, reason: "malformed-child-result" };
-  const output = value.structuredOutput;
-  const parsed = object6(output) && output.status === "valid" ? jsonSchema.safeParse(output.data) : null;
-  const structured = parsed?.success ? parsed.data : null;
-  let reason = null;
-  if (value.exitCode !== 0)
-    reason = "required-child-exit-code";
-  else if (value.error !== undefined && value.error !== null)
-    reason = "required-child-error";
-  else if (value.aborted === true)
-    reason = "required-child-aborted";
-  else if (!object6(output))
-    reason = "missing-structured-output";
-  else if (output.status !== "valid")
-    reason = "structured-output-not-valid";
-  return { structured, reason };
+var FRAMING_ADMISSION_HOLD_CODES = [
+  "framing-aggregate-incomplete",
+  "framing-aggregate-unreadable",
+  "framing-binding-unregistered",
+  "framing-binding-conflict",
+  "framing-result-drift"
+];
+function held(uw, code, intent, member, missing = []) {
+  return {
+    status: "held",
+    code,
+    intent,
+    member,
+    missing,
+    diagnostics: [diagnostic7(uw, code, "Framing aggregate is not complete and matching")]
+  };
 }
-// plugins/omp-build/engine/parent-insertion-engagement.ts
-var indeterminate = (message) => ({
-  state: "indeterminate",
-  diagnostics: [diagnostic2("incomplete", message)]
-});
-var key3 = (scope) => `${scope.repository}\x00${scope.target}`;
-function parentHistory(evidence) {
-  const { parent, graph, histories } = evidence;
-  if (!equalScope(parent, graph.root))
-    return indeterminate("Parent graph root does not match the requested parent");
-  const graphCheck = validateUwGraph(graph);
-  if (!graphCheck.ok)
-    return { state: "indeterminate", diagnostics: toDiagnostics(graphCheck.diagnostics) };
-  const nodes = new Set(graph.nodes.map((node) => key3(node.uw)));
-  if (nodes.size !== graph.nodes.length || !nodes.has(key3(parent)))
-    return indeterminate("Parent graph has missing or duplicate nodes");
-  const observed = new Map;
-  for (const history of histories) {
-    const id = key3(history.source.scope);
-    if (!nodes.has(id) || observed.has(id))
-      return indeterminate("Parent histories have unexpected or duplicate scopes");
-    observed.set(id, history);
-    const problem = historyRefusal(history);
-    if (problem !== null)
-      return { state: "indeterminate", diagnostics: problem.evidence };
+function drift(ctx, missing = []) {
+  return held(ctx.uw, "framing-result-drift", ctx.intent, ctx.member, missing);
+}
+
+// plugins/omp-build/engine/uw-framing-result-current.ts
+function expectedIdentities(registry) {
+  return registry.proposal.members.flatMap((item) => item.allocation === null ? [] : [
+    ...item.allocation.assignments.length > 0 ? [{ member: item.key, event: "allocate" }] : [],
+    ...item.allocation.retirements.length > 0 ? [{ member: item.key, event: "retire-proposed" }] : []
+  ]);
+}
+function framingIdentity(op, expected) {
+  const record = op.record;
+  if (op.authority === "foreign" || op.status !== "complete" || record?.kind !== "spec-identity")
+    return null;
+  const payload = record.payload;
+  if (payload.format !== "omp-build-spec-identity/2" || payload.event !== expected.event || payload.aggregate.member !== expected.member)
+    return null;
+  return { recordId: record.recordId, payload };
+}
+function recordedIdentities(history, expected, payload) {
+  return history.operations.flatMap((op) => {
+    const identity = framingIdentity(op, expected);
+    if (identity === null)
+      return [];
+    const reference = { scope: history.source.scope, recordId: identity.recordId, kind: "spec-identity" };
+    return payload.identities.some((item) => sameRef2(item, reference)) ? [identity.payload] : [];
+  });
+}
+function expectedIdentityHold(ctx, payload, expected) {
+  const missing = [{ kind: "identity", member: expected.member }];
+  const memberClaim = ctx.registry.claims.get(expected.member);
+  if (!memberClaim)
+    return held(ctx.uw, "framing-aggregate-incomplete", ctx.intent, ctx.member, missing);
+  const histories = ctx.histories.filter((history) => sameScope(history.source.scope, memberClaim.scope));
+  const history = histories[0];
+  if (histories.length !== 1 || !history.source.complete)
+    return held(ctx.uw, "framing-aggregate-unreadable", ctx.intent, ctx.member, missing);
+  const identities = recordedIdentities(history, expected, payload);
+  const identity = identities[0];
+  const authorized = identities.length === 1 && identity !== undefined && validateFramingAuthorization({
+    uw: memberClaim.scope,
+    histories: ctx.histories,
+    authorization: identity.aggregate,
+    payload: identity
+  }).ok;
+  return authorized ? null : held(ctx.uw, "framing-binding-conflict", ctx.intent, ctx.member, missing);
+}
+function identityHold(ctx, payload) {
+  const expected = expectedIdentities(ctx.registry);
+  if (payload.identities.length !== expected.length)
+    return held(ctx.uw, "framing-aggregate-incomplete", ctx.intent, ctx.member, [
+      { kind: "identity", member: ctx.member }
+    ]);
+  for (const item of expected) {
+    const hold = expectedIdentityHold(ctx, payload, item);
+    if (hold !== null)
+      return hold;
   }
-  if (observed.size !== nodes.size)
-    return indeterminate("Parent graph history is incomplete");
-  const own = observed.get(key3(parent));
-  return own === undefined ? indeterminate("Parent history is missing") : { own };
+  return null;
 }
-function assessParentInsertionEngagement(evidence) {
-  const found = parentHistory(evidence);
-  if (!("own" in found))
-    return found;
-  const own = found.own;
-  const selected = selectedMandate(own);
-  if ("status" in selected) {
-    if (selected.reason === "missing" && !own.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control"))))
-      return { state: "inactive", diagnostics: selected.evidence };
-    return { state: "indeterminate", diagnostics: selected.evidence };
+function nodeKindMatches(node, recorded, memberInput) {
+  if (memberInput.kind === "uw") {
+    const tiers = node.labels.filter((label) => label.startsWith("size:"));
+    return recorded.snapshot !== null && node.raw.bodySha256 === recorded.snapshot.raw.bodySha256 && tiers.length === 1 && tiers[0] === `size:${recorded.tier}` && !isWayfinder(node);
   }
-  const pause = unliftedPause(own, selected);
-  if (pause !== null)
-    return indeterminate("Parent mandate is paused");
-  const graphResult = executableGraph(selected);
-  if (!graphResult.ok)
-    return { state: "indeterminate", diagnostics: graphResult.diagnostics };
-  return { state: "active", diagnostics: [] };
+  return isWayfinder(node) && node.labels.includes(memberInput.label) && !node.labels.some((label) => label.startsWith("size:")) && node.raw.body === memberInput.body;
 }
+function nativeEdgePresent(node, uw, edge) {
+  if (edge.kind === "blocker")
+    return !sameScope(edge.dependent, uw) || node.blockers.some((blocker) => sameScope(blocker, edge.blocker));
+  if (sameScope(edge.parent, uw))
+    return node.children.some((child) => sameScope(child, edge.child));
+  return !sameScope(edge.child, uw) || node.parent !== null && sameScope(node.parent, edge.parent);
+}
+function nativeHold(ctx, payload) {
+  if (ctx.accepted.status !== "absent")
+    return null;
+  const node = ctx.graph.status === "complete" ? ctx.graph.nodes.find((entry) => sameScope(entry.uw, ctx.uw)) : undefined;
+  const recorded = payload.members.find((entry) => entry.key === ctx.member);
+  const memberInput = ctx.registry.proposal.input.members.find((entry) => entry.slot.key === ctx.member);
+  if (!node || !recorded || !memberInput || node.title !== memberInput.title)
+    return drift(ctx);
+  if (!nodeKindMatches(node, recorded, memberInput))
+    return drift(ctx);
+  return payload.edges.every((edge) => nativeEdgePresent(node, ctx.uw, edge)) ? null : drift(ctx);
+}
+function resultCurrentHold(ctx, payload) {
+  return identityHold(ctx, payload) ?? nativeHold(ctx, payload);
+}
+
+// plugins/omp-build/engine/uw-framing-result-record.ts
+function recordedClaimMatches(item, payload, index, planned) {
+  const recorded = payload.members[index];
+  return item !== undefined && sameRef2(item.claim, payload.claims[index]) && sameRef2(item.binding, payload.bindings[index]) && sameScope(item.scope, recorded.scope) && recorded.key === planned.key && recorded.memberDigest === planned.memberDigest && sameRef2(item.binding, recorded.binding);
+}
+function orderHold(ctx, payload) {
+  const planned = ctx.registry.proposal.members;
+  const aligned = payload.claims.length === planned.length && payload.bindings.length === planned.length && payload.members.length === planned.length && planned.every((item, index) => recordedClaimMatches(ctx.registry.claims.get(item.key), payload, index, item));
+  if (!aligned)
+    return held(ctx.uw, "framing-binding-conflict", ctx.intent, ctx.member);
+  if (payload.graphDigest !== canonicalValueDigest(payload.edges) || payload.identityDigest !== canonicalValueDigest(payload.identities))
+    return drift(ctx);
+  return null;
+}
+function allocationMatches(planned, actual) {
+  const allocation = planned.allocation;
+  if (allocation === null)
+    return actual.snapshot === null && actual.tier === null;
+  return actual.snapshot !== null && actual.tier === planned.tier && canonicalValueDigest(actual.snapshot.spec) === canonicalValueDigest(allocation.spec) && specDigest(actual.snapshot.raw.body) === actual.snapshot.raw.bodySha256;
+}
+function allocationHold(ctx, payload) {
+  const planned = ctx.registry.proposal.members;
+  return planned.every((item, index) => allocationMatches(item, payload.members[index])) ? null : drift(ctx);
+}
+function sameRecordedEdge(edge, recorded, from, to) {
+  if (edge.kind === "parent-child")
+    return recorded.kind === "parent-child" && sameScope(recorded.parent, from) && sameScope(recorded.child, to);
+  return recorded.kind === "blocker" && sameScope(recorded.dependent, from) && sameScope(recorded.blocker, to);
+}
+function edgeHold(ctx, payload) {
+  const scopeOf = (key) => ctx.registry.claims.get(key)?.scope;
+  for (const edge of ctx.registry.proposal.input.edges) {
+    const from = scopeOf(edge.kind === "parent-child" ? edge.parent : edge.dependent);
+    const to = scopeOf(edge.kind === "parent-child" ? edge.child : edge.blocker);
+    const recorded = from && to ? payload.edges.filter((item) => sameRecordedEdge(edge, item, from, to)).length : 0;
+    if (recorded !== 1)
+      return drift(ctx, [{ kind: "edge", edge }]);
+  }
+  return null;
+}
+function coverageHeaderMatches(coverage, intent, parent, snapshot) {
+  return sameRef2(coverage.aggregateIntent, intent) && coverage.parentVersion === snapshot.spec.version && canonicalValueDigest(coverage.criteria) === canonicalValueDigest(snapshot.spec.criteria) && sameScope(coverage.coverage.parent.uw, parent) && coverage.coverage.parent.version === snapshot.spec.version;
+}
+function coverageChildrenMatch(ctx, payload, parent, coverage) {
+  const expected = ctx.registry.proposal.input.edges.flatMap((edge) => edge.kind === "parent-child" && edge.parent === parent ? [payload.members.find((item) => item.key === edge.child)] : []);
+  const complete = expected.flatMap((child) => child?.snapshot && child.tier ? [{ scope: child.scope, snapshot: child.snapshot, tier: child.tier }] : []);
+  if (complete.length !== expected.length || coverage.children.length !== expected.length)
+    return false;
+  return coverage.children.every((child) => complete.some((item) => sameScope(child.scope, item.scope) && child.specVersion === item.snapshot.spec.version && child.tier === item.tier && canonicalValueDigest(child.criteria) === canonicalValueDigest(item.snapshot.spec.criteria)));
+}
+function coverageMatches(ctx, payload, planned) {
+  const allocation = ctx.registry.proposal.members.find((item) => item.key === planned.parent)?.allocation;
+  const resultMember = payload.members.find((item) => item.key === planned.parent);
+  const snapshot = resultMember?.snapshot;
+  if (!allocation || !resultMember || !snapshot)
+    return false;
+  const matches = payload.coverage.filter((item) => sameScope(item.parent, resultMember.scope));
+  const coverage = matches[0];
+  if (matches.length !== 1 || coverage === undefined || !coverageHeaderMatches(coverage, ctx.intent, resultMember.scope, snapshot))
+    return false;
+  const expectedAssignments = planned.assignments.map((assignment) => {
+    const criterion = assignment.criterion;
+    return {
+      criterion: criterion.kind === "existing" ? criterion.id : allocation.assignments.find((entry) => entry.draftKey === criterion.draftKey)?.id,
+      children: assignment.children.map((key) => ctx.registry.claims.get(key)?.scope)
+    };
+  });
+  if (canonicalValueDigest(coverage.coverage.assignments) !== canonicalValueDigest(expectedAssignments))
+    return false;
+  return coverageChildrenMatch(ctx, payload, planned.parent, coverage);
+}
+function coverageHold(ctx, payload) {
+  const planned = ctx.registry.proposal.input.coverage;
+  if (payload.coverage.length !== planned.length)
+    return drift(ctx);
+  return planned.every((item) => coverageMatches(ctx, payload, item)) ? null : drift(ctx);
+}
+function resultRecordHold(ctx, payload) {
+  return orderHold(ctx, payload) ?? allocationHold(ctx, payload) ?? edgeHold(ctx, payload) ?? coverageHold(ctx, payload);
+}
+
+// plugins/omp-build/engine/uw-framing-membership.ts
+function ownFacts(history) {
+  const facts = receipts(history).filter((record) => record.payload.phase === "intent" || record.payload.phase === "member-binding" || record.payload.phase === "member-claim");
+  const identities = history.operations.flatMap((op) => op.authority !== "foreign" && op.status === "complete" && op.record?.kind === "spec-identity" && op.record.payload.format === "omp-build-spec-identity/2" ? [op.record.payload.aggregate] : []);
+  return { facts, identities };
+}
+function factIntent(first, identities) {
+  if (first === undefined)
+    return identities[0]?.intent ?? null;
+  return first.payload.phase === "intent" ? ref3(first) : first.payload.intent;
+}
+function registryFor(input, intent) {
+  const roots = input.histories.filter((history) => sameScope(history.source.scope, intent.scope));
+  const root = roots[0];
+  if (roots.length !== 1 || root === undefined || failed(root))
+    return { ok: false, hold: held(input.uw, "framing-aggregate-unreadable", intent, null, [{ kind: "root-history" }]) };
+  const registry = reconstructFramingRegistry(root, intent);
+  if (registry.ok)
+    return { ok: true, value: registry.value };
+  const unreadable = registry.diagnostics[0]?.code === "framing-aggregate-unreadable";
+  return {
+    ok: false,
+    hold: held(input.uw, unreadable ? "framing-aggregate-unreadable" : "framing-binding-conflict", intent, null)
+  };
+}
+function foreignFacts(histories, intent, facts, identities) {
+  const relevant = facts.filter((record) => record.payload.phase === "intent" ? sameRef2(ref3(record), intent) : sameRef2(record.payload.intent, intent));
+  const misplaced = histories.some((history) => !sameScope(history.source.scope, intent.scope) && receipts(history).some((r) => (r.payload.phase === "member-claim" || r.payload.phase === "result") && sameRef2(r.payload.intent, intent)));
+  return relevant.length !== facts.length || misplaced || identities.some((identity) => !sameRef2(identity.intent, intent));
+}
+function memberKey(uw, intent, registry, bindings, identities) {
+  if (sameScope(uw, intent.scope))
+    return registry.proposal.input.root;
+  return bindings[0]?.payload.member ?? identities[0]?.member ?? null;
+}
+function claimHold(uw, intent, registry, member, bindings) {
+  if (bindings.length > 1)
+    return held(uw, "framing-binding-conflict", intent, member);
+  const isRoot = sameScope(uw, intent.scope);
+  const binding = bindings[0];
+  if (!isRoot && binding === undefined)
+    return held(uw, "framing-binding-unregistered", intent, member, [{ kind: "binding", member }]);
+  if (binding !== undefined && !isRoot && (binding.payload.member !== member || binding.payload.memberDigest !== registry.members.get(member)?.memberDigest))
+    return held(uw, "framing-binding-conflict", intent, member);
+  const claim = registry.claims.get(member);
+  const rebound = !isRoot && binding !== undefined && claim !== undefined && !sameRef2(claim.binding, binding.ref);
+  if (!claim || !sameScope(claim.scope, uw) || rebound)
+    return held(uw, "framing-binding-unregistered", intent, member, [{ kind: "claim", member }]);
+  return null;
+}
+function resultHold(ctx, payload) {
+  return resultRecordHold(ctx, payload) ?? resultCurrentHold(ctx, payload);
+}
+function readFramingMembership(input) {
+  const own = input.histories.filter((history) => sameScope(history.source.scope, input.uw));
+  const history = own[0];
+  if (own.length !== 1 || history === undefined || failed(history))
+    return held(input.uw, "framing-aggregate-unreadable", null, null, [{ kind: "root-history" }]);
+  const { facts, identities } = ownFacts(history);
+  if (!facts.length && !identities.length)
+    return { status: "none" };
+  const intent = factIntent(facts[0], identities);
+  if (intent === null)
+    return held(input.uw, "framing-binding-conflict", null, null);
+  const registry = registryFor(input, intent);
+  if (!registry.ok)
+    return registry.hold;
+  if (foreignFacts(input.histories, intent, facts, identities))
+    return held(input.uw, "framing-binding-conflict", intent, null);
+  const bindings = facts.flatMap((record) => record.payload.phase === "member-binding" ? [{ ref: ref3(record), payload: record.payload }] : []);
+  const member = memberKey(input.uw, intent, registry.value, bindings, identities);
+  if (member === null)
+    return held(input.uw, "framing-binding-conflict", intent, null);
+  const claimed = claimHold(input.uw, intent, registry.value, member, bindings);
+  if (claimed !== null)
+    return claimed;
+  const { result, resultPayload, claims, members } = registry.value;
+  if (result === null || resultPayload === null || claims.size !== members.size)
+    return held(input.uw, "framing-aggregate-incomplete", intent, member, [{ kind: "result" }]);
+  return resultHold({ ...input, intent, member, registry: registry.value }, resultPayload) ?? {
+    status: "complete",
+    intent,
+    result,
+    member
+  };
+}
+function readFramingCoverageIntent(input) {
+  const roots = input.histories.filter((history) => sameScope(history.source.scope, input.membership.intent.scope));
+  if (roots.length !== 1)
+    return {
+      ok: false,
+      diagnostics: [diagnostic3(input.uw, "framing-aggregate-unreadable", "Intent history is missing or ambiguous")]
+    };
+  const registry = reconstructFramingRegistry(roots[0], input.membership.intent);
+  if (!registry.ok)
+    return registry;
+  if (registry.value.result === null || registry.value.resultPayload === null || !sameRef2(registry.value.result, input.membership.result))
+    return conflict(input.uw, "Result no longer matches membership");
+  const matching = registry.value.resultPayload.coverage.filter((item) => sameScope(item.parent, input.uw));
+  if (matching.length > 1 || matching.some((item) => !sameRef2(item.aggregateIntent, input.membership.intent)))
+    return conflict(input.uw, "Coverage intent is duplicate or names a different aggregate");
+  for (const ancestor of matching[0]?.ancestors ?? []) {
+    if (ancestor.kind !== "framing-member")
+      continue;
+    const members = registry.value.resultPayload.members.filter((member) => member.key === ancestor.member && sameScope(member.scope, ancestor.scope));
+    if (members.length !== 1)
+      return conflict(input.uw, "Coverage ancestor does not resolve uniquely in the result");
+  }
+  return {
+    ok: true,
+    value: matching.length === 0 ? null : { ...matching[0], aggregateResult: input.membership.result }
+  };
+}
+
 // plugins/omp-build/engine/uw-admission.ts
 function diag3(uw, code, message, connection = "state", related) {
   return {
@@ -25234,6 +25828,9 @@ function acceptedChildDiagnostics(projection, input, child, native) {
 function assessUwAdmission(input) {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw));
   const framed = framingDiagnostics(input, root);
+  const aggregate = readFramingMembership(input);
+  if (aggregate.status === "held")
+    framed.push(...aggregate.diagnostics);
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics];
   let applicability = "unresolved";
   if (input.accepted.status === "accepted") {
@@ -25264,7 +25861,8 @@ function assessUwAdmission(input) {
   return {
     framed: { ok: framed.length === 0, diagnostics: framed },
     deliverable: { ok: deliverable.length === 0, diagnostics: deliverable },
-    applicability
+    applicability,
+    aggregate
   };
 }
 // plugins/omp-build/engine/uw-completion-coverage.ts
@@ -25483,7 +26081,7 @@ function assessNativeOnly(input) {
 }
 
 // plugins/omp-build/engine/uw-completion.ts
-function issue4(uw, code, message) {
+function issue3(uw, code, message) {
   return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
 function relevantOperations(history) {
@@ -25504,7 +26102,7 @@ function refusalRecorder(uw, key, observation, dependencies, completions) {
   return (basis, state, problem, managed) => {
     const problems = [problem];
     if (managed && state !== "abandoned" && observation.graph.nodes.some((node) => sameScope(node.uw, uw) && node.native.state === "CLOSED"))
-      problems.push(issue4(uw, "native-closure-unproven", "Native closure does not establish calculated completion; reopen or record abandonment"));
+      problems.push(issue3(uw, "native-closure-unproven", "Native closure does not establish calculated completion; reopen or record abandonment"));
     const completion = managed ? { state, uw, diagnostics: problems } : null;
     const resolution = { uw, basis, state: "held", completion, diagnostics: problems };
     if (completion)
@@ -25533,7 +26131,7 @@ function assessUwCompletion(observation) {
       return existing;
     const refuse = refusalRecorder(uw, key, observation, dependencies, completions);
     const unresolved = (code, message) => {
-      const problem = issue4(uw, code, message);
+      const problem = issue3(uw, code, message);
       return refuse({ kind: "unresolved", diagnostics: [problem] }, "indeterminate", problem, false);
     };
     if (visiting.has(key))
@@ -25561,7 +26159,7 @@ function assessUwCompletion(observation) {
         relevant,
         key,
         dependencies,
-        issue: issue4,
+        issue: issue3,
         refuse,
         unresolved
       });
@@ -25578,7 +26176,7 @@ function assessUwCompletion(observation) {
       deliveryAuthorities,
       visiting,
       commitIndex,
-      issue: issue4,
+      issue: issue3,
       refuse,
       assess
     });
@@ -25587,6 +26185,29 @@ function assessUwCompletion(observation) {
     assess(uw);
   assess(observation.root);
   return { waits, dependencies, completions, diagnostics };
+}
+// plugins/omp-build/engine/uw-framing-state.ts
+function framingAcceptedStateDigest(input) {
+  return canonicalValueDigest({
+    spec: input.spec,
+    tier: input.tier,
+    children: input.children.map(({ scope, specVersion, tier, snapshot }) => ({
+      scope,
+      specVersion,
+      tier,
+      spec: snapshot.spec
+    })),
+    coverage: input.coverage
+  });
+}
+function framingObservationDigest(observation) {
+  return canonicalValueDigest({
+    root: observation.root,
+    nodes: [...observation.graph.nodes].sort((a, b) => scopeKey(a.uw).localeCompare(scopeKey(b.uw))),
+    histories: [...observation.histories].sort((a, b) => scopeKey(a.source.scope).localeCompare(scopeKey(b.source.scope))),
+    catalogues: observation.catalogues,
+    delivery: [...observation.delivery].sort((a, b) => scopeKey(a.uw).localeCompare(scopeKey(b.uw)))
+  });
 }
 // plugins/omp-build/engine/uw-identity.ts
 function diag4(uw, code, message) {
@@ -25678,7 +26299,7 @@ function resolveSpecIdentityLedger(input) {
     diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history does not match authentication context"));
   if (!input.history.source.complete)
     diagnostics.push(diag4(input.uw, "spec-ledger-incomplete", "Identity history is incomplete"));
-  const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics);
+  const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics, input.histories);
   const active = acceptedIds(input.accepted);
   const authenticated = replayAcceptedRetirements(input.history, input.histories, replay, input.uw, diagnostics, input.assessmentReplay);
   validateReferencedHistories(input.uw, input.histories, authenticated, diagnostics);
@@ -25701,6 +26322,24 @@ function prepareSpecAllocation(draft, ledger) {
   const parsed = specDraftSchema.safeParse(draft);
   return parsed.success ? buildSpecAllocationPlan(parsed.data, ledger) : { ok: false, diagnostics: [diag4(ledger.uw, "spec-invalid", "Spec draft is invalid")] };
 }
+function prepareNewSpecAllocation(draft, repository) {
+  const parsed = specDraftSchema.safeParse(draft);
+  return parsed.success ? buildNewSpecAllocationPlan(parsed.data, repository) : {
+    ok: false,
+    diagnostics: [
+      {
+        code: "spec-invalid",
+        message: "Spec draft is invalid",
+        location: { kind: "repository", repository },
+        related: []
+      }
+    ]
+  };
+}
+// plugins/omp-build/engine/uw-identity-events.ts
+function diag5(uw, code, message) {
+  return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
+}
 function identityDraft(uw, operationId, suffix, payload) {
   const id = `${operationId}${suffix}`;
   return {
@@ -25719,7 +26358,7 @@ function confirmedIdentityEvidence(uw, input, effects) {
   if (!confirmation.success || confirmation.data.operationId !== input.operationId || confirmation.data.proposalDigest !== input.proposalDigest || effects.length === 0)
     return {
       ok: false,
-      diagnostics: [diag4(uw, "operator-confirmation-required", "Exact native confirmation is required")]
+      diagnostics: [diag5(uw, "operator-confirmation-required", "Exact native confirmation is required")]
     };
   return { ok: true, value: confirmation.data };
 }
@@ -25750,6 +26389,507 @@ function buildSpecIdentityProposedRetirement(input) {
     ids: input.plan.retirements
   });
   return { ok: true, value: identityDraft(input.uw, input.operationId, ":retire-proposed", payload) };
+}
+function buildFramingSpecIdentity(input) {
+  const own = input.histories.filter((history) => equalScope(history.source.scope, input.uw));
+  if (own.length !== 1 || !own[0].source.complete)
+    return {
+      ok: false,
+      diagnostics: [diag5(input.uw, "spec-ledger-incomplete", "Complete unique member history is required")]
+    };
+  const diagnostics = [];
+  const replay = replaySpecIdentityHistory(own[0], input.uw, diagnostics, input.histories);
+  if (diagnostics.length > 0)
+    return { ok: false, diagnostics };
+  if (input.predecessor === null !== (replay.head === null) || input.predecessor !== null && replay.head !== null && !sameRef2(input.predecessor, replay.head))
+    return {
+      ok: false,
+      diagnostics: [
+        diag5(input.uw, "spec-ledger-conflict", "Identity predecessor differs from the current ledger head")
+      ]
+    };
+  const values = input.event === "allocate" ? input.plan.assignments : input.plan.retirements;
+  if (values.length === 0)
+    return { ok: false, diagnostics: [diag5(input.uw, "spec-ledger-conflict", "Identity event has no effects")] };
+  const parsed = specIdentityPayloadSchema.safeParse({
+    format: "omp-build-spec-identity/2",
+    predecessor: input.predecessor,
+    proposalDigest: input.authorization.memberDigest,
+    confirmation: input.authorization.confirmation,
+    aggregate: input.authorization,
+    event: input.event,
+    ...input.event === "allocate" ? { allocations: input.plan.assignments } : { ids: input.plan.retirements }
+  });
+  if (!parsed.success || parsed.data.format !== "omp-build-spec-identity/2")
+    return { ok: false, diagnostics: [diag5(input.uw, "spec-ledger-conflict", "Invalid aggregate identity event")] };
+  const authenticated = validateFramingAuthorization({
+    uw: input.uw,
+    histories: input.histories,
+    authorization: input.authorization,
+    payload: parsed.data
+  });
+  if (!authenticated.ok)
+    return authenticated;
+  return {
+    ok: true,
+    value: identityDraft(input.uw, input.operationId, input.event === "allocate" ? "" : ":retire-proposed", parsed.data)
+  };
+}
+// plugins/omp-build/engine/cause-dependency-adjustment-decision.ts
+function fail3(origin, message) {
+  return {
+    ok: false,
+    diagnostics: [
+      {
+        code: "cause-adjustment-unavailable",
+        message,
+        location: { kind: "native", uw: origin, connection: "blockers" },
+        related: []
+      }
+    ]
+  };
+}
+function withdrawnTarget(input, history, predecessor, target) {
+  let cursor = input.receipt;
+  const controls = recordsOf(history).filter((record) => record.kind === "operator-control" && record.payload.control === "adjust-cause-dependency");
+  while (!sameRef2(cursor, predecessor)) {
+    const next = controls.filter((record) => record.kind === "operator-control" && record.payload.control === "adjust-cause-dependency" && sameRef2(record.payload.proposal.predecessor, cursor));
+    const record = next[0];
+    if (next.length !== 1 || record?.kind !== "operator-control" || record.payload.control !== "adjust-cause-dependency")
+      return fail3(input.origin, "Prior causal chain cannot be reconstructed");
+    if (record.payload.proposal.change.kind === "replace")
+      target = record.payload.proposal.change.blocker;
+    cursor = { scope: input.origin, recordId: record.recordId, kind: "operator-control" };
+  }
+  return { ok: true, value: target };
+}
+function currentDecision(input, history, waits) {
+  const match = waits.causeWaits.filter((item) => equalScope(item.origin, input.origin) && sameRef2(item.disposition, input.disposition) && sameRef2(item.receipt, input.receipt));
+  const current = match[0];
+  if (match.length !== 1 || current === undefined || current.state === "held" || waits.diagnostics.some((entry) => entry.code !== "wait-cycle"))
+    return fail3(input.origin, "The current cause and complete wait graph cannot be authenticated");
+  const predecessor = current.control ?? input.receipt;
+  if (!sameRef2(predecessor, input.predecessor))
+    return fail3(input.origin, "The decision does not extend the unique current predecessor");
+  const receipt = recordsOf(history).find((record) => record.kind === "debt-receipt" && record.recordId === input.receipt.recordId);
+  if (receipt?.kind !== "debt-receipt")
+    return fail3(input.origin, "Original sister receipt is unavailable");
+  const target = current.state === "required" ? current.target : receipt.payload.sister;
+  if (current.state !== "withdrawn")
+    return { ok: true, value: { predecessor, target } };
+  const resolved = withdrawnTarget(input, history, predecessor, target);
+  return resolved.ok ? { ok: true, value: { predecessor, target: resolved.value } } : resolved;
+}
+function replacementCycles(input, waits) {
+  if (input.change.kind !== "replace")
+    return [];
+  const edges = waits.requirements.filter((edge) => !(edge.source.kind === "blocking-sister" && sameRef2(edge.source.receipt, input.receipt)) && !(edge.source.kind === "native-blocker" && equalScope(edge.from, input.origin) && input.nativeEffect.kind === "update-blockers" && input.nativeEffect.remove.some((scope) => equalScope(scope, edge.to))));
+  edges.push({
+    from: input.origin,
+    to: input.change.blocker,
+    source: { kind: "blocking-sister", disposition: input.disposition, receipt: input.receipt, control: null }
+  });
+  if (input.nativeEffect.kind === "update-blockers")
+    for (const to of input.nativeEffect.add)
+      edges.push({ from: input.origin, to, source: { kind: "native-blocker" } });
+  return waitCycleDiagnostics(edges);
+}
+function historicalTarget(p, history, target) {
+  let cursor = p.predecessor;
+  const seen = new Set;
+  while (cursor.kind === "operator-control") {
+    if (seen.has(cursor.recordId))
+      return fail3(p.origin, "Prior causal chain contains a cycle");
+    seen.add(cursor.recordId);
+    const record = recordsOf(history).find((item) => item.kind === "operator-control" && item.recordId === cursor.recordId);
+    if (record?.kind !== "operator-control" || record.payload.control !== "adjust-cause-dependency")
+      return fail3(p.origin, "Prior causal chain is unavailable");
+    if (record.payload.proposal.change.kind === "replace")
+      return { ok: true, value: record.payload.proposal.change.blocker };
+    cursor = record.payload.proposal.predecessor;
+  }
+  return { ok: true, value: target };
+}
+function effectTarget(p, baseline) {
+  const history = historyFor(p.origin, baseline.histories);
+  const receipt = history && recordsOf(history).find((record) => record.kind === "debt-receipt" && record.recordId === p.receipt.recordId);
+  if (receipt?.kind !== "debt-receipt")
+    return fail3(p.origin, "Original receipt is unavailable");
+  const waits = projectUwWaits({
+    graph: baseline.graph,
+    histories: baseline.histories,
+    catalogues: baseline.catalogues
+  });
+  const current = waits.causeWaits.find((item) => sameRef2(item.receipt, p.receipt) && equalScope(item.origin, p.origin));
+  const target = current?.state === "required" ? current.target : receipt.payload.sister;
+  return current?.state === "withdrawn" && history ? historicalTarget(p, history, target) : { ok: true, value: target };
+}
+
+// plugins/omp-build/engine/cause-dependency-adjustment-observation.ts
+function issue4(scope) {
+  const prefix = `${scope.repository}#`;
+  const suffix = scope.target.startsWith(prefix) ? scope.target.slice(prefix.length) : "";
+  const number = /^[1-9][0-9]*$/.test(suffix) ? Number(suffix) : NaN;
+  return Number.isSafeInteger(number) && number > 0 ? { repository: scope.repository, number } : null;
+}
+function native(node) {
+  const id = issue4(node.uw);
+  const parent = node.parent === null ? null : issue4(node.parent);
+  const children = node.children.map(issue4);
+  const blockers = node.blockers.map(issue4);
+  if (id === null || node.parent !== null && parent === null || children.some((item) => item === null) || blockers.some((item) => item === null))
+    return null;
+  return {
+    issue: id,
+    title: node.title,
+    body: node.raw.body,
+    updatedAt: node.updatedAt,
+    nativeState: node.native,
+    labels: [...node.labels],
+    parent,
+    children,
+    blockers
+  };
+}
+function inventory(observation) {
+  const histories = observation.histories.map((item) => ({ scope: item.source.scope, digest: canonicalValueDigest(item) })).sort((a, b) => scopeKey(a.scope).localeCompare(scopeKey(b.scope)));
+  const nodes = observation.graph.nodes.map((node) => ({ scope: node.uw, value: native(node) }));
+  if (new Set(histories.map((item) => scopeKey(item.scope))).size !== histories.length || new Set(nodes.map((item) => scopeKey(item.scope))).size !== nodes.length || observation.histories.some((item) => !item.source.complete))
+    return null;
+  const rows = [];
+  for (const entry of nodes) {
+    if (entry.value === null)
+      return null;
+    rows.push({ uw: entry.scope, digest: nativeObservationDigest(entry.value) });
+  }
+  const nativeGraph = {
+    root: observation.graph.root,
+    rows: rows.sort((a, b) => scopeKey(a.uw).localeCompare(scopeKey(b.uw)))
+  };
+  return { histories, nativeGraph };
+}
+
+// plugins/omp-build/engine/cause-dependency-adjustment.ts
+function authenticatedAdjustmentReferences(input, history) {
+  const disposition = recordsOf(history).find((record) => record.kind === "cause-disposition" && record.recordId === input.disposition.recordId);
+  return disposition?.kind === "cause-disposition" && causeAdjustmentReferencesValid(input.references, disposition, input.observation.histories);
+}
+function prepareCauseDependencyAdjustment(input) {
+  const { origin, observation } = input;
+  if (observation.status !== "complete" || !equalScope(observation.graph.root, origin))
+    return fail3(origin, "A complete origin-rooted native and workflow observation is required");
+  const captured = inventory(observation);
+  const history = historyFor(origin, observation.histories);
+  const node = observation.graph.nodes.find((entry) => equalScope(entry.uw, origin));
+  const before = node === undefined ? null : native(node);
+  if (!captured || !history || !before)
+    return fail3(origin, "Origin facts or unique complete histories are unavailable");
+  const authority = resolveOwnSpecAuthority(history, observation.histories.filter((item) => item !== history), { histories: observation.histories, catalogues: observation.catalogues, observation });
+  if (!authority.ok)
+    return fail3(origin, "Active current mandate and accepted Spec cannot be authenticated");
+  const selected = authority.value.mandate;
+  const accepted = { ok: true, spec: authority.value.accepted };
+  const effective = resolveSpecEffectiveForControl({
+    mode: "current",
+    own: accepted.spec.ref,
+    histories: observation.histories,
+    graph: observation.graph
+  });
+  if (!effective.ok)
+    return effective;
+  if (!authenticatedAdjustmentReferences(input, history))
+    return fail3(origin, "A decision reference cannot be authenticated");
+  const waits = projectUwWaits({
+    graph: observation.graph,
+    histories: observation.histories,
+    catalogues: observation.catalogues
+  });
+  const decision = currentDecision(input, history, waits);
+  if (!decision.ok)
+    return decision;
+  const { predecessor, target } = decision.value;
+  if (input.change.kind === "replace") {
+    const blocker = input.change.blocker;
+    if (!observation.graph.nodes.some((entry) => equalScope(entry.uw, blocker)))
+      return fail3(origin, "Replacement facts were not included in the native observation");
+  }
+  const parsed = causeDependencyAdjustmentProposalSchema.safeParse({
+    format: "omp-build-cause-dependency-adjustment/1",
+    operationId: input.operationId,
+    controlId: input.controlId,
+    origin,
+    mandate: { scope: origin, recordId: selected.recordId, kind: "mandate" },
+    accepted: accepted.spec.ref,
+    versionVector: effective.value.versionVector,
+    disposition: input.disposition,
+    receipt: input.receipt,
+    predecessor,
+    change: input.change,
+    reason: input.reason,
+    references: input.references,
+    before,
+    nativeObservationDigest: nativeObservationDigest(before),
+    histories: captured.histories,
+    nativeGraph: captured.nativeGraph,
+    nativeEffect: input.nativeEffect
+  });
+  if (!parsed.success || causeAdjustmentExpectedEffect(parsed.data, target) === null)
+    return fail3(origin, "The proposal or explicit native blocker delta is invalid");
+  const cycles = replacementCycles(input, waits);
+  if (cycles.length)
+    return { ok: false, diagnostics: cycles };
+  return { ok: true, value: { proposal: parsed.data, digest: canonicalValueDigest(parsed.data) } };
+}
+function recheckCauseDependencyAdjustment(prepared, observation) {
+  const p = prepared.proposal;
+  const checked = prepareCauseDependencyAdjustment({
+    operationId: p.operationId,
+    controlId: p.controlId,
+    origin: p.origin,
+    disposition: p.disposition,
+    receipt: p.receipt,
+    predecessor: p.predecessor,
+    change: p.change,
+    nativeEffect: p.nativeEffect,
+    reason: p.reason,
+    references: p.references,
+    observation
+  });
+  if (!checked.ok)
+    return checked;
+  const normalized = {
+    ...checked.value.proposal,
+    before: { ...checked.value.proposal.before, updatedAt: p.before.updatedAt }
+  };
+  return prepared.digest === canonicalValueDigest(p) && canonicalValueDigest(normalized) === prepared.digest ? { ok: true, value: prepared } : fail3(p.origin, "Facts or authority changed after confirmation");
+}
+function recheckCauseDependencyAdjustmentEffect(prepared, observed, observation) {
+  const p = prepared.proposal;
+  if (observation.status !== "complete")
+    return fail3(p.origin, "Post-effect observation is incomplete");
+  const node = observation.graph.nodes.find((entry) => equalScope(entry.uw, p.origin));
+  const actual = node && native(node);
+  if (!actual || nativeObservationDigest(actual) !== nativeObservationDigest(observed))
+    return fail3(p.origin, "Writer and fresh native readback disagree");
+  const scope = (ref) => ({
+    repository: ref.repository,
+    target: `${ref.repository}#${ref.number}`
+  });
+  const before = p.before;
+  const baseline = {
+    ...observation,
+    graph: {
+      ...observation.graph,
+      nodes: observation.graph.nodes.map((entry) => equalScope(entry.uw, p.origin) ? { ...entry, blockers: before.blockers.map(scope) } : entry)
+    }
+  };
+  const checked = recheckCauseDependencyAdjustment(prepared, baseline);
+  if (!checked.ok)
+    return checked;
+  const target = effectTarget(p, baseline);
+  if (!target.ok)
+    return target;
+  const expected = causeAdjustmentExpectedEffect(p, target.value);
+  return expected !== null && nativeObservationDigest(expected) === nativeObservationDigest(actual) ? checked : fail3(p.origin, "Native result exceeds the confirmed blocker delta");
+}
+// plugins/omp-build/engine/framing-form-schema.ts
+var decision = strictObject({
+  questionEntryId: string2().min(1),
+  answerEntryId: string2().min(1),
+  decision: string2().trim().min(1)
+});
+var decisions = array(decision);
+var unresolved = array(string2().trim().min(1));
+var term = strictObject({ term: string2().trim().min(1), meaning: string2().trim().min(1) });
+var selectedText = union([literal("accepted-args"), strictObject({ entryId: string2().min(1) })]);
+var modelSlot = discriminatedUnion("kind", [
+  strictObject({ key: framingMemberKeySchema, kind: literal("new") }),
+  strictObject({ key: framingMemberKeySchema, kind: literal("selected") }),
+  strictObject({
+    key: framingMemberKeySchema,
+    kind: literal("native-child"),
+    parent: framingMemberKeySchema,
+    reference: string2().min(1)
+  })
+]);
+var modelMember = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("uw"),
+    slot: modelSlot,
+    draft: specDraftSchema,
+    title: string2().trim().min(1),
+    factors: complexityFactorsSchema,
+    tierOverride: tierOverrideSchema,
+    normalization: array(framingAccountedDecisionSchema),
+    merges: array(framingDestinationMergeSchema),
+    labels: strictObject({ add: array(string2()), remove: array(string2()) })
+  }),
+  strictObject({
+    kind: literal("wayfinder"),
+    slot: modelSlot,
+    title: string2().trim().min(1),
+    body: string2(),
+    label: _enum([
+      "wayfinder:map",
+      "wayfinder:grilling",
+      "wayfinder:research",
+      "wayfinder:prototype",
+      "wayfinder:task"
+    ])
+  })
+]);
+var vocabularyBinding = strictObject({
+  term: string2().trim().min(1),
+  invariant: framingObligationSchema,
+  criterion: framingObligationSchema
+});
+var moduleBinding = strictObject({ name: string2().trim().min(1), invariant: framingObligationSchema });
+var framingFormSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("question"), question: string2().trim().min(1) }),
+  strictObject({
+    kind: literal("grilling"),
+    decisions,
+    unresolved,
+    shape: _enum(["parent", "leaf"]),
+    terms: array(term)
+  }),
+  strictObject({ kind: literal("terminology"), decisions, unresolved, terms: array(term) }),
+  strictObject({
+    kind: literal("module-design"),
+    decisions,
+    unresolved,
+    modules: array(strictObject({
+      name: string2().trim().min(1),
+      interface: string2().trim().min(1),
+      seam: string2().trim().min(1)
+    }))
+  }),
+  strictObject({
+    kind: literal("material"),
+    producer: _enum(["to-spec", "to-tickets"]),
+    entry: string2().min(1)
+  }),
+  strictObject({
+    kind: literal("select-existing"),
+    key: framingMemberKeySchema,
+    text: selectedText,
+    reference: string2().min(1)
+  }),
+  strictObject({ kind: literal("answer-only"), answer: string2().trim().min(1) }),
+  strictObject({ kind: literal("wayfinder-offer"), question: string2().trim().min(1) }),
+  strictObject({
+    kind: literal("proposal"),
+    aggregate: strictObject({
+      kind: _enum(["uw", "wayfinder"]),
+      root: framingMemberKeySchema,
+      members: array(modelMember).min(1),
+      edges: array(framingEdgeSchema),
+      coverage: array(framingCoverageIntentSchema),
+      foundations: array(strictObject({ parent: framingMemberKeySchema, child: framingMemberKeySchema }))
+    }),
+    decisions,
+    vocabulary: array(vocabularyBinding),
+    modules: array(moduleBinding)
+  })
+]);
+var framingFormInputSchema = strictObject({ supplyToken: string2().min(1), form: framingFormSchema });
+// plugins/omp-build/engine/history-schema.ts
+var historySchema = strictObject({
+  scope: scopeSchema,
+  expectedAuthor: string2().min(1),
+  stopAuthor: string2().min(1).nullable(),
+  complete: boolean2(),
+  comments: array(observedCommentSchema),
+  diagnostics: array(diagnosticSchema)
+});
+var operationAuthoritySchema = _enum(["authority", "foreign", "accounted"]);
+var operationReadSchema = strictObject({
+  operationId: string2().min(1).nullable(),
+  recordId: string2().min(1).nullable(),
+  kind: string2().min(1).nullable(),
+  status: _enum(["complete", "incomplete", "conflict", "invalid", "legacy"]),
+  parts: array(observedCommentSchema),
+  record: recordSchema.nullable(),
+  claimedKinds: array(string2().min(1)).refine((kinds) => new Set(kinds).size === kinds.length, "claimed kinds must be distinct"),
+  authority: operationAuthoritySchema
+});
+var decodedHistorySchema = strictObject({
+  source: historySchema,
+  operations: array(operationReadSchema),
+  diagnostics: array(diagnosticSchema)
+});
+// plugins/omp-build/engine/native-terminal.ts
+function object6(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function inspectNativeTerminal(value) {
+  if (!object6(value))
+    return { structured: null, reason: "malformed-child-result" };
+  const output = value.structuredOutput;
+  const parsed = object6(output) && output.status === "valid" ? jsonSchema.safeParse(output.data) : null;
+  const structured = parsed?.success ? parsed.data : null;
+  let reason = null;
+  if (value.exitCode !== 0)
+    reason = "required-child-exit-code";
+  else if (value.error !== undefined && value.error !== null)
+    reason = "required-child-error";
+  else if (value.aborted === true)
+    reason = "required-child-aborted";
+  else if (!object6(output))
+    reason = "missing-structured-output";
+  else if (output.status !== "valid")
+    reason = "structured-output-not-valid";
+  return { structured, reason };
+}
+// plugins/omp-build/engine/parent-insertion-engagement.ts
+var indeterminate = (message) => ({
+  state: "indeterminate",
+  diagnostics: [diagnostic2("incomplete", message)]
+});
+var key3 = (scope) => `${scope.repository}\x00${scope.target}`;
+function parentHistory(evidence) {
+  const { parent, graph, histories } = evidence;
+  if (!equalScope(parent, graph.root))
+    return indeterminate("Parent graph root does not match the requested parent");
+  const graphCheck = validateUwGraph(graph);
+  if (!graphCheck.ok)
+    return { state: "indeterminate", diagnostics: toDiagnostics(graphCheck.diagnostics) };
+  const nodes = new Set(graph.nodes.map((node) => key3(node.uw)));
+  if (nodes.size !== graph.nodes.length || !nodes.has(key3(parent)))
+    return indeterminate("Parent graph has missing or duplicate nodes");
+  const observed = new Map;
+  for (const history of histories) {
+    const id = key3(history.source.scope);
+    if (!nodes.has(id) || observed.has(id))
+      return indeterminate("Parent histories have unexpected or duplicate scopes");
+    observed.set(id, history);
+    const problem = historyRefusal(history);
+    if (problem !== null)
+      return { state: "indeterminate", diagnostics: problem.evidence };
+  }
+  if (observed.size !== nodes.size)
+    return indeterminate("Parent graph history is incomplete");
+  const own = observed.get(key3(parent));
+  return own === undefined ? indeterminate("Parent history is missing") : { own };
+}
+function assessParentInsertionEngagement(evidence) {
+  const found = parentHistory(evidence);
+  if (!("own" in found))
+    return found;
+  const own = found.own;
+  const selected = selectedMandate(own);
+  if ("status" in selected) {
+    if (selected.reason === "missing" && !own.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control"))))
+      return { state: "inactive", diagnostics: selected.evidence };
+    return { state: "indeterminate", diagnostics: selected.evidence };
+  }
+  const pause = unliftedPause(own, selected);
+  if (pause !== null)
+    return indeterminate("Parent mandate is paused");
+  const graphResult = executableGraph(selected);
+  if (!graphResult.ok)
+    return { state: "indeterminate", diagnostics: graphResult.diagnostics };
+  return { state: "active", diagnostics: [] };
 }
 // plugins/omp-build/engine/workflow-assessment-child-sources.ts
 function childHistory(uw, histories) {
@@ -28679,6 +29819,7 @@ var ompBuildStartReviewParametersJsonSchema = jsonSchema2(ompBuildStartReviewPar
 var ompBuildRecoveryPrParametersJsonSchema = jsonSchema2(ompBuildRecoveryPrParametersSchema);
 var ompBuildRecoveryReplaceParametersJsonSchema = jsonSchema2(ompBuildRecoveryReplaceParametersSchema);
 var ompBuildPrepareCheckoutParametersJsonSchema = jsonSchema2(ompBuildPrepareCheckoutParametersSchema);
+var ompBuildFramingSubmitParametersJsonSchema = jsonSchema2(framingFormInputSchema);
 // plugins/omp-build/roxabi/uw-spec/scope-issue.ts
 async function readScopeIssueBody(scope, options) {
   const facts = await readNativeIssueFacts(scope.repository, scopeNumber(scope), options);
@@ -28868,6 +30009,8 @@ export {
   ACTION_INPUT_FORMAT,
   CRITERION_EVIDENCE_FORMAT,
   FINDING_TARGET_FORMAT,
+  FRAMING_ADMISSION_HOLD_CODES,
+  FRAMING_PROCEDURE_FILES,
   GitHubHistoryReadError,
   KIND_NAMES,
   PLAN_REVIEW_SPECIALISTS,
@@ -28916,8 +30059,10 @@ export {
   authorizeReviewContextSuccessor,
   bindExternalRef,
   bindImplementationCommand,
+  boundFramingCoverageIntentSchema,
   buildComposedMaterialAcceptanceControl,
   buildFixOnlyMandate,
+  buildFramingSpecIdentity,
   buildMaterialAcceptanceControl,
   buildObservedCommitIndex,
   buildRecord,
@@ -28975,6 +30120,7 @@ export {
   criterionTargetSchema,
   criterionVerdictRefSchema,
   criterionVerdictSchema,
+  cycleKeys,
   debtReceiptSchema,
   decisionPayloadSchema,
   decisionSchema,
@@ -29010,6 +30156,34 @@ export {
   findingTargetSchema,
   fixRequestSchema,
   fixResultSchema,
+  framingAcceptedStateDigest,
+  framingAccountedDecisionSchema,
+  framingAggregateInputSchema,
+  framingAllocationSchema,
+  framingCoverageIntentSchema,
+  framingDestinationMergeSchema,
+  framingEdgeSchema,
+  framingFormInputSchema,
+  framingFormSchema,
+  framingInvocationBindingSchema,
+  framingMaterialCaptureSchema,
+  framingMaterialIdSchema,
+  framingMaterialSchema,
+  framingMemberAuthorizationSchema,
+  framingMemberKeySchema,
+  framingMemberSchema,
+  framingMemberSlotSchema,
+  framingObligationSchema,
+  framingObservationDigest,
+  framingProcedureManifestSchema,
+  framingProposalSchema,
+  framingReceiptPayloadSchema,
+  framingReceiptRefSchema,
+  framingSlotSelectionSchema,
+  framingSourceBindingSchema,
+  framingSourceOriginSchema,
+  framingSourceRefSchema,
+  framingStageSchema,
   gh,
   gitBoundaryObservationSchema,
   gitObjectIdSchema,
@@ -29059,6 +30233,7 @@ export {
   observeCauseSisters,
   observedAncestors,
   observedCommentSchema,
+  ompBuildFramingSubmitParametersJsonSchema,
   ompBuildPrepareCheckoutParametersJsonSchema,
   ompBuildPrepareCheckoutParametersSchema,
   ompBuildRecoveryPrParametersJsonSchema,
@@ -29079,6 +30254,7 @@ export {
   parseIssueSpecBody,
   parseRecord,
   parseReviewClassCatalogue,
+  parseSpecMaterial,
   partitionScopedRefs,
   phaseSchema,
   pinnedFileRefSchema,
@@ -29091,14 +30267,17 @@ export {
   planReviewSlotSchema,
   planReviewSpecialistSchema,
   planStepSchema,
+  pluginPinSchema,
   policySchema,
   prepareCauseDependencyAdjustment,
   prepareComposedParentConsent,
   prepareMaterialAcceptance,
+  prepareNewSpecAllocation,
   prepareReviewInterruptionPublication,
   prepareReviewReplacementGrantPublication,
   prepareReviewReplacementInventoryPublication,
   prepareSpecAllocation,
+  preparedFramingMemberSchema,
   producerCriterionDeclarationSchema,
   producerImplementationOutputSchema,
   producerJsonSchema,
@@ -29119,6 +30298,8 @@ export {
   readCauseReports,
   readComposedWorkflowHistory,
   readEffectiveFixConfig,
+  readFramingCoverageIntent,
+  readFramingMembership,
   readGitHubHistory,
   readIssueParentAssociation,
   readLandingFacts,
@@ -29139,6 +30320,7 @@ export {
   recheckComposedAssessmentDelta,
   recheckComposedParentAcceptance,
   recheckMaterialAcceptance,
+  reconstructFramingRegistry,
   reconstructWorkflow,
   recordInputRefSchema,
   recordIntegrity,
@@ -29146,6 +30328,7 @@ export {
   recordSchema,
   recordScopeIdentity,
   recordsOf,
+  relationGraph,
   renderIssueSpecBody,
   repoRelativePathSchema,
   reportPromotionInputSchema,
@@ -29232,6 +30415,7 @@ export {
   validateComposedMaterialAuthorization,
   validateDecision2 as validateDecision,
   validateDecisionBindings,
+  validateFramingAuthorization,
   validateFreshDecision,
   validateHistoricalReviewDecision,
   validateLocalFindingTarget,

@@ -6,8 +6,8 @@ import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import { selectApplicableMandate } from '../../engine/workflow-mandate-admission.ts'
 import { mandatePayloadSchema } from '../../engine/workflow-mandate-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../../omp/review-runtime/contracts.ts'
-import { selectionNormalization } from '../feature-continuation-selection.ts'
 import type { FeatureCommandHost } from '../feature-contract.ts'
+import { selectionNormalization } from '../feature-selection-normalization.ts'
 import type { UwOperations, UwProposalInput, UwRead } from '../uw-contract.ts'
 import { announceUwNormalization } from '../uw-normalization-host.ts'
 import {
@@ -75,6 +75,9 @@ async function normalizeExplicitSuccessor(
       },
       send: async () => undefined,
       status: async () => undefined,
+      startFraming: async () => {
+        throw new Error('successor normalization must not start initial framing')
+      },
     } as unknown as FeatureCommandHost
     await announceUwNormalization({
       reference: uw.target,

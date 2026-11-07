@@ -14,8 +14,6 @@ import {
   featureErrorMessage,
   featureSessionCwdMessage,
   featureStopMessage,
-  isAssistedFraming,
-  isFramingResult,
   principalRefusalMessage,
 } from './feature-presentation.ts'
 import { deliverSessionCwd } from './feature-session-cwd.ts'
@@ -35,11 +33,7 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     abortOwnedFeatureWatch(host.key)
     host.inhibitFeatureContinuation()
     await host.interruptOwnedWork?.(parsed.control)
-  } else if (parsed.control === 'select' || parsed.control === 'resume') {
-    host.releaseFeatureContinuation()
   }
-  const principalDispatch =
-    host.principal && (parsed.control === 'select' || parsed.control === 'resume' || parsed.control === 'new')
   const commandInput: ContinueFeatureInput = {
     cwd: host.cwd,
     reference: parsed.reference,
@@ -48,6 +42,17 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     ...(host.uw === undefined ? {} : { uw: host.uw }),
     ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
   }
+  await continueFeatureCommand(args, commandInput, host)
+}
+
+/** Dispatches the classified source before any delivery-only coverage or principal gate. */
+async function continueFeatureCommand(
+  args: string,
+  commandInput: ContinueFeatureInput,
+  host: FeatureCommandHost,
+): Promise<void> {
+  const control = commandInput.control
+  const principalDispatch = host.principal && (control === 'select' || control === 'resume' || control === 'new')
   let result: ContinueFeatureResult
   try {
     result = await host.workflow.continueFeature(commandInput)
@@ -56,6 +61,14 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
     return
   }
+  if (result.kind === 'framing') {
+    await host.startFraming(
+      result.source.kind === 'free-text' ? { kind: 'free-text', acceptedArgs: args } : result.source,
+      args,
+    )
+    return
+  }
+  if (control === 'select' || control === 'resume') host.releaseFeatureContinuation()
   const withCoverage = await continueWithParentCoverage(host, commandInput, result, principalDispatch)
   if (withCoverage === undefined) return
   result = withCoverage
@@ -63,19 +76,17 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     await deliverPrincipalRefusal(host, result)
     return
   }
-  await deliverFeatureResult(parsed.reference, result, host, commandInput)
+  await deliverFeatureResult(commandInput.reference, result, host, commandInput)
 }
 
 /**
- * The principal checkout acts on nothing. A valid move and framing guidance pass unchanged, since
- * neither depends on the checkout; any other result becomes one refusal that names it.
+ * Initial framing is dispatched before this delivery-only gate. A valid move still passes
+ * unchanged; the principal checkout refuses every delivery action.
  */
 async function deliverPrincipalRefusal(host: FeatureCommandHost, result: ContinueFeatureResult): Promise<void> {
   const stop = featureStopMessage(result)
   if (stop === null && result.kind === 'session-cwd') {
     await host.send(featureSessionCwdMessage(result.path, result.instruction))
-  } else if (stop !== null && isFramingResult(result)) {
-    await host.send(stop)
   } else {
     await host.send(principalRefusalMessage(host.cwd, stop ?? refusedWork(result)))
   }
@@ -117,6 +128,10 @@ export async function deliverFeatureResult(
   host: FeatureCommandHost,
   original?: ContinueFeatureInput,
 ): Promise<void> {
+  if (result.kind === 'framing') {
+    await host.startFraming(result.source, result.source.kind === 'free-text' ? result.source.acceptedArgs : reference)
+    return
+  }
   if (host.featureContinuationInhibited() && !preservesFeatureResult(result))
     return await host.send('feature-stopped: continuation-inhibited')
   if (result.kind === 'session-cwd') return deliverSessionCwd(result, host)
@@ -185,7 +200,7 @@ function settleStoppedOwner(reference: string, result: ContinueFeatureResult, ho
       else rememberFeatureOwner(host.key, retained)
       return
     case 'blocked':
-      if (!isAssistedFraming(result.reason)) rememberFeatureOwner(host.key, retained)
+      rememberFeatureOwner(host.key, retained)
       return
     case 'terminal':
       releaseFeatureOwner(host.key)

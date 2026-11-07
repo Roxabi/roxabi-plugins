@@ -3,15 +3,19 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { onTestFinished } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { actionInputDigest } from '../../engine/action-input.ts'
 import { ACTION_BINDING_FORMAT, ACTION_INPUT_FORMAT, type ActionInputs } from '../../engine/action-input-schema.ts'
 import { unframedParserSchema } from '../../engine/issue-spec-analysis-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import { registerHostActionBinding } from '../../omp/review-runtime/action-registry.ts'
+import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
+import { ROXABI_STOP_AUTHOR } from '../github-policy.ts'
 import type { PreparedUwAction } from '../uw-action-contract.ts'
 import { sealActionSnapshot } from '../uw-action-snapshot.ts'
 import type { NormalizationProposalRequest } from '../uw-contract.ts'
 import { normalizationSourceDigest } from '../uw-normalization-proposal.ts'
+import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 import type { GitRunner } from '../workflow-checkout.ts'
 
 export const observedHead = 'c'.repeat(40)
@@ -66,6 +70,49 @@ export function observationalGh(): Gh {
     }
     throw new Error(`unobserved gh ${command}`)
   }
+}
+
+/** Explicit initial native facts; admission and aggregate membership use the real installed reader. */
+export function observedNormalizationReader(request: NormalizationProposalRequest) {
+  const scope = request.uw
+  const raw = request.parsed.status === 'conformant' ? request.parsed.snapshot.raw : request.parsed.raw
+  const history = decodeHistory({
+    scope,
+    expectedAuthor: login,
+    stopAuthor: ROXABI_STOP_AUTHOR,
+    complete: true,
+    comments: [],
+    diagnostics: [],
+  })
+  return createInstalledObservedUwReadPort({
+    observation: {
+      status: 'complete',
+      root: scope,
+      graph: {
+        status: 'complete',
+        root: scope,
+        observedAt: '2026-10-21T00:00:00Z',
+        nodes: [
+          {
+            uw: scope,
+            title: request.title,
+            raw,
+            // Native metadata has its own fixture clock; raw body edit metadata may be unknown.
+            updatedAt: '2026-10-21T00:00:00Z',
+            labels: ['size:S'],
+            wayfinderLabels: [],
+            parent: null,
+            children: [],
+            blockers: [],
+            native: { state: 'OPEN', stateReason: null },
+          },
+        ],
+      },
+      histories: [history],
+      catalogues: fixtureHostReviewClassCatalogues(),
+      delivery: [],
+    },
+  })
 }
 
 /** Isolates the process-wide GitHub viewer cache from the operator token. */

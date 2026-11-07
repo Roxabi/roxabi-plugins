@@ -63,7 +63,7 @@ describe('feature init route', () => {
       workflow: workflow({
         continueFeature: async () => {
           calls.push('continue')
-          return { kind: 'operator-decision', reason: 'needs-framing' }
+          return { kind: 'framing', source: { kind: 'free-text', acceptedArgs: 'init' } }
         },
       }),
       native: {
@@ -78,6 +78,9 @@ describe('feature init route', () => {
         sent.push(text)
       },
       status: async () => undefined,
+      startFraming: async () => {
+        throw new Error('init must not start framing')
+      },
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,
@@ -145,6 +148,9 @@ describe('feature init route', () => {
         sent.push(text)
       },
       status: async () => undefined,
+      startFraming: async () => {
+        throw new Error('init must not start framing')
+      },
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,

@@ -12,6 +12,7 @@ import type { InstalledUwReadOptions } from './uw-read-port.ts'
 type InstalledUwContracts = Pick<
   typeof import('../dist/contracts.js'),
   | 'assessUwAdmission'
+  | 'readFramingMembership'
   | 'parseIssueSpecBody'
   | 'assessUwCompletion'
   | 'readUwCompletionObservation'
@@ -124,11 +125,13 @@ export function projectObservedOwnSpecFacts(
   return { ok: true, value: { node, ...observedSpecProjection(contracts, uw, node), identity } }
 }
 
-function admissionUnavailable(diagnostics: readonly UwDiagnostic[]): UwAdmission {
+function admissionUnavailable(diagnostics: readonly UwDiagnostic[], aggregate: UwAdmission['aggregate']): UwAdmission {
+  const all = aggregate.status === 'held' ? [...diagnostics, ...aggregate.diagnostics] : diagnostics
   return {
-    framed: { ok: false, diagnostics },
-    deliverable: { ok: false, diagnostics },
+    framed: { ok: false, diagnostics: all },
+    deliverable: { ok: false, diagnostics: all },
     applicability: 'unresolved',
+    aggregate,
   }
 }
 
@@ -204,7 +207,15 @@ function assembleUwRead(
       proposed,
       accepted: { status: 'refused', diagnostics },
       identity: { ok: false, diagnostics },
-      admission: admissionUnavailable(diagnostics),
+      admission: admissionUnavailable(
+        diagnostics,
+        contracts.readFramingMembership({
+          uw,
+          graph,
+          histories: history.histories,
+          accepted: { status: 'refused', diagnostics },
+        }),
+      ),
     }
   }
   const accepted = coldAccepted(
@@ -232,7 +243,10 @@ function assembleUwRead(
       causalObservation: input.causalObservation,
       accepted,
       identity: { ok: false, diagnostics },
-      admission: admissionUnavailable(diagnostics),
+      admission: admissionUnavailable(
+        diagnostics,
+        contracts.readFramingMembership({ uw, graph, histories: history.histories, accepted }),
+      ),
     }
   }
   const identity = contracts.resolveSpecIdentityLedger({
@@ -267,7 +281,10 @@ function assembleUwRead(
           completion: input.completion,
           phase: 'initial-selection',
         })
-      : admissionUnavailable(identity.diagnostics),
+      : admissionUnavailable(
+          identity.diagnostics,
+          contracts.readFramingMembership({ uw, graph, histories: history.histories, accepted }),
+        ),
   }
   bindEligibleHistoricalProjection(contracts, result, own, history.histories, input.assessmentReplay)
   return result

@@ -33,6 +33,7 @@ export function createExtensionApiStub(overrides: Partial<ExtensionApiStub> = {}
   return {
     on: () => undefined,
     registerCommand: () => undefined,
+    registerShortcut: () => undefined,
     registerTool: () => undefined,
     sendUserMessage: () => undefined,
     sendMessage: () => undefined,

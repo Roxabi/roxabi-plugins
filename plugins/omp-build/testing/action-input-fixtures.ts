@@ -267,6 +267,8 @@ export function fixtureUwOperations(
     adjustCauseDependency: unexpected,
     promoteReport: unexpected,
     prepare: unexpected,
+    prepareFraming: unexpected,
+    frame: unexpected,
     validateNormalization() {
       throw new Error('unexpected UW operation')
     },

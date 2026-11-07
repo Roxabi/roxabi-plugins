@@ -26,6 +26,8 @@ Restart OMP after installing or upgrading a plugin; do not use `/reload-plugins`
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
+Initial `/feature` framing preserves the selected source and requires genuine aggregate confirmation. If a move is needed, the operator performs `/move`, attests its observed success at the destination, and continues the same UW without retyping. Framing is not a Mandate; host and provider behavior requires separate qualification. See the [omp-build guide](plugins/omp-build/README.md).
+
 For merge-on-green repositories using the Kit gate, omp-build authorizes the reviewed
 head with a scoped protocol receipt; a `reviewed` label alone is not authority.
 See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards)

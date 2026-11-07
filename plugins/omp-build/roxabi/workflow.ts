@@ -42,10 +42,17 @@ async function continueFeatureAtTarget(
     input.parentCoverageBasis,
   )
   if (isResult(selected)) return selected
-  const observation = await readFeatureObservation(input.control, selected, input)
+  // The first Mandate consumed the initial coverage intent; its accepted coverage governs the rest of this call.
+  const current = selected.firstMandateEstablished ? withoutCoverageIntent(input) : input
+  const observation = await readFeatureObservation(current.control, selected, current)
   return isResult(observation)
     ? observation
-    : coordinateDecision(input, exactMandateRef, selected, observation, noImplicitResume, completedReport)
+    : coordinateDecision(current, exactMandateRef, selected, observation, noImplicitResume, completedReport)
+}
+
+function withoutCoverageIntent(input: ContinueFeatureInput): ContinueFeatureInput {
+  const { parentCoverage: _coverage, parentCoverageBasis: _basis, ...rest } = input
+  return rest
 }
 
 async function coordinateDecision(

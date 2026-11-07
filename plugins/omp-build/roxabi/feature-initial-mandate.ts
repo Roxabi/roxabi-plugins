@@ -1,4 +1,4 @@
-import { assessUwAdmission, canonicalValueDigest, projectNativeUwChildren } from '../dist/contracts.js'
+import { canonicalValueDigest, projectNativeUwChildren } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
@@ -7,7 +7,7 @@ import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
 import { observeInitialCheckout } from './feature-initial-checkout.ts'
-import { selectInitialCoverage } from './feature-initial-coverage.ts'
+import { freshOwnSpec } from './feature-initial-own-spec.ts'
 import { firstMandateParent, prepareInitialParentSession } from './feature-initial-parent.ts'
 import { initialCheckoutTarget } from './feature-initial-target.ts'
 import { publishFirstMandate } from './feature-mandate.ts'
@@ -18,51 +18,6 @@ import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
 import { readCurrentFramingFacts } from './uw-current-facts.ts'
 import { type FeatureCheckoutTarget, runWorktreeBootstrap } from './workflow-checkout.ts'
-
-export async function freshOwnSpec(
-  scope: FeatureAuthority['scope'],
-  read: UwRead | null,
-  reader: UwReadPort | undefined,
-  suppliedCoverage?: ParentCoverage | null,
-  suppliedBasis?: ParentCoverageRequest,
-): Promise<
-  | Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'>
-  | ContinueFeatureResult
-> {
-  if (read === null || reader === undefined) return { kind: 'blocked', reason: 'uw-read-required' }
-  if (!read.identity.ok)
-    return { kind: 'blocked', reason: 'uw-identities-unconfirmed', diagnostics: read.identity.diagnostics }
-  const initial = assessUwAdmission({
-    uw: scope,
-    graph: read.graph,
-    proposed: read.proposed,
-    accepted: read.accepted,
-    identities: read.identity.value,
-    histories: read.histories,
-    catalogues: read.catalogues,
-    completion: read.completion,
-    phase: 'initial-selection',
-  })
-  if (!initial.deliverable.ok)
-    return { kind: 'blocked', reason: 'uw-initial-admission-refused', diagnostics: initial.deliverable.diagnostics }
-  const facts = await readCurrentFramingFacts({ uw: scope, read })
-  if (!facts.ok) return { kind: 'blocked', reason: 'uw-current-facts-refused', diagnostics: facts.diagnostics }
-  const { currentSpec, identityAllocations } = facts.value
-  const selectedCoverage = selectInitialCoverage(scope, read, currentSpec, suppliedCoverage, suppliedBasis)
-  if ('kind' in selectedCoverage) return selectedCoverage
-  return {
-    ownSpec: {
-      uw: scope,
-      version: currentSpec.snapshot.spec.version,
-      snapshot: currentSpec.snapshot,
-      identityAllocations,
-    },
-    tier: currentSpec.tier,
-    children: currentSpec.children,
-    inheritedOwnSpecRefs: currentSpec.inheritedOwnSpecRefs,
-    coverage: selectedCoverage.coverage,
-  }
-}
 
 export async function establishFirstMandate(input: {
   authority: FeatureAuthority
@@ -261,7 +216,12 @@ async function confirmFirstMandateSelection(
   if (!parents.ok) return { kind: 'blocked', reason: parents.reason }
   const read = await reader.readUw(scope)
   const causal = await composeObservedUwCausalContext(read, [history, ...parents.parents], options)
-  if (!causal.ok) return { kind: 'blocked', reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  if (!causal.ok)
+    return {
+      kind: 'blocked',
+      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
+      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
+    }
   const selected = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null)
     return { kind: 'blocked', reason: 'first-mandate-unconfirmed' }

@@ -1,6 +1,8 @@
 import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 
+export type SpecParseSubject = { kind: 'uw'; uw: Scope } | { kind: 'material'; repository: string; material: string }
+
 export type SourcePosition = { line: number; column: number }
 export type SourceSpan = { start: SourcePosition; end: SourcePosition }
 export type ParsedSection = {
@@ -54,18 +56,26 @@ const LEGACY_HEADINGS = /^(?:acceptance criteria|critères d[’']acceptation|cr
 export const LITERAL_ITEM = /^- (.*)$/
 export { ITEM_CONTINUATION_PREFIX } from './uw-spec-text-codec.ts'
 
-export function bodyLocation(uw: Scope, span: SourceSpan, section?: string): UwDiagnostic['location'] {
-  return { kind: 'body', uw, section, start: span.start, end: span.end }
+export function bodyLocation(subject: SpecParseSubject, span: SourceSpan, section?: string): UwDiagnostic['location'] {
+  return subject.kind === 'uw'
+    ? { kind: 'body', uw: subject.uw, section, start: span.start, end: span.end }
+    : { kind: 'repository', repository: subject.repository }
 }
 
 export function bodyDiagnostic(
-  uw: Scope,
+  uw: SpecParseSubject,
   code: string,
   message: string,
   span: SourceSpan,
   section?: string,
 ): UwDiagnostic {
-  return { code, message, location: bodyLocation(uw, span, section), related: [] }
+  return {
+    code,
+    message:
+      uw.kind === 'material' ? `material ${uw.material} ${span.start.line}:${span.start.column}: ${message}` : message,
+    location: bodyLocation(uw, span, section),
+    related: [],
+  }
 }
 
 export function sourceSpan(startLine: number, endLine: number, lines: readonly string[]): SourceSpan {
@@ -132,7 +142,7 @@ function sectionsOf(lines: readonly string[], headings: readonly ScannedHeading[
   })
 }
 
-function unknownSectionDiagnostics(uw: Scope, sections: readonly ParsedSection[]): UwDiagnostic[] {
+function unknownSectionDiagnostics(uw: SpecParseSubject, sections: readonly ParsedSection[]): UwDiagnostic[] {
   return sections.flatMap((section) =>
     SPEC_HEADINGS.some((heading) => heading === section.heading)
       ? []
@@ -148,7 +158,7 @@ function unknownSectionDiagnostics(uw: Scope, sections: readonly ParsedSection[]
   )
 }
 
-export function scanSpecStructure(uw: Scope, body: string): ParsedStructure {
+export function scanSpecStructure(uw: SpecParseSubject, body: string): ParsedStructure {
   const lines = normalizeNewlines(body).split('\n')
   const marked = lines.some((line) => line.trim() === SPEC_MARKER)
   const sections = sectionsOf(lines, scannedHeadings(lines, marked))
@@ -163,7 +173,7 @@ export function sectionsByHeading(parsed: ParsedStructure): Map<string, ParsedSe
 }
 
 export function structuralDiagnostics(
-  uw: Scope,
+  uw: SpecParseSubject,
   parsed: ParsedStructure,
   byHeading: ReadonlyMap<string, readonly ParsedSection[]>,
 ): UwDiagnostic[] {

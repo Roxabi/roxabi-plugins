@@ -9,7 +9,12 @@ export { type Gh, GitHubHistoryReadError, type GitHubOptions, gh, viewer } from 
 export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
 export { readIssueParentAssociation, readLinkedIssueAssociation } from './adapters/github-native/relations.ts'
 export { readUwGraph, readUwSubtree } from './adapters/github-native/uw-graph-reader.ts'
-export { parseIssueSpecBody, renderIssueSpecBody } from './adapters/github-native/uw-spec.ts'
+export {
+  parseIssueSpecBody,
+  parseSpecMaterial,
+  renderIssueSpecBody,
+  type SpecParseSubject,
+} from './adapters/github-native/uw-spec.ts'
 export { rawSource } from './adapters/github-native/uw-spec-parser.ts'
 export {
   publishConfirmedWorkflowRecord,
@@ -41,7 +46,9 @@ export { readUwCompletionObservation } from './adapters/github-workflow/uw-obser
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
 export * from './contracts-review.ts'
+export * from './contracts-uw.ts'
 export { acceptedMetadataOwner } from './engine/accepted-metadata-owner.ts'
+export { pluginPinSchema } from './engine/action-input-schema.ts'
 export { authenticateCauseCapture, type PreparedCauseCapture } from './engine/cause-capture-authentication.ts'
 export {
   prepareCauseDependencyAdjustment,
@@ -52,6 +59,21 @@ export * from './engine/cause-disposition.ts'
 export * from './engine/cause-disposition-schema.ts'
 export { assessCauseHolds } from './engine/cause-hold.ts'
 export * from './engine/finding-target.ts'
+export {
+  FRAMING_PROCEDURE_FILES,
+  type FramingInvocationBinding,
+  type FramingProcedureManifest,
+  type FramingStage,
+  framingInvocationBindingSchema,
+  framingProcedureManifestSchema,
+  framingStageSchema,
+} from './engine/framing-context-schema.ts'
+export {
+  type FramingForm,
+  type FramingFormInput,
+  framingFormInputSchema,
+  framingFormSchema,
+} from './engine/framing-form-schema.ts'
 export {
   classifyHistory,
   type HistoryClassification,
@@ -141,73 +163,6 @@ export {
   type Verdict,
   verdictSchema,
 } from './engine/record-values.ts'
-export { assessUwAdmission } from './engine/uw-admission.ts'
-export { projectNativeUwChildren } from './engine/uw-child-admission.ts'
-export {
-  causeDependencyAdjustmentInputSchema,
-  uwCreateInputSchema,
-  uwProposalInputSchema,
-} from './engine/uw-command-schema.ts'
-export { assessUwCompletion } from './engine/uw-completion.ts'
-export type {
-  CauseWaitResolution,
-  DependencyBasis,
-  DependencyResolution,
-  NativeDeliveryPullRequest,
-  NativeOnlyAbsenceWitness,
-  ObservedCommit,
-  SpecVersionVector,
-  UwCompletion,
-  UwCompletionAssessment,
-  UwCompletionObservation,
-  UwDeliveryFacts,
-  UwObservationFacts,
-  UwWaitProjection,
-  WaitRequirement,
-} from './engine/uw-completion-types.ts'
-export { toDiagnostic, toDiagnostics, uwDiagnosticSchema, uwLocationSchema } from './engine/uw-diagnostics.ts'
-export type { UwGraphObservation } from './engine/uw-graph.ts'
-export {
-  isWayfinder,
-  knownWayfinderLabels,
-  sameScope,
-  scopeKey,
-  unknownWayfinderLabels,
-  validateUwGraph,
-  WAYFINDER_LABELS,
-} from './engine/uw-graph.ts'
-export {
-  buildSpecIdentityAllocation,
-  buildSpecIdentityProposedRetirement,
-  prepareSpecAllocation,
-  resolveSpecIdentityLedger,
-} from './engine/uw-identity.ts'
-export {
-  operatorConfirmationEvidenceSchema,
-  SPEC_IDENTITY_FORMAT,
-  specIdentityPayloadSchema,
-} from './engine/uw-identity-schema.ts'
-export {
-  type NativeIssueObservation,
-  nativeIssueObservationSchema,
-  nativeObservationDigest,
-} from './engine/uw-native-observation-schema.ts'
-export { normalizationJudgementSchema } from './engine/uw-normalization-schema.ts'
-export { canonicalSpec, specVersion, validateSpecIds } from './engine/uw-spec.ts'
-export type { OwnSpecRef } from './engine/uw-spec-schema.ts'
-export {
-  criterionIdSchema,
-  invariantIdSchema,
-  SPEC_CONTENT_FORMAT,
-  specContentSchema,
-  specDraftSchema,
-  specItemIdSchema,
-  specRawSourceSchema,
-  specSchema,
-  specSnapshotSchema,
-  uwTierSchema,
-} from './engine/uw-spec-schema.ts'
-export { projectUwWaits } from './engine/uw-waits.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
@@ -273,6 +228,7 @@ export {
   type OmpBuildRecoveryPrParameters,
   type OmpBuildRecoveryReplaceParameters,
   type OmpBuildStartReviewParameters,
+  ompBuildFramingSubmitParametersJsonSchema,
   ompBuildPrepareCheckoutParametersJsonSchema,
   ompBuildPrepareCheckoutParametersSchema,
   ompBuildRecoveryPrParametersJsonSchema,

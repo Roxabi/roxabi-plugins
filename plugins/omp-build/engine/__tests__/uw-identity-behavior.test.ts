@@ -8,11 +8,11 @@ import type { ExternalRecordRef } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
 import {
-  buildSpecIdentityAllocation,
-  buildSpecIdentityProposedRetirement,
+  prepareNewSpecAllocation,
   prepareSpecAllocation,
   resolveSpecIdentityLedger as resolveLedger,
 } from '../uw-identity.ts'
+import { buildSpecIdentityAllocation, buildSpecIdentityProposedRetirement } from '../uw-identity-events.ts'
 import { canonicalSpec, type SpecItemId, type SpecSnapshot, validateSpecIds } from '../uw-spec.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from '../workflow-accepted-spec-types.ts'
@@ -164,6 +164,33 @@ function codes(
 ): string[] {
   return result.ok ? [] : result.diagnostics.map((diagnostic) => diagnostic.code)
 }
+
+test('plans new-member identities without a Scope and preserves singleton allocation parity', () => {
+  const draft = {
+    criteria: [{ kind: 'new' as const, draftKey: 'criterion', statement: 'Process the request' }],
+    invariants: [{ kind: 'new' as const, draftKey: 'invariant', statement: 'Preserve the audit trail' }],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  }
+  const empty = must(resolveSpecIdentityLedger({ uw: UW, history: decode([]), accepted: null }))
+  expect(must(prepareNewSpecAllocation(draft, UW.repository))).toEqual(must(prepareSpecAllocation(draft, empty)))
+  const foreignIdentity = prepareNewSpecAllocation(
+    {
+      ...draft,
+      criteria: [{ kind: 'existing', id: 'C1', statement: 'Unowned commitment' }],
+    },
+    UW.repository,
+  )
+  expect(foreignIdentity.ok).toBe(false)
+  if (!foreignIdentity.ok)
+    expect(foreignIdentity.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'spec-id-unallocated',
+        location: { kind: 'repository', repository: UW.repository },
+      }),
+    )
+})
 
 test('persists pre-mandate allocations through decoded history and never text-matches a later draft', () => {
   const empty = must(resolveSpecIdentityLedger({ uw: UW, history: decode([]), accepted: null }))

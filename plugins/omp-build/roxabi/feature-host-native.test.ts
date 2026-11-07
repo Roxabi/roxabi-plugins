@@ -47,6 +47,9 @@ describe('Feature native host ownership', () => {
       native: port,
       async send() {},
       async status() {},
+      async startFraming() {
+        throw new Error('candidate activation must not start framing')
+      },
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => false,

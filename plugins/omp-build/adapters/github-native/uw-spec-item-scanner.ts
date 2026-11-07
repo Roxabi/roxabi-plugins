@@ -1,6 +1,6 @@
-import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import { normalized } from '../../engine/uw-spec.ts'
+import type { SpecParseSubject } from './uw-spec-source-scanner.ts'
 import {
   bodyDiagnostic,
   normalizeNewlines,
@@ -31,7 +31,7 @@ function decodedStatement(item: ActiveSourceItem): string {
 }
 
 function completedItem(
-  uw: Scope,
+  uw: SpecParseSubject,
   section: ParsedSection,
   expected: 'C' | 'I',
   item: ActiveSourceItem,
@@ -107,7 +107,7 @@ function appendContinuation(active: ActiveSourceItem | null, line: string, index
 }
 
 export function scanSourceItems(
-  uw: Scope,
+  uw: SpecParseSubject,
   section: ParsedSection | undefined,
   expected: 'C' | 'I',
   legacyCriteria = false,

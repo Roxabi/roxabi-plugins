@@ -109,6 +109,16 @@ function expectJoinedAndBounded(observed: Event[], cwd: string) {
   }
   expect(maximum).toBe(2)
   expect(active).toBe(0)
+  for (const [left, right] of [
+    [101, 102],
+    [103, 104],
+  ]) {
+    const firstEnd = observed.findIndex(
+      (event) => event.kind === 'end' && (event.number === left || event.number === right),
+    )
+    expect(observed.findIndex((event) => event.kind === 'start' && event.number === left)).toBeLessThan(firstEnd)
+    expect(observed.findIndex((event) => event.kind === 'start' && event.number === right)).toBeLessThan(firstEnd)
+  }
 }
 
 const scopes = [101, 102, 103, 104, 105].map((number) => githubScope('example/repo', number))
@@ -124,12 +134,14 @@ it('overlaps adjacent composed histories and fully paginates in scope order', as
   expect(result.histories.map((history) => history.source.comments.length)).toEqual([100, 100, 100, 100])
   expect(result.records).toEqual([])
   expectJoinedAndBounded(observed, options.cwd)
-  expect(
-    observed
-      .filter((event) => event.kind === 'start')
-      .map(({ number, page }) => `${number}:${page}`)
-      .sort(),
-  ).toEqual(['101:1', '101:2', '102:1', '102:2', '103:1', '103:2', '104:1', '104:2'])
+  for (const history of result.histories) {
+    const number = Number(history.source.scope.target.split('#')[1])
+    expect(history.source.complete).toBe(true)
+    expect(history.source.comments.map((comment) => comment.nativeId)).toEqual(
+      Array.from({ length: 100 }, (_, index) => String(number * 1000 + index)),
+    )
+    expect(history.source.comments.every((comment) => comment.author === 'operator')).toBe(true)
+  }
 })
 
 it('joins failing reads and retains all successful histories with named failures', async () => {
@@ -149,12 +161,6 @@ it('joins failing reads and retains all successful histories with named failures
   expect(observed.findIndex((event) => event.kind === 'end' && event.number === 104)).toBeLessThan(
     observed.findIndex((event) => event.kind === 'end' && event.number === 103),
   )
-  expect(
-    observed
-      .filter((event) => event.kind === 'start')
-      .map(({ number, page }) => `${number}:${page}`)
-      .sort(),
-  ).toEqual(['101:1', '101:2', '102:1', '102:2', '103:1', '104:1', '105:1', '105:2'])
 })
 
 it('refuses empty or duplicate scopes before invoking gh', async () => {

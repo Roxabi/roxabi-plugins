@@ -1,6 +1,6 @@
-import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import type { SpecRawSource } from '../../engine/uw-spec.ts'
+import type { SpecParseSubject } from './uw-spec-source-scanner.ts'
 import {
   bodyDiagnostic,
   isLegacyHeading,
@@ -73,7 +73,7 @@ export function sectionContentBlocks(byHeading: ReadonlyMap<string, readonly Par
 }
 
 export function preservePreamble(
-  uw: Scope,
+  uw: SpecParseSubject,
   raw: SpecRawSource,
   sections: readonly ParsedSection[],
   preserved: PreservedSourceContent[],
@@ -101,7 +101,7 @@ export function preservePreamble(
 }
 
 export function preserveUnclassifiableBody(
-  uw: Scope,
+  uw: SpecParseSubject,
   raw: SpecRawSource,
   sections: readonly ParsedSection[],
   preserved: PreservedSourceContent[],
@@ -114,7 +114,7 @@ export function preserveUnclassifiableBody(
 }
 
 export function malformedTextFenceDiagnostics(
-  uw: Scope,
+  uw: SpecParseSubject,
   byHeading: ReadonlyMap<string, readonly ParsedSection[]>,
 ): UwDiagnostic[] {
   return ['Origin', 'Context', 'Change'].flatMap((heading) =>

@@ -140,6 +140,9 @@ describe('principal refusal stays one message', () => {
         sent.push(message)
       },
       status: async () => undefined,
+      startFraming: async () => {
+        starts.push('framing')
+      },
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => false,
@@ -281,16 +284,6 @@ describe('principal refusal stays one message', () => {
     expect(fixture.sent[0]).toContain('issue-unreadable')
   })
 
-  it('gives framing guidance without a refusal, since moving would not change it', async () => {
-    const fixture = principal(async () => ({ kind: 'operator-decision', reason: 'needs-framing' }))
-    await runInstalledFeatureCommand('ship the billing export', fixture.value)
-    expect(fixture.starts).toEqual([])
-    expect(fixture.sent).toHaveLength(1)
-    expect(fixture.sent[0]).toContain('skill://grilling')
-    expect(fixture.sent[0]).not.toContain('principal-dispatch-refused')
-    expect(fixture.sent[0]).not.toContain('session-cwd')
-  })
-
   it('starts no work the workflow hands back and names what it refused', async () => {
     for (const result of handedWork()) {
       const fixture = principal(async () => result)
@@ -329,6 +322,9 @@ describe('prepared epic final review delivery', () => {
           sent.push(message)
         },
         status: async () => undefined,
+        startFraming: async () => {
+          throw new Error('unexpected-framing')
+        },
         inhibitFeatureContinuation() {},
         releaseFeatureContinuation() {},
         featureContinuationInhibited: inhibited,
@@ -360,6 +356,9 @@ describe('prepared epic final review delivery', () => {
         sent.push(message)
       },
       status: async () => undefined,
+      startFraming: async () => {
+        starts.push('framing')
+      },
       inhibitFeatureContinuation() {},
       releaseFeatureContinuation() {},
       featureContinuationInhibited: () => inhibited,

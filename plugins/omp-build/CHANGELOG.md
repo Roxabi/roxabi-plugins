@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.2
+
+- Frame free-text requests and eligible existing issues through one accounted aggregate confirmation. Incomplete aggregates remain held; framing is not Spec acceptance or a Mandate.
+- A held framing aggregate refuses delivery, landing and continuation transitions, including after a concurrently published first Mandate; pause, abandon and stop remain available. The hosted gate adopts this only after the tooling pin advances.
+- Prepare the canonical checkout without relocating the session. When needed, a human observes `/move` success and continues the same UW from the destination without retyping.
+- Pin and verify the three installed framing procedures. Typed forms and context projection do not establish provider receipt or human reasoning.
+- Refuse incomplete GitHub comment histories when a preceding page changes during pagination, retaining observed comments and a named diagnostic.
+- Keep ordinary relation-endpoint checks independent of unrelated historical delivery sources, while preserving framed-member currentness and authenticated past acceptance.
+- A Parent's first Mandate consumes its confirmed coverage: the same `/feature` call continues to the next step instead of stopping with `parent-coverage-intent-changed` and asking for the coverage again.
+
 ## 0.17.0
 
 - Use scoped, authenticated reviewed-head authorization for Kit merge-on-green instead of treating the `reviewed` label as authority. Withdrawals fence stop, review-start and protected-push paths; native auto-merge retains its existing protected-auto mode.

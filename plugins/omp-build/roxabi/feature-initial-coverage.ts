@@ -4,15 +4,12 @@ import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
 import type { UwRead } from './uw-contract.ts'
 import type { CurrentOwnSpecFacts } from './uw-current-facts.ts'
-
-export function selectInitialCoverage(
+/** Construct the exact current target-specific basis used by initial admission. */
+export function initialCoverageBasis(
   scope: FeatureAuthority['scope'],
-  read: UwRead,
   currentSpec: Omit<CurrentOwnSpecFacts['currentSpec'], 'coverage'>,
-  suppliedCoverage?: ParentCoverage | null,
-  suppliedBasis?: ParentCoverageRequest,
-): { coverage: ParentCoverage | null } | ContinueFeatureResult {
-  const coverageRequest = {
+): ParentCoverageRequest {
+  return {
     parent: { uw: scope, version: currentSpec.snapshot.spec.version },
     accepted: null,
     inheritedOwnSpecRefs: currentSpec.inheritedOwnSpecRefs,
@@ -24,6 +21,16 @@ export function selectInitialCoverage(
       criteria: child.snapshot.spec.criteria,
     })),
   }
+}
+
+export function selectInitialCoverage(
+  scope: FeatureAuthority['scope'],
+  read: UwRead,
+  currentSpec: Omit<CurrentOwnSpecFacts['currentSpec'], 'coverage'>,
+  suppliedCoverage?: ParentCoverage | null,
+  suppliedBasis?: ParentCoverageRequest,
+): { coverage: ParentCoverage | null } | ContinueFeatureResult {
+  const coverageRequest = initialCoverageBasis(scope, currentSpec)
   if (
     suppliedCoverage !== undefined &&
     (suppliedBasis === undefined || canonicalValueDigest(suppliedBasis) !== canonicalValueDigest(coverageRequest))

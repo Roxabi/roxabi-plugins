@@ -5,6 +5,7 @@ import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment, ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
+import type { FramingSourceRequest } from './feature-framing-contract.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import type { NormalizationProposalRequest, UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -61,6 +62,7 @@ export type ContinueFeatureResult =
   | { kind: 'terminal'; reason: string; diagnostics?: readonly Diagnostic[] }
   | { kind: 'session-cwd'; path: string; instruction: string }
   | { kind: 'operator-decision'; reason: string }
+  | { kind: 'framing'; source: FramingSourceRequest }
   | { kind: 'normalization'; request: NormalizationProposalRequest }
 
 export type ContinueFeatureInput = {
@@ -127,6 +129,8 @@ export type FeatureCommandHost = {
   native: FeatureNativePort
   send: (text: string) => Promise<void>
   status: (text: string | undefined) => void
+  /** Same-turn read-only framing; the accepted command text is preserved byte-for-byte. */
+  startFraming: (source: FramingSourceRequest, acceptedArgs: string) => Promise<void>
   requestParentCoverage?: (
     request: ParentCoverageRequest,
   ) => Promise<{ kind: 'proposed'; coverage: ParentCoverage | null } | { kind: 'cancelled' }>

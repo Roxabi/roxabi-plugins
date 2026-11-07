@@ -8,6 +8,14 @@ export type CommandOperatorPort = OperatorPort & { cancel(): void }
 
 function refusal(proposal: PreparedOperatorProposal, code: string, message: string): readonly UwDiagnostic[] {
   const target = proposal.proposal
+  if (target.format === 'omp-build-uw-framing/1') {
+    const source = target.input.source
+    const location =
+      source.kind === 'issue'
+        ? { kind: 'native' as const, uw: source.uw, connection: 'state' as const }
+        : { kind: 'repository' as const, repository: source.repository }
+    return [{ code, message, location, related: [] }]
+  }
   if ('target' in target) {
     if (target.target.kind === 'create')
       return [{ code, message, location: { kind: 'repository', repository: target.target.repository }, related: [] }]
@@ -19,6 +27,20 @@ function refusal(proposal: PreparedOperatorProposal, code: string, message: stri
 
 function decisionFacts(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
+  if (proposal.format === 'omp-build-uw-framing/1') {
+    return [
+      'operation: frame aggregate',
+      `source: ${JSON.stringify(proposal.input.source)}`,
+      `materials and retained bytes: ${JSON.stringify(proposal.materials)}`,
+      `members, source accounting and merges: ${JSON.stringify(proposal.input.members)}`,
+      `prepared members, allocations, bodies and tiers: ${JSON.stringify(proposal.members)}`,
+      `parent-child and blocker edges: ${JSON.stringify(proposal.input.edges)}`,
+      `coverage: ${JSON.stringify(proposal.input.coverage)}`,
+      `foundations: ${JSON.stringify(proposal.input.foundations)}`,
+      `procedure manifest: ${JSON.stringify(proposal.invocation.procedures)}`,
+      'Effects can be partial or uncertain; no automatic retry or rollback is performed.',
+    ]
+  }
   if ('operation' in proposal && proposal.operation === 'adjudicate-cause') {
     return [
       'operation: adjudicate-cause',

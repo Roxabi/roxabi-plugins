@@ -11,6 +11,7 @@ export type OmpBuildExtensionApi = Pick<
   ExtensionAPI,
   | 'on'
   | 'registerCommand'
+  | 'registerShortcut'
   | 'registerTool'
   | 'sendUserMessage'
   | 'sendMessage'

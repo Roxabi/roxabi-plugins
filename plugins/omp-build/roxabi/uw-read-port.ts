@@ -4,6 +4,7 @@ import {
   assessUwCompletion,
   parseIssueSpecBody,
   readComposedWorkflowHistory,
+  readFramingMembership,
   readUwCompletionObservation,
   readUwGraph,
   resolveAcceptedSpec,
@@ -11,6 +12,7 @@ import {
   resolveSpecIdentityLedger,
   selectApplicableMandate,
 } from '../dist/contracts.js'
+import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
@@ -113,6 +115,7 @@ export function createObservedUwReadPort(
 
 const installedUwContracts: InstalledUwContracts = {
   assessUwAdmission,
+  readFramingMembership,
   assessUwCompletion,
   readUwCompletionObservation,
   parseIssueSpecBody,
@@ -128,26 +131,45 @@ const installedUwContracts: InstalledUwContracts = {
 export function createInstalledUwReadPort(options: InstalledUwReadOptions): UwReadPort {
   return createUwReadPort(installedUwContracts, options)
 }
-/** Creation readback proves only native framing and the created issue's own identity ledger. */
-export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions): Promise<CreatedUwRead> {
-  const github = readOptions(options)
-  const graph = await installedUwContracts.readUwGraph(uw, github)
+
+function requiresFramingClosure(uw: Scope, ownHistory: DecodedHistory): boolean {
   if (
-    graph.status !== 'complete' ||
-    !graph.nodes.some((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
+    ownHistory.operations.some(
+      (operation) =>
+        operation.authority !== 'foreign' &&
+        operation.status !== 'complete' &&
+        (operation.kind === 'framing-receipt' ||
+          operation.claimedKinds.includes('framing-receipt') ||
+          operation.kind === 'spec-identity' ||
+          operation.claimedKinds.includes('spec-identity')),
+    )
   )
-    throw new UwGraphUnavailableError(refused(uw, 'graph-incomplete', 'Created UW native graph is incomplete'))
-  const composed = await installedUwContracts.readComposedWorkflowHistory([uw], github)
-  if (!composed.ok)
-    throw new UwGraphUnavailableError(refused(uw, 'history-incomplete', 'Created UW identity history is incomplete'))
-  const root = graph.nodes.find((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
-  if (root === undefined) throw new TypeError("Cannot read properties of undefined (reading 'raw')")
+    throw new UwGraphUnavailableError(
+      refused(uw, 'history-incomplete', 'Created UW framing or identity claim is incomplete'),
+    )
+  return ownHistory.operations.some((operation) => {
+    if (operation.authority === 'foreign') return false
+    // A damaged trusted claim must never make an aggregate look like a singleton.
+    if (operation.kind === 'framing-receipt' || operation.claimedKinds.includes('framing-receipt')) return true
+    const record = operation.record
+    return record?.kind === 'spec-identity' && record.payload.format === 'omp-build-spec-identity/2'
+  })
+}
+
+function createdFacts(
+  uw: Scope,
+  currentGraph: CreatedUwRead['graph'],
+  histories: CreatedUwRead['histories'],
+): CreatedUwRead {
+  const root = currentGraph.nodes.find((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)
+  if (root === undefined)
+    throw new UwGraphUnavailableError(refused(uw, 'graph-root-missing', `UW graph root ${uw.target} is absent`))
   const parsed = installedUwContracts.parseIssueSpecBody({ uw, raw: root.raw })
   const proposed =
     parsed.status === 'conformant'
       ? { ok: true as const, snapshot: parsed.snapshot }
       : { ok: false as const, diagnostics: [...parsed.diagnostics] }
-  const own = composed.histories.find(
+  const own = histories.find(
     (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
   )
   if (own === undefined)
@@ -155,10 +177,39 @@ export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions):
   const identity = installedUwContracts.resolveSpecIdentityLedger({
     uw,
     history: own,
-    histories: composed.histories,
+    histories,
     accepted: null,
   })
-  return { uw, parsed, proposed, identity, histories: composed.histories, graph }
+  return { uw, parsed, proposed, identity, histories, graph: currentGraph }
+}
+
+/** Creation readback proves only native framing and the created issue's own identity ledger. */
+export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions): Promise<CreatedUwRead> {
+  const github = readOptions(options)
+  const graph = await installedUwContracts.readUwGraph(uw, github)
+  if (graph.status !== 'complete')
+    throw new UwGraphUnavailableError(
+      graph.diagnostics.length > 0
+        ? graph.diagnostics
+        : refused(uw, 'graph-incomplete', 'Created UW native graph is incomplete'),
+    )
+  const ownRead = await installedUwContracts.readComposedWorkflowHistory([uw], github)
+  const ownHistory = ownRead.histories[0]
+  if (!ownRead.ok || ownRead.histories.length !== 1 || ownHistory === undefined)
+    throw new UwGraphUnavailableError(refused(uw, 'history-incomplete', 'Created UW identity history is incomplete'))
+  const framed = requiresFramingClosure(uw, ownHistory)
+  const observation = framed
+    ? await installedUwContracts.readUwCompletionObservation(uw, github, (histories) =>
+        loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() }),
+      )
+    : null
+  if (observation !== null && (observation.status !== 'complete' || observation.graph.status !== 'complete'))
+    throw new UwGraphUnavailableError(
+      observation.status === 'incomplete'
+        ? observation.diagnostics
+        : refused(uw, 'graph-incomplete', 'Created UW native graph is incomplete'),
+    )
+  return createdFacts(uw, observation?.graph ?? graph, observation?.histories ?? ownRead.histories)
 }
 
 export function createInstalledObservedUwReadPort(input: {

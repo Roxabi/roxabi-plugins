@@ -21,6 +21,8 @@ export async function prepareNormalizationAction(input: {
   operationId: string
   code: DeliveryCode
 }): Promise<{ ok: true; value: PreparedUwAction } | { ok: false; reason: string }> {
+  const read = await input.operations.readUw(input.request.uw)
+  if (read.admission.aggregate.status === 'held') return { ok: false, reason: read.admission.aggregate.code }
   const prepared = await input.operations.prepareAction(
     actionRequest({
       actionId: input.operationId,

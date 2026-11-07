@@ -1,4 +1,3 @@
-import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic, UwResult } from './uw-diagnostics.ts'
 import type { SpecAllocationPlan, SpecIdentityLedger } from './uw-identity.ts'
@@ -11,7 +10,8 @@ import {
   type Spec,
   type SpecDraft,
   type SpecItemId,
-  validateSpecIds,
+  validatePlannedSpecIds,
+  validateSpecIdsWithPlan,
 } from './uw-spec.ts'
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
@@ -54,35 +54,31 @@ function allocateInvariants(
     return { id, statement: item.statement }
   })
 }
-function pending(
-  ledger: SpecIdentityLedger,
-  assignments: readonly { draftKey: string; id: SpecItemId }[],
-): Map<SpecItemId, ExternalRecordRef> {
-  const reference: ExternalRecordRef = { scope: ledger.uw, recordId: 'pending', kind: 'spec-identity' }
-  const entries: [SpecItemId, ExternalRecordRef][] = []
-  for (const { id } of assignments) entries.push([id, reference])
-  return new Map([...ledger.allocations, ...entries])
-}
 function proposedRetirements(ledger: SpecIdentityLedger, spec: Spec): SpecItemId[] {
   const active = new Set([...spec.criteria, ...spec.invariants].map((item) => item.id))
   return [...ledger.allocations.keys()].filter((id) => !active.has(id) && !ledger.retired.has(id))
 }
-export function buildSpecAllocationPlan(draft: SpecDraft, ledger: SpecIdentityLedger): UwResult<SpecAllocationPlan> {
+function allocateCandidate(draft: SpecDraft, nextCriterion: string, nextInvariant: string) {
   const assignments: { draftKey: string; id: SpecItemId }[] = []
   const candidate = canonicalSpec({
     format: 'omp-build-spec-content/1',
-    criteria: allocateCriteria(draft.criteria, ledger.nextCriterion, assignments),
-    invariants: allocateInvariants(draft.invariants, ledger.nextInvariant, assignments),
+    criteria: allocateCriteria(draft.criteria, nextCriterion, assignments),
+    invariants: allocateInvariants(draft.invariants, nextInvariant, assignments),
     exclusions: draft.exclusions,
     openQuestions: draft.openQuestions,
     sections: draft.sections,
   })
+  return { assignments, candidate }
+}
+
+export function buildSpecAllocationPlan(draft: SpecDraft, ledger: SpecIdentityLedger): UwResult<SpecAllocationPlan> {
+  const { assignments, candidate } = allocateCandidate(draft, ledger.nextCriterion, ledger.nextInvariant)
   if (!candidate.ok)
     return {
       ok: false,
       diagnostics: candidate.diagnostics.map((item) => diagnostic(ledger.uw, item.code, item.message)),
     }
-  const confirmed = validateSpecIds(candidate.value, { ...ledger, allocations: pending(ledger, assignments) })
+  const confirmed = validateSpecIdsWithPlan(candidate.value, ledger, new Set(assignments.map((item) => item.id)))
   return confirmed.ok
     ? {
         ok: true,
@@ -93,5 +89,30 @@ export function buildSpecAllocationPlan(draft: SpecDraft, ledger: SpecIdentityLe
           spec: confirmed.value,
         },
       }
+    : confirmed
+}
+
+export function buildNewSpecAllocationPlan(draft: SpecDraft, repository: string): UwResult<SpecAllocationPlan> {
+  const { assignments, candidate } = allocateCandidate(draft, '1', '1')
+  if (!candidate.ok)
+    return {
+      ok: false,
+      diagnostics: candidate.diagnostics.map((item) => ({
+        code: item.code,
+        message: item.message,
+        location: { kind: 'repository' as const, repository },
+        related: [],
+      })),
+    }
+  const confirmed = validatePlannedSpecIds(
+    candidate.value,
+    {
+      allocated: new Set(assignments.map((item) => item.id)),
+      retired: new Set(),
+    },
+    repository,
+  )
+  return confirmed.ok
+    ? { ok: true, value: { ledgerHead: null, assignments, retirements: [], spec: confirmed.value } }
     : confirmed
 }

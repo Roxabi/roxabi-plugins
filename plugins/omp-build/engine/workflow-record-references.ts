@@ -110,9 +110,34 @@ export function scopedRefsOf(record: { kind: Kind; payload: unknown }): External
       const p = record.payload as Extract<CanonicalRecord, { kind: 'report-promotion' }>['payload']
       return [p.report, p.operation, p.identity]
     }
+    case 'framing-receipt': {
+      const payload = record.payload as Extract<CanonicalRecord, { kind: 'framing-receipt' }>['payload']
+      if (payload.phase === 'intent')
+        return payload.proposal.members.flatMap((member) => [
+          ...member.inherited.map((own) => own.sourceAccepted),
+          ...(member.allocation?.ledgerHead ? [member.allocation.ledgerHead] : []),
+        ])
+      if (payload.phase === 'member-binding') return [payload.intent]
+      if (payload.phase === 'member-claim')
+        return payload.binding === null ? [payload.intent] : [payload.intent, payload.binding]
+      return [
+        payload.intent,
+        ...payload.claims,
+        ...payload.bindings,
+        ...payload.identities,
+        ...payload.coverage.flatMap((coverage) =>
+          coverage.ancestors.flatMap((ancestor) =>
+            ancestor.kind === 'accepted' ? [ancestor.own.sourceAccepted, ancestor.metadata] : [],
+          ),
+        ),
+      ]
+    }
     case 'spec-identity': {
       const payload = record.payload as SpecIdentityPayload
-      return payload.predecessor === null ? [] : [payload.predecessor]
+      const refs = payload.predecessor === null ? [] : [payload.predecessor]
+      if (payload.format === 'omp-build-spec-identity/2')
+        refs.push(payload.aggregate.intent, payload.aggregate.claim, payload.aggregate.binding)
+      return refs
     }
     case 'mandate': {
       const payload = record.payload as MandatePayload

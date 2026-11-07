@@ -18,6 +18,7 @@ import {
   isolateViewerToken,
   observationalGh,
   observationalGit,
+  observedNormalizationReader,
   preparedNormalization,
   releaseViewerToken,
 } from './uw-normalization-observation.ts'
@@ -96,12 +97,14 @@ it.each([
       reopen: unexpected,
       abandon: unexpected,
       closeLinked: unexpected,
-      readUw: unexpected,
+      readUw: observedNormalizationReader(request).readUw,
       listReports: unexpected,
       adjudicateCause: unexpected,
       createSister: unexpected,
       promoteReport: unexpected,
       prepare: unexpected,
+      prepareFraming: unexpected,
+      frame: unexpected,
       validateNormalization: () => ({ ok: true, value: judgement }),
       write: async (input) => {
         writes.push(input)
@@ -141,6 +144,9 @@ it.each([
       },
       send: async () => undefined,
       status: async () => undefined,
+      startFraming: async () => {
+        throw new Error('successor normalization must not start initial framing')
+      },
       inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
       releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
       featureContinuationInhibited: () => controller.featureContinuationInhibited(),

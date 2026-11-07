@@ -22,6 +22,9 @@ import type {
   UwProposalInput,
   UwRead,
 } from './uw-contract.ts'
+import { executeFraming } from './uw-framing-executor.ts'
+import type { FramingPublicationPorts } from './uw-framing-ports.ts'
+import { prepareFraming } from './uw-framing-prepare.ts'
 import { bindSuccessorWriter } from './uw-normalization-internal.ts'
 import { validateNormalizationJudgement } from './uw-normalization-proposal.ts'
 import { observation } from './uw-operation-observation.ts'
@@ -82,6 +85,8 @@ export type UwOperationsPorts = {
   scopeOf(issue: IssueRef): Scope
   actions?: ActionOperationPorts['actions']
   delivery?: ActionOperationPorts['delivery']
+  /** Installed receipt and /2 identity publisher; without it framing refuses before any effect. */
+  framingPublication?: FramingPublicationPorts
 }
 
 function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
@@ -146,6 +151,8 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
 
   const operations: UwOperations = {
     readUw: ports.read,
+    prepareFraming: (input, invocation) => prepareFraming(input, invocation, ports),
+    frame: (prepared, guard) => executeFraming(prepared, guard, ports),
     readEffective: effective,
     async readCoverage(uw) {
       const read = await ports.read(uw)

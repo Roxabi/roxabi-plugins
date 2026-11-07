@@ -78,7 +78,19 @@ export function canonicalSpec(content: SpecContent): Result<Spec> {
         diagnostics: [{ code: 'spec-invalid', message: parsed.error.issues.map((issue) => issue.message).join('; ') }],
       }
 }
-export function validateSpecIds(spec: Spec, ledger: SpecIdentityLedger): UwResult<Spec> {
+export function validatePlannedSpecIds(
+  spec: Spec,
+  identity: { allocated: ReadonlySet<SpecItemId>; retired: ReadonlySet<SpecItemId> },
+  repository: string,
+): UwResult<Spec> {
+  return validateIds(spec, identity, () => ({ kind: 'repository', repository }))
+}
+
+function validateIds(
+  spec: Spec,
+  identity: { allocated: { has(id: SpecItemId): boolean }; retired: { has(id: SpecItemId): boolean } },
+  locate: (path: (string | number)[], id?: SpecItemId) => UwDiagnostic['location'],
+): UwResult<Spec> {
   const diagnostics: UwDiagnostic[] = []
   const seen = new Set<string>()
   for (const [section, items] of [
@@ -90,7 +102,7 @@ export function validateSpecIds(spec: Spec, ledger: SpecIdentityLedger): UwResul
         diagnostics.push({
           code: 'spec-id-duplicate',
           message: `Spec item ${item.id} is repeated`,
-          location: location(ledger.uw, [section, index], item.id),
+          location: locate([section, index], item.id),
           related: [],
         })
       seen.add(item.id)
@@ -102,10 +114,7 @@ export function validateSpecIds(spec: Spec, ledger: SpecIdentityLedger): UwResul
       ...parsed.error.issues.map((issue) => ({
         code: 'spec-invalid',
         message: issue.message,
-        location: location(
-          ledger.uw,
-          issue.path.map((part) => (typeof part === 'symbol' ? String(part) : part)),
-        ),
+        location: locate(issue.path.map((part) => (typeof part === 'symbol' ? String(part) : part))),
         related: [],
       })),
     )
@@ -115,21 +124,42 @@ export function validateSpecIds(spec: Spec, ledger: SpecIdentityLedger): UwResul
     ['invariants', spec.invariants],
   ] as const) {
     items.forEach((item, index) => {
-      if (ledger.retired.has(item.id))
+      if (identity.retired.has(item.id))
         diagnostics.push({
           code: 'spec-id-retired',
           message: `Spec item ${item.id} is retired`,
-          location: location(ledger.uw, [section, index], item.id),
+          location: locate([section, index], item.id),
           related: [],
         })
-      else if (!ledger.allocations.has(item.id))
+      else if (!identity.allocated.has(item.id))
         diagnostics.push({
           code: 'spec-id-unallocated',
           message: `Spec item ${item.id} has no durable allocation`,
-          location: location(ledger.uw, [section, index], item.id),
+          location: locate([section, index], item.id),
           related: [],
         })
     })
   }
   return diagnostics.length === 0 ? { ok: true, value: spec } : { ok: false, diagnostics }
+}
+
+export function validateSpecIds(spec: Spec, ledger: SpecIdentityLedger): UwResult<Spec> {
+  return validateIds(spec, { allocated: ledger.allocations, retired: ledger.retired }, (path, id) =>
+    location(ledger.uw, path, id),
+  )
+}
+
+export function validateSpecIdsWithPlan(
+  spec: Spec,
+  ledger: SpecIdentityLedger,
+  planned: ReadonlySet<SpecItemId>,
+): UwResult<Spec> {
+  return validateIds(
+    spec,
+    {
+      allocated: { has: (id) => planned.has(id) || ledger.allocations.has(id) },
+      retired: ledger.retired,
+    },
+    (path, id) => location(ledger.uw, path, id),
+  )
 }

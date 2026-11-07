@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import { selectApplicableMandate } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
 import { criterionIdSchema } from '../engine/uw-spec-schema.ts'
@@ -17,7 +18,8 @@ import {
   writeSim,
 } from '../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
+import { checkPlannedAncestry, resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
+import { selectionNormalization } from './feature-selection-normalization.ts'
 import { prepareCanonicalCheckout } from './prepare-canonical-checkout.ts'
 import type { UwOperations } from './uw-contract.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
@@ -115,6 +117,16 @@ function driverEffects(operations: UwOperations) {
   }
 }
 
+/** Epic effects that refuse the driver's first GitHub read, stopping the call after its own first Mandate. */
+function heldEpicStep(operations: UwOperations) {
+  return {
+    ...driverEffects(operations),
+    gh: (): string => {
+      throw new Error('fixture holds the epic step')
+    },
+  }
+}
+
 async function coverageIntent(request: Parameters<typeof continueFeature>[0]) {
   const pending = await continueFeature(request)
   if (pending.kind !== 'blocked' || !pending.coverageRequest) throw new Error(JSON.stringify(pending))
@@ -143,12 +155,51 @@ async function observeInitialChild(operations: UwOperations, parent: Scope, chil
     readiness: await initialMandateReadiness(parentRead, parentRead.admission, childRead),
   }
 }
+it('routes a legacy issue to assisted framing at initial selection', async () => {
+  const { operations, child } = await parentFixture()
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing child issue')
+    issue.body = 'Legacy source requiring an accounted conversion.'
+  })
+  const read = await operations.readUw(child)
+  if (read.observation.status !== 'complete') throw new Error('Expected complete observation')
+  const history = read.histories.find((entry) => entry.source.scope.target === child.target)
+  if (!history) throw new Error('Expected own history')
+  const selection = selectApplicableMandate(
+    history,
+    read.histories.filter((entry) => entry !== history),
+    {
+      histories: read.histories,
+      catalogues: read.catalogues,
+      observation: read.observation,
+    },
+  )
+  expect(selectionNormalization('select', { scope: child, selection }, read)).toEqual({
+    kind: 'framing',
+    source: { kind: 'issue', uw: child },
+  })
+})
 
 async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: Scope, middle: Scope) {
   const baseline = await operations.readUw(middle)
   if (baseline.parsed.status !== 'conformant') throw new Error('Expected conformant middle Spec')
   const original = baseline.parsed.snapshot
   expect(await resolveParentWorktreeAnchor({ subject: middle, read: baseline })).toEqual({ ok: true, anchor: root })
+  const same = await checkPlannedAncestry({
+    subject: middle,
+    read: baseline,
+    planned: { spec: original.spec, tier: 'F-lite' },
+  })
+  expect(same.ok).toBe(true)
+  if (!same.ok) throw new Error(same.reason)
+  expect(same.inherited.map((ref) => ref.uw)).toEqual([root])
+  const wrongTier = await checkPlannedAncestry({
+    subject: middle,
+    read: baseline,
+    planned: { spec: original.spec, tier: 'S' },
+  })
+  expect(wrongTier).toEqual({ ok: false, reason: 'parent-anchor-commitment-mismatch' })
   const material = canonicalSpec({
     format: 'omp-build-spec-content/1',
     criteria: [{ id: 'C1', statement: 'lands with materially different requirements' }],
@@ -159,6 +210,13 @@ async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: 
   })
   if (!material.ok) throw new Error('Expected conformant material Spec')
   expect(material.value.version).not.toBe(original.spec.version)
+  expect(
+    await checkPlannedAncestry({
+      subject: middle,
+      read: baseline,
+      planned: { spec: material.value, tier: 'F-lite' },
+    }),
+  ).toEqual({ ok: false, reason: 'parent-anchor-commitment-mismatch' })
   writeSim((state) => {
     const issue = state.issues[String(A)]
     if (!issue) throw new Error('Missing nested parent')
@@ -189,8 +247,17 @@ async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: 
 
 it('keeps an unmandated accepted child ready after presentation-only native editing', async () => {
   const { operations, parent, child, request } = await parentFixture()
+  const beforeParent = await observeInitialChild(operations, parent, child)
+  if (beforeParent.child.parsed.status !== 'conformant') throw new Error('Expected conformant child Spec')
+  expect(
+    await checkPlannedAncestry({
+      subject: child,
+      read: beforeParent.child,
+      planned: { spec: beforeParent.child.parsed.snapshot.spec, tier: 'S' },
+    }),
+  ).toEqual({ ok: false, reason: 'current-inheritance-unavailable' })
   const intent = await coverageIntent(request)
-  await continueFeature({ ...request, ...intent })
+  await withEpicEffects(heldEpicStep(operations), () => continueFeature({ ...request, ...intent }))
   const baseline = await observeInitialChild(operations, parent, child)
   expect(baseline.parent.accepted.status).toBe('accepted')
   expect(baseline.child.accepted.status).toBe('absent')
@@ -248,9 +315,12 @@ it('publishes the first parent and child mandates in the same real parent checko
   }
   // This is a new invocation at the destination, not evidence of a native /move.
   const intent = await coverageIntent(request)
-  const acceptedResult = await continueFeature({ ...request, ...intent })
+  const effects = driverEffects(operations)
+  const acceptedResult = await withEpicEffects(effects, () => continueFeature({ ...request, ...intent }))
   const accepted = await operations.readUw(parent)
   expect(accepted.accepted.status, JSON.stringify(acceptedResult)).toBe('accepted')
+  // The first Mandate consumes the confirmed coverage; the same call must not ask for it again.
+  expect(acceptedResult).not.toMatchObject({ reason: expect.stringMatching(/^parent-coverage/) })
   if (accepted.accepted.status !== 'accepted') throw new Error('Parent mandate not confirmed')
   const parentAccepted = accepted.accepted.value
   const mandate = accepted.histories
@@ -263,11 +333,9 @@ it('publishes the first parent and child mandates in the same real parent checko
   if (mandate?.kind !== 'mandate') throw new Error('Confirmed parent mandate unavailable')
   expect(mandate.payload.branch).toBeNull()
   expect(mandate.payload.lineageHead).toBe(before)
-  expect((await operations.readUw(child)).accepted.status).toBe('absent')
-  const effects = driverEffects(operations)
-  const continued = await withEpicEffects(effects, () => continueFeature({ ...request, control: 'continue' }))
+  // The first Parent Mandate consumed the confirmed coverage; the same call continues into child activation.
   const childRead = await operations.readUw(child)
-  expect(childRead.accepted.status, JSON.stringify(continued)).toBe('accepted')
+  expect(childRead.accepted.status, JSON.stringify(acceptedResult)).toBe('accepted')
   if (childRead.accepted.status !== 'accepted') throw new Error('Child mandate not confirmed')
   const childAccepted = childRead.accepted.value
   expect(childAccepted.inheritedOwnSpecRefs[0]).toEqual(parentAccepted.ref)
@@ -337,7 +405,7 @@ it('preserves the dirty active child in the same parent worktree', async () => {
 it('does not establish a child mandate from an ancestor whose framing has changed', async () => {
   const { request, operations, parent, child } = await parentFixture()
   const intent = await coverageIntent(request)
-  const established = await continueFeature({ ...request, ...intent })
+  const established = await withEpicEffects(heldEpicStep(operations), () => continueFeature({ ...request, ...intent }))
   expect((await operations.readUw(parent)).accepted.status, JSON.stringify(established)).toBe('accepted')
   writeSim((state) => {
     const ancestor = state.issues[String(EPIC)]
@@ -381,7 +449,9 @@ it('schedules a parent child and its leaf in the root parent worktree without a 
     },
   }
   const middleRequest = { ...request, reference: '#2', control: 'continue' as const }
-  const middleResult = await withEpicEffects(effects, () => continueFeature({ ...middleRequest, ...middleIntent }))
+  const middleResult = await withEpicEffects(heldEpicStep(operations), () =>
+    continueFeature({ ...middleRequest, ...middleIntent }),
+  )
   const middleRead = await operations.readUw(middle)
   expect(middleRead.accepted.status, JSON.stringify(middleResult)).toBe('accepted')
   if (middleRead.accepted.status !== 'accepted') throw new Error('Nested parent mandate unavailable')

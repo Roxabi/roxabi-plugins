@@ -6,6 +6,8 @@ import { resolveSpecEffective } from './spec-effective.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwCompletionAssessment } from './uw-completion-types.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
+import type { FramingMembership } from './uw-framing-hold.ts'
+import { readFramingMembership } from './uw-framing-membership.ts'
 import {
   isWayfinder,
   sameScope,
@@ -49,7 +51,12 @@ type TransitionUwAdmissionInput = UwAdmissionBase & {
   currentChildren: CurrentChildrenProjection
 }
 type UwAdmissionInput = InitialUwAdmissionInput | TransitionUwAdmissionInput
-export type UwAdmission = { framed: UwCheck; deliverable: UwCheck; applicability: 'resolved' | 'unresolved' }
+export type UwAdmission = {
+  framed: UwCheck
+  deliverable: UwCheck
+  applicability: 'resolved' | 'unresolved'
+  aggregate: FramingMembership
+}
 function diag(
   uw: Scope,
   code: string,
@@ -241,6 +248,8 @@ function acceptedChildDiagnostics(
 export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw))
   const framed = framingDiagnostics(input, root)
+  const aggregate = readFramingMembership(input)
+  if (aggregate.status === 'held') framed.push(...aggregate.diagnostics)
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics]
   let applicability: UwAdmission['applicability'] = 'unresolved'
   if (input.accepted.status === 'accepted') {
@@ -272,5 +281,6 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
     framed: { ok: framed.length === 0, diagnostics: framed },
     deliverable: { ok: deliverable.length === 0, diagnostics: deliverable },
     applicability,
+    aggregate,
   }
 }

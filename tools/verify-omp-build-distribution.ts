@@ -14,6 +14,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
+import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
 import { verifyCleanExtension } from './omp-build-clean-extension.ts'
 import { compare, gitBytes, headOutputs, type Snapshot, snapshot } from './omp-build-distribution-files.ts'
 
@@ -124,6 +125,13 @@ function reportFrom(output: string): BuildReport {
 }
 
 function assertInventory(report: BuildReport, files: Snapshot): void {
+  const procedures = Object.values(FRAMING_PROCEDURE_FILES).map((path) => `plugins/omp-build/${path}`)
+  if (
+    procedures.length !== 3 ||
+    new Set(procedures).size !== 3 ||
+    procedures.some((path) => report.inputs.filter((input) => input === path).length !== 1)
+  )
+    throw new Error('producer report must contain each of the three framing procedure inputs exactly once')
   const actual = [...files.keys()].sort()
   const expected = [...report.outputs].sort()
   if (new Set(expected).size !== expected.length || expected.join('\n') !== actual.join('\n'))
@@ -185,6 +193,21 @@ function negativeProbes(checkout: string, expected: Snapshot): void {
     probeVerifier(checkout, 'orphan output', 'candidate to A: missing=[] extra=[agents/orphan.md] changed=[]')
   } finally {
     rmSync(orphan)
+  }
+  const procedure = `plugins/omp-build/${FRAMING_PROCEDURE_FILES.grilling}`
+  const asset = join(checkout, procedure)
+  const assetBytes = readFileSync(asset)
+  writeFileSync(asset, 'corrupt procedure')
+  try {
+    probeVerifier(checkout, 'changed procedure', `physical source differs from HEAD: ${procedure}`)
+  } finally {
+    writeFileSync(asset, assetBytes)
+  }
+  rmSync(asset)
+  try {
+    probeVerifier(checkout, 'missing procedure', 'ENOENT')
+  } finally {
+    writeFileSync(asset, assetBytes)
   }
 }
 

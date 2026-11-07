@@ -76,6 +76,7 @@ export function fixture(
     identityScopes: [],
     patchedIssues: [],
   }
+  let created = false
   const issuePorts: IssueWritePorts = {
     read: async (issue) => {
       state.issueReadIssues.push({ ...issue })
@@ -96,7 +97,14 @@ export function fixture(
         blockers: [],
       }
     },
-    create: async () => CREATED,
+    create: async ({ title, body }) => {
+      created = true
+      state.title = title
+      state.body = body
+      state.labels = []
+      state.children = []
+      return CREATED
+    },
     patch: async (issue, value) => {
       state.patchCount += 1
       state.patchedIssues.push({ ...issue })
@@ -146,7 +154,11 @@ export function fixture(
     read: async (uw) => {
       state.readScopes.push(structuredClone(uw))
       await options.readBarrier
-      if (state.patchCount > 0 && options.postEffectReadFailure !== undefined) throw options.postEffectReadFailure
+      if (
+        (state.patchCount > 0 || (created && uw.target === CREATED_UW.target)) &&
+        options.postEffectReadFailure !== undefined
+      )
+        throw options.postEffectReadFailure
       return readFixtureUw(state)
     },
     listReports: async (root) => ({ ok: true, value: { root, reports: [] } }),

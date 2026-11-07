@@ -8,6 +8,9 @@ import {
   type SourceCriterionBlock,
   type SourceSpan,
 } from './uw-spec-parser.ts'
+import type { SpecParseSubject } from './uw-spec-source-scanner.ts'
+
+export type { SpecParseSubject } from './uw-spec-source-scanner.ts'
 
 export type { SourceSpan }
 export type CriterionSource = Pick<SourceCriterionBlock, 'id' | 'statement' | 'span' | 'source'>
@@ -55,24 +58,36 @@ function analysis(
   }
 }
 
-export function parseIssueSpecBody(input: { uw: Scope; raw: SpecRawSource }): ParsedIssueSpec {
-  const parsed = parseSpecBody(input.uw, input.raw)
+function parseSubject(subject: SpecParseSubject, raw: SpecRawSource): ParsedIssueSpec {
+  const parsed = parseSpecBody(subject, raw)
   const source = analysis(parsed.criterionBlocks, parsed.invariantBlocks, parsed.contentBlocks, parsed.preserved)
   if (parsed.status === 'conformant' && parsed.content !== undefined) {
     return {
       status: 'conformant',
-      snapshot: { spec: parsed.content, raw: input.raw },
+      snapshot: { spec: parsed.content, raw },
       diagnostics: [],
       analysis: source,
     }
   }
   if (parsed.status === 'draft' && parsed.draft !== undefined) {
-    return { status: 'draft', draft: parsed.draft, raw: input.raw, diagnostics: parsed.diagnostics, analysis: source }
+    return { status: 'draft', draft: parsed.draft, raw, diagnostics: parsed.diagnostics, analysis: source }
   }
   if (parsed.status === 'legacy') {
-    return { status: 'legacy', raw: input.raw, diagnostics: parsed.diagnostics, analysis: source }
+    return { status: 'legacy', raw, diagnostics: parsed.diagnostics, analysis: source }
   }
-  return { status: 'malformed', raw: input.raw, diagnostics: parsed.diagnostics, analysis: source }
+  return { status: 'malformed', raw, diagnostics: parsed.diagnostics, analysis: source }
+}
+
+export function parseIssueSpecBody(input: { uw: Scope; raw: SpecRawSource }): ParsedIssueSpec {
+  return parseSubject({ kind: 'uw', uw: input.uw }, input.raw)
+}
+
+export function parseSpecMaterial(input: {
+  repository: string
+  material: string
+  raw: SpecRawSource
+}): ParsedIssueSpec {
+  return parseSubject({ kind: 'material', repository: input.repository, material: input.material }, input.raw)
 }
 
 export { rawSource, SPEC_HEADINGS, SPEC_MARKER } from './uw-spec-parser.ts'

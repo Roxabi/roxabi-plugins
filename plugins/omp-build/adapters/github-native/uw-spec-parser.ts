@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import {
   type CriterionId,
@@ -18,6 +17,7 @@ import {
   preserveUnclassifiableBody,
   type SourceContentBlock,
 } from './uw-spec-source-projection.ts'
+import type { SpecParseSubject } from './uw-spec-source-scanner.ts'
 import {
   bodyLocation,
   bodyDiagnostic as diagnostic,
@@ -42,7 +42,7 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function duplicateDiagnostics(uw: Scope, blocks: readonly SourceCriterionBlock[]): UwDiagnostic[] {
+function duplicateDiagnostics(uw: SpecParseSubject, blocks: readonly SourceCriterionBlock[]): UwDiagnostic[] {
   const firstById = new Map<string, SourceCriterionBlock>()
   const diagnostics: UwDiagnostic[] = []
   for (const block of blocks) {
@@ -114,7 +114,7 @@ function identifiedItems<K extends CriterionId | InvariantId>(
   })
 }
 
-export function parseSpecBody(uw: Scope, raw: SpecRawSource): ParsedBody {
+export function parseSpecBody(uw: SpecParseSubject, raw: SpecRawSource): ParsedBody {
   const parsed = scanSpecStructure(uw, raw.body)
   const byHeading = sectionsByHeading(parsed)
   const diagnostics = [...parsed.diagnostics, ...structuralDiagnostics(uw, parsed, byHeading)]

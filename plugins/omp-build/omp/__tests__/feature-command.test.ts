@@ -193,23 +193,6 @@ describe('installed /feature command', () => {
     expect(host.sent.join('\n')).not.toContain('feature-abandoned')
   })
 
-  it('forwards a multi-token subject for assisted framing and does not reject it', async () => {
-    const references: string[] = []
-    const host = installed({
-      featureWorkflow: workflow({
-        continueFeature: async (input) => {
-          references.push(input.reference)
-          return { kind: 'operator-decision', reason: 'needs-framing' }
-        },
-      }),
-    })
-    await host.commands.get('feature')?.handler('ship the billing export', root)
-    expect(references).toEqual(['ship the billing export'])
-    expect(host.sent).toHaveLength(1)
-    expect(host.sent[0]).not.toMatch(/^feature-stopped/)
-    expect(host.sent.join('\n')).not.toContain('feature-reference-invalid')
-    expect(host.sent.join('\n')).not.toContain('operator-decision:needs-scope')
-  })
   it('rejects an argv material decision at the /uw UI boundary before creating operations', async () => {
     let created = false
     const host = installed({
@@ -249,6 +232,9 @@ describe('installed /feature command', () => {
         sent.push(text)
       },
       status: async () => undefined,
+      startFraming: async () => {
+        throw new Error('unexpected-framing')
+      },
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,
@@ -285,6 +271,9 @@ describe('installed /feature command', () => {
         sent.push(message)
       },
       status: async () => undefined,
+      startFraming: async () => {
+        throw new Error('unexpected-framing')
+      },
       inhibitFeatureContinuation: () => undefined,
       releaseFeatureContinuation: () => undefined,
       featureContinuationInhibited: () => false,
