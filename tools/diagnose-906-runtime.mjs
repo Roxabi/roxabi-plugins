@@ -1,6 +1,11 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
+const profile = process.env.OMP_906_DIAGNOSTIC_PROFILE ?? 'targeted'
+const profiles = { targeted: { files: 3, tests: 10 }, full: { files: 347, tests: 2913 } }
+if (!Object.hasOwn(profiles, profile)) throw new Error(`Unknown diagnostic profile: ${profile}`)
+const expectedCounts = profiles[profile]
+
 const directory = process.env.OMP_PHASE_PROBE_DIR
 if (!directory) throw new Error('OMP_PHASE_PROBE_DIR is required')
 let report
@@ -38,8 +43,8 @@ const monotonicDeltaMs = (from, to) => {
   const delta = Number(BigInt(to.monoNs) - BigInt(from.monoNs)) / 1e6
   return Number.isFinite(delta) && delta >= 0 ? delta : null
 }
-const summary = { diagnostic: 'DO NOT MERGE; not required CI', reportSuccess: report.success, files: report.testResults?.length, tests: results.map((test) => ({ title: test.fullName ?? test.title, status: test.status, durationMs: test.duration })), cases: [], error: [] }
-if (report.success !== true || results.length !== 10 || report.testResults?.length !== 3 || results.some((test) => test.status !== 'passed')) summary.error.push('semantic result incomplete or failed')
+const summary = { diagnostic: 'DO NOT MERGE; not required CI', profile, expectedCounts, reportSuccess: report.success, files: report.testResults?.length, tests: results.map((test) => ({ title: test.fullName ?? test.title, status: test.status, durationMs: test.duration })), cases: [], error: [] }
+if (report.success !== true || results.length !== expectedCounts.tests || report.testResults?.length !== expectedCounts.files || results.some((test) => test.status !== 'passed')) summary.error.push('semantic result incomplete or failed')
 for (const [name, title, originalMs] of expected) {
   const matches = results.filter((test) => test.title === title)
   const test = matches[0]

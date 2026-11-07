@@ -16,7 +16,7 @@ jobs:
   ci:
     if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
@@ -48,7 +48,7 @@ jobs:
       # standing between a typo and a dead release run.
       - name: Lint workflows (actionlint)
         run: actionlint
-      - name: "DO NOT MERGE: hosted #906 runtime diagnostic (not required CI)"
+      - name: "DO NOT MERGE: FULL-workload #906 diagnostic (not required CI)"
         env:
           DIAGNOSTIC_PR_HEAD: ${{ github.event.pull_request.head.sha }}
           DIAGNOSTIC_PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -65,9 +65,11 @@ jobs:
           esac
           umask 077
           export OMP_906_RUNTIME_DIAGNOSTIC=1
+          export OMP_906_DIAGNOSTIC_PROFILE=full
           export OMP_PHASE_PROBE_DIR="${RUNNER_TEMP}/omp-906-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -m 700 "$OMP_PHASE_PROBE_DIR" || exit 1
           printf 'DIAGNOSTIC ONLY — no delivery or required-CI evidence\n'
+          printf 'diagnostic_profile=%s\n' "$OMP_906_DIAGNOSTIC_PROFILE"
           printf 'checkout/tree/parents:\n'
           git log -1 --format='%H%n%T%n%P' || exit 1
           printf 'event=%s github_sha=%s diagnostic_pr_head=%s diagnostic_pr_base=%s\n' "$GITHUB_EVENT_NAME" "$GITHUB_SHA" "$DIAGNOSTIC_PR_HEAD" "$DIAGNOSTIC_PR_BASE"
@@ -75,10 +77,7 @@ jobs:
           printf 'image_os=%s image_version=%s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
           bun --revision && node --version && git --version || exit 1
           node -e "const {availableParallelism}=require('node:os'); const n=availableParallelism(); console.log(JSON.stringify({availableParallelism:n,configuredRootMaxWorkers:Math.min(8,Math.max(1,n-1)),configuredIntegrationMaxWorkers:Math.max(1,Math.floor(n/4))}))" || exit 1
-          timeout --signal=TERM --kill-after=10s 900s bun run test --reporter=default --reporter=json --outputFile.json="$OMP_PHASE_PROBE_DIR/vitest.json" \
-            plugins/omp-build/omp/__tests__/feature-review-lifecycle.integration.test.ts \
-            plugins/omp-build/omp/__tests__/feature-review-races.integration.test.ts \
-            plugins/omp-build/skills/feature/goal-scenario.integration.test.ts
+          timeout --signal=TERM --kill-after=10s 3300s bun run test --reporter=default --reporter=json --outputFile.json="$OMP_PHASE_PROBE_DIR/vitest.json"
           test_status=$?
           printf 'diagnostic_test_exit=%s (124/137 indicates timeout or termination)\n' "$test_status"
           bun tools/diagnose-906-runtime.mjs
