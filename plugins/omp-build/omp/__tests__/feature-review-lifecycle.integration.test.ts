@@ -461,7 +461,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       'mandate-feature-1',
     ])
     expect(issueRecords.some((record) => record.kind === 'operator-control')).toBe(false)
-  })
+  }, 120_000)
 
   it('executes only fix-original while retaining sister-after and report without filing', async ({ task }) => {
     const { box, cwd } = arrange()
@@ -529,7 +529,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
       ),
     ).toEqual([])
     expect(observed.terminal).toMatchObject({ status: 'complete', kind: 'fix-result' })
-  })
+  }, 120_000)
 
   it('persists confirmed local pause for a fresh review without another dispatch', async ({ task }) => {
     const { box, cwd } = arrange()

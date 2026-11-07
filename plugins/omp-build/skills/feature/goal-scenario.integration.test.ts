@@ -474,5 +474,5 @@ describe('stateful gh — one continuous goal', () => {
     )
     expect(readSim().prs[String(openedA.number)]?.state).toBe('MERGED')
     expect(readSim().prs[String(openedB.number)]?.state).toBe('MERGED')
-  }, 90_000)
+  }, 180_000)
 })

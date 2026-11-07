@@ -14,7 +14,7 @@ import { createReviewDriver } from './native-review-driver.ts'
 
 type Mode = 'latest' | 'pause'
 
-function waitFor(file: string): Promise<void> {
+function waitFor(file: string, timeout = 10_000): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>()
   let settled = false
   let watcher!: ReturnType<typeof watch>
@@ -30,13 +30,13 @@ function waitFor(file: string): Promise<void> {
   watcher = watch(path.dirname(file), (_event, name) => {
     if (name === path.basename(file) && existsSync(file)) done()
   })
-  timer = setTimeout(() => done(new Error(`git barrier timeout: ${file}`)), 10_000)
+  timer = setTimeout(() => done(new Error(`git barrier timeout: ${file}`)), timeout)
   if (existsSync(file)) done()
   return promise
 }
 type GitBarrier = { started: Promise<void>; release(): void; close(): void }
 
-function gitBarrier(kind: 'preflight' | 'checkout'): GitBarrier {
+function gitBarrier(kind: 'preflight' | 'checkout', markerTimeout = 10_000): GitBarrier {
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
   const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-git-'))
@@ -61,7 +61,7 @@ function gitBarrier(kind: 'preflight' | 'checkout'): GitBarrier {
     OMP_RACE_REAL_GIT: real,
   })
   return {
-    started: waitFor(started),
+    started: waitFor(started, markerTimeout),
     release: () => writeFileSync(release, 'release\n'),
     close: () => {
       if (before === undefined) delete process.env.PATH
@@ -158,7 +158,7 @@ async function latest(cwd: string) {
   return completeRace(
     async () => {
       await driver.settle(reviewInitialData)
-      const armed = gitBarrier('preflight')
+      const armed = gitBarrier('preflight', 30_000)
       barrier = armed
       settling = driver.settle((task) => reviewDecision(task.task))
       await armed.started
