@@ -1,14 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { validateComposedWorkflowHistories } from '../adapters/github-workflow/history.ts'
 import * as contracts from '../contracts.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
+import {
+  base,
+  dispose,
+  openState,
+  pull,
+  run,
+  saved,
+} from '../skills/feature/testing/gh-simulator/sim-transport-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 
 const { epicControlTarget } = vi.hoisted(() => ({ epicControlTarget: vi.fn() }))
 
 vi.mock('../skills/feature/epic-driver.ts', () => ({ epicControlTarget }))
 
-import { disarmKnownTarget } from './feature-disarm.ts'
+import { disarmBranchBeforePush, disarmKnownTarget } from './feature-disarm.ts'
 
 type Gate = { reviewed: boolean; autoMerge: boolean }
 type GhReply = { output: string }
@@ -16,7 +24,13 @@ type GhReply = { output: string }
 type GhFixture = {
   gh: (cwd: string, args: string[]) => Promise<string>
   gates: Map<number, Gate>
+  comments: (pr: number) => string[]
 }
+const simulatorRoots: string[] = []
+afterEach(() => {
+  for (const root of simulatorRoots.splice(0)) dispose(root)
+  vi.unstubAllEnvs()
+})
 
 function listReply(args: string[], linkedResponse: string | Error): GhReply | null {
   if (args[0] !== 'pr' || args[1] !== 'list') return null
@@ -24,7 +38,7 @@ function listReply(args: string[], linkedResponse: string | Error): GhReply | nu
     if (linkedResponse instanceof Error) throw linkedResponse
     return { output: linkedResponse }
   }
-  return args.includes('--head') ? { output: JSON.stringify([{ number: 9 }]) } : null
+  return args.includes('--head') ? { output: JSON.stringify([{ number: 9, state: 'OPEN' }]) } : null
 }
 
 function gateReply(args: string[], gates: Map<number, Gate>): GhReply | null {
@@ -58,9 +72,25 @@ function ghForDiscovery(linkedResponse: string | Error, branch = 'feat/42'): GhF
     [9, { reviewed: true, autoMerge: true }],
     [10, { reviewed: true, autoMerge: true }],
   ])
+  const box = openState(
+    base({
+      remoteRefs: { main: 'b'.repeat(40) },
+      prs: {
+        9: pull(9, branch, 'a'.repeat(40), { baseRefOid: 'b'.repeat(40) }),
+        10: pull(10, branch, 'a'.repeat(40), { baseRefOid: 'b'.repeat(40) }),
+      },
+    }),
+  )
+  simulatorRoots.push(box.root)
   return {
     gates,
+    comments: (pr) => saved(box.file).prs[String(pr)].comments.map((comment) => comment.body),
     async gh(_cwd, args) {
+      if (args[0] === 'api' || (args[0] === 'repo' && args[1] === 'view')) {
+        const response = run(box.file, args, box.root)
+        if (response.status !== 0) throw new Error(response.stderr)
+        return response.stdout.trim()
+      }
       if (args[0] === 'pr' && args[1] === 'view' && args.includes('headRefName,baseRefName')) {
         return JSON.stringify({ headRefName: branch, baseRefName: 'main' })
       }
@@ -78,6 +108,33 @@ const target = {
   scope: { repository: 'acme/app', target: 'acme/app#42' },
   issue: { number: 42 },
 }
+
+describe('branch push withdrawal discovery', () => {
+  it('permits a push only after complete empty PR enumeration', async () => {
+    const calls: string[][] = []
+    const gh = async (_cwd: string, args: string[]) => {
+      calls.push(args)
+      return '[]'
+    }
+    expect(await disarmBranchBeforePush(gh, '/repo', 'acme/app', 'feat/42')).toBe(true)
+    expect(calls).toEqual([['api', 'repos/acme/app/pulls?state=all&head=acme%3Afeat%2F42&per_page=100&page=1']])
+  })
+
+  it.each(['{}', '[[{"number":0}]]', '[[{"number":9}],null]'])(
+    'refuses incomplete or malformed enumeration %s',
+    async (response) => {
+      expect(await disarmBranchBeforePush(async () => response, '/repo', 'acme/app', 'feat/42')).toBe(false)
+    },
+  )
+
+  it('refuses when a discovered PR cannot be withdrawn', async () => {
+    const gh = async (_cwd: string, args: string[]) => {
+      if (args[0] === 'api') return JSON.stringify([{ number: 9, state: 'open', merged_at: null }])
+      throw new Error('withdrawal unavailable')
+    }
+    expect(await disarmBranchBeforePush(gh, '/repo', 'acme/app', 'feat/42')).toBe(false)
+  })
+})
 
 function composedHistory(histories: DecodedHistory[]) {
   const validated = validateComposedWorkflowHistories(histories)
@@ -124,6 +181,10 @@ function epicAuthority() {
 
 beforeEach(() => {
   epicControlTarget.mockReset()
+  vi.stubEnv('HEAD_AUTH_REPOSITORY_ID', '1')
+  vi.stubEnv('HEAD_AUTH_OPERATOR_IDS', '[101]')
+  vi.stubEnv('HEAD_AUTH_APP_ID', '200')
+  vi.stubEnv('HEAD_AUTH_BOT_USER_ID', '201')
 })
 
 describe('Feature pause disarm discovery', () => {
@@ -136,8 +197,9 @@ describe('Feature pause disarm discovery', () => {
   })
 
   it('confirms complete valid discovery after PR 9 is unarmed', async () => {
-    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]))
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }]))
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
+    expect(fixture.comments(9).some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
 
     expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
     expect(result).toMatchObject({ clean: true })
@@ -163,7 +225,7 @@ describe('Feature pause disarm discovery', () => {
     ['epic', true],
   ] as const)('refuses %s disarm without selected authority (empty discovery: %s)', async (role, empty) => {
     epicControlTarget.mockResolvedValue({ mandateId: 'mandate-42', control: 'paused', openPrs: [] })
-    const fixture = ghForDiscovery(JSON.stringify(empty ? [] : [{ number: 9 }]))
+    const fixture = ghForDiscovery(JSON.stringify(empty ? [] : [{ number: 9, state: 'OPEN' }]))
 
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, role, null, null)
 
@@ -183,7 +245,7 @@ describe('Feature pause disarm discovery', () => {
         { ticket: 43, pr: 10 },
       ],
     })
-    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]), 'epic/42')
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }]), 'epic/42')
 
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic', null, epicAuthority())
 
@@ -198,7 +260,7 @@ describe('Feature pause disarm discovery', () => {
 
   it('refuses confirmation when approved-child discovery is unavailable', async () => {
     epicControlTarget.mockRejectedValue(new Error('accepted child replay unavailable'))
-    const fixture = ghForDiscovery(JSON.stringify([{ number: 9 }]), 'epic/42')
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }]), 'epic/42')
 
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic', null, epicAuthority())
 

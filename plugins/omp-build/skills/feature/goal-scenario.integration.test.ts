@@ -1,6 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import authorization from './head-authorization.cjs'
 import { approve } from './testing/goal/goal-scenario-approval.ts'
 import { A, B, BRANCH_A, BRANCH_B, BRANCH_C, C, EPIC, RUN_A, RUN_B } from './testing/goal/goal-scenario-domain.ts'
 import { drive, ensureChildMandate, events, jsonOf, seedEpicDecision } from './testing/goal/goal-scenario-records.ts'
@@ -21,7 +22,7 @@ import {
 afterEach(dispose)
 
 describe('stateful gh — one continuous goal', () => {
-  it('lands, crashes, merges, stops, and completes without an armed stopped PR', () => {
+  it('lands, crashes, merges, stops, and completes without an armed stopped PR', async () => {
     const { epic, origin, root } = sandbox()
     const started = jsonOf(drive(['next'], RUN_A))
     expect(started.step).toMatchObject({ action: 'start', ticket: A, branch: BRANCH_A })
@@ -165,6 +166,28 @@ describe('stateful gh — one continuous goal', () => {
     const stoppedC = drive(['stop', '--ticket', String(C), '--reason', 'review-bound'], RUN_A)
     expect(stoppedC.code, stoppedC.stderr).toBe(0)
     expect(gh(['pr', 'edit', String(openedC.number), '--add-label', 'reviewed']).status).toBe(0)
+    const transport = async (_cwd: string, args: string[]) => {
+      const result = gh(args)
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout.trim()
+    }
+    const policy = authorization.policyFromEnv({
+      HEAD_AUTH_REPOSITORY_ID: '1',
+      HEAD_AUTH_OPERATOR_IDS: '[101]',
+      HEAD_AUTH_APP_ID: '200',
+      HEAD_AUTH_BOT_USER_ID: '201',
+    })
+    const auth = { cwd: epic, gh: transport, prNumber: openedC.number, policy }
+    const snapshot = await authorization.captureAuthorization(auth)
+    await authorization.issueAuthorization({
+      ...auth,
+      snapshot,
+      lane: 'reviewed',
+      source: 'native',
+      evidence: 'fixture:stale-child-review',
+      operationId: 'stale-child-grant',
+    })
+    expect((await authorization.readAuthorization(auth)).allowed).toBe(true)
     expect(prOf(BRANCH_C).labels).toContain('reviewed')
 
     const unknown = gh(['pr', 'diff', '1'])
@@ -188,6 +211,7 @@ describe('stateful gh — one continuous goal', () => {
     markGreen(shaA)
     const resumed = jsonOf(drive(['next'], RUN_B))
     expect(resumed.reconciled).toEqual([{ ticket: C, pr: openedC.number, disarmed: 'disarmed' }])
+    expect((await authorization.readAuthorization(auth)).allowed).toBe(false)
     expect(stoppedArms()).toEqual([])
     expect(resumed.step).toMatchObject({ action: 'drop', stop: 'no-progress' })
     expect(readSim().issues[String(A)]?.state).toBe('OPEN')

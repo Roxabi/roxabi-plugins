@@ -1,4 +1,5 @@
 import type { SpecializedDecisions } from '../engine/workflow-reconstruction-types.ts'
+import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { readReviewRecords } from '../skills/feature/workflow-records.js'
 import { nextReviewStep, reviewStep } from '../skills/feature/workflow-review-state.js'
 import { classifyRedCiBeforeDispatch } from './feature-ci-correction.ts'
@@ -20,6 +21,7 @@ export async function readReviewObservation(
   delivery: Delivery | null,
   merged: boolean,
   context: SelectedFeature['authority']['context'],
+  barriers: WithdrawalBarrier[],
 ): Promise<ReviewObservation | ContinueFeatureResult> {
   const head = delivery?.head ?? null
   const ciWatchStatus = delivery === null ? null : await currentCiWatchStatus(context.gh, context.cwd, delivery.number)
@@ -27,11 +29,13 @@ export async function readReviewObservation(
   if (isContinuationResult(ci)) return ci
   const canonicalReview =
     delivery !== null && head !== null
-      ? await currentReviewStep(context.cwd, delivery.number, head, context.gh, ciWatchStatus === 'red')
+      ? await currentReviewStep(context.cwd, delivery.number, head, context.gh, ciWatchStatus === 'red', barriers)
       : null
   const review = merged && canonicalReview?.action !== 'stop' ? null : (canonicalReview?.action ?? null)
   if (!merged && delivery !== null && ciWatchStatus === 'red') {
-    const gated = await classifyRedCiBeforeDispatch(context.cwd, delivery.number, context.gh, context.git)
+    const gated = await classifyRedCiBeforeDispatch(context.cwd, delivery.number, context.gh, context.git, (barrier) =>
+      barriers.push(barrier),
+    )
     if (gated !== null) return gated
   }
   return {
@@ -77,10 +81,13 @@ async function currentReviewStep(
   head: string,
   gh: SelectedFeature['authority']['context']['gh'],
   ciFailed = false,
+  barriers: WithdrawalBarrier[] = [],
 ): Promise<CurrentReviewStep> {
   if (ciFailed) {
     try {
-      return { action: (await nextReviewStep(cwd, number, { ciFailed: true, gh })).action, reviewId: null }
+      const step = await nextReviewStep(cwd, number, { ciFailed: true, gh })
+      if (step.barrier) barriers.push(step.barrier)
+      return { action: step.action, reviewId: null }
     } catch {
       return { action: 'stop', reviewId: null }
     }

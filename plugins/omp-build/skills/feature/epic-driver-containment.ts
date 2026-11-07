@@ -11,7 +11,7 @@ import {
   readCandidate,
   uniqueCandidates,
 } from './epic-driver-containment-discovery'
-import { isPr, issueHistory, prFacts, stoppedReviews } from './epic-driver-github'
+import { armedPullRequests, isPr, issueHistory, prFacts, stoppedReviews } from './epic-driver-github'
 import { gh, Refused } from './epic-driver-runtime'
 import type { ChildFacts, PrFacts } from './epic-types'
 
@@ -165,8 +165,6 @@ export async function readChildPrInventory(
   await authenticateBatch(context, history, all)
   const native = all.map((pr) => {
     if (!isPr(pr)) throw new Refused(`containment PR #${pr.number} native metadata is unreadable`)
-    if (pr.state === 'OPEN' && pr.labels.pageInfo?.hasNextPage !== false)
-      throw new Refused(`containment PR #${pr.number} label inventory is incomplete`)
     return pr
   })
   const stopped = await stoppedReviews(
@@ -174,7 +172,8 @@ export async function readChildPrInventory(
     full,
     native.map((pr) => pr.number),
   )
-  return native.map((pr) => prFacts(pr, stopped))
+  const armed = await armedPullRequests(repo, native)
+  return native.map((pr) => prFacts(pr, stopped, armed))
 }
 
 export async function discoverOwnPrs(
@@ -189,7 +188,7 @@ export async function discoverOwnPrs(
   if (mandate.payload.branch) candidates.push(...branchCandidates(context, mandate.payload.branch))
   const numbers = new Set(
     uniqueCandidates(candidates, full, scope.target)
-      .filter((pr) => pr.state === 'OPEN')
+      .filter((pr) => pr.state !== 'MERGED')
       .map((pr) => pr.number),
   )
   const loaded = await loadContracts()
@@ -216,7 +215,7 @@ export async function discoverAcceptedChildPrs(
     const context = { repo, full, epic, mandateId, child, number }
     const discovered = await childCandidates(context)
     const history = discovered.history
-    const candidates = discovered.candidates.filter((pr) => pr.state === 'OPEN')
+    const candidates = discovered.candidates.filter((pr) => pr.state !== 'MERGED')
     await authenticateBatch(context, history, candidates)
     for (const pr of candidates) {
       const prior = found.get(pr.number)

@@ -224,7 +224,14 @@ export function historyPage(history) {
 /** Stateful common-adapter/GitHub boundary for workflow gate tests. */
 export function gateGh(
   history,
-  { head = HEADS[0], armed = true, moveHeadAfterInputRead = null, issueHistory = null } = {},
+  {
+    head = HEADS[0],
+    armed = true,
+    moveHeadAfterInputRead = null,
+    issueHistory = null,
+    authorizationVariables,
+    authorizationVariablesForbidden = false,
+  } = {},
 ) {
   const calls = []
   const state = { head, label: armed, auto: armed }
@@ -235,6 +242,9 @@ export function gateGh(
     author: AUTHOR,
     spec: SPEC,
     heads: HEADS,
+    initialAuthorization: armed,
+    authorizationVariables,
+    authorizationVariablesForbidden,
   }
   return {
     gh: createGateGh({ history, issueHistory, state, calls, fixture, historyPage }),

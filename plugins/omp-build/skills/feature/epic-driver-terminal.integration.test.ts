@@ -414,6 +414,7 @@ describe('epic-driver — disarm modes', () => {
     const run = drive(['stop', '--ticket', '2', '--reason', 'ci-blocked'])
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 2 <!-- omp-build-record /),
     ])
@@ -426,7 +427,10 @@ describe('epic-driver — disarm modes', () => {
     child2Pr({})
     servePr(11, { state: 'OPEN', labels: [], autoMerge: false })
     drive(['stop', '--ticket', '2', '--reason', 'base-blocked'])
-    expect(writes()).toEqual([expect.stringMatching(/^comment 2 <!-- omp-build-record /)])
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      expect.stringMatching(/^comment 2 <!-- omp-build-record /),
+    ])
     expect(eventPayloads(2)).toContainEqual(
       expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'base-blocked' }),
     )
@@ -557,6 +561,7 @@ describe('epic-driver — drop disarms without the dashboard', () => {
 
     expect(run.code).toBe(0)
     expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
       'merge 11 --disable-auto',
       'edit 11 --remove-label reviewed',
       expect.stringMatching(/^comment 1 <!-- omp-build-record /),

@@ -6,18 +6,17 @@ import { readChildPrInventory } from './epic-driver-containment'
 import { adapterOptions, diagnosticsText, tree } from './epic-driver-github'
 import { gh, git, repoName } from './epic-driver-runtime'
 import type { ChildFacts } from './epic-types'
-import { disarmReviewedBeforePush } from './landing-foundation.js'
+import { type DisarmReviewedBeforePushResult, disarmReviewedBeforePush } from './landing-foundation.js'
 
 // ── GitHub writes ─────────────────────────────────────────────────────────────
 
-export function prState(repo: string, pr: number): { state: string; labels: string[]; autoMerge: boolean } {
-  const view: unknown = JSON.parse(gh(repo, ['pr', 'view', String(pr), '--json', 'state,labels,autoMergeRequest']))
-  if (!view || typeof view !== 'object' || !('state' in view) || !('labels' in view) || !Array.isArray(view.labels)) {
+export function prState(repo: string, pr: number): { state: string; autoMerge: boolean } {
+  const view: unknown = JSON.parse(gh(repo, ['pr', 'view', String(pr), '--json', 'state,autoMergeRequest']))
+  if (!view || typeof view !== 'object' || !('state' in view)) {
     throw new Error(`gh pr view ${pr}: unexpected ${JSON.stringify(view).slice(0, 200)}`)
   }
   return {
     state: String(view.state),
-    labels: view.labels.map((label: { name?: unknown }) => String(label?.name ?? '')),
     autoMerge: 'autoMergeRequest' in view && view.autoMergeRequest !== null,
   }
 }
@@ -82,26 +81,25 @@ function confirmedMerged(repo: string, pr: number): boolean {
 }
 
 /**
- * No stopped ticket stays armed: remove `reviewed`, disable native auto-merge
- * (`disarmReviewedBeforePush`, no push), read back. `merged` when the PR landed first.
+ * No stopped ticket stays armed: withdraw head authorization and disable native
+ * auto-merge before publishing a stop. `merged` when the PR landed first.
  */
 export async function disarm(repo: string, pr: number): Promise<Disarm> {
   const before = prState(repo, pr)
   if (before.state === 'MERGED') return 'merged'
-  if (before.state !== 'OPEN') return 'closed'
-  const labelled = before.labels.includes('reviewed')
-  if (before.autoMerge) {
-    try {
-      await disarmReviewedBeforePush(repo, pr, { gh: async (cwd: string, args: string[]) => gh(cwd, args) })
-    } catch (error) {
-      if (confirmedMerged(repo, pr)) return 'merged'
-      throw error
-    }
-  } else if (labelled) gh(repo, ['pr', 'edit', String(pr), '--remove-label', 'reviewed'])
+  let result: DisarmReviewedBeforePushResult
+  try {
+    result = await disarmReviewedBeforePush(repo, pr, { gh: async (cwd: string, args: string[]) => gh(cwd, args) })
+  } catch (error) {
+    if (confirmedMerged(repo, pr)) return 'merged'
+    throw error
+  }
   const after = prState(repo, pr)
   if (after.state === 'MERGED') return 'merged'
-  if (after.labels.includes('reviewed') || after.autoMerge) throw new Error(`PR #${pr} is still armed after the disarm`)
-  return labelled || before.autoMerge ? 'disarmed' : 'unarmed'
+  if (after.state === 'OPEN' && after.autoMerge) throw new Error(`PR #${pr} is still armed after the disarm`)
+  if ('merged' in result) return 'merged'
+  if ('closed' in result) return 'closed'
+  return 'unarmed' in result ? 'unarmed' : 'disarmed'
 }
 
 export async function recordStop(
@@ -115,7 +113,7 @@ export async function recordStop(
 }
 
 /**
- * The one way a ticket stops, whoever proved it: disarm every open PR of the
+ * The one way a ticket stops, whoever proved it: disarm every unmerged PR of the
  * child, detach HEAD from its branch (kept), then publishes the canonical
  * `goal-stop` event. A PR that merged before its disarm is no stop: `merged`
  * names it, no event.
@@ -128,7 +126,7 @@ export async function ticketStop(
   detail: string,
 ): Promise<{ merged: number | null; disarmed: Record<number, Disarm> }> {
   const { run, base } = authority
-  const prs = (await readChildPrInventory(repo, authority, child)).filter((pr) => pr.state === 'OPEN')
+  const prs = (await readChildPrInventory(repo, authority, child)).filter((pr) => pr.state !== 'MERGED')
   const disarmed: Record<number, Disarm> = {}
   for (const pr of prs) {
     disarmed[pr.number] = await disarm(repo, pr.number)

@@ -5,13 +5,15 @@ import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { NativeSelector, SpecializedDecisions, WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
+import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { inhibition } from './feature-control.ts'
-import { assembleChantier } from './feature-delivery-facts.ts'
+import { assembleChantier, sameDeliveryCoordinates } from './feature-delivery-facts.ts'
 import { isRecord } from './feature-engine.ts'
 import type { FeatureObservation, FreshUwDeliveryAdmission } from './feature-observation-contract.ts'
 import { readReviewObservation } from './feature-review-observation.ts'
+import { reconcileWithdrawalHistories } from './fix-uw-histories.ts'
 import type { UwRead } from './uw-contract.ts'
 import { readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 import { UwGraphUnavailableError } from './uw-read-port.ts'
@@ -64,10 +66,29 @@ export async function readFeatureObservation(
   control: FeatureControl,
   selected: SelectedFeature,
 ): Promise<FeatureObservation | ContinueFeatureResult> {
-  const observation = await assembleObservationBase(control, selected)
+  let observation = await assembleObservationBase(control, selected)
   if ('kind' in observation) return observation
-  const decisions = await readObservationDecisions(selected, observation)
+  const barriers: WithdrawalBarrier[] = []
+  const decisions = await readObservationDecisions(selected, observation, barriers)
   if ('kind' in decisions) return decisions
+  if (barriers.length > 0) {
+    const scope = observation.delivery?.scope
+    if (scope === undefined) return { kind: 'blocked', reason: 'fix-history-observation-drift' }
+    const refreshed = await assembleObservationBase(control, selected)
+    if ('kind' in refreshed) return refreshed
+    if (!sameDeliveryCoordinates(observation.delivery, refreshed.delivery) || observation.merged !== refreshed.merged)
+      return { kind: 'blocked', reason: 'delivery-observation-drift' }
+    const reconciled = reconcileWithdrawalHistories(
+      observation.evidence.causal.histories,
+      refreshed.evidence.causal.histories,
+      scope,
+      barriers,
+    )
+    if (!reconciled.ok) return { kind: 'blocked', reason: reconciled.diagnostics[0] ?? 'fix-history-observation-drift' }
+    refreshed.facts.failedChecks = observation.facts.failedChecks
+    refreshed.facts.evidenceDigest = observation.facts.evidenceDigest
+    observation = refreshed
+  }
   return {
     evidence: observation.evidence,
     delivery: observation.delivery,
@@ -164,11 +185,12 @@ function mandateRequirements(config: unknown): string[] {
 async function readObservationDecisions(
   selected: SelectedFeature,
   observation: ObservationBase,
+  barriers: WithdrawalBarrier[],
 ): Promise<(SpecializedDecisions & { reviewId: string | null }) | ContinueFeatureResult> {
   const { authority, mandate, number, acceptedSpec } = selected
   const { context, target } = authority
   const { delivery, facts, merged } = observation
-  const review = await readReviewObservation(delivery, merged, context)
+  const review = await readReviewObservation(delivery, merged, context, barriers)
   if (isContinuationResult(review)) return review
   facts.failedChecks = review.failedChecks
   facts.evidenceDigest = review.evidenceDigest

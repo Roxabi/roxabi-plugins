@@ -23,7 +23,7 @@ function pr(state: string, checks: readonly unknown[], extra = {}): string {
     mergeStateStatus: state === 'OPEN' ? 'BLOCKED' : 'UNKNOWN',
     autoMergeRequest: null,
     labels: state === 'OPEN' ? [{ name: 'reviewed' }] : [],
-    headRefOid: 'abc',
+    headRefOid: 'a'.repeat(40),
     statusCheckRollup: checks,
     ...extra,
   })
@@ -144,18 +144,26 @@ describe('ci-watch polling outcomes', () => {
     expect(result.stderr).toContain('gh pr update-branch 7')
   })
 
-  it('does not fall through to native eligibility when merge-on-green labels are malformed', () => {
+  it('ignores malformed display labels when authenticated head authorization exists', () => {
     const box = fixture('malformed-labels')
-    const malformed = JSON.stringify({
-      state: 'OPEN',
-      mergeStateStatus: 'BLOCKED',
-      autoMergeRequest: null,
-      labels: 1,
-      headRefOid: 'abc',
-      statusCheckRollup: [GREEN],
+    installProbeGh(box, {
+      snapshots: [pr('OPEN', [GREEN]), pr('OPEN', [GREEN]), pr('OPEN', [GREEN], { labels: 1 }), pr('MERGED', [GREEN])],
     })
-    installProbeGh(box, { snapshots: [pr('OPEN', [GREEN]), pr('OPEN', [GREEN]), malformed] })
-    expect(runWatch(box).code).toBe(70)
+    expect(runWatch(box).code).toBe(0)
+  })
+
+  it('does not accept a stale label without head authorization', () => {
+    const box = fixture('unarmed-label')
+    installProbeGh(box, { snapshots: [pr('OPEN', [GREEN])], authorized: false })
+    expect(runWatch(box).code).toBe(4)
+  })
+
+  it('refuses a grant for an old head even if the snapshot carries the label', () => {
+    const box = fixture('stale-head')
+    installProbeGh(box, {
+      snapshots: [pr('OPEN', [GREEN]), pr('OPEN', [GREEN]), pr('OPEN', [GREEN], { headRefOid: 'c'.repeat(40) })],
+    })
+    expect(runWatch(box).code).toBe(4)
   })
 
   it('keeps an unarmed native behind PR as the behind refusal', () => {
@@ -289,6 +297,7 @@ describe('ci-watch polling outcomes', () => {
     const box = fixture('base-mode')
     plantBase(box.cwd, { '.github/workflows/merge-on-green.yml': 'name: merge-on-green\n' })
     installProbeGh(box, {
+      authorized: false,
       snapshots: [
         pr('OPEN', [GREEN], { autoMergeRequest: { mergeMethod: 'MERGE' }, labels: [] }),
         pr('OPEN', [GREEN], { autoMergeRequest: { mergeMethod: 'MERGE' }, labels: [] }),
