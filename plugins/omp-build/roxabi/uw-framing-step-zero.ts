@@ -67,7 +67,7 @@ function stateDiagnostics(uw: Scope, read: UwRead): UwDiagnostic[] {
   if (read.accepted.status !== 'absent')
     diagnostics.push(diagnostic(uw, 'framing-accepted-present', 'Existing member must have no accepted authority'))
   if (!read.identity.ok) diagnostics.push(...read.identity.diagnostics)
-  if (read.admission.aggregate?.status !== 'none')
+  if (read.admission.aggregate.status !== 'none')
     diagnostics.push(
       diagnostic(uw, 'framing-membership-present', 'Existing member must not already belong to an aggregate'),
     )

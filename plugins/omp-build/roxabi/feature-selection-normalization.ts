@@ -36,7 +36,7 @@ function initialFramingSelection(scope: FeatureAuthority['scope'], read: UwRead)
   const incomplete: Record<string, true> = { 'criteria-missing': true, 'open-question': true, 'tier-missing': true }
   const problem = diagnostics.find((entry) => incomplete[entry.code] !== true)
   if (problem !== undefined) return { kind: 'blocked', reason: problem.code, diagnostics }
-  if (aggregate?.status === 'none') return { kind: 'framing', source: { kind: 'issue', uw: scope } }
+  if (aggregate.status === 'none') return { kind: 'framing', source: { kind: 'issue', uw: scope } }
   return { kind: 'blocked', reason: diagnostics[0].code, diagnostics }
 }
 

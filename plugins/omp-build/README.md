@@ -282,6 +282,7 @@ Accepted retirements are issue-lifetime facts replayed from authenticated histor
 Current child commitments also remain observable when their historical parent grant becomes inactive, but only with authenticated historical provenance. Reading these facts does not renew the grant or restore the child's delivery authority.
 
 Assisted framing retains source obligations with explicit kept/reworded/new/removed accounting. One genuine operator confirmation covers the entire aggregate, including members, relationships and coverage. Existing issues are converted in place. Incomplete aggregates stay held; partial or uncertain effects are reported without retry or rollback. Framing and identity allocation do not accept a Spec or authorize delivery.
+If a framing aggregate is held, every transition is refused, including the next transition after a first Mandate is published concurrently, because publication is not atomic.
 
 Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore a paused or inactive Mandate or bypass the Parent engagement guard.
 

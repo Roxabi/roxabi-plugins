@@ -126,7 +126,7 @@ export function projectObservedOwnSpecFacts(
 }
 
 function admissionUnavailable(diagnostics: readonly UwDiagnostic[], aggregate: UwAdmission['aggregate']): UwAdmission {
-  const all = aggregate?.status === 'held' ? [...diagnostics, ...aggregate.diagnostics] : diagnostics
+  const all = aggregate.status === 'held' ? [...diagnostics, ...aggregate.diagnostics] : diagnostics
   return {
     framed: { ok: false, diagnostics: all },
     deliverable: { ok: false, diagnostics: all },

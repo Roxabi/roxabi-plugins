@@ -19,7 +19,7 @@ export async function freshOwnSpec(
   | ContinueFeatureResult
 > {
   if (read === null || reader === undefined) return { kind: 'blocked', reason: 'uw-read-required' }
-  if (read.admission.aggregate?.status === 'held')
+  if (read.admission.aggregate.status === 'held')
     return { kind: 'blocked', reason: read.admission.aggregate.code, diagnostics: read.admission.aggregate.diagnostics }
   if (!read.identity.ok)
     return { kind: 'blocked', reason: 'uw-identities-unconfirmed', diagnostics: read.identity.diagnostics }
@@ -72,7 +72,7 @@ async function framingCoverageForInitial(
 ): Promise<
   { coverage: ParentCoverage | null | undefined; basis: ParentCoverageRequest | undefined } | ContinueFeatureResult
 > {
-  if (read.admission.aggregate?.status !== 'complete' || read.accepted.status !== 'absent') return { coverage, basis }
+  if (read.admission.aggregate.status !== 'complete' || read.accepted.status !== 'absent') return { coverage, basis }
   const discovered = discoverFramingCoverageIntent(scope, read)
   if ('kind' in discovered) return discovered
   if (discovered.intent === null)

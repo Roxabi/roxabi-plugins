@@ -59,7 +59,7 @@ function checkWritten(written: WrittenFramingGraph, read: UwRead): ContinueFeatu
     !sameScope(written.root, read.uw) ||
     read.accepted.status !== 'absent' ||
     read.observation.status !== 'complete' ||
-    membership?.status !== 'complete' ||
+    membership.status !== 'complete' ||
     canonicalValueDigest(membership.intent) !== canonicalValueDigest(written.intent) ||
     canonicalValueDigest(membership.result) !== canonicalValueDigest(written.result) ||
     framingObservationDigest(read.observation) !== written.observationDigest

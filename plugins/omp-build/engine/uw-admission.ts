@@ -55,7 +55,7 @@ export type UwAdmission = {
   framed: UwCheck
   deliverable: UwCheck
   applicability: 'resolved' | 'unresolved'
-  aggregate: FramingMembership | null
+  aggregate: FramingMembership
 }
 function diag(
   uw: Scope,
@@ -248,8 +248,8 @@ function acceptedChildDiagnostics(
 export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw))
   const framed = framingDiagnostics(input, root)
-  const aggregate = input.phase === 'initial-selection' ? readFramingMembership(input) : null
-  if (aggregate?.status === 'held') framed.push(...aggregate.diagnostics)
+  const aggregate = readFramingMembership(input)
+  if (aggregate.status === 'held') framed.push(...aggregate.diagnostics)
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics]
   let applicability: UwAdmission['applicability'] = 'unresolved'
   if (input.accepted.status === 'accepted') {

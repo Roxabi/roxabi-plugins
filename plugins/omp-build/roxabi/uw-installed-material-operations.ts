@@ -178,7 +178,7 @@ export function createInstalledMaterialOperations(input: {
     const fresh = await readMaterialUw(input.reader, uw)
     if (!fresh.ok) return fresh
     const read = fresh.read
-    if (read.admission.aggregate?.status === 'held')
+    if (read.admission.aggregate.status === 'held')
       return { ok: false as const, diagnostics: read.admission.aggregate.diagnostics }
     const current = await readAssessmentSpecFacts({ uw, read })
     if (!current.ok) return { ok: false as const, diagnostics: assessmentDiagnostics(uw, current) }

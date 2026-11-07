@@ -73,8 +73,8 @@ async function endpointAggregateHold(uw: Scope, ports: ParentAdmission): Promise
   if (read.accepted.status === 'refused' && !hasHistoricalAcceptance(read))
     return unreadable(uw, 'Accepted Spec authority could not be established')
   const aggregate = read.admission.aggregate
-  if (aggregate?.status === 'complete') return null
-  return aggregate?.status === 'held'
+  if (aggregate.status === 'complete') return null
+  return aggregate.status === 'held'
     ? aggregate.diagnostics
     : unreadable(uw, 'Framing membership changed between observations')
 }

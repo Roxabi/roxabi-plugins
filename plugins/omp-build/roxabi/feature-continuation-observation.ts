@@ -127,6 +127,20 @@ function commonCompletion(read: UwRead | null, scope: { repository: string; targ
   return read.completion.completions.get(`${scope.repository}\0${scope.target}`)?.state === 'complete'
 }
 
+/** The latest read before any decision; a held framing aggregate stops every transition here. */
+async function observedCurrentRead(
+  selected: SelectedFeature,
+  uwRead: UwRead | null,
+  observation: Parameters<typeof createInstalledObservedUwReadPort>[0]['observation'],
+): Promise<{ read: UwRead | null } | ContinueFeatureResult> {
+  if (uwRead === null) return { read: null }
+  const read = await createInstalledObservedUwReadPort({ observation }).readUw(selected.authority.scope)
+  const aggregate = read.admission.aggregate
+  if (aggregate.status === 'held')
+    return { kind: 'blocked', reason: aggregate.code, diagnostics: aggregate.diagnostics }
+  return { read }
+}
+
 async function assembleObservationBase(
   control: FeatureControl,
   selected: SelectedFeature,
@@ -146,12 +160,9 @@ async function assembleObservationBase(
   const requirements = mandateRequirements(mandate?.payload.config)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
-  const currentRead =
-    uwRead === null
-      ? null
-      : await createInstalledObservedUwReadPort({ observation: evidence.causal.observation }).readUw(
-          selected.authority.scope,
-        )
+  const current = await observedCurrentRead(selected, uwRead, evidence.causal.observation)
+  if ('kind' in current) return current
+  const currentRead = current.read
   const completedDelivery = merged && commonCompletion(currentRead, selected.authority.scope)
   const sessionCwd = identity.ok ? identity.sessionTop : null
   const currentFacts = await currentSpecFacts(selected, currentRead, evidence.causal, intent)

@@ -90,7 +90,7 @@ function completeMembership(
 ): boolean {
   const membership = read.admission.aggregate
   return (
-    membership?.status === 'complete' &&
+    membership.status === 'complete' &&
     membership.member === key &&
     sameRecordRef(membership.intent, intent) &&
     sameRecordRef(membership.result, result)

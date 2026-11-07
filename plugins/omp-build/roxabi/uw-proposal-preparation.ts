@@ -52,7 +52,7 @@ function parsedSourceHash(read: UwRead): string {
 }
 
 export function sourceBindingDiagnostics(input: UwProposalInput, read: UwRead): readonly UwDiagnostic[] {
-  if (read.admission.aggregate?.status === 'held') return read.admission.aggregate.diagnostics
+  if (read.admission.aggregate.status === 'held') return read.admission.aggregate.diagnostics
   if (input.sourceBodySha256 !== parsedSourceHash(read))
     return [
       diagnostic(

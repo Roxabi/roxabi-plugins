@@ -99,9 +99,9 @@ function historyDrift(uw: Scope, read: UwRead, run: FramingMemberRun): readonly 
 function membershipMatches(state: FramingRunState, run: FramingMemberRun, read: UwRead): boolean {
   const expected = expectedMembership(state, run)
   const membership = read.admission.aggregate
-  if (expected === 'none') return membership?.status === 'none'
+  if (expected === 'none') return membership.status === 'none'
   return (
-    membership?.status === 'held' &&
+    membership.status === 'held' &&
     membership.code === expected &&
     membership.member === run.planned.key &&
     sameRecordRef(membership.intent, state.intent)

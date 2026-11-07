@@ -3,6 +3,7 @@
 ## 0.17.2
 
 - Frame free-text requests and eligible existing issues through one accounted aggregate confirmation. Incomplete aggregates remain held; framing is not Spec acceptance or a Mandate.
+- A held framing aggregate refuses every transition, including the next transition after a concurrently published first Mandate, because publication is not atomic.
 - Prepare the canonical checkout without relocating the session. When needed, a human observes `/move` success and continues the same UW from the destination without retyping.
 - Pin and verify the three installed framing procedures. Typed forms and context projection do not establish provider receipt or human reasoning.
 - Refuse incomplete GitHub comment histories when a preceding page changes during pagination, retaining observed comments and a named diagnostic.

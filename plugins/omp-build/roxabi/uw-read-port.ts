@@ -65,12 +65,7 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
       }
       const reader = createObservedUwReadPort(contracts, { observation, assessmentReplay: options.assessmentReplay })
       const read = await reader.readUw(uw)
-      const transitioned = await withTransitionAdmission(contracts, read)
-      // Framing membership is an initial-admission fact of this same cut; the
-      // delivery-transition reassessment must not erase it for its consumers.
-      if (transitioned !== read)
-        transitioned.admission = { ...transitioned.admission, aggregate: read.admission.aggregate }
-      return transitioned
+      return withTransitionAdmission(contracts, read)
     },
   }
 }

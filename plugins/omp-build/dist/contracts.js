@@ -25828,8 +25828,8 @@ function acceptedChildDiagnostics(projection, input, child, native) {
 function assessUwAdmission(input) {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw));
   const framed = framingDiagnostics(input, root);
-  const aggregate = input.phase === "initial-selection" ? readFramingMembership(input) : null;
-  if (aggregate?.status === "held")
+  const aggregate = readFramingMembership(input);
+  if (aggregate.status === "held")
     framed.push(...aggregate.diagnostics);
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics];
   let applicability = "unresolved";

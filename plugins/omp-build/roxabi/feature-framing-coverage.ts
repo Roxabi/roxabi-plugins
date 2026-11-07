@@ -22,7 +22,7 @@ export function discoverFramingCoverageIntent(
 ): { intent: BoundFramingCoverageIntent | null } | ContinueFeatureResult {
   if (!sameScope(uw, read.uw)) return { kind: 'blocked', reason: 'parent-coverage-intent-changed' }
   const membership = read.admission.aggregate
-  if (membership?.status !== 'complete') return { kind: 'blocked', reason: 'framing-aggregate-incomplete' }
+  if (membership.status !== 'complete') return { kind: 'blocked', reason: 'framing-aggregate-incomplete' }
   if (read.observation.status !== 'complete') return { kind: 'blocked', reason: 'framing-aggregate-unreadable' }
   const result = readFramingCoverageIntent({ uw, histories: read.observation.histories, membership })
   return result.ok
@@ -67,7 +67,7 @@ export async function resolveFramingCoverageIntent(input: {
 function matchesIntentMembership(uw: Scope, read: UwRead, intent: BoundFramingCoverageIntent): boolean {
   const membership = read.admission.aggregate
   return (
-    membership?.status === 'complete' &&
+    membership.status === 'complete' &&
     canonicalValueDigest(membership.intent) === canonicalValueDigest(intent.aggregateIntent) &&
     canonicalValueDigest(membership.result) === canonicalValueDigest(intent.aggregateResult) &&
     sameScope(uw, intent.parent) &&
