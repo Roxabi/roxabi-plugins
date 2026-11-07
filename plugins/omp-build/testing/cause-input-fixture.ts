@@ -10,22 +10,22 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
 import { fixtureReviewClassCatalogues } from './action-input-fixtures.ts'
+import { causeFixtureMandate, causeFixtureSnapshot, causeFixtureScope as uw } from './cause-input-specification.ts'
 import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { submission } from './record-builders.ts'
 import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
 import { operation as observedOperation } from './record-history.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
-const uw: Scope = { repository: 'acme/app', target: 'acme/app#42' }
 const sister: Scope = { repository: 'acme/app', target: 'acme/app#43' }
 const foreign: Scope = { repository: 'acme/app', target: 'acme/app#44' }
 const now = '2026-10-27T12:00:00.000Z'
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const fixtures = roxabiWorkflowFixtures()
-const mandate = fixtures.featureMandate(uw, { recordId: 'mandate-42', body: 'Save the selected region' })
+const mandate = causeFixtureMandate()
 
 /** The declared native issue for the region fixture, independent of its mandate records. */
-export function causeFixtureGraph(body = 'Save the selected region') {
+export function causeFixtureGraph(body = causeFixtureSnapshot.raw.body) {
   return {
     status: 'complete' as const,
     root: uw,

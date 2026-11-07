@@ -46,12 +46,7 @@ function childEngagementProblem(child: AcceptedChildCommitment, input: CurrentEn
       `Accepted child ${child.scope.repository} ${child.scope.target} history is unavailable`,
     )
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, child.scope))
-  if (
-    !node ||
-    node.raw.body !== child.snapshot.raw.body ||
-    !node.labels.includes(`size:${child.tier}`) ||
-    node.labels.some((label) => label.startsWith('size:') && label !== `size:${child.tier}`)
-  )
+  if (!node || currentOwnSpecProblem(node, child) !== null)
     return refusal(
       input,
       'effective-child-engagement-mismatch',
@@ -76,7 +71,7 @@ function childEngagementProblem(child: AcceptedChildCommitment, input: CurrentEn
     !current.ok ||
     current.spec.ref.version !== child.specVersion ||
     current.spec.tier !== child.tier ||
-    current.spec.snapshot.raw.bodySha256 !== child.snapshot.raw.bodySha256
+    current.spec.snapshot.spec.version !== child.snapshot.spec.version
   )
     return refusal(
       input,

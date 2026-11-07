@@ -7,8 +7,8 @@ import {
   causeOriginalHistory,
   sisterRecords,
 } from '../../testing/cause-input-fixture.ts'
+import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
 import { contributionActionCapture, synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { canonicalValueDigest } from '../action-input.ts'
 import { assessAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
 import { assessCauseDispositions, validateCauseAdjudication } from '../cause-disposition.ts'
@@ -34,8 +34,7 @@ const sister: Scope = { repository: 'acme/app', target: 'acme/app#43' }
 const foreign: Scope = { repository: 'acme/app', target: 'acme/app#44' }
 const now = '2026-10-27T12:00:00.000Z'
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
-const fixtures = roxabiWorkflowFixtures()
-const mandate = fixtures.featureMandate(uw, { recordId: 'mandate-42', body: 'Save the selected region' })
+const mandate = causeFixtureMandate()
 const ownSpec = mandate.payload.ownSpec
 const resolvedAccepted = resolveAcceptedSpec(mandate, [causeOriginalHistory()])
 if (!resolvedAccepted.ok)
@@ -67,7 +66,10 @@ function node(scope: Scope, blockers: Scope[] = [], completed = false): UwNative
   return {
     uw: scope,
     title: `UW ${scope.target}`,
-    raw: { reference: scope.target, body: '', bodySha256: specDigest(''), lastEditedAt: now },
+    raw:
+      scope.repository === uw.repository && scope.target === uw.target
+        ? ownSpec.snapshot.raw
+        : { reference: scope.target, body: '', bodySha256: specDigest(''), lastEditedAt: now },
     updatedAt: now,
     labels: ['size:S'],
     wayfinderLabels: [],

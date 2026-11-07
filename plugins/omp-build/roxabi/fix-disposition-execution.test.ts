@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { rawSource } from '../adapters/github-native/uw-spec.ts'
+import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
 import { assessCauseHolds, buildRecord, parseRecord } from '../dist/contracts.js'
 import { assessUwCompletion } from '../engine/uw-completion.ts'
+import { canonicalSpec } from '../engine/uw-spec.ts'
 import { synthesisActionCapture } from '../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { submission } from '../testing/record-builders.ts'
@@ -13,6 +14,19 @@ import type { FixIdentity } from './fix-contract.ts'
 import { persistCauseDispositions } from './fix-disposition-execution.ts'
 
 const original = { repository: 'Acme/app', target: 'Acme/app#12' }
+const content = canonicalSpec({
+  format: 'omp-build-spec-content/1',
+  criteria: [{ id: 'C1', statement: 'Save keeps the selected region' }],
+  invariants: [],
+  exclusions: [],
+  openQuestions: [],
+  sections: { origin: '', context: '', change: '' },
+})
+if (!content.ok) throw new Error('Invalid correction fixture Spec')
+const body = renderIssueSpecBody(content.value)
+const parsed = parseIssueSpecBody({ uw: original, raw: rawSource(original.target, body, '2026-10-27T12:00:00Z') })
+if (parsed.status !== 'conformant') throw new Error('Invalid correction fixture native body')
+const snapshot = parsed.snapshot
 const nativeGraph = {
   status: 'complete' as const,
   root: original,
@@ -21,7 +35,7 @@ const nativeGraph = {
     {
       uw: original,
       title: 'Original correction',
-      raw: rawSource(original.target, 'Correct the original issue', '2026-10-27T12:00:00Z'),
+      raw: snapshot.raw,
       updatedAt: '2026-10-27T12:00:00Z',
       labels: ['size:S'],
       wayfinderLabels: [],
@@ -48,7 +62,10 @@ const identity: FixIdentity = { runId: 'run', operationId: 'operation', nextReco
 
 function acceptedReview(label: 'issue' | 'suggestion' = 'issue') {
   const fixtures = roxabiWorkflowFixtures()
-  const mandate = fixtures.fixOnlyMandate(original)
+  const mandate = fixtures.fixOnlyMandate(original, {
+    body,
+    ownSpec: fixtures.ownSpecFromSnapshot(original, snapshot),
+  })
   const binding = fixtures.workflowBinding(
     { repository: 'Acme/app', target: 'Acme/app#42' },
     mandate,

@@ -310,6 +310,36 @@ test('holds inherited completion when the outer ancestor native Spec changes mat
   }
 }, 60_000)
 
+test('preserves nested completion after nonmaterial child presentation edits', async () => {
+  const { root, middleScope: middle, leaf, final } = await runNestedDeliveryScenario('complete')
+  if (!final) throw new Error('Root delivery result unavailable')
+  for (const scope of [root, middle, leaf]) {
+    expect(final.completion.completions.get(scopeKey(scope))).toMatchObject({ state: 'complete' })
+    expect(final.completion.dependencies.get(scopeKey(scope))).toMatchObject({ state: 'satisfied' })
+  }
+  let edited = 0
+  const nodes = final.observation.graph.nodes.map((node) => {
+    if (scopeKey(node.uw) !== scopeKey(middle) && scopeKey(node.uw) !== scopeKey(leaf)) return node
+    const before = parseIssueSpecBody({ uw: node.uw, raw: node.raw })
+    const raw = rawSource(node.raw.reference, `${node.raw.body}\n`, node.raw.lastEditedAt)
+    const after = parseIssueSpecBody({ uw: node.uw, raw })
+    if (before.status !== 'conformant' || after.status !== 'conformant')
+      throw new Error('Expected conformant child Specs')
+    expect(after.snapshot.spec.version).toBe(before.snapshot.spec.version)
+    edited += 1
+    return { ...node, raw }
+  })
+  expect(edited).toBe(2)
+  const assessment = assessUwCompletion({
+    ...final.observation,
+    graph: { ...final.observation.graph, nodes },
+  })
+  for (const scope of [root, middle, leaf]) {
+    expect(assessment.completions.get(scopeKey(scope))).toMatchObject({ state: 'complete' })
+    expect(assessment.dependencies.get(scopeKey(scope))).toMatchObject({ state: 'satisfied' })
+  }
+}, 60_000)
+
 test('holds inherited completion when the outer ancestor native tier changes', async () => {
   const { root, middleScope: middle, leaf, final } = await runNestedDeliveryScenario('complete')
   if (!final) throw new Error('Root delivery result unavailable')

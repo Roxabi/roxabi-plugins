@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { calculateTier } from '../../../issue-triage/skills/shared/domain/complexity.ts'
 import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
+import { canonicalSpec } from '../../engine/uw-spec.ts'
 import {
   allocationRef,
   CREATED_UW,
@@ -17,15 +18,31 @@ import {
   UW,
   WRITES,
 } from '../../testing/uw-operations-fixture.ts'
+import type { State } from '../../testing/uw-operations-fixture-read.ts'
 import type { UwProposalInput } from '../uw-contract.ts'
 import { prepareCreateProposal } from '../uw-proposal-preparation.ts'
 import { UwGraphUnavailableError } from '../uw-read-port.ts'
 
+function acceptedReopen(state: State) {
+  const content = canonicalSpec({
+    format: 'omp-build-spec-content/1',
+    criteria: [{ id: 'C1', statement: 'Keep payments auditable' }],
+    invariants: [],
+    exclusions: [],
+    openQuestions: [],
+    sections: { origin: '', context: '', change: '' },
+  })
+  if (!content.ok) throw new Error('Invalid accepted reopen Spec')
+  state.body = renderIssueSpecBody(content.value)
+  state.labels = ['size:S']
+  state.nativeState = { state: 'CLOSED', stateReason: 'NOT_PLANNED' }
+  state.acceptedSource = { scope: UW, recordId: 'accepted-reopen', kind: 'mandate' }
+}
+
 describe('UW operation write authority', () => {
   it('reopens only after confirmation and reads back the exact OPEN/REOPENED state', async () => {
     const { state, operations } = fixture()
-    state.nativeState = { state: 'CLOSED', stateReason: 'NOT_PLANNED' }
-    state.acceptedSource = { scope: UW, recordId: 'accepted-reopen', kind: 'mandate' }
+    acceptedReopen(state)
     const result = await operations.reopen(UW)
     expect(result.status).toBe('written')
     expect(state.nativeState).toEqual({ state: 'OPEN', stateReason: 'REOPENED' })
@@ -37,8 +54,7 @@ describe('UW operation write authority', () => {
         current.nativeState = { state: 'OPEN', stateReason: 'REOPENED' }
       },
     })
-    state.nativeState = { state: 'CLOSED', stateReason: 'NOT_PLANNED' }
-    state.acceptedSource = { scope: UW, recordId: 'accepted-reopen', kind: 'mandate' }
+    acceptedReopen(state)
     const result = await operations.reopen(UW)
     expect(result).toMatchObject({ status: 'refused', diagnostics: [{ code: 'proposal-stale' }] })
     expect(state.issueReadIssues).toEqual([])

@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
 import { contributionActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { assessCauseDispositions, validateCauseDispositionRecords } from '../cause-disposition.ts'
 import { assessCauseHolds } from '../cause-hold.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
@@ -23,11 +23,7 @@ it.each(['editorial', 'material'] as const)(
   (classification) => {
     const { graph, context } = authenticatedReview()
     const catalogues = fixtureReviewClassCatalogues()
-    const fixtures = roxabiWorkflowFixtures()
-    const mandate = fixtures.featureMandate(context.original, {
-      recordId: 'mandate-42',
-      body: 'Save the selected region',
-    })
+    const mandate = causeFixtureMandate()
     const original = graph.panel.payload.findings?.[0]
     if (!original || original.data === null || typeof original.data !== 'object' || Array.isArray(original.data))
       throw new Error('Expected original finding')

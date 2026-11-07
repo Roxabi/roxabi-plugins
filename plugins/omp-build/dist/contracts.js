@@ -12247,7 +12247,7 @@ function parseIssueSpecBody(input) {
 // plugins/omp-build/engine/uw-spec-currentness.ts
 function currentOwnSpecProblem(node, accepted) {
   if (node.raw.body !== accepted.snapshot.raw.body) {
-    const current = parseIssueSpecBody({ uw: accepted.ref.uw, raw: node.raw });
+    const current = parseIssueSpecBody({ uw: node.uw, raw: node.raw });
     if (current.status !== "conformant")
       return "current-spec-unresolved";
     if (current.snapshot.spec.version !== accepted.snapshot.spec.version)
@@ -12256,7 +12256,7 @@ function currentOwnSpecProblem(node, accepted) {
   let tiers = 0;
   let matching = false;
   for (const label of node.labels) {
-    if (label === "size:S" || label === "size:F-lite" || label === "size:F-full") {
+    if (label.startsWith("size:")) {
       tiers++;
       if (label === `size:${accepted.tier}`)
         matching = true;
@@ -14904,7 +14904,7 @@ function childEngagementProblem(child, input) {
   if (history === null || !history.source.complete)
     return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} history is unavailable`);
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, child.scope));
-  if (!node || node.raw.body !== child.snapshot.raw.body || !node.labels.includes(`size:${child.tier}`) || node.labels.some((label) => label.startsWith("size:") && label !== `size:${child.tier}`))
+  if (!node || currentOwnSpecProblem(node, child) !== null)
     return refusal(input, "effective-child-engagement-mismatch", `Accepted child ${child.scope.repository} ${child.scope.target} native snapshot or tier has changed`);
   if (unresolvedChildAuthority(history))
     return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} has an unresolved authority claim`);
@@ -14914,7 +14914,7 @@ function childEngagementProblem(child, input) {
   if (!("kind" in selected) || selected.kind !== "mandate")
     return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} has no unique active mandate`);
   const current = resolveAcceptedSpec(selected, input.histories);
-  if (!current.ok || current.spec.ref.version !== child.specVersion || current.spec.tier !== child.tier || current.spec.snapshot.raw.bodySha256 !== child.snapshot.raw.bodySha256)
+  if (!current.ok || current.spec.ref.version !== child.specVersion || current.spec.tier !== child.tier || current.spec.snapshot.spec.version !== child.snapshot.spec.version)
     return refusal(input, "effective-child-engagement-mismatch", `Accepted child ${child.scope.repository} ${child.scope.target} version or tier has changed`);
   return null;
 }
