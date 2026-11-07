@@ -3,6 +3,7 @@ import { rmSync } from 'node:fs'
 import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { probeData, probeScope } from '../../testing/diagnostic-probe.ts'
 import { arrangeReviewFixture, seedReviewFixture } from '../../testing/feature-review-fixture.ts'
 import { readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
@@ -27,13 +28,17 @@ async function seed(...args: Parameters<typeof seedReviewFixture>): Promise<void
 }
 
 function invoke(box: Box, cwd: string, operation: string) {
+  const diagnostic = process.env.OMP_906_RUNTIME_DIAGNOSTIC === '1' && operation === 'omp-review-race-latest'
+  const scope = probeScope(box.env.GH_SIM_STATE)
+  if (diagnostic) probeData(scope, 'race:child-spawn', { originalTimeoutMs: 30_000, diagnosticTimeoutMs: 120_000 })
   const run = spawnSync(BUN, [RUNNER, operation, cwd, '{}'], {
     cwd,
     env: box.env,
     encoding: 'utf8',
-    timeout: 30_000,
+    timeout: diagnostic ? 120_000 : 30_000,
     killSignal: 'SIGKILL',
   })
+  if (diagnostic) probeData(scope, 'race:child-close', { status: run.status, signal: run.signal })
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout) as {
     active: unknown
@@ -47,16 +52,26 @@ function invoke(box: Box, cwd: string, operation: string) {
 }
 
 describe('review continuation races', () => {
-  it('does not activate a correction after a complete third canonical request-changes review', async () => {
-    const { box, cwd } = arrange()
-    await seed(box, cwd)
-    const observed = invoke(box, cwd, 'omp-review-race-latest')
-    expect(observed.precondition).toEqual({ complete: true, requests: 1 })
-    expect(observed.summary).toEqual({ complete: true, reviews: 3, action: 'stop', reason: 'review-bound' })
-    expect(observed.active).toBeNull()
-    expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(1)
-    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
-  })
+  it(
+    'does not activate a correction after a complete third canonical request-changes review',
+    async ({ task }) => {
+      const { box, cwd } = arrange()
+      if (process.env.OMP_906_RUNTIME_DIAGNOSTIC === '1')
+        probeData(probeScope(box.env.GH_SIM_STATE), 'race:test-start', {
+          taskStartMs: task.result?.startTime,
+          taskTimeoutMs: task.timeout,
+          originalTimeoutMs: 60_000,
+        })
+      await seed(box, cwd)
+      const observed = invoke(box, cwd, 'omp-review-race-latest')
+      expect(observed.precondition).toEqual({ complete: true, requests: 1 })
+      expect(observed.summary).toEqual({ complete: true, reviews: 3, action: 'stop', reason: 'review-bound' })
+      expect(observed.active).toBeNull()
+      expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(1)
+      expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
+    },
+    process.env.OMP_906_RUNTIME_DIAGNOSTIC === '1' ? 180_000 : 60_000,
+  )
 
   it('does not start a correction after local pause inhibits a checkout-blocked continuation', async () => {
     const { box, cwd } = arrange()

@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { probeCount, probeScope } from '../../../../testing/diagnostic-probe.ts'
 import { currentInvocation } from './sim-invocation.ts'
 
 import { fail, type State, stamp } from './sim-types.ts'
@@ -13,7 +14,16 @@ export function statePath(): string {
 export function persist(state: State): void {
   const path = statePath()
   const tmp = `${path}.tmp`
-  writeFileSync(tmp, JSON.stringify(state))
+  const started = process.hrtime.bigint()
+  const serialized = JSON.stringify(state)
+  probeCount(
+    probeScope(path),
+    'state-serialize',
+    'json',
+    Number(process.hrtime.bigint() - started),
+    Buffer.byteLength(serialized),
+  )
+  writeFileSync(tmp, serialized)
   renameSync(tmp, path)
 }
 
@@ -59,7 +69,24 @@ export function withState<T>(fn: (state: State) => T): T {
   const lock = `${path}.lock`
   acquireLock(lock)
   try {
-    const state = JSON.parse(readFileSync(path, 'utf8')) as State
+    const readStarted = process.hrtime.bigint()
+    const raw = readFileSync(path, 'utf8')
+    probeCount(
+      probeScope(path),
+      'state-read',
+      'file',
+      Number(process.hrtime.bigint() - readStarted),
+      Buffer.byteLength(raw),
+    )
+    const parseStarted = process.hrtime.bigint()
+    const state = JSON.parse(raw) as State
+    probeCount(
+      probeScope(path),
+      'state-parse',
+      'json',
+      Number(process.hrtime.bigint() - parseStarted),
+      Buffer.byteLength(raw),
+    )
     hydrateState(state)
     const result = fn(state)
     persist(state)

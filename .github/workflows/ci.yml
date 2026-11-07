@@ -16,6 +16,7 @@ jobs:
   ci:
     if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
@@ -47,8 +48,42 @@ jobs:
       # standing between a typo and a dead release run.
       - name: Lint workflows (actionlint)
         run: actionlint
-      - name: Test (vitest)
-        run: bun run test
+      - name: "DO NOT MERGE: hosted #906 runtime diagnostic (not required CI)"
+        env:
+          DIAGNOSTIC_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          DIAGNOSTIC_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set +e
+          set -uo pipefail
+          if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]; then
+            printf 'Diagnostic is restricted to its dedicated pull request\n' >&2
+            exit 1
+          fi
+          case "${GITHUB_HEAD_REF:-}" in
+            test/906-hosted-runtime-diagnostic*) ;;
+            *) printf 'Diagnostic head ref is not authorized\n' >&2; exit 1 ;;
+          esac
+          umask 077
+          export OMP_906_RUNTIME_DIAGNOSTIC=1
+          export OMP_PHASE_PROBE_DIR="${RUNNER_TEMP}/omp-906-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -m 700 "$OMP_PHASE_PROBE_DIR" || exit 1
+          printf 'DIAGNOSTIC ONLY — no delivery or required-CI evidence\n'
+          printf 'checkout/tree/parents:\n'
+          git log -1 --format='%H%n%T%n%P' || exit 1
+          printf 'event=%s github_sha=%s diagnostic_pr_head=%s diagnostic_pr_base=%s\n' "$GITHUB_EVENT_NAME" "$GITHUB_SHA" "$DIAGNOSTIC_PR_HEAD" "$DIAGNOSTIC_PR_BASE"
+          printf 'investigated_merge=d62114758375777e368bdb7aae3e8f8f776815b7 investigated_head=80279ba15eddb5bb2450ae4b4bd479b078c64da4 investigated_base=7a0a83384187626a01af6e47ee6c1cfe5a89e673 investigated_tree=e6f98e55ef6523d9e52f569272994d3fffc9c406\n'
+          printf 'image_os=%s image_version=%s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
+          bun --revision && node --version && git --version || exit 1
+          node -e "const {availableParallelism}=require('node:os'); const n=availableParallelism(); console.log(JSON.stringify({availableParallelism:n,configuredRootMaxWorkers:Math.min(8,Math.max(1,n-1)),configuredIntegrationMaxWorkers:Math.max(1,Math.floor(n/4))}))" || exit 1
+          timeout --signal=TERM --kill-after=10s 900s bun run test --reporter=default --reporter=json --outputFile.json="$OMP_PHASE_PROBE_DIR/vitest.json" \
+            plugins/omp-build/omp/__tests__/feature-review-lifecycle.integration.test.ts \
+            plugins/omp-build/omp/__tests__/feature-review-races.integration.test.ts \
+            plugins/omp-build/skills/feature/goal-scenario.integration.test.ts
+          test_status=$?
+          printf 'diagnostic_test_exit=%s (124/137 indicates timeout or termination)\n' "$test_status"
+          bun tools/diagnose-906-runtime.mjs
+          summary_status=$?
+          if [ "$test_status" -ne 0 ] || [ "$summary_status" -ne 0 ]; then exit 1; fi
       - name: Verify action pins resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

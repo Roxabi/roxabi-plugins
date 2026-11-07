@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, statSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 
 import { reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
 import { gh } from '../skills/feature/workflow-runtime.js'
+import { probeData, probePhase, probeScope } from './diagnostic-probe.ts'
 import { reviewInitialData } from './feature-review-lifecycle.ts'
 import { citedHistory, history } from './feature-review-race-history.ts'
 import { nextReviewRecords } from './feature-review-race-reviews.ts'
@@ -14,13 +15,14 @@ import { createReviewDriver } from './native-review-driver.ts'
 
 type Mode = 'latest' | 'pause'
 
-function waitFor(file: string): Promise<void> {
+function waitFor(file: string, diagnostic = false): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>()
   let settled = false
   let watcher!: ReturnType<typeof watch>
   let timer!: ReturnType<typeof setTimeout>
   const done = (error?: Error) => {
     if (settled) return
+    probePhase(probeScope(process.env.GH_SIM_STATE), error ? 'race:marker-timeout' : 'race:marker-observed')
     settled = true
     clearTimeout(timer)
     watcher.close()
@@ -30,13 +32,18 @@ function waitFor(file: string): Promise<void> {
   watcher = watch(path.dirname(file), (_event, name) => {
     if (name === path.basename(file) && existsSync(file)) done()
   })
-  timer = setTimeout(() => done(new Error(`git barrier timeout: ${file}`)), 10_000)
+  if (diagnostic)
+    probeData(probeScope(process.env.GH_SIM_STATE), 'race:marker-arm', {
+      originalTimeoutMs: 10_000,
+      diagnosticTimeoutMs: 60_000,
+    })
+  timer = setTimeout(() => done(new Error(`git barrier timeout: ${file}`)), diagnostic ? 60_000 : 10_000)
   if (existsSync(file)) done()
   return promise
 }
 type GitBarrier = { started: Promise<void>; release(): void; close(): void }
 
-function gitBarrier(kind: 'preflight' | 'checkout'): GitBarrier {
+function gitBarrier(kind: 'preflight' | 'checkout', diagnostic = false): GitBarrier {
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
   const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-git-'))
@@ -61,9 +68,12 @@ function gitBarrier(kind: 'preflight' | 'checkout'): GitBarrier {
     OMP_RACE_REAL_GIT: real,
   })
   return {
-    started: waitFor(started),
+    started: waitFor(started, diagnostic),
     release: () => writeFileSync(release, 'release\n'),
     close: () => {
+      try {
+        if (existsSync(started)) probePhase(probeScope(state), `race:marker-mtime-ms:${statSync(started).mtimeMs}`)
+      } catch {}
       if (before === undefined) delete process.env.PATH
       else process.env.PATH = before
       delete process.env.OMP_RACE_GIT_STARTED
@@ -157,15 +167,21 @@ async function latest(cwd: string) {
   let settling: Promise<void> | null = null
   return completeRace(
     async () => {
+      probePhase(probeScope(process.env.GH_SIM_STATE), 'race:first-settle-start')
       await driver.settle(reviewInitialData)
-      const armed = gitBarrier('preflight')
+      probePhase(probeScope(process.env.GH_SIM_STATE), 'race:first-settle-complete')
+      const armed = gitBarrier('preflight', process.env.OMP_906_RUNTIME_DIAGNOSTIC === '1')
       barrier = armed
+      probePhase(probeScope(process.env.GH_SIM_STATE), 'race:barrier-armed-second-settle-start')
       settling = driver.settle((task) => reviewDecision(task.task))
       await armed.started
+      probePhase(probeScope(process.env.GH_SIM_STATE), 'race:marker-awaited')
       const precondition = await continuationPrerequisites(cwd, 'preflight')
       const summary = await nextReviewRecords(cwd)
       armed.release()
+      probePhase(probeScope(process.env.GH_SIM_STATE), 'race:release')
       await settling
+      probePhase(probeScope(process.env.GH_SIM_STATE), 'race:second-settle-complete')
       const finalHistory = await history(cwd)
       return {
         active: driver.controller.active(),
@@ -177,7 +193,10 @@ async function latest(cwd: string) {
     },
     () =>
       cleanupRace([
-        () => barrier?.release(),
+        () => {
+          probePhase(probeScope(process.env.GH_SIM_STATE), 'race:cleanup-release')
+          barrier?.release()
+        },
         async () => {
           if (settling !== null) await settling
         },

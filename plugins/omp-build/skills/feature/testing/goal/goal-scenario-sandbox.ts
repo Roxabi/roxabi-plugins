@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { probeCount, probeScope, probeSerializedState } from '../../../../testing/diagnostic-probe.ts'
 import { executeSimCommand } from '../gh-simulator/sim-execution.ts'
 import {
   A,
@@ -69,13 +70,20 @@ export function git(cwd: string, args: string[]): string {
 }
 
 export function readSim(): SimState {
-  return JSON.parse(readFileSync(activeBox().stateFile, 'utf8'))
+  const start = process.hrtime.bigint()
+  const raw = readFileSync(activeBox().stateFile, 'utf8')
+  const scope = probeScope(activeBox().stateFile)
+  probeCount(scope, 'goal-state-read', 'file', Number(process.hrtime.bigint() - start), Buffer.byteLength(raw))
+  const parsedAt = process.hrtime.bigint()
+  const state = JSON.parse(raw) as SimState
+  probeCount(scope, 'goal-state-parse', 'json', Number(process.hrtime.bigint() - parsedAt), Buffer.byteLength(raw))
+  return state
 }
 
 export function writeSim(mutate: (state: SimState) => void): void {
   const state = readSim()
   mutate(state)
-  writeFileSync(activeBox().stateFile, JSON.stringify(state, null, 2))
+  writeFileSync(activeBox().stateFile, probeSerializedState(activeBox().stateFile, state))
 }
 
 export function gh(args: string[], input?: string) {

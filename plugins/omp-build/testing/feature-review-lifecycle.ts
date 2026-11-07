@@ -3,6 +3,7 @@ import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import { requiredReviewRecords } from '../skills/feature/workflow-records.js'
+import { driverDiagnostic, probePhase, probeScope } from './diagnostic-probe.ts'
 import {
   correctionCriteria,
   guardCommand,
@@ -134,38 +135,6 @@ async function pauseDuringPublication(driver: ReviewDriver): Promise<object> {
   }
 }
 
-function driverDiagnostic(driver: ReviewDriver | undefined) {
-  if (driver === undefined) return null
-  const active = driver.controller.active()
-  return {
-    callbacks: driver.diagnostics,
-    messages: driver.messages.map((message) => {
-      if (message.includes('OMP_BUILD_NATIVE_BATCH')) return 'OMP_BUILD_NATIVE_BATCH'
-      if (message.startsWith('feature-stopped:')) return message
-      return message.split(':', 1)[0]
-    }),
-    active:
-      active === null
-        ? null
-        : {
-            operationId: active.operationId,
-            tasks: active.tasks.tasks.map((task) => ({
-              name: task.name,
-              agent: task.agent,
-              actionId: task.action.snapshot.actionId,
-              fingerprint: task.action.inputs.fingerprint,
-              head: task.action.inputs.manifest.code.head,
-              refs: task.action.inputs.manifest.deliveryData.map((ref) => ({
-                role: ref.role,
-                kind: ref.record.kind,
-                recordId: ref.record.recordId,
-                selector: ref.selector,
-              })),
-            })),
-          },
-  }
-}
-
 export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): Promise<object> {
   const priorHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
   const driver = await createReviewDriver(cwd)
@@ -173,8 +142,11 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
   let failed = false
   let outcome: object | undefined
   let stage = 'initial-review'
+  const scope = probeScope(process.env.GH_SIM_STATE)
+  probePhase(scope, mixed ? 'mixed:initial-review' : 'apply:initial-review')
   const nextStage = (next: string) => {
     stage = next
+    probePhase(scope, `${mixed ? 'mixed' : 'apply'}:${next}`)
   }
   const applyTasks: Array<{ agent: string; proof: NativeTask['proofEvidence'] }> = []
   try {

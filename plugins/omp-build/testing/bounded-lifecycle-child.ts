@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { TestContext } from 'vitest'
+import { probeData, probeScope } from './diagnostic-probe.ts'
 
 // Leave time for failure reporting and the fixture's afterEach removal.
 const CLEANUP_MARGIN_MS = 3_000
@@ -16,7 +17,20 @@ export function boundedLifecycleChild(
   if (!started || !Number.isFinite(task.timeout) || task.timeout <= 0) {
     throw new Error('lifecycle child requires a finite running test budget')
   }
-  const remaining = task.timeout - (Date.now() - started) - CLEANUP_MARGIN_MS
+  const elapsed = Date.now() - started
+  const remaining = task.timeout - elapsed - CLEANUP_MARGIN_MS
+  const diagnostic =
+    process.env.OMP_906_RUNTIME_DIAGNOSTIC === '1' &&
+    (args[1] === 'omp-review-apply-falsify' || args[1] === 'omp-review-mixed-dispositions')
+  const scope = probeScope(env.GH_SIM_STATE)
+  const originalRemaining = 60_000 - elapsed - CLEANUP_MARGIN_MS
+  if (diagnostic)
+    probeData(scope, `lifecycle:${args[1]}:child-spawn`, {
+      taskStartMs: started,
+      taskTimeoutMs: task.timeout,
+      actualRemainingMs: remaining,
+      originalRemainingMs: originalRemaining,
+    })
   if (remaining <= 0) throw new Error('lifecycle child has no test budget remaining')
   if (process.platform === 'win32') throw new Error('lifecycle child requires POSIX process groups')
 
@@ -54,6 +68,7 @@ export function boundedLifecycleChild(
       reject(failureError())
     }, 500)
   }
+  if (diagnostic) probeData(scope, `lifecycle:${args[1]}:timer-arm`, { originalRemainingMs: originalRemaining })
   const timer = setTimeout(() => stop('lifecycle child exceeded remaining test budget'), remaining)
   // Do not exceed spawnSync's default 1 MiB maxBuffer, even across both pipes.
   child.stdout.on('data', (chunk: Buffer) => {
@@ -72,6 +87,7 @@ export function boundedLifecycleChild(
     reject(error)
   })
   child.on('close', (status) => {
+    if (diagnostic) probeData(scope, `lifecycle:${args[1]}:child-close`, { status })
     clearTimeout(timer)
     clearTimeout(fallback)
     if (failure) reject(failureError())
