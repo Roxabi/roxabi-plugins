@@ -176,7 +176,7 @@ describe('fix checkpoint UW delivery admission', () => {
     expect(git).toHaveBeenCalledTimes(1)
   })
 
-  it('refuses CI admission when the authenticated original UW history is absent', async () => {
+  it('refuses CI admission when a claimed complete causal history omits the original UW', async () => {
     const leaf = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
     const read = await leaf.reader.readUw(UW)
     const prHistory = contracts.decodeHistory({ ...leaf.history.source, scope: PR, comments: [] })
@@ -202,7 +202,7 @@ describe('fix checkpoint UW delivery admission', () => {
     })
     expect(result).toMatchObject({
       ok: false,
-      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled', 'fix-causal-own-history-missing']),
+      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled']),
     })
     expect(git).not.toHaveBeenCalled()
   })

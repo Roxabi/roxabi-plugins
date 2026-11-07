@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource, selectWorkflowBinding } from '../../contracts.ts'
@@ -24,6 +25,40 @@ const BRANCH = 'feat/2-first-child'
 const parentScope = { repository: 'o/r', target: 'o/r#1' }
 const childScope = { repository: 'o/r', target: 'o/r#2' }
 const prScope = { repository: 'o/r', target: 'o/r#11' }
+
+const authorization = createRequire(import.meta.url)('../../vendor/kit-head-authorization/index.cjs') as {
+  render: (record: Record<string, unknown>) => string
+}
+
+function seedCurrentHeadGrant(state: string, pr: number, head: string, base: string): void {
+  const file = path.join(state, `comments-${pr}.json`)
+  const rows = JSON.parse(readFileSync(file, 'utf8'))
+  const id = 900000 + pr
+  rows.push({
+    id,
+    node_id: `IC_${id}`,
+    body: authorization.render({
+      version: 1,
+      kind: 'grant',
+      operationId: `fixture-grant-${pr}`,
+      repositoryId: 1,
+      pullRequestId: 1000 + pr,
+      pullRequest: pr,
+      headSha: head,
+      baseRef: 'main',
+      baseSha: base,
+      lane: 'reviewed',
+      source: 'native',
+      previous: null,
+      evidence: 'fixture-review',
+    }),
+    user: { login: 'operator', id: 101, type: 'User' },
+    performed_via_github_app: null,
+    created_at: '2026-10-21T10:00:00Z',
+    updated_at: '2026-10-21T10:00:00Z',
+  })
+  writeFileSync(file, JSON.stringify(rows))
+}
 
 function snapshot(scope: { repository: string; target: string }, body: string) {
   const parsed = parseIssueSpecBody({ uw: scope, raw: rawSource(scope.target, body, '2026-10-21T12:00:00Z') })
@@ -96,6 +131,7 @@ function prepare(autoMerge: boolean) {
     11,
     fixtures.framedBodies([binding], ME, [childHistory, parentHistory]).map((body) => ({ body, author: ME })),
   )
+  seedCurrentHeadGrant(state, 11, tip, base)
   servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge })
   const viewPath = path.join(state, 'pr', '11.json')
   writeFileSync(
@@ -144,7 +180,8 @@ describe('epic-driver — branch-only PR merged during disarm', () => {
   )
 
   it('requires Parent integration after a genuinely delivered child merges during disarm', async () => {
-    const { state, progressRange } = await landedEpicDuringDisarm()
+    const { state, progressRange, merged } = await landedEpicDuringDisarm()
+    seedCurrentHeadGrant(state, 10, merged.headRefOid, progressRange.slice(0, 40))
     const run = drive(['next'])
     expect(writes()).toContain('edit 10 --remove-label reviewed')
     expect(JSON.parse(readFileSync(path.join(state, 'pr', '10.native.json'), 'utf8'))).toMatchObject({
