@@ -58,6 +58,12 @@ const operations = {
   prepare: async () => {
     throw new Error('unexpected-operations')
   },
+  prepareFraming: async () => {
+    throw new Error('unexpected-operations')
+  },
+  frame: async () => {
+    throw new Error('unexpected-operations')
+  },
   validateNormalization: () => {
     throw new Error('unexpected-operations')
   },

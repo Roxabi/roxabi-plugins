@@ -352,8 +352,10 @@ async function applyPlan(
       await ports.removeChild(issue, child)
       completed.push(`remove-child:${keyOf(child)}`)
     }
-    await ports.patch(issue, { title: plan.title, body: plan.body })
-    completed.push('patch')
+    if (plan.body !== baseline.body || (plan.title !== undefined && plan.title !== baseline.title)) {
+      await ports.patch(issue, { title: plan.title, body: plan.body })
+      completed.push('patch')
+    }
   } catch (error) {
     return {
       status: 'partial',

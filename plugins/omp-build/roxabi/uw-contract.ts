@@ -42,6 +42,7 @@ import type {
 } from './uw-action-contract.ts'
 import type { CauseAdjustmentResult } from './uw-cause-adjustment.ts'
 import type { UwDeliveryRead } from './uw-delivery-read.ts'
+import type { FramingOperations, PreparedFramingProposal } from './uw-framing-contract.ts'
 
 export type TierOverride = { tier: UwTier; reason: string } | null
 
@@ -121,6 +122,7 @@ export type PreparedOperatorProposal =
   | PreparedCauseDependencyAdjustment
   | PreparedUwReopen
   | PreparedUwAbandon
+  | PreparedFramingProposal
   | { proposal: CauseAdjudicationProposal; digest: string }
 
 /** Context-bound only: command argv and a native result cannot manufacture this capability. */
@@ -205,6 +207,8 @@ export interface UwOperations extends UwReadPort {
     completion: Extract<import('../engine/uw-completion-types.ts').UwCompletion, { state: 'complete' }>
   }): Promise<UwOperationResult>
   prepare(input: UwProposalInput | UwCreateInput): Promise<Result<PreparedUwProposal, UwDiagnostic>>
+  prepareFraming: FramingOperations['prepareFraming']
+  frame: FramingOperations['frame']
   listReports(uw: Scope): Promise<UwResult<ReportListing>>
   adjudicateCause(input: CauseAdjudicationInput): Promise<CauseOperationResult>
   createSister(input: CauseSisterInput): Promise<CauseOperationResult>

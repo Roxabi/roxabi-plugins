@@ -158,6 +158,99 @@ describe('calculateTier', () => {
 })
 
 describe('createIssueWriter', () => {
+  it('creates and verifies an unbound issue when a second metadata mutation is not authorised', async () => {
+    const { ports } = statefulPorts([])
+    ports.patch = async () => {
+      throw new Error('Metadata mutation requires an identity binding')
+    }
+
+    const result = await createIssueWriter(ports).create(plan({ title: 'New work' }))
+
+    expect(result).toMatchObject({
+      status: 'written',
+      observed: {
+        issue: issue(99),
+        title: 'New work',
+        body: 'Replacement body',
+        labels: [],
+        parent: null,
+        children: [],
+        blockers: [],
+      },
+    })
+  })
+
+  it.each(['labels', 'child', 'blocker'] as const)(
+    'changes %s without requiring authority to rewrite unchanged metadata',
+    async (kind) => {
+      const current = observation(1)
+      const { ports } = statefulPorts([current, observation(2)])
+      ports.patch = async () => {
+        throw new Error('Metadata mutation is not authorised')
+      }
+      const writePlan = plan({
+        body: current.body,
+        labels: { add: kind === 'labels' ? ['triaged'] : [], remove: [] },
+        relations: {
+          addChildren: kind === 'child' ? [issue(2)] : [],
+          removeChildren: [],
+          addBlockers: kind === 'blocker' ? [issue(2)] : [],
+          removeBlockers: [],
+        },
+      })
+
+      const result = await createIssueWriter(ports).update(issue(1), writePlan, current)
+
+      expect(result).toMatchObject({
+        status: 'written',
+        observed: {
+          title: current.title,
+          body: current.body,
+          labels: kind === 'labels' ? ['triaged'] : [],
+          children: kind === 'child' ? [issue(2)] : [],
+          blockers: kind === 'blocker' ? [issue(2)] : [],
+        },
+      })
+    },
+  )
+
+  it('still applies a requested title change when the body is unchanged', async () => {
+    const current = observation(1)
+    const { ports } = statefulPorts([current])
+
+    const result = await createIssueWriter(ports).update(
+      issue(1),
+      plan({ title: 'Renamed work', body: current.body }),
+      current,
+    )
+
+    expect(result).toMatchObject({
+      status: 'written',
+      observed: { title: 'Renamed work', body: current.body },
+    })
+  })
+
+  it('does not overwrite a concurrent body change after creating an issue', async () => {
+    const { ports, observations } = statefulPorts([])
+    const create = ports.create
+    ports.create = async (input) => {
+      const created = await create(input)
+      const observed = observations.get(`${created.repository}#${created.number}`)
+      if (observed === undefined) throw new Error('Created fixture issue is missing')
+      observed.body = 'Concurrent operator edit'
+      return created
+    }
+
+    const result = await createIssueWriter(ports).create(plan({ title: 'New work' }))
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      issue: issue(99),
+      diagnostics: [{ code: 'write-conflict' }],
+    })
+    expect(observations.get('Acme/app#99')?.body).toBe('Concurrent operator edit')
+  })
+
   it('closes and reopens only state with exact readback, ignoring descriptive updatedAt', async () => {
     const original = observation(1, { labels: ['ready'], children: [issue(2)] })
     const { ports, calls } = statefulPorts([original])
@@ -379,7 +472,6 @@ describe('createIssueWriter', () => {
     expect(result).toMatchObject({
       status: 'partial',
       issue: issue(99),
-      completed: ['create', 'labels', 'set-parent:Acme/app#2', 'patch'],
       diagnostics: [{ code: 'write-conflict' }],
     })
     expect(calls.filter((call) => call === 'create')).toHaveLength(1)

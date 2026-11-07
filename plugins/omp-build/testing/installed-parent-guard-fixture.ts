@@ -46,6 +46,7 @@ export async function installedParentGuardFixture(
     [41, []],
     [42, []],
     [43, []],
+    [44, []],
   ])
   const forbidden: string[] = []
   if (options.historicalChild) seedHistoricalChild(issues, comments)
@@ -206,7 +207,10 @@ export async function installedParentGuardFixture(
       forbidden.push(endpoint)
       throw new Error('unknown comment scope')
     }
-    if (!args.includes('POST')) return JSON.stringify(list)
+    if (!args.includes('POST')) {
+      const page = Number(new URLSearchParams(endpoint.split('?')[1] ?? '').get('page') ?? '1')
+      return JSON.stringify(list.slice((page - 1) * 100, page * 100))
+    }
     const body = args.find((arg) => arg.startsWith('body='))?.slice(5)
     if (body === undefined) throw new Error('missing comment body')
     const item = nativeComment(100 + ++commentPosts, body)

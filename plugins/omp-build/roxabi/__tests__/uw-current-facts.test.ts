@@ -13,7 +13,7 @@ import { canonicalSpec, type SpecSnapshot } from '../../engine/uw-spec.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
-import { freshOwnSpec } from '../feature-initial-mandate.ts'
+import { freshOwnSpec } from '../feature-initial-own-spec.ts'
 import { readCurrentChildrenProjection, readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 

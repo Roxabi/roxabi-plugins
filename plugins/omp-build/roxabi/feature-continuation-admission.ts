@@ -65,7 +65,7 @@ function authorityFraming(
   if (input.control === 'pause' || input.control === 'abandon') {
     return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
   }
-  return { kind: 'operator-decision', reason: 'needs-framing' }
+  return { kind: 'framing', source: { kind: 'free-text', acceptedArgs: input.reference } }
 }
 
 async function featureContext(
@@ -89,8 +89,40 @@ async function resolveNativeAuthority(
   exactMandateRef: ScopedRecordRef | undefined,
   context: FeatureContext,
 ): Promise<NativeAuthority | ContinueFeatureResult> {
+  const target = await resolveNativeTarget(input.reference, exactMandateRef, context)
+  if ('kind' in target) return target
+  const exactProblem = await validateExactTarget(target, exactMandateRef, context)
+  if (exactProblem !== null) return exactProblem
+  const scope = await resolvePullRequestScope(input, target, context)
+  if ('kind' in scope) return scope
+  if (
+    exactMandateRef !== undefined &&
+    (scope.repository !== exactMandateRef.scope.repository || scope.target !== exactMandateRef.scope.target)
+  ) {
+    return { kind: 'blocked', reason: 'exact-mandate-scope' }
+  }
+  return { target, scope }
+}
+
+/** Resolve an existing issue without consulting a pull request's workflow binding. */
+export async function resolveFramingReference(input: {
+  reference: string
+  cwd: FeatureContext['cwd']
+  gh: FeatureContext['gh']
+  engine: Contracts
+}): Promise<Scope | ContinueFeatureResult> {
+  const target = await resolveNativeTarget(input.reference, undefined, input)
+  if ('kind' in target) return target
+  return target.status === 'issue' ? target.scope : { kind: 'blocked', reason: 'framing-reference-not-issue' }
+}
+
+async function resolveNativeTarget(
+  reference: string,
+  exactMandateRef: ScopedRecordRef | undefined,
+  context: Pick<FeatureContext, 'cwd' | 'gh' | 'engine'>,
+): Promise<ResolvedTarget | ContinueFeatureResult> {
   const options = { cwd: context.cwd, gh: context.gh }
-  const classified = classifyIssueReference(input.reference)
+  const classified = classifyIssueReference(reference)
   const qualified =
     exactMandateRef === undefined && !('reason' in classified) && classified.repository !== null
       ? context.engine.githubScope(classified.repository, classified.number)
@@ -104,19 +136,9 @@ async function resolveNativeAuthority(
       ? await context.engine.resolveNativeScope(exactMandateRef.scope, options)
       : qualified !== null
         ? await context.engine.resolveNativeScope(qualified, options)
-        : await context.engine.resolveNativeTarget(input.reference, options)
+        : await context.engine.resolveNativeTarget(reference, options)
   if (!isResolvedTarget(target)) return { kind: 'blocked', reason: target.status }
-  const exactProblem = await validateExactTarget(target, exactMandateRef, context)
-  if (exactProblem !== null) return exactProblem
-  const scope = await resolvePullRequestScope(input, target, context)
-  if ('kind' in scope) return scope
-  if (
-    exactMandateRef !== undefined &&
-    (scope.repository !== exactMandateRef.scope.repository || scope.target !== exactMandateRef.scope.target)
-  ) {
-    return { kind: 'blocked', reason: 'exact-mandate-scope' }
-  }
-  return { target, scope }
+  return target
 }
 
 async function validateExactTarget(
@@ -153,7 +175,10 @@ async function resolvePullRequestScope(
   return history === null ? { kind: 'blocked', reason: 'binding-incomplete' } : history.source.scope
 }
 
-async function verifyRepository(context: FeatureContext, repository: string): Promise<ContinueFeatureResult | null> {
+async function verifyRepository(
+  context: Pick<FeatureContext, 'cwd' | 'gh'>,
+  repository: string,
+): Promise<ContinueFeatureResult | null> {
   try {
     const current: unknown = JSON.parse(await context.gh(context.cwd, ['repo', 'view', '--json', 'nameWithOwner']))
     if (!isRecord(current) || current.nameWithOwner !== repository) {

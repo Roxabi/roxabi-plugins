@@ -1,18 +1,10 @@
 import type { DecodedHistory } from './history-schema.ts'
-import type { RecordDraft } from './record-construction.ts'
 import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic, UwResult } from './uw-diagnostics.ts'
-import { buildSpecAllocationPlan } from './uw-identity-allocation.ts'
+import { buildNewSpecAllocationPlan, buildSpecAllocationPlan } from './uw-identity-allocation.ts'
 import { replayForMandate, replaySpecIdentityHistory, type SpecIdentityReplay } from './uw-identity-replay.ts'
-import {
-  type OperatorConfirmationEvidence,
-  operatorConfirmationEvidenceSchema,
-  SPEC_IDENTITY_FORMAT,
-  type SpecIdentityPayload,
-  specIdentityPayloadSchema,
-} from './uw-identity-schema.ts'
 import type { Spec, SpecDraft, SpecItemId } from './uw-spec.ts'
 import { specDraftSchema } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
@@ -33,7 +25,6 @@ export type SpecAllocationPlan = {
   retirements: readonly SpecItemId[]
   spec: Spec
 }
-export type SpecIdentityDraft = Extract<RecordDraft, { kind: 'spec-identity' }>
 function diag(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
 }
@@ -184,7 +175,7 @@ export function resolveSpecIdentityLedger(input: {
     diagnostics.push(diag(input.uw, 'spec-ledger-incomplete', 'Identity history does not match authentication context'))
   if (!input.history.source.complete)
     diagnostics.push(diag(input.uw, 'spec-ledger-incomplete', 'Identity history is incomplete'))
-  const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics)
+  const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics, input.histories)
   const active = acceptedIds(input.accepted)
   const authenticated = replayAcceptedRetirements(
     input.history,
@@ -218,78 +209,21 @@ export function prepareSpecAllocation(draft: SpecDraft, ledger: SpecIdentityLedg
     ? buildSpecAllocationPlan(parsed.data, ledger)
     : { ok: false, diagnostics: [diag(ledger.uw, 'spec-invalid', 'Spec draft is invalid')] }
 }
-function identityDraft(
-  uw: Scope,
-  operationId: string,
-  suffix: string,
-  payload: SpecIdentityPayload,
-): SpecIdentityDraft {
-  const id = `${operationId}${suffix}`
-  return {
-    version: 1,
-    repository: uw.repository,
-    target: uw.target,
-    recordId: `spec-identity:${id}`,
-    runId: operationId,
-    operationId: id,
-    kind: 'spec-identity',
-    payload,
-  }
-}
-function confirmedIdentityEvidence(
-  uw: Scope,
-  input: { confirmation: OperatorConfirmationEvidence; operationId: string; proposalDigest: string },
-  effects: readonly unknown[],
-): UwResult<OperatorConfirmationEvidence> {
-  const confirmation = operatorConfirmationEvidenceSchema.safeParse(input.confirmation)
-  if (
-    !confirmation.success ||
-    confirmation.data.operationId !== input.operationId ||
-    confirmation.data.proposalDigest !== input.proposalDigest ||
-    effects.length === 0
-  )
-    return {
-      ok: false,
-      diagnostics: [diag(uw, 'operator-confirmation-required', 'Exact native confirmation is required')],
-    }
-  return { ok: true, value: confirmation.data }
-}
-export function buildSpecIdentityAllocation(input: {
-  uw: Scope
-  plan: SpecAllocationPlan
-  proposalDigest: string
-  confirmation: OperatorConfirmationEvidence
-  operationId: string
-}): UwResult<SpecIdentityDraft> {
-  const confirmation = confirmedIdentityEvidence(input.uw, input, input.plan.assignments)
-  if (!confirmation.ok) return confirmation
-  const payload = specIdentityPayloadSchema.parse({
-    format: SPEC_IDENTITY_FORMAT,
-    predecessor: input.plan.ledgerHead,
-    proposalDigest: input.proposalDigest,
-    confirmation: confirmation.value,
-    event: 'allocate',
-    allocations: input.plan.assignments,
-  })
-  return { ok: true, value: identityDraft(input.uw, input.operationId, '', payload) }
-}
-export function buildSpecIdentityProposedRetirement(input: {
-  uw: Scope
-  plan: SpecAllocationPlan
-  predecessor: ExternalRecordRef
-  proposalDigest: string
-  confirmation: OperatorConfirmationEvidence
-  operationId: string
-}): UwResult<SpecIdentityDraft> {
-  const confirmation = confirmedIdentityEvidence(input.uw, input, input.plan.retirements)
-  if (!confirmation.ok) return confirmation
-  const payload = specIdentityPayloadSchema.parse({
-    format: SPEC_IDENTITY_FORMAT,
-    predecessor: input.predecessor,
-    proposalDigest: input.proposalDigest,
-    confirmation: confirmation.value,
-    event: 'retire-proposed',
-    ids: input.plan.retirements,
-  })
-  return { ok: true, value: identityDraft(input.uw, input.operationId, ':retire-proposed', payload) }
+
+/** Plan new-member IDs without inventing a native issue or a durable identity. */
+export function prepareNewSpecAllocation(draft: SpecDraft, repository: string): UwResult<SpecAllocationPlan> {
+  const parsed = specDraftSchema.safeParse(draft)
+  return parsed.success
+    ? buildNewSpecAllocationPlan(parsed.data, repository)
+    : {
+        ok: false,
+        diagnostics: [
+          {
+            code: 'spec-invalid',
+            message: 'Spec draft is invalid',
+            location: { kind: 'repository', repository },
+            related: [],
+          },
+        ],
+      }
 }

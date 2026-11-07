@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeIssueWritePlan } from '../../../issue-triage/skills/shared/domain/issue-write.ts'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import type * as Contracts from '../../dist/contracts.js'
-import { causeCreationProposalSchema, parseRecord } from '../../dist/contracts.js'
+import { causeCreationProposalSchema, parseRecord, readFramingMembership } from '../../dist/contracts.js'
 import type { RecordDraft } from '../../engine/record-construction.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { createInput, fixture } from '../../testing/uw-operations-fixture.ts'
@@ -170,12 +170,10 @@ function setup(
   let originalBlockers: (typeof originalIssue)[] = []
   let sisterBlockers: (typeof originalIssue)[] = []
   let sisterParent: typeof parent | null = parent
-  const readUw = vi.fn(async (scope: typeof original) => ({
-    uw: scope,
-    histories: [history(scope)],
-    catalogues: fixtureHostReviewClassCatalogues(),
-    graph: {
-      status: 'complete',
+  const readUw = vi.fn(async (scope: typeof original) => {
+    const histories = [history(scope)]
+    const graph = {
+      status: 'complete' as const,
       nodes: [
         {
           uw: scope,
@@ -194,9 +192,23 @@ function setup(
             scope.target === sister.target ? sisterBlockers.map(() => original) : originalBlockers.map(() => sister),
         },
       ],
-    },
-    identity: { ok: true, value: { head: { scope: sister, recordId: 'identity-1', kind: 'spec-identity' } } },
-  }))
+    }
+    return {
+      uw: scope,
+      histories,
+      catalogues: fixtureHostReviewClassCatalogues(),
+      graph,
+      admission: {
+        aggregate: readFramingMembership({
+          uw: scope,
+          histories,
+          graph: graph as never,
+          accepted: { status: 'absent' },
+        }),
+      },
+      identity: { ok: true, value: { head: { scope: sister, recordId: 'identity-1', kind: 'spec-identity' } } },
+    }
+  })
   let confirmations = 0
   const base = fixture({
     confirm: options.confirm,

@@ -20,31 +20,7 @@ import { createInstalledMaterialAcceptance } from './material-acceptance-service
 import { createPublicationContextResolver } from './publication-context.ts'
 import type { OperatorPort, UwOperationResult, UwRead, UwReadPort } from './uw-contract.ts'
 import { type CurrentOwnSpecFacts, readAssessmentSpecFacts } from './uw-current-facts.ts'
-import { UwGraphUnavailableError } from './uw-read-port.ts'
-
-function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function diagnostics(uw: Scope, values: readonly { code?: unknown; message?: unknown }[]): readonly UwDiagnostic[] {
-  return values.map((value) =>
-    diagnostic(
-      uw,
-      typeof value.code === 'string' ? value.code : 'uw-publication-unconfirmed',
-      typeof value.message === 'string' ? value.message : 'UW publication was not confirmed',
-    ),
-  )
-}
-function postEffectDiagnostics(uw: Scope, error: unknown): readonly UwDiagnostic[] {
-  if (error instanceof UwGraphUnavailableError) return error.diagnostics
-  return [
-    diagnostic(
-      uw,
-      'post-effect-read-failed',
-      error instanceof Error ? error.message : 'UW read failed after durable effects',
-    ),
-  ]
-}
+import { diagnostic, diagnostics, postEffectDiagnostics } from './uw-installed-reports.ts'
 
 function sameScope(left: Scope, right: Scope): boolean {
   return left.repository === right.repository && left.target === right.target
@@ -163,6 +139,35 @@ async function readMaterialPublication(
   }
 }
 
+async function readMaterialUw(
+  reader: UwReadPort,
+  uw: Scope,
+): Promise<{ ok: true; read: UwRead } | { ok: false; diagnostics: readonly UwDiagnostic[] }> {
+  try {
+    return { ok: true, read: await reader.readUw(uw) }
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          uw,
+          'framing-aggregate-unreadable',
+          error instanceof Error ? error.message : 'Current UW could not be read',
+        ),
+      ],
+    }
+  }
+}
+
+function assessmentDiagnostics(
+  uw: Scope,
+  current: Extract<Awaited<ReturnType<typeof readAssessmentSpecFacts>>, { ok: false }>,
+): readonly UwDiagnostic[] {
+  return 'diagnostics' in current
+    ? current.diagnostics
+    : [diagnostic(uw, current.reason, 'No unique current assessed coverage proposal')]
+}
+
 /** Composes native reads, exact control rechecks, publication, and readback around the UI operator service. */
 export function createInstalledMaterialOperations(input: {
   operator: OperatorPort
@@ -170,16 +175,13 @@ export function createInstalledMaterialOperations(input: {
   github: GitHubOptions
 }): (uw: Scope) => Promise<UwOperationResult> {
   const materialFacts = async (uw: Scope) => {
-    const read = await input.reader.readUw(uw)
+    const fresh = await readMaterialUw(input.reader, uw)
+    if (!fresh.ok) return fresh
+    const read = fresh.read
+    if (read.admission.aggregate?.status === 'held')
+      return { ok: false as const, diagnostics: read.admission.aggregate.diagnostics }
     const current = await readAssessmentSpecFacts({ uw, read })
-    if (!current.ok)
-      return {
-        ok: false as const,
-        diagnostics:
-          'diagnostics' in current
-            ? current.diagnostics
-            : [diagnostic(uw, current.reason, 'No unique current assessed coverage proposal')],
-      }
+    if (!current.ok) return { ok: false as const, diagnostics: assessmentDiagnostics(uw, current) }
     if (read.graph.status !== 'complete') return { ok: false as const, diagnostics: read.graph.diagnostics }
     if (read.observation.status !== 'complete') return { ok: false as const, diagnostics: read.observation.diagnostics }
     const histories = read.observation.histories

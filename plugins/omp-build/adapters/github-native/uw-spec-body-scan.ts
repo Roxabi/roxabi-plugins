@@ -1,6 +1,6 @@
-import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import { retainedSections, type SourceContentBlock, sectionContentBlocks } from './uw-spec-source-projection.ts'
+import type { SpecParseSubject } from './uw-spec-source-scanner.ts'
 import {
   isLegacyHeading,
   type ParsedSection,
@@ -31,7 +31,7 @@ export type BodySourceFacts = {
 }
 
 export function scanBodySources(
-  uw: Scope,
+  uw: SpecParseSubject,
   sections: readonly ParsedSection[],
   byHeading: ReadonlyMap<string, readonly ParsedSection[]>,
   marked: boolean,
@@ -78,7 +78,12 @@ export function scanBodySources(
   }
 }
 
-function scanMany(uw: Scope, sections: readonly ParsedSection[], expected: 'C' | 'I', legacyCriteria = false) {
+function scanMany(
+  uw: SpecParseSubject,
+  sections: readonly ParsedSection[],
+  expected: 'C' | 'I',
+  legacyCriteria = false,
+) {
   const scans = sections.map((section) => scanSourceItems(uw, section, expected, legacyCriteria))
   return {
     blocks: scans.flatMap((scan) => scan.blocks),

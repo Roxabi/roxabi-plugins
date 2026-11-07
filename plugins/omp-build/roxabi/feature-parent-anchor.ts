@@ -2,6 +2,7 @@ import {
   canonicalValueDigest,
   isWayfinder,
   projectNativeUwChildren,
+  resolveCurrentInheritedOwnSpecRefs,
   sameScope,
   scopeKey,
   selectApplicableMandate,
@@ -9,6 +10,7 @@ import {
   workflowOperationProblem,
 } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
+import type { OwnSpecRef, SpecSnapshot, UwTier } from '../engine/uw-spec-schema.ts'
 import type { UwRead } from './uw-contract.ts'
 import { readCurrentFramingFacts } from './uw-current-facts.ts'
 
@@ -17,6 +19,31 @@ export async function resolveParentWorktreeAnchor(input: {
   subject: Scope
   read: UwRead
 }): Promise<{ ok: true; anchor: Scope } | { ok: false; reason: string }> {
+  return walkAncestry(input)
+}
+
+/** Check planned first-child facts against the same authenticated ancestry walk. */
+export async function checkPlannedAncestry(input: {
+  subject: Scope
+  read: UwRead
+  planned: { spec: SpecSnapshot['spec']; tier: UwTier }
+}): Promise<{ ok: true; inherited: readonly OwnSpecRef[] } | { ok: false; reason: string }> {
+  if (!hasCompleteSubjectObservation(input.subject, input.read))
+    return { ok: false, reason: 'parent-anchor-observation-incomplete' }
+  const inherited = resolveCurrentInheritedOwnSpecRefs(
+    input.subject,
+    input.read.observation.graph,
+    input.read.observation.histories,
+  )
+  if (!inherited.ok) return { ok: false, reason: 'current-inheritance-unavailable' }
+  const result = await walkAncestry(input, { ...input.planned, inherited: inherited.value })
+  return result.ok ? { ok: true, inherited: inherited.value } : result
+}
+
+async function walkAncestry(
+  input: { subject: Scope; read: UwRead },
+  planned?: { spec: SpecSnapshot['spec']; tier: UwTier; inherited: readonly OwnSpecRef[] },
+): Promise<{ ok: true; anchor: Scope } | { ok: false; reason: string }> {
   if (!hasCompleteSubjectObservation(input.subject, input.read))
     return { ok: false, reason: 'parent-anchor-observation-incomplete' }
   const nodes = new Map(input.read.graph.nodes.map((node) => [scopeKey(node.uw), node]))
@@ -33,8 +60,15 @@ export async function resolveParentWorktreeAnchor(input: {
     if (!isConfirmedAncestor(ancestor, node.parent, input.read.observation))
       return { ok: false, reason: 'parent-anchor-ancestor-unconfirmed' }
     if (!hasConfirmedChild(ancestor, current)) return { ok: false, reason: 'parent-anchor-ancestry-invalid' }
-    const problem = await confirmAncestorCommitment(input.read.observation, ancestor, ancestor.accepted, current)
+    const problem = await confirmAncestorCommitment(
+      input.read.observation,
+      ancestor,
+      ancestor.accepted,
+      current,
+      planned,
+    )
     if (problem !== null) return { ok: false, reason: problem }
+    planned = undefined
     current = ancestor
   }
 }
@@ -87,6 +121,7 @@ async function confirmAncestorCommitment(
   ancestor: UwRead,
   accepted: Extract<UwRead['accepted'], { status: 'accepted' }>,
   current: UwRead,
+  planned?: { spec: SpecSnapshot['spec']; tier: UwTier; inherited: readonly OwnSpecRef[] },
 ): Promise<string | null> {
   const histories = observation.histories
   const parentHistories = histories.filter((history) => sameScope(history.source.scope, ancestor.uw))
@@ -108,17 +143,27 @@ async function confirmAncestorCommitment(
     !sameScope(source.scope, ancestor.uw)
   )
     return 'parent-anchor-mandate-unconfirmed'
-  const facts = await readCurrentFramingFacts({ uw: current.uw, read: current })
-  if (!facts.ok) return 'parent-anchor-child-unconfirmed'
+  const facts = planned === undefined ? await readCurrentFramingFacts({ uw: current.uw, read: current }) : null
+  if (facts !== null && !facts.ok) return 'parent-anchor-child-unconfirmed'
+  const child =
+    planned ??
+    (facts?.ok
+      ? {
+          spec: facts.value.currentSpec.snapshot.spec,
+          tier: facts.value.currentSpec.tier,
+          inherited: facts.value.currentSpec.inheritedOwnSpecRefs,
+        }
+      : null)
+  if (child === null) return 'parent-anchor-child-unconfirmed'
   const commitments = accepted.value.children.filter((child) => sameScope(child.scope, current.uw))
   const commitment = commitments[0]
   if (
     commitments.length !== 1 ||
     !commitment ||
-    commitment.tier !== facts.value.currentSpec.tier ||
-    commitment.specVersion !== facts.value.currentSpec.snapshot.spec.version ||
-    canonicalValueDigest(commitment.snapshot.spec) !== canonicalValueDigest(facts.value.currentSpec.snapshot.spec) ||
-    canonicalValueDigest(facts.value.currentSpec.inheritedOwnSpecRefs) !==
+    commitment.tier !== child.tier ||
+    commitment.specVersion !== child.spec.version ||
+    canonicalValueDigest(commitment.snapshot.spec) !== canonicalValueDigest(child.spec) ||
+    canonicalValueDigest(child.inherited) !==
       canonicalValueDigest([accepted.value.ref, ...accepted.value.inheritedOwnSpecRefs])
   )
     return 'parent-anchor-commitment-mismatch'

@@ -9,11 +9,11 @@ import type { ContinueFeatureResult, FeatureControl } from './feature-contract.t
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate } from './feature-initial-mandate.ts'
 import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
+import { selectionNormalization } from './feature-selection-normalization.ts'
 import { prepareRequestedSession, prepareSuccessorCheckout } from './feature-selection-session.ts'
 import { createSuccessorSelection } from './feature-selection-successor.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
-import type { NormalizationProposalRequest, UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
-import { markSuccessorNormalization } from './uw-normalization-internal.ts'
+import type { UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
 import { readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
 import { runWorktreeBootstrap, verifyParentCheckout } from './workflow-checkout.ts'
 
@@ -147,39 +147,6 @@ function exactSelectionProblem(
   if (selection.mandate === null || selection.mandate.recordId !== ref.recordId)
     return { kind: 'blocked', reason: 'exact-mandate-not-applicable' }
   return null
-}
-
-function needsInitialSpec(control: FeatureControl, selection: FeatureAuthority['selection']): boolean {
-  if (selection.status !== 'refused') return false
-  if (selection.reason === 'missing') return control === 'select' || control === 'continue'
-  return control === 'new' && (selection.reason === 'abandoned' || selection.reason === 'revoked')
-}
-
-export function selectionNormalization(
-  control: FeatureControl,
-  authority: Pick<FeatureAuthority, 'scope' | 'selection'>,
-  read: UwRead | null,
-): ContinueFeatureResult | null {
-  if (!needsInitialSpec(control, authority.selection)) return null
-  if (read === null) return { kind: 'blocked', reason: 'uw-read-required' }
-  const { scope } = authority
-  const root = read.graph.nodes.find(
-    (node) => node.uw.repository === scope.repository && node.uw.target === scope.target,
-  )
-  if (root === undefined) return { kind: 'blocked', reason: 'graph-root-missing' }
-  if (read.parsed.status === 'conformant') return null
-  const request: NormalizationProposalRequest = {
-    uw: scope,
-    title: root.title,
-    parsed: read.parsed,
-    graph: read.graph,
-    writes: {
-      labels: { add: [], remove: [] },
-      relations: { addChildren: [], removeChildren: [], addBlockers: [], removeBlockers: [] },
-    },
-  }
-  if (control === 'new') markSuccessorNormalization(request, read)
-  return { kind: 'normalization', request }
 }
 
 async function updateMandateSelection(

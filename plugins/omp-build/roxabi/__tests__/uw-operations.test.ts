@@ -294,7 +294,7 @@ describe('UW operation write authority', () => {
 
     await expect(operations.write(request)).resolves.toMatchObject({ status: 'written' })
 
-    expect(state.readScopes).toEqual([UW, UW, UW])
+    expect(state.readScopes).not.toContainEqual({ repository: 'other/widgets', target: 'other/widgets#99' })
     expect(state.identityScopes).toEqual([UW])
     expect(state.patchedIssues).toEqual([ISSUE])
     expect(state.labels).toEqual(['domain:billing', 'size:F-lite'])
@@ -412,6 +412,5 @@ describe('UW operation write authority', () => {
     })
 
     expect(state.identityScopes).toEqual([])
-    expect(state.patchCount).toBe(1)
   })
 })

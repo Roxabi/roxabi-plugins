@@ -3,6 +3,7 @@ import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
+import { validateFramingAuthorization } from './uw-framing-authorization.ts'
 import { nextCriterionId, nextInvariantId, nextSpecItemId } from './uw-identity-allocation.ts'
 import { type SpecIdentityPayload, specIdentityPayloadSchema } from './uw-identity-schema.ts'
 import type { SpecItemId } from './uw-spec.ts'
@@ -133,6 +134,7 @@ export function replaySpecIdentityHistory(
   history: DecodedHistory,
   uw: Scope,
   diagnostics: UwDiagnostic[],
+  histories: readonly DecodedHistory[],
 ): SpecIdentityReplay {
   const replay: SpecIdentityReplay = {
     allocations: new Map(),
@@ -150,7 +152,16 @@ export function replaySpecIdentityHistory(
     const entry = record(operation)
     if (entry === null)
       diagnostics.push(diagnostic(uw, 'spec-ledger-incomplete', 'Identity record is incomplete or unauthenticated'))
-    else applyIdentityRecord(replay, entry, uw, diagnostics)
+    else if (entry.payload.format === 'omp-build-spec-identity/2') {
+      const authorized = validateFramingAuthorization({
+        uw,
+        histories,
+        authorization: entry.payload.aggregate,
+        payload: entry.payload,
+      })
+      if (!authorized.ok) diagnostics.push(...authorized.diagnostics)
+      else applyIdentityRecord(replay, entry, uw, diagnostics)
+    } else applyIdentityRecord(replay, entry, uw, diagnostics)
   }
   return replay
 }

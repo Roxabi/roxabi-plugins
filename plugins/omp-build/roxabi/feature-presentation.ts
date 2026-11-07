@@ -12,13 +12,9 @@ export function featureStopMessage(result: ContinueFeatureResult): string | null
     case 'session-cwd':
       return isMoveInstruction(result) ? null : 'feature-stopped: move-instruction-invalid'
     case 'blocked':
-      return isAssistedFraming(result.reason)
-        ? featureAssistedFramingMessage()
-        : featureStoppedWithDiagnostics(result.reason, result.diagnostics)
+      return featureStoppedWithDiagnostics(result.reason, result.diagnostics)
     case 'operator-decision':
-      return isAssistedFraming(result.reason)
-        ? featureAssistedFramingMessage()
-        : `feature-stopped: operator-decision:${result.reason}`
+      return `feature-stopped: operator-decision:${result.reason}`
     case 'terminal':
       return featureStoppedWithDiagnostics(result.reason, result.diagnostics)
     case 'paused':
@@ -40,11 +36,6 @@ export function principalRefusalMessage(cwd: string, stop: string): string {
   return `session-cwd ${cwd}\nfeature-stopped: principal-dispatch-refused: ${reason}`
 }
 
-/** Framing guidance names no checkout: a worktree would receive the same text, so it is never a refusal. */
-export function isFramingResult(result: ContinueFeatureResult): boolean {
-  return (result.kind === 'blocked' || result.kind === 'operator-decision') && isAssistedFraming(result.reason)
-}
-
 export function featurePauseMessage(result: Extract<ContinueFeatureResult, { kind: 'paused' }>): string {
   if (result.confirmed === true) return `pause-confirmed: ${result.reason}`
   const safe = result.reason.toLowerCase().includes('disarmed') ? 'pause-unconfirmed' : result.reason
@@ -53,19 +44,6 @@ export function featurePauseMessage(result: Extract<ContinueFeatureResult, { kin
 
 function isMoveInstruction(result: Extract<ContinueFeatureResult, { kind: 'session-cwd' }>): boolean {
   return result.path.startsWith('/') && result.instruction === `/move ${result.path}`
-}
-
-/**
- * Pre-selection assisted framing only (`needs-framing`).
- * Never used for `needs-scope`: that can follow an already-published mandate/checkout,
- * and this copy must not deny durable history or imply the same unchanged ref will pass.
- */
-function featureAssistedFramingMessage(): string {
-  return 'Frame with skill://grilling until shared understanding, then publish or amend through skill://issue-triage. Do not start a checkout, mandate, or native batch until the operator runs /feature #N on an actionable issue.'
-}
-
-export function isAssistedFraming(reason: string): boolean {
-  return reason === 'needs-framing'
 }
 
 export function featureSessionCwdMessage(cwd: string, instruction: string): string {

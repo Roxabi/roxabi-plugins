@@ -211,6 +211,12 @@ function lifecycleFixture() {
       prepare: async () => {
         throw new Error('unexpected-prepare')
       },
+      prepareFraming: async () => {
+        throw new Error('unexpected-prepare-framing')
+      },
+      frame: async () => {
+        throw new Error('unexpected-frame')
+      },
       validateNormalization: () => {
         throw new Error('unexpected-normalization')
       },

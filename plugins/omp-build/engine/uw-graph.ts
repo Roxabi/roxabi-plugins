@@ -134,17 +134,13 @@ function relationEdges(nodes: ReadonlyMap<string, UwNativeNode>, diagnostics: Uw
   return edges
 }
 
-function appendCycles(
-  nodes: ReadonlyMap<string, UwNativeNode>,
-  edges: ReadonlyMap<string, readonly string[]>,
-  diagnostics: UwDiagnostic[],
-): void {
+export function cycleKeys(edges: ReadonlyMap<string, readonly string[]>): readonly string[] {
   const visiting = new Set<string>()
   const done = new Set<string>()
+  const cycles: string[] = []
   const walk = (key: string): void => {
     if (visiting.has(key)) {
-      const node = nodes.get(key)
-      if (node) diagnostics.push(diag(node.uw, 'graph-cycle', 'Combined hierarchy/blocker cycle', 'state'))
+      cycles.push(key)
       return
     }
     if (done.has(key)) return
@@ -153,7 +149,19 @@ function appendCycles(
     visiting.delete(key)
     done.add(key)
   }
-  for (const key of nodes.keys()) walk(key)
+  for (const key of edges.keys()) walk(key)
+  return cycles
+}
+
+function appendCycles(
+  nodes: ReadonlyMap<string, UwNativeNode>,
+  edges: ReadonlyMap<string, readonly string[]>,
+  diagnostics: UwDiagnostic[],
+): void {
+  for (const key of cycleKeys(edges)) {
+    const node = nodes.get(key)
+    if (node) diagnostics.push(diag(node.uw, 'graph-cycle', 'Combined hierarchy/blocker cycle', 'state'))
+  }
 }
 
 function appendParentClaimDiagnostics(
@@ -182,11 +190,11 @@ function appendParentClaimDiagnostics(
 }
 
 function collectObservedNodes(
-  graph: Extract<UwGraphObservation, { status: 'complete' }>,
+  observed: readonly UwNativeNode[],
   diagnostics: UwDiagnostic[],
 ): Map<string, UwNativeNode> {
   const nodes = new Map<string, UwNativeNode>()
-  for (const node of graph.nodes) {
+  for (const node of observed) {
     const key = scopeKey(node.uw)
     const previous = nodes.get(key)
     if (previous && JSON.stringify(previous) !== JSON.stringify(node))
@@ -198,11 +206,20 @@ function collectObservedNodes(
   return nodes
 }
 
+export function relationGraph(observed: readonly UwNativeNode[]): {
+  edges: ReadonlyMap<string, readonly string[]>
+  diagnostics: readonly UwDiagnostic[]
+} {
+  const diagnostics: UwDiagnostic[] = []
+  const nodes = collectObservedNodes(observed, diagnostics)
+  return { edges: relationEdges(nodes, diagnostics), diagnostics }
+}
+
 export function validateUwGraph(graph: UwGraphObservation): UwCheck {
   if (graph.status === 'incomplete') return incompleteGraph(graph)
   const diagnostics: UwDiagnostic[] = []
   appendParentClaimDiagnostics(graph, diagnostics)
-  const nodes = collectObservedNodes(graph, diagnostics)
+  const nodes = collectObservedNodes(graph.nodes, diagnostics)
   if (!nodes.has(scopeKey(graph.root)))
     diagnostics.push(diag(graph.root, 'graph-incomplete', 'Root was not read', 'state'))
   const edges = relationEdges(nodes, diagnostics)

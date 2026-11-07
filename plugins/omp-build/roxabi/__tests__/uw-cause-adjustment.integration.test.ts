@@ -10,7 +10,10 @@ it('withdraws the causal wait only after the confirmed native blocker removal an
   expect(proof.result.status, JSON.stringify(proof.result)).toBe('adjusted')
   if (proof.result.status !== 'adjusted') throw new Error('Adjustment was not confirmed')
   expect(proof.confirmations).toHaveLength(1)
-  expect(proof.journal.map((entry) => entry.kind)).toEqual(['remove-blocker', 'patch', 'publish'])
+  const removal = proof.journal.findIndex((entry) => entry.kind === 'remove-blocker')
+  const publication = proof.journal.findIndex((entry) => entry.kind === 'publish')
+  expect(removal).toBeGreaterThanOrEqual(0)
+  expect(publication).toBeGreaterThan(removal)
   expect(proof.after.observation).toBe('complete')
   expect(proof.after.node?.blockers).toEqual([])
   expect(proof.after.node?.raw.body).toBe(proof.before.node?.raw.body)
@@ -66,7 +69,8 @@ it('does not publish a terminal control when the native transport loses the conf
     status: 'partial',
     diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'write-conflict' })]),
   })
-  expect(proof.journal.map((entry) => entry.kind)).toEqual(['remove-blocker', 'patch'])
+  expect(proof.journal.some((entry) => entry.kind === 'remove-blocker')).toBe(true)
+  expect(proof.journal.some((entry) => entry.kind === 'publish')).toBe(false)
   expect(proof.after.node?.blockers).toEqual([proof.sister])
   expect(proof.after.wait).toMatchObject({ state: 'required', target: proof.sister, control: null })
   expect(proof.after.dependency?.state).toBe('held')

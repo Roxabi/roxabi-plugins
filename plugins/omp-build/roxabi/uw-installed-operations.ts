@@ -27,6 +27,7 @@ import { createCauseAdjustment } from './uw-cause-adjustment.ts'
 import { createCauseCreation } from './uw-cause-creation.ts'
 import { guardedCauseWriter } from './uw-cause-guard.ts'
 import type { CreatedUwReadPort, OperatorPort, UwOperations } from './uw-contract.ts'
+import { createFramingPublicationPorts } from './uw-framing-ports.ts'
 import { createIdentityPublisher } from './uw-identity-publication.ts'
 import {
   createProductionActionPorts,
@@ -179,6 +180,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
           }
     },
     publishIdentity,
+    framingPublication: createFramingPublicationPorts(github, createdReader),
     acceptMaterial,
     scopeOf,
     actions: createProductionActionPorts(actionOptions),

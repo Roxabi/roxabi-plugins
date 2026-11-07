@@ -17,6 +17,7 @@ export const KIND_NAMES = [
   'stop',
   'epic-event',
   'spec-identity',
+  'framing-receipt',
   'mandate',
   'operator-control',
   'action-receipt',
@@ -27,6 +28,7 @@ export const KIND_NAMES = [
 export const kindSchema = z.enum(KIND_NAMES)
 export const WORKFLOW_RECORD_KINDS = [
   'spec-identity',
+  'framing-receipt',
   'mandate',
   'operator-control',
   'action-receipt',

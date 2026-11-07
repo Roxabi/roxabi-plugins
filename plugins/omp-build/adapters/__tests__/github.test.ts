@@ -254,12 +254,10 @@ describe('GitHub record codec', () => {
   })
 
   it('reads every GitHub comment page with native metadata intact', async () => {
-    const calls: string[] = []
     const received = await readGitHubHistory(githubScope('acme/app', 42), {
       cwd: '/fixture',
       readAuthor: 'automation',
       gh: async (_cwd, args) => {
-        calls.push(args[1] ?? '')
         return args[1]?.endsWith('page=1')
           ? JSON.stringify(
               Array.from({ length: 100 }, (_, index) => ({
@@ -282,10 +280,11 @@ describe('GitHub record codec', () => {
       },
     })
 
-    expect(calls).toEqual([
-      'repos/acme/app/issues/42/comments?per_page=100&page=1',
-      'repos/acme/app/issues/42/comments?per_page=100&page=2',
-    ])
+    expect(received.complete).toBe(true)
+    expect(received.diagnostics).toEqual([])
+    expect(received.comments.map((comment) => comment.nativeId)).toEqual(
+      Array.from({ length: 101 }, (_, index) => String(index + 1)),
+    )
     expect(received.comments).toHaveLength(101)
     expect(received.comments[100]).toMatchObject({
       nativeId: '101',

@@ -2,6 +2,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
+import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
 import { producerJsonSchema } from '../plugins/omp-build/engine/producer-schema.ts'
 import { nativeFeatureProfiles } from '../plugins/omp-build/roxabi/native-feature-profiles.ts'
 import { nativeReviewProfiles } from '../plugins/omp-build/roxabi/native-review-profiles.ts'
@@ -179,6 +180,11 @@ async function buildOmpBuildContracts(outputRoot: string): Promise<BuildReport> 
   const agentDirectory = join(root, 'agents')
   const distDirectory = join(root, 'dist')
   const inputs = new Set<string>()
+  for (const file of Object.values(FRAMING_PROCEDURE_FILES)) {
+    const path = join(pluginRoot, file)
+    readFileSync(path)
+    inputs.add(relative(repositoryRoot, path))
+  }
   mkdirSync(agentDirectory, { recursive: true })
   mkdirSync(distDirectory, { recursive: true })
   const recorder = outputRecorder(root)

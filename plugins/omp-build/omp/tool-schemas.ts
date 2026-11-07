@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { framingFormInputSchema } from '../engine/framing-form-schema.ts'
 
 export const ompBuildStartReviewParametersSchema = z.strictObject({ pr: z.number().int().positive().optional() })
 export type OmpBuildStartReviewParameters = z.infer<typeof ompBuildStartReviewParametersSchema>
@@ -22,3 +23,5 @@ export const ompBuildStartReviewParametersJsonSchema = jsonSchema(ompBuildStartR
 export const ompBuildRecoveryPrParametersJsonSchema = jsonSchema(ompBuildRecoveryPrParametersSchema)
 export const ompBuildRecoveryReplaceParametersJsonSchema = jsonSchema(ompBuildRecoveryReplaceParametersSchema)
 export const ompBuildPrepareCheckoutParametersJsonSchema = jsonSchema(ompBuildPrepareCheckoutParametersSchema)
+/** Read-only framing form submission; runtime parsing uses the facade's `framingFormInputSchema`. */
+export const ompBuildFramingSubmitParametersJsonSchema = jsonSchema(framingFormInputSchema)

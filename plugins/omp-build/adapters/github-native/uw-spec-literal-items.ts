@@ -1,5 +1,5 @@
-import type { Scope } from '../../engine/record-values.ts'
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
+import type { SpecParseSubject } from './uw-spec-source-scanner.ts'
 import {
   bodyDiagnostic,
   LITERAL_ITEM,
@@ -18,7 +18,7 @@ import {
   isSpecTextFence,
 } from './uw-spec-text-codec.ts'
 
-export function scanLiteralItems(uw: Scope, section: ParsedSection | undefined): ScannedItems {
+export function scanLiteralItems(uw: SpecParseSubject, section: ParsedSection | undefined): ScannedItems {
   if (!section) return { blocks: [], malformed: [], noncriterion: [] }
   const lines = normalizeNewlines(section.content).split('\n')
   const blocks: SourceCriterionBlock[] = []

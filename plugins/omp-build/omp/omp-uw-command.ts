@@ -10,19 +10,20 @@ import {
   uwProposalInputSchema,
 } from '../dist/contracts.js'
 import { executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
-import type { UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
+import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import { beginFeatureUwOperation, cancelFeatureUwOperation } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
-import { type CommandOperatorPort, createOperatorConfirmation } from './omp-operator-confirmation.ts'
+import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
 import { type ParsedUwCommand, parseCreateCommand, parseIssueCommand, parseProposalCommand } from './omp-uw-parse.ts'
 import { reportResult } from './omp-uw-result.ts'
+/** The operator is confirmation-only; cancelling it belongs to the owner-slot composition. */
 export type UwOperationsFactory = (input: {
   cwd: string
-  operator: CommandOperatorPort
+  operator: OperatorPort
   artifactsDir: string | null
   nativeHost?: UwNativeHost
 }) => Promise<UwOperations> | UwOperations

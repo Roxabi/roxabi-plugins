@@ -11,6 +11,27 @@ import { readComposedWorkflowHistory } from './history.ts'
 import { createUwDeliveryFactReader } from './uw-delivery-facts.ts'
 import { UwObservationCut } from './uw-observation-cut.ts'
 
+type FramingReceiptPayload = Extract<
+  NonNullable<DecodedHistory['operations'][number]['record']>,
+  { kind: 'framing-receipt' }
+>['payload']
+
+/** Native issues a framing receipt names: intent members, claimed members, and result members. */
+function receiptScopes(payload: FramingReceiptPayload): Scope[] {
+  if (payload.phase === 'intent')
+    return payload.proposal.members.flatMap((member) => (member.slot.kind === 'existing' ? [member.slot.uw] : []))
+  if (payload.phase === 'member-claim') return [payload.scope]
+  if (payload.phase === 'result') return payload.members.map((member) => member.scope)
+  return []
+}
+
+function framingMemberScopes(history: DecodedHistory): Scope[] {
+  return history.operations.flatMap((operation) => {
+    const record = operation.status === 'complete' && operation.authority !== 'foreign' ? operation.record : null
+    return record?.kind === 'framing-receipt' ? receiptScopes(record.payload) : []
+  })
+}
+
 /**
  * One bounded observation; no fact here grants delivery or dependency authority.
  * Catalogue loading must consume retained histories read-only, including nested values.
@@ -107,14 +128,21 @@ class UwObservationCollector {
       if (this.historySeen.has(key) || this.cut.histories.has(key)) continue
       this.historySeen.add(key)
       progressed = true
-      const observed = await readComposedWorkflowHistory([scope], this.options)
-      for (const history of observed.histories) this.cut.addHistory(history)
-      if (!observed.ok)
-        this.cut.diagnostics.push(
-          ...observed.diagnostics.map((entry) => this.cut.issue(scope, entry.code, entry.message)),
-        )
+      await this.readHistory(scope)
     }
     return progressed
+  }
+
+  private async readHistory(scope: Scope): Promise<void> {
+    const observed = await readComposedWorkflowHistory([scope], this.options)
+    for (const history of observed.histories) this.cut.addHistory(history)
+    // Framing can bind disconnected members: canonical references establish which
+    // native issues must be observed, but never manufacture relations between them.
+    for (const history of observed.histories) this.requireGraphs(framingMemberScopes(history))
+    if (!observed.ok)
+      this.cut.diagnostics.push(
+        ...observed.diagnostics.map((entry) => this.cut.issue(scope, entry.code, entry.message)),
+      )
   }
 
   private async refreshCatalogues(): Promise<boolean> {

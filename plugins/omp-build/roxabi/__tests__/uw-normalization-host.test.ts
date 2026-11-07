@@ -16,6 +16,7 @@ import {
   isolateViewerToken,
   observationalGh,
   observationalGit,
+  observedNormalizationReader,
   preparedNormalization,
   releaseViewerToken,
 } from './uw-normalization-observation.ts'
@@ -110,11 +111,15 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
     promoteReport: async () => {
       throw new Error('unexpected promoteReport')
     },
-    readUw: async () => {
-      throw new Error('unexpected readUw')
-    },
+    readUw: observedNormalizationReader(request).readUw,
     prepare: async () => {
       throw new Error('unexpected prepare')
+    },
+    prepareFraming: async () => {
+      throw new Error('unexpected prepareFraming')
+    },
+    frame: async () => {
+      throw new Error('unexpected frame')
     },
     validateNormalization: () => ({ ok: true, value: judgement }),
     write: async (input) => {
@@ -172,6 +177,9 @@ function fixture(control: 'select' | 'new' = 'select', eligible = false) {
       sent.push(text)
     },
     status: async () => undefined,
+    startFraming: async () => {
+      throw new Error('successor normalization must not start initial framing')
+    },
     inhibitFeatureContinuation: () => {
       inhibited = true
     },

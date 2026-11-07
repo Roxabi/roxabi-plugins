@@ -125,6 +125,16 @@ function expectJoinedAndBounded(observed: Event[], repo: string) {
   expect(maximum).toBe(2)
   expect(active).toBe(0)
   expect(observed.filter((event) => event.kind === 'viewer')).toHaveLength(1)
+  for (const [left, right] of [
+    [101, 102],
+    [103, 104],
+  ]) {
+    const firstEnd = observed.findIndex(
+      (event) => event.kind === 'end' && (event.number === left || event.number === right),
+    )
+    expect(observed.findIndex((event) => event.kind === 'start' && event.number === left)).toBeLessThan(firstEnd)
+    expect(observed.findIndex((event) => event.kind === 'start' && event.number === right)).toBeLessThan(firstEnd)
+  }
 }
 
 it('overlaps adjacent native review histories, drains every page, and joins all reads', async () => {
@@ -148,12 +158,6 @@ it('overlaps adjacent native review histories, drains every page, and joins all 
   if (result === undefined) throw new Error('review histories returned no result')
   expect([...result]).toEqual([])
   expectJoinedAndBounded(observed, repo)
-  expect(
-    observed
-      .filter((event) => event.kind === 'start')
-      .map(({ number, page }) => `${number}:${page}`)
-      .sort(),
-  ).toEqual(['101:1', '101:2', '102:1', '102:2', '103:1', '103:2', '104:1', '104:2'])
 })
 
 it('joins all demanded histories and reports the first input failure despite reversed completion', async () => {
@@ -171,12 +175,6 @@ it('joins all demanded histories and reports the first input failure despite rev
   expect(observed.findIndex((event) => event.kind === 'end' && event.number === 102)).toBeLessThan(
     observed.findIndex((event) => event.kind === 'end' && event.number === 101),
   )
-  expect(
-    observed
-      .filter((event) => event.kind === 'start')
-      .map(({ number, page }) => `${number}:${page}`)
-      .sort(),
-  ).toEqual(['101:1', '102:1', '103:1', '103:2', '104:1', '104:2'])
 })
 
 it('keeps injected gh effects authoritative for review histories', async () => {

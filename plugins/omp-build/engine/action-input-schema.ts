@@ -66,7 +66,7 @@ export const actionSpecInputSchema = z.discriminatedUnion('kind', [
 ])
 export type ActionSpecInput = z.infer<typeof actionSpecInputSchema>
 
-const pluginPinSchema = z.strictObject({
+export const pluginPinSchema = z.strictObject({
   name: z.literal('omp-build'),
   version: z.string().min(1),
   repository: z.string().min(1),

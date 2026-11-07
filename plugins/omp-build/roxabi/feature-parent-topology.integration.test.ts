@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import { selectApplicableMandate } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import { canonicalSpec } from '../engine/uw-spec.ts'
 import { criterionIdSchema } from '../engine/uw-spec-schema.ts'
@@ -17,7 +18,8 @@ import {
   writeSim,
 } from '../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
+import { checkPlannedAncestry, resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
+import { selectionNormalization } from './feature-selection-normalization.ts'
 import { prepareCanonicalCheckout } from './prepare-canonical-checkout.ts'
 import type { UwOperations } from './uw-contract.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
@@ -143,12 +145,51 @@ async function observeInitialChild(operations: UwOperations, parent: Scope, chil
     readiness: await initialMandateReadiness(parentRead, parentRead.admission, childRead),
   }
 }
+it('routes a legacy issue to assisted framing at initial selection', async () => {
+  const { operations, child } = await parentFixture()
+  writeSim((state) => {
+    const issue = state.issues[String(A)]
+    if (!issue) throw new Error('Missing child issue')
+    issue.body = 'Legacy source requiring an accounted conversion.'
+  })
+  const read = await operations.readUw(child)
+  if (read.observation.status !== 'complete') throw new Error('Expected complete observation')
+  const history = read.histories.find((entry) => entry.source.scope.target === child.target)
+  if (!history) throw new Error('Expected own history')
+  const selection = selectApplicableMandate(
+    history,
+    read.histories.filter((entry) => entry !== history),
+    {
+      histories: read.histories,
+      catalogues: read.catalogues,
+      observation: read.observation,
+    },
+  )
+  expect(selectionNormalization('select', { scope: child, selection }, read)).toEqual({
+    kind: 'framing',
+    source: { kind: 'issue', uw: child },
+  })
+})
 
 async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: Scope, middle: Scope) {
   const baseline = await operations.readUw(middle)
   if (baseline.parsed.status !== 'conformant') throw new Error('Expected conformant middle Spec')
   const original = baseline.parsed.snapshot
   expect(await resolveParentWorktreeAnchor({ subject: middle, read: baseline })).toEqual({ ok: true, anchor: root })
+  const same = await checkPlannedAncestry({
+    subject: middle,
+    read: baseline,
+    planned: { spec: original.spec, tier: 'F-lite' },
+  })
+  expect(same.ok).toBe(true)
+  if (!same.ok) throw new Error(same.reason)
+  expect(same.inherited.map((ref) => ref.uw)).toEqual([root])
+  const wrongTier = await checkPlannedAncestry({
+    subject: middle,
+    read: baseline,
+    planned: { spec: original.spec, tier: 'S' },
+  })
+  expect(wrongTier).toEqual({ ok: false, reason: 'parent-anchor-commitment-mismatch' })
   const material = canonicalSpec({
     format: 'omp-build-spec-content/1',
     criteria: [{ id: 'C1', statement: 'lands with materially different requirements' }],
@@ -159,6 +200,13 @@ async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: 
   })
   if (!material.ok) throw new Error('Expected conformant material Spec')
   expect(material.value.version).not.toBe(original.spec.version)
+  expect(
+    await checkPlannedAncestry({
+      subject: middle,
+      read: baseline,
+      planned: { spec: material.value, tier: 'F-lite' },
+    }),
+  ).toEqual({ ok: false, reason: 'parent-anchor-commitment-mismatch' })
   writeSim((state) => {
     const issue = state.issues[String(A)]
     if (!issue) throw new Error('Missing nested parent')
@@ -189,6 +237,15 @@ async function exerciseMiddleAnchorPresentation(operations: UwOperations, root: 
 
 it('keeps an unmandated accepted child ready after presentation-only native editing', async () => {
   const { operations, parent, child, request } = await parentFixture()
+  const beforeParent = await observeInitialChild(operations, parent, child)
+  if (beforeParent.child.parsed.status !== 'conformant') throw new Error('Expected conformant child Spec')
+  expect(
+    await checkPlannedAncestry({
+      subject: child,
+      read: beforeParent.child,
+      planned: { spec: beforeParent.child.parsed.snapshot.spec, tier: 'S' },
+    }),
+  ).toEqual({ ok: false, reason: 'current-inheritance-unavailable' })
   const intent = await coverageIntent(request)
   await continueFeature({ ...request, ...intent })
   const baseline = await observeInitialChild(operations, parent, child)

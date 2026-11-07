@@ -106,6 +106,7 @@ function derivedInputs(draft: RecordDraft): string[] {
           .map((ref) => ref.recordId),
       ]
     case 'spec-identity':
+    case 'framing-receipt':
     case 'mandate':
     case 'operator-control':
     case 'action-receipt':

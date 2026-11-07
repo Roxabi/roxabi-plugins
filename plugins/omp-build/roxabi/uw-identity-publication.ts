@@ -1,5 +1,6 @@
 import type { GitHubOptions } from '../adapters/github/types.ts'
 import {
+  buildFramingSpecIdentity,
   buildRecord,
   buildSpecIdentityAllocation,
   buildSpecIdentityProposedRetirement,
@@ -9,10 +10,12 @@ import {
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic, UwResult } from '../engine/uw-diagnostics.ts'
-import type { SpecIdentityDraft } from '../engine/uw-identity.ts'
-import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
+import type { SpecAllocationPlan } from '../engine/uw-identity.ts'
+import type { SpecIdentityDraft } from '../engine/uw-identity-events.ts'
+import type { FramingMemberAuthorization, OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
-import type { CreatedUwReadPort, PreparedUwProposal } from './uw-contract.ts'
+import type { CreatedUwRead, CreatedUwReadPort, PreparedUwProposal } from './uw-contract.ts'
+import type { FramingEffectGuard } from './uw-framing-contract.ts'
 import { diagnostic, diagnostics, postEffectDiagnostics } from './uw-installed-reports.ts'
 
 function sameScope(left: Scope, right: Scope): boolean {
@@ -29,6 +32,7 @@ function sameRecord(
 }
 type IdentityPublicationFailure = {
   status: 'refused' | 'partial' | 'uncertain'
+  predecessor?: ExternalRecordRef
   diagnostics: readonly UwDiagnostic[]
 }
 type IdentityPublication = { status: 'confirmed' } | IdentityPublicationFailure
@@ -177,4 +181,75 @@ export function createIdentityPublisher(
         )
       : { status: 'confirmed' }
   }
+}
+
+/** Publish one /2 event only after validating the current member and registry histories. */
+export async function publishFramingIdentity(input: {
+  uw: Scope
+  operationId: string
+  authorization: FramingMemberAuthorization
+  plan: SpecAllocationPlan
+  predecessor: ExternalRecordRef | null
+  event: 'allocate' | 'retire-proposed'
+  github: GitHubOptions
+  reader: CreatedUwReadPort
+  effectId: string
+  guard: FramingEffectGuard
+}): Promise<PublishedIdentity> {
+  let current: CreatedUwRead
+  try {
+    current = await input.reader.readUw(input.uw)
+  } catch (error) {
+    return { status: 'refused', diagnostics: postEffectDiagnostics(input.uw, error) }
+  }
+  if (!current.identity.ok) return { status: 'refused', diagnostics: current.identity.diagnostics }
+  const draft = buildFramingSpecIdentity({
+    uw: input.uw,
+    histories: current.histories,
+    authorization: input.authorization,
+    plan: input.plan,
+    predecessor: input.predecessor,
+    event: input.event,
+    // Each member event is its own record; the aggregate operation binds only the guard.
+    operationId: input.effectId,
+  })
+  if (!draft.ok) return { status: 'refused', diagnostics: draft.diagnostics }
+  const record = buildRecord(draft.value)
+  if (!record.ok) return { status: 'refused', diagnostics: diagnostics(input.uw, record.diagnostics) }
+  const point = {
+    operationId: input.operationId,
+    proposalDigest: input.authorization.confirmation.proposalDigest,
+    member: input.authorization.member,
+    effectId: input.effectId,
+  }
+  try {
+    await input.guard.check({ ...point, at: 'before-effect' })
+  } catch (error) {
+    return { status: 'refused', diagnostics: [diagnostic(input.uw, 'framing-guard-refused', String(error))] }
+  }
+  try {
+    const published = await publishConfirmedWorkflowRecord(
+      record.value,
+      input.github,
+      createPublicationContextResolver(input.github, null),
+      current.histories,
+    )
+    if (published.status !== 'confirmed')
+      return { status: published.status, diagnostics: diagnostics(input.uw, published.diagnostics) }
+  } catch (error) {
+    return { status: 'uncertain', diagnostics: [diagnostic(input.uw, 'framing-publication-uncertain', String(error))] }
+  }
+  const predecessor: ExternalRecordRef = { scope: input.uw, recordId: record.value.recordId, kind: 'spec-identity' }
+  const confirmed = await confirmIdentityReadback(input.uw, predecessor, input.reader)
+  if (confirmed.status !== 'confirmed') return { ...confirmed, predecessor }
+  try {
+    await input.guard.check({ ...point, at: 'after-readback' })
+  } catch (error) {
+    return {
+      status: 'partial',
+      predecessor,
+      diagnostics: [diagnostic(input.uw, 'framing-guard-changed', String(error))],
+    }
+  }
+  return { status: 'confirmed', predecessor }
 }
