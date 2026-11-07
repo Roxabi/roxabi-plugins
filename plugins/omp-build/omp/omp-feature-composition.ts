@@ -165,7 +165,9 @@ export function currentFeatureFraming(pi: OmpBuildExtensionApi): FramingControll
   return occupant?.kind === 'framing' ? occupant.controller : null
 }
 
-/** Unclassified intake and every framing lease (live or revoked) admit only read-only tools. */
+/** The root extension instance admits only read-only tools during intake/framing, including no new task spawns.
+ * Subagents and background jobs started earlier are not gated by this instance.
+ */
 export function featureOperationReadOnly(pi: OmpBuildExtensionApi): boolean {
   const kind = operationSlots.get(pi)?.occupant?.kind
   return kind === 'intake' || kind === 'framing'

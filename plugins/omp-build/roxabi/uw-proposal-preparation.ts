@@ -53,6 +53,10 @@ function parsedSourceHash(read: UwRead): string {
 
 export function sourceBindingDiagnostics(input: UwProposalInput, read: UwRead): readonly UwDiagnostic[] {
   if (read.admission.aggregate.status === 'held') return read.admission.aggregate.diagnostics
+  if (read.admission.aggregate.status === 'complete' && read.accepted.status === 'absent')
+    return [
+      diagnostic(input.uw, 'framing-result-pinned', 'The confirmed framed Spec is pinned until its first acceptance'),
+    ]
   if (input.sourceBodySha256 !== parsedSourceHash(read))
     return [
       diagnostic(

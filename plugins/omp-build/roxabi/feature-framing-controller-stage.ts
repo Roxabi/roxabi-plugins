@@ -20,7 +20,7 @@ function stageTerms(form: StageForm) {
   return form.kind === 'module-design' ? [] : form.terms
 }
 
-/** Order, unresolved decisions, own-stage answered decisions, Leaf vocabulary and term uniqueness. */
+/** Order, unresolved decisions, own-stage answered decisions and term uniqueness. */
 function stageFormProblem(
   lease: LeaseState,
   form: StageForm,
@@ -49,12 +49,6 @@ function stageFormProblem(
   const problem = decisionProblem(lease, actual.ctx, form.decisions, stage)
   if (problem) return submission(lease, 'refused', [problem])
   const terms = stageTerms(form)
-  if (form.kind === 'grilling' && form.shape === 'leaf' && terms.length === 0)
-    return refused(
-      lease,
-      'framing-leaf-vocabulary-missing',
-      'A Leaf needs at least one chosen term for its invariant and glossary delivery criterion',
-    )
   const known = [...lease.terms.map((item) => item.term), ...terms.map((item) => item.term)]
   if (new Set(known).size !== known.length)
     return refused(lease, 'framing-term-duplicate', 'Each term is accepted once')

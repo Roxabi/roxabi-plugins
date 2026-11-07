@@ -134,8 +134,7 @@ export async function memberDrift(
     return fail('framing-native-drift', 'Native facts differ from the confirmed journal')
   const history = historyDrift(uw, read, run)
   if (history !== null) return history
-  if (read.accepted.status !== 'absent')
-    return fail('framing-accepted-present', 'A framing member must have no accepted authority')
+  if (read.accepted.status !== 'absent') return fail('framing-slot-authority', `accepted-${read.accepted.status}`)
   if (!read.identity.ok || !sameRecordRef(read.identity.value.head, run.head))
     return fail('framing-identity-drift', 'Identity ledger head differs from the confirmed journal')
   if (!membershipMatches(state, run, read))

@@ -472,6 +472,7 @@ describe('createIssueWriter', () => {
     expect(result).toMatchObject({
       status: 'partial',
       issue: issue(99),
+      completed: ['create', 'labels', 'set-parent:Acme/app#2'],
       diagnostics: [{ code: 'write-conflict' }],
     })
     expect(calls.filter((call) => call === 'create')).toHaveLength(1)

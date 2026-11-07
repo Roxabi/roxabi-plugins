@@ -81,6 +81,10 @@ The UW contract cutover is delivered manually under [#901](https://github.com/Ro
 
 Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to confirm a staged proposal. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
 
+Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed. Successor normalization prepares its checkout before proposing changes.
+
+During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `resume`, `material-decision` and `init` are parsed as controls, not framed as free text.
+
 Detected mid-turn user interruption, session switch, and shutdown await the durable pause for a pausable owner. Confirmation is the read-back `pause-confirmed` control, not the local interrupt. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause is not a resumable pause.
 
 Interactive `/feature` and `/uw` confirmation capabilities are bound to their root command: ordinary idle settlement preserves deferred work; root abort, session switch, shutdown, or command replacement invalidates pending confirmation.
@@ -282,7 +286,9 @@ Accepted retirements are issue-lifetime facts replayed from authenticated histor
 Current child commitments also remain observable when their historical parent grant becomes inactive, but only with authenticated historical provenance. Reading these facts does not renew the grant or restore the child's delivery authority.
 
 Assisted framing retains source obligations with explicit kept/reworded/new/removed accounting. One genuine operator confirmation covers the entire aggregate, including members, relationships and coverage. Existing issues are converted in place. Incomplete aggregates stay held; partial or uncertain effects are reported without retry or rollback. Framing and identity allocation do not accept a Spec or authorize delivery.
-If a framing aggregate is held, every transition is refused, including the next transition after a first Mandate is published concurrently, because publication is not atomic.
+If a framing aggregate is held, delivery, landing and continuation transitions are refused, including after a concurrently published first Mandate; pause, abandon and stop remain available. The hosted gate adopts this only after the tooling pin advances.
+
+Before first acceptance, a framed member's title, Spec body, tier label and recorded edges are pinned: `/uw` proposal writes refuse it with `framing-result-pinned`, and a manual GitHub edit holds it as `framing-result-drift`, with no release in this version.
 
 Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore a paused or inactive Mandate or bypass the Parent engagement guard.
 

@@ -84,7 +84,16 @@ export async function ancestryDiagnostics(
     read,
     planned: { spec: member.allocation.spec, tier: member.tier },
   })
-  if (!ancestry.ok) return [nativeDiagnostic(uw, ancestry.reason, 'Planned ancestry is no longer authenticated')]
+  if (!ancestry.ok)
+    return [
+      nativeDiagnostic(
+        uw,
+        ancestry.reason === 'parent-anchor-commitment-mismatch'
+          ? 'framing-parent-commitment-mismatch'
+          : 'framing-ancestor-unqualified',
+        `Slot ${member.key} (${uw.target}), parent ${member.slot.kind === 'existing' ? (member.slot.observed.nativeParent?.target ?? 'none') : 'none'}: ${ancestry.reason}`,
+      ),
+    ]
   if (mode === 'sealed' && canonicalValueDigest([...ancestry.inherited]) !== canonicalValueDigest(member.inherited))
     return [
       nativeDiagnostic(uw, 'framing-native-graph-drift', 'The inherited accepted ancestry changed after preparation'),

@@ -216,6 +216,34 @@ describe('root framing controller', () => {
     expect(w.uw.state.patchCount).toBe(0)
   })
 
+  test('a vocabulary-free Leaf stages without vocabulary obligations', async () => {
+    const w = world()
+    await begun(w)
+    const decision = await answeredQuestion(w, 'grill-free')
+    expect(
+      (
+        await submit(w, {
+          kind: 'grilling',
+          shape: 'leaf',
+          unresolved: [],
+          decisions: [decision],
+          terms: [],
+        })
+      ).status,
+    ).toBe('accepted')
+    const proposal = leafProposal([])
+    const draft = proposal.aggregate.members[0]
+    draft.draft.criteria = [{ kind: 'new', draftKey: 'glossary', statement: 'The request is processed' }]
+    draft.draft.invariants = []
+    draft.normalization = draft.normalization.filter(
+      (item) => !('draftKey' in item.decision.target && item.decision.target.draftKey === 'queue-term'),
+    )
+    expect(codes(await submit(w, proposal))).toEqual(['framing-proposal-staged'])
+    expect(w.controller.view()?.phase.kind).toBe('proposal-ready')
+    expect(w.runtime.confirms).toBe(0)
+    expect(w.uw.state.patchCount).toBe(0)
+  })
+
   test('a Wayfinder proposal needs an answered Wayfinder offer', async () => {
     const w = world()
     await begun(w)

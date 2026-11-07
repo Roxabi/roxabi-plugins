@@ -32,7 +32,7 @@ function foreignParent(
   const parent = reads.get(edge.child)?.graph.nodes.find((item) => sameScope(item.uw, child))?.parent ?? null
   if (parent === null) return []
   if (source.slot.kind === 'existing' && sameScope(parent, source.slot.uw)) return []
-  return [diagnostic(child, 'framing-foreign-parent', 'A planned child cannot be reparented')]
+  return [diagnostic(child, 'framing-native-parent-conflict', 'A planned child cannot be reparented')]
 }
 
 /** Add planned UW-to-UW relations to the observed graph, keyed by native scope or planned slot. */

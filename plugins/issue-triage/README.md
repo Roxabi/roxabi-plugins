@@ -105,7 +105,7 @@ Keep literal harness placeholders intact when changing the OMP path-rewrite impl
 
 Version `0.4.0` requires native state/reason in the injected writer's complete observations and adds guarded native close/reopen effects. Existing standalone commands, repository selection, cross-repository behavior and Claude/OMP entrypoints retain their contracts. Matching source/catalogue versions describe the candidate; they do not prove installation or activation.
 
-Version `0.4.1` avoids issuing a metadata PATCH when a write changes only labels or relations and the issue title and body are unchanged. Native create and other requested effects retain their existing behavior; the version declarations do not establish installation or activation.
+Version `0.4.1` avoids issuing a metadata PATCH when a write changes only labels or relations and the issue title and body are unchanged. Create no longer re-PATCHes unchanged metadata; a concurrent post-create body edit is reported as `write-conflict`. The version declarations do not establish installation or activation.
 
 ## Verification
 

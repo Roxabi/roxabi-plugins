@@ -71,7 +71,6 @@ async function nativeInheritance(
   member: UwMember,
   read: UwRead | undefined,
   planned: { spec: NonNullable<ProposalMember['allocation']>['spec']; tier: NonNullable<ProposalMember['tier']> },
-  repository: string,
 ): Promise<UwResult<ProposalMember['inherited']>> {
   if (read === undefined || member.slot.kind !== 'existing') return { ok: true, value: [] }
   const nativeParent = member.slot.observed.nativeParent
@@ -82,7 +81,21 @@ async function nativeInheritance(
     )
   if (parentInPlan) return { ok: true, value: [] }
   const ancestry = await checkPlannedAncestry({ subject: member.slot.uw, read, planned })
-  if (!ancestry.ok) return refusal(repository, ancestry.reason, 'Planned ancestry cannot be authenticated')
+  if (!ancestry.ok)
+    return {
+      ok: false,
+      diagnostics: [
+        {
+          code:
+            ancestry.reason === 'parent-anchor-commitment-mismatch'
+              ? 'framing-parent-commitment-mismatch'
+              : 'framing-ancestor-unqualified',
+          message: `Slot ${member.slot.key} (${member.slot.uw.target}), parent ${nativeParent?.target ?? 'none'}: ${ancestry.reason}`,
+          location: { kind: 'native', uw: member.slot.uw, connection: 'state' },
+          related: [],
+        },
+      ],
+    }
   return { ok: true, value: [...ancestry.inherited] }
 }
 
@@ -107,7 +120,7 @@ async function uwPlan(
   const rendered = specRendering(member, allocation.spec, ports, repository)
   if (!rendered.ok) return rendered
   const { tier, renderedBody } = rendered.value
-  const inherited = await nativeInheritance(aggregate, member, read, { spec: allocation.spec, tier }, repository)
+  const inherited = await nativeInheritance(aggregate, member, read, { spec: allocation.spec, tier })
   if (!inherited.ok) return inherited
   return { ok: true, value: { allocation, tier, renderedBody, inherited: inherited.value } }
 }

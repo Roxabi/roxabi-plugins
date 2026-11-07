@@ -1,4 +1,4 @@
-import { isWayfinder, sameScope, scopeKey } from '../dist/contracts.js'
+import { isWayfinder, sameScope, scopeKey, selectApplicableMandate } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { FramingAggregateInput } from '../engine/uw-framing-schema.ts'
@@ -51,7 +51,7 @@ function ownHistoryDiagnostics(uw: Scope, read: UwRead): UwDiagnostic[] {
         (operation.kind === 'mandate' || operation.claimedKinds.includes('mandate')),
     )
   )
-    diagnostics.push(diagnostic(uw, 'framing-mandate-present', 'Existing member already has a mandate claim'))
+    diagnostics.push(diagnostic(uw, 'framing-slot-authority', 'mandate-claim-present'))
   if (
     histories.length === 1 &&
     histories[0].operations.some((operation) => operation.authority !== 'foreign' && operation.status !== 'complete')
@@ -65,12 +65,10 @@ function ownHistoryDiagnostics(uw: Scope, read: UwRead): UwDiagnostic[] {
 function stateDiagnostics(uw: Scope, read: UwRead): UwDiagnostic[] {
   const diagnostics: UwDiagnostic[] = []
   if (read.accepted.status !== 'absent')
-    diagnostics.push(diagnostic(uw, 'framing-accepted-present', 'Existing member must have no accepted authority'))
+    diagnostics.push(diagnostic(uw, 'framing-slot-authority', `accepted-${read.accepted.status}`))
   if (!read.identity.ok) diagnostics.push(...read.identity.diagnostics)
   if (read.admission.aggregate.status !== 'none')
-    diagnostics.push(
-      diagnostic(uw, 'framing-membership-present', 'Existing member must not already belong to an aggregate'),
-    )
+    diagnostics.push(diagnostic(uw, 'framing-slot-bound', 'Existing member must not already belong to an aggregate'))
   return diagnostics
 }
 
@@ -169,20 +167,44 @@ function existingMemberDiagnostics(
   slot: ExistingSlot,
   read: UwRead | undefined,
   observed: Map<string, UwNativeNode>,
-  scopes: Set<string>,
+  scopes: Map<string, string[]>,
 ): UwDiagnostic[] {
   const uw = slot.uw
   const diagnostics = referenceDiagnostics(aggregate, slot)
   const key = scopeKey(uw)
-  if (scopes.has(key))
-    diagnostics.push(diagnostic(uw, 'framing-scope-duplicate', 'Two members resolve to the same native issue'))
-  scopes.add(key)
+  const members = scopes.get(key) ?? []
+  if (members.length > 0)
+    diagnostics.push(
+      diagnostic(
+        uw,
+        'framing-slot-duplicate',
+        `Scope ${uw.repository}/${uw.target} is shared by members ${[...members, slot.key].join(', ')}`,
+      ),
+    )
+  scopes.set(key, [...members, slot.key])
   if (read?.observation.status !== 'complete' || read.graph.status !== 'complete')
     return [
       ...diagnostics,
       diagnostic(uw, 'framing-observation-incomplete', 'Complete native and workflow observations are required'),
     ]
   diagnostics.push(...ownHistoryDiagnostics(uw, read), ...stateDiagnostics(uw, read))
+  const histories = read.observation.histories
+  const own = histories.filter((history) => sameScope(history.source.scope, uw))
+  if (own.length === 1) {
+    const selected = selectApplicableMandate(
+      own[0],
+      histories.filter((history) => history !== own[0]),
+      {
+        histories,
+        catalogues: read.observation.catalogues,
+        observation: read.observation,
+      },
+    )
+    if (selected.status !== 'refused' || selected.reason !== 'missing')
+      diagnostics.push(
+        diagnostic(uw, 'framing-slot-authority', selected.status === 'refused' ? selected.reason : selected.status),
+      )
+  }
   const nodes = read.graph.nodes.filter((node) => sameScope(node.uw, uw))
   if (nodes.length !== 1)
     return [...diagnostics, diagnostic(uw, 'framing-node-missing', 'The selected native node must be unique')]
@@ -199,7 +221,7 @@ function existingMemberDiagnostics(
 export function observeFramingStepZero(aggregate: FramingAggregateInput, reads: ReadonlyMap<string, UwRead>) {
   const diagnostics: UwDiagnostic[] = []
   const observed = new Map<string, UwNativeNode>()
-  const scopes = new Set<string>()
+  const scopes = new Map<string, string[]>()
   for (const member of aggregate.members) {
     if (member.slot.kind !== 'existing') continue
     diagnostics.push(

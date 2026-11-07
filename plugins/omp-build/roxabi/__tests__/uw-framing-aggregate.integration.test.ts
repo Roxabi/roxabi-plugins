@@ -453,6 +453,6 @@ test('refuses unresolved accepted authority even without a mandate claim', async
   input.source = captured.value
   const refused = await prepareFraming(input, invocation(input.source), { ...ports, read: async () => read })
   expect(refused.ok).toBe(false)
-  if (!refused.ok) expect(refused.diagnostics.map((entry) => entry.code)).toContain('framing-accepted-present')
+  if (!refused.ok) expect(refused.diagnostics.map((entry) => entry.code)).toContain('framing-slot-authority')
   expect(fixtureState.state.patchCount).toBe(0)
 })
