@@ -20,19 +20,17 @@ function refusal(input: CurrentEngagement, code: string, message: string): UwRes
   }
 }
 
-function unresolvedChildAuthority(history: DecodedHistory): boolean {
-  const problem = workflowOperationProblem(history)
-  const claims = history.operations.filter(
-    (operation) =>
-      operation.kind === 'mandate' ||
-      operation.claimedKinds.includes('mandate') ||
-      operation.kind === 'spec-identity' ||
-      operation.claimedKinds.includes('spec-identity'),
-  )
+/** Foreign claims cannot veto a child's trusted mandate; without one they still prevent proving its absence. */
+function unresolvedChildAuthority(history: DecodedHistory, managed: boolean): boolean {
   return (
-    problem !== null ||
-    claims.some(
-      (operation) => operation.authority === 'foreign' || operation.status !== 'complete' || operation.record === null,
+    workflowOperationProblem(history) !== null ||
+    history.operations.some(
+      (operation) =>
+        (operation.kind === 'mandate' ||
+          operation.claimedKinds.includes('mandate') ||
+          operation.kind === 'spec-identity' ||
+          operation.claimedKinds.includes('spec-identity')) &&
+        (operation.authority === 'foreign' ? !managed : operation.status !== 'complete' || operation.record === null),
     )
   )
 }
@@ -52,13 +50,14 @@ function childEngagementProblem(child: AcceptedChildCommitment, input: CurrentEn
       'effective-child-engagement-mismatch',
       `Accepted child ${child.scope.repository} ${child.scope.target} native snapshot or tier has changed`,
     )
-  if (unresolvedChildAuthority(history))
+  const managed = mandatesOf(history).length > 0
+  if (unresolvedChildAuthority(history, managed))
     return refusal(
       input,
       'effective-child-unavailable',
       `Accepted child ${child.scope.repository} ${child.scope.target} has an unresolved authority claim`,
     )
-  if (mandatesOf(history).length === 0) return null
+  if (!managed) return null
   const selected = selectedMandate(history)
   if (!('kind' in selected) || selected.kind !== 'mandate')
     return refusal(

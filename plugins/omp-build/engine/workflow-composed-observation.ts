@@ -101,19 +101,19 @@ function assessmentPairHistoryProblem(
   if (
     beforeHome === null ||
     beforeHome.operations.some(
-      (entry) => entry.recordId === assessment.recordId || entry.recordId === startRef.recordId,
+      (entry) =>
+        entry.authority !== 'foreign' &&
+        (entry.recordId === assessment.recordId || entry.recordId === startRef.recordId),
     )
   )
     return 'Assessment pair was already present before execution'
   const added = home.operations.filter(
-    (entry) => entry.recordId === assessment.recordId || entry.recordId === startRef.recordId,
+    (entry) =>
+      entry.authority !== 'foreign' && (entry.recordId === assessment.recordId || entry.recordId === startRef.recordId),
   )
   if (
     added.length !== 2 ||
-    added.some(
-      (entry) =>
-        entry.status !== 'complete' || entry.authority === 'foreign' || entry.record?.kind !== 'action-receipt',
-    )
+    added.some((entry) => entry.status !== 'complete' || entry.record?.kind !== 'action-receipt')
   )
     return 'Assessment pair envelopes are incomplete or ambiguous'
   const ids = new Set(added.flatMap((entry) => entry.parts.map((part) => part.nativeId)))

@@ -26,7 +26,9 @@ function confirmedCreationIntent(input: CreationDeltaInput): Result<Intent> {
   const priorIntentHistory = historyFor(operation.scope, before.histories)
   if (
     priorIntentHistory === null ||
-    priorIntentHistory.operations.some((entry) => entry.recordId === operation.recordId)
+    priorIntentHistory.operations.some(
+      (entry) => entry.authority !== 'foreign' && entry.recordId === operation.recordId,
+    )
   )
     return compositionStale(
       'Creation intent scope was not observed before confirmation or its operation already existed',

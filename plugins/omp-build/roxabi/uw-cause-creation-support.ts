@@ -67,7 +67,7 @@ export function exactNewIntent(before: DecodedHistory, after: DecodedHistory, re
       operation.recordId === recordId && operation.status === 'complete' && operation.authority !== 'foreign',
   )
   if (added.length !== 1 || added[0]?.record?.kind !== 'cause-operation') return false
-  const old = after.operations.filter((operation) => operation.recordId !== recordId)
+  const old = after.operations.filter((operation) => operation !== added[0])
   if (JSON.stringify(old) !== JSON.stringify(before.operations)) return false
   const ids = new Set(added[0].parts.map((part) => part.nativeId))
   const restored = {

@@ -29,9 +29,13 @@ function relevantOperations(history: UwCompletionObservation['histories'][number
   )
 }
 
-function hasUnconfirmedOperations(relevant: UwCompletionObservation['histories'][number]['operations']): boolean {
-  return relevant.some(
-    (operation) => operation.authority === 'foreign' || operation.status !== 'complete' || operation.record === null,
+/** Foreign claims cannot veto a trusted mandate; without one they still prevent a native-only absence witness. */
+function hasUnconfirmedOperations(
+  relevant: UwCompletionObservation['histories'][number]['operations'],
+  managed: boolean,
+): boolean {
+  return relevant.some((operation) =>
+    operation.authority === 'foreign' ? !managed : operation.status !== 'complete' || operation.record === null,
   )
 }
 
@@ -115,13 +119,13 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
     const node = observation.graph.nodes.find((candidate) => sameScope(candidate.uw, uw))
     if (!node) return unresolved('graph-incomplete', 'Dependency native state was not observed')
     const relevant = relevantOperations(history)
-    if (hasUnconfirmedOperations(relevant))
-      return unresolved(
-        'history-unconfirmed',
-        'Relevant foreign or incomplete workflow claims prevent an absence witness',
-      )
     const mandates = mandatesOf(history)
     const latest = mandates[mandates.length - 1]
+    if (hasUnconfirmedOperations(relevant, latest !== undefined))
+      return unresolved(
+        'history-unconfirmed',
+        'Incomplete expected-author claims, or foreign claims on an unmanaged UW, prevent a completion witness',
+      )
     if (!latest)
       return assessNativeOnly({
         uw,

@@ -75,8 +75,11 @@ export function trustedRecoveryRecords(history: DecodedHistory): Result<Canonica
   const byRecord = new Map<string, string>()
   const byOperation = new Map<string, string>()
   for (const operation of history.operations)
-    diagnostics.push(...recoveryOperationDiagnostics(operation, history, byRecord, byOperation))
+    if (operation.authority !== 'foreign')
+      diagnostics.push(...recoveryOperationDiagnostics(operation, history, byRecord, byOperation))
   if (diagnostics.length > 0) return fail(diagnostics)
-  const records = history.operations.flatMap((operation) => (completeOperation(operation) ? [operation.record] : []))
+  const records = history.operations.flatMap((operation) =>
+    operation.authority !== 'foreign' && completeOperation(operation) ? [operation.record] : [],
+  )
   return { ok: true, value: [...new Map(records.map((record) => [record.recordId, record])).values()] }
 }

@@ -34,17 +34,7 @@ function childHistory(uw: Scope, histories: readonly DecodedHistory[]): DecodedH
     workflowOperationProblem(history) !== null
   )
     return null
-  const unresolved = history.operations.some(
-    (operation) =>
-      (operation.kind === 'mandate' ||
-        operation.claimedKinds.includes('mandate') ||
-        operation.kind === 'spec-identity' ||
-        operation.claimedKinds.includes('spec-identity') ||
-        operation.kind === 'operator-control' ||
-        operation.claimedKinds.includes('operator-control')) &&
-      (operation.authority === 'foreign' || operation.status !== 'complete' || operation.record === null),
-  )
-  return unresolved ? null : history
+  return history
 }
 
 function matchesCommitment(own: AcceptedOwnSpec, commitment: AcceptedChildCommitment): boolean {
@@ -107,6 +97,19 @@ function captureChildSource(
   const history = childHistory(uw, histories)
   if (history === null) return null
   const mandates = mandatesOf(history)
+  const unresolved = history.operations.some(
+    (operation) =>
+      (operation.kind === 'mandate' ||
+        operation.claimedKinds.includes('mandate') ||
+        operation.kind === 'spec-identity' ||
+        operation.claimedKinds.includes('spec-identity') ||
+        operation.kind === 'operator-control' ||
+        operation.claimedKinds.includes('operator-control')) &&
+      (operation.authority === 'foreign'
+        ? mandates.length === 0
+        : operation.status !== 'complete' || operation.record === null),
+  )
+  if (unresolved) return null
   if (mandates.length === 0) return { own: null, sourceRefs: [] }
   const prior = accepted.children.find((child) => equalScope(child.scope, uw))
   const stillProposed =

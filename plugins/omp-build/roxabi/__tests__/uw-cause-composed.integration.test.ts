@@ -1,197 +1,14 @@
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { bindExternalRef, recordsOf } from '../../dist/contracts.js'
-import type { CauseSisterInput } from '../../engine/cause-disposition-schema.ts'
-import type { NativeBatch } from '../../omp/review-runtime/contracts.ts'
-import { createNativeReviewPort } from '../../omp/review-runtime/port.ts'
-import { releaseTaskMask } from '../../omp/review-runtime/task-mask-lease.ts'
-import { composedAssessmentJudgment, composedSisterRequest } from '../../testing/composed-sister-scenario.ts'
-import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
-import { bridgeHarness, cleanupFixtureActions, root } from '../../testing/review-runtime-support.ts'
-import type { InstalledPluginPin } from '../uw-action-contract.ts'
-import { createProductionActionPorts } from '../uw-input-readers.ts'
-import type { UwNativeHost } from '../uw-installed-operations.ts'
-import { defaultGit } from '../workflow-checkout.ts'
+import type { CauseCreationProposal } from '../../engine/cause-disposition-schema.ts'
+import type { ExternalRecordRef } from '../../engine/record-references.ts'
+import type { Scope } from '../../engine/record-values.ts'
+import { readComposedMaterialIntent } from '../../engine/workflow-composed-material-intent.ts'
+import type { UwOperations, UwRead } from '../uw-contract.ts'
+import { cleanupComposedScenario, scenario } from './uw-cause-composed-fixture.ts'
 
-type FixtureIssue = {
-  title: string
-  body: string
-  labels: string[]
-  parent: number | null
-  blockers: number[]
-  state: 'OPEN' | 'CLOSED'
-}
-type MutationWorld = {
-  issues: Map<number, FixtureIssue>
-  comments: Map<number, { id: number; body: string; user: { login: string }; created_at: string; updated_at: string }[]>
-}
-const directories: string[] = []
-afterEach(() => {
-  cleanupFixtureActions()
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
-})
-
-// Native execution is SDK-shaped fixture capture over declared GitHub facts, not a human or hosted run.
-async function scenario(
-  confirm: (world: MutationWorld) => boolean,
-  afterParentRelation?: (world: MutationWorld) => void,
-  preflightRequest?: (request: CauseSisterInput) => CauseSisterInput,
-) {
-  const directory = mkdtempSync(join(tmpdir(), 'omp-composed-sister-'))
-  directories.push(directory)
-  const checkout = join(directory, 'checkout')
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  git('init', '-q', checkout)
-  writeFileSync(join(checkout, 'README.md'), 'Declared parent checkout\n')
-  git('-C', checkout, 'add', 'README.md')
-  git(
-    '-C',
-    checkout,
-    '-c',
-    'user.name=Fixture',
-    '-c',
-    'user.email=fixture@example.test',
-    'commit',
-    '-qm',
-    'Declared parent checkout',
-  )
-  const commit = git('-C', checkout, 'rev-parse', 'HEAD')
-  const tree = git('-C', checkout, 'rev-parse', 'HEAD^{tree}')
-  const harness = bridgeHarness()
-  const context = {
-    ...root,
-    cwd: checkout,
-    hasUI: true,
-    mode: 'tui',
-    localProtocolOptions: { getArtifactsDir: () => directory },
-  }
-  await harness.emitBridge('session_start', { type: 'session_start' }, context)
-  harness.controller.bindHostGit(() => ({ repository: 'acme/app', commit, tree }))
-  const nativePort = createNativeReviewPort(harness.native, harness.controller)
-  const started = Promise.withResolvers<NativeBatch>()
-  const abort = new AbortController()
-  const runner = defaultGit()
-  let batch: NativeBatch | null = null
-  let pin: InstalledPluginPin | null = null
-  const pluginRoot = fileURLToPath(new URL('../../', import.meta.url))
-  const bytes = (path: string) => new Uint8Array(readFileSync(join(pluginRoot, path)))
-  const host: UwNativeHost = {
-    native: {
-      active: harness.controller.active.bind(harness.controller),
-      activate: nativePort.activate,
-      stopOwned: nativePort.stopOwned,
-      announce: nativePort.announce,
-    },
-    signal: abort.signal,
-    actionReaders: {
-      git: runner,
-      createPorts(options) {
-        const production = createProductionActionPorts(options)
-        if (pin === null) throw new Error('Fixture plugin pin unavailable')
-        const declared = pin
-        const pinnedBytes = (path: string) => {
-          const prefix = `${declared.root}/`
-          if (!path.startsWith(prefix)) throw new Error(`Undeclared pinned path ${path}`)
-          return bytes(path.slice(prefix.length))
-        }
-        return {
-          ...production,
-          plugin: {
-            async resolveInstalledPluginPin() {
-              return { ok: true, value: declared }
-            },
-            async readInstalledFile(path) {
-              return { ok: true, value: bytes(path) }
-            },
-          },
-          async readPinnedFile(ref) {
-            return { ok: true, value: pinnedBytes(ref.path) }
-          },
-          async readPinnedFiles(refs) {
-            return { ok: true, value: refs.map((ref) => pinnedBytes(ref.path)) }
-          },
-          async readCodeDiff(code) {
-            if (code.base !== commit || code.head !== commit) throw new Error('Undeclared code range')
-            return { ok: true, value: new Uint8Array() }
-          },
-          async repositoryReferences() {
-            return { ok: true, value: [] }
-          },
-        }
-      },
-    },
-    onBatch(value) {
-      if (batch !== null || harness.controller.active() !== value) throw new Error('Unexpected native batch')
-      batch = value
-    },
-    afterSettlement(value) {
-      if (batch !== value) throw new Error('Unexpected settlement')
-      return harness.controller.settlementFor(value).then(async () => {
-        await releaseTaskMask(harness.controller, false, value)
-        if (abort.signal.aborted || harness.controller.active() !== null || harness.controller.rootContext() === null)
-          throw new Error('Native continuation lost ownership')
-      })
-    },
-    onStarted() {
-      if (batch === null) throw new Error('Assessment start has no batch')
-      started.resolve(batch)
-    },
-  }
-  const decisions: { title: string; detail: string }[] = []
-  const world = await installedMultiSisterFixture(1, {
-    composedParent: true,
-    cwd: checkout,
-    artifactsDir: directory,
-    nativeHost: host,
-    confirm: async (title, detail): Promise<boolean> => {
-      decisions.push({ title, detail })
-      return confirm(world)
-    },
-    afterParentRelation: () => afterParentRelation?.(world),
-  })
-  const { files: _files, ...declaredPin } = world.graph.inputs.manifest.plugin
-  pin = declaredPin
-  const validRequest = composedSisterRequest(world)
-  const request = preflightRequest === undefined ? validRequest : preflightRequest(validRequest)
-  const outcome = world.operations.createSister(request)
-  const opened = await Promise.race([
-    started.promise.then((value) => ({ kind: 'started' as const, value })),
-    outcome.then((value) => ({ kind: 'finished' as const, value })),
-  ])
-  if (opened.kind !== 'started') {
-    if (preflightRequest !== undefined) return { world, request, decisions, result: opened.value }
-    throw new Error(`Assessment did not start: ${JSON.stringify(opened.value)}`)
-  }
-  expect(decisions).toEqual([])
-  expect(world.issues.has(43)).toBe(false)
-  const task = opened.value.tasks.tasks[0]
-  if (!task || opened.value.tasks.tasks.length !== 1) throw new Error('Expected one assessment task')
-  const data = composedAssessmentJudgment(task)
-  await harness.admitChild(opened.value, task.name, 'composed-assessment', {
-    toolCallId: 'composed-call',
-    root: context,
-  })
-  await harness.yieldChild('composed-assessment', data)
-  await harness.settleBatch({
-    toolCallId: 'composed-call',
-    errors: [],
-    results: [
-      {
-        index: 0,
-        id: 'composed-assessment',
-        agent: task.agent,
-        exitCode: 0,
-        structuredOutput: { status: 'valid', data },
-      },
-    ],
-  })
-  return { world, request, decisions, result: await outcome }
-}
+afterEach(cleanupComposedScenario)
 
 it('accepts a blocking sister and exact parent coverage in one confirmed decision without completing the work', async () => {
   const { world, request, decisions, result } = await scenario(() => true)
@@ -318,6 +135,14 @@ it('accepts a blocking sister and exact parent coverage in one confirmed decisio
   ).toMatchObject({
     state: expect.not.stringMatching(/^complete$/),
   })
+  await assertForeignMaterialIntent({
+    proposal,
+    parent,
+    origin,
+    operations: world.operations,
+    childScope: result.value.uw,
+    acceptance: acceptance.source,
+  })
 })
 
 it('declining the composed decision creates no sister or parent acceptance', async () => {
@@ -437,3 +262,85 @@ it.each(['scope', 'version'] as const)(
     expect(recordsOf(history).filter((record) => record.kind === 'operator-control')).toEqual([])
   },
 )
+
+async function assertForeignMaterialIntent(context: {
+  proposal: CauseCreationProposal
+  parent: UwRead
+  origin: UwRead
+  operations: UwOperations
+  childScope: Scope
+  acceptance: ExternalRecordRef
+}): Promise<void> {
+  const { proposal, parent, origin, operations, childScope, acceptance } = context
+  const consent = proposal.parentAcceptance
+  if (!consent) throw new Error('Expected confirmed parent consent')
+  const parentHistory = parent.histories.find((history) => history.source.scope.target === parent.uw.target)
+  if (!parentHistory) throw new Error('Expected parent history')
+  const control = bindExternalRef(acceptance, parentHistory)
+  if (!control.ok || control.value.kind !== 'operator-control' || control.value.payload.control !== 'accept-material')
+    throw new Error('Expected authenticated material control')
+  const authorization = control.value.payload.authorization
+  if (authorization.kind !== 'cause-creation') throw new Error('Expected composed creation authorization')
+  const child = await operations.readUw(childScope)
+  const histories = [
+    ...new Map(
+      [...origin.histories, ...parent.histories, ...child.histories].map((history) => [
+        `${history.source.scope.repository}\0${history.source.scope.target}`,
+        history,
+      ]),
+    ).values(),
+  ]
+  const childHistory = histories.find((history) => history.source.scope.target === childScope.target)
+  if (!childHistory) throw new Error('Expected created child identity history')
+  const identity = childHistory.operations.find((entry) => entry.recordId === authorization.binding.identity.recordId)
+  if (!identity || identity.parts.length === 0) throw new Error('Expected authenticated child identity parts')
+  const material = {
+    format: 'omp-build-material-acceptance/2' as const,
+    operationId: consent.parentOperationId,
+    uw: consent.parent,
+    mandate: consent.mandate,
+    predecessor: consent.predecessor,
+    assessment: consent.assessment,
+    classification: 'material' as const,
+    exactInputs: consent.exactInputs,
+  }
+  const input = { proposal: material, authorization, confirmation: control.value.payload.confirmation, histories }
+  expect(readComposedMaterialIntent(input)).toMatchObject({
+    ok: true,
+    value: { identity: { recordId: authorization.binding.identity.recordId } },
+  })
+  const identityParts = new Set(identity.parts.map((part) => part.locator))
+  const missing = decodeHistory({
+    ...childHistory.source,
+    comments: childHistory.source.comments.filter((part) => !identityParts.has(part.locator)),
+  })
+  expect(
+    readComposedMaterialIntent({
+      ...input,
+      histories: histories.map((history) => (history === childHistory ? missing : history)),
+    }).ok,
+  ).toBe(false)
+  const copies = identity.parts.map((part, index) => ({
+    ...part,
+    locator: `foreign-identity-${index}`,
+    nativeId: `foreign-identity-${index}`,
+    author: 'intruder',
+  }))
+  const foreign = decodeHistory({ ...childHistory.source, comments: [...childHistory.source.comments, ...copies] })
+  expect(foreign.operations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'spec-identity', authority: 'foreign' }),
+      expect.objectContaining({
+        kind: 'spec-identity',
+        recordId: authorization.binding.identity.recordId,
+        authority: 'accounted',
+      }),
+    ]),
+  )
+  expect(
+    readComposedMaterialIntent({
+      ...input,
+      histories: histories.map((history) => (history === childHistory ? foreign : history)),
+    }),
+  ).toMatchObject({ ok: true, value: { identity: { recordId: authorization.binding.identity.recordId } } })
+}

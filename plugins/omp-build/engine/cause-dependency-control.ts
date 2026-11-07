@@ -141,11 +141,12 @@ export function resolveCauseDependencyControl(input: {
   if (
     history.operations.some(
       (operation) =>
+        operation.authority !== 'foreign' &&
         (operation.kind === 'operator-control' || operation.claimedKinds.includes('operator-control')) &&
-        (operation.status !== 'complete' || operation.authority === 'foreign' || operation.record === null),
+        (operation.status !== 'complete' || operation.record === null),
     )
   )
-    return held('A foreign, incomplete or invalid operator-control claim prevents control resolution')
+    return held('An incomplete or invalid expected-author operator-control claim prevents control resolution')
   const disposition = bindExternalRef(input.disposition, history)
   const receipt = bindExternalRef(input.receipt, history)
   if (

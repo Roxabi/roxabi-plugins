@@ -42,11 +42,12 @@ const sorted = (items: readonly string[]) => [...items].sort()
 function unresolvedChildClaims(history: DecodedHistory): boolean {
   return history.operations.some(
     (entry) =>
+      entry.authority !== 'foreign' &&
       (entry.kind === 'spec-identity' ||
         entry.claimedKinds.includes('spec-identity') ||
         entry.kind === 'mandate' ||
         entry.claimedKinds.includes('mandate')) &&
-      (entry.authority === 'foreign' || entry.status !== 'complete' || entry.record === null),
+      (entry.status !== 'complete' || entry.record === null),
   )
 }
 

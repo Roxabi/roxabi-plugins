@@ -13081,7 +13081,7 @@ var issueScope = (issue) => ({
 var issueKey = (issue) => `${issue.repository}\x00${issue.number}`;
 var sorted = (items) => [...items].sort();
 function unresolvedChildClaims(history) {
-  return history.operations.some((entry) => (entry.kind === "spec-identity" || entry.claimedKinds.includes("spec-identity") || entry.kind === "mandate" || entry.claimedKinds.includes("mandate")) && (entry.authority === "foreign" || entry.status !== "complete" || entry.record === null));
+  return history.operations.some((entry) => entry.authority !== "foreign" && (entry.kind === "spec-identity" || entry.claimedKinds.includes("spec-identity") || entry.kind === "mandate" || entry.claimedKinds.includes("mandate")) && (entry.status !== "complete" || entry.record === null));
 }
 function creationRecords(input) {
   const { authorization, histories } = input;
@@ -14894,10 +14894,8 @@ function refusal(input, code, message) {
     diagnostics: [{ code, message, location: { kind: "record", ref: input.own.sourceAccepted }, related: [] }]
   };
 }
-function unresolvedChildAuthority(history) {
-  const problem = workflowOperationProblem(history);
-  const claims = history.operations.filter((operation) => operation.kind === "mandate" || operation.claimedKinds.includes("mandate") || operation.kind === "spec-identity" || operation.claimedKinds.includes("spec-identity"));
-  return problem !== null || claims.some((operation) => operation.authority === "foreign" || operation.status !== "complete" || operation.record === null);
+function unresolvedChildAuthority(history, managed) {
+  return workflowOperationProblem(history) !== null || history.operations.some((operation) => (operation.kind === "mandate" || operation.claimedKinds.includes("mandate") || operation.kind === "spec-identity" || operation.claimedKinds.includes("spec-identity")) && (operation.authority === "foreign" ? !managed : operation.status !== "complete" || operation.record === null));
 }
 function childEngagementProblem(child, input) {
   const history = historyFor(child.scope, input.histories);
@@ -14906,9 +14904,10 @@ function childEngagementProblem(child, input) {
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, child.scope));
   if (!node || currentOwnSpecProblem(node, child) !== null)
     return refusal(input, "effective-child-engagement-mismatch", `Accepted child ${child.scope.repository} ${child.scope.target} native snapshot or tier has changed`);
-  if (unresolvedChildAuthority(history))
+  const managed = mandatesOf(history).length > 0;
+  if (unresolvedChildAuthority(history, managed))
     return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} has an unresolved authority claim`);
-  if (mandatesOf(history).length === 0)
+  if (!managed)
     return null;
   const selected = selectedMandate(history);
   if (!("kind" in selected) || selected.kind !== "mandate")
@@ -18576,10 +18575,11 @@ function trustedRecoveryRecords(history) {
   const byRecord = new Map;
   const byOperation = new Map;
   for (const operation of history.operations)
-    diagnostics.push(...recoveryOperationDiagnostics(operation, history, byRecord, byOperation));
+    if (operation.authority !== "foreign")
+      diagnostics.push(...recoveryOperationDiagnostics(operation, history, byRecord, byOperation));
   if (diagnostics.length > 0)
     return fail(diagnostics);
-  const records = history.operations.flatMap((operation) => completeOperation(operation) ? [operation.record] : []);
+  const records = history.operations.flatMap((operation) => operation.authority !== "foreign" && completeOperation(operation) ? [operation.record] : []);
   return { ok: true, value: [...new Map(records.map((record) => [record.recordId, record])).values()] };
 }
 
@@ -22089,8 +22089,8 @@ function resolveCauseDependencyControl(input) {
   const history = historyFor(input.origin, input.histories);
   if (!history?.source.complete || input.graph.status !== "complete")
     return held("Complete origin history and graph are required");
-  if (history.operations.some((operation) => (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control")) && (operation.status !== "complete" || operation.authority === "foreign" || operation.record === null)))
-    return held("A foreign, incomplete or invalid operator-control claim prevents control resolution");
+  if (history.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control")) && (operation.status !== "complete" || operation.record === null)))
+    return held("An incomplete or invalid expected-author operator-control claim prevents control resolution");
   const disposition = bindExternalRef(input.disposition, history);
   const receipt = bindExternalRef(input.receipt, history);
   if (!disposition.ok || !receipt.ok || disposition.value.kind !== "cause-disposition" || receipt.value.kind !== "debt-receipt")
@@ -25490,8 +25490,8 @@ function relevantOperations(history) {
   const relevantKind = (kind) => isWorkflowKind(kind) || kind === "debt-receipt";
   return history.operations.filter((operation) => relevantKind(operation.record?.kind ?? operation.kind ?? "") || operation.claimedKinds.some(relevantKind) || operation.kind === null && operation.claimedKinds.length === 0 && operation.status !== "complete");
 }
-function hasUnconfirmedOperations(relevant) {
-  return relevant.some((operation) => operation.authority === "foreign" || operation.status !== "complete" || operation.record === null);
+function hasUnconfirmedOperations(relevant, managed) {
+  return relevant.some((operation) => operation.authority === "foreign" ? !managed : operation.status !== "complete" || operation.record === null);
 }
 function uniqueCompleteHistory(uw, histories) {
   const matches = histories.filter((history) => sameScope(history.source.scope, uw));
@@ -25547,10 +25547,10 @@ function assessUwCompletion(observation) {
     if (!node)
       return unresolved("graph-incomplete", "Dependency native state was not observed");
     const relevant = relevantOperations(history);
-    if (hasUnconfirmedOperations(relevant))
-      return unresolved("history-unconfirmed", "Relevant foreign or incomplete workflow claims prevent an absence witness");
     const mandates = mandatesOf(history);
     const latest = mandates[mandates.length - 1];
+    if (hasUnconfirmedOperations(relevant, latest !== undefined))
+      return unresolved("history-unconfirmed", "Incomplete expected-author claims, or foreign claims on an unmanaged UW, prevent a completion witness");
     if (!latest)
       return assessNativeOnly({
         uw,
@@ -25757,8 +25757,7 @@ function childHistory(uw, histories) {
   const history = matching[0];
   if (history === undefined || matching.some((candidate) => canonicalValueDigest(candidate) !== canonicalValueDigest(history)) || workflowOperationProblem(history) !== null)
     return null;
-  const unresolved = history.operations.some((operation) => (operation.kind === "mandate" || operation.claimedKinds.includes("mandate") || operation.kind === "spec-identity" || operation.claimedKinds.includes("spec-identity") || operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control")) && (operation.authority === "foreign" || operation.status !== "complete" || operation.record === null));
-  return unresolved ? null : history;
+  return history;
 }
 function matchesCommitment(own, commitment) {
   return own.ref.version === commitment.specVersion && own.tier === commitment.tier && canonicalValueDigest(own.snapshot.spec) === canonicalValueDigest(commitment.snapshot.spec) && own.snapshot.raw.reference === commitment.snapshot.raw.reference && own.snapshot.raw.body === commitment.snapshot.raw.body && own.snapshot.raw.bodySha256 === commitment.snapshot.raw.bodySha256;
@@ -25797,6 +25796,9 @@ function captureChildSource(uw, accepted, proposed, histories, attachedChildren,
   if (history === null)
     return null;
   const mandates = mandatesOf(history);
+  const unresolved = history.operations.some((operation) => (operation.kind === "mandate" || operation.claimedKinds.includes("mandate") || operation.kind === "spec-identity" || operation.claimedKinds.includes("spec-identity") || operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control")) && (operation.authority === "foreign" ? mandates.length === 0 : operation.status !== "complete" || operation.record === null));
+  if (unresolved)
+    return null;
   if (mandates.length === 0)
     return { own: null, sourceRefs: [] };
   const prior = accepted.children.find((child) => equalScope(child.scope, uw));
@@ -27199,10 +27201,10 @@ function assessmentPair(input) {
   return { ok: true, value: { record: authenticated.record, home, startRef } };
 }
 function assessmentPairHistoryProblem(home, beforeHome, assessment, startRef) {
-  if (beforeHome === null || beforeHome.operations.some((entry) => entry.recordId === assessment.recordId || entry.recordId === startRef.recordId))
+  if (beforeHome === null || beforeHome.operations.some((entry) => entry.authority !== "foreign" && (entry.recordId === assessment.recordId || entry.recordId === startRef.recordId)))
     return "Assessment pair was already present before execution";
-  const added = home.operations.filter((entry) => entry.recordId === assessment.recordId || entry.recordId === startRef.recordId);
-  if (added.length !== 2 || added.some((entry) => entry.status !== "complete" || entry.authority === "foreign" || entry.record?.kind !== "action-receipt"))
+  const added = home.operations.filter((entry) => entry.authority !== "foreign" && (entry.recordId === assessment.recordId || entry.recordId === startRef.recordId));
+  if (added.length !== 2 || added.some((entry) => entry.status !== "complete" || entry.record?.kind !== "action-receipt"))
     return "Assessment pair envelopes are incomplete or ambiguous";
   const ids = new Set(added.flatMap((entry) => entry.parts.map((part) => part.nativeId)));
   const restored = {
@@ -27561,7 +27563,7 @@ function buildMaterialAcceptanceControl(prepared, confirmation, context) {
 function confirmedCreationIntent(input) {
   const { before, after, operation } = input;
   const priorIntentHistory = historyFor(operation.scope, before.histories);
-  if (priorIntentHistory === null || priorIntentHistory.operations.some((entry) => entry.recordId === operation.recordId))
+  if (priorIntentHistory === null || priorIntentHistory.operations.some((entry) => entry.authority !== "foreign" && entry.recordId === operation.recordId))
     return compositionStale("Creation intent scope was not observed before confirmation or its operation already existed");
   const intentHistory = historyFor(operation.scope, after.histories);
   const intent = intentHistory === null ? null : bindExternalRef(operation, intentHistory);
