@@ -1,5 +1,3 @@
-export const VALID_CLAIMS: Record<string, true> = { 'fail-closed': true, authz: true, ssot: true }
-
 export type ReviewTier = 'S' | 'F-lite' | 'F-full'
 export type AgentOverride = 'default' | 'always' | 'never'
 
@@ -39,8 +37,6 @@ export type RosterResult = {
   path_hit: boolean
   spawn_security_auditor: boolean
   delta_test_hit: boolean
-  claims: string[]
-  priced_claim_ok: boolean
   max_agents: number
   warnings: string[]
   review_halt: boolean
@@ -50,9 +46,6 @@ export type ComputeRosterInput = {
   delta: string[]
   tier: ReviewTier
   chunks: number
-  claims: string[]
-  pricedClaimOk: boolean
-  specDraft: boolean
   axialAdr: boolean
   stackPaths: StackPaths
   config: RosterConfig
@@ -68,7 +61,7 @@ export type AllocateReviewInput = {
 }
 
 export type AllocateReviewResult = {
-  /** Review-wide roster over the full Δ: signals (`path_hit`, `claims`, …) and
+  /** Review-wide roster over the full Δ: signals (`path_hit`, …) and
    *  the review-wide gate rows. It is **not** the dispatch source — see
    *  `chunk_gates`. */
   global: RosterResult

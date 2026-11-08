@@ -81,7 +81,7 @@ The UW contract cutover is delivered manually under [#901](https://github.com/Ro
 
 Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to confirm a staged proposal. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
 
-Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed. Successor normalization prepares its checkout before proposing changes.
+Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
 
 During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `resume`, `material-decision` and `init` are parsed as controls, not framed as free text.
 
@@ -153,7 +153,7 @@ Plans cite known `criterionIds` on every step; the union must cover every accept
 
 Each implementation receipt accounts for every criterion at the applicable code version, with evidence or an explicit unverified reason. A missing receipt is not an empty successful declaration. Review returns versioned criterion targets and cites the evidence actually examined; synthesis references authenticated source verdicts rather than inventing satisfied rows.
 
-Execution ownership is the full scoped mandate reference, not the accepted Spec's `sourceAccepted` identifier. Editorial or material Spec succession does not silently replace that owner. PR reviews reconstruct it through their pinned workflow binding; existing parent Epic-range reviews without a PR use their unique authenticated own-UW mandate payload pin. Both preserve the separate exact accepted `OwnSpecRef` and version vector. Initial inventory subjects, manifest subjects and record scopes must agree; a PR inventory cannot downgrade to the unbound parent-review path.
+Execution ownership is the full scoped mandate reference, not the accepted Spec's `sourceAccepted` identifier. Editorial or material Spec succession does not silently replace that owner. PR reviews reconstruct it through their pinned workflow binding; parent-range reviews without a PR use their unique authenticated own-UW mandate payload pin. Both preserve the separate exact accepted `OwnSpecRef` and version vector. Initial inventory subjects, manifest subjects and record scopes must agree; a PR inventory cannot downgrade to the unbound parent-review path.
 
 | Evidence method | Required observed material |
 |---|---|
@@ -188,7 +188,7 @@ Reconstructing a selected review names its exact authenticated `review-attempt` 
 
 Recall inventories retain each task's exact prepared action for later review-bound correction. Confirmed replacement dispatch validates the confirmed replacement root initially and the runner-supplied root at subsequent stages; an interrupted inventory or an equal fingerprint is not a substitute.
 
-The separate read-only Instantané contains the index of criterion/invariant ids, titles, versions and paths; pinned diff, useful records, repository instructions and touched-area glossaries; and referenced assets copied from the verified installed plugin. Planning uses base references; review uses candidate references. The task carries only the procedure and index path, not copied UW data. Proposed or unframed normalization inputs do not fabricate an accepted Spec.
+The separate read-only Instantané contains the index of criterion/invariant ids, titles, versions and paths; pinned diff, useful records, repository instructions and touched-area glossaries; and referenced assets copied from the verified installed plugin. Planning uses base references; review uses candidate references. The task carries only the procedure and index path, not copied UW data.
 
 Repository reference discovery uses actual changed paths and paths from the selected authenticated plan to find ancestor instructions and glossaries, including cited glossaries. Planning pins those references at the base; review pins them at the candidate. A planned path need not exist yet and does not create a future code blob: candidate HEAD blobs are collected only for actual changed files. For a first plan without selected paths, discovery inventories tracked `AGENTS.md`, `CLAUDE.md` and `GLOSSARY.md` files at the pinned base and follows their glossary citations. An unreadable required inventory or citation refuses rather than silently reducing context; working-tree bytes are not a substitute.
 
@@ -198,7 +198,7 @@ Snapshot integrity covers its actual paths, entry types and bytes, independently
 
 #### Required context and explicit expansion
 
-A producer can return the strict `missing-context` form with the requested source, reason and affected targets. This applies to normalization, Spec assessment, planning and plan review, implementation and CI attribution, and review/correction stages. A requested locator is not an observed reference or publication authority. The authenticated negative stays bound to the original action and sealed inputs; it never satisfies a criterion, approves a review or becomes a formal Report.
+A producer can return the strict `missing-context` form with the requested source, reason and affected targets. This applies to Spec assessment, planning and plan review, implementation and CI attribution, and review/correction stages. A requested locator is not an observed reference or publication authority. The authenticated negative stays bound to the original action and sealed inputs; it never satisfies a criterion, approves a review or becomes a formal Report.
 
 Prepare the replacement explicitly with `/uw action /absolute/path/action.json`. Its `expandedContext` cites the authenticated negative's `/payload` and genuinely additional pinned references. Preparation preserves the supplied context, required stage sources, accepted authority, code, subject and purpose, and creates a distinct manifest fingerprint and sealed snapshot. A missing required source remains blocking; unreadable, edited, wrong-digest or ambiguous lineage refuses. Repeated negatives must form a unique authenticated chain, not competing successors.
 
@@ -241,7 +241,7 @@ histories and catalogues are projected together; unrelated drift holds
 continuation without erasing a confirmed withdrawal. This is not a GitHub-wide
 atomic snapshot.
 
-One parser/renderer in `adapters/github-native/uw-spec.ts` owns body grammar. `roxabi/uw-spec/` supplies its reads; the old `hasScope` and loose acceptance-list parsers are gone. The engine owns canonical content versions, durable C/I identities and admission; workflow owns the assisted normalization judgment and confirmed effects. Review-reference loading remains in `roxabi/review-assets.ts`.
+One parser/renderer in `adapters/github-native/uw-spec.ts` owns body grammar. `roxabi/uw-spec/` supplies its reads; the old `hasScope` and loose acceptance-list parsers are gone. The engine owns canonical content versions, durable C/I identities and admission; framing and confirmed UW writes account for source obligations. Review-reference loading remains in `roxabi/review-assets.ts`.
 
 A conforming hand-written body uses this grammar; the identifiers below illustrate engine output, not permission to allocate identifiers manually:
 
@@ -293,12 +293,12 @@ Before first acceptance, a framed member's title, Spec body, tier label and reco
 Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore a paused or inactive Mandate or bypass the Parent engagement guard.
 
 The three installed framing procedures are pinned and byte-checked; a mismatch stops continuation. Context projection and typed forms are procedural controls, not proof of provider receipt or human reasoning. Real host and provider behavior requires separate qualification.
-Compatible explicit-new normalization preserves its authenticated historical predecessor through confirmation and fresh recheck, then retains the original explicit successor intent. Ordinary continuation cannot use this path to renew an inactive mandate.
+`/feature new` refuses an abandoned or revoked UW with a nonconformant body as `successor-spec-nonconformant`, with parser diagnostics and no write, checkout or bootstrap. omp-build has no in-place conversion for an inactive UW: `/uw write` is refused while its mandate is abandoned or revoked, and framing does not admit it. Start the work again as a new UW with `/feature <text>`. A body that already parses as conformant with confirmed identities follows the existing successor path; ordinary continuation cannot renew an inactive mandate. Nonconformant initial selections enter confirmed framing.
 
 Native graph reading consumes every required parent/child/blocker/label page and closes the relevant graph across repositories. Incomplete, inaccessible or ambiguous portions are named, never treated as absent. Children stay in their parent's repository; blockers may cross repositories. Hierarchy, blocking and combined-wait cycles refuse.
 Every native graph page must match the requested repository and issue number before its facts or connection items are attributed to that UW.
 
-A UW is framed by a unique native tier, at least one valid criterion and no open question. Delivery requires its applicable accepted effective Spec and lifted blockers. A managed blocker lifts only when its completion is calculated from authenticated delivery; a native-only blocker requires readable `CLOSED` with reason `COMPLETED` and complete evidence that no managed authority applies. On a UW without a trusted mandate, a foreign or incomplete workflow claim leaves that absence unproven. Once a trusted mandate exists, foreign frames remain observable and do not by themselves hold its calculated completion or current engagement as an accepted child. Foreign control claims do not veto an otherwise authenticated cause-dependency control. Incomplete, conflicting or damaged expected-author records still hold. Unknown, incomplete, not-planned or abandoned states remain held and require an operator decision on the actual native dependency, not a success override. A previously complete delivery proof does not override a held native dependency state. Wayfinder maps/decision tickets are non-UW, excluded from the work graph and without UW tier; reclassifying an already accepted child cannot silently remove that commitment.
+A UW is framed by a unique native tier, at least one valid criterion and no open question. Delivery requires its applicable accepted effective Spec and lifted blockers. A managed blocker lifts only when its completion is calculated from authenticated delivery; a native-only blocker requires readable `CLOSED` with reason `COMPLETED` and complete evidence that no managed authority applies. On a UW without a trusted mandate, a foreign or incomplete workflow claim leaves that absence unproven. Once a trusted mandate exists, foreign frames remain observable and do not by themselves hold its calculated completion or current engagement as an accepted child. Foreign control claims do not veto an otherwise authenticated cause-dependency control. Incomplete, conflicting or damaged expected-author records still hold. Unknown, incomplete, not-planned or abandoned states remain held and require an operator decision on the actual native dependency, not a success override. A previously complete delivery proof does not override a held native dependency state. Wayfinder maps and decision issues are non-UW, excluded from the work graph and without UW tier; reclassifying an already accepted child cannot silently remove that commitment.
 
 Manual native closure never completes a managed UW without its authenticated delivery proof. The reader reports `native-closure-unproven`; the operator must reopen it or record abandonment. Confirmed reopening writes and reads back `OPEN` / `REOPENED`, but does not manufacture missing criterion, review, merge or parent-integration evidence.
 
@@ -308,24 +308,38 @@ An authenticated assessment of a mechanically material change still requires the
 
 ### UW operator command
 
-The thin command accepts explicit repository coordinates and a strict JSON proposal file, not free-form issue creation:
+The command accepts explicit repository coordinates and JSON files. `<ref>` is `owner/repo#N`; `<repo>` is `owner/repo`.
 
-```text
-/uw read example/demo#42
-/uw propose example/demo#42 --proposal-file /absolute/path/write.json
-/uw write example/demo#42 --proposal-file /absolute/path/write.json
-/uw create example/demo --proposal-file /absolute/path/create.json
-/uw accept-material example/demo#42
-/uw evidence example/demo#42
-/uw verdicts example/demo#42
-/uw action /absolute/path/action.json
-```
+| Syntax | Operation |
+|---|---|
+| `/uw read <ref>` | Read parsed, proposed and accepted Specs, admission, graph, completion and decoded histories. Findings and causes are in those histories; no dedicated listing verb exists. Admission diagnostics expose gaps. |
+| `/uw read-effective <ref>` | Read the effective Spec. |
+| `/uw read-coverage <ref>` | Read parent coverage. |
+| `/uw read-completion <ref>` | Read calculated completion and diagnostics (the termination projection). |
+| `/uw reports <ref>` | Read durable reports on the UW and its native subtree. |
+| `/uw evidence <ref>` | Read delivery declarations. |
+| `/uw verdicts <ref>` | Read authenticated criterion verdicts. |
+| `/uw propose <ref> --proposal-file FILE` | Preview a proposal without mutation. |
+| `/uw write <ref> --proposal-file FILE` | Confirm and write a proposal. |
+| `/uw create <repo> --proposal-file FILE` | Confirm and create a UW. |
+| `/uw action FILE` | Prepare an action manifest and local snapshot, or replay supplied reviewed inputs. |
+| `/uw accept-material <ref>` | Confirm an exact authenticated material assessment. |
+| `/uw reopen <ref>` | Reopen through the UW operation. |
+| `/uw abandon <ref>` | Abandon through the UW operation. |
+| `/uw adjudicate --request-file FILE` | Decide an exact pending cause disposition. |
+| `/uw sister --request-file FILE` | Create an adjudicated cause's same-parent sister. |
+| `/uw promote-report --request-file FILE` | Promote an exact durable report. |
+| `/uw adjust-cause-dependency --request-file FILE` | Withdraw or replace a causal dependency. |
 
-`read` reports proposed/accepted/admission state; `propose` prepares a preview without mutation. `write` and `create` require the real context-bound UI on the exact final proposal. Material acceptance requires an applicable own authority and an authenticated exact assessment; it is not a way to invent a first mandate, import an old format or bypass a refusal. No argv token supplies confirmation.
+`propose`, `write` and `create` take strict proposal JSON containing the body draft, labels, relations and sizing factors; the proposed tier is computed as part of preparation, not by a separate tier verb. Writes and creation require the real context-bound UI on the exact proposal. Material acceptance requires an applicable own authority and an authenticated exact assessment; no argv token supplies confirmation.
+
+Host-only routes are not `/uw` verbs: `/feature` performs confirmed framing; the parent coverage UI confirms initial coverage (later changes use material acceptance); the PR workflow publishes the authenticated workflow binding; and `closeLinked` closes a bound UW after calculated completion. There are no separate `/uw` frame, gaps, termination, findings, causes, manifest, snapshot, parent-coverage, link-pr or close verbs.
+
+omp-build automated issue body, label, relation and state writes go through UW operations and their shared writer. Standalone issue-triage remains independent. Human GitHub edits are legitimate, but an edited proposal is not an accepted Spec and a manual close is not calculated completion.
 
 `evidence` and `verdicts` read applicable delivery declarations and authenticated criterion verdicts, including the approved bound PR's review history; they do not publish. `action` accepts a JSON object containing `request: UwActionRequest`: it resolves the durable inputs and creates a local read-only snapshot without a GitHub write. Adding `reviewed: ActionInputs` instead replays the stored inputs against current durable sources. The request's code coordinates and references must be readable and match their pinned identities. The installed-plugin pin comes from trusted host composition, never the request file or argv; a missing or mismatched pin refuses.
 
-Review continuation binds the selected initial root to the current authenticated action subject, not an unresolved request placeholder. A PR review uses its exact PR history; an Epic final-range review uses its UW history with no invented PR. Both retain complete-history, fingerprint, head and subject checks; an Epic also retains the exact base-to-head range.
+Review continuation binds the selected initial root to the current authenticated action subject, not an unresolved request placeholder. A PR review uses its exact PR history; a parent final-range review uses its UW history with no invented PR. Both retain complete-history, fingerprint, head and subject checks; the parent also retains the exact base-to-head range. Review Spec inputs come from canonical grammar and authorized records, not priced YAML fences or draft frontmatter.
 
 | Cause command | Boundary |
 |---|---|
@@ -389,7 +403,7 @@ The command emits compact status and a consultable detailed-result path in the s
 
 ### Parent UW delivery
 
-A UW parente runs from its confirmed mandate, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `mark-fix`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
+A Parent UW runs from its confirmed mandate, not from a session goal. `skills/feature/epic-driver.ts` reads that mandate. The installed command calls `next`, `stop`, `review`, `hook`, `report`, and `control-disarm`. There is no `objective` command and no goal file.
 
 Parent/leaf execution follows the **current authenticated accepted child set**, not the mandate's historical `feature`/`epic` field. Native additions, removals or changed child versions/tiers remain proposals until the existing assessment and exact material-confirmation chain accepts them. Pending drift enters that control path before either delivery lifecycle; missing replay is a refusal, not an empty child set.
 
@@ -399,7 +413,7 @@ Publication is proved before the integration START is sealed. RESULT and histori
 
 Only calculated completion of the whole nested Parent permits continuation into its exact accepted ancestor Mandate in that worktree. A Leaf merge alone does not permit that handoff, and continuation never implicitly unpauses a stopped ancestor.
 
-The public driver composes explicit mandate-parent histories recursively through the same GitHub history adapter before selecting authority. It builds a complete authenticated inventory of the root UW's own PRs and the accepted child set, including children removed from native relations or reclassified as wayfinders. It discovers issue PR references—including cross-references on closed issues—and authenticated child-mandate branches independently. Discovery requires complete issue and branch connections; incomplete pages or unreadable history refuse rather than prove absence. Before any normal `stop` or `next` PR mutation batch, every candidate must pass canonical binding and exact mandate-ownership preflight. Uncertainty leaves containment unconfirmed and does not authorize disarming an unrelated PR. Fresh final-review authorization and `mark-fix` require current parent delivery admission; containment and drop do not grant permission to advance delivery.
+The public driver composes explicit mandate-parent histories recursively through the same GitHub history adapter before selecting authority. It builds a complete authenticated inventory of the root UW's own PRs and the accepted child set, including children removed from native relations or reclassified as wayfinders. It discovers issue PR references—including cross-references on closed issues—and authenticated child-mandate branches independently. Discovery requires complete issue and branch connections; incomplete pages or unreadable history refuse rather than prove absence. Before any normal `stop` or `next` PR mutation batch, every candidate must pass canonical binding and exact mandate-ownership preflight. Uncertainty leaves containment unconfirmed and does not authorize disarming an unrelated PR. Fresh final-review authorization requires current parent delivery admission; containment and drop do not grant permission to advance delivery.
 
 Scheduling uses the same native inventory for `OPEN`, `CLOSED` and `MERGED` PRs on authenticated owned branches; mutation targets are explicitly `OPEN` only. Relevant terminal PRs must pass canonical binding and exact current-parent ownership checks. An unrelated historical cross-reference is not current delivery evidence and cannot override a valid current branch. Classifying an OPEN PR's gate from its first 30 labels requires explicitly complete page information; a truncated or unreadable label inventory refuses before new PR effects, stop publication or activation.
 
@@ -409,7 +423,7 @@ Native graph observation overlaps the first pages of at most two already-queued 
 
 Scheduling terminality and dependency completion are separate. A closed `NOT_PLANNED` child is not restarted, but does not relieve its dependents; a merged PR alone does not relieve them either. A natively completed child with a still-resumable `OPEN` PR remains in the existing resume/disarm flow. A permanent stop does not reactivate that PR; stopped-PR containment is reconciled before selecting the next step. A merge confirmed during disarm uses the existing bounded reread before final review, whether or not auto-merge was armed, rather than declaring completion from stale PR facts. Only the authenticated PR coordinate survives that reread: merge metadata and ownership are read again, never taken from a cached MERGED result.
 
-Every normal `/3` mandate persists an eight-character coordination run at first creation, including a leaf. Leaf ↔ parent transitions and explicit successors retain that run, mandate lineage and actual permission limits; no promotion, replacement mandate or fresh run is inferred from a link edit. Correction-only authority keeps its separate restrictions. An originally parent-shaped mandate becoming a leaf does not acquire permission bits it lacked.
+Every normal `/4` mandate persists an eight-character coordination run at first creation, including a leaf. Leaf ↔ parent transitions and explicit successors retain that run, mandate lineage and actual permission limits; no promotion, replacement mandate or fresh run is inferred from a link edit. Correction-only authority keeps its separate restrictions. An originally parent-shaped mandate becoming a leaf does not acquire permission bits it lacked.
 
 Pause/abandonment containment covers the UW's own bound PR and its currently approved child PRs, including a former leaf PR that remains open. For a known normal mandate, issue links and matching branches are discovery hints only: each own-PR candidate must bind canonically to that exact selected mandate, for both current leaf and parent roles. Named inactive authority is replayed for disarm only, never reactivated; incomplete replay or PR discovery cannot confirm containment.
 Foreign child mandate claims remain observable but cannot veto containment discovery when a complete accounted child mandate belongs to the selected parent. Without that owned authority they cannot establish its absence; expected-author damage and incomplete discovery still refuse.
@@ -418,7 +432,9 @@ Unresolved explicit PR containment verifies a repository-qualified reference aga
 
 An Arrêt d'UW is an `epic-event` whose `event` is the historical wire name `goal-stop`. Independent children continue. A shared-state stop is an `epic-event` whose `event` is `goal-report`. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading remains the historical `## Epic run`. Merged is not complete before the hook and report are observed. Delivery matching, re-disarm, and which stops retry live in the `epic-driver-*` modules. A run id does not reset a spent review bound.
 
-Epic fix-tickets spawn `bun --no-env-file` on the emitted `triage.ts`. The cwd is that file's directory, and `GITHUB_REPO` is set. Cause sisters and report promotion instead use the operator-confirmed UW creation backend and injected issue-triage writer. Feature init imports only the emitted `migrate-labels.ts` and `init.ts`, and still binds the checkout with `defaultInitDeps(repository, checkout)`. The resolver is `triage-runtime.ts`. Paths come from that file. There is no sibling, home, or project fallback. A missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime; it is not copied into this plugin. The generated `dist/issue-triage/` slice ships with omp-build so those actions need no separate plugin installation.
+A blocking current parent final review selects the drop step with stop `final-review-blocking`; the run ends with an `epic-drop` report, which does not carry the causes. This is a stop, not automatic correction. Read the persisted per-cause records with `/uw read`; they stay the authority. A review binds its exact initial cause assessment, and any pending, `fix-original` or blocking-sister cause in it keeps that review's verdict blocking. Holds are separate: a pending cause holds review binding until `/uw adjudicate`; a blocking sister holds it until `/uw sister` creates the sister, then stays a wait until the sister completes or `/uw adjust-cause-dependency` releases it. Lifting a hold does not clear the bound blocking verdict, and a final `fix-original` cause has no `/uw` disposition verb. The parent completes only after a fresh final review of a changed range, for example after corrected work in a new child UW. Historical `epic-fix` events remain decodable for diagnostics only.
+
+Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds the checkout with `defaultInitDeps(repository, checkout)`. It does not relabel existing issues; standalone issue-triage retains its own init behavior. The resolver is `triage-runtime.ts`; a missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime. The generated `dist/issue-triage/` slice ships with omp-build.
 
 ## Commands and tools
 
@@ -497,7 +513,7 @@ refuses execution of the older decision; it does not reset the bound or discard 
 The full original review input is checked at entry. Subsequent owned correction commits are checked by the existing
 commit, proof and head fences, rather than requiring the local HEAD to remain the original review's HEAD.
 
-Feature-owned PR and epic reviews check local continuation before authorization, after authorization before publishing
+Feature-owned PR and parent reviews check local continuation before authorization, after authorization before publishing
 the inventory, and before native activation. Standalone `/dev-review` and `omp_build_start_review` remain independent
 of Feature inhibition. Native Feature ownership is registered before asynchronous work and is not recreated by a stop
 callback; passive diagnostics remain visible under inhibition.
@@ -547,7 +563,7 @@ snapshot, with unchanged runtime binaries. This is not an installed release.
   transfer; two actual pause/resume cycles; abandon and explicit successor;
   wrong-child-branch refusal; unconfirmed pause refused by Feature, explicit
   review preparation, trusted CI and `landPr`.
-- **Nested coverage:** seven terminal-delivery reentry cases; both Epic
+- **Nested coverage:** seven terminal-delivery reentry cases; both parent
   completion and child-to-parent ownership interruption; both remote-pause
   interleavings during CI attribution and correction synthesis. Original
   results remain evidence even when current authority refuses further effects.
@@ -693,7 +709,7 @@ before its diff; the review-start test exercises the fence, not model compliance
 | UW admission | The fresh complete native graph, parsed own proposal, confirmed identity history, accepted ancestor/child versions, tier, coverage and calculated blocker states satisfy the shared UW admission rules at this invocation. |
 | Authentic outputs | The expected automation author published every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; it also published the workflow binding and mandate chain. Every selected part has readable native `createdAt` and `updatedAt` values, and no part was edited. |
 
-Mandates must use `omp-build-mandate/4`; Spec assessments require `omp-build-spec-assessment/3`, action receipts require `omp-build-action-receipt/2`, and reviews carrying input require `omp-build:review-input/4`. Missing or incompatible formats and obsolete payload fields refuse explicitly. There is no migration, automatic renewal or cross-format recovery path.
+Mandates must use `omp-build-mandate/4`; Spec assessments require `omp-build-spec-assessment/3`, action receipts require `omp-build-action-receipt/2`, and reviews carrying input require `omp-build:review-input/4`. Missing or incompatible formats and obsolete payload fields refuse explicitly. There is no migration, automatic renewal or cross-format recovery path. An active `omp-build-mandate/4` mandate, published by 0.17.x, embeds the removed grouped-fix graph action and is refused as `unsupported` (`unsupported-graph`): continuation, pause, abandon, its accepted Spec and its children stop on it. Pause or abandon such a mandate under 0.17.x before upgrading; a paused one can still be abandoned, and an abandoned or revoked one stays eligible for `/feature new`. Older mandate formats were already refused as `incompatible-format` before selection, whatever their pause or abandon state; that work restarts as a new UW through `/feature <text>`. A workflow history holding a native normalization receipt is refused as `unconfirmed` (an incomplete operation) before any mandate is selected: that UW cannot be paused, abandoned or succeeded, so start a new UW with `/feature <text>`.
 
 An adopted open PR moves directly from `ready` to `review`. The graph has no intermediate admission step.
 
@@ -809,7 +825,7 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 `agent-sources/` contains the frozen authored agents: two OMP-native (`R-advisor`, `elon` — `model: "@advisor"`, typed `output:` schema) and five `dev-core` review snapshots (ADR-020 decision 7). `agents/` is generated output: seven copied authored agents plus 18 generated native profiles; do not edit it. The five review snapshots declare `@review, @slow` for the judgment agents `R-adversarial`, `R-architect` and `R-security-auditor`, and `@task` for `R-devops` and `R-tester`. When an unmapped role still hands the choice to the parent is stated below the table. Every authored agent carries an explicit `tools:` pin: the snapshots arrived with their posture stated in prose only, and a read-only floor whose read-only-ness is unenforced is not a control.
 
-Agent-profile `tools` pins the child's built-in capabilities. Native workflow batches are dispatched through the restricted owned execution tool, not the built-in Task tool. Normalization selects `R-uw-normalize` with its existing read-only profile; this is not a credential sandbox.
+Agent-profile `tools` pins the child's built-in capabilities. Native workflow batches are dispatched through the restricted owned execution tool, not the built-in Task tool; this is not a credential sandbox.
 
 | Agent | Model | Posture |
 |---|---|---|

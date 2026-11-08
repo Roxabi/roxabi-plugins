@@ -538,18 +538,3 @@ export function run(script: string, cwd: string, env: Record<string, string>, ti
   child.once('close', onClose)
   return promise
 }
-
-/**
- * The lines of the first ```bash fence after `anchor` in `markdown` that follow
- * its `… then:` comment — the part an operator runs once the payload files exist.
- */
-export function recipeAfterWrite(markdown: string, anchor: string): string[] {
-  const start = markdown.indexOf(anchor)
-  if (start < 0) throw new Error(`${anchor} missing`)
-  const fence = /```bash\n([\s\S]*?)```/.exec(markdown.slice(start))?.[1]
-  if (!fence) throw new Error(`no bash fence after ${anchor}`)
-  const lines = fence.split('\n')
-  const marker = lines.findIndex((line) => /^#.*\bthen:\s*$/.test(line))
-  if (marker < 0) throw new Error(`no "… then:" comment in the fence after ${anchor}`)
-  return lines.slice(marker + 1).filter((line) => line.trim() !== '')
-}

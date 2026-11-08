@@ -524,22 +524,6 @@ function reviewRequest() {
 }
 
 describe('epic-driver — fresh admission before final review advancement', () => {
-  it.each<'blocker' | 'tier'>(['blocker', 'tier'])('refuses mark-fix after parent %s drift', async (change) => {
-    await prepareFinalReview(true)
-    changeParent(change)
-    const run = drive(['mark-fix', '--ticket', '2'])
-    expect(run.code, run.stderr).toBe(2)
-    expect(writes()).toEqual([])
-    expect(eventPayloads(2)).not.toContainEqual(expect.objectContaining({ event: 'epic-fix' }))
-  })
-
-  it('allows mark-fix with the same unchanged accepted parent', async () => {
-    await prepareFinalReview(true)
-    const run = drive(['mark-fix', '--ticket', '2'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(eventPayloads(2)).toContainEqual(expect.objectContaining({ event: 'epic-fix', run: RUN }))
-  })
-
   it.each<'blocker' | 'tier'>(['blocker', 'tier'])(
     'refuses a fresh final-review request after parent %s drift',
     async (change) => {

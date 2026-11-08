@@ -7,7 +7,6 @@ import {
   type GateRow,
   PHASE_AGENTS,
   type RosterResult,
-  VALID_CLAIMS,
 } from './roster-contract'
 import { axialDeltaHit, infraHit, pathHit, sourceHit, structureHit, testHit } from './roster-signals'
 
@@ -100,9 +99,8 @@ function applyCap(
 }
 
 export function computeRoster(input: ComputeRosterInput): RosterResult {
-  const { delta, tier, chunks, pricedClaimOk, axialAdr, stackPaths, config } = input
+  const { delta, tier, chunks, axialAdr, stackPaths, config } = input
   const warnings = [...config.warnings]
-  const claims = input.specDraft ? [] : input.claims.filter((c) => Object.hasOwn(VALID_CLAIMS, c))
   const path_hit = pathHit(delta)
   const delta_test_hit = testHit(delta)
   const infra = infraHit(delta)
@@ -165,8 +163,6 @@ export function computeRoster(input: ComputeRosterInput): RosterResult {
     path_hit,
     spawn_security_auditor: gates['R-security-auditor'].spawn,
     delta_test_hit,
-    claims,
-    priced_claim_ok: pricedClaimOk,
     max_agents: maxAgents,
     warnings,
     review_halt: false,

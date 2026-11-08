@@ -4,7 +4,6 @@ export type NativeFeatureProducerOutput =
   | 'plan-review'
   | 'delivery-execution'
   | 'ci-attribution'
-  | 'uw-normalization'
 export type NativeFeatureProfile = {
   name: string
   description: string
@@ -142,24 +141,6 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
       '2. Attribute the failure to change, pre-existing, infra, unknown, or out-of-scope.',
       '3. Return that attribution and the evidence that supports it. Unreadable named evidence is unknown, with that fact.',
       'Done when attribution is one of those five values and evidence cites the check plus the scope fact that supports it.',
-    ].join('\n\n'),
-  },
-  {
-    name: 'R-uw-normalize',
-    description: 'Read-only structured proposal from index-named unframed or proposed parser facts.',
-    tools: 'read, grep, glob',
-    model: '@advisor',
-    maxTurns: 20,
-    output: 'uw-normalization',
-    body: [
-      snapshot,
-      readOnly,
-      'Transform only the parser facts named by the index into one typed UW normalization judgement. Those facts may be unframed (legacy, malformed, or draft) or proposed. They are not an accepted Spec. Do not invent a mandate, an accepted id, or an accepted version.',
-      '1. Return only draft, normalization accounting, factors, and optional tierOverride.',
-      '2. Account for every supplied criterion, invariant, named content, and preserved prose source exactly once as kept, reworded, or removed. Every nonblank draft section, exclusion, and open-question value needs non-overlapping half-open UTF-16 target ranges that cover it exactly once.',
-      '3. kept copies the parser-decoded source exactly into its target range. reworded, removed, and new carry a reason. Keep named Origin, Context, Change, Exclusions, and Open Questions in their typed parser destination unless explicitly removed.',
-      '4. Keep identified C/I items on their supplied same-family existing ID. Unnamed C/I items use draftKey; never allocate or invent C/I IDs. New obligations use a new draftKey and reason.',
-      'Done when the typed output has exhaustive source and destination accounting for this minimal conversion. The host and engine validate, allocate, confirm, and write after this read-only proposal.',
     ].join('\n\n'),
   },
 ]

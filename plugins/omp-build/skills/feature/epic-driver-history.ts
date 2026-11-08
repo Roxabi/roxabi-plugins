@@ -283,9 +283,3 @@ export function hooksFromEvents(history: DecodedHistory): Facts['hooks'] {
   }
   return hooks
 }
-
-export function hasEpicFixEvent(history: DecodedHistory): boolean {
-  return epicEvents(history).some(
-    ({ record, payload }) => payload.event === 'epic-fix' && eventText(payload, 'run') === record.runId,
-  )
-}

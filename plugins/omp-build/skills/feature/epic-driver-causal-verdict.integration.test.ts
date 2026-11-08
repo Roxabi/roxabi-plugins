@@ -21,8 +21,13 @@ import { cleanupSandbox, drive } from './testing/epic-driver/epic-driver-sandbox
 
 afterEach(cleanupSandbox)
 
-async function causalEpicReview(world: EpicParentWorld, disposition: 'report' | 'fix-original') {
+async function causalEpicReview(
+  world: EpicParentWorld,
+  disposition: 'report' | 'fix-original' | 'sister-blocking' | 'pending-blocking',
+) {
   const prepared = await prepareEpicParentReview(world)
+  const blocking = disposition === 'sister-blocking' || disposition === 'pending-blocking'
+  const label = blocking ? ('issue' as const) : ('suggestion' as const)
   const { mandate, inputs, head, range, issueRecords, coverageReferences } = prepared
   const scope = { repository: 'o/r', target: 'o/r#1' }
   const initial = decodeHistory(recordHistory(1, issueComments(1)))
@@ -40,9 +45,9 @@ async function causalEpicReview(world: EpicParentWorld, disposition: 'report' | 
   const findings = graph.panel.payload.findings?.map((finding) => {
     if (finding.data === null || typeof finding.data !== 'object' || Array.isArray(finding.data))
       throw new Error('Expected a structured original finding')
-    return { ...finding, data: { ...finding.data, label: 'suggestion' as const } }
+    return { ...finding, data: { ...finding.data, label } }
   })
-  if (!findings?.length) throw new Error('Expected a nonblocking original finding')
+  if (!findings?.length) throw new Error('Expected an original finding')
   const panelStructured = { findings: findings.map((finding) => finding.data) }
   const panel = {
     ...graph.panel,
@@ -70,15 +75,15 @@ async function causalEpicReview(world: EpicParentWorld, disposition: 'report' | 
   })
   const judgment = {
     ...graph.decision.payload.judgment,
-    findings: graph.decision.payload.judgment.findings.map((finding) => ({ ...finding, label: 'suggestion' as const })),
+    findings: graph.decision.payload.judgment.findings.map((finding) => ({ ...finding, label })),
     causes: graph.decision.payload.judgment.causes.map((cause) => ({
       ...cause,
       judgment: {
-        necessary: supported(disposition === 'fix-original'),
+        necessary: supported(disposition !== 'report' && disposition !== 'pending-blocking'),
         urgent: supported(true),
-        tooLarge: supported(false),
+        tooLarge: supported(disposition === 'sister-blocking'),
       },
-      proposedDisposition: disposition,
+      proposedDisposition: disposition === 'pending-blocking' ? ('fix-original' as const) : disposition,
     })),
   }
   const decision = { ...graph.decision, payload: { ...graph.decision.payload, judgment } }
@@ -146,16 +151,14 @@ async function causalEpicReview(world: EpicParentWorld, disposition: 'report' | 
 describe('epic-driver — canonical final review history', () => {
   it.each([
     { disposition: 'report' as const, step: { action: 'post-merge' } },
-    { disposition: 'fix-original' as const, step: { action: 'final-review', stage: 'fix-ticket' } },
+    { disposition: 'fix-original' as const, step: { action: 'drop', stop: 'final-review-blocking' } },
   ])('binds and replays the effective $disposition verdict', async ({ disposition, step }) => {
     const world = await landedEpic()
     const { range, decisionId, inventoryIds } = await causalEpicReview(world, disposition)
     const stored = recordsOf(decodeHistory(recordHistory(1, issueComments(1))))
     expect(stored.filter((record) => record.kind === 'cause-disposition')).toEqual([
       expect.objectContaining({
-        payload: expect.objectContaining({
-          outcome: expect.objectContaining({ state: 'final', disposition }),
-        }),
+        payload: expect.objectContaining({ outcome: expect.objectContaining({ state: 'final', disposition }) }),
       }),
     ])
 
@@ -174,6 +177,25 @@ describe('epic-driver — canonical final review history', () => {
     expect(replay.code, replay.stderr).toBe(0)
     expect(replay.json().step).toMatchObject(step)
   })
+
+  it.each([
+    { disposition: 'sister-blocking' as const, outcome: { state: 'final', disposition: 'sister-blocking' } },
+    { disposition: 'pending-blocking' as const, outcome: { state: 'pending-blocking' } },
+  ])(
+    'holds the parent on an unresolved $disposition cause without binding or filing',
+    async ({ disposition, outcome }) => {
+      const world = await landedEpic()
+      const { range, decisionId } = await causalEpicReview(world, disposition)
+      const stored = recordsOf(decodeHistory(recordHistory(1, issueComments(1))))
+      expect(stored.filter((record) => record.kind === 'cause-disposition')).toEqual([
+        expect.objectContaining({ payload: expect.objectContaining({ outcome: expect.objectContaining(outcome) }) }),
+      ])
+
+      const bound = drive(['review', '--decision-record', decisionId, '--range', range])
+      expect(bound.code, bound.stderr).toBe(2)
+      expect(eventPayloads(1)).not.toContainEqual(expect.objectContaining({ event: 'epic-review', decisionId }))
+    },
+  )
 
   it('refuses initial binding when the assessed disposition is not persisted', async () => {
     const world = await landedEpic()

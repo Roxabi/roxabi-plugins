@@ -8,7 +8,6 @@ export type RosterCliArguments = {
   diffList: string
   chunkLists: string[]
   tier: ReviewTier
-  specPath: string | null
   chunks: number
   chunksExplicit: boolean
   stackPath: string
@@ -18,7 +17,7 @@ export type RosterCliArguments = {
 
 function usage(): never {
   console.error(
-    'usage: roster.ts --diff-list FILE [--chunk-list FILE ...] [--tier S|F-lite|F-full] [--spec PATH] [--chunks N] [--stack PATH] [--adr-dir PATH] [--json]',
+    'usage: roster.ts --diff-list FILE [--chunk-list FILE ...] [--tier S|F-lite|F-full] [--chunks N] [--stack PATH] [--adr-dir PATH] [--json]',
   )
   process.exit(1)
 }
@@ -28,7 +27,6 @@ function defaults(): RosterCliArguments {
     diffList: '',
     chunkLists: [],
     tier: 'F-lite',
-    specPath: null,
     chunks: 1,
     chunksExplicit: false,
     stackPath: STACK_YML,
@@ -61,9 +59,6 @@ const VALUE_OPTIONS: Record<string, (value: string, options: RosterCliArguments)
     options.chunkLists.push(value)
   },
   '--tier': applyTier,
-  '--spec': (value, options) => {
-    options.specPath = value
-  },
   '--chunks': applyChunkCount,
   '--stack': (value, options) => {
     options.stackPath = value

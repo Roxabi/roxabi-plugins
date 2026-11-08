@@ -83,7 +83,6 @@ export function child(number: number, over: Partial<ChildFacts> = {}): ChildFact
     labels: ['size:S'],
     body: '## Acceptance criteria\n\n- [ ] it works\n',
     ownUw: acceptedOwnUw(number),
-    epicFix: false,
     blockedBy: [],
     stops: [],
     prs: [],
@@ -169,8 +168,5 @@ export const DONE = [
 ]
 /** First merged baseSha .. last merged mergeSha, by mergedAt. */
 export const RANGE = `${sha('1')}..${sha('c')}`
-/** The epic-fix ticket, merged after the others: it moves the range end. */
-export const FIX = child(4, { epicFix: true, state: 'CLOSED', prs: [landed(4, T3, sha('c'), sha('d'))] })
-export const FIXED = `${sha('1')}..${sha('d')}`
 
 export const hook = (result: HookRecord['result'], at: string, run = RUN): HookRecord => ({ run, result, sha: at })

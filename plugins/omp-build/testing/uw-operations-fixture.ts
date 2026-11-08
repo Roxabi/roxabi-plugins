@@ -181,7 +181,6 @@ export function fixture(
     resolveSpecEffective,
     renderIssueSpecBody,
     calculateTier,
-    parseNormalization: () => ({ ok: false, diagnostics: [] }),
     publishIdentity: async ({ uw, proposal }) => {
       state.identityScopes.push(structuredClone(uw))
       if (options.publishIdentityResult?.status === 'refused') return options.publishIdentityResult

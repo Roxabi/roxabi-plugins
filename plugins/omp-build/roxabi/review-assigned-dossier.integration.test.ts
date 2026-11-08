@@ -4,10 +4,12 @@ import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { fixtureUwOperations } from '../testing/action-input-fixtures.ts'
+import { assembleEpicRangeInputs } from './epic-range-inputs.ts'
 import type { Git, PreparedReviewInputs } from './review-input-contract.ts'
 import { prepareReviewInputs } from './review-pr-inputs.ts'
+import * as reviewTarget from './review-pr-target.ts'
 import type { PreparedUwAction } from './uw-action-contract.ts'
 import { actionOperationMethods } from './uw-action-operations.ts'
 import { sha256Bytes } from './uw-action-result.ts'
@@ -378,4 +380,83 @@ test('sealed panel dossiers keep the assigned chunk diff, both digests, and full
     if (previousHost === undefined) delete process.env.GH_HOST
     else process.env.GH_HOST = previousHost
   }
+})
+
+test('PR review input ignores legacy draft and invalid priced-fence signals', async () => {
+  const previousHost = process.env.GH_HOST
+  process.env.GH_HOST = VIEWER_HOST
+  const body = '---\nstatus: draft\n---\n\n```yaml\npriced: example\nnot: example\noracles: []\n```\n'
+  const original = reviewTarget.prepareReviewTarget
+  const target = vi.spyOn(reviewTarget, 'prepareReviewTarget').mockImplementation(async (...args) => {
+    const result = await original(...args)
+    if (!result.ok) return result
+    return {
+      ...result,
+      value: {
+        ...result.value,
+        semanticContext: {
+          mode: 'standalone',
+          binding: null,
+          acceptedSpec: null,
+          currentSpec: {
+            reference: '#42',
+            number: 42,
+            body,
+            digest: sha256Bytes(Buffer.from(body)),
+            lastEditedAt: null,
+            labels: [],
+          },
+          effectiveConfig: null,
+          additionalRequirements: [],
+        },
+      },
+    }
+  })
+  try {
+    const candidate = candidateRepo()
+    const gh = githubIngress(candidate)
+    const prepared = await prepareReviewInputs({
+      cwd: candidate.cwd,
+      pr: 7,
+      contextWindow: CONTEXT_WINDOW,
+      gh,
+      git: reviewingGit(candidate.bare),
+      operations: reviewOperations(candidate, gh),
+      pluginPin: trustedPin,
+    })
+    if (!prepared.ok) throw new Error(prepared.diagnostics.map((item) => `${item.code}: ${item.message}`).join('\n'))
+    expect(prepared.value.issueSpec?.body).toBe(body)
+  } finally {
+    target.mockRestore()
+    if (previousHost === undefined) delete process.env.GH_HOST
+    else process.env.GH_HOST = previousHost
+  }
+})
+
+test('parent-range review input ignores legacy draft and invalid priced-fence signals', async () => {
+  const body = '---\nstatus: draft\n---\n\n```yaml\npriced: example\nnot: example\noracles: []\n```\n'
+  const candidate = candidateRepo()
+  const ingress = githubIngress(candidate)
+  const gh = async (cwd: string, args: string[]) => {
+    if (args[0] === 'issue' && args[1] === 'view') {
+      return JSON.stringify({ body, updatedAt: null, state: 'OPEN', labels: [] })
+    }
+    return ingress(cwd, args)
+  }
+  const assembled = await assembleEpicRangeInputs({
+    cwd: candidate.cwd,
+    request: {
+      repository: REPOSITORY,
+      target: `${REPOSITORY}#42`,
+      runId: 'range-review',
+      range: `${candidate.base}..${candidate.head}`,
+      candidateGitSHA: candidate.head,
+      integration: null as never,
+    },
+    contextWindow: CONTEXT_WINDOW,
+    pluginPin: trustedPin,
+    gh,
+    git: reviewingGit(candidate.bare),
+  })
+  expect(assembled.observedEvidence.resolvedSpec?.body).toBe(body)
 })

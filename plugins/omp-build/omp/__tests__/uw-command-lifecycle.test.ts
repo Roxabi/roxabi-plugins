@@ -217,9 +217,6 @@ function lifecycleFixture() {
       frame: async () => {
         throw new Error('unexpected-frame')
       },
-      validateNormalization: () => {
-        throw new Error('unexpected-normalization')
-      },
       write: async () => {
         throw new Error('unexpected-write')
       },

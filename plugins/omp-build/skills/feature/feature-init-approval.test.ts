@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { applyApprovedPlan } from '../../dist/issue-triage/skills/issue-triage/lib/init.ts'
 import { baseFacts } from './feature-init.fixture'
 import { initFeature } from './feature-init-apply'
 import type { TriageInit } from './feature-init-triage'
@@ -223,6 +224,54 @@ describe('feature init authorization', () => {
     ).rejects.toThrow('plan changed before apply')
     expect(existsSync(path.join(scratch, '.dev', 'stack.yml'))).toBe(false)
     expect(applies).toBe(0)
+    vi.restoreAllMocks()
+  })
+  it('excludes issue relabels from the approved plan while retaining label definitions and contract', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-no-relabels-'))
+    const triage = authTriage({ tracker: 0 })
+    const originalBuild = triage.buildPlan
+    triage.buildPlan = async (...args) => {
+      const built = await originalBuild(...args)
+      built.plan.createLabels = ['type:fix']
+      built.plan.labelColors = { 'type:fix': 'abcdef' }
+      built.plan.relabels = [{ number: 42, add: ['type:fix'], remove: ['bug'] }]
+      built.plan.contract = 'write'
+      return built
+    }
+    triage.canonicalPlan = (plan) => JSON.stringify(plan)
+    const ensureLabel = vi.fn(async () => 'present' as const)
+    const updateLabels = vi.fn(async () => {})
+    const writeContract = vi.fn()
+    const originalDeps = triage.defaultInitDeps
+    triage.defaultInitDeps = (...args) => ({ ...originalDeps(...args), ensureLabel, updateLabels, writeContract })
+    triage.applyApprovedPlan = applyApprovedPlan
+    const deps = { facts: baseFacts(), triage, repository: 'Acme/app', principal: false }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const preview = await initFeature(['--dir', scratch], deps)
+    expect(preview.tracker?.plan.relabels).toEqual([])
+    expect(preview.tracker?.skippedRelabels).toBe(1)
+    await initFeature(['--dir', scratch, '--approve', preview.digest, '--operator-approval', 'ship it'], deps)
+    expect(ensureLabel).toHaveBeenCalledWith('type:fix', 'github.com/Acme/app', 'abcdef')
+    expect(writeContract).toHaveBeenCalledWith('contract')
+    expect(updateLabels).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
+
+  it('refuses any direct issue relabel through the pinned tracker port', async () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'omp-init-relabel-port-'))
+    const triage = authTriage({ tracker: 0 })
+    const updateLabels = vi.fn(async () => {})
+    const originalDeps = triage.defaultInitDeps
+    triage.defaultInitDeps = (...args) => ({ ...originalDeps(...args), updateLabels })
+    const deps = { facts: baseFacts(), triage, repository: 'Acme/app', principal: false }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const preview = await initFeature(['--dir', scratch], deps)
+    const tracker = preview.tracker
+    if (tracker === null) throw new Error('expected a tracker proposal')
+    await expect(tracker.deps.updateLabels(42, ['type:fix'], ['bug'], 'Acme/app')).rejects.toMatchObject({
+      name: 'FeatureInitRelabelForbidden',
+    })
+    expect(updateLabels).not.toHaveBeenCalled()
     vi.restoreAllMocks()
   })
 })

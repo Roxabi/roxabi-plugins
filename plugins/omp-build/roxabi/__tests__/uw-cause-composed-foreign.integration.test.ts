@@ -6,7 +6,7 @@ import type { Result } from '../../engine/result.ts'
 import type * as CreationSupport from '../uw-cause-creation-support.ts'
 import type * as ProposalPreparation from '../uw-proposal-preparation.ts'
 import { cleanupComposedScenario, type MutationWorld, preparationTap, scenario } from './uw-cause-composed-fixture.ts'
-import { isolateViewerToken, releaseViewerToken } from './uw-normalization-observation.ts'
+import { isolateViewerToken, releaseViewerToken } from './uw-viewer-token.ts'
 
 vi.mock('../uw-proposal-preparation.ts', async (importOriginal) => {
   const original = await importOriginal<typeof ProposalPreparation>()

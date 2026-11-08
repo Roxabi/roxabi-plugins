@@ -1,31 +1,16 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { parsePricedFences } from '../../../roxabi/uw-spec'
 import { parseRosterConfig } from '../roster-config'
 import { hasAxialAdr } from '../roster-files'
 import { pathHit, structureHit } from '../roster-signals'
-import { defaultConfig, dir, emptyPaths, gate, ROSTER, roster, useRosterWorkspace, writeSpec } from './roster.fixture'
+import { defaultConfig, dir, emptyPaths, gate, roster, useRosterWorkspace } from './roster.fixture'
 
 useRosterWorkspace()
 
-describe('parsePricedFences', () => {
-  it('ssot-only claim validates without prose stems', () => {
-    const spec = writeSpec(`
-\`\`\`yaml
-claim: [ssot]
-priced: "x"
-not: "y"
-oracles: ["z"]
-\`\`\`
-`)
-    const parsed = parsePricedFences(readFileSync(spec, 'utf-8'))
-    expect(parsed.pricedClaimOk).toBe(true)
-    expect(parsed.claims).toContain('ssot')
-  })
-
+describe('path signals', () => {
   it('path_hit when delta touches auth path', () => {
     expect(pathHit(['src/auth/login.ts'])).toBe(true)
     expect(pathHit(['plugins/example/skills/foo.ts'])).toBe(false)
@@ -46,69 +31,6 @@ describe('R-security-auditor', () => {
     expect(out.spawn_security_auditor).toBe(true)
     expect(out.agents).toContain('R-security-auditor')
     expect(gate(out, 'R-security-auditor')).toMatchObject({ spawn: true, reason: 'path-hit' })
-  })
-
-  it('claim tags on non-security Δ do not spawn (cut)', () => {
-    const spec = writeSpec(`
-- [ ] SC
-
-\`\`\`yaml
-claim: [fail-closed]
-priced: "x"
-not: "y"
-oracles: ["z"]
-\`\`\`
-`)
-    const parsed = parsePricedFences(readFileSync(spec, 'utf-8'))
-    const out = roster({
-      delta: ['plugins/example/skills/foo.ts'],
-      claims: parsed.claims,
-      pricedClaimOk: parsed.pricedClaimOk,
-    })
-    expect(out.path_hit).toBe(false)
-    expect(out.claims).toContain('fail-closed')
-    expect(out.spawn_security_auditor).toBe(false)
-    expect(out.agents).toEqual(['R-adversarial', 'R-tester'])
-  })
-
-  it('priced fence without valid claim → priced_claim_ok false ∧ ¬spawn', () => {
-    const spec = writeSpec(`
-\`\`\`yaml
-priced: "x"
-not: "y"
-oracles: ["z"]
-\`\`\`
-`)
-    const parsed = parsePricedFences(readFileSync(spec, 'utf-8'))
-    expect(parsed.pricedClaimOk).toBe(false)
-    const out = roster({
-      delta: ['skills/foo.ts'],
-      claims: parsed.claims,
-      pricedClaimOk: parsed.pricedClaimOk,
-    })
-    expect(out.priced_claim_ok).toBe(false)
-    expect(out.spawn_security_auditor).toBe(false)
-  })
-
-  it('CLI exits 2 on invalid priced fence and prints JSON', () => {
-    const spec = writeSpec(`
-\`\`\`yaml
-priced: "x"
-not: "y"
-oracles: ["z"]
-\`\`\`
-`)
-    const diff = join(dir, 'delta.txt')
-    writeFileSync(diff, 'skills/foo.ts\n')
-    const proc = spawnSync(
-      'bun',
-      [ROSTER, '--diff-list', diff, '--spec', spec, '--json', '--stack', join(dir, 'missing.yml')],
-      { encoding: 'utf8' },
-    )
-    expect(proc.status).toBe(2)
-    const json = JSON.parse(proc.stdout) as { priced_claim_ok: boolean; spawn_security_auditor: boolean }
-    expect(json.priced_claim_ok).toBe(false)
-    expect(json.spawn_security_auditor).toBe(false)
   })
 })
 
@@ -346,7 +268,6 @@ describe('reproduced roster misses', () => {
   })
 
   it('maps a spaced legacy tier to F-lite instead of exiting', () => {
-    const spec = writeSpec('- [ ] ok')
     const list = join(dir, 'delta.txt')
     writeFileSync(list, 'src/app.ts\n')
     const run = spawnSync(
@@ -359,6 +280,5 @@ describe('reproduced roster misses', () => {
     expect(run.status).toBe(0)
     expect(JSON.parse(run.stdout).tier).toBe('F-lite')
     expect(run.stderr).toContain('F-lite')
-    void spec
   })
 })

@@ -108,7 +108,6 @@ export {
   nativeIssueObservationSchema,
   nativeObservationDigest,
 } from './engine/uw-native-observation-schema.ts'
-export { normalizationJudgementSchema } from './engine/uw-normalization-schema.ts'
 export { canonicalSpec, specVersion, validateSpecIds } from './engine/uw-spec.ts'
 export type { OwnSpecRef } from './engine/uw-spec-schema.ts'
 export {

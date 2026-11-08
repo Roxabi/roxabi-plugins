@@ -63,8 +63,6 @@ export function conditionHolds(
       return decisions.epicStep === 'stop'
     case 'epic-final-review':
       return decisions.epicStep === 'final-review'
-    case 'epic-fix-ticket':
-      return decisions.epicStep === 'fix-ticket'
     case 'epic-post-merge':
       return decisions.epicStep === 'post-merge'
     case 'epic-complete':

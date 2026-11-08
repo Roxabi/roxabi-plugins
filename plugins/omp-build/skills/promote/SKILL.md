@@ -22,7 +22,7 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := user choi
 
 `/promote` is **offered**, never run on its own initiative:
 
-- It is not part of the feature cycle. `/feature` lands a ticket; landing does not
+- It is not part of the feature cycle. `/feature` lands an issue; landing does not
   promote, and nothing in the review→fix loop may reach this skill. A release that
   happens as a side effect of reviewing a PR is a release nobody decided to cut.
 - The operator invokes it. There is no path from `/feature`, `skill://dev-review`
@@ -594,7 +594,7 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 - **Phase:** Ship (optional tail)
 - **Predecessor:** — standalone. The operator runs it; nothing chains into it.
 - **Successor:** — manual `--finalize` follow-up, then `/cleanup` if offered and accepted
-- **Class:** standalone. `/feature` may *offer* it after a ticket lands; offering is
+- **Class:** standalone. `/feature` may *offer* it after an issue lands; offering is
   printing a line and stopping. It is never entered from the review→fix loop.
 
 ## Exit

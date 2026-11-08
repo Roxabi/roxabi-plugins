@@ -14,7 +14,7 @@ import type { Gh, Git, ObservedEvidence } from './review-input-contract'
 import { buildReviewPrompts } from './review-prompts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 
-import { type LiveIssueSpec, parsePricedFences, readEpicInputSpec, specIsDraft } from './uw-spec'
+import { type LiveIssueSpec, readEpicInputSpec } from './uw-spec'
 
 const SHA = /^[0-9a-f]{40}$/
 const RANGE = /^([0-9a-f]{40})\.\.([0-9a-f]{40})$/
@@ -119,8 +119,6 @@ export async function assembleEpicRangeInputs(input: {
     issue,
     input.gh,
   )
-  const parsed = parsePricedFences(issueSpec.body)
-  if (!parsed.pricedClaimOk) throw new Error('epic issue has a priced fence without a valid claim')
   const roster: AllocateReviewInput['shared'] = {
     delta: chunks.flatMap((chunk) => chunk.delta),
     tier: normalizeTier(
@@ -130,9 +128,6 @@ export async function assembleEpicRangeInputs(input: {
         .trim() ?? '',
     ),
     chunks: chunks.length,
-    claims: parsed.claims,
-    pricedClaimOk: parsed.pricedClaimOk,
-    specDraft: specIsDraft(issueSpec.body),
     axialAdr: false,
     stackPaths: parseStackPaths(stack),
     config: parseRosterConfig(stack),

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import type { InitDeps, InitPlan } from '../../dist/issue-triage/skills/issue-triage/lib/init.ts'
 import { ownerRepoFromRemote, plan, readFacts, realGitRemoteUrl } from './feature-init-facts'
 import { isPrincipal, proposeStack } from './feature-init-stack'
-import { loadTriageInit, type TriageInit } from './feature-init-triage'
+import { FeatureInitRelabelForbidden, loadTriageInit, type TriageInit } from './feature-init-triage'
 import type { Facts, ParseYaml, StackProposal } from './feature-init-types'
 
 type FeatureArgs = { dryRun: boolean; approve?: string; operatorApproval?: string; dir?: string }
@@ -33,7 +33,13 @@ function featureArgs(args: string[]): FeatureArgs {
   return out
 }
 
-type TrackerProposal = { plan: InitPlan; contractText: string; canonical: string; deps: InitDeps }
+type TrackerProposal = {
+  plan: InitPlan
+  contractText: string
+  canonical: string
+  deps: InitDeps
+  skippedRelabels: number
+}
 export type FeatureProposal = {
   checkout: string
   repository: string | null
@@ -55,7 +61,9 @@ function pinTrackerDeps(deps: InitDeps): InitDeps {
     listLabelNames: (repo) => deps.listLabelNames(hostPinned(repo)),
     listIssueLabelSets: (repo) => deps.listIssueLabelSets(hostPinned(repo)),
     ensureLabel: (name, repo, color) => deps.ensureLabel(name, hostPinned(repo), color),
-    updateLabels: (number, add, remove, repo) => deps.updateLabels(number, add, remove, hostPinned(repo)),
+    updateLabels: async () => {
+      throw new FeatureInitRelabelForbidden()
+    },
   }
 }
 
@@ -68,7 +76,9 @@ async function trackerProposal(
   if (!repository || facts.labelsState !== 'ok') return null
   const deps = pinTrackerDeps(triage.defaultInitDeps(repository, dir))
   const built = await triage.buildPlan(repository, repository, deps)
-  return { ...built, deps, canonical: triage.canonicalPlan(built.plan, built.contractText) }
+  const skippedRelabels = built.plan.relabels.length
+  const plan = { ...built.plan, relabels: [] }
+  return { ...built, plan, skippedRelabels, deps, canonical: triage.canonicalPlan(plan, built.contractText) }
 }
 
 function digestFor(
@@ -143,9 +153,7 @@ export async function previewFeatureInit(dir: string, deps: FeatureInitDeps = {}
 }
 
 function trackerChanges(tracker: TrackerProposal | null): boolean {
-  return Boolean(
-    tracker && (tracker.plan.createLabels.length || tracker.plan.relabels.length || tracker.plan.contract === 'write'),
-  )
+  return Boolean(tracker && (tracker.plan.createLabels.length || tracker.plan.contract === 'write'))
 }
 
 function printProposal(proposal: FeatureProposal): void {
@@ -157,6 +165,11 @@ function printProposal(proposal: FeatureProposal): void {
   console.log(
     `tracker: ${proposal.tracker?.canonical ?? (proposal.withheld ? `withheld (${proposal.withheld})` : 'withheld')}`,
   )
+  if (proposal.tracker?.skippedRelabels) {
+    console.log(
+      `tracker: ${proposal.tracker.skippedRelabels} issue relabels skipped (feature init never relabels issues)`,
+    )
+  }
   if (proposal.refusal) console.log(`refused: ${proposal.refusal}`)
   console.log(`digest: ${proposal.digest}`)
   console.log('digest is not authorization')

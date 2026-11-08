@@ -17,7 +17,7 @@ import {
   principalRefusalMessage,
 } from './feature-presentation.ts'
 import { deliverSessionCwd } from './feature-session-cwd.ts'
-import { announceUwNormalization } from './uw-normalization-host.ts'
+
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
   const parsed = parseFeatureCommand(args)
   if (!parsed.ok) {
@@ -76,7 +76,7 @@ async function continueFeatureCommand(
     await deliverPrincipalRefusal(host, result)
     return
   }
-  await deliverFeatureResult(commandInput.reference, result, host, commandInput)
+  await deliverFeatureResult(commandInput.reference, result, host)
 }
 
 /**
@@ -101,7 +101,6 @@ function refusedWork(result: ContinueFeatureResult): string {
     case 'fix':
     case 'admitted-ci-correction':
     case 'epic-final-review':
-    case 'normalization':
       return `workflow-result: ${result.kind}`
     default:
       return 'feature-stopped: feature-result-invalid'
@@ -126,7 +125,6 @@ export async function deliverFeatureResult(
   reference: string,
   result: ContinueFeatureResult,
   host: FeatureCommandHost,
-  original?: ContinueFeatureInput,
 ): Promise<void> {
   if (result.kind === 'framing') {
     await host.startFraming(result.source, result.source.kind === 'free-text' ? result.source.acceptedArgs : reference)
@@ -144,7 +142,7 @@ export async function deliverFeatureResult(
   switch (result.kind) {
     case 'action':
       await announceFeatureBatch(reference, result.followUp, result.start, host, async (next) =>
-        deliverFeatureResult(reference, next, host, original),
+        deliverFeatureResult(reference, next, host),
       )
       return
     case 'watch':
@@ -157,18 +155,6 @@ export async function deliverFeatureResult(
       return continueAfterAdmittedCiCorrection(reference, result, host)
     case 'epic-final-review':
       return deliverEpicFinalReview(result, host, continueAfterReview)
-    case 'normalization':
-      if (original === undefined) {
-        await host.send('feature-stopped: normalization-original-request-missing')
-        return
-      }
-      return announceUwNormalization({
-        reference,
-        request: result.request,
-        original,
-        host,
-        deliver: (next) => deliverFeatureResult(reference, next, host, original),
-      })
     default:
       await host.send('feature-stopped: feature-result-invalid')
   }

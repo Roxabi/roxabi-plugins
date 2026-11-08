@@ -14,7 +14,6 @@ import {
 import type { FindingInspection } from './result.ts'
 import { decisionSchema } from './review-schema.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
-import { normalizationJudgementSchema } from './uw-normalization-schema.ts'
 import {
   ciAttributionSchema,
   planOutputSchema,
@@ -33,7 +32,6 @@ export const PRODUCER_OUTPUTS = [
   'plan-review',
   'delivery-execution',
   'ci-attribution',
-  'uw-normalization',
 ] as const
 export type ProducerOutput = (typeof PRODUCER_OUTPUTS)[number]
 
@@ -51,7 +49,6 @@ const producerSchemas = {
     missingContextOutputSchema,
   ]),
   'ci-attribution': z.union([ciAttributionSchema, missingContextOutputSchema]),
-  'uw-normalization': z.union([normalizationJudgementSchema, missingContextOutputSchema]),
 } as const satisfies Record<ProducerOutput, z.ZodType>
 
 export function producerOutputValid(output: string, value: unknown): boolean {

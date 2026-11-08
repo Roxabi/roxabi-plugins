@@ -12,6 +12,13 @@ export class IssueTriageMissing extends Error {
   }
 }
 
+export class FeatureInitRelabelForbidden extends Error {
+  constructor() {
+    super('feature init cannot relabel existing issues')
+    this.name = 'FeatureInitRelabelForbidden'
+  }
+}
+
 /** Imports the installed emit. An import error is final: no later candidate is tried. */
 export async function loadMigrateLabel(): Promise<MigrateLabel> {
   const file = migrateLabelsFile

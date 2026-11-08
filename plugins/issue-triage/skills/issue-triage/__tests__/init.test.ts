@@ -285,8 +285,6 @@ describe('init', () => {
     expect(writes.ensure).toBe(CANONICAL.length)
     expect(writes.update).toBe(1)
     expect(contract).toContain('Acme/app')
-    expect(contract).toContain('issue-triage')
-    expect(contract).toContain('only writer')
     expect(first.contract).toBe('write')
 
     writes.ensure = 0

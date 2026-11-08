@@ -149,7 +149,7 @@ export async function continueFramedFeature(
     if (result.kind !== 'framing') host.releaseFeatureContinuation()
     const withCoverage = await continueWithParentCoverage(host, continuation, result, false)
     if (withCoverage === undefined) return
-    await deliverFeatureResult(continuation.reference, withCoverage, host, continuation)
+    await deliverFeatureResult(continuation.reference, withCoverage, host)
   } catch (error) {
     cancelFeatureUwOperation(pi, operator)
     reportFeatureTerminalStatus(pi, featureErrorMessage(error))

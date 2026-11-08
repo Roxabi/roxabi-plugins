@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { specDraftSchema, specItemIdSchema, uwTierSchema } from './uw-spec-schema.ts'
+import { specItemIdSchema, uwTierSchema } from './uw-spec-schema.ts'
 
 const positionSchema = z.strictObject({ line: z.number().int().positive(), column: z.number().int().positive() })
 export const sourceSpanSchema = z.strictObject({ start: positionSchema, end: positionSchema })
@@ -62,12 +62,3 @@ export const complexityFactorsSchema = z.strictObject({
 export type NormalizationFactors = z.infer<typeof complexityFactorsSchema>
 
 export const tierOverrideSchema = z.strictObject({ tier: uwTierSchema, reason: z.string().min(1) }).nullable()
-
-/** Native proposal output: targets may name existing C/I ids or new draft slots; engine allocation owns fresh identities. */
-export const normalizationJudgementSchema = z.strictObject({
-  draft: specDraftSchema,
-  normalization: z.array(normalizationDecisionSchema),
-  factors: complexityFactorsSchema,
-  tierOverride: tierOverrideSchema,
-})
-export type NormalizationJudgement = z.infer<typeof normalizationJudgementSchema>

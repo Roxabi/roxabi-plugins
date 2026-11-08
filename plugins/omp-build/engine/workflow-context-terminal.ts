@@ -19,7 +19,6 @@ const outputFor = {
   'attribute-ci': 'ci-attribution',
   implement: 'delivery-execution',
   integrate: 'delivery-execution',
-  normalize: 'uw-normalization',
 } as const
 
 export function workflowContextNegative(result: ReceiptRecord): boolean {

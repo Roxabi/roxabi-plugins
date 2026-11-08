@@ -21,7 +21,6 @@ import { prepareReviewTarget, reviewMaterial } from './review-pr-target'
 import { buildReviewPrompts, type SpecDisplay } from './review-prompts.ts'
 import type { ReviewSemanticContext } from './review-semantic-context'
 import type { ActionSubject, PreparedUwAction } from './uw-action-contract.ts'
-import { parsePricedFences, specIsDraft } from './uw-spec/signals.ts'
 
 const SIZE_VALUES: Record<string, true> = {
   s: true,
@@ -173,19 +172,12 @@ async function prepareCapturedReviewInputs(
   const material = await reviewMaterial(options, git, gh, candidate, pr.base, assetDir)
   if (!material.ok) return material
   const { refreshed, stack, baseStack, chunks } = material.value
-  const parsed = issueSpec === null ? { claims: [], pricedClaimOk: true } : parsePricedFences(issueSpec.body)
-  if (!parsed.pricedClaimOk) {
-    return failed('priced-fence-invalid', 'tracker issue has a priced fence without a valid claim')
-  }
   const rosterConfig = parseRosterConfig(stack)
   rosterConfig.warnings.push(...warnings)
   const roster: AllocateReviewInput['shared'] = {
     delta: chunks.flatMap((chunk) => chunk.delta),
     tier,
     chunks: chunks.length,
-    claims: parsed.claims,
-    pricedClaimOk: parsed.pricedClaimOk,
-    specDraft: issueSpec !== null && specIsDraft(issueSpec.body),
     axialAdr: await candidateHasAxialAdr(git, options.cwd, candidate),
     stackPaths: parseStackPaths(stack),
     config: rosterConfig,

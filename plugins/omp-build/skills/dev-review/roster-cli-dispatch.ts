@@ -5,7 +5,6 @@ import { allocateReview, computeRoster } from './roster-selection'
 
 export type RosterCliDispatch = {
   result: object
-  pricedClaimOk: boolean
 }
 
 type DispatchInput = {
@@ -14,23 +13,8 @@ type DispatchInput = {
   shared: ComputeRosterInput
 }
 
-function haltForUnreadableSpec<T extends { review_halt: boolean; warnings: string[] }>(
-  result: T,
-  specPath: string | null,
-): T {
-  if (specPath != null) {
-    result.review_halt = true
-    result.warnings.push(`unreadable spec: ${specPath}`)
-  }
-  return result
-}
-
-function dispatchChunks({ options, input, shared }: DispatchInput): RosterCliDispatch {
+function dispatchChunks({ input, shared }: DispatchInput): RosterCliDispatch {
   const allocated = allocateReview({ chunkDeltas: input.chunkDeltas, shared })
-  if (input.specUnreadable) {
-    allocated.global.review_halt = true
-    allocated.warnings.push(`unreadable spec: ${options.specPath}`)
-  }
   return {
     result: {
       ...allocated.global,
@@ -40,14 +24,11 @@ function dispatchChunks({ options, input, shared }: DispatchInput): RosterCliDis
       agents: allocated.agents,
       warnings: allocated.warnings,
     },
-    pricedClaimOk: allocated.global.priced_claim_ok,
   }
 }
 
-function dispatchSingle({ options, input, shared }: DispatchInput): RosterCliDispatch {
-  const result = computeRoster(shared)
-  if (input.specUnreadable) haltForUnreadableSpec(result, options.specPath)
-  return { result, pricedClaimOk: result.priced_claim_ok }
+function dispatchSingle({ shared }: DispatchInput): RosterCliDispatch {
+  return { result: computeRoster(shared) }
 }
 
 export function dispatchRosterCli(input: DispatchInput): RosterCliDispatch {

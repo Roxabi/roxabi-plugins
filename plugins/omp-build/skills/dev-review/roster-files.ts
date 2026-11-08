@@ -10,8 +10,8 @@ function errorCode(err: unknown): string {
   return ''
 }
 
-/** Every path here is operator-supplied (`--diff-list`, `--chunk-list`, `--spec`,
- *  `--stack`). `readFileSync` on a FIFO or a character device never returns, so
+/** Every path here is operator-supplied (`--diff-list`, `--chunk-list`, `--stack`).
+ *  `readFileSync` on a FIFO or a character device never returns, so
  *  the type precondition comes first: anything that is not a regular file falls
  *  into the same warning path as an unreadable one. */
 export function readOrWarn(path: string, what: string, warnings?: string[]): string | null {

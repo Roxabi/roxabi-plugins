@@ -7,7 +7,7 @@ import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../om
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
 import type { FramingSourceRequest } from './feature-framing-contract.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
-import type { NormalizationProposalRequest, UwOperations, UwReadPort } from './uw-contract.ts'
+import type { UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
 export type FeatureControl = 'select' | 'continue' | 'resume' | 'pause' | 'abandon' | 'new' | 'material-decision'
@@ -63,7 +63,6 @@ export type ContinueFeatureResult =
   | { kind: 'session-cwd'; path: string; instruction: string }
   | { kind: 'operator-decision'; reason: string }
   | { kind: 'framing'; source: FramingSourceRequest }
-  | { kind: 'normalization'; request: NormalizationProposalRequest }
 
 export type ContinueFeatureInput = {
   cwd: string
