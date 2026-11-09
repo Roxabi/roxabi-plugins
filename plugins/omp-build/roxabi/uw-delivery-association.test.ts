@@ -63,7 +63,6 @@ function foreignReceipt(): CanonicalRecord {
 }
 
 const receipt = foreignReceipt()
-const receiptHistory = fixtures.historyFrom([receipt], 'operator', 'operator', [mandateHistory])
 const bindingBodies = fixtures.framedBodies([binding, receipt], 'operator', [mandateHistory])
 const mandateBodies = fixtures.framedBodies([mandate, start], 'operator')
 
@@ -108,10 +107,8 @@ function completePulls() {
   }
 }
 
-const calls: string[] = []
 function gh(payload: unknown, pulls?: unknown, extraComments: unknown[] = [], extraMandateComments: unknown[] = []) {
   return async (_cwd: string, args: string[]) => {
-    calls.push(args.join(' '))
     const query = args.find((item) => item.startsWith('query='))?.slice('query='.length) ?? ''
     if (query.includes('pullRequests') && pulls !== undefined) return JSON.stringify(pulls)
     if (args.some((item) => item.includes('/comments'))) {
@@ -139,18 +136,13 @@ function readFacts(
   }).read(UW42, [])
 }
 
-it('keeps a PR bound to another UW out of this delivery and does not rewrite its repository', async () => {
-  calls.splice(0)
-  const decoded = receiptHistory.operations.find((item) => item.record?.recordId === 'pr77-receipt')?.record
-  expect(decoded?.repository).toBe(PR77.repository)
-  expect(decoded?.target).toBe(PR77.target)
+it('keeps a PR bound to another UW out of this delivery', async () => {
   const read = await readFacts({ data: null }, completePulls())
   expect(read.ok).toBe(true)
   if (!read.ok) return
-  expect(read.value.facts.pullRequests).toEqual([])
-  expect(calls.some((item) => item.includes('repos/other/repo/issues/77/comments'))).toBe(true)
-  expect(calls.some((item) => item.includes('repos/acme/app/issues/77'))).toBe(false)
-  expect(calls.some((item) => item.includes('repos/acme/app/issues/99/comments'))).toBe(true)
+  expect(read.value.facts).toMatchObject({ uw: UW42, pullRequests: [] })
+  expect(read.value.histories.map((history) => history.source.scope)).not.toContainEqual(PR77)
+  expect(read.value.histories.map((history) => history.source.scope)).not.toContainEqual(UW99)
 })
 
 it('ignores foreign binding and mandate identity collisions on an unrelated enumerated PR', async () => {

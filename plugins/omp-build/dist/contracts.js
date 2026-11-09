@@ -14339,7 +14339,7 @@ function recordsForClaims(claims, input) {
   }
   return records;
 }
-function selectWorkflowBindingCandidate(input) {
+function selectWorkflowBindingClaims(input) {
   const history = historyFor(input.pullRequest, input.histories);
   if (history === null)
     return bindingRefusal("incomplete", [diagnostic2("missing-history", "Pull request history is missing")]);
@@ -14357,7 +14357,10 @@ function selectWorkflowBindingCandidate(input) {
   const invalid = invalidClaims(claims);
   if (invalid !== null)
     return invalid;
-  const records = recordsForClaims(claims, input);
+  return recordsForClaims(claims, input);
+}
+function selectWorkflowBindingCandidate(input) {
+  const records = selectWorkflowBindingClaims(input);
   if (!Array.isArray(records))
     return records;
   return resolveBindingChain(records, input.histories);
@@ -23054,15 +23057,14 @@ async function decodeScope(scope, options) {
     return actionFailure("record-unreadable", `${scope.repository} ${scope.target} history is unreadable: ${error instanceof Error ? error.message : "GitHub read failed"}`);
   }
 }
-function mandateHomes(history, loaded) {
+function mandateHomes(history) {
   const scopes = [];
   for (const operation of history.operations) {
     const record = operation.record;
     if (record?.kind !== "workflow-binding")
       continue;
     const scope = record.payload.mandate.scope;
-    const key = `${scope.repository}\x00${scope.target}`;
-    if (loaded.has(key) || scopes.some((item) => item.repository === scope.repository && item.target === scope.target))
+    if (scopes.some((item) => item.repository === scope.repository && item.target === scope.target))
       continue;
     scopes.push(scope);
   }
@@ -23072,7 +23074,9 @@ async function resolveCandidateBinding(candidate, pr, options, loaded) {
   const native = { branch: candidate.branch, base: candidate.base };
   let selected = selectWorkflowBinding({ pullRequest: candidate.scope, histories: [...loaded.values()], native });
   if (selected.status === "incomplete") {
-    for (const scope of mandateHomes(pr, loaded)) {
+    for (const scope of mandateHomes(pr)) {
+      if (loaded.has(`${scope.repository}\x00${scope.target}`))
+        continue;
       const read = await decodeScope(scope, options);
       if (!read.ok)
         return read;
@@ -23094,19 +23098,34 @@ async function candidateHistory(candidate, options, loaded) {
     loaded.set(key, read.value);
   return read;
 }
+function retainCandidateMandateHomes(pr, loaded, kept) {
+  for (const scope of mandateHomes(pr)) {
+    const history = loaded.get(`${scope.repository}\x00${scope.target}`);
+    if (history !== undefined && !kept.includes(history))
+      kept.push(history);
+  }
+}
 async function collectCandidate(candidate, uw, options, loaded, kept) {
   const read = await candidateHistory(candidate, options, loaded);
   if (!read.ok)
     return read;
   const pr = read.value;
+  if (!pr.source.complete) {
+    if (!kept.includes(pr))
+      kept.push(pr);
+    return actionFailure("incomplete", `History for ${candidate.scope.repository} ${candidate.scope.target} is incomplete`);
+  }
+  const claims = selectWorkflowBindingClaims({
+    pullRequest: candidate.scope,
+    histories: [pr],
+    native: { branch: candidate.branch, base: candidate.base }
+  });
+  if (Array.isArray(claims) && claims.length > 0 && claims.every((record) => !equalScope(record.payload.mandate.scope, uw)))
+    return { ok: true, value: false };
   if (!kept.includes(pr))
     kept.push(pr);
-  if (!pr.source.complete)
-    return actionFailure("incomplete", `History for ${candidate.scope.repository} ${candidate.scope.target} is incomplete`);
   const binding = await resolveCandidateBinding(candidate, pr, options, loaded);
-  for (const history of loaded.values())
-    if (!kept.includes(history))
-      kept.push(history);
+  retainCandidateMandateHomes(pr, loaded, kept);
   if (!binding.ok)
     return binding;
   const selected = binding.value;

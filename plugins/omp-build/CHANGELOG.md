@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.2
+
+- Exclude a delivery candidate only when its nonempty, authenticated PR binding claims all name mandate homes outside the observed UW. Unrelated historical mandates no longer prevent observing a current delivery; relevant and ambiguous claims retain full validation.
+- Keep excluded delivery candidates out of retained authority histories and shared-cache sweeps. Independently required causal references still use the strict reader.
+- The product-version bump changes the effective workflow config digest. Existing mandates are not implicitly compatible, and this correction grants no activation or terminalization exception.
+
 ## 0.18.1
 
 - Keep a deferred framing proposal available to `ctrl+alt+u` in the same live session and location. Explicit refusal discards it; only explicit confirmation authorizes effects. Preserve freshness, revocation and one-use guards.

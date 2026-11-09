@@ -251,7 +251,7 @@ function recordsForClaims(
   return records
 }
 
-export function selectWorkflowBindingCandidate(input: BindingInput): BindingCandidate {
+export function selectWorkflowBindingClaims(input: BindingInput): BindingCandidate | WorkflowBindingRecord[] {
   const history = historyFor(input.pullRequest, input.histories)
   if (history === null)
     return bindingRefusal('incomplete', [diagnostic('missing-history', 'Pull request history is missing')])
@@ -270,7 +270,11 @@ export function selectWorkflowBindingCandidate(input: BindingInput): BindingCand
   }
   const invalid = invalidClaims(claims)
   if (invalid !== null) return invalid
-  const records = recordsForClaims(claims, input)
+  return recordsForClaims(claims, input)
+}
+
+export function selectWorkflowBindingCandidate(input: BindingInput): BindingCandidate {
+  const records = selectWorkflowBindingClaims(input)
   if (!Array.isArray(records)) return records
   return resolveBindingChain(records, input.histories)
 }
