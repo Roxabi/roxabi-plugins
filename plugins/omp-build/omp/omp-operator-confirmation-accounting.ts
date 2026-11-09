@@ -20,7 +20,10 @@ function targetDescription(target: Target, member: FramingUwMember, plan: Plan |
 }
 
 function spanExcerpt(raw: string, span: FramingSourceRef['span']): string {
-  const lines = raw.split('\n').slice(span.start.line - 1, span.end.line)
+  const lines = raw
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .slice(span.start.line - 1, span.end.line)
   if (lines.length === 1) return (lines[0] ?? '').slice(span.start.column - 1, span.end.column - 1)
   if (lines.length) {
     lines[0] = (lines[0] ?? '').slice(span.start.column - 1)

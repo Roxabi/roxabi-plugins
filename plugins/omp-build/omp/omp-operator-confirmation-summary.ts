@@ -42,12 +42,12 @@ function appendFacts(lines: string[], value: unknown, name: string, depth: numbe
   if (value == null) return
   const label = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ')
   if (typeof value !== 'object') {
-    lines.push(`${'  '.repeat(depth)}${label} : ${String(value)}`)
+    lines.push(`${'  '.repeat(depth)}Champ : ${label} : ${String(value)}`)
     return
   }
   if (Array.isArray(value)) {
     if (!value.length) return
-    lines.push(`${'  '.repeat(depth)}${label} :`)
+    lines.push(`${'  '.repeat(depth)}Groupe : ${label}`)
     value.forEach((item, index) => {
       appendFacts(lines, item, `${index + 1}`, depth + 1)
     })
@@ -55,7 +55,7 @@ function appendFacts(lines: string[], value: unknown, name: string, depth: numbe
   }
   const entries = Object.entries(value).filter(([key]) => !ignored[key])
   if (!entries.length) return
-  if (name) lines.push(`${'  '.repeat(depth)}${label} :`)
+  if (name) lines.push(`${'  '.repeat(depth)}Groupe : ${label}`)
   entries.forEach(([key, item]) => {
     appendFacts(lines, item, key, name ? depth + 1 : depth)
   })
@@ -81,7 +81,7 @@ export function proposalSummary(prepared: PreparedOperatorProposal): string[] {
             return `nouveau / en attente : ${planned && 'kind' in planned ? planned.plan.title : child.operationId}`
           })
           .join(', ')
-        lines.push(`Couverture parent ${proposed.coverage?.parent.uw.target} : ${assignment.criterion} → ${children}`)
+        lines.push(`Couverture parent : ${proposed.coverage?.parent.uw.target} — ${assignment.criterion} → ${children}`)
       }
     }
   }

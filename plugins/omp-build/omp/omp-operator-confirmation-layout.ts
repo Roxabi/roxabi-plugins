@@ -2,14 +2,18 @@ function wrapLine(line: string, width: number): string[] {
   const rows: string[] = []
   let current = ''
   let cells = 0
-  for (const char of line) {
+  const visible = line.replace(
+    /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+    (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
+  )
+  for (const char of visible) {
     const code = char.codePointAt(0) ?? 0
     if (code < 32 || (code >= 127 && code <= 159)) continue
     const size = code < 128 ? 1 : 2
     if (cells + size > width) {
       rows.push(current)
-      current = ''
-      cells = 0
+      current = width >= 3 ? '| ' : ''
+      cells = current.length
     }
     current += char
     cells += size

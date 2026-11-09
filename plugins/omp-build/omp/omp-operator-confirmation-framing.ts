@@ -23,7 +23,10 @@ function identityEffects(plan: Plan): string[] {
   for (const item of after) {
     const previous = before.find((entry) => entry.id === item.id)
     if (previous && previous.statement !== item.statement)
-      lines.push(`  ${item.id} avant : ${previous.statement}`, `  ${item.id} après : ${item.statement}`)
+      lines.push(
+        `  Identité avant : ${item.id} — ${previous.statement}`,
+        `  Identité après : ${item.id} — ${item.statement}`,
+      )
   }
   return lines
 }
@@ -52,7 +55,7 @@ function memberEffects(member: Member, plan: Plan | undefined): string[] {
 
 function memberContents(member: Member): string[] {
   const lines = [`Détails métier : ${member.title}`]
-  if (member.kind === 'wayfinder') return [...lines, member.body]
+  if (member.kind === 'wayfinder') return [...lines, `  Contenu du repère : ${member.body}`]
   for (const item of member.draft.criteria) lines.push(`  Critère : ${item.statement}`)
   for (const item of member.draft.invariants) lines.push(`  Invariant : ${item.statement}`)
   for (const item of member.draft.exclusions) lines.push(`  Exclusion : ${item}`)
@@ -91,7 +94,7 @@ function coverageEffects(proposal: FramingProposal, names: Map<string, string>):
     for (const assignment of coverage.assignments) {
       const criterion = criterionDescription(assignment.criterion, member, plan)
       const children = assignment.children.map((child) => names.get(child) ?? child).join(', ')
-      lines.push(`Couverture ${names.get(coverage.parent) ?? coverage.parent} : ${criterion} → ${children}`)
+      lines.push(`Couverture : ${names.get(coverage.parent) ?? coverage.parent} — ${criterion} → ${children}`)
     }
   }
   for (const foundation of proposal.input.foundations)

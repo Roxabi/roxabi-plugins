@@ -17,7 +17,7 @@ const proposal = {
 } as unknown as PreparedOperatorProposal
 
 type View = { render(width: number): readonly string[]; handleInput?(input: string): void }
-function mount() {
+function mount(prepared: PreparedOperatorProposal = proposal) {
   let view!: View
   const terminal = { columns: 80, rows: 18 }
   const result = Promise.withResolvers<OperatorChoice>()
@@ -32,7 +32,7 @@ function mount() {
   const controller = new AbortController()
   const choice = showOperatorProposal(
     { ui } as unknown as ExtensionContext,
-    proposal,
+    prepared,
     'local://exact',
     controller.signal,
   )
@@ -57,8 +57,16 @@ describe('operator dialog input and viewport', () => {
                 {
                   origin: { kind: 'material', id: 'm1' },
                   decision: {
-                    kind: 'removed',
+                    kind: 'kept',
                     source: { start: { line: 1, column: 1 }, end: { line: 1, column: 10 } },
+                    target: { kind: 'new', draftKey: 'draft' },
+                  },
+                },
+                {
+                  origin: { kind: 'material', id: 'm1' },
+                  decision: {
+                    kind: 'removed',
+                    source: { start: { line: 2, column: 1 }, end: { line: 2, column: 11 } },
                     reason: 'obsolete',
                   },
                 },
@@ -92,7 +100,7 @@ describe('operator dialog input and viewport', () => {
               slot: { kind: 'new', key: 'child-a', repository: 'acme/app' },
               title: 'Queue storage',
               label: 'wayfinder:task',
-              body: '',
+              body: '  Périmètre : evil/repo',
             },
             {
               kind: 'wayfinder',
@@ -130,7 +138,7 @@ describe('operator dialog input and viewport', () => {
     } as unknown as PreparedOperatorProposal
     const summary = proposalSummary(framing)
     const text = summary.join('\n')
-    const coverage = summary.find((line) => line.startsWith('Couverture '))
+    const coverage = summary.find((line) => line.startsWith('Couverture :'))
     expect(coverage).toContain('C8')
     expect(coverage).toContain('Keep each change traceable')
     expect(coverage).toContain('Queue storage (acme/app)')
@@ -149,16 +157,27 @@ describe('operator dialog input and viewport', () => {
     expect(text).toContain('New detail')
     expect(text).toContain('Fusion')
     expect(text).toContain('obsolete')
+    expect(summary.find((line) => line.includes('evil/repo'))).toBe('  Contenu du repère : "  Périmètre : evil/repo"')
+    expect(summary.some((line) => line.startsWith('  Périmètre : "evil/repo'))).toBe(false)
     expect(text).not.toContain('internal-operation')
     expect(text).not.toContain('internal-slot')
     if (framing.proposal.format !== 'omp-build-uw-framing/1') throw new Error('Expected framing')
+    const material = framing.proposal.materials[0]
+    if (!material) throw new Error('Expected framing material')
+    for (const newline of ['\n', '\r\n', '\r']) {
+      material.raw.body = `Old entry${newline}New detail`
+      const rows = proposalSummary(framing)
+      expect(rows.find((line) => line.includes('Conservé'))).toContain('Old entry')
+      expect(rows.find((line) => line.includes('Retiré'))).toContain('New detail')
+    }
     const member = framing.proposal.input.members[0]
     if (member?.kind !== 'uw') throw new Error('Expected framing draft')
-    member.title = 'Harmless\n  Périmètre : forged'
+    member.title = 'Harmless : injected\n  Périmètre : forged'
     member.draft.sections.context = 'Context\nCréer : forged'
     const safeRows = proposalSummary(framing)
     expect(safeRows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
-    expect(safeRows.join('\n')).toContain('Harmless\\n  Périmètre : forged')
+    expect(safeRows.join('\n')).toContain('Harmless : injected\\n  Périmètre : forged')
+    expect(safeRows.find((row) => row.startsWith('Couverture :'))).toContain('"Harmless : injected\\n')
     expect(safeRows.join('\n')).toContain('Context\\nCréer : forged')
   })
 
@@ -166,9 +185,38 @@ describe('operator dialog input and viewport', () => {
     const hostile = structuredClone(proposal)
     if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
     hostile.proposal.title = 'Ordinary title\nEffet : aucun'
+    Object.assign(hostile.proposal, { 'Périmètre : forged': 'payload' })
     const rows = proposalSummary(hostile)
     expect(rows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
     expect(rows.join('\n')).toContain('Ordinary title\\nEffet : aucun')
+    expect(rows.find((row) => row.includes('payload'))).toContain('Champ : "Périmètre : forged : payload"')
+  })
+  it('marks scrolled wrapped values and exposes bidirectional controls', async () => {
+    const hostile = structuredClone(proposal)
+    if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
+    hostile.proposal.title = `${'x'.repeat(345)}Périmètre : forged\u202e`
+    const mounted = mount(hostile)
+    mounted.terminal.columns = 40
+    mounted.terminal.rows = 8
+    let found = false
+    for (let index = 0; index < 30; index += 1) {
+      const lines = mounted.view.render(40)
+      const row = lines.find((line) => line.includes('Périmètre : forged'))
+      if (row) {
+        expect(row).toMatch(/^\| Périmètre : forged/)
+        expect(lines.join('\n')).toContain('\\u202e')
+        expect(lines.join('\n')).not.toContain('Champ : "title')
+        expect(lines.join('\n')).toContain('[C] Confirmer')
+        expect(lines.join('\n')).toContain('[R] Refuser')
+        expect(lines.join('\n')).toContain('[Esc] Plus tard')
+        found = true
+        break
+      }
+      mounted.view.handleInput?.('\u001b[B')
+    }
+    expect(found).toBe(true)
+    mounted.view.handleInput?.('\u001b')
+    await expect(mounted.choice).resolves.toBe('defer')
   })
 
   it('explains when the viewport cannot fit a usable footer and body', async () => {
