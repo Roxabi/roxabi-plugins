@@ -1,4 +1,4 @@
-import { composedParentConsentSchema } from '../engine/cause-disposition-schema.ts'
+import { composedParentConsentSchema } from '../dist/contracts.js'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { framingSummary } from './omp-operator-confirmation-framing.ts'
 
