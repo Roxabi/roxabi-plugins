@@ -1,5 +1,6 @@
 import type { FramingProposal } from '../engine/uw-framing-receipt-schema.ts'
 import type { FramingUwMember } from '../engine/uw-framing-schema.ts'
+import { summaryField } from './omp-operator-confirmation-field.ts'
 
 type Plan = FramingProposal['members'][number]
 type FramingSourceRef = FramingUwMember['merges'][number]['sources'][number]
@@ -64,13 +65,15 @@ export function accountingEffects(
     const decision = entry.decision
     const origin = entry.origin
     const before = origin && 'source' in decision ? excerpt(proposal, { origin, span: decision.source }) : ''
-    const target = 'target' in decision ? ` → ${targetDescription(decision.target, member, plan)}` : ''
-    const reason = 'reason' in decision ? ` ; motif : ${decision.reason}` : ''
-    lines.push(`  ${labels[decision.kind]}${before ? ` : ${before}` : ''}${target}${reason}`)
+    const target = 'target' in decision ? summaryField(' → ', targetDescription(decision.target, member, plan)) : ''
+    const reason = 'reason' in decision ? summaryField(' ; motif : ', decision.reason) : ''
+    lines.push(`  ${labels[decision.kind]}${before ? summaryField(' : ', before) : ''}${target}${reason}`)
   }
   for (const merge of member.merges) {
-    const sources = merge.sources.map((source) => excerpt(proposal, source)).join(' + ')
-    lines.push(`  Fusion : ${sources} → ${targetDescription(merge.target, member, plan)} ; motif : ${merge.reason}`)
+    const sources = merge.sources.map((source) => summaryField('', excerpt(proposal, source))).join(' + ')
+    lines.push(
+      `  Fusion : ${sources}${summaryField(' → ', targetDescription(merge.target, member, plan))}${summaryField(' ; motif : ', merge.reason)}`,
+    )
   }
   return lines
 }

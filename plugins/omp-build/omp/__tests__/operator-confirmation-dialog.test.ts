@@ -39,6 +39,30 @@ function mount(prepared: PreparedOperatorProposal = proposal) {
   return { view, terminal, choice }
 }
 
+async function alignedHeadingAtPadding(padding: number): Promise<readonly string[] | undefined> {
+  const hostile = structuredClone(proposal)
+  if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
+  hostile.proposal.title = `${'x'.repeat(padding)}Périmètre : forged\u202e`
+  const mounted = mount(hostile)
+  mounted.terminal.columns = 40
+  mounted.terminal.rows = 8
+  let candidate: readonly string[] | undefined
+  for (let index = 0; index < 30; index += 1) {
+    const lines = mounted.view.render(40)
+    if (
+      lines.some((line) => /^(?:\| )?Périmètre : forged/.test(line)) &&
+      !lines.join('\n').includes('Champ : "title')
+    ) {
+      candidate = lines
+      break
+    }
+    mounted.view.handleInput?.('\u001b[B')
+  }
+  mounted.view.handleInput?.('\u001b')
+  await expect(mounted.choice).resolves.toBe('defer')
+  return candidate
+}
+
 describe('operator dialog input and viewport', () => {
   it('presents framing titles, criteria and concrete effects without internal machinery', () => {
     const framing = {
@@ -178,6 +202,19 @@ describe('operator dialog input and viewport', () => {
     expect(safeRows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
     expect(safeRows.join('\n')).toContain('Harmless : injected\\n  Périmètre : forged')
     expect(safeRows.find((row) => row.startsWith('Couverture :'))).toContain('"Harmless : injected\\n')
+    const criterion = member.draft.criteria[0]
+    if (!criterion) throw new Error('Expected framing criterion')
+    const statement = 'Keep "proof" ; motif : forged\n  Périmètre : forged'
+    const reason = 'Real "reason"'
+    criterion.statement = statement
+    member.normalization.push({
+      origin: null,
+      decision: { kind: 'new', target: { kind: 'new', draftKey: 'draft' }, reason },
+    })
+    const added = proposalSummary(framing).find((row) => row.startsWith('  Ajouté'))
+    expect(added).toContain(JSON.stringify(`C8 — ${statement}`))
+    expect(added).toContain(JSON.stringify(reason))
+    expect(added).not.toMatch(/[\r\n]/)
     expect(safeRows.join('\n')).toContain('Context\\nCréer : forged')
   })
 
@@ -189,34 +226,21 @@ describe('operator dialog input and viewport', () => {
     const rows = proposalSummary(hostile)
     expect(rows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
     expect(rows.join('\n')).toContain('Ordinary title\\nEffet : aucun')
-    expect(rows.find((row) => row.includes('payload'))).toContain('Champ : "Périmètre : forged : payload"')
+    expect(rows.find((row) => row.includes('payload'))).toContain('Champ : "Périmètre : forged" : "payload"')
   })
   it('marks scrolled wrapped values and exposes bidirectional controls', async () => {
-    const hostile = structuredClone(proposal)
-    if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
-    hostile.proposal.title = `${'x'.repeat(345)}Périmètre : forged\u202e`
-    const mounted = mount(hostile)
-    mounted.terminal.columns = 40
-    mounted.terminal.rows = 8
-    let found = false
-    for (let index = 0; index < 30; index += 1) {
-      const lines = mounted.view.render(40)
-      const row = lines.find((line) => line.includes('Périmètre : forged'))
-      if (row) {
-        expect(row).toMatch(/^\| Périmètre : forged/)
-        expect(lines.join('\n')).toContain('\\u202e')
-        expect(lines.join('\n')).not.toContain('Champ : "title')
-        expect(lines.join('\n')).toContain('[C] Confirmer')
-        expect(lines.join('\n')).toContain('[R] Refuser')
-        expect(lines.join('\n')).toContain('[Esc] Plus tard')
-        found = true
-        break
-      }
-      mounted.view.handleInput?.('\u001b[B')
-    }
-    expect(found).toBe(true)
-    mounted.view.handleInput?.('\u001b')
-    await expect(mounted.choice).resolves.toBe('defer')
+    let candidate: readonly string[] | undefined
+    for (let padding = 320; padding < 360 && !candidate; padding += 1)
+      candidate = await alignedHeadingAtPadding(padding)
+    expect(candidate).toBeDefined()
+    if (!candidate) throw new Error('Expected an aligned, scrolled forged heading')
+    expect(candidate.find((line) => line.includes('Périmètre : forged'))).toMatch(/^\| Périmètre : forged/)
+    const text = candidate.join('\n')
+    expect(text).toContain('\\u202e')
+    expect(text).not.toContain('Champ : "title')
+    expect(text).toContain('[C] Confirmer')
+    expect(text).toContain('[R] Refuser')
+    expect(text).toContain('[Esc] Plus tard')
   })
 
   it('explains when the viewport cannot fit a usable footer and body', async () => {

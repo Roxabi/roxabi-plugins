@@ -23,7 +23,6 @@ function assertCoverageDisplayed(proposal: CauseCreationProposal, display: strin
         )
         if (!planned || !('kind' in planned)) throw new Error('Expected planned coverage child')
         expect(displayed).toContain(planned.plan.title.replace(/\s+/g, ''))
-        expect(displayed).toContain('nouveau/enattente')
       } else {
         expect(displayed).toContain(child.repository.replace(/\s+/g, ''))
         expect(displayed).toContain(child.target.replace(/\s+/g, ''))

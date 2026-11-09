@@ -1,5 +1,6 @@
 import type { FramingProposal } from '../engine/uw-framing-receipt-schema.ts'
 import { accountingEffects } from './omp-operator-confirmation-accounting.ts'
+import { summaryField } from './omp-operator-confirmation-field.ts'
 
 type Member = FramingProposal['input']['members'][number]
 type Plan = FramingProposal['members'][number]
@@ -14,18 +15,18 @@ function identityEffects(plan: Plan): string[] {
   const after = [...plan.allocation.spec.criteria, ...plan.allocation.spec.invariants]
   for (const id of plan.allocation.retirements) {
     const item = before.find((entry) => entry.id === id)
-    lines.push(`  Identité retirée : ${id}${item ? ` — ${item.statement}` : ''}`)
+    lines.push(summaryField('  Identité retirée : ', `${id}${item ? ` — ${item.statement}` : ''}`))
   }
   for (const assignment of plan.allocation.assignments) {
     const item = after.find((entry) => entry.id === assignment.id)
-    lines.push(`  Nouvelle identité : ${assignment.id}${item ? ` — ${item.statement}` : ''}`)
+    lines.push(summaryField('  Nouvelle identité : ', `${assignment.id}${item ? ` — ${item.statement}` : ''}`))
   }
   for (const item of after) {
     const previous = before.find((entry) => entry.id === item.id)
     if (previous && previous.statement !== item.statement)
       lines.push(
-        `  Identité avant : ${item.id} — ${previous.statement}`,
-        `  Identité après : ${item.id} — ${item.statement}`,
+        summaryField('  Identité avant : ', `${item.id} — ${previous.statement}`),
+        summaryField('  Identité après : ', `${item.id} — ${item.statement}`),
       )
   }
   return lines
@@ -34,35 +35,40 @@ function identityEffects(plan: Plan): string[] {
 function memberEffects(member: Member, plan: Plan | undefined): string[] {
   const scope = member.slot.kind === 'new' ? member.slot.repository : member.slot.uw.target
   const action = member.slot.kind === 'new' ? 'Créer' : 'Modifier'
-  const lines = [`${action} : ${member.title}`, `  Périmètre : ${scope}`]
+  const lines = [summaryField(`${action} : `, member.title), summaryField('  Périmètre : ', scope)]
   if (member.slot.kind === 'existing') {
-    lines.push(`  Effet : remplacer le titre et le corps de ${scope} par ${member.title} et la spécification proposée`)
+    lines.push(
+      summaryField(
+        '  Effet : ',
+        `remplacer le titre et le corps de ${scope} par ${member.title} et la spécification proposée`,
+      ),
+    )
     const observed = member.slot.observed
-    if (observed.nativeParent) lines.push(`  Parent actuel : ${observed.nativeParent.target}`)
+    if (observed.nativeParent) lines.push(summaryField('  Parent actuel : ', observed.nativeParent.target))
     if (observed.children.length)
-      lines.push(`  Enfants actuels : ${observed.children.map((child) => child.target).join(', ')}`)
+      lines.push(summaryField('  Enfants actuels : ', observed.children.map((child) => child.target).join(', ')))
     if (observed.blockers.length)
-      lines.push(`  Blocages actuels : ${observed.blockers.map((blocker) => blocker.target).join(', ')}`)
+      lines.push(summaryField('  Blocages actuels : ', observed.blockers.map((blocker) => blocker.target).join(', ')))
   }
-  if (plan?.tier) lines.push(`  Niveau proposé : ${plan.tier}`)
-  if (member.kind === 'wayfinder') return [...lines, `  Effet : publier le repère ${member.label}`]
+  if (plan?.tier) lines.push(summaryField('  Niveau proposé : ', plan.tier))
+  if (member.kind === 'wayfinder') return [...lines, summaryField('  Effet : ', `publier le repère ${member.label}`)]
   lines.push('  Effet : publier la spécification et les relations proposées')
   if (plan) lines.push(...identityEffects(plan))
-  if (member.labels.add.length) lines.push(`  Labels à ajouter : ${member.labels.add.join(', ')}`)
-  if (member.labels.remove.length) lines.push(`  Labels à retirer : ${member.labels.remove.join(', ')}`)
+  if (member.labels.add.length) lines.push(summaryField('  Labels à ajouter : ', member.labels.add.join(', ')))
+  if (member.labels.remove.length) lines.push(summaryField('  Labels à retirer : ', member.labels.remove.join(', ')))
   return lines
 }
 
 function memberContents(member: Member): string[] {
-  const lines = [`Détails métier : ${member.title}`]
-  if (member.kind === 'wayfinder') return [...lines, `  Contenu du repère : ${member.body}`]
-  for (const item of member.draft.criteria) lines.push(`  Critère : ${item.statement}`)
-  for (const item of member.draft.invariants) lines.push(`  Invariant : ${item.statement}`)
-  for (const item of member.draft.exclusions) lines.push(`  Exclusion : ${item}`)
-  for (const item of member.draft.openQuestions) lines.push(`  Question ouverte : ${item}`)
-  if (member.draft.sections.origin) lines.push(`  Origine : ${member.draft.sections.origin}`)
-  if (member.draft.sections.context) lines.push(`  Contexte : ${member.draft.sections.context}`)
-  if (member.draft.sections.change) lines.push(`  Changement : ${member.draft.sections.change}`)
+  const lines = [summaryField('Détails métier : ', member.title)]
+  if (member.kind === 'wayfinder') return [...lines, summaryField('  Contenu du repère : ', member.body)]
+  for (const item of member.draft.criteria) lines.push(summaryField('  Critère : ', item.statement))
+  for (const item of member.draft.invariants) lines.push(summaryField('  Invariant : ', item.statement))
+  for (const item of member.draft.exclusions) lines.push(summaryField('  Exclusion : ', item))
+  for (const item of member.draft.openQuestions) lines.push(summaryField('  Question ouverte : ', item))
+  if (member.draft.sections.origin) lines.push(summaryField('  Origine : ', member.draft.sections.origin))
+  if (member.draft.sections.context) lines.push(summaryField('  Contexte : ', member.draft.sections.context))
+  if (member.draft.sections.change) lines.push(summaryField('  Changement : ', member.draft.sections.change))
   return lines
 }
 
@@ -94,12 +100,17 @@ function coverageEffects(proposal: FramingProposal, names: Map<string, string>):
     for (const assignment of coverage.assignments) {
       const criterion = criterionDescription(assignment.criterion, member, plan)
       const children = assignment.children.map((child) => names.get(child) ?? child).join(', ')
-      lines.push(`Couverture : ${names.get(coverage.parent) ?? coverage.parent} — ${criterion} → ${children}`)
+      lines.push(
+        summaryField('Couverture : ', `${names.get(coverage.parent) ?? coverage.parent} — ${criterion} → ${children}`),
+      )
     }
   }
   for (const foundation of proposal.input.foundations)
     lines.push(
-      `Fondation : ${names.get(foundation.parent) ?? foundation.parent} → ${names.get(foundation.child) ?? foundation.child}`,
+      summaryField(
+        'Fondation : ',
+        `${names.get(foundation.parent) ?? foundation.parent} → ${names.get(foundation.child) ?? foundation.child}`,
+      ),
     )
   return lines
 }
@@ -120,11 +131,17 @@ export function framingSummary(proposal: FramingProposal): string[] {
   for (const edge of proposal.input.edges) {
     if (edge.kind === 'parent-child')
       lines.push(
-        `Relation parent → enfant : ${names.get(edge.parent) ?? edge.parent} → ${names.get(edge.child) ?? edge.child}`,
+        summaryField(
+          'Relation parent → enfant : ',
+          `${names.get(edge.parent) ?? edge.parent} → ${names.get(edge.child) ?? edge.child}`,
+        ),
       )
     else
       lines.push(
-        `Dépendance : ${names.get(edge.dependent) ?? edge.dependent} bloqué par ${names.get(edge.blocker) ?? edge.blocker}`,
+        summaryField(
+          'Dépendance : ',
+          `${names.get(edge.dependent) ?? edge.dependent} bloqué par ${names.get(edge.blocker) ?? edge.blocker}`,
+        ),
       )
   }
   lines.push(...coverageEffects(proposal, names))
