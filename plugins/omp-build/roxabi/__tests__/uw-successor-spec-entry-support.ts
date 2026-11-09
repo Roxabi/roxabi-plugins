@@ -14,6 +14,7 @@ import { prepareSpecAllocation } from '../../engine/uw-identity.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
@@ -165,12 +166,10 @@ export function setup(abandoned: boolean) {
     agent: { kind: 'main', depth: 0 },
     hasUI: true,
     mode: 'tui',
-    ui: {
-      confirm: async () => {
-        confirmations++
-        return true
-      },
-    },
+    ui: operatorDialogUi(async () => {
+      confirmations++
+      return 'confirm'
+    }),
     localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext)
   const operations = createUwOperations({

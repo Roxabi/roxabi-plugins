@@ -165,5 +165,5 @@ export async function reopenUw(uw: Scope, ports: UwOperationsPorts): Promise<UwO
   const confirmed = await ports.operator.executeConfirmed(prepared, () =>
     executeReopen(uw, proposal, before, target, ports),
   )
-  return confirmed.status === 'confirmed' ? confirmed.value : { status: 'refused', diagnostics: confirmed.diagnostics }
+  return confirmed.status === 'confirmed' ? confirmed.value : confirmed
 }

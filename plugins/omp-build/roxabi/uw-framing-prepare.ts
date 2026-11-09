@@ -73,18 +73,24 @@ export function buildFramingSourceBinding(
   }
 }
 
-const preparedFraming = new WeakSet<PreparedFramingProposal>()
+const preparedFraming = new WeakMap<PreparedFramingProposal, 'available' | 'inflight'>()
 
-/** Test the process-local seal; digest alone is never authority to frame. */
+/** Test the available process-local seal; digest alone is never authority to frame. */
 export function isPreparedFramingProposal(value: PreparedFramingProposal): boolean {
-  return preparedFraming.has(value) && value.digest === canonicalValueDigest(value.proposal)
+  return preparedFraming.get(value) === 'available' && value.digest === canonicalValueDigest(value.proposal)
 }
 
-/** Consume the seal synchronously, before any await: one prepared aggregate frames at most once. */
-export function consumePreparedFramingProposal(value: PreparedFramingProposal): boolean {
-  if (!isPreparedFramingProposal(value)) return false
-  preparedFraming.delete(value)
-  return true
+/** Reserve synchronously; only a proven no-action defer may release this exact object. */
+export function reservePreparedFramingProposal(value: PreparedFramingProposal): ((deferred: boolean) => void) | null {
+  if (!isPreparedFramingProposal(value)) return null
+  preparedFraming.set(value, 'inflight')
+  let settled = false
+  return (deferred) => {
+    if (settled) return
+    settled = true
+    if (deferred && value.digest === canonicalValueDigest(value.proposal)) preparedFraming.set(value, 'available')
+    else preparedFraming.delete(value)
+  }
 }
 
 function freezeRecursively(value: unknown): void {
@@ -210,7 +216,7 @@ function sealProposal(
     return refusal(repository, 'framing-proposal-invalid', 'Sealed aggregate did not match the canonical schema')
   const result: PreparedFramingProposal = { proposal: proposal.data, digest: canonicalValueDigest(proposal.data) }
   freezeRecursively(result)
-  preparedFraming.add(result)
+  preparedFraming.set(result, 'available')
   return { ok: true, value: result }
 }
 

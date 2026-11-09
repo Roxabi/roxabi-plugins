@@ -36,8 +36,6 @@ export function createInstalledMaterialAcceptance(
       if (!current.ok) return { status: 'refused' as const, diagnostics: current.diagnostics }
       return ports.commit({ prepared: prepared.value, confirmation })
     })
-    return confirmed.status === 'confirmed'
-      ? confirmed.value
-      : { status: 'refused', diagnostics: confirmed.diagnostics }
+    return confirmed.status === 'confirmed' ? confirmed.value : confirmed
   }
 }

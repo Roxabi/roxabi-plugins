@@ -31,7 +31,7 @@ export type CauseAdjustmentResult =
       control: { scope: Scope; recordId: string; kind: 'operator-control' }
       completion: UwCompletionAssessment
     }
-  | { status: 'refused' | 'partial'; diagnostics: readonly UwDiagnostic[] }
+  | { status: 'refused' | 'deferred' | 'partial'; diagnostics: readonly UwDiagnostic[] }
 
 function problem(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'blockers' }, related: [] }
@@ -267,9 +267,7 @@ export function createCauseAdjustment(
       const confirmed = await input.operator.executeConfirmed(accepted, (confirmation) =>
         executeAdjustment(context, confirmation),
       )
-      return confirmed.status === 'confirmed'
-        ? confirmed.value
-        : { status: 'refused', diagnostics: confirmed.diagnostics }
+      return confirmed.status === 'confirmed' ? confirmed.value : confirmed
     } catch (error) {
       return {
         status: effectState.mayExist ? 'partial' : 'refused',

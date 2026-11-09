@@ -97,7 +97,7 @@ function preparedResult(
 }
 
 function confirmedResult(confirmed: OperatorResult<UwOperationResult>): UwOperationResult {
-  return confirmed.status === 'confirmed' ? confirmed.value : { status: 'refused', diagnostics: confirmed.diagnostics }
+  return confirmed.status === 'confirmed' ? confirmed.value : confirmed
 }
 
 export function createUwOperations(ports: UwOperationsPorts): UwOperations {

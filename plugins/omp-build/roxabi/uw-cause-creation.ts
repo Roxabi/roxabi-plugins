@@ -145,7 +145,7 @@ export function createCauseCreation(input: {
       function finishConfirmation(): CauseOperationResult {
         if (confirmed.status === 'confirmed') {
           const result = confirmed.value
-          if (result.status !== 'refused' || !assessmentMayExist) return result
+          if ((result.status !== 'refused' && result.status !== 'deferred') || !assessmentMayExist) return result
           return {
             status: 'partial',
             uw,
@@ -164,7 +164,7 @@ export function createCauseCreation(input: {
                 ...causeError(uw, new Error('parent-assessment-published-creation-unconfirmed')),
               ],
             }
-          : { status: 'refused', diagnostics: confirmed.diagnostics }
+          : confirmed
       }
       return finishConfirmation()
     } catch (error) {

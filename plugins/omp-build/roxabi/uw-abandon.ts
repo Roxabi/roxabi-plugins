@@ -247,9 +247,7 @@ export function createUwAbandon(input: {
       const confirmed = await input.operator.executeConfirmed(prepared, () =>
         publishAbandonment(input, uw, proposal, publication),
       )
-      return confirmed.status === 'confirmed'
-        ? confirmed.value
-        : { status: 'refused', diagnostics: confirmed.diagnostics }
+      return confirmed.status === 'confirmed' ? confirmed.value : confirmed
     } catch (error) {
       const diagnostics = [problem(uw, 'abandon-unconfirmed', error instanceof Error ? error.message : String(error))]
       return publication.mayExist ? { status: 'partial', uw, diagnostics } : { status: 'refused', diagnostics }

@@ -66,6 +66,8 @@ export async function applyFeatureControl(
     return { kind: 'abandoned', confirmed: false }
   }
   const result = await uw.abandon(scope, mandateRef)
+  if (result.status === 'deferred')
+    return { kind: 'blocked', reason: 'operator-confirmation-deferred', diagnostics: result.diagnostics }
   if (result.status !== 'abandoned') return { kind: 'abandoned', confirmed: false }
   const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch, {
     loaded: context.engine,

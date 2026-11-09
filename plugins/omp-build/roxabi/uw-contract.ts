@@ -115,6 +115,7 @@ export type PreparedUwAbandon = {
 export type OperatorResult<T> =
   | { status: 'confirmed'; value: T }
   | { status: 'refused'; diagnostics: readonly UwDiagnostic[] }
+  | { status: 'deferred'; diagnostics: readonly UwDiagnostic[] }
 export type PreparedOperatorProposal =
   | PreparedUwProposal
   | PreparedMaterialAcceptance
@@ -163,6 +164,7 @@ export type UwOperationResult =
   | { status: 'created'; value: CreatedUwRead }
   | { status: 'abandoned'; uw: Scope }
   | { status: 'refused'; diagnostics: readonly UwDiagnostic[] }
+  | { status: 'deferred'; diagnostics: readonly UwDiagnostic[] }
   | { status: 'partial'; uw: Scope; diagnostics: readonly UwDiagnostic[] }
   /** A create request may have reached GitHub but yielded no trustworthy issue reference. */
   | { status: 'uncertain'; diagnostics: readonly { code: string; message: string }[] }
@@ -174,7 +176,7 @@ export type CauseOperationResult =
       value: CreatedUwRead
       receipt: ExternalRecordRef & { kind: 'debt-receipt' | 'report-promotion' }
     }
-  | Extract<UwOperationResult, { status: 'refused' | 'partial' | 'uncertain' }>
+  | Extract<UwOperationResult, { status: 'refused' | 'deferred' | 'partial' | 'uncertain' }>
 
 /** Fresh native/parser/ledger/accepted projection shared by every UW consumer. */
 export type UwReadPort = {

@@ -148,6 +148,29 @@ test('a declined confirmation writes nothing and the consumed proposal cannot be
   expect(native.writes).toEqual([])
 })
 
+test('concurrent attempts cannot reserve the same exact prepared object', async () => {
+  const native = nativeGitHub()
+  const { operations, confirmations } = await installed(native, { confirm: false })
+  const prepared = await prepare(operations, closure())
+  const waiting = Promise.withResolvers<void>()
+  const started = Promise.withResolvers<void>()
+  const guard = {
+    async check() {
+      started.resolve()
+      await waiting.promise
+    },
+  }
+  const first = operations.frame(prepared, guard)
+  await started.promise
+  const second = await operations.frame(prepared, effectGuard().guard)
+  expect(second.status).toBe('refused')
+  if (second.status === 'refused') expect(codes(second.diagnostics)).toContain('framing-proposal-unsealed')
+  waiting.resolve()
+  expect((await first).status).toBe('refused')
+  expect(confirmations()).toBe(1)
+  expect(native.writes).toEqual([])
+})
+
 test('native drift while the proposal is displayed refuses before any effect', async () => {
   const native = nativeGitHub({ 41: { title: 'Request queue' }, 42: { title: 'Queue storage', parent: 41 } })
   const { operations } = await installed(native, {

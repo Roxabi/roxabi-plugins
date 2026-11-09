@@ -40,6 +40,8 @@ async function materialDecisionResult(
       return onAccepted()
     case 'uncertain':
       return { kind: 'blocked', reason: 'material-decision-uncertain' }
+    case 'deferred':
+      return { kind: 'blocked', reason: 'material-decision-deferred', diagnostics: material.diagnostics }
     case 'refused':
       return { kind: 'blocked', reason: 'material-decision-refused', diagnostics: material.diagnostics }
     case 'partial':

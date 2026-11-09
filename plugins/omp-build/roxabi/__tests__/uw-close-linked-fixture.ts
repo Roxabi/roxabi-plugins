@@ -8,6 +8,7 @@ import { deliveredLeaf } from '../../engine/__tests__/uw-delivery-proof-fixture.
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 
 // The transport is a declared GitHub world, not a completion or writer substitute.
@@ -220,12 +221,10 @@ export async function closeLinkedWorld(
           agent: { kind: 'main', depth: 0 },
           hasUI: true,
           mode: 'tui',
-          ui: {
-            async confirm() {
-              confirmations++
-              return true
-            },
-          },
+          ui: operatorDialogUi(async () => {
+            confirmations++
+            return 'confirm'
+          }),
           localProtocolOptions: { getArtifactsDir: () => artifacts },
         } as unknown as ExtensionContext)
       : {

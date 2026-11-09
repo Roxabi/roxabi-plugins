@@ -71,6 +71,7 @@ export type WrittenFramingGraph = Readonly<{
 export type FramingOperationResult =
   | { status: 'written'; value: WrittenFramingGraph; effects: readonly FramingEffect[] }
   | { status: 'refused'; effects: readonly []; diagnostics: readonly UwDiagnostic[] }
+  | { status: 'deferred'; effects: readonly []; diagnostics: readonly UwDiagnostic[] }
   | {
       status: 'partial' | 'uncertain'
       root: Scope | null

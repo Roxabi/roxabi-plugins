@@ -14,7 +14,7 @@ import {
 import { createEffect, edgeEffect, metadataEffect } from './uw-framing-native-effects.ts'
 import { planFraming } from './uw-framing-plan.ts'
 import type { FramingExecutorPorts, FramingPublicationPorts } from './uw-framing-ports.ts'
-import { consumePreparedFramingProposal } from './uw-framing-prepare.ts'
+import { reservePreparedFramingProposal } from './uw-framing-prepare.ts'
 import { bindingEffect, claimEffect, identityEffect, intentEffect } from './uw-framing-publication-effects.ts'
 import { resultEffect } from './uw-framing-result-effect.ts'
 import {
@@ -168,19 +168,19 @@ function createFramingRun(
 }
 
 /**
- * Frame one prepared aggregate. The seal is consumed synchronously before any
- * await; the operator confirms exactly once over the whole original aggregate;
- * every effect is preceded and followed by fresh checks against the confirmed
- * journal; the first partial or uncertain effect stops the run with holds.
+ * Frame one prepared aggregate. Reserve its exact seal synchronously before any
+ * await; only a no-action defer restores it. The operator confirms the original
+ * aggregate once; every effect has fresh checks, and partial or uncertain effects
+ * stop the run with holds.
  */
 export async function executeFraming(
   prepared: PreparedFramingProposal,
   guard: FramingEffectGuard,
   ports: FramingExecutorPorts,
 ): Promise<FramingOperationResult> {
-  const sealed = consumePreparedFramingProposal(prepared)
+  const settleReservation = reservePreparedFramingProposal(prepared)
   const repository = repositoryOf(prepared.proposal)
-  if (!sealed)
+  if (settleReservation === null)
     return refused([
       repositoryDiagnostic(
         repository,
@@ -188,6 +188,22 @@ export async function executeFraming(
         'Only a fresh prepared aggregate can be framed, exactly once',
       ),
     ])
+  let deferred = false
+  try {
+    const result = await executeReservedFraming(prepared, guard, ports)
+    deferred = result.status === 'deferred'
+    return result
+  } finally {
+    settleReservation(deferred)
+  }
+}
+
+async function executeReservedFraming(
+  prepared: PreparedFramingProposal,
+  guard: FramingEffectGuard,
+  ports: FramingExecutorPorts,
+): Promise<FramingOperationResult> {
+  const repository = repositoryOf(prepared.proposal)
   const publication = ports.framingPublication
   if (publication === undefined)
     return refused([
@@ -218,7 +234,18 @@ export async function executeFraming(
       started = true
       return run.run(evidence)
     })
-    return confirmed.status === 'confirmed' ? confirmed.value : refused(confirmed.diagnostics)
+    if (confirmed.status === 'confirmed') return confirmed.value
+    if (confirmed.status === 'deferred' && !started) {
+      await guard.check({
+        operationId: proposal.operationId,
+        proposalDigest: digest,
+        member: null,
+        effectId: `${proposal.operationId}:confirmation`,
+        at: 'confirmation',
+      })
+      return { status: 'deferred', effects: [], diagnostics: confirmed.diagnostics }
+    }
+    return started ? run.settle(confirmed.diagnostics) : refused(confirmed.diagnostics)
   } catch (error) {
     const diagnostic = repositoryDiagnostic(repository, 'framing-executor-interrupted', message(error))
     return started ? run.settle([diagnostic]) : refused([diagnostic])

@@ -15,6 +15,7 @@ import {
 import { readIssueSource } from './feature-framing-controller-proposal.ts'
 import { verifyFramingProcedures } from './feature-framing-procedures.ts'
 import { validateFramingDecisionReferences } from './feature-framing-source.ts'
+import { reservePreparedFramingProposal } from './uw-framing-prepare.ts'
 export type SubmitActual = Readonly<{ ctx: ExtensionContext; toolCallId: string; signal: AbortSignal }>
 export function refused(lease: LeaseState, code: string, message: string): FramingSubmissionResult {
   return submission(lease, 'refused', [framingDiagnostic(lease, code, message)])
@@ -101,6 +102,7 @@ export async function recheck(
 }
 
 export function reopen(lease: LeaseState, waitingQuestion: string | null): void {
+  if (lease.proposal !== null) reservePreparedFramingProposal(lease.proposal.prepared)?.(false)
   lease.proposal = null
   lease.phase = { kind: 'interview', stage: lease.stage, waitingQuestion }
 }

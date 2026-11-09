@@ -9,6 +9,7 @@ import { continueFeature } from '../../roxabi/workflow.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { captureNativePlanBatch } from '../../testing/native-plan-capture.ts'
 import { produceNativePlan } from '../../testing/native-plan-producer.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
 import { canonicalValueDigest } from '../action-input.ts'
 import { criterionIdSchema } from '../uw-spec-schema.ts'
@@ -118,12 +119,10 @@ describe('captured parent integration during material assessment', () => {
       agent: { kind: 'main', depth: 0 },
       hasUI: true,
       mode: 'tui',
-      ui: {
-        confirm: async () => {
-          confirmations += 1
-          return true
-        },
-      },
+      ui: operatorDialogUi(async () => {
+        confirmations += 1
+        return 'confirm'
+      }),
       localProtocolOptions: { getArtifactsDir: () => checkout.cwd },
     } as unknown as ExtensionContext)
     const criteria = [

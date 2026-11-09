@@ -28,7 +28,7 @@ function deepFreeze<T>(value: T): T {
   return value
 }
 
-function effectsText(outcome: Exclude<FramingOperationResult, { status: 'refused' }>): string {
+function effectsText(outcome: Exclude<FramingOperationResult, { status: 'refused' | 'deferred' }>): string {
   const effects = outcome.effects.map(
     (item) =>
       `${item.kind}${item.member === null ? '' : ` ${item.member}`}${item.scope === null ? '' : ` ${item.scope.target}`}: ${item.status}`,
@@ -147,7 +147,7 @@ export async function settleOutcome(
   lease: LeaseState,
   ctx: ExtensionContext,
   prepared: PreparedFramingProposal,
-  framed: { outcome: FramingOperationResult; uw: UwOperations },
+  framed: { outcome: Exclude<FramingOperationResult, { status: 'deferred' }>; uw: UwOperations },
 ): Promise<void> {
   const outcome = framed.outcome
   lease.outcome = outcome

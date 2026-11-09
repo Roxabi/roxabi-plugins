@@ -9,6 +9,7 @@ import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.t
 import { continueFeature } from '../roxabi/workflow.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { captureNativeTask } from './native-action-capture.ts'
+import { operatorDialogUi } from './operator-dialog-ui.ts'
 import { gateGh, setMandateIssue } from './review-gate-arrangement.ts'
 import { git, type ReviewGateFixture } from './review-gate-fixture.ts'
 import { AUTOMATION } from './review-gate-gh.ts'
@@ -31,12 +32,10 @@ export async function acceptGateSpecChange(fixture: ReviewGateFixture, body: str
     agent: { kind: 'main', depth: 0 },
     hasUI: true,
     mode: 'tui',
-    ui: {
-      async confirm() {
-        confirmations++
-        return true
-      },
-    },
+    ui: operatorDialogUi(async () => {
+      confirmations++
+      return 'confirm'
+    }),
     localProtocolOptions: { getArtifactsDir: () => fixture.root },
   } as unknown as ExtensionContext)
   const operations = await createInstalledUwOperations({

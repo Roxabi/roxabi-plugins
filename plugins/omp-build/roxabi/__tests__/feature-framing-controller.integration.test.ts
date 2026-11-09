@@ -292,6 +292,38 @@ describe('root framing controller', () => {
     expect(w.uw.state.identityScopes).toEqual([])
   })
 
+  test('close without a decision keeps the exact proposal ready to reopen', async () => {
+    const w = world({ publication: true })
+    await leafInterview(w)
+    expect(codes(await submit(w, leafProposal()))).toEqual(['framing-proposal-staged'])
+    const ready = w.controller.view()?.phase
+    w.runtime.choices.push('defer', 'defer')
+    w.runtime.idle = true
+    await w.controller.act(w.ctx())
+    expect(w.controller.view()?.phase).toEqual(ready)
+    expect(w.uw.state.patchCount).toBe(0)
+    expect(w.uw.state.identityScopes).toEqual([])
+    await w.controller.act(w.ctx())
+    expect(w.runtime.confirms).toBe(2)
+    expect(w.controller.view()?.phase).toEqual(ready)
+    expect(w.uw.state.patchCount).toBe(0)
+    expect(w.uw.state.identityScopes).toEqual([])
+  })
+
+  test('revoking the session after defer prevents reopening and effects', async () => {
+    const w = world({ publication: true })
+    await leafInterview(w)
+    expect(codes(await submit(w, leafProposal()))).toEqual(['framing-proposal-staged'])
+    w.runtime.idle = true
+    w.runtime.choices.push('defer', 'confirm')
+    await w.controller.act(w.ctx())
+    w.controller.cancel('session-switch')
+    await w.controller.act(w.ctx())
+    expect(w.runtime.confirms).toBe(1)
+    expect(w.uw.state.patchCount).toBe(0)
+    expect(w.uw.state.identityScopes).toEqual([])
+  })
+
   test('an issue source is continued as agent-attributed data and its drift blocks the next transition', async () => {
     const w = world()
     w.uw.state.body = ''
