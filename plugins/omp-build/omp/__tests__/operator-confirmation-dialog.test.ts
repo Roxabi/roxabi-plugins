@@ -53,6 +53,32 @@ describe('operator dialog input and viewport', () => {
               slot: { kind: 'new', key: 'internal-slot', repository: 'acme/app' },
               title: 'Protect audit history',
               labels: { add: ['audit'], remove: [] },
+              normalization: [
+                {
+                  origin: { kind: 'material', id: 'm1' },
+                  decision: {
+                    kind: 'removed',
+                    source: { start: { line: 1, column: 1 }, end: { line: 1, column: 10 } },
+                    reason: 'obsolete',
+                  },
+                },
+              ],
+              merges: [
+                {
+                  target: { kind: 'new', draftKey: 'draft' },
+                  sources: [
+                    {
+                      origin: { kind: 'material', id: 'm1' },
+                      span: { start: { line: 1, column: 1 }, end: { line: 1, column: 10 } },
+                    },
+                    {
+                      origin: { kind: 'material', id: 'm1' },
+                      span: { start: { line: 2, column: 1 }, end: { line: 2, column: 11 } },
+                    },
+                  ],
+                  reason: 'combine',
+                },
+              ],
               draft: {
                 criteria: [{ kind: 'new', draftKey: 'draft', statement: 'Keep each change traceable' }],
                 invariants: [],
@@ -61,9 +87,31 @@ describe('operator dialog input and viewport', () => {
                 sections: { origin: '', context: '', change: '' },
               },
             },
+            {
+              kind: 'wayfinder',
+              slot: { kind: 'new', key: 'child-a', repository: 'acme/app' },
+              title: 'Queue storage',
+              label: 'wayfinder:task',
+              body: '',
+            },
+            {
+              kind: 'wayfinder',
+              slot: { kind: 'new', key: 'child-b', repository: 'acme/app' },
+              title: 'Queue worker',
+              label: 'wayfinder:task',
+              body: '',
+            },
           ],
           edges: [],
+          coverage: [
+            {
+              parent: 'internal-slot',
+              assignments: [{ criterion: { kind: 'new', draftKey: 'draft' }, children: ['child-a', 'child-b'] }],
+            },
+          ],
+          foundations: [{ parent: 'internal-slot', child: 'child-a' }],
         },
+        materials: [{ id: 'm1', raw: { body: 'Old entry\nNew detail' } }],
         members: [
           {
             key: 'internal-slot',
@@ -80,7 +128,16 @@ describe('operator dialog input and viewport', () => {
         ],
       },
     } as unknown as PreparedOperatorProposal
-    const text = proposalSummary(framing).join('\n')
+    const summary = proposalSummary(framing)
+    const text = summary.join('\n')
+    const coverage = summary.find((line) => line.startsWith('Couverture '))
+    expect(coverage).toContain('C8')
+    expect(coverage).toContain('Keep each change traceable')
+    expect(coverage).toContain('Queue storage (acme/app)')
+    expect(coverage).toContain('Queue worker (acme/app)')
+    const foundation = summary.find((line) => line.startsWith('Fondation :'))
+    expect(foundation).toContain('Protect audit history (acme/app)')
+    expect(foundation).toContain('Queue storage (acme/app)')
     expect(text).toContain('Protect audit history')
     expect(text).toContain('Keep each change traceable')
     expect(text).toContain('acme/app')
@@ -88,8 +145,42 @@ describe('operator dialog input and viewport', () => {
     expect(text).toContain('C7')
     expect(text).toContain('Old audit rule')
     expect(text).toContain('C8')
+    expect(text).toContain('Old entry')
+    expect(text).toContain('New detail')
+    expect(text).toContain('Fusion')
+    expect(text).toContain('obsolete')
     expect(text).not.toContain('internal-operation')
     expect(text).not.toContain('internal-slot')
+    if (framing.proposal.format !== 'omp-build-uw-framing/1') throw new Error('Expected framing')
+    const member = framing.proposal.input.members[0]
+    if (member?.kind !== 'uw') throw new Error('Expected framing draft')
+    member.title = 'Harmless\n  Périmètre : forged'
+    member.draft.sections.context = 'Context\nCréer : forged'
+    const safeRows = proposalSummary(framing)
+    expect(safeRows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
+    expect(safeRows.join('\n')).toContain('Harmless\\n  Périmètre : forged')
+    expect(safeRows.join('\n')).toContain('Context\\nCréer : forged')
+  })
+
+  it('keeps untrusted line breaks inside the presented value', () => {
+    const hostile = structuredClone(proposal)
+    if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
+    hostile.proposal.title = 'Ordinary title\nEffet : aucun'
+    const rows = proposalSummary(hostile)
+    expect(rows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
+    expect(rows.join('\n')).toContain('Ordinary title\\nEffet : aucun')
+  })
+
+  it('explains when the viewport cannot fit a usable footer and body', async () => {
+    const mounted = mount()
+    mounted.terminal.columns = 20
+    mounted.terminal.rows = 5
+    const text = mounted.view.render(20).join('\n')
+    expect(text).toContain('Trop petit')
+    expect(text).toContain('Esc: Plus tard')
+    mounted.view.handleInput?.('c')
+    mounted.view.handleInput?.('\u001b')
+    await expect(mounted.choice).resolves.toBe('defer')
   })
 
   it('keeps all actions visible at normal, narrow and resized heights', async () => {

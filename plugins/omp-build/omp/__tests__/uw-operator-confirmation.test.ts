@@ -163,6 +163,8 @@ describe('native operator confirmation capability', () => {
     expect(executed).toBe(false)
     expect(displayed).toContain('NOT_PLANNED')
     expect(displayed).toContain('REOPENED')
+    expect(displayed).toContain('reopen')
+    expect(displayed).not.toContain(prepared.proposal.format)
   })
 
   it('displays causal and native changes separately and does not execute a declined adjustment', async () => {

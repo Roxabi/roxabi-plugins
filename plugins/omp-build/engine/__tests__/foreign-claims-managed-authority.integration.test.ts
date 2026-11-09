@@ -10,6 +10,7 @@ import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.
 import { isolateViewerToken, releaseViewerToken } from '../../roxabi/__tests__/uw-viewer-token.ts'
 import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { resolveCauseDependencyControl } from '../cause-dependency-control.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { resolveSpecEffective } from '../spec-effective.ts'
@@ -142,11 +143,7 @@ test('an extra foreign control copy cannot veto an authenticated causal withdraw
       agent: { kind: 'main', depth: 0 },
       hasUI: true,
       mode: 'tui',
-      ui: {
-        async confirm() {
-          return true
-        },
-      },
+      ui: operatorDialogUi(async () => 'confirm'),
       localProtocolOptions: { getArtifactsDir: () => artifacts },
     } as unknown as ExtensionContext)
     const operations = await createInstalledUwOperations({ cwd: '/fixture', gh, readAuthor: 'automation', operator })

@@ -1,4 +1,5 @@
 import type { FramingProposal } from '../engine/uw-framing-receipt-schema.ts'
+import { accountingEffects } from './omp-operator-confirmation-accounting.ts'
 
 type Member = FramingProposal['input']['members'][number]
 type Plan = FramingProposal['members'][number]
@@ -32,6 +33,7 @@ function memberEffects(member: Member, plan: Plan | undefined): string[] {
   const action = member.slot.kind === 'new' ? 'Créer' : 'Modifier'
   const lines = [`${action} : ${member.title}`, `  Périmètre : ${scope}`]
   if (member.slot.kind === 'existing') {
+    lines.push(`  Effet : remplacer le titre et le corps de ${scope} par ${member.title} et la spécification proposée`)
     const observed = member.slot.observed
     if (observed.nativeParent) lines.push(`  Parent actuel : ${observed.nativeParent.target}`)
     if (observed.children.length)
@@ -61,21 +63,57 @@ function memberContents(member: Member): string[] {
   return lines
 }
 
+type CoverageCriterion = FramingProposal['input']['coverage'][number]['assignments'][number]['criterion']
+
+function criterionDescription(
+  criterion: CoverageCriterion,
+  member: Member | undefined,
+  plan: Plan | undefined,
+): string {
+  const id =
+    criterion.kind === 'existing'
+      ? criterion.id
+      : (plan?.allocation?.assignments.find((item) => item.draftKey === criterion.draftKey)?.id ?? criterion.draftKey)
+  const items = member?.kind === 'uw' ? [...member.draft.criteria, ...member.draft.invariants] : []
+  const item = items.find((entry) =>
+    criterion.kind === 'existing'
+      ? entry.kind === 'existing' && entry.id === criterion.id
+      : entry.kind === 'new' && entry.draftKey === criterion.draftKey,
+  )
+  return `${id}${item ? ` — ${item.statement}` : ''}`
+}
+
+function coverageEffects(proposal: FramingProposal, names: Map<string, string>): string[] {
+  const lines: string[] = []
+  for (const coverage of proposal.input.coverage) {
+    const member = proposal.input.members.find((item) => item.slot.key === coverage.parent)
+    const plan = proposal.members.find((item) => item.key === coverage.parent)
+    for (const assignment of coverage.assignments) {
+      const criterion = criterionDescription(assignment.criterion, member, plan)
+      const children = assignment.children.map((child) => names.get(child) ?? child).join(', ')
+      lines.push(`Couverture ${names.get(coverage.parent) ?? coverage.parent} : ${criterion} → ${children}`)
+    }
+  }
+  for (const foundation of proposal.input.foundations)
+    lines.push(
+      `Fondation : ${names.get(foundation.parent) ?? foundation.parent} → ${names.get(foundation.child) ?? foundation.child}`,
+    )
+  return lines
+}
+
 export function framingSummary(proposal: FramingProposal): string[] {
   const lines = ['Proposition à examiner', 'Cadrage : créations et modifications proposées']
   const names = new Map(
     proposal.input.members.map((member) => [
       member.slot.key,
-      `${member.title} (${member.slot.kind === 'new' ? member.slot.repository : member.slot.uw.target})`,
+      `${member.title} (${member.slot.kind === 'new' ? member.slot.repository : `${member.slot.uw.repository} : ${member.slot.uw.target}`})`,
     ]),
   )
-  for (const member of proposal.input.members)
-    lines.push(
-      ...memberEffects(
-        member,
-        proposal.members.find((item) => item.key === member.slot.key),
-      ),
-    )
+  for (const member of proposal.input.members) {
+    const plan = proposal.members.find((item) => item.key === member.slot.key)
+    lines.push(...memberEffects(member, plan))
+    if (member.kind === 'uw') lines.push(...accountingEffects(proposal, member, plan))
+  }
   for (const edge of proposal.input.edges) {
     if (edge.kind === 'parent-child')
       lines.push(
@@ -86,6 +124,7 @@ export function framingSummary(proposal: FramingProposal): string[] {
         `Dépendance : ${names.get(edge.dependent) ?? edge.dependent} bloqué par ${names.get(edge.blocker) ?? edge.blocker}`,
       )
   }
+  lines.push(...coverageEffects(proposal, names))
   for (const member of proposal.input.members) lines.push(...memberContents(member))
   lines.push('Les effets peuvent être partiels ; aucun retour arrière automatique.')
   return lines

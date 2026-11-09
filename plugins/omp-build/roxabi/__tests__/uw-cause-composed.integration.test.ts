@@ -10,6 +10,28 @@ import { cleanupComposedScenario, scenario } from './uw-cause-composed-fixture.t
 
 afterEach(cleanupComposedScenario)
 
+function assertCoverageDisplayed(proposal: CauseCreationProposal, display: string) {
+  const coverage = proposal.parentAcceptance?.exactInputs.proposed.coverage
+  if (!coverage || coverage.assignments.length === 0) throw new Error('Parent coverage assignments unavailable')
+  const displayed = display.replace(/\s+/g, '')
+  for (const assignment of coverage.assignments) {
+    expect(displayed).toContain(assignment.criterion)
+    for (const child of assignment.children) {
+      if ('kind' in child) {
+        const planned = proposal.parentAcceptance?.exactInputs.proposed.children.find(
+          (item) => 'kind' in item && item.operationId === child.operationId,
+        )
+        if (!planned || !('kind' in planned)) throw new Error('Expected planned coverage child')
+        expect(displayed).toContain(planned.plan.title.replace(/\s+/g, ''))
+        expect(displayed).toContain('nouveau/enattente')
+      } else {
+        expect(displayed).toContain(child.repository.replace(/\s+/g, ''))
+        expect(displayed).toContain(child.target.replace(/\s+/g, ''))
+      }
+    }
+  }
+}
+
 it('accepts a blocking sister and exact parent coverage in one confirmed decision without completing the work', async () => {
   const { world, request, decisions, result } = await scenario(() => true)
   expect(result.status, JSON.stringify(result)).toBe('created')
@@ -27,7 +49,6 @@ it('accepts a blocking sister and exact parent coverage in one confirmed decisio
     },
   ])
   expect(decisions).toHaveLength(1)
-  expect(decisions[0]?.detail).toContain('Confirmer')
   expect(world.issues.get(43)?.parent).toBe(41)
   expect(world.issues.get(42)?.blockers).toContain(43)
   const parent = await world.operations.readUw(world.parent.scope)
@@ -77,7 +98,7 @@ it('accepts a blocking sister and exact parent coverage in one confirmed decisio
   if (!intent.ok || intent.value.kind !== 'cause-operation') throw new Error('Authenticated cause intent unavailable')
   const proposal = intent.value.payload.proposal
   if (proposal.operation !== 'create') throw new Error('Expected creation intent')
-  expect(proposal.parentAcceptance?.exactInputs.proposed.coverage).toBeDefined()
+  assertCoverageDisplayed(proposal, decisions[0]?.detail ?? '')
   const assertConfirmedAssessment = () => {
     expect(decisions).toHaveLength(1)
     const consent = proposal.parentAcceptance

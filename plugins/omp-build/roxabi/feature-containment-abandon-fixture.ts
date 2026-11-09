@@ -31,9 +31,15 @@ const runner = new ExtensionRunner(
   undefined,
   { getArtifactsDir: () => artifacts },
 )
+let displayed = ''
 const ui = {
   ...runner.createContext().ui,
-  ...operatorDialogUi(async () => 'confirm'),
+  ...operatorDialogUi(
+    async () => 'confirm',
+    (text) => {
+      displayed = text
+    },
+  ),
 }
 runner.initialize(
   actions,
@@ -91,4 +97,7 @@ if (root) {
   if (!history) throw new Error('Child abandonment history missing')
   console.log(JSON.stringify(history))
 }
+const observed = displayed.replace(/\s+/g, '')
+if (!observed.includes(target.target) || !observed.includes(mandateId) || !observed.includes('abandon'))
+  throw new Error('Abandon confirmation omitted the target, mandate, or operation')
 database.close()

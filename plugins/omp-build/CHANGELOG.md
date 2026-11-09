@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.1
+
+- Keep a deferred framing proposal available to `ctrl+alt+u` in the same live session and location. Explicit refusal discards it; only explicit confirmation authorizes effects. Preserve freshness, revocation and one-use guards.
+- Present readable consent facts, including source accounting, coverage, foundations and replacement effects, with separate technical details and fixed keyboard actions. Escape supplied text and disable decisions when the viewport is too small.
+- Propagate deferral without claiming approval or a missing UW; commands outside retained framing require explicit re-entry.
+
 ## 0.18.0
 
 - Drop a run whose current parent final review is blocking (`final-review-blocking`, reported as `epic-drop`) instead of creating a grouped fix issue. The verdict comes from the review's bound initial cause assessment: `/uw adjudicate` and `/uw sister` lift binding holds but do not clear it, and a `fix-original` cause has no `/uw` verb. Only a fresh final review of a changed range completes the parent.

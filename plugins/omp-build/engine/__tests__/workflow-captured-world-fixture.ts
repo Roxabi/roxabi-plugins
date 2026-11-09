@@ -8,6 +8,7 @@ import type { UwRead } from '../../roxabi/uw-contract.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { withUnplannedInheritedWorld } from '../../testing/native-unplanned-inherited-world.ts'
 import { nestedDeliverySpecifications } from '../../testing/nested-delivery-world.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import type { PlanOutput, PlanReview } from '../workflow-output-schema.ts'
 export const output: PlanOutput = {
   steps: [
@@ -71,12 +72,10 @@ export async function inWorld<T>(
       agent: { kind: 'main', depth: 0 },
       hasUI: true,
       mode: 'tui',
-      ui: {
-        confirm: async () => {
-          confirmations += 1
-          return true
-        },
-      },
+      ui: operatorDialogUi(async () => {
+        confirmations += 1
+        return 'confirm'
+      }),
       localProtocolOptions: { getArtifactsDir: () => worktree },
     } as unknown as ExtensionContext)
     const base = git.p0

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import authorization from './head-authorization.cjs'
 import {
   acceptGoalCoverage,
@@ -341,12 +342,10 @@ describe('stateful gh — one continuous goal', () => {
         agent: { kind: 'main', depth: 0 },
         hasUI: true,
         mode: 'tui',
-        ui: {
-          async confirm() {
-            confirmations++
-            return true
-          },
-        },
+        ui: operatorDialogUi(async () => {
+          confirmations++
+          return 'confirm'
+        }),
         localProtocolOptions: { getArtifactsDir: () => root },
       } as unknown as ExtensionContext)
     const operations = await createInstalledUwOperations({

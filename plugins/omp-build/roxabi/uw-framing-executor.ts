@@ -168,10 +168,10 @@ function createFramingRun(
 }
 
 /**
- * Frame one prepared aggregate. The seal is consumed synchronously before any
- * await; the operator confirms exactly once over the whole original aggregate;
- * every effect is preceded and followed by fresh checks against the confirmed
- * journal; the first partial or uncertain effect stops the run with holds.
+ * Frame one prepared aggregate. Reserve its exact seal synchronously before any
+ * await; only a no-action defer restores it. The operator confirms the original
+ * aggregate once; every effect has fresh checks, and partial or uncertain effects
+ * stop the run with holds.
  */
 export async function executeFraming(
   prepared: PreparedFramingProposal,

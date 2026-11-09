@@ -35,6 +35,11 @@ function footerRows(width: number, selected: number): string[] {
   return rows
 }
 
+function tooSmall(width: number, height: number) {
+  const lines = ['Trop petit', 'Esc: Plus tard'].flatMap((line) => wrapLine(line, Math.max(1, width)))
+  return { lines: lines.slice(0, Math.max(0, height)), offset: 0, maxOffset: 0, actionable: false }
+}
+
 export function operatorDialogLayout(
   width: number,
   height: number,
@@ -42,10 +47,10 @@ export function operatorDialogLayout(
   offset: number,
   text: readonly string[],
 ): { lines: string[]; offset: number; maxOffset: number; actionable: boolean } {
-  if (width < 20 || height < 5)
-    return { lines: ['Fenêtre trop petite'].slice(0, Math.max(0, height)), offset: 0, maxOffset: 0, actionable: false }
+  if (width < 20 || height < 5) return tooSmall(width, height)
   const footer = footerRows(width, selected)
   const bodyHeight = Math.max(0, height - footer.length - 1)
+  if (bodyHeight < 1) return tooSmall(width, height)
   const body = text.flatMap((entry) => entry.split('\n').flatMap((line) => wrapLine(line, width - 2)))
   const maxOffset = Math.max(0, body.length - bodyHeight)
   const position = Math.min(offset, maxOffset)

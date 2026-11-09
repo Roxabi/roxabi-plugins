@@ -13,6 +13,21 @@ afterEach(() => {
   dispose()
 })
 
+function assertSourceDisplay(mode: 'accept' | 'decline' | 'stale', display: string[], target: string) {
+  if (mode === 'stale') return
+  const shown = display.join('\n').replace(/\s+/g, '')
+  for (const fact of [
+    target,
+    'Export requests',
+    'Keep export',
+    'Retry export',
+    'Remove obsolete format',
+    'Record export outcome',
+  ])
+    expect(shown).toContain(fact.replace(/\s+/g, ''))
+  for (const action of ['Conservé', 'Reformulé', 'Retiré', 'Ajouté']) expect(shown).toContain(action)
+}
+
 async function conversion(mode: 'accept' | 'decline' | 'stale') {
   const boundary = writtenBoundary()
   const creator = await installed(boundary.native)
@@ -182,18 +197,17 @@ async function conversion(mode: 'accept' | 'decline' | 'stale') {
   }
   w.runtime.idle = true
   await w.controller.act(capturing)
+  assertSourceDisplay(mode, display, root.target)
   if (mode !== 'accept') {
     expect(boundary.native.writes.slice(beforeCommit)).toEqual([])
     expect(boundary.native.count('create')).toBe(1)
     expect(w.controller.view()?.pendingMove).toBeFalsy()
     expect(w.continued).toEqual([])
-    if (mode === 'decline') expect(display.length).toBeGreaterThan(0)
     return
   }
   const pending = w.controller.view()?.pendingMove
   if (!pending) throw new Error(`Expected same-issue handoff: ${w.statuses.at(-1)}`)
   expect(pending.root).toEqual(root)
-  expect(display.length).toBeGreaterThan(0)
   expect(boundary.native.count('create')).toBe(1)
   expect(
     boundary.native.writes.slice(beforeCommit).some((write) => write.kind === 'patch' && write.issue === number),
