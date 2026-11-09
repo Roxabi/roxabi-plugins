@@ -261,13 +261,22 @@ it('refuses the same legacy mandate when its own UW is observed', async () => {
   expect(result).toMatchObject({ ok: false, diagnostics: [expect.objectContaining({ code: 'incompatible-format' })] })
 })
 
-it('does not exclude a mixed relevant and legacy binding chain', async () => {
-  const { reader, pages } = setup([11])
-  const mixed = fixture.workflowBinding(relevantPr, outside, 'feature/1', 'main')
-  pages.set(11, comments(fixture.framedBodies([currentBinding, mixed], 'operator', [currentHistory, outsideHistory])))
-  const result = await reader.read(root, [currentHistory])
-  expect(result).toMatchObject({ ok: false, diagnostics: [expect.objectContaining({ code: 'incompatible-format' })] })
-})
+it.each([{ outsideFirst: false }, { outsideFirst: true }])(
+  'does not exclude a mixed relevant and legacy binding chain (outside first: $outsideFirst)',
+  async ({ outsideFirst }) => {
+    const { reader, pages } = setup([11])
+    const mixed = fixture.workflowBinding(relevantPr, outside, 'feature/1', 'main')
+    const bindings = outsideFirst ? [mixed, currentBinding] : [currentBinding, mixed]
+    pages.set(11, comments(fixture.framedBodies(bindings, 'operator', [currentHistory, outsideHistory])))
+    const result = await reader.read(root, [currentHistory])
+    expect(result).toMatchObject({ ok: false, diagnostics: [expect.objectContaining({ code: 'incompatible-format' })] })
+    if (result.ok) return
+    const retained = result.partial.histories.find((history) => history.source.scope.target === other.target)
+    expect(retained?.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'incompatible-format' })]),
+    )
+  },
+)
 
 it('does not treat unresolved nonbinding work as an empty binding history', async () => {
   const { reader, pages } = setup([12])
