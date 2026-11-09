@@ -43,3 +43,24 @@ test('preserves an uncertain material publication rather than converting it to r
 
   await expect(acceptance(result)(UW)).resolves.toEqual(result)
 })
+
+test('a deferred material proposal does not recheck or commit and remains deferred', async () => {
+  let effects = 0
+  const deferred = { status: 'deferred' as const, diagnostics: [] }
+  const accept = createInstalledMaterialAcceptance(
+    { executeConfirmed: async () => deferred },
+    {
+      prepare: async () => ({ ok: true, value: PREPARED }),
+      recheck: async () => {
+        effects++
+        return { ok: true }
+      },
+      commit: async () => {
+        effects++
+        return { status: 'refused', diagnostics: [] }
+      },
+    },
+  )
+  expect(await accept(UW)).toEqual(deferred)
+  expect(effects).toBe(0)
+})

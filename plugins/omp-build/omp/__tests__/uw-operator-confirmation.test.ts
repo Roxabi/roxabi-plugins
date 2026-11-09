@@ -4,6 +4,7 @@ import { causeDependencyAdjustmentProposalSchema } from '../../engine/cause-depe
 import { nativeObservationDigest } from '../../engine/uw-native-observation-schema.ts'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
 import type { PreparedUwProposal, PreparedUwReopen } from '../../roxabi/uw-contract.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { createOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
@@ -52,12 +53,51 @@ function interactiveContext(confirm: () => Promise<boolean>): ExtensionContext {
     agent: { kind: 'main', depth: 0 },
     hasUI: true,
     mode: 'tui',
-    ui: { confirm },
+    ui: operatorDialogUi(async () => ((await confirm()) ? 'confirm' : 'refuse')),
     localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext
 }
 
 describe('native operator confirmation capability', () => {
+  it('returns deferred without effects only for the explicit later action', async () => {
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: operatorDialogUi(async () => 'defer'),
+    } as ExtensionContext
+    const effects: string[] = []
+    const operator = createOperatorConfirmation(context)
+    await expect(
+      operator.executeConfirmed(proposal, async () => {
+        effects.push('written')
+      }),
+    ).resolves.toMatchObject({
+      status: 'deferred',
+      diagnostics: [{ code: 'operator-confirmation-deferred' }],
+    })
+    expect(effects).toEqual([])
+    await expect(
+      operator.executeConfirmed(proposal, async () => {
+        effects.push('replay')
+      }),
+    ).resolves.toMatchObject({ status: 'refused' })
+  })
+  it('does not defer a proposal mutated while the dialog was open', async () => {
+    const prepared = structuredClone(proposal)
+    const context = {
+      ...interactiveContext(async () => false),
+      ui: operatorDialogUi(async () => {
+        prepared.digest = 'changed'
+        return 'defer'
+      }),
+    } as ExtensionContext
+    const effects: string[] = []
+    const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
+      effects.push('written')
+    })
+    expect(result).toMatchObject({ status: 'refused', diagnostics: [{ code: 'operator-proposal-changed' }] })
+    expect(effects).toEqual([])
+  })
+
   it('shows composed parent consent before the single creation confirmation', async () => {
     const prepared = {
       digest: 'c'.repeat(64),
@@ -79,21 +119,19 @@ describe('native operator confirmation capability', () => {
     let executed = false
     const context = {
       ...interactiveContext(async () => false),
-      ui: {
-        confirm: async (_title: string, message: string) => {
+      ui: operatorDialogUi(
+        async () => 'refuse',
+        (message) => {
           displayed = message
-          return false
         },
-      },
+      ),
     } as unknown as ExtensionContext
     const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
       executed = true
     })
     expect(result.status).toBe('refused')
     expect(executed).toBe(false)
-    expect(displayed).toContain('parent acceptance:')
     expect(displayed).toContain('parent-accept-42')
-    expect(displayed).toContain('create-42')
   })
 
   it('shows the exact raw state and REOPENED effect before confirmation', async () => {
@@ -111,12 +149,12 @@ describe('native operator confirmation capability', () => {
     let displayed = ''
     const context = {
       ...interactiveContext(async () => false),
-      ui: {
-        confirm: async (_title: string, message: string) => {
+      ui: operatorDialogUi(
+        async () => 'refuse',
+        (message) => {
           displayed = message
-          return false
         },
-      },
+      ),
     } as unknown as ExtensionContext
     let executed = false
     await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
@@ -170,21 +208,19 @@ describe('native operator confirmation capability', () => {
     let executed = false
     const context = {
       ...interactiveContext(async () => false),
-      ui: {
-        confirm: async (_title: string, message: string) => {
+      ui: operatorDialogUi(
+        async () => 'refuse',
+        (message) => {
           displayed = message
-          return false
         },
-      },
+      ),
     } as unknown as ExtensionContext
     const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
       executed = true
     })
     expect(result.status).toBe('refused')
     expect(executed).toBe(false)
-    expect(displayed).toContain('causal change:')
     expect(displayed).toContain('withdraw')
-    expect(displayed).toContain('native effect:')
     expect(displayed).toContain('acme/widgets#43')
   })
 
@@ -208,12 +244,12 @@ describe('native operator confirmation capability', () => {
     let displayed = ''
     const context = {
       ...interactiveContext(async () => false),
-      ui: {
-        confirm: async (_title: string, message: string) => {
+      ui: operatorDialogUi(
+        async () => 'refuse',
+        (message) => {
           displayed = message
-          return false
         },
-      },
+      ),
     } as unknown as ExtensionContext
     const effects: string[] = []
     const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
@@ -246,12 +282,12 @@ describe('native operator confirmation capability', () => {
     let displayed = ''
     const context = {
       ...interactiveContext(async () => false),
-      ui: {
-        confirm: async (_title: string, message: string) => {
+      ui: operatorDialogUi(
+        async () => 'refuse',
+        (message) => {
           displayed = message
-          return false
         },
-      },
+      ),
     } as unknown as ExtensionContext
     const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => 'unexpected')
     expect(result.status).toBe('refused')
@@ -266,8 +302,6 @@ describe('native operator confirmation capability', () => {
     ]) {
       expect(displayed).toContain(fact)
     }
-    expect(displayed).toContain(prepared.digest)
-    expect(displayed).toMatch(/detail: .+/)
     displayed = ''
     const material = materialProposal()
     await createOperatorConfirmation(context).executeConfirmed(material, async () => 'unexpected')

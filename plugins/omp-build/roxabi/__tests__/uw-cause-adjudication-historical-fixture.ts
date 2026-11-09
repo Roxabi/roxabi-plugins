@@ -17,6 +17,7 @@ import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../
 import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { createCauseAdjudication } from '../uw-cause-adjudication.ts'
@@ -173,13 +174,13 @@ export async function historicalWorld(confirm: boolean, beforeConfirmation?: () 
     agent: { kind: 'main', depth: 0 },
     hasUI: true,
     mode: 'tui',
-    ui: {
-      confirm: async (_title: string, message: string) => {
-        prompts.push(message)
+    ui: operatorDialogUi(
+      async () => {
         await beforeConfirmation?.()
-        return confirm
+        return confirm ? 'confirm' : 'refuse'
       },
-    },
+      (message) => prompts.push(message),
+    ),
     localProtocolOptions: { getArtifactsDir: () => artifacts },
   } as unknown as ExtensionContext)
   const citation = graph.inputs.manifest.repositoryReferences[0]

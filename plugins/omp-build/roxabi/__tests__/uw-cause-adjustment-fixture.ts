@@ -8,6 +8,7 @@ import { scopeKey } from '../../engine/uw-graph.ts'
 import { bindExternalRef, recordsOf } from '../../engine/workflow-control.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import type { UwOperations } from '../uw-contract.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 
@@ -51,12 +52,10 @@ export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | '
       agent: { kind: 'main', depth: 0 },
       hasUI: true,
       mode: 'tui',
-      ui: {
-        async confirm(title: string, detail: string) {
-          confirmations.push({ title, detail })
-          return mode !== 'decline'
-        },
-      },
+      ui: operatorDialogUi(
+        async () => (mode === 'decline' ? 'refuse' : 'confirm'),
+        (detail) => confirmations.push({ title: 'Confirm UW proposal', detail }),
+      ),
       localProtocolOptions: { getArtifactsDir: () => artifacts },
     } as unknown as ExtensionContext)
     const operations = await createInstalledUwOperations({ cwd: '/fixture', gh, readAuthor: 'automation', operator })

@@ -17,6 +17,7 @@ import { createFramingEffectGuard } from './feature-framing-effect-guard.ts'
 import { verifyFramingProcedures } from './feature-framing-procedures.ts'
 import type { UwOperations } from './uw-contract.ts'
 import type { FramingOperationResult, PreparedFramingProposal } from './uw-framing-contract.ts'
+import { reservePreparedFramingProposal } from './uw-framing-prepare.ts'
 
 type Procedures = NonNullable<LeaseState['procedures']>
 
@@ -115,9 +116,38 @@ export async function confirmAndFrame(core: ControllerCore, lease: LeaseState, c
     currentAt(core, lease, ctx) &&
     lease.revision === revision &&
     (lease.phase.kind === 'confirming' || lease.phase.kind === 'committing')
-  if (!(await sourcesStillFresh(core, lease, ctx, procedures, claimedNow))) return
-  const framed = await frameOnce(core, lease, ctx, claimed.prepared, procedures, claimedNow)
-  if (framed !== null) await settleOutcome(core, lease, ctx, claimed.prepared, framed)
+  let fresh: boolean
+  try {
+    fresh = await sourcesStillFresh(core, lease, ctx, procedures, claimedNow)
+  } catch (error) {
+    reservePreparedFramingProposal(claimed.prepared)?.(false)
+    throw error
+  }
+  if (!fresh) {
+    reservePreparedFramingProposal(claimed.prepared)?.(false)
+    return
+  }
+  let framed: { outcome: FramingOperationResult; uw: UwOperations } | null
+  try {
+    framed = await frameOnce(core, lease, ctx, claimed.prepared, procedures, claimedNow)
+  } catch (error) {
+    reservePreparedFramingProposal(claimed.prepared)?.(false)
+    throw error
+  }
+  if (framed === null) reservePreparedFramingProposal(claimed.prepared)?.(false)
+  if (framed?.outcome.status === 'deferred') {
+    if (claimedNow()) {
+      lease.proposal = claimed
+      lease.phase = { kind: 'proposal-ready', digest: claimed.prepared.digest }
+      core.host.status('feature-framing: proposal deferred; use Ctrl+Alt+U to reopen')
+    } else {
+      reservePreparedFramingProposal(claimed.prepared)?.(false)
+      if (live(core, lease)) blockLease(core, lease, 'framing-location-changed')
+    }
+    return
+  }
+  if (framed !== null)
+    await settleOutcome(core, lease, ctx, claimed.prepared, { outcome: framed.outcome, uw: framed.uw })
 }
 
 function errorText(error: unknown): string {

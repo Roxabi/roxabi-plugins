@@ -15,6 +15,7 @@ import type {
 import type { FramingProcedures } from './feature-framing-procedures.ts'
 import type { OperatorPort, UwRead } from './uw-contract.ts'
 import type { FramingOperationResult, PreparedFramingProposal } from './uw-framing-contract.ts'
+import { reservePreparedFramingProposal } from './uw-framing-prepare.ts'
 
 export type FramingOrigin = Readonly<{
   sessionId: string
@@ -189,6 +190,7 @@ export function submission(
 
 function disarm(lease: LeaseState): void {
   lease.token = null
+  if (lease.proposal !== null) reservePreparedFramingProposal(lease.proposal.prepared)?.(false)
   lease.proposal = null
   const revokeEffects = lease.revokeEffects
   lease.revokeEffects = null

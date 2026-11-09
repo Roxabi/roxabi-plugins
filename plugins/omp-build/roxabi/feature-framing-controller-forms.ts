@@ -25,6 +25,7 @@ import { prepareProposal } from './feature-framing-controller-proposal.ts'
 import { selectExisting } from './feature-framing-controller-select.ts'
 import { stageResult } from './feature-framing-controller-stage.ts'
 import { captureFramingMaterial, framingUserEntry } from './feature-framing-source.ts'
+import { reservePreparedFramingProposal } from './uw-framing-prepare.ts'
 
 /** The latest registered question is answered only by a later genuine operator USER entry. */
 function answerState(lease: LeaseState, ctx: ExtensionContext): 'none' | 'waiting' | 'answered' {
@@ -144,6 +145,7 @@ async function stageProposal(
   }
   if (!staged.prepared.ok) return submission(lease, 'refused', staged.prepared.diagnostics)
   const prepared = staged.prepared.value
+  if (lease.proposal !== null) reservePreparedFramingProposal(lease.proposal.prepared)?.(false)
   lease.proposal = Object.freeze({ prepared, revision: staged.revision })
   lease.phase = { kind: 'proposal-ready', digest: prepared.digest }
   lease.revision = staged.revision

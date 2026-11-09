@@ -79,7 +79,7 @@ The UW contract cutover is delivered manually under [#901](https://github.com/Ro
 | `/feature material-decision <reference>` | Opens the genuine operator-confirmation route for the exact authenticated material or unknown assessment. An `accept`/`reject` argv suffix is not authority and is refused. `/uw accept-material` uses the same acceptance chain. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
-Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to confirm a staged proposal. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
+Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
 
 Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
 
@@ -87,7 +87,7 @@ During intake and framing the read-only gate covers the root extension instance 
 
 Detected mid-turn user interruption, session switch, and shutdown await the durable pause for a pausable owner. Confirmation is the read-back `pause-confirmed` control, not the local interrupt. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause is not a resumable pause.
 
-Interactive `/feature` and `/uw` confirmation capabilities are bound to their root command: ordinary idle settlement preserves deferred work; root abort, session switch, shutdown, or command replacement invalidates pending confirmation.
+Interactive `/feature` and `/uw` confirmation capabilities are bound to their root command: ordinary idle settlement preserves an open confirmation; root abort, session switch, shutdown, or command replacement invalidates it. Only the framing lease retains a deferred proposal for `ctrl+alt+u`; other commands report deferral without approval and require explicit command re-entry.
 
 Ordinary SDK `session_stop` means turn settlement, not workflow pause: a host-owned CI watch continues. When only that watch is running, idle Esc/RPC abort does not guarantee pause or disarm; use `/feature pause` or `/feature abandon`. This is the explicit-stop contract, not an idle-abort hook. Mid-turn interruption uses the SDK's session-stamped `UserInterrupt` flag on an aborted assistant message. That SDK primitive is bundled at build time into the existing contracts bundle; there is no runtime SDK dependency, copied error-label fallback, or second supervisor. Ordinary progress uses the status surface and does not grant continuation authority.
 
@@ -208,7 +208,11 @@ Preparation does not dispatch the new action, renew a mandate, reset review/corr
 
 Ordinary progress uses the existing OMP footer/status surface. Visible main-conversation messages are operator decisions, actionable blockers and final results, with selectively readable detail references. Hidden continuation controls still enter model context/history; they contain the guarded procedure/index wire, not full instructions, results or UW history. Detailed native results are retained before their root-facing previews are replaced with references.
 
-Operator confirmation presents the repository/UW, actual operation, title and semantic change facts alongside the exact proposal digest and detail reference. Read-only `/uw evidence` and `/uw verdicts` results use a compact successful record count, including zero; the full arrays remain in the consultable detail.
+Framing confirmation presents titled members, repository/UW scope, proposed effects, identity changes and retirements, relations, criteria and business context. The full captured proposal, exact digest and detail reference are separate under `D Détails`, not a raw payload in the default view.
+
+The fixed action footer offers `C Confirmer`, `R Refuser` and `Esc Plus tard`. Tab or left/right selects an action; Enter activates it, initially `Plus tard`. Up/down and Page Up/Down scroll the content without moving the actions. The layout adapts to terminal resizing; when too small to present a decision safely, confirmation and refusal are disabled while Escape can still defer. Reopening preserves freshness, revocation and one-use checks; neither closure nor chat grants authority.
+
+Read-only `/uw evidence` and `/uw verdicts` results use a compact successful record count, including zero; the full arrays remain in the consultable detail.
 
 Agents return forms; the orchestrator submits them to engine verification and publishes confirmed records. Role permissions do not authorize GitHub writes. Where the SDK cannot remove per-child environment, `gh` configuration, Git helpers or SSH credentials, the declared `procedural-fallback` is weaker than technical isolation. Worktree isolation and omitted publication tools are not a credential sandbox.
 

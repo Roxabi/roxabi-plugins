@@ -131,9 +131,7 @@ export function createCauseAdjudication(input: {
           return publishAdjudicationSuccessor({ input, fresh, uw, intent, request, proposal })
         },
       )
-      return confirmed.status === 'confirmed'
-        ? confirmed.value
-        : { status: 'refused', diagnostics: confirmed.diagnostics }
+      return confirmed.status === 'confirmed' ? confirmed.value : confirmed
     } catch (error) {
       return effectMayExist
         ? { status: 'partial', uw, diagnostics: caught(uw, error) }

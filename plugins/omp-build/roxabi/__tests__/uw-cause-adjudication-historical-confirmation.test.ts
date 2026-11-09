@@ -3,6 +3,7 @@ import { expect, it } from 'vitest'
 import { readComposedWorkflowHistory } from '../../dist/contracts.js'
 import { recordsOf } from '../../engine/workflow-control.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { createCauseAdjudication } from '../uw-cause-adjudication.ts'
 import { historicalWorld } from './uw-cause-adjudication-historical-fixture.ts'
@@ -78,12 +79,10 @@ it('refuses the first confirmed proposal when a competing adjudication advances 
       agent: { kind: 'main', depth: 0 },
       hasUI: true,
       mode: 'tui',
-      ui: {
-        confirm: async () => {
-          competingPrompts += 1
-          return true
-        },
-      },
+      ui: operatorDialogUi(async () => {
+        competingPrompts += 1
+        return 'confirm'
+      }),
       localProtocolOptions: consultableProtocolOptions(),
     } as unknown as ExtensionContext)
     const competitor = createCauseAdjudication({ reader: world.reader, github: world.github, operator })

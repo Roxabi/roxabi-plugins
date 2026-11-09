@@ -15,6 +15,7 @@ import { sisterImplementationHistory } from './multi-sister-plan-fixture.ts'
 import { sisterCurrentPull, sisterDeclaredPull } from './multi-sister-pull-fixture.ts'
 import { declaredNativeGit } from './native-declared-git.ts'
 import type { DeclaredCheckout, NativeWorldFacts, nativeImplementationWorld } from './native-implementation-world.ts'
+import { operatorDialogUi } from './operator-dialog-ui.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
 const artifacts = mkdtempSync(join(tmpdir(), 'omp-sister-protocol-'))
@@ -191,17 +192,21 @@ export async function installedMultiSisterFixture(
     if (args[1] === 'graphql') return graphRequest(args)
     throw new Error(`unexpected GitHub request: ${args.join(' ')}`)
   }
+  let displayed = ''
   const newCommand = async () => {
     const operator = createOperatorConfirmation({
       agent: { kind: 'main', depth: 0 },
       hasUI: true,
       mode: 'tui',
-      ui: {
-        confirm: async (title: string, detail: string) => {
+      ui: operatorDialogUi(
+        async () => {
           confirmations += 1
-          return options.confirm ? options.confirm(title, detail) : true
+          return !options.confirm || (await options.confirm('Confirm UW proposal', displayed)) ? 'confirm' : 'refuse'
         },
-      },
+        (text) => {
+          displayed = text
+        },
+      ),
       localProtocolOptions: { getArtifactsDir: () => options.artifactsDir ?? artifacts },
     } as unknown as ExtensionContext)
     return createInstalledUwOperations({

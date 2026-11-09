@@ -45,6 +45,40 @@ async function framedToMove(w: World): Promise<{ destination: string; root: Scop
 }
 
 describe('written framing handoff', () => {
+  test('defer then reopen confirms the same proposal once', async () => {
+    const boundary = writtenBoundary()
+    const w = world({ written: boundary })
+    await leafInterview(w)
+    expect(codes(await submit(w, leafProposal()))).toEqual(['framing-proposal-staged'])
+    const ready = w.controller.view()?.phase
+    w.runtime.idle = true
+    w.runtime.choices.push('defer', 'confirm')
+    await w.controller.act(w.ctx())
+    expect(w.controller.view()?.phase).toEqual(ready)
+    expect(boundary.native.writes).toEqual([])
+    await w.controller.act(w.ctx())
+    expect(w.controller.view()?.phase.kind).toBe('awaiting-human-move')
+    expect(w.runtime.confirms).toBe(2)
+    expect(boundary.native.count('create')).toBe(1)
+  })
+
+  test('changed procedure after defer blocks reopening before another prompt or effect', async () => {
+    const boundary = writtenBoundary()
+    const w = world({ written: boundary })
+    await leafInterview(w)
+    expect(codes(await submit(w, leafProposal()))).toEqual(['framing-proposal-staged'])
+    w.runtime.idle = true
+    w.runtime.choices.push('defer', 'confirm')
+    await w.controller.act(w.ctx())
+    w.supply.drift('grilling')
+    await w.controller.act(w.ctx())
+    expect(w.statuses.at(-1)).toContain('framing-supply-changed')
+    w.supply.restore('grilling')
+    await w.controller.act(w.ctx())
+    expect(w.runtime.confirms).toBe(1)
+    expect(boundary.native.writes).toEqual([])
+  })
+
   test('a confirmed frame writes natively, prepares the real checkout and continues exactly once after an attested move', async () => {
     const boundary = writtenBoundary()
     const w = world({ written: boundary })

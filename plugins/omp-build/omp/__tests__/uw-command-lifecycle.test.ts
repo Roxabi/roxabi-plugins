@@ -8,6 +8,7 @@ import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-asse
 import type { UwOperationResult, UwOperations } from '../../roxabi/uw-contract.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { batch } from '../../testing/review-runtime-support.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
@@ -82,7 +83,7 @@ it('retains an announced sister operation until terminal and revokes it on root 
     mode: 'tui',
     sessionManager: { getSessionId: () => 'session-1' },
     localProtocolOptions: consultableProtocolOptions(),
-    ui: { confirm: async () => true },
+    ui: operatorDialogUi(async () => 'confirm'),
   } as unknown as ExtensionContext
   const pi = createExtensionApiStub({
     on: (event, handler) => {
@@ -153,16 +154,14 @@ function lifecycleFixture() {
     agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
     hasUI: true,
     mode: 'tui',
-    ui: {
-      confirm: async () => {
-        const confirmation = Promise.withResolvers<boolean>()
-        confirmations.push(confirmation)
-        const prompted = nextPrompt
-        nextPrompt = Promise.withResolvers<void>()
-        prompted.resolve()
-        return confirmation.promise
-      },
-    },
+    ui: operatorDialogUi(async () => {
+      const confirmation = Promise.withResolvers<boolean>()
+      confirmations.push(confirmation)
+      const prompted = nextPrompt
+      nextPrompt = Promise.withResolvers<void>()
+      prompted.resolve()
+      return (await confirmation.promise) ? 'confirm' : 'refuse'
+    }),
     localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext
   const childContext = {

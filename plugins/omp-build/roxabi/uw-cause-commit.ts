@@ -115,7 +115,10 @@ export async function commitConfirmedCause(args: CommitArgs): Promise<CauseOpera
     return {
       status: 'partial',
       uw,
-      diagnostics: result.status === 'refused' ? result.diagnostics : [diagnostic(uw, 'cause-create-unconfirmed')],
+      diagnostics:
+        result.status === 'refused' || result.status === 'deferred'
+          ? result.diagnostics
+          : [diagnostic(uw, 'cause-create-unconfirmed')],
     }
   const known = result.value.uw
   markKnown(known)

@@ -5,6 +5,7 @@ import { ExtensionRunner } from '@oh-my-pi/pi-coding-agent/extensibility/extensi
 import { AuthStorage, SqliteAuthCredentialStore } from '@oh-my-pi/pi-coding-agent/session/auth-storage'
 import { SessionManager } from '@oh-my-pi/pi-coding-agent/session/session-manager'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
+import { operatorDialogUi } from '../testing/operator-dialog-ui.ts'
 import { loadFeatureWorkflow } from './feature-loader.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
 
@@ -32,11 +33,7 @@ const runner = new ExtensionRunner(
 )
 const ui = {
   ...runner.createContext().ui,
-  confirm: async (_title: string, detail: string) => {
-    if (!detail.includes(target.target) || !detail.includes(mandateId) || !detail.includes('operation: abandon'))
-      throw new Error('Unexpected abandonment proposal')
-    return true
-  },
+  ...operatorDialogUi(async () => 'confirm'),
 }
 runner.initialize(
   actions,

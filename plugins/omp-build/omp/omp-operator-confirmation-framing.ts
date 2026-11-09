@@ -1,0 +1,92 @@
+import type { FramingProposal } from '../engine/uw-framing-receipt-schema.ts'
+
+type Member = FramingProposal['input']['members'][number]
+type Plan = FramingProposal['members'][number]
+
+function identityEffects(plan: Plan): string[] {
+  if (!plan.allocation) return []
+  const lines: string[] = []
+  const before = [
+    ...(plan.nativeAnalysis?.analysis.criterionSources ?? []),
+    ...(plan.nativeAnalysis?.analysis.invariantSources ?? []),
+  ]
+  const after = [...plan.allocation.spec.criteria, ...plan.allocation.spec.invariants]
+  for (const id of plan.allocation.retirements) {
+    const item = before.find((entry) => entry.id === id)
+    lines.push(`  Identité retirée : ${id}${item ? ` — ${item.statement}` : ''}`)
+  }
+  for (const assignment of plan.allocation.assignments) {
+    const item = after.find((entry) => entry.id === assignment.id)
+    lines.push(`  Nouvelle identité : ${assignment.id}${item ? ` — ${item.statement}` : ''}`)
+  }
+  for (const item of after) {
+    const previous = before.find((entry) => entry.id === item.id)
+    if (previous && previous.statement !== item.statement)
+      lines.push(`  ${item.id} avant : ${previous.statement}`, `  ${item.id} après : ${item.statement}`)
+  }
+  return lines
+}
+
+function memberEffects(member: Member, plan: Plan | undefined): string[] {
+  const scope = member.slot.kind === 'new' ? member.slot.repository : member.slot.uw.target
+  const action = member.slot.kind === 'new' ? 'Créer' : 'Modifier'
+  const lines = [`${action} : ${member.title}`, `  Périmètre : ${scope}`]
+  if (member.slot.kind === 'existing') {
+    const observed = member.slot.observed
+    if (observed.nativeParent) lines.push(`  Parent actuel : ${observed.nativeParent.target}`)
+    if (observed.children.length)
+      lines.push(`  Enfants actuels : ${observed.children.map((child) => child.target).join(', ')}`)
+    if (observed.blockers.length)
+      lines.push(`  Blocages actuels : ${observed.blockers.map((blocker) => blocker.target).join(', ')}`)
+  }
+  if (plan?.tier) lines.push(`  Niveau proposé : ${plan.tier}`)
+  if (member.kind === 'wayfinder') return [...lines, `  Effet : publier le repère ${member.label}`]
+  lines.push('  Effet : publier la spécification et les relations proposées')
+  if (plan) lines.push(...identityEffects(plan))
+  if (member.labels.add.length) lines.push(`  Labels à ajouter : ${member.labels.add.join(', ')}`)
+  if (member.labels.remove.length) lines.push(`  Labels à retirer : ${member.labels.remove.join(', ')}`)
+  return lines
+}
+
+function memberContents(member: Member): string[] {
+  const lines = [`Détails métier : ${member.title}`]
+  if (member.kind === 'wayfinder') return [...lines, member.body]
+  for (const item of member.draft.criteria) lines.push(`  Critère : ${item.statement}`)
+  for (const item of member.draft.invariants) lines.push(`  Invariant : ${item.statement}`)
+  for (const item of member.draft.exclusions) lines.push(`  Exclusion : ${item}`)
+  for (const item of member.draft.openQuestions) lines.push(`  Question ouverte : ${item}`)
+  if (member.draft.sections.origin) lines.push(`  Origine : ${member.draft.sections.origin}`)
+  if (member.draft.sections.context) lines.push(`  Contexte : ${member.draft.sections.context}`)
+  if (member.draft.sections.change) lines.push(`  Changement : ${member.draft.sections.change}`)
+  return lines
+}
+
+export function framingSummary(proposal: FramingProposal): string[] {
+  const lines = ['Proposition à examiner', 'Cadrage : créations et modifications proposées']
+  const names = new Map(
+    proposal.input.members.map((member) => [
+      member.slot.key,
+      `${member.title} (${member.slot.kind === 'new' ? member.slot.repository : member.slot.uw.target})`,
+    ]),
+  )
+  for (const member of proposal.input.members)
+    lines.push(
+      ...memberEffects(
+        member,
+        proposal.members.find((item) => item.key === member.slot.key),
+      ),
+    )
+  for (const edge of proposal.input.edges) {
+    if (edge.kind === 'parent-child')
+      lines.push(
+        `Relation parent → enfant : ${names.get(edge.parent) ?? edge.parent} → ${names.get(edge.child) ?? edge.child}`,
+      )
+    else
+      lines.push(
+        `Dépendance : ${names.get(edge.dependent) ?? edge.dependent} bloqué par ${names.get(edge.blocker) ?? edge.blocker}`,
+      )
+  }
+  for (const member of proposal.input.members) lines.push(...memberContents(member))
+  lines.push('Les effets peuvent être partiels ; aucun retour arrière automatique.')
+  return lines
+}

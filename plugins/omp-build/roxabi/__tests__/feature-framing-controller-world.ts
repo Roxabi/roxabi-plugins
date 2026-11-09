@@ -7,6 +7,7 @@ import { FRAMING_PROCEDURE_FILES, type FramingStage } from '../../engine/framing
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { sandbox, git as sandboxGit } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { nativeGitHub } from '../../testing/framing-native-github.ts'
+import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { fixture } from '../../testing/uw-operations-fixture.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from '../feature-contract.ts'
@@ -81,6 +82,9 @@ function procedureSupply() {
         new TextEncoder().encode('## Steps\n1. Changed\n## Done\n'),
       )
     },
+    restore(stage: FramingStage) {
+      pinned.delete(`${pin.root}/${FRAMING_PROCEDURE_FILES[stage]}`)
+    },
   }
 }
 
@@ -124,6 +128,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     confirms: 0,
     confirm: false,
     answers: [] as boolean[],
+    choices: [] as ('confirm' | 'refuse' | 'defer')[],
     onRepoView: null as (() => void) | null,
   }
   const sessionManager = {
@@ -139,6 +144,10 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
       hasUI: overrides.hasUI ?? true,
       mode: overrides.mode ?? 'tui',
       ui: {
+        ...operatorDialogUi(async () => {
+          runtime.confirms += 1
+          return runtime.choices.shift() ?? ((runtime.answers.shift() ?? runtime.confirm) ? 'confirm' : 'refuse')
+        }),
         confirm: async () => {
           runtime.confirms += 1
           return runtime.answers.shift() ?? runtime.confirm
