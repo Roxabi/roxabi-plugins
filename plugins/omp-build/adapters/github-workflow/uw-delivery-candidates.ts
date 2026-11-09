@@ -4,6 +4,7 @@ import type { Scope } from '../../engine/record-values.ts'
 import type { Result } from '../../engine/result.ts'
 import type { UwDeliveryFacts } from '../../engine/uw-completion-types.ts'
 import { selectWorkflowBinding } from '../../engine/workflow-pr-binding.ts'
+import { selectWorkflowBindingClaims } from '../../engine/workflow-pr-binding-chain.ts'
 import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import type { GitHubOptions } from '../github/types.ts'
@@ -25,15 +26,13 @@ async function decodeScope(scope: Scope, options: GitHubOptions): Promise<Result
   }
 }
 
-function mandateHomes(history: DecodedHistory, loaded: ReadonlyMap<string, DecodedHistory>): Scope[] {
+function mandateHomes(history: DecodedHistory): Scope[] {
   const scopes: Scope[] = []
   for (const operation of history.operations) {
     const record = operation.record
     if (record?.kind !== 'workflow-binding') continue
     const scope = record.payload.mandate.scope
-    const key = `${scope.repository}\0${scope.target}`
-    if (loaded.has(key) || scopes.some((item) => item.repository === scope.repository && item.target === scope.target))
-      continue
+    if (scopes.some((item) => item.repository === scope.repository && item.target === scope.target)) continue
     scopes.push(scope)
   }
   return scopes
@@ -48,7 +47,8 @@ async function resolveCandidateBinding(
   const native = { branch: candidate.branch, base: candidate.base }
   let selected = selectWorkflowBinding({ pullRequest: candidate.scope, histories: [...loaded.values()], native })
   if (selected.status === 'incomplete') {
-    for (const scope of mandateHomes(pr, loaded)) {
+    for (const scope of mandateHomes(pr)) {
+      if (loaded.has(`${scope.repository}\0${scope.target}`)) continue
       const read = await decodeScope(scope, options)
       if (!read.ok) return read
       loaded.set(`${scope.repository}\0${scope.target}`, read.value)
@@ -73,6 +73,17 @@ async function candidateHistory(
   return read
 }
 
+function retainCandidateMandateHomes(
+  pr: DecodedHistory,
+  loaded: ReadonlyMap<string, DecodedHistory>,
+  kept: DecodedHistory[],
+): void {
+  for (const scope of mandateHomes(pr)) {
+    const history = loaded.get(`${scope.repository}\0${scope.target}`)
+    if (history !== undefined && !kept.includes(history)) kept.push(history)
+  }
+}
+
 async function collectCandidate(
   candidate: Candidate,
   uw: Scope,
@@ -83,14 +94,27 @@ async function collectCandidate(
   const read = await candidateHistory(candidate, options, loaded)
   if (!read.ok) return read
   const pr = read.value
-  if (!kept.includes(pr)) kept.push(pr)
-  if (!pr.source.complete)
+  if (!pr.source.complete) {
+    if (!kept.includes(pr)) kept.push(pr)
     return actionFailure(
       'incomplete',
       `History for ${candidate.scope.repository} ${candidate.scope.target} is incomplete`,
     )
+  }
+  const claims = selectWorkflowBindingClaims({
+    pullRequest: candidate.scope,
+    histories: [pr],
+    native: { branch: candidate.branch, base: candidate.base },
+  })
+  if (
+    Array.isArray(claims) &&
+    claims.length > 0 &&
+    claims.every((record) => !equalScope(record.payload.mandate.scope, uw))
+  )
+    return { ok: true, value: false }
+  if (!kept.includes(pr)) kept.push(pr)
   const binding = await resolveCandidateBinding(candidate, pr, options, loaded)
-  for (const history of loaded.values()) if (!kept.includes(history)) kept.push(history)
+  retainCandidateMandateHomes(pr, loaded, kept)
   if (!binding.ok) return binding
   const selected = binding.value
   if (selected.status === 'absent') return { ok: true, value: false }

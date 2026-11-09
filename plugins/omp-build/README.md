@@ -366,6 +366,8 @@ Historical pending causes retain the accepted Spec that produced them. Adjudicat
 
 Delivery discovery enumerates all open, closed and merged PRs in the UW's repository, then selects their canonical approved bindings; mentions and branch names are not association authority. Each observation reads complete REST comment histories for the UW, candidate PRs and required mandate homes, reusing observations only within that call. This exhaustive discovery can be expensive and is separate from action/replay reads of their supplied subjects and cited sources. An unresolved binding claim or unreadable required history refuses the read rather than returning an apparently complete empty result.
 
+A candidate is excluded before reading its mandate homes only when a nonempty set of complete, accounted and validated PR binding claims all name homes outside the observed UW. This proves that none can match the UW's accepted delivery mandate; it does not trust an old mandate or assume that a mandate's home always equals its `ownSpec.uw`. Relevant, mixed or uncertain claims retain full binding-chain and format validation. Excluded delivery candidates do not enter retained histories through a shared-cache sweep. Independently required causal references still use the strict reader and can legitimately refuse the observation.
+
 A create input has this shape; coordinates and content here are fictional:
 
 ```json
@@ -784,6 +786,8 @@ gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
 #### Tooling-pin update
 
 After every merged omp-build version bump, set the variable to the full `main` SHA that carries that distribution, then update and restart the installed plugin. Until the pin moves, the hosted gate reads with the previous version and refuses mandates published by the new one.
+
+A product-version bump changes the effective workflow config digest. Complete or genuinely abandon active mandates before an incompatible activation. If the current reader cannot authenticate abandonment, retain the blocker and request an explicit owner recovery decision; a source fix or manual merge grants no cutover exception. After applicable activation prerequisites, a genuinely abandoned, conformant current-format UW can use `/feature new #N` for a fresh same-UW successor with current checks and a new config pin, not continuation of the old authority.
 
 ```sh
 gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
