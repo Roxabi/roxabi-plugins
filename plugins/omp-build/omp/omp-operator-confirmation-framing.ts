@@ -116,7 +116,7 @@ function coverageEffects(proposal: FramingProposal, names: Map<string, string>):
 }
 
 export function framingSummary(proposal: FramingProposal): string[] {
-  const lines = ['Proposition à examiner', 'Cadrage : créations et modifications proposées']
+  const lines = ['Proposition à examiner', 'Appliquer les créations, modifications et relations de ce cadrage ?']
   const names = new Map(
     proposal.input.members.map((member) => [
       member.slot.key,

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext, SessionStopEvent } from '@oh-my-pi/pi-coding-agent'
-import type { FramingController, FramingOwnerClaim } from '../roxabi/feature-framing-contract.ts'
+import type { FramingController, FramingOperator, FramingOwnerClaim } from '../roxabi/feature-framing-contract.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import { rootContext } from './omp-feature-session.ts'
-import type { CommandOperatorPort } from './omp-operator-confirmation.ts'
+import { cancelOperatorConfirmations } from './omp-operator-confirmation.ts'
 
 /** Root session and agent captured synchronously when a `/feature` operation began. */
 export type FeatureOperationOrigin = Readonly<{ sessionId: string; agentId: string }>
@@ -16,10 +16,10 @@ type Occupant =
   | Readonly<{
       kind: 'ordinary'
       generation: number
-      operator: CommandOperatorPort
+      operator: FramingOperator
       origin: FeatureOperationOrigin | null
     }>
-  | Readonly<{ kind: 'intake'; generation: number; operator: CommandOperatorPort; origin: FeatureOperationOrigin }>
+  | Readonly<{ kind: 'intake'; generation: number; operator: FramingOperator; origin: FeatureOperationOrigin }>
   | Readonly<{ kind: 'framing'; generation: number; controller: FramingController; revoke: (reason: string) => void }>
 
 type OperationSlot = { readonly extensionInstanceId: string; generation: number; occupant: Occupant | null }
@@ -56,7 +56,7 @@ function occupy(pi: OmpBuildExtensionApi, next: (generation: number) => Occupant
   return occupant
 }
 
-function exactOperation(pi: OmpBuildExtensionApi, operator: CommandOperatorPort) {
+function exactOperation(pi: OmpBuildExtensionApi, operator: FramingOperator) {
   const occupant = operationSlots.get(pi)?.occupant
   return occupant !== undefined && occupant !== null && occupant.kind !== 'framing' && occupant.operator === operator
     ? occupant
@@ -81,54 +81,54 @@ function invalidateExact(pi: OmpBuildExtensionApi, generation: number, reason: s
  * One interactive root UW operation owns one confirmation capability. A replacement, an aborted
  * root session, or a terminal session transition invalidates the old capability.
  */
-export function beginFeatureUwOperation(pi: OmpBuildExtensionApi, operator: CommandOperatorPort): CommandOperatorPort {
+export function beginFeatureUwOperation<T extends FramingOperator>(pi: OmpBuildExtensionApi, operator: T): T {
   occupy(pi, (generation) => ({ kind: 'ordinary', generation, operator, origin: null }))
   return operator
 }
 
 /** Synchronous `/feature` intake: read-only from before the first await until classified. */
-export function beginFeatureUwIntake(
+export function beginFeatureUwIntake<T extends FramingOperator>(
   pi: OmpBuildExtensionApi,
-  operator: CommandOperatorPort,
+  operator: T,
   ctx: ExtensionContext,
-): CommandOperatorPort {
+): T {
   const origin = originOf(ctx)
   occupy(pi, (generation) => ({ kind: 'intake', generation, operator, origin }))
   return operator
 }
 
 /** Root's ordinary post-framing continuation; it explicitly replaces the framing lease. */
-export function beginFeatureUwContinuation(
+export function beginFeatureUwContinuation<T extends FramingOperator>(
   pi: OmpBuildExtensionApi,
-  operator: CommandOperatorPort,
+  operator: T,
   ctx: ExtensionContext,
-): CommandOperatorPort {
+): T {
   const origin = originOf(ctx)
   occupy(pi, (generation) => ({ kind: 'ordinary', generation, operator, origin }))
   return operator
 }
 
 /** A classified non-framing result: the exact intake becomes the same ordinary operation. */
-export function settleFeatureUwIntake(pi: OmpBuildExtensionApi, operator: CommandOperatorPort): void {
+export function settleFeatureUwIntake(pi: OmpBuildExtensionApi, operator: FramingOperator): void {
   const slot = operationSlots.get(pi)
   const occupant = slot?.occupant
   if (slot === undefined || occupant?.kind !== 'intake' || occupant.operator !== operator) return
   slot.occupant = { kind: 'ordinary', generation: occupant.generation, operator, origin: occupant.origin }
 }
 
-export function ownsFeatureUwOperation(pi: OmpBuildExtensionApi, operator: CommandOperatorPort): boolean {
+export function ownsFeatureUwOperation(pi: OmpBuildExtensionApi, operator: FramingOperator): boolean {
   return exactOperation(pi, operator) !== null
 }
 
 /** The captured origin of the exact current operation, or null when it is stale or has none. */
 export function featureUwOperationOrigin(
   pi: OmpBuildExtensionApi,
-  operator: CommandOperatorPort,
+  operator: FramingOperator,
 ): FeatureOperationOrigin | null {
   return exactOperation(pi, operator)?.origin ?? null
 }
 
-export function cancelFeatureUwOperation(pi: OmpBuildExtensionApi, operator: CommandOperatorPort): void {
+export function cancelFeatureUwOperation(pi: OmpBuildExtensionApi, operator: FramingOperator): void {
   const occupant = exactOperation(pi, operator)
   if (occupant !== null) invalidateExact(pi, occupant.generation, 'operation-cancelled')
 }
@@ -196,20 +196,27 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
       if (!rootContext(ctx)) return
       const occupant = currentOccupant(pi)
       if (occupant !== null) invalidateExact(pi, occupant.generation, reason)
+      cancelOperatorConfirmations(ctx, reason)
     }
   pi.on('session_stop', (event: SessionStopEvent, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
     const occupant = currentOccupant(pi)
-    if (occupant === null) return
     if (event.signal.aborted) {
-      invalidateExact(pi, occupant.generation, 'session-stop-aborted')
+      if (occupant !== null) invalidateExact(pi, occupant.generation, 'session-stop-aborted')
+      cancelOperatorConfirmations(ctx, 'session-stop-aborted')
       return
     }
+    if (occupant === null) return
     if (settleRevokedFraming(pi, 'session-stop-settled')) return
     const generation = occupant.generation
-    event.signal.addEventListener('abort', () => invalidateExact(pi, generation, 'session-stop-aborted'), {
-      once: true,
-    })
+    event.signal.addEventListener(
+      'abort',
+      () => {
+        invalidateExact(pi, generation, 'session-stop-aborted')
+        cancelOperatorConfirmations(ctx, 'session-stop-aborted')
+      },
+      { once: true },
+    )
   })
   pi.on('agent_end', (_event, ctx: ExtensionContext) => {
     if (rootContext(ctx)) settleRevokedFraming(pi, 'agent-end-settled')
@@ -217,13 +224,13 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
   pi.on('session_switch', (_event, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
     const occupant = currentOccupant(pi)
-    if (occupant === null) return
-    if (occupant.kind === 'framing') {
+    if (occupant?.kind === 'framing') {
       // Only a written aggregate awaiting the human-observed `/move` survives, in the same session.
       const view = occupant.controller.view()
       if (view !== null && view.pendingMove !== null && ctx.sessionManager.getSessionId() === view.sessionId) return
     }
-    invalidateExact(pi, occupant.generation, 'session-switch')
+    if (occupant !== null) invalidateExact(pi, occupant.generation, 'session-switch')
+    cancelOperatorConfirmations(ctx, 'session-switch')
   })
   pi.on('session_branch', invalidate('session-branch'))
   pi.on('session_tree', invalidate('session-tree'))

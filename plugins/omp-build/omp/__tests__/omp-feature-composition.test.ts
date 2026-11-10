@@ -15,6 +15,8 @@ type SessionStopListener = (event: { signal: AbortSignal }, context: typeof root
 function commandPort(cancel: () => void): CommandOperatorPort {
   return {
     cancel,
+    progress() {},
+    held: Promise.resolve(),
     async executeConfirmed<T>(
       _proposal: PreparedOperatorProposal,
       action: (evidence: OperatorConfirmationEvidence) => Promise<T>,
@@ -29,7 +31,7 @@ function commandPort(cancel: () => void): CommandOperatorPort {
         }),
       }
     },
-  }
+  } as CommandOperatorPort
 }
 
 function lifecycle() {
@@ -48,6 +50,11 @@ function lifecycle() {
   return {
     stop,
     cancelled: () => cancelled,
+    emit(event: string) {
+      const listener = listeners.get(event)
+      if (listener === undefined) throw new Error(`session-listener-missing:${event}`)
+      return listener({ signal: new AbortController().signal }, root)
+    },
     replace: () => {
       let replacementCancelled = 0
       beginFeatureUwOperation(
@@ -99,6 +106,12 @@ describe('feature UW operation root lifecycle', () => {
 
     await subject.stop({ signal: abort.signal }, root)
 
+    expect(subject.cancelled()).toBe(1)
+  })
+
+  it.each(['session_branch', 'session_tree', 'session_shutdown'])('cancels the occupant on %s', (event) => {
+    const subject = lifecycle()
+    subject.emit(event)
     expect(subject.cancelled()).toBe(1)
   })
 })

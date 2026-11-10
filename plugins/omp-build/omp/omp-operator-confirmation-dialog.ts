@@ -1,10 +1,62 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import type { Component } from '@oh-my-pi/pi-tui'
+import type { DescribeContext, NativeNode, NativeScreen, NativeUiEvent } from '@oh-my-pi/pi-tui/native/node'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
-import { operatorDialogInput } from './omp-operator-confirmation-input.ts'
+import {
+  type ConfirmationMotion,
+  commitDialogInput,
+  commitNativeAct,
+  type OperatorChoice,
+  operatorDialogInput,
+  resetDetails,
+} from './omp-operator-confirmation-input.ts'
 import { operatorDialogLayout } from './omp-operator-confirmation-layout.ts'
 import { proposalSummary } from './omp-operator-confirmation-summary.ts'
 
-export type OperatorChoice = 'confirm' | 'refuse' | 'defer'
+function nativeText(value: string): string {
+  return value
+    .replace(
+      /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+      (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
+    )
+    .replace(/\p{Cc}/gu, '')
+}
+
+function nativeButton(label: string, act: string, key: string, buttons: boolean, disabled: boolean): NativeNode {
+  const title = `${label}  ${key === 'escape' ? 'esc' : key}`
+  if (buttons) {
+    // The locked 18.13 SDK predates the button kind; this is the 18.18 actionButton shape.
+    return {
+      k: 'button',
+      key: act,
+      p: {
+        role: 'omp.btn',
+        text: label,
+        title,
+        keys: [key],
+        actions: { click: act },
+        ...(act === 'confirm' ? { tone: 'accent', variant: 'primary' } : {}),
+        ...(act === 'refuse' ? { tone: 'error', variant: 'danger' } : {}),
+        ...(disabled ? { disabled: 'Trop petit', tone: 'muted' } : {}),
+      },
+    } as unknown as NativeNode
+  }
+  return {
+    k: 'row',
+    key: act,
+    p: {
+      role: 'omp.btn',
+      gap: 'xs',
+      align: 'center',
+      title,
+      ...(disabled ? { tone: 'muted' } : { actions: { click: act } }),
+    },
+    c: [
+      { k: 'text', p: { text: label } },
+      { k: 'kbd', p: { keys: [key] } },
+    ],
+  }
+}
 
 export async function showOperatorProposal(
   ctx: ExtensionContext,
@@ -29,77 +81,137 @@ export async function showOperatorProposal(
       ctx.ui.custom<OperatorChoice>(
         (tui, _theme, keys, done) => {
           if (signal.aborted) throw new Error('Confirmation cancelled')
-          let selected = 2
-          let offset = 0
-          let technical = false
+          const motion: ConfirmationMotion = {
+            selected: 2,
+            offset: 0,
+            maxOffset: 0,
+            height: 0,
+            technical: false,
+            scroll: undefined,
+          }
           let width = 0
-          let height = 0
           let terminalColumns = 0
-          let maxOffset = 0
           let actionable = false
-          const choices: OperatorChoice[] = ['confirm', 'refuse', 'defer']
+          let closed = false
+          let nativeDescribed = false
+          let nativeReady = false
+          let nativeColumns = 0
+          let nativeRows = 0
           const redraw = () => tui.requestRender()
-          abort = () => done('refuse')
+          const finish = (choice: OperatorChoice, cancelling = false) => {
+            if (closed || (signal.aborted && !cancelling)) return
+            closed = true
+            done(choice)
+          }
+          abort = () => finish('refuse', true)
           signal.addEventListener('abort', abort, { once: true })
-          return {
+          const nativeSizeReady = () => {
+            if (nativeColumns !== tui.terminal.columns) return false
+            // The native client can reflow height without asking the SDK for a new description.
+            if (nativeRows !== tui.terminal.rows) {
+              nativeRows = tui.terminal.rows
+              nativeReady = operatorDialogLayout(nativeColumns, nativeRows, motion.selected, 0, []).actionable
+            }
+            return nativeReady
+          }
+          const ready = () =>
+            !closed &&
+            !signal.aborted &&
+            (nativeDescribed
+              ? nativeSizeReady()
+              : actionable && terminalColumns === tui.terminal.columns && motion.height === tui.terminal.rows)
+          const toggleDetails = () => resetDetails(motion)
+          const noteNative = (cx: DescribeContext) => {
+            nativeDescribed = true
+            nativeColumns = cx.cols
+            nativeRows = tui.terminal.rows
+            nativeReady =
+              nativeColumns === tui.terminal.columns &&
+              operatorDialogLayout(nativeColumns, nativeRows, motion.selected, 0, []).actionable
+          }
+          const component: Component = {
             render(columns: number) {
+              nativeDescribed = false
               width = columns
-              height = tui.terminal.rows
+              motion.height = tui.terminal.rows
               terminalColumns = tui.terminal.columns
               const layout = operatorDialogLayout(
                 width,
-                height,
-                selected,
-                offset,
-                technical ? details : summary.slice(1),
+                motion.height,
+                motion.selected,
+                motion.offset,
+                motion.technical ? details : summary.slice(1),
               )
               actionable = layout.actionable
-              offset = layout.offset
-              maxOffset = layout.maxOffset
+              motion.offset = layout.offset
+              motion.maxOffset = layout.maxOffset
               return layout.lines
             },
-            handleInput(data: string) {
-              if (signal.aborted) return
-              const input = operatorDialogInput(data, keys)
-              if (input === 'cancel') return done('defer')
-              if (!actionable || terminalColumns !== tui.terminal.columns || height !== tui.terminal.rows) return
-              switch (input) {
-                case 'confirm':
-                  return done('confirm')
-                case 'refuse':
-                  return done('refuse')
-                case 'select':
-                  return done(choices[selected] ?? 'defer')
-                case 'details':
-                  technical = !technical
-                  offset = 0
-                  break
-                case 'next':
-                  selected = (selected + 1) % 3
-                  break
-                case 'previous':
-                  selected = (selected + 2) % 3
-                  break
-                case 'up':
-                  offset = Math.max(0, offset - 1)
-                  break
-                case 'down':
-                  offset = Math.min(maxOffset, offset + 1)
-                  break
-                case 'pageUp':
-                  offset = Math.max(0, offset - Math.max(1, height - 4))
-                  break
-                case 'pageDown':
-                  offset = Math.min(maxOffset, offset + Math.max(1, height - 4))
-                  break
+            describeScreen(cx: DescribeContext): NativeScreen {
+              noteNative(cx)
+              const body = (motion.technical ? details : summary.slice(1)).flatMap((line) => line.split('\n'))
+              const node: NativeNode = {
+                k: 'col',
+                key: 'body',
+                p: { role: 'omp.operator.confirmation.body' },
+                c: body.map((line, index) => ({
+                  k: 'text',
+                  key: String(index),
+                  p: { text: nativeText(line), wrap: 'word' },
+                })),
+                ...(motion.scroll ? { scroll: motion.scroll } : {}),
               }
-              redraw()
+              return { role: 'omp.operator.confirmation', main: [node], dock: [component] }
+            },
+            describe(cx: DescribeContext): NativeNode {
+              noteNative(cx)
+              // The running SDK supports button; the older locked types do not name it.
+              const buttons = (cx.supports as (kind: string) => boolean)('button')
+              return {
+                k: 'col',
+                p: { role: 'omp.editor.ask.confirmation', gap: 'sm' },
+                c: [
+                  { k: 'text', key: 'title', p: { text: nativeText(summary[0] ?? ''), tone: 'accent', wrap: 'word' } },
+                  {
+                    k: 'row',
+                    key: 'actions',
+                    p: { role: 'omp.actions', gap: 'sm', align: 'center', wrap: true },
+                    c: [
+                      nativeButton(
+                        `${motion.selected === 0 ? '› ' : ''}Confirmer`,
+                        'confirm',
+                        'c',
+                        buttons,
+                        !nativeReady,
+                      ),
+                      nativeButton(`${motion.selected === 1 ? '› ' : ''}Refuser`, 'refuse', 'r', buttons, !nativeReady),
+                      nativeButton(`${motion.selected === 2 ? '› ' : ''}Plus tard`, 'defer', 'escape', buttons, false),
+                      nativeButton('Détails', 'details', 'd', buttons, !nativeReady),
+                    ],
+                  },
+                ],
+              }
+            },
+            handleNativeEvent(event: NativeUiEvent) {
+              if (event.type !== 'action' || !nativeDescribed || closed || signal.aborted) return
+              if (commitNativeAct(event.act, ready(), finish)) {
+                toggleDetails()
+                redraw()
+              }
+            },
+            handleInput(data: string) {
+              if (closed || signal.aborted) return
+              const input = operatorDialogInput(data, keys)
+              if (input === 'cancel') return finish('defer')
+              if (ready() && commitDialogInput(motion, input, finish)) redraw()
             },
             invalidate() {},
             dispose() {
+              closed = true
               if (abort) signal.removeEventListener('abort', abort)
             },
           }
+          return component
         },
         { overlay: true, overlayOptions: { width: '100%', maxHeight: '100%', margin: 0, fullscreen: true } },
       ),

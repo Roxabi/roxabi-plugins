@@ -81,7 +81,12 @@ it('retains an announced sister operation until terminal and revokes it on root 
     agent: { kind: 'main', depth: 0 },
     hasUI: true,
     mode: 'tui',
-    sessionManager: { getSessionId: () => 'session-1' },
+    sessionManager: {
+      getSessionId: () => 'session-1',
+      getCwd: () => directory,
+      getSessionFile: () => join(directory, 'session-1.jsonl'),
+      getArtifactsDir: () => join(directory, 'artifacts'),
+    },
     localProtocolOptions: consultableProtocolOptions(),
     ui: operatorDialogUi(async () => 'confirm'),
   } as unknown as ExtensionContext
@@ -163,6 +168,12 @@ function lifecycleFixture() {
       return (await confirmation.promise) ? 'confirm' : 'refuse'
     }),
     localProtocolOptions: consultableProtocolOptions(),
+    sessionManager: {
+      getSessionId: () => 'root-session',
+      getCwd: () => '/repo/feature',
+      getSessionFile: () => '/repo/feature/root-session.jsonl',
+      getArtifactsDir: () => '/repo/feature/artifacts',
+    },
   } as unknown as ExtensionContext
   const childContext = {
     ...context,
@@ -390,5 +401,62 @@ describe('registered /uw command root lifecycle', () => {
     await pending.terminal
 
     expect(subject.effects).toEqual(['accepted'])
+  })
+
+  it('sets preparation status before the operations factory and does not let the older command clear the newer status', async () => {
+    const statuses: Array<string | undefined> = []
+    const order: string[] = []
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
+    const release = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
+    let calls = 0
+    const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>()
+    const pi = createExtensionApiStub({
+      on: () => undefined,
+      registerCommand: (name, command) => {
+        commands.set(name, command as { handler: (args: string, ctx: ExtensionContext) => Promise<void> })
+      },
+    })
+    installFeatureUwOperationLifecycle(pi)
+    registerUwCommand(pi, async () => {
+      const index = calls
+      calls += 1
+      order.push('factory')
+      entered[index]?.resolve()
+      await release[index]?.promise
+      return { ...fixtureUwOperations(), acceptMaterial: async () => ({ status: 'refused', diagnostics: [] }) }
+    })
+    const command = commands.get('uw')
+    if (command === undefined) throw new Error('uw-command-missing')
+    const ctx = {
+      cwd: '/repo/feature',
+      agent: { kind: 'main', depth: 0, id: 'Main' },
+      hasUI: true,
+      mode: 'tui',
+      sessionManager: {
+        getSessionId: () => 'root-session',
+        getCwd: () => '/repo/feature',
+        getSessionFile: () => '/repo/feature/root-session.jsonl',
+        getArtifactsDir: () => '/repo/feature/artifacts',
+      },
+      ui: {
+        setStatus: (_key: string, text: string | undefined) => {
+          statuses.push(text)
+          order.push('status')
+        },
+      },
+      localProtocolOptions: consultableProtocolOptions(),
+    } as unknown as ExtensionContext
+    const first = command.handler('accept-material acme/widgets#42', ctx)
+    await entered[0]?.promise
+    expect(order.indexOf('status')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('status')).toBeLessThan(order.indexOf('factory'))
+    const second = command.handler('accept-material acme/widgets#42', ctx)
+    await entered[1]?.promise
+    const newer = statuses.at(-1)
+    release[0]?.resolve()
+    await first
+    expect(statuses.at(-1)).toBe(newer)
+    release[1]?.resolve()
+    await second
   })
 })

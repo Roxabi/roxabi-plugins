@@ -8,9 +8,11 @@ import type { PinnedFileRef } from '../../roxabi/uw-action-contract.ts'
 import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import { manualOperatorDialog } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import ompBuildExtension from '../index'
 import { FRAMING_SHORTCUT } from '../omp-framing-runtime.ts'
+import { createOperatorConfirmation, reopenOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
 const CWD = '/repo/feature'
 const ROOT_AGENT = { kind: 'main' as const, id: 'Main', depth: 0 }
@@ -346,6 +348,58 @@ describe('assisted /feature framing in the installed extension', () => {
 
     expect(state.confirms).toBe(0)
     expect(await host.emit('context', contextEvent(), root)).toBeDefined()
+  })
+
+  it('reopens a held generic confirmation from the shortcut while busy and does not start framing', async () => {
+    const host = installed()
+    const state = session()
+    state.idle = false
+    const dialog = manualOperatorDialog()
+    const root = contextOf(state)
+    Object.assign(root, { ui: dialog.ui, hasPendingMessages: () => true })
+    const operator = createOperatorConfirmation(root)
+    const effects: string[] = []
+    const pending = operator.executeConfirmed(
+      {
+        digest: '1c6e37f6c1d14723bc8d8e4b5565d928',
+        proposal: {
+          operationId: 'normalize-acme-widgets-42',
+          operation: 'normalize',
+          target: { kind: 'existing', uw: { repository: 'acme/widgets', target: 'acme/widgets#42' } },
+        },
+      } as never,
+      async () => {
+        effects.push('once')
+        return 'once'
+      },
+    )
+    const first = await dialog.nextMount()
+    first.handleInput?.('\u001b')
+    await operator.held
+    const reads = host.procedureReads()
+    await host.shortcut(root)
+    expect(host.procedureReads()).toBe(reads)
+    const reopened = await dialog.nextMount()
+    reopened.handleInput?.('c')
+    await expect(pending).resolves.toMatchObject({ status: 'confirmed', value: 'once' })
+    expect(effects).toEqual(['once'])
+  })
+
+  it('does not start framing when reopen reports preparing', async () => {
+    const host = installed()
+    const root = contextOf(session())
+    const statuses: string[] = []
+    Object.assign(root.ui, {
+      setStatus: (_key: string, text: string | undefined) => {
+        if (text !== undefined) statuses.push(text)
+      },
+    })
+    const operator = createOperatorConfirmation(root)
+    operator.progress('Reading fictional abandon')
+    expect(reopenOperatorConfirmation(root)).toBe('preparing')
+    await host.shortcut(root)
+    expect(host.procedureReads()).toBe(0)
+    expect(statuses.join('\n')).not.toContain('feature-framing')
   })
 })
 

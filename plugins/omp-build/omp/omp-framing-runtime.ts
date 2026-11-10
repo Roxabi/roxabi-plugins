@@ -6,6 +6,7 @@ import {
   type FeatureFramingControllerHost,
   FRAMING_SUBMIT_TOOL,
   type FramingController,
+  type FramingOperator,
   type FramingSourceRequest,
 } from '../roxabi/feature-framing-contract.ts'
 import { createFeatureFramingController } from '../roxabi/feature-framing-controller.ts'
@@ -22,7 +23,7 @@ import {
   featureUwOperationOrigin,
 } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
-import { type CommandOperatorPort, createOperatorConfirmation } from './omp-operator-confirmation.ts'
+import { createOperatorConfirmation, reopenOperatorConfirmation } from './omp-operator-confirmation.ts'
 import type { UwOperationsFactory } from './omp-uw-command.ts'
 
 /** Registered provenance of the one framing submit tool; the read-only admission gate requires it. */
@@ -44,7 +45,7 @@ export type FramingRuntimeOptions = {
  */
 export type FramingCommandBinding = Readonly<{
   ctx: ExtensionContext
-  operator: CommandOperatorPort
+  operator: FramingOperator
   originalArgs: string | null
 }>
 
@@ -87,7 +88,7 @@ export function installFeatureFramingRuntime(
     sendUserMessage: (content, sendOptions) => pi.sendUserMessage(content, sendOptions),
     status: (message) => statusContext?.ui?.setStatus?.(FRAMING_STATUS, message),
     procedurePorts,
-    operator: (ctx) => createOperatorConfirmation(ctx),
+    operator: (ctx) => createOperatorConfirmation(ctx, { escape: 'defer' }),
     uw: ({ ctx, operator }) => resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin),
     gh,
     git,
@@ -121,9 +122,10 @@ export function installFeatureFramingRuntime(
   })
 
   pi.registerShortcut(FRAMING_SHORTCUT, {
-    description: 'omp-build framing: review and confirm the staged proposal, or continue after the native /move',
+    description: 'Reopen a held omp-build confirmation, or review the staged framing proposal',
     handler: async (ctx) => {
       if (!rootContext(ctx)) return
+      if (reopenOperatorConfirmation(ctx) !== 'none') return
       statusContext = ctx
       await controller.act(ctx)
     },

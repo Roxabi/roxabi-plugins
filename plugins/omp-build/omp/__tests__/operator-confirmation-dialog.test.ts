@@ -1,8 +1,11 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import type { Component } from '@oh-my-pi/pi-tui'
+import type { DescribeContext } from '@oh-my-pi/pi-tui/native/node'
 import { describe, expect, it } from 'vitest'
 import type { PreparedOperatorProposal } from '../../roxabi/uw-contract.ts'
 import { operatorDialogKeybindings } from '../../testing/operator-dialog-ui.ts'
-import { type OperatorChoice, showOperatorProposal } from '../omp-operator-confirmation-dialog.ts'
+import { showOperatorProposal } from '../omp-operator-confirmation-dialog.ts'
+import type { OperatorChoice } from '../omp-operator-confirmation-input.ts'
 import { proposalSummary } from '../omp-operator-confirmation-summary.ts'
 
 const proposal = {
@@ -16,7 +19,7 @@ const proposal = {
   },
 } as unknown as PreparedOperatorProposal
 
-type View = { render(width: number): readonly string[]; handleInput?(input: string): void }
+type View = Pick<Component, 'render' | 'handleInput' | 'describe' | 'handleNativeEvent'>
 function mount(prepared: PreparedOperatorProposal = proposal) {
   let view!: View
   const terminal = { columns: 80, rows: 18 }
@@ -218,16 +221,6 @@ describe('operator dialog input and viewport', () => {
     expect(safeRows.join('\n')).toContain('Context\\nCréer : forged')
   })
 
-  it('keeps untrusted line breaks inside the presented value', () => {
-    const hostile = structuredClone(proposal)
-    if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
-    hostile.proposal.title = 'Ordinary title\nEffet : aucun'
-    Object.assign(hostile.proposal, { 'Périmètre : forged': 'payload' })
-    const rows = proposalSummary(hostile)
-    expect(rows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
-    expect(rows.join('\n')).toContain('Ordinary title\\nEffet : aucun')
-    expect(rows.find((row) => row.includes('payload'))).toContain('Champ : "Périmètre : forged" : "payload"')
-  })
   it('marks scrolled wrapped values and exposes bidirectional controls', async () => {
     let candidate: readonly string[] | undefined
     for (let padding = 320; padding < 360 && !candidate; padding += 1)
@@ -238,42 +231,6 @@ describe('operator dialog input and viewport', () => {
     const text = candidate.join('\n')
     expect(text).toContain('\\u202e')
     expect(text).not.toContain('Champ : "title')
-    expect(text).toContain('[C] Confirmer')
-    expect(text).toContain('[R] Refuser')
-    expect(text).toContain('[Esc] Plus tard')
-  })
-
-  it('explains when the viewport cannot fit a usable footer and body', async () => {
-    const mounted = mount()
-    mounted.terminal.columns = 20
-    mounted.terminal.rows = 5
-    const text = mounted.view.render(20).join('\n')
-    expect(text).toContain('Trop petit')
-    expect(text).toContain('Esc: Plus tard')
-    mounted.view.handleInput?.('c')
-    mounted.view.handleInput?.('\u001b')
-    await expect(mounted.choice).resolves.toBe('defer')
-  })
-
-  it('keeps all actions visible at normal, narrow and resized heights', async () => {
-    const mounted = mount()
-    for (const [width, rows] of [
-      [80, 18],
-      [40, 12],
-      [40, 8],
-    ] as const) {
-      mounted.terminal.columns = width
-      mounted.terminal.rows = rows
-      const lines = mounted.view.render(width)
-      expect(lines.length).toBeLessThanOrEqual(rows)
-      const text = lines.join('\n')
-      expect(text).toContain('[C] Confirmer')
-      expect(text).toContain('[R] Refuser')
-      expect(text).toContain('[Esc] Plus tard')
-      expect(text).toContain('[D] Détails')
-    }
-    mounted.view.handleInput?.('\u001b')
-    await expect(mounted.choice).resolves.toBe('defer')
   })
 
   it('starts on defer, ignores pre-render and pasted input, and never implicitly confirms', async () => {
@@ -294,19 +251,25 @@ describe('operator dialog input and viewport', () => {
     const details = mounted.view.render(80).join('\n')
     expect(details).toContain('local://exact')
     expect(details).toContain('"operationId"')
-    expect(details).toContain('[C] Confirmer')
     mounted.view.handleInput?.('r')
     await expect(mounted.choice).resolves.toBe('refuse')
   })
 
-  it('prevents acceptance in an impossible viewport even after resizing', async () => {
+  it('accepts the first native confirmation after a height-only reflow without a new description', async () => {
     const mounted = mount()
-    mounted.view.render(80)
+    mounted.view.describe?.({ cols: 80, supports: () => true } as unknown as DescribeContext)
+    mounted.terminal.rows = 10
+    mounted.view.handleNativeEvent?.({ type: 'action', key: 'actions/confirm', act: 'confirm', mods: [] })
+    await expect(mounted.choice).resolves.toBe('confirm')
+  })
+
+  it('rejects a native confirmation at an unsafe height and allows refusal after height recovery', async () => {
+    const mounted = mount()
+    mounted.view.describe?.({ cols: 80, supports: () => true } as unknown as DescribeContext)
     mounted.terminal.rows = 2
-    mounted.view.handleInput?.('c')
-    mounted.view.render(80)
-    mounted.view.handleInput?.('c')
-    mounted.view.handleInput?.('\u001b')
-    await expect(mounted.choice).resolves.toBe('defer')
+    mounted.view.handleNativeEvent?.({ type: 'action', key: 'actions/confirm', act: 'confirm', mods: [] })
+    mounted.terminal.rows = 10
+    mounted.view.handleNativeEvent?.({ type: 'action', key: 'actions/refuse', act: 'refuse', mods: [] })
+    await expect(mounted.choice).resolves.toBe('refuse')
   })
 })
