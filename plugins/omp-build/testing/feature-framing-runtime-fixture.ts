@@ -3,6 +3,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { FRAMING_PROCEDURE_FILES } from '../engine/framing-context-schema.ts'
 import ompBuildExtension from '../omp/index'
 import { FRAMING_SHORTCUT } from '../omp/omp-framing-runtime.ts'
+import type * as operatorConfirmation from '../omp/omp-operator-confirmation.ts'
 import type { UwOperationsFactory } from '../omp/omp-uw-command.ts'
 import type { FeatureWorkflow } from '../roxabi/feature-contract.ts'
 import { FRAMING_SUBMIT_TOOL } from '../roxabi/feature-framing-contract.ts'
@@ -11,10 +12,34 @@ import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { fixtureUwOperations } from './action-input-fixtures.ts'
 import { createExtensionApiStub } from './extension-api-stub.ts'
 import { consultableProtocolOptions } from './protocol-retention.unit.ts'
+import { UW } from './uw-operations-fixture-input.ts'
 
 export const CWD = '/repo/feature'
 const ROOT_AGENT = { kind: 'main' as const, id: 'Main', depth: 0 }
 export const CHILD_AGENT = { kind: 'sub' as const, id: 'Child', depth: 1 }
+
+export const confirmationProposal = {
+  digest: '4'.repeat(64),
+  proposal: {
+    format: 'omp-build-material-acceptance/2',
+    operationId: 'accept-material-fixture-42',
+    uw: UW,
+    mandate: { scope: UW, recordId: 'm1', kind: 'mandate' },
+    predecessor: {
+      scope: UW,
+      recordId: 'p1',
+      kind: 'operator-control',
+    },
+    assessment: {
+      scope: UW,
+      recordId: 'a1',
+      kind: 'action-receipt',
+    },
+    classification: 'material',
+    exactInputs: {},
+  },
+} as unknown as Parameters<operatorConfirmation.CommandOperatorPort['executeConfirmed']>[0]
+
 const BUILTINS = ['read', 'grep', 'glob', 'bash', 'write', 'edit', 'task']
 const pin = {
   name: 'omp-build' as const,
@@ -200,9 +225,9 @@ export function installed(
       },
     },
   })
-  function command(args: string, ctx: ExtensionContext): Promise<void> {
-    const handler = commands.get('feature')
-    if (handler === undefined) throw new Error('feature-command-missing')
+  function command(args: string, ctx: ExtensionContext, name: 'feature' | 'uw' = 'feature'): Promise<void> {
+    const handler = commands.get(name)
+    if (handler === undefined) throw new Error(`${name}-command-missing`)
     return handler(args, ctx)
   }
   async function emit(event: string, payload: unknown, ctx: ExtensionContext): Promise<unknown> {

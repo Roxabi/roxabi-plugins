@@ -20,10 +20,10 @@ import {
   createFeatureOperationReportGuard,
 } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
-import { createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
+import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
 import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
 import { type ParsedUwCommand, parseCreateCommand, parseIssueCommand, parseProposalCommand } from './omp-uw-parse.ts'
-import { reportResult } from './omp-uw-result.ts'
+import { reportResult, reportStopped } from './omp-uw-result.ts'
 /** The operator is confirmation-only; cancelling it belongs to the owner-slot composition. */
 export type UwOperationsFactory = (input: {
   cwd: string
@@ -167,7 +167,7 @@ async function executeUwCommand(
 
 function reportOutcome(pi: OmpBuildExtensionApi, ctx: ExtensionContext, outcome: CommandOutcome): void {
   if (outcome.kind === 'result') reportResult(pi, ctx, outcome.value)
-  else pi.sendMessage(`uw-stopped: ${outcome.reason}`, { triggerTurn: false })
+  else reportStopped(pi, ctx, outcome.reason)
 }
 
 function sameCommand(ctx: ExtensionContext, cwd: string, sessionId: string | undefined): boolean {
@@ -179,27 +179,72 @@ function sameCommand(ctx: ExtensionContext, cwd: string, sessionId: string | und
   }
 }
 
+async function runOrdinaryCommand(
+  pi: OmpBuildExtensionApi,
+  ctx: ExtensionContext,
+  parsed: Exclude<ParsedUwCommand, { kind: 'invalid' }>,
+  factory: UwOperationsFactory,
+  privateOperator: CommandOperatorPort,
+  ownsRootCapability: boolean,
+): Promise<void> {
+  const cwd = ctx.cwd
+  let sessionId: string | undefined
+  try {
+    sessionId = ctx.sessionManager?.getSessionId()
+  } catch {
+    sessionId = undefined
+  }
+  const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
+  const reporting = ownsRootCapability ? createFeatureOperationReportGuard(pi, ctx, operator) : null
+  const isCurrent = reporting?.isCurrent ?? (() => sameCommand(ctx, cwd, sessionId))
+  const captureFailure = reporting?.captureFailure ?? (() => isCurrent)
+  let canReportFailure = () => false
+  const work = (async () => {
+    try {
+      const outcome = await executeUwCommand(
+        parsed,
+        await factory({
+          cwd: ctx.cwd,
+          operator,
+          artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
+        }),
+      )
+      if (isCurrent()) reportOutcome(pi, ctx, outcome)
+    } catch (error) {
+      canReportFailure = captureFailure()
+      throw error
+    } finally {
+      if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
+      else operator.cancel()
+    }
+  })()
+  const reportFailure = (error: unknown): void => {
+    if (!canReportFailure()) return
+    reportStopped(pi, ctx, error instanceof Error ? error.message : String(error))
+  }
+  try {
+    await raceOperatorHold(work, privateOperator.held, reportFailure)
+  } catch (error) {
+    reportFailure(error)
+  }
+}
+
 export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperationsFactory): void {
   pi.registerCommand('uw', {
     description: 'Read, prepare, confirm, write, create, or accept one own UW Spec.',
     handler: async (args, ctx: ExtensionContext) => {
       const parsed = parseUwCommand(args)
       if (parsed.kind === 'invalid') {
-        pi.sendMessage(`uw-stopped: ${parsed.reason}`, { triggerTurn: false })
+        reportStopped(pi, ctx, parsed.reason)
         return
       }
       const privateOperator = createOperatorConfirmation(ctx)
-      privateOperator.progress('Preparing UW operation')
-      const cwd = ctx.cwd
-      let sessionId: string | undefined
-      try {
-        sessionId = ctx.sessionManager?.getSessionId()
-      } catch {
-        sessionId = undefined
-      }
+      const target =
+        'repository' in parsed ? ` ${parsed.repository}${'number' in parsed ? `#${parsed.number}` : ''}` : ''
+      privateOperator.progress(`/uw ${parsed.kind}${target}`)
       const ownsRootCapability = rootContext(ctx)
       if (ownsRootCapability && (parsed.kind === 'sister' || parsed.kind === 'promote-report')) {
-        await runNativeUwOperation(pi, ctx, privateOperator, async (operator, nativeHost) => {
+        await runNativeUwOperation(pi, ctx, privateOperator, async (operator, nativeHost, isCurrent) => {
           const operations = await factory({
             cwd: ctx.cwd,
             operator,
@@ -207,40 +252,11 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
             nativeHost,
           })
           const outcome = await executeUwCommand(parsed, operations)
-          if (!nativeHost.signal.aborted && sameCommand(ctx, cwd, sessionId)) reportOutcome(pi, ctx, outcome)
+          if (!nativeHost.signal.aborted && isCurrent()) reportOutcome(pi, ctx, outcome)
         })
         return
       }
-      const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
-      const reporting = ownsRootCapability ? createFeatureOperationReportGuard(pi, ctx, operator) : null
-      const isCurrent = reporting?.isCurrent ?? (() => sameCommand(ctx, cwd, sessionId))
-      const captureFailure = reporting?.captureFailure ?? (() => isCurrent)
-      let canReportFailure = () => false
-      const work = (async () => {
-        try {
-          const outcome = await executeUwCommand(
-            parsed,
-            await factory({
-              cwd: ctx.cwd,
-              operator,
-              artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
-            }),
-          )
-          if (isCurrent()) reportOutcome(pi, ctx, outcome)
-        } catch (error) {
-          canReportFailure = captureFailure()
-          throw error
-        } finally {
-          if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
-          else operator.cancel()
-        }
-      })()
-      await raceOperatorHold(work, privateOperator.held, (error) => {
-        if (!canReportFailure()) return
-        pi.sendMessage(`uw-stopped: ${error instanceof Error ? error.message : String(error)}`, {
-          triggerTurn: false,
-        })
-      })
+      await runOrdinaryCommand(pi, ctx, parsed, factory, privateOperator, ownsRootCapability)
     },
   })
 }

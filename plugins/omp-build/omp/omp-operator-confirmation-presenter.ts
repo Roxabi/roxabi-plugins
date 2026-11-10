@@ -1,13 +1,70 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { type FramingOrigin, sameLocation, sameSession } from '../roxabi/feature-framing-controller-lease.ts'
+import { nativeText } from './omp-operator-confirmation-field.ts'
 
 const STATUS_KEY = 'omp-build-operator'
-const QUEUED_STATUS = 'Confirmation waiting'
-const HELD_STATUS = 'Confirmation held — Ctrl+Alt+U to reopen'
 
 type SlotState = 'waiting' | 'visible' | 'hidden' | 'done'
-type StatusEntry = { generation: number; text: string }
+export type FeedbackPhase = 'preparing' | 'queued' | 'visible' | 'held' | 'applying' | 'applying-after-stop'
+export type StatusEntry = {
+  generation: number
+  origin: FramingOrigin
+  phase: FeedbackPhase
+  subject: string | null
+}
 type Ui = ExtensionContext['ui']
+
+const PHASE_LABELS: Record<FeedbackPhase, string> = {
+  preparing: 'Préparation en cours',
+  queued: 'Confirmation en file',
+  visible: 'Confirmation ouverte',
+  held: 'Proposition conservée — Ctrl+Alt+U pour rouvrir',
+  applying: 'Application en cours',
+  'applying-after-stop': 'Arrêt reçu — action déjà commencée',
+}
+
+const PHASE_HELP: Record<FeedbackPhase, string> = {
+  preparing: 'Lecture en cours ; aucune décision confirmée. La proposition ne peut pas encore être ouverte.',
+  queued: 'Une autre confirmation est ouverte. Cette proposition attend son tour ; aucune décision prise.',
+  visible: 'Examiner la proposition puis choisir Confirmer, Refuser, Plus tard ou Détails.',
+  held: 'Aucune décision prise. Ctrl+Alt+U rouvre la même proposition.',
+  applying: 'Choix confirmé, action commencée. Aucun retour arrière automatique ; ne pas relancer.',
+  'applying-after-stop': 'Les effets commencés peuvent encore aboutir ; résultat non encore reçu. Ne pas relancer.',
+}
+
+function statusText(entry: StatusEntry): string {
+  const label = PHASE_LABELS[entry.phase]
+  return entry.subject === null ? label : `${label} — ${entry.subject}`
+}
+
+export function feedbackText(entry: StatusEntry): string {
+  return `${statusText(entry)}. ${PHASE_HELP[entry.phase]}`
+}
+
+function notifyUi(ui: Ui, message: string, type: 'info' | 'warning' | 'error'): void {
+  try {
+    ui.notify?.(nativeText(message), type)
+  } catch {
+    // A presentation failure cannot interrupt an action or turn its publication into a failure.
+  }
+}
+
+export function notifyOperator(
+  ctx: ExtensionContext,
+  message: string,
+  type: 'info' | 'warning' | 'error' = 'info',
+): void {
+  if (!ctx.hasUI || ctx.mode !== 'tui' || ctx.agent?.kind !== 'main' || ctx.agent.depth !== 0 || ctx.ui == null) return
+  notifyUi(ctx.ui, message, type)
+}
+
+function writeStatus(ui: Ui, text: string | undefined): void {
+  try {
+    ui.setStatus?.(STATUS_KEY, text === undefined ? undefined : nativeText(text))
+  } catch {
+    // Status is a projection, never a lifecycle gate; cleanup and exact confirmation still run.
+  }
+}
 
 export type Slot = {
   port: object
@@ -26,7 +83,6 @@ export type Presenter = {
   visible: Slot | null
   waiting: Slot[]
   hidden: Slot[]
-  preparing: Map<object, FramingOrigin>
   statuses: Map<object, StatusEntry>
   cancellers: Map<object, () => void>
   nextGeneration: number
@@ -59,7 +115,6 @@ export function presenterFor(ctx: ExtensionContext): Presenter | null {
       visible: null,
       waiting: [],
       hidden: [],
-      preparing: new Map(),
       statuses: new Map(),
       cancellers: new Map(),
       nextGeneration: 0,
@@ -78,14 +133,13 @@ function hasForeignLive(presenter: Presenter, port: object): boolean {
   if (presenter.visible !== null && presenter.visible.port !== port) return true
   if (presenter.waiting.some((slot) => slot.port !== port)) return true
   if (presenter.hidden.some((slot) => slot.port !== port)) return true
-  for (const key of presenter.preparing.keys()) if (key !== port) return true
   for (const key of presenter.statuses.keys()) if (key !== port) return true
   return false
 }
 
 export function adoptWriter(presenter: Presenter, ctx: ExtensionContext, port: object): void {
   if (ctx.ui == null || presenter.ui === ctx.ui || hasForeignLive(presenter, port)) return
-  presenter.ui.setStatus?.(STATUS_KEY, undefined)
+  writeStatus(presenter.ui, undefined)
   presenter.ui = ctx.ui
   publishStatus(presenter)
 }
@@ -99,14 +153,41 @@ function publishStatus(presenter: Presenter): void {
   for (const entry of presenter.statuses.values()) {
     if (best === null || entry.generation > best.generation) best = entry
   }
-  presenter.ui.setStatus?.(STATUS_KEY, best === null ? undefined : best.text)
+  writeStatus(presenter.ui, best === null ? undefined : statusText(best))
 }
 
-export function setPortStatus(presenter: Presenter, port: object, text: string): void {
-  const existing = presenter.statuses.get(port)
-  if (existing === undefined) presenter.statuses.set(port, { generation: ++presenter.nextGeneration, text })
-  else existing.text = text
+export function setPortStatus(
+  presenter: Presenter,
+  port: object,
+  origin: FramingOrigin,
+  phase: FeedbackPhase,
+  subject?: string,
+): void {
+  let entry = presenter.statuses.get(port)
+  const changed = entry?.phase !== phase
+  if (entry === undefined) {
+    entry = { generation: ++presenter.nextGeneration, origin, phase, subject: subject ?? null }
+    presenter.statuses.set(port, entry)
+  } else {
+    entry.phase = phase
+    if (subject !== undefined) entry.subject = subject
+  }
   publishStatus(presenter)
+  if (changed) {
+    const receipt = phase === 'preparing' ? 'Commande reçue. ' : ''
+    notifyUi(presenter.ui, `${receipt}${feedbackText(entry)}`, 'info')
+  }
+}
+
+/** Cancelling the capability cannot roll back an action already awaiting its external result. */
+export function stopPortStatus(presenter: Presenter, port: object): boolean {
+  const entry = presenter.statuses.get(port)
+  if (entry?.phase !== 'applying' && entry?.phase !== 'applying-after-stop') return false
+  if (entry.phase === 'applying') {
+    entry.phase = 'applying-after-stop'
+    publishStatus(presenter)
+  }
+  return true
 }
 
 export function clearPortStatus(presenter: Presenter, port: object): void {
@@ -142,7 +223,7 @@ export function hide(presenter: Presenter, slot: Slot): void {
   if (presenter.visible === slot) presenter.visible = null
   if (!presenter.hidden.includes(slot)) presenter.hidden.push(slot)
   slot.state = 'hidden'
-  setPortStatus(presenter, slot.port, HELD_STATUS)
+  setPortStatus(presenter, slot.port, slot.origin, 'held')
   promote(presenter)
 }
 
@@ -180,7 +261,7 @@ export function enqueue(presenter: Presenter, slot: Slot): void {
   }
   presenter.waiting.push(slot)
   slot.state = 'waiting'
-  setPortStatus(presenter, slot.port, QUEUED_STATUS)
+  setPortStatus(presenter, slot.port, slot.origin, 'queued')
 }
 
 export function latestMatching(slots: readonly Slot[], ctx: ExtensionContext, state: SlotState): Slot | null {
@@ -196,6 +277,6 @@ export function knownRequest(presenter: Presenter): boolean {
     presenter.visible !== null ||
     presenter.waiting.length > 0 ||
     presenter.hidden.length > 0 ||
-    presenter.preparing.size > 0
+    presenter.statuses.size > 0
   )
 }

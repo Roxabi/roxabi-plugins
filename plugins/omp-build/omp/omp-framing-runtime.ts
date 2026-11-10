@@ -24,6 +24,7 @@ import {
 } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { createOperatorConfirmation, reopenOperatorConfirmation } from './omp-operator-confirmation.ts'
+import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
 import type { UwOperationsFactory } from './omp-uw-command.ts'
 
 /** Registered provenance of the one framing submit tool; the read-only admission gate requires it. */
@@ -128,9 +129,20 @@ export function installFeatureFramingRuntime(
   pi.registerShortcut(FRAMING_SHORTCUT, {
     description: 'Reopen a held omp-build confirmation, or review the staged framing proposal',
     handler: async (ctx) => {
-      if (!rootContext(ctx)) return
-      if (reopenOperatorConfirmation(ctx) !== 'none') return
+      if (!rootContext(ctx) || !ctx.hasUI || ctx.mode !== 'tui') return
+      const feedback = reopenOperatorConfirmation(ctx)
+      if (feedback !== 'none') {
+        if (feedback !== 'applying-after-stop') return
+        const view = controller.view()
+        if (view === null || view.revoked || !governed(ctx)) return
+      }
       statusContext = ctx
+      notifyOperator(
+        ctx,
+        controller.view() === null
+          ? "Ctrl+Alt+U : aucune confirmation disponible ici. Le raccourci n'a rien approuvé."
+          : 'Ctrl+Alt+U reçu. Vérification du cadrage en cours ; aucune approbation automatique.',
+      )
       await controller.act(ctx)
     },
   })

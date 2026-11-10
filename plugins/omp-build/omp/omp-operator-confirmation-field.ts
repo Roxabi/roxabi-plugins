@@ -2,6 +2,15 @@ import { isRecord } from '../roxabi/feature-engine.ts'
 
 export const PARTIAL = 'Les effets peuvent être partiels ; aucun retour arrière automatique.'
 
+export function nativeText(value: string): string {
+  return value
+    .replace(
+      /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+      (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
+    )
+    .replace(/\p{Cc}/gu, '')
+}
+
 export function summaryField(trustedPrefix: string, rawValue: string): string {
   return `${trustedPrefix}${JSON.stringify(rawValue)}`
 }

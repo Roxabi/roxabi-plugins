@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
+import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
 
 function text(value: unknown): string {
   return JSON.stringify(value, (_key, item) => (item instanceof Map ? [...item.entries()] : item), 2) ?? 'null'
@@ -131,5 +132,13 @@ export function reportResult(pi: OmpBuildExtensionApi, ctx: ExtensionContext, va
   const path = writeSessionResultArtifact(ctx, value)
   const detail =
     path === null ? 'detail=unavailable' : `detail=${path} owner=session-artifacts lifetime=session-retention`
-  pi.sendMessage(`${resultSummary(value)} ${detail}`, { triggerTurn: false })
+  const summary = resultSummary(value)
+  pi.sendMessage(`${summary} ${detail}`, { triggerTurn: false })
+  notifyOperator(ctx, `Résultat : ${summary}`)
+}
+
+export function reportStopped(pi: OmpBuildExtensionApi, ctx: ExtensionContext, reason: string): void {
+  const message = `uw-stopped: ${reason}`
+  pi.sendMessage(message, { triggerTurn: false })
+  notifyOperator(ctx, message, 'error')
 }

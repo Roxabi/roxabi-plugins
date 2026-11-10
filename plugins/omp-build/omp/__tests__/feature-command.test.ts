@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
 import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
 import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
-import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
+import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
@@ -15,6 +15,11 @@ const root = {
   model: { contextWindow: 128_000 },
   isIdle: () => true,
 }
+
+beforeEach(() => {
+  root.localProtocolOptions = consultableProtocolOptions()
+  Object.assign(root.sessionManager, { getArtifactsDir: root.localProtocolOptions.getArtifactsDir })
+})
 
 afterEach(() => {
   cleanupFixtureActions()

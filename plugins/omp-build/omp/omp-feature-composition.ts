@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext, SessionStopEvent } from '@oh-my-pi/pi-coding-agent'
 import type { FramingController, FramingOperator, FramingOwnerClaim } from '../roxabi/feature-framing-contract.ts'
+import {
+  captureOrigin,
+  type FramingOrigin,
+  sameLocation,
+  sameSession,
+} from '../roxabi/feature-framing-controller-lease.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { cancelOperatorConfirmations } from './omp-operator-confirmation.ts'
@@ -141,18 +147,25 @@ export function createFeatureOperationReportGuard(
   ctx: ExtensionContext,
   operator: FramingOperator,
 ) {
-  const cwd = ctx.cwd
-  const agentId = ctx.agent.id
-  const sessionId = ctx.sessionManager.getSessionId()
+  let origin: FramingOrigin | null = null
+  let reportDirectory: string | null = null
+  try {
+    const captured = captureOrigin(ctx)
+    const directory = ctx.localProtocolOptions?.getArtifactsDir?.() ?? null
+    origin = captured
+    reportDirectory = directory
+  } catch {
+    // An unobservable origin cannot admit a report or a write to the result-artifact sink.
+  }
   let owner = () => ownsFeatureUwOperation(pi, operator)
   let phase: 'command' | 'background' | 'framing' = 'command'
   const sameOrigin = () => {
     try {
       return (
-        ctx.cwd === cwd &&
-        ctx.agent.id === agentId &&
-        ctx.sessionManager.getSessionId() === sessionId &&
-        ctx.sessionManager.getCwd() === cwd
+        origin !== null &&
+        sameSession(origin, ctx) &&
+        sameLocation(origin, ctx) &&
+        (ctx.localProtocolOptions?.getArtifactsDir?.() ?? null) === reportDirectory
       )
     } catch {
       return false
@@ -260,6 +273,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
     event.signal.addEventListener(
       'abort',
       () => {
+        if (currentOccupant(pi)?.generation !== generation) return
         invalidateExact(pi, generation, 'session-stop-aborted')
         cancelOperatorConfirmations(ctx, 'session-stop-aborted')
       },

@@ -6,6 +6,7 @@ import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import {
   CHILD_AGENT,
   CWD,
+  confirmationProposal,
   contextOf,
   installed,
   session,
@@ -17,7 +18,7 @@ import { consultableProtocolOptions } from '../../testing/protocol-retention.uni
 import { fixture as uwFixture } from '../../testing/uw-operations-fixture.ts'
 import { UW } from '../../testing/uw-operations-fixture-input.ts'
 import * as operatorConfirmation from '../omp-operator-confirmation.ts'
-import { createOperatorConfirmation, reopenOperatorConfirmation } from '../omp-operator-confirmation.ts'
+import { createOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
 const realCreateOperatorConfirmation = operatorConfirmation.createOperatorConfirmation
 
@@ -47,28 +48,6 @@ function captureCommandPort() {
     restore: () => spy.mockRestore(),
   }
 }
-
-const confirmationProposal = {
-  digest: '4'.repeat(64),
-  proposal: {
-    format: 'omp-build-material-acceptance/2',
-    operationId: 'accept-material-fixture-42',
-    uw: UW,
-    mandate: { scope: UW, recordId: 'm1', kind: 'mandate' },
-    predecessor: {
-      scope: UW,
-      recordId: 'p1',
-      kind: 'operator-control',
-    },
-    assessment: {
-      scope: UW,
-      recordId: 'a1',
-      kind: 'action-receipt',
-    },
-    classification: 'material',
-    exactInputs: {},
-  },
-} as unknown as Parameters<operatorConfirmation.CommandOperatorPort['executeConfirmed']>[0]
 
 async function interviewing(host: ReturnType<typeof installed>, root: ExtensionContext, args: string) {
   await host.command(args, root)
@@ -205,16 +184,6 @@ describe('assisted /feature framing in the installed extension', () => {
     await expect(pending).resolves.toMatchObject({ status: 'confirmed', value: 'once' })
     expect(effects).toEqual(['once'])
   })
-
-  it('does not start framing when reopen reports preparing', async () => {
-    const host = installed()
-    const root = contextOf(session())
-    const operator = createOperatorConfirmation(root)
-    operator.progress('Reading fictional abandon')
-    expect(reopenOperatorConfirmation(root)).toBe('preparing')
-    await host.shortcut(root)
-    expect(host.procedureReads()).toBe(0)
-  })
 })
 
 describe('/feature intake before classification', () => {
@@ -267,21 +236,46 @@ describe('/feature intake before classification', () => {
     },
   )
 
-  it.each(['#12', 'pause #12'])('clears preparing when %s finishes without confirmation', async (args) => {
-    const statuses: Array<string | undefined> = []
+  it('acknowledges preparation before feature classification and explains shortcuts without reentry', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const events: string[] = []
+    const statuses: Array<[string, string | undefined]> = []
+    let classifications = 0
     const host = installed({
-      featureWorkflow: workflow(async () => ({ kind: 'blocked', reason: 'fixture-blocked' })),
+      featureWorkflow: workflow(async () => {
+        classifications += 1
+        events.push('classification')
+        entered.resolve()
+        await release.promise
+        return { kind: 'blocked', reason: 'fixture-blocked' }
+      }),
     })
-    const root = contextOf(session())
+    const state = session()
+    const root = contextOf(state)
     Object.assign(root.ui, {
-      setStatus: (_key: string, text: string | undefined) => {
-        statuses.push(text)
-      },
+      setStatus: (key: string, text: string | undefined) => statuses.push([key, text]),
+      notify: () => events.push('notice'),
     })
-    await host.command(args, root)
-    expect(statuses.some((text) => text !== undefined)).toBe(true)
-    expect(statuses.at(-1)).toBeUndefined()
-    expect(reopenOperatorConfirmation(root)).toBe('none')
+    const running = host.command('#12', root)
+    await entered.promise
+    try {
+      expect(events).toEqual(['notice', 'classification'])
+      await host.shortcut(root)
+      await host.shortcut(root)
+      expect(events).toEqual(['notice', 'classification', 'notice', 'notice'])
+      expect(classifications).toBe(1)
+      expect(statuses.every(([key]) => key === 'omp-build-operator')).toBe(true)
+      expect(statuses.at(-1)).toEqual(['omp-build-operator', expect.stringContaining('/feature')])
+      expect(state.confirms).toBe(0)
+      expect(host.procedureReads()).toBe(0)
+      expect(host.messages).toEqual([])
+      expect(host.userMessages).toEqual([])
+    } finally {
+      release.resolve()
+      await running
+    }
+    expect(statuses.at(-1)).toEqual(['omp-build-operator', undefined])
   })
 
   it('does not send a late feature result to a new session after a held command was confirmed', async () => {
