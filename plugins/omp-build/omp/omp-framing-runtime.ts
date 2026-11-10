@@ -130,7 +130,12 @@ export function installFeatureFramingRuntime(
     description: 'Reopen a held omp-build confirmation, or review the staged framing proposal',
     handler: async (ctx) => {
       if (!rootContext(ctx) || !ctx.hasUI || ctx.mode !== 'tui') return
-      if (reopenOperatorConfirmation(ctx) !== 'none') return
+      const feedback = reopenOperatorConfirmation(ctx)
+      if (feedback !== 'none') {
+        if (feedback !== 'applying-after-stop') return
+        const view = controller.view()
+        if (view === null || view.revoked || !governed(ctx)) return
+      }
       statusContext = ctx
       notifyOperator(
         ctx,

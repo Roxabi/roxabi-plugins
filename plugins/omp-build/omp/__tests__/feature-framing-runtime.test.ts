@@ -236,21 +236,46 @@ describe('/feature intake before classification', () => {
     },
   )
 
-  it.each(['#12', 'pause #12'])('clears preparing when %s finishes without confirmation', async (args) => {
-    const statuses: Array<string | undefined> = []
+  it('acknowledges preparation before feature classification and explains shortcuts without reentry', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const events: string[] = []
+    const statuses: Array<[string, string | undefined]> = []
+    let classifications = 0
     const host = installed({
-      featureWorkflow: workflow(async () => ({ kind: 'blocked', reason: 'fixture-blocked' })),
+      featureWorkflow: workflow(async () => {
+        classifications += 1
+        events.push('classification')
+        entered.resolve()
+        await release.promise
+        return { kind: 'blocked', reason: 'fixture-blocked' }
+      }),
     })
-    const root = contextOf(session())
+    const state = session()
+    const root = contextOf(state)
     Object.assign(root.ui, {
-      setStatus: (_key: string, text: string | undefined) => {
-        statuses.push(text)
-      },
+      setStatus: (key: string, text: string | undefined) => statuses.push([key, text]),
+      notify: () => events.push('notice'),
     })
-    await host.command(args, root)
-    expect(statuses.some((text) => text !== undefined)).toBe(true)
-    expect(statuses.at(-1)).toBeUndefined()
-    expect(operatorConfirmation.reopenOperatorConfirmation(root)).toBe('none')
+    const running = host.command('#12', root)
+    await entered.promise
+    try {
+      expect(events).toEqual(['notice', 'classification'])
+      await host.shortcut(root)
+      await host.shortcut(root)
+      expect(events).toEqual(['notice', 'classification', 'notice', 'notice'])
+      expect(classifications).toBe(1)
+      expect(statuses.every(([key]) => key === 'omp-build-operator')).toBe(true)
+      expect(statuses.at(-1)).toEqual(['omp-build-operator', expect.stringContaining('/feature')])
+      expect(state.confirms).toBe(0)
+      expect(host.procedureReads()).toBe(0)
+      expect(host.messages).toEqual([])
+      expect(host.userMessages).toEqual([])
+    } finally {
+      release.resolve()
+      await running
+    }
+    expect(statuses.at(-1)).toEqual(['omp-build-operator', undefined])
   })
 
   it('does not send a late feature result to a new session after a held command was confirmed', async () => {

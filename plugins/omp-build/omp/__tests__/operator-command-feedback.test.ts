@@ -1,5 +1,8 @@
 import { readdirSync } from 'node:fs'
+import type { SessionEntry } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
+import { FRAMING_SUBMIT_TOOL } from '../../roxabi/feature-framing-contract.ts'
+import { createUwOperations } from '../../roxabi/uw-operations.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import {
   CWD,
@@ -8,8 +11,96 @@ import {
   installed,
   session,
 } from '../../testing/feature-framing-runtime-fixture.ts'
+import { uwMember } from '../../testing/framing-runtime-fixture.ts'
 import { manualOperatorDialog } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
+import { fixture as uwFixture } from '../../testing/uw-operations-fixture.ts'
+
+async function stageSuccessor(host: ReturnType<typeof installed>, root: ReturnType<typeof contextOf>) {
+  const entries: SessionEntry[] = []
+  Object.assign(root.sessionManager, { getBranch: () => entries })
+  await host.command('ship the billing export', root)
+  const supplyToken = async () => {
+    const projected = (await host.emit('context', { type: 'context', messages: [] }, root)) as
+      | { messages: Array<{ content?: unknown }> }
+      | undefined
+    const match = /^Supply token: (\S+)$/m.exec(String(projected?.messages.at(-1)?.content ?? ''))
+    if (!match?.[1]) throw new Error('framing-projection-missing')
+    return match[1]
+  }
+  const signal = new AbortController().signal
+  expect(
+    await host.submit(
+      { supplyToken: await supplyToken(), form: { kind: 'question', question: 'Question grill?' } },
+      root,
+      signal,
+    ),
+  ).toMatchObject({ status: 'waiting' })
+  entries.push(
+    {
+      type: 'message',
+      id: 'q-grill',
+      parentId: null,
+      timestamp: '2026-10-27T12:00:00.000Z',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'submit-call', name: FRAMING_SUBMIT_TOOL, arguments: {} }],
+        timestamp: 1,
+      },
+    } as unknown as SessionEntry,
+    {
+      type: 'message',
+      id: 'u-grill',
+      parentId: null,
+      timestamp: '2026-10-27T12:00:00.000Z',
+      message: { role: 'user', content: 'Answer grill', timestamp: 1 },
+    } as SessionEntry,
+  )
+  expect(
+    await host.submit(
+      {
+        supplyToken: await supplyToken(),
+        form: {
+          kind: 'grilling',
+          shape: 'leaf',
+          unresolved: [],
+          decisions: [{ questionEntryId: 'q-grill', answerEntryId: 'u-grill', decision: 'Decision grill' }],
+          terms: [],
+        },
+      },
+      root,
+      signal,
+    ),
+  ).toMatchObject({ status: 'accepted' })
+  const member = uwMember(
+    { kind: 'new', key: 'root', repository: 'acme/widgets' },
+    'Request queue',
+    'queue',
+    'Requests enter the queue',
+  )
+  const staged = await host.submit(
+    {
+      supplyToken: await supplyToken(),
+      form: {
+        kind: 'proposal',
+        decisions: [],
+        modules: [],
+        vocabulary: [],
+        aggregate: {
+          kind: 'uw',
+          root: 'root',
+          members: [{ ...member, slot: { kind: 'new', key: 'root' } }],
+          edges: [],
+          coverage: [],
+          foundations: [],
+        },
+      },
+    },
+    root,
+    signal,
+  )
+  expect(staged).toMatchObject({ status: 'accepted', diagnostics: [{ code: 'framing-proposal-staged' }] })
+}
 
 describe('registered UW command and shortcut feedback', () => {
   it('acknowledges a UW command before preparation and explains repeated shortcuts without repeating the operation', async () => {
@@ -307,5 +398,190 @@ describe('registered UW command and shortcut feedback', () => {
       await second
     }
     expect(host.messages).toEqual([expect.stringMatching(/^uw-refused: .* detail=/)])
+  })
+
+  it('does not let a delayed predecessor stop revoke its successor confirmation', async () => {
+    const dialog = manualOperatorDialog()
+    const statuses: Array<[string, string | undefined]> = []
+    const effects: number[] = []
+    let factories = 0
+    const host = installed({
+      uwOperations: ({ operator }) => {
+        const operation = ++factories
+        return {
+          ...fixtureUwOperations(),
+          acceptMaterial: async () => {
+            const result = await operator.executeConfirmed(confirmationProposal, async () => {
+              effects.push(operation)
+              return { status: 'refused' as const, diagnostics: [] }
+            })
+            return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: [] }
+          },
+        }
+      },
+    })
+    const root = contextOf(session())
+    Object.assign(root.ui, dialog.ui, {
+      setStatus: (key: string, text: string | undefined) => statuses.push([key, text]),
+    })
+    const first = host.command('accept-material acme/widgets#42', root, 'uw')
+    await dialog.nextMount()
+    const stop = new AbortController()
+    await host.emit('session_stop', { type: 'session_stop', signal: stop.signal }, root)
+    const second = host.command('accept-material acme/widgets#43', root, 'uw')
+    const successor = await dialog.nextMount()
+    await first
+    try {
+      const visible = statuses.at(-1)
+      stop.abort()
+      expect(statuses.at(-1)).toEqual(visible)
+      expect(effects).toEqual([])
+      successor.handleInput?.('c')
+      await second
+      successor.handleInput?.('c')
+      expect(effects).toEqual([2])
+      expect(factories).toBe(2)
+    } finally {
+      successor.handleInput?.('r')
+      await second
+    }
+  })
+
+  it.each(['same-location', 'moved-location'] as const)(
+    'allows successor framing while a stopped action from %s still awaits settlement',
+    async (location) => {
+      const entered = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const completed = Promise.withResolvers<void>()
+      const dialog = manualOperatorDialog()
+      const statuses: Array<[string, string | undefined]> = []
+      const effects: string[] = []
+      let factories = 0
+      const host = installed({
+        uwOperations: ({ operator }) => {
+          factories += 1
+          return {
+            ...fixtureUwOperations(),
+            prepareFraming: createUwOperations({ ...uwFixture().ports, operator }).prepareFraming,
+            acceptMaterial: async () => {
+              try {
+                const result = await operator.executeConfirmed(confirmationProposal, async () => {
+                  effects.push('predecessor-started')
+                  entered.resolve()
+                  await release.promise
+                  effects.push('predecessor-settled')
+                  return { status: 'refused' as const, diagnostics: [] }
+                })
+                return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: [] }
+              } finally {
+                completed.resolve()
+              }
+            },
+            frame: async (prepared) => {
+              const result = await operator.executeConfirmed(prepared, async () => {
+                effects.push('successor')
+                return { status: 'refused' as const, effects: [] as const, diagnostics: [] }
+              })
+              return result.status === 'confirmed' ? result.value : { status: 'refused', effects: [], diagnostics: [] }
+            },
+          }
+        },
+      })
+      const root = contextOf(session())
+      Object.assign(root.ui, dialog.ui, {
+        setStatus: (key: string, text: string | undefined) => statuses.push([key, text]),
+      })
+      const predecessor = host.command('accept-material acme/widgets#42', root, 'uw')
+      const first = await dialog.nextMount()
+      first.handleInput?.('\u001b')
+      await predecessor
+      await host.shortcut(root)
+      const reopened = await dialog.nextMount()
+      reopened.handleInput?.('c')
+      await entered.promise
+      let successorWork: Promise<void> | undefined
+      let successor: Awaited<ReturnType<typeof dialog.nextMount>> | undefined
+      try {
+        if (location === 'moved-location') {
+          Object.assign(root, { cwd: `${CWD}/next` })
+          Object.assign(root.sessionManager, { getCwd: () => root.cwd })
+        }
+        await stageSuccessor(host, root)
+        const mounted = dialog.nextMount()
+        successorWork = host.shortcut(root)
+        expect(await Promise.race([mounted.then(() => 'mounted'), successorWork.then(() => 'returned')])).toBe(
+          'mounted',
+        )
+        successor = await mounted
+        expect(effects).toEqual(['predecessor-started'])
+        const mountedFactories = factories
+        const visible = statuses.at(-1)
+        release.resolve()
+        await completed.promise
+        expect(statuses.at(-1)).toEqual(visible)
+        expect(effects).toEqual(['predecessor-started', 'predecessor-settled'])
+        successor.handleInput?.('c')
+        await successorWork
+        expect(effects).toEqual(['predecessor-started', 'predecessor-settled', 'successor'])
+        expect(factories).toBe(mountedFactories)
+      } finally {
+        successor?.handleInput?.('r')
+        release.resolve()
+        await completed.promise
+        await successorWork
+      }
+    },
+  )
+
+  it('does not route a stopped action back into its retained revoked framing view', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const effects: string[] = []
+    const statuses: Array<[string, string | undefined]> = []
+    const dialog = manualOperatorDialog()
+    const refusal = { status: 'refused' as const, effects: [] as const, diagnostics: [] }
+    let frames = 0
+    const host = installed({
+      uwOperations: ({ operator }) => ({
+        ...fixtureUwOperations(),
+        prepareFraming: createUwOperations({ ...uwFixture().ports, operator }).prepareFraming,
+        frame: async (prepared) => {
+          frames += 1
+          const result = await operator.executeConfirmed(prepared, async () => {
+            effects.push('started')
+            entered.resolve()
+            await release.promise
+            effects.push('settled')
+            return refusal
+          })
+          return result.status === 'confirmed' ? result.value : refusal
+        },
+      }),
+    })
+    const root = contextOf(session())
+    Object.assign(root.ui, dialog.ui, {
+      setStatus: (key: string, text: string | undefined) => statuses.push([key, text]),
+    })
+    await stageSuccessor(host, root)
+    const work = host.shortcut(root)
+    const view = await dialog.nextMount()
+    view.handleInput?.('c')
+    await entered.promise
+    try {
+      const stop = new AbortController()
+      stop.abort()
+      await host.emit('session_stop', { type: 'session_stop', signal: stop.signal }, root)
+      const afterStop = [...statuses]
+      await host.shortcut(root)
+      expect(statuses).toEqual(afterStop)
+      expect(dialog.views).toEqual([view])
+      expect(frames).toBe(1)
+      expect(effects).toEqual(['started'])
+      expect(await host.admits('task', root)).toBe(false)
+    } finally {
+      release.resolve()
+      await work
+    }
+    expect(effects).toEqual(['started', 'settled'])
   })
 })

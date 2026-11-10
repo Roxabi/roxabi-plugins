@@ -30,7 +30,15 @@ export type CommandOperatorPort = OperatorPort & {
   readonly held: Promise<void>
 }
 
-export type OperatorReopen = 'reopened' | 'visible' | 'none' | 'other-origin' | 'preparing' | 'pending' | 'applying'
+export type OperatorReopen =
+  | 'reopened'
+  | 'visible'
+  | 'none'
+  | 'other-origin'
+  | 'preparing'
+  | 'pending'
+  | 'applying'
+  | 'applying-after-stop'
 
 function interactive(ctx: ExtensionContext): boolean {
   return ctx.agent?.kind === 'main' && ctx.agent.depth === 0 && ctx.hasUI && ctx.mode === 'tui' && ctx.ui != null
@@ -201,6 +209,22 @@ function explain(ctx: ExtensionContext, state: OperatorReopen, message: string):
 }
 
 const OTHER_ORIGIN = 'Une opération existe dans un autre contexte ; aucune confirmation ouverte ici.'
+const STOPPED_ELSEWHERE =
+  'Une action commencée dans un ancien contexte peut encore aboutir ; son arrêt ne garantit aucun retour arrière.'
+
+function explainPortStatus(presenter: Presenter, ctx: ExtensionContext): OperatorReopen {
+  let current: StatusEntry | null = null
+  let onlyStopped = presenter.statuses.size > 0
+  for (const entry of presenter.statuses.values()) {
+    if (entry.phase !== 'applying-after-stop') onlyStopped = false
+    if (here(entry.origin, ctx) && (current === null || entry.generation > current.generation)) current = entry
+  }
+  if (onlyStopped)
+    return explain(ctx, 'applying-after-stop', current === null ? STOPPED_ELSEWHERE : feedbackText(current))
+  if (current?.phase === 'preparing') return explain(ctx, 'preparing', feedbackText(current))
+  if (actionInFlight(current)) return explain(ctx, 'applying', feedbackText(current))
+  return explain(ctx, 'other-origin', OTHER_ORIGIN)
+}
 
 /** Redraws the latest hidden same-origin proposal. Does not prepare, read or write. */
 export function reopenOperatorConfirmation(ctx: ExtensionContext): OperatorReopen {
@@ -226,13 +250,7 @@ export function reopenOperatorConfirmation(ctx: ExtensionContext): OperatorReope
       'pending',
       'La proposition attend son tour derrière une autre confirmation ; aucune décision prise.',
     )
-  let current: StatusEntry | null = null
-  for (const entry of presenter.statuses.values()) {
-    if (here(entry.origin, ctx) && (current === null || entry.generation > current.generation)) current = entry
-  }
-  if (current?.phase === 'preparing') return explain(ctx, 'preparing', feedbackText(current))
-  if (actionInFlight(current)) return explain(ctx, 'applying', feedbackText(current))
-  return explain(ctx, 'other-origin', OTHER_ORIGIN)
+  return explainPortStatus(presenter, ctx)
 }
 
 /** Cancels visible, waiting, held and preparing frames for this session. Does not touch workflow leases. */

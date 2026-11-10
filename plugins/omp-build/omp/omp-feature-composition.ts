@@ -273,6 +273,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
     event.signal.addEventListener(
       'abort',
       () => {
+        if (currentOccupant(pi)?.generation !== generation) return
         invalidateExact(pi, generation, 'session-stop-aborted')
         cancelOperatorConfirmations(ctx, 'session-stop-aborted')
       },

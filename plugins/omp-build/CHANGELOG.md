@@ -3,9 +3,9 @@
 ## 0.18.4
 
 - Acknowledge valid commands through the public UI before ports and long remote reads. Explain every confirmation shortcut and keep phase status outside model/user progress messages.
-- Distinguish preparation, queued/open/held confirmation and a started action. Retain honest started-after-stop feedback until settlement; consultation neither confirms again nor falls through to new framing.
-- Report current preparation and post-hold failures once, preserve canonical final outcomes, and never equate a confirmed choice with successful publication.
-- Keep reports and result files within the captured full session/location and actual artifact sink. UI notification/status failures cannot interrupt cleanup or alter an operation's result.
+- Distinguish preparation, queued/open/held confirmation and a started action. Retain honest started-after-stop feedback until settlement without vetoing a live successor framing owner; a predecessor's delayed stop cannot cancel its successor's confirmation.
+- Report current preparation and post-hold failures once through the existing canonical formatter, and never equate a confirmed choice with successful publication.
+- Keep root command reports and command-result files within their captured full session/location and actual artifact sink. Operator-feedback notification/status failures cannot interrupt its cleanup or alter the command result; controller-owned journals and other framing projections retain their existing behavior.
 - The product-version bump changes the effective workflow config digest. This source delivery grants no activation, tooling pin, installed-runtime upgrade or terminalization exception.
 
 ## 0.18.3
