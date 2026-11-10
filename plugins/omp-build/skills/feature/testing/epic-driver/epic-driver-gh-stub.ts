@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import path from 'node:path'
-
-const TOOLING_READER = path.resolve(import.meta.dirname, '../../../../testing/review-gate-tooling-gh-cli.ts')
 
 let runtime: { bun: string; ghStub: string } | undefined
 export function epicRuntime() {
   if (runtime) return runtime
+  const toolingReader = process.env.OMP_TEST_TOOLING_GH_PATH
+  if (toolingReader === undefined) throw new Error('Integration tooling reader is required')
   const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
   const ghStub = `#!/usr/bin/env bash
 set -uo pipefail
@@ -14,7 +13,7 @@ ME="operator"
 log() { printf '%s\\n' "$*" >> "$S/writes.log"; printf '%s\\n' "$*" >> "$S/trace.log"; printf '%s\\t%s\\n' "$(pwd -P)" "$*" >> "$S/cwd.log"; }
 query() { printf 'query %s\\n' "$1" >> "$S/trace.log"; }
 if [[ "$1" == "api" && ( ( "\${2:-}" == "graphql" && "$*" == *"object(expression:"* && "$*" == *"owner=Roxabi"* && "$*" == *"name=roxabi-plugins"* ) || ( "\${2:-}" == "--method" && "\${3:-}" == "GET" && ( "\${4:-}" == repos/Roxabi/roxabi-plugins/git/blobs/* || "\${4:-}" =~ ^repos/Roxabi/roxabi-plugins/git/commits/[0-9a-f]{40}$ ) ) ) ]]; then
-  exec ${JSON.stringify(bun)} ${JSON.stringify(TOOLING_READER)} ${JSON.stringify(import.meta.dirname)} "$@"
+  exec ${JSON.stringify(toolingReader)} ${JSON.stringify(import.meta.dirname)} "$@"
 fi
 case "$1 \${2:-}" in
   "repo view")

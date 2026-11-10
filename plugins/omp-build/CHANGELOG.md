@@ -6,6 +6,7 @@
 - Distinguish preparation, queued/open/held confirmation and a started action. Retain honest started-after-stop feedback until settlement without vetoing a live successor framing owner; a predecessor's delayed stop cannot cancel its successor's confirmation.
 - Report current preparation and post-hold failures once through the existing canonical formatter, and never equate a confirmed choice with successful publication.
 - Keep root command reports and command-result files within their captured full session/location and actual artifact sink. Operator-feedback notification/status failures cannot interrupt its cleanup or alter the command result; controller-owned journals and other framing projections retain their existing behavior.
+- Compile the integration fixture's physical-checkout tooling reader once per run instead of cold-starting its TypeScript CLI for every read. Keep the same live Git reads and pin semantics without increasing test timeouts.
 - The product-version bump changes the effective workflow config digest. This source delivery grants no activation, tooling pin, installed-runtime upgrade or terminalization exception.
 
 ## 0.18.3
