@@ -1,6 +1,22 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { OperatorChoice } from '../omp/omp-operator-confirmation-input.ts'
 
+/** One fictional root identity with the stable live mappings required by the real confirmation port. */
+export function operatorRootContext(cwd: string, protocol: { getArtifactsDir(): string }) {
+  const artifactsDir = protocol.getArtifactsDir()
+  return {
+    agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 } as const,
+    cwd,
+    sessionManager: {
+      getSessionId: () => `${cwd}:${artifactsDir}`,
+      getCwd: () => cwd,
+      getSessionFile: () => undefined,
+      getArtifactsDir: () => artifactsDir,
+    },
+    localProtocolOptions: { getArtifactsDir: () => artifactsDir },
+  }
+}
+
 /** Default host keybindings used by the custom UI test seam. */
 export const operatorDialogKeybindings = {
   matches(data: string, id: string): boolean {

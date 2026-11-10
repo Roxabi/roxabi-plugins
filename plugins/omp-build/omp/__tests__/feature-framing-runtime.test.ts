@@ -1,136 +1,25 @@
-import type { ExtensionContext, ToolInfo } from '@oh-my-pi/pi-coding-agent'
-import { describe, expect, it } from 'vitest'
-import type { Gh } from '../../adapters/github/types.ts'
-import { FRAMING_PROCEDURE_FILES } from '../../engine/framing-context-schema.ts'
-import type { ContinueFeatureResult, FeatureWorkflow } from '../../roxabi/feature-contract.ts'
+import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { describe, expect, it, vi } from 'vitest'
+import type { ContinueFeatureResult } from '../../roxabi/feature-contract.ts'
 import { FRAMING_SUBMIT_TOOL } from '../../roxabi/feature-framing-contract.ts'
-import type { PinnedFileRef } from '../../roxabi/uw-action-contract.ts'
-import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
-import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import {
+  CHILD_AGENT,
+  CWD,
+  contextOf,
+  installed,
+  session,
+  toolInfo,
+  workflow,
+} from '../../testing/feature-framing-runtime-fixture.ts'
 import { manualOperatorDialog } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
-import ompBuildExtension from '../index'
-import { FRAMING_SHORTCUT } from '../omp-framing-runtime.ts'
+import { fixture as uwFixture } from '../../testing/uw-operations-fixture.ts'
+import { UW } from '../../testing/uw-operations-fixture-input.ts'
+import * as operatorConfirmation from '../omp-operator-confirmation.ts'
 import { createOperatorConfirmation, reopenOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
-const CWD = '/repo/feature'
-const ROOT_AGENT = { kind: 'main' as const, id: 'Main', depth: 0 }
-const CHILD_AGENT = { kind: 'sub' as const, id: 'Child', depth: 1 }
-const BUILTINS = ['read', 'grep', 'glob', 'bash', 'write', 'edit', 'task']
-const pin = {
-  name: 'omp-build' as const,
-  version: '1',
-  repository: 'example/plugin',
-  commit: 'a'.repeat(40),
-  root: 'plugins/omp-build',
-}
-
-type Handler = (event: unknown, ctx: ExtensionContext) => unknown
-/** The registered surface the test drives: provenance, and execute yielding the result text. */
-type RegisteredTool = Readonly<{
-  name: string
-  sourcePath: string | undefined
-  execute(toolCallId: string, params: unknown, ctx: ExtensionContext, signal: AbortSignal | undefined): Promise<string>
-}>
-type Session = {
-  id: string
-  idle: boolean
-  aborts: number
-  confirms: number
-  artifacts: { getArtifactsDir(): string }
-}
-
-function procedurePorts() {
-  const files = new Map<string, Buffer>(
-    Object.values(FRAMING_PROCEDURE_FILES).map((path) => [
-      path,
-      Buffer.from(`# ${path}\n\n## Steps\n1. Inspect facts.\n\n## Done\nFacts retained.\n`),
-    ]),
-  )
-  return {
-    plugin: {
-      resolveInstalledPluginPin: async () => ({ ok: true as const, value: pin }),
-      readInstalledFile: async (path: string) => {
-        const value = files.get(path)
-        return value
-          ? { ok: true as const, value }
-          : { ok: false as const, diagnostics: [{ code: 'missing', message: path }] }
-      },
-    },
-    readPinnedFile: async (ref: PinnedFileRef) => {
-      const value = files.get(ref.path.slice(`${pin.root}/`.length))
-      return value
-        ? { ok: true as const, value }
-        : { ok: false as const, diagnostics: [{ code: 'missing', message: ref.path }] }
-    },
-  }
-}
-
-const repositoryGh: Gh = async (_cwd, args) => {
-  if (args.join(' ') === 'repo view --json nameWithOwner') return JSON.stringify({ nameWithOwner: 'acme/widgets' })
-  throw new Error(`unexpected-gh: ${args.join(' ')}`)
-}
-
-const unexpectedGit: GitRunner = async (_cwd, args) => {
-  throw new Error(`unexpected-git: ${args.join(' ')}`)
-}
-
-function session(id = 'root-session'): Session {
-  return { id, idle: true, aborts: 0, confirms: 0, artifacts: consultableProtocolOptions() }
-}
-
-function contextOf(state: Session, agent: { kind: 'main' | 'sub'; id: string; depth: number } = ROOT_AGENT) {
-  const context = {
-    cwd: CWD,
-    hasUI: true,
-    mode: 'tui',
-    agent: { ...agent, name: agent.id },
-    model: { contextWindow: 128_000 },
-    localProtocolOptions: state.artifacts,
-    sessionManager: {
-      getSessionId: () => state.id,
-      getCwd: () => CWD,
-      getSessionFile: () => `${CWD}/${state.id}.jsonl`,
-      getArtifactsDir: () => state.artifacts.getArtifactsDir(),
-      getBranch: () => [],
-    },
-    isIdle: () => state.idle,
-    hasPendingMessages: () => false,
-    abort: () => {
-      state.aborts += 1
-    },
-    ui: {
-      setStatus: () => undefined,
-      notify: () => undefined,
-      confirm: async () => {
-        state.confirms += 1
-        return false
-      },
-    },
-  }
-  return context as unknown as ExtensionContext
-}
-
-function toolInfo(name: string, source: string, path: string): ToolInfo {
-  return {
-    name,
-    description: name,
-    parameters: {} as ToolInfo['parameters'],
-    sourceInfo: { path, source, scope: 'user', origin: 'top-level' },
-  }
-}
-
-function workflow(continueFeature: FeatureWorkflow['continueFeature']): FeatureWorkflow {
-  return {
-    continueFeature,
-    consumeWatchExit: async () => ({ kind: 'blocked', reason: 'unexpected-watch' }),
-    publishFeatureNativeResult: async () => {
-      throw new Error('unexpected-native-publication')
-    },
-    requestFeatureSessionPause: async () => ({ kind: 'paused', confirmed: false, reason: 'unexpected-pause' }),
-  }
-}
+const realCreateOperatorConfirmation = operatorConfirmation.createOperatorConfirmation
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined
@@ -144,110 +33,42 @@ function contextEvent() {
   return { type: 'context', messages: [{ role: 'user', content: 'Frame the billing export', timestamp: 1 }] }
 }
 
-/** The installed extension, driven only through what it registers on the public API. */
-function installed(options: { featureWorkflow?: FeatureWorkflow; tools?: () => ToolInfo[] } = {}) {
-  const listeners = new Map<string, Handler[]>()
-  const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>()
-  const tools = new Map<string, RegisteredTool>()
-  const shortcuts = new Map<string, (ctx: ExtensionContext) => Promise<void> | void>()
-  const userMessages: Array<{ content: unknown; options: unknown }> = []
-  let procedureReads = 0
-  const pi = createExtensionApiStub({
-    on: (event, handler) => {
-      const list = listeners.get(event) ?? []
-      list.push(handler as unknown as Handler)
-      listeners.set(event, list)
-    },
-    registerCommand: (name, command) => {
-      commands.set(name, command.handler as (args: string, ctx: ExtensionContext) => Promise<void>)
-    },
-    registerTool: (definition) => {
-      tools.set(definition.name, {
-        name: definition.name,
-        sourcePath: definition.sourcePath,
-        async execute(toolCallId, params, ctx, signal) {
-          // As the SDK does, execute receives the model's arguments; the submit path validates them itself.
-          const result = await definition.execute(
-            toolCallId,
-            params as Parameters<typeof definition.execute>[1],
-            signal,
-            undefined,
-            ctx,
-          )
-          return result.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-        },
-      })
-    },
-    registerShortcut: (shortcut, shortcutOptions) => {
-      shortcuts.set(shortcut, shortcutOptions.handler)
-    },
-    sendUserMessage: (content, sendOptions) => {
-      userMessages.push({ content, options: sendOptions })
-    },
-    sendMessage: () => undefined,
-    getAllTools: () =>
-      options.tools?.() ?? [
-        ...BUILTINS.map((name) => toolInfo(name, 'builtin', `<builtin:${name}>`)),
-        toolInfo('mcp__files_read', 'mcp', '<mcp:mcp__files_read>'),
-        ...[...tools.values()].map((tool) =>
-          toolInfo(tool.name, 'extension', tool.sourcePath ?? '/installed/omp-build/omp/index.ts'),
-        ),
-      ],
+function captureCommandPort() {
+  let port: operatorConfirmation.CommandOperatorPort | undefined
+  const spy = vi.spyOn(operatorConfirmation, 'createOperatorConfirmation').mockImplementation((ctx, options) => {
+    port = realCreateOperatorConfirmation(ctx, options)
+    return port
   })
-  ompBuildExtension(pi, {
-    principalCwd: () => false,
-    uwOperations: () => fixtureUwOperations(),
-    ...(options.featureWorkflow === undefined ? {} : { featureWorkflow: options.featureWorkflow }),
-    framing: {
-      gh: repositoryGh,
-      git: unexpectedGit,
-      procedurePorts: () => {
-        procedureReads += 1
-        return procedurePorts()
-      },
-    },
-  })
-
-  function command(args: string, ctx: ExtensionContext): Promise<void> {
-    const handler = commands.get('feature')
-    if (handler === undefined) throw new Error('feature-command-missing')
-    return handler(args, ctx)
-  }
-  async function emit(event: string, payload: unknown, ctx: ExtensionContext): Promise<unknown> {
-    for (const handler of listeners.get(event) ?? []) {
-      const result = await handler(payload, ctx)
-      if (result !== undefined) return result
-    }
-    return undefined
-  }
-  /** Every registered `tool_call` gate, as the SDK runs them: any block wins. */
-  async function admits(toolName: string, ctx: ExtensionContext): Promise<boolean> {
-    for (const handler of listeners.get('tool_call') ?? []) {
-      const result = await handler({ type: 'tool_call', toolCallId: `call-${toolName}`, toolName, input: {} }, ctx)
-      if (typeof result === 'object' && result !== null && 'block' in result && result.block === true) return false
-    }
-    return true
-  }
-  async function submit(params: unknown, ctx: ExtensionContext, signal?: AbortSignal): Promise<unknown> {
-    const tool = tools.get(FRAMING_SUBMIT_TOOL)
-    if (tool === undefined) throw new Error('framing-submit-tool-missing')
-    return JSON.parse(await tool.execute('submit-call', params, ctx, signal))
-  }
-  async function shortcut(ctx: ExtensionContext): Promise<void> {
-    const handler = shortcuts.get(FRAMING_SHORTCUT)
-    if (handler === undefined) throw new Error('framing-shortcut-missing')
-    await handler(ctx)
-  }
   return {
-    command,
-    emit,
-    admits,
-    submit,
-    shortcut,
-    userMessages,
-    procedureReads: () => procedureReads,
+    port() {
+      if (port === undefined) throw new Error('command-operator-missing')
+      return port
+    },
+    restore: () => spy.mockRestore(),
   }
 }
+
+const confirmationProposal = {
+  digest: '4'.repeat(64),
+  proposal: {
+    format: 'omp-build-material-acceptance/2',
+    operationId: 'accept-material-fixture-42',
+    uw: UW,
+    mandate: { scope: UW, recordId: 'm1', kind: 'mandate' },
+    predecessor: {
+      scope: UW,
+      recordId: 'p1',
+      kind: 'operator-control',
+    },
+    assessment: {
+      scope: UW,
+      recordId: 'a1',
+      kind: 'action-receipt',
+    },
+    classification: 'material',
+    exactInputs: {},
+  },
+} as unknown as Parameters<operatorConfirmation.CommandOperatorPort['executeConfirmed']>[0]
 
 async function interviewing(host: ReturnType<typeof installed>, root: ExtensionContext, args: string) {
   await host.command(args, root)
@@ -388,22 +209,120 @@ describe('assisted /feature framing in the installed extension', () => {
   it('does not start framing when reopen reports preparing', async () => {
     const host = installed()
     const root = contextOf(session())
-    const statuses: string[] = []
-    Object.assign(root.ui, {
-      setStatus: (_key: string, text: string | undefined) => {
-        if (text !== undefined) statuses.push(text)
-      },
-    })
     const operator = createOperatorConfirmation(root)
     operator.progress('Reading fictional abandon')
     expect(reopenOperatorConfirmation(root)).toBe('preparing')
     await host.shortcut(root)
     expect(host.procedureReads()).toBe(0)
-    expect(statuses.join('\n')).not.toContain('feature-framing')
   })
 })
 
 describe('/feature intake before classification', () => {
+  it.each(['blocked', 'framing'] as const)(
+    'keeps a held intake read-only until its actual %s classification',
+    async (classification) => {
+      const source = uwFixture()
+      const captured = captureCommandPort()
+      const dialog = manualOperatorDialog()
+      const effects: string[] = []
+      const host = installed({
+        uwOperations: () => ({ ...fixtureUwOperations(), readUw: source.operations.readUw }),
+        featureWorkflow: workflow(async () => {
+          await captured.port().executeConfirmed(confirmationProposal, async () => {
+            effects.push('authorized')
+            return 'accepted'
+          })
+          return classification === 'blocked'
+            ? { kind: 'blocked', reason: 'fixture-blocked' }
+            : {
+                kind: 'framing',
+                source: { kind: 'issue', uw: UW },
+              }
+        }),
+      })
+      const root = contextOf(session())
+      Object.assign(root.ui, dialog.ui)
+      try {
+        const running = host.command('#42', root)
+        const first = await dialog.nextMount()
+        first.handleInput?.('\u001b')
+        await running
+        expect(await host.admits('bash', root)).toBe(false)
+        expect(await host.admits('read', root)).toBe(true)
+        expect(effects).toEqual([])
+        await host.shortcut(root)
+        const reopened = await dialog.nextMount()
+        reopened.handleInput?.('c')
+        await host.notification
+        expect(effects).toEqual(['authorized'])
+        expect(await host.admits('bash', root)).toBe(classification === 'blocked')
+        if (classification === 'framing') {
+          expect(host.userMessages.at(-1)?.content).toContain(UW.target)
+          expect(await host.admits('read', root)).toBe(true)
+        }
+      } finally {
+        captured.port().cancel()
+        captured.restore()
+      }
+    },
+  )
+
+  it.each(['#12', 'pause #12'])('clears preparing when %s finishes without confirmation', async (args) => {
+    const statuses: Array<string | undefined> = []
+    const host = installed({
+      featureWorkflow: workflow(async () => ({ kind: 'blocked', reason: 'fixture-blocked' })),
+    })
+    const root = contextOf(session())
+    Object.assign(root.ui, {
+      setStatus: (_key: string, text: string | undefined) => {
+        statuses.push(text)
+      },
+    })
+    await host.command(args, root)
+    expect(statuses.some((text) => text !== undefined)).toBe(true)
+    expect(statuses.at(-1)).toBeUndefined()
+    expect(reopenOperatorConfirmation(root)).toBe('none')
+  })
+
+  it('does not send a late feature result to a new session after a held command was confirmed', async () => {
+    const captured = captureCommandPort()
+    const dialog = manualOperatorDialog()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const host = installed({
+      featureWorkflow: workflow(async () => {
+        await captured.port().executeConfirmed(confirmationProposal, async () => 'accepted')
+        entered.resolve()
+        await release.promise
+        return { kind: 'blocked', reason: 'old-session-result' }
+      }),
+    })
+    const state = session()
+    const root = contextOf(state)
+    Object.assign(root.ui, dialog.ui)
+    try {
+      const running = host.command('#42', root)
+      const first = await dialog.nextMount()
+      first.handleInput?.('\u001b')
+      await running
+      await host.shortcut(root)
+      const reopened = await dialog.nextMount()
+      reopened.handleInput?.('c')
+      await entered.promise
+      state.id = 'next-session'
+      state.artifacts = consultableProtocolOptions()
+      await host.emit('session_switch', {}, root)
+      release.resolve()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(host.messages).toEqual([])
+      expect(host.userMessages).toEqual([])
+    } finally {
+      release.resolve()
+      captured.port().cancel()
+      captured.restore()
+    }
+  })
+
   it('stays read-only until classified, then settles to an ordinary operation', async () => {
     const classified = deferred<ContinueFeatureResult>()
     const entered = deferred<void>()

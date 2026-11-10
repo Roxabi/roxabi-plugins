@@ -17,7 +17,7 @@ import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../
 import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
-import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
+import { operatorDialogUi, operatorRootContext } from '../../testing/operator-dialog-ui.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { createCauseAdjudication } from '../uw-cause-adjudication.ts'
@@ -171,7 +171,7 @@ export async function historicalWorld(confirm: boolean, beforeConfirmation?: () 
   const artifacts = mkdtempSync(join(tmpdir(), 'omp-historical-adjudication-'))
   process.once('exit', () => rmSync(artifacts, { recursive: true, force: true }))
   const operator = createOperatorConfirmation({
-    agent: { kind: 'main', depth: 0 },
+    ...operatorRootContext('/fixture', { getArtifactsDir: () => artifacts }),
     hasUI: true,
     mode: 'tui',
     ui: operatorDialogUi(
@@ -181,7 +181,6 @@ export async function historicalWorld(confirm: boolean, beforeConfirmation?: () 
       },
       (message) => prompts.push(message),
     ),
-    localProtocolOptions: { getArtifactsDir: () => artifacts },
   } as unknown as ExtensionContext)
   const citation = graph.inputs.manifest.repositoryReferences[0]
   if (!citation) throw new Error('Expected pinned review evidence')

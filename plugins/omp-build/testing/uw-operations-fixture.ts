@@ -8,7 +8,7 @@ import { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { guardedCauseWriter } from '../roxabi/uw-cause-guard.ts'
 import { createUwOperations, type IdentityPublicationResult, type UwOperationsPorts } from '../roxabi/uw-operations.ts'
-import { operatorDialogUi } from './operator-dialog-ui.ts'
+import { operatorDialogUi, operatorRootContext } from './operator-dialog-ui.ts'
 import { consultableProtocolOptions } from './protocol-retention.unit.ts'
 import { allocationRef, CREATED, CREATED_UW, ISSUE, SOURCE_BODY, UW } from './uw-operations-fixture-input.ts'
 import { readFixtureUw, type State } from './uw-operations-fixture-read.ts'
@@ -130,14 +130,13 @@ export function fixture(
     },
   }
   const operator = createOperatorConfirmation({
-    agent: { kind: 'main', depth: 0 },
+    ...operatorRootContext('/fixture', consultableProtocolOptions()),
     hasUI: true,
     mode: 'tui',
     ui: operatorDialogUi(async () => {
       options.onConfirm?.(state)
       return (options.confirm ?? true) ? 'confirm' : 'refuse'
     }),
-    localProtocolOptions: consultableProtocolOptions(),
   } as unknown as ExtensionContext)
   const ports: UwOperationsPorts = {
     readCreated: async (uw) => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
@@ -8,10 +8,11 @@ import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-asse
 import type { UwOperationResult, UwOperations } from '../../roxabi/uw-contract.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
-import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
+import { manualOperatorDialog, operatorDialogUi, operatorRootContext } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { batch } from '../../testing/review-runtime-support.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
+import { reopenOperatorConfirmation } from '../omp-operator-confirmation.ts'
 import { parseUwCommand, registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
 import { reportResult } from '../omp-uw-result.ts'
 
@@ -146,6 +147,75 @@ function materialProposal(): PreparedMaterialAcceptance {
       exactInputs: {} as PreparedMaterialAcceptance['proposal']['exactInputs'],
     },
   }
+}
+
+function heldCommandFixture(action: () => Promise<UwOperationResult>) {
+  const dialog = manualOperatorDialog()
+  const messages: string[] = []
+  const sessions = new Map<string, Session>()
+  let command: Command | undefined
+  let calls = 0
+  const location = {
+    sessionId: 'held-session',
+    artifacts: consultableProtocolOptions().getArtifactsDir(),
+  }
+  const context = {
+    ...operatorRootContext('/repo/feature', { getArtifactsDir: () => location.artifacts }),
+    hasUI: true,
+    mode: 'tui',
+    ui: dialog.ui,
+    sessionManager: {
+      getSessionId: () => location.sessionId,
+      getCwd: () => '/repo/feature',
+      getSessionFile: () => `/repo/feature/${location.sessionId}.jsonl`,
+      getArtifactsDir: () => location.artifacts,
+    },
+    localProtocolOptions: { getArtifactsDir: () => location.artifacts },
+  } as unknown as ExtensionContext
+  const pi = createExtensionApiStub({
+    on: (name, listener) => {
+      sessions.set(name, listener as Session)
+    },
+    registerCommand: (_name, registered) => {
+      command = registered as Command
+    },
+    sendMessage: (message) => {
+      messages.push(typeof message === 'string' ? message : String(message.content))
+    },
+  })
+  installFeatureUwOperationLifecycle(pi)
+  registerUwCommand(pi, ({ operator }) => {
+    calls += 1
+    const first = calls === 1
+    return {
+      ...fixtureUwOperations(),
+      acceptMaterial: async () => {
+        if (!first) return { status: 'refused', diagnostics: [] }
+        const result = await operator.executeConfirmed(materialProposal(), action)
+        return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: result.diagnostics }
+      },
+    }
+  })
+  return {
+    context,
+    dialog,
+    messages,
+    start() {
+      if (command === undefined) throw new Error('uw-command-missing')
+      return command.handler('accept-material acme/widgets#42', context)
+    },
+    async newSession() {
+      location.sessionId = 'next-session'
+      location.artifacts = consultableProtocolOptions().getArtifactsDir()
+      await sessions.get('session_switch')?.({}, context)
+      return location.artifacts
+    },
+  }
+}
+
+/** One event-loop checkpoint drains promise-only completion, without a timed delay. */
+function drainCommand(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
 }
 
 function lifecycleFixture() {
@@ -329,9 +399,7 @@ describe('registered /uw command root lifecycle', () => {
       }))
       if (command === undefined) throw new Error('uw-command-missing')
       const context = {
-        cwd: '/repo/feature',
-        agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 },
-        localProtocolOptions: consultableProtocolOptions(),
+        ...operatorRootContext('/repo/feature', consultableProtocolOptions()),
       } as unknown as ExtensionContext
       await command.handler(`${kind} acme/widgets#42`, context)
       expect(messages).toHaveLength(1)
@@ -458,5 +526,61 @@ describe('registered /uw command root lifecycle', () => {
     expect(statuses.at(-1)).toBe(newer)
     release[1]?.resolve()
     await second
+  })
+
+  it('reports one visible error after a held confirmation is reopened and its action fails', async () => {
+    const subject = heldCommandFixture(async () => {
+      throw new Error('confirmed-action-failed')
+    })
+    const command = subject.start()
+    const first = await subject.dialog.nextMount()
+    first.handleInput?.('\u001b')
+    await command
+    expect(reopenOperatorConfirmation(subject.context)).toBe('reopened')
+    const reopened = await subject.dialog.nextMount()
+    reopened.handleInput?.('c')
+    await drainCommand()
+    expect(subject.messages).toEqual(['uw-stopped: confirmed-action-failed'])
+  })
+
+  it('does not report a replaced held command whose confirmed action fails late', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const subject = heldCommandFixture(async () => {
+      entered.resolve()
+      await release.promise
+      throw new Error('replaced-action-failed')
+    })
+    const command = subject.start()
+    const first = await subject.dialog.nextMount()
+    first.handleInput?.('\u001b')
+    await command
+    reopenOperatorConfirmation(subject.context)
+    const reopened = await subject.dialog.nextMount()
+    reopened.handleInput?.('c')
+    await entered.promise
+    await subject.start()
+    release.resolve()
+    await drainCommand()
+    expect(subject.messages.filter((message) => message.includes('replaced-action-failed'))).toEqual([])
+  })
+
+  it('does not report or retain a held command result into the session created by /new', async () => {
+    const effects: string[] = []
+    const subject = heldCommandFixture(async () => {
+      effects.push('authorized')
+      return { status: 'refused', diagnostics: [] }
+    })
+    const command = subject.start()
+    const first = await subject.dialog.nextMount()
+    first.handleInput?.('\u001b')
+    await command
+    const nextArtifacts = await subject.newSession()
+    first.handleInput?.('c')
+    await drainCommand()
+    expect(reopenOperatorConfirmation(subject.context)).not.toBe('reopened')
+    expect(subject.messages).toEqual([])
+    expect(effects).toEqual([])
+    expect(readdirSync(nextArtifacts)).toEqual([])
   })
 })

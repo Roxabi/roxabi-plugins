@@ -128,6 +128,49 @@ export function featureUwOperationOrigin(
   return exactOperation(pi, operator)?.origin ?? null
 }
 
+/** Reporting metadata only: own cleanup does not advance the generation, but replacement does. */
+export function featureOperationGeneration(pi: OmpBuildExtensionApi): number {
+  return operationSlots.get(pi)?.generation ?? 0
+}
+
+export type FeatureOperationReportGuard = ReturnType<typeof createFeatureOperationReportGuard>
+
+/** Bind notifications to this command; an explicit framing handoff can adopt its exact lease. */
+export function createFeatureOperationReportGuard(
+  pi: OmpBuildExtensionApi,
+  ctx: ExtensionContext,
+  operator: FramingOperator,
+) {
+  const cwd = ctx.cwd
+  const agentId = ctx.agent.id
+  const sessionId = ctx.sessionManager.getSessionId()
+  let owner = () => ownsFeatureUwOperation(pi, operator)
+  const sameOrigin = () => {
+    try {
+      return (
+        ctx.cwd === cwd &&
+        ctx.agent.id === agentId &&
+        ctx.sessionManager.getSessionId() === sessionId &&
+        ctx.sessionManager.getCwd() === cwd
+      )
+    } catch {
+      return false
+    }
+  }
+  const isCurrent = () => sameOrigin() && owner()
+  return {
+    isCurrent,
+    handoff(isCurrentLease: () => boolean) {
+      owner = isCurrentLease
+    },
+    captureFailure() {
+      const permitted = isCurrent()
+      const generation = featureOperationGeneration(pi)
+      return () => permitted && sameOrigin() && featureOperationGeneration(pi) === generation
+    },
+  }
+}
+
 export function cancelFeatureUwOperation(pi: OmpBuildExtensionApi, operator: FramingOperator): void {
   const occupant = exactOperation(pi, operator)
   if (occupant !== null) invalidateExact(pi, occupant.generation, 'operation-cancelled')

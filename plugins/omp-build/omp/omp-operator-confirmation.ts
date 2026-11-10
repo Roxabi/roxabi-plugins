@@ -21,7 +21,7 @@ import {
 /** Per-command capability. Composition cancels it on command/session liveness loss. */
 export type CommandOperatorPort = OperatorPort & {
   cancel(): void
-  progress(text: string): void
+  progress(text: string | null): void
   /** Resolves only when the operator hides a proposal, not on cancellation or owner handoff. */
   readonly held: Promise<void>
 }
@@ -116,6 +116,13 @@ export function createOperatorConfirmation(
       clearOwn()
     },
     progress(text) {
+      if (text === null) {
+        if (bound !== null) {
+          bound.preparing.delete(port)
+          clearPortStatus(bound, port)
+        }
+        return
+      }
       if (!live || !interactive(ctx)) return
       const presenter = presenterFor(ctx)
       if (presenter === null) return

@@ -14,7 +14,11 @@ import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from 
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
-import { beginFeatureUwOperation, cancelFeatureUwOperation, ownsFeatureUwOperation } from './omp-feature-composition.ts'
+import {
+  beginFeatureUwOperation,
+  cancelFeatureUwOperation,
+  createFeatureOperationReportGuard,
+} from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
 import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
@@ -208,28 +212,31 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
         return
       }
       const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
+      const reporting = ownsRootCapability ? createFeatureOperationReportGuard(pi, ctx, operator) : null
+      const isCurrent = reporting?.isCurrent ?? (() => sameCommand(ctx, cwd, sessionId))
+      const captureFailure = reporting?.captureFailure ?? (() => isCurrent)
+      let canReportFailure = () => false
       const work = (async () => {
         try {
-          reportOutcome(
-            pi,
-            ctx,
-            await executeUwCommand(
-              parsed,
-              await factory({
-                cwd: ctx.cwd,
-                operator,
-                artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
-              }),
-            ),
+          const outcome = await executeUwCommand(
+            parsed,
+            await factory({
+              cwd: ctx.cwd,
+              operator,
+              artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
+            }),
           )
+          if (isCurrent()) reportOutcome(pi, ctx, outcome)
+        } catch (error) {
+          canReportFailure = captureFailure()
+          throw error
         } finally {
           if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
           else operator.cancel()
         }
       })()
       await raceOperatorHold(work, privateOperator.held, (error) => {
-        if (!sameCommand(ctx, cwd, sessionId)) return
-        if (ownsRootCapability && !ownsFeatureUwOperation(pi, operator)) return
+        if (!canReportFailure()) return
         pi.sendMessage(`uw-stopped: ${error instanceof Error ? error.message : String(error)}`, {
           triggerTurn: false,
         })

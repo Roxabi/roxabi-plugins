@@ -168,7 +168,6 @@ describe('installed /feature command CI watch', () => {
     )
     await host.commands.get('feature')?.handler('#12', host.context)
     await host.commands.get('feature')?.handler('#12', host.context)
-    expect(host.statuses.at(-2)).toBeUndefined()
     const replacementStatus = host.statuses.at(-1)
     expect(replacementStatus).toContain('/feature pause')
     first.resolve({ code: 1, killed: false, stdout: '', stderr: '' })

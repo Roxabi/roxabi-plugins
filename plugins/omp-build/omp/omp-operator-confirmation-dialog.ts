@@ -22,7 +22,7 @@ function nativeText(value: string): string {
     .replace(/\p{Cc}/gu, '')
 }
 
-function nativeButton(label: string, act: string, key: string, buttons: boolean, disabled: boolean): NativeNode {
+function nativeButton(label: string, act: string, key: string, buttons: boolean): NativeNode {
   const title = `${label}  ${key === 'escape' ? 'esc' : key}`
   if (buttons) {
     // The locked 18.13 SDK predates the button kind; this is the 18.18 actionButton shape.
@@ -37,7 +37,6 @@ function nativeButton(label: string, act: string, key: string, buttons: boolean,
         actions: { click: act },
         ...(act === 'confirm' ? { tone: 'accent', variant: 'primary' } : {}),
         ...(act === 'refuse' ? { tone: 'error', variant: 'danger' } : {}),
-        ...(disabled ? { disabled: 'Trop petit', tone: 'muted' } : {}),
       },
     } as unknown as NativeNode
   }
@@ -49,7 +48,7 @@ function nativeButton(label: string, act: string, key: string, buttons: boolean,
       gap: 'xs',
       align: 'center',
       title,
-      ...(disabled ? { tone: 'muted' } : { actions: { click: act } }),
+      actions: { click: act },
     },
     c: [
       { k: 'text', p: { text: label } },
@@ -94,9 +93,9 @@ export async function showOperatorProposal(
           let actionable = false
           let closed = false
           let nativeDescribed = false
-          let nativeReady = false
           let nativeColumns = 0
           let nativeRows = 0
+          let nativeReady = false
           const redraw = () => tui.requestRender()
           const finish = (choice: OperatorChoice, cancelling = false) => {
             if (closed || (signal.aborted && !cancelling)) return
@@ -107,7 +106,6 @@ export async function showOperatorProposal(
           signal.addEventListener('abort', abort, { once: true })
           const nativeSizeReady = () => {
             if (nativeColumns !== tui.terminal.columns) return false
-            // The native client can reflow height without asking the SDK for a new description.
             if (nativeRows !== tui.terminal.rows) {
               nativeRows = tui.terminal.rows
               nativeReady = operatorDialogLayout(nativeColumns, nativeRows, motion.selected, 0, []).actionable
@@ -177,16 +175,10 @@ export async function showOperatorProposal(
                     key: 'actions',
                     p: { role: 'omp.actions', gap: 'sm', align: 'center', wrap: true },
                     c: [
-                      nativeButton(
-                        `${motion.selected === 0 ? '› ' : ''}Confirmer`,
-                        'confirm',
-                        'c',
-                        buttons,
-                        !nativeReady,
-                      ),
-                      nativeButton(`${motion.selected === 1 ? '› ' : ''}Refuser`, 'refuse', 'r', buttons, !nativeReady),
-                      nativeButton(`${motion.selected === 2 ? '› ' : ''}Plus tard`, 'defer', 'escape', buttons, false),
-                      nativeButton('Détails', 'details', 'd', buttons, !nativeReady),
+                      nativeButton(`${motion.selected === 0 ? '› ' : ''}Confirmer`, 'confirm', 'c', buttons),
+                      nativeButton(`${motion.selected === 1 ? '› ' : ''}Refuser`, 'refuse', 'r', buttons),
+                      nativeButton(`${motion.selected === 2 ? '› ' : ''}Plus tard`, 'defer', 'escape', buttons),
+                      nativeButton('Détails', 'details', 'd', buttons),
                     ],
                   },
                 ],

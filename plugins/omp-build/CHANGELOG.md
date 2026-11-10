@@ -5,7 +5,8 @@
 - Ask a direct question for each typed confirmation, with the target and the effects the current writer performs. Technical JSON, digests and the detail reference stay under `D Détails`. Supplied text stays quoted so it cannot forge an action line.
 - Escape or `Plus tard` keeps the exact proposal pending. `ctrl+alt+u` reopens it in the same live session and location and does not approve. Confirmation still starts on `Plus tard`; only `Confirmer` authorizes effects.
 - Show preparation or reading before ports and long remote reads. Clear or replace that status at the result, revocation or stop.
-- Keep native actions docked while the human question and long details scroll. Preserve a readable body at narrow widths, and accept the first action after height-only native reflow without dropping viewport guards.
+- Bind late messages and UW result files to the original command generation and session/location. Report post-hold failures without losing them during own cleanup, while suppressing replaced outcomes; preserve the exact framing handoff and existing watch-status ownership.
+- Keep native actions docked while the human question and long details scroll. Preserve a readable body at narrow widths. Native clicks check the live viewport, remain inactive below the safe height, and work on the first attempt after height-only recovery without a stale disabled state.
 - The product-version bump changes the effective workflow config digest. This source delivery grants no activation, pin, installed-runtime upgrade or terminalization exception.
 
 ## 0.18.2

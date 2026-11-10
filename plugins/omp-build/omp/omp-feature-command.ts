@@ -22,6 +22,8 @@ import {
   beginFeatureUwIntake,
   beginFeatureUwOperation,
   cancelFeatureUwOperation,
+  createFeatureOperationReportGuard,
+  type FeatureOperationReportGuard,
   ownsFeatureUwOperation,
   settleFeatureUwIntake,
 } from './omp-feature-composition.ts'
@@ -49,47 +51,29 @@ function classifyingWorkflow(workflow: FeatureWorkflow, settle: () => void): Fea
   }
 }
 
-function sameCommand(ctx: ExtensionContext, cwd: string, sessionId: string | undefined): boolean {
-  if (ctx.cwd !== cwd) return false
-  try {
-    return ctx.sessionManager.getSessionId() === sessionId
-  } catch {
-    return false
-  }
-}
-
 async function runPreparedFeatureInit(
   pi: FeatureCommandComposition['pi'],
   operator: CommandOperatorPort,
   args: readonly string[],
   ctx: ExtensionContext,
+  report: (message: string) => void,
 ): Promise<void> {
   beginFeatureUwOperation(pi, operator)
-  try {
-    await runTrustedFeatureInit(args, {
-      cwd: ctx.cwd,
-      send: async (message) => reportFeatureTerminalStatus(pi, message),
-      exec: (command, commandArgs, executionOptions) => pi.exec(command, commandArgs, executionOptions),
-    })
-  } finally {
-    cancelFeatureUwOperation(pi, operator)
-  }
+  await runTrustedFeatureInit(args, {
+    cwd: ctx.cwd,
+    send: async (message) => report(message),
+    exec: (command, commandArgs, executionOptions) => pi.exec(command, commandArgs, executionOptions),
+  })
 }
 
 async function featureCommandUw(
   ctx: ExtensionContext,
   operator: CommandOperatorPort,
   options: FeatureCommandComposition['options'],
-  pi: FeatureCommandComposition['pi'],
   control: string,
 ): Promise<FeatureCommandHost['uw']> {
   if (control === 'pause' || options.featureWorkflow !== undefined) return undefined
-  try {
-    return await resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin)
-  } catch (error) {
-    cancelFeatureUwOperation(pi, operator)
-    throw error
-  }
+  return resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin)
 }
 
 async function runClassifiedFeatureCommand(
@@ -100,22 +84,19 @@ async function runClassifiedFeatureCommand(
   workflow: FeatureWorkflow,
   controller: NativeBatchController,
   uw: FeatureCommandHost['uw'],
+  report: FeatureOperationReportGuard,
 ): Promise<void> {
-  try {
-    await runInstalledFeatureCommand(
-      args,
-      createFeatureCommandHost(
-        composition,
-        { ctx, operator, originalArgs: args },
-        classifyingWorkflow(workflow, () => settleFeatureUwIntake(composition.pi, operator)),
-        controller,
-        uw,
-      ),
-    )
-  } catch (error) {
-    cancelFeatureUwOperation(composition.pi, operator)
-    throw error
-  }
+  await runInstalledFeatureCommand(
+    args,
+    createFeatureCommandHost(
+      composition,
+      { ctx, operator, originalArgs: args },
+      classifyingWorkflow(workflow, () => settleFeatureUwIntake(composition.pi, operator)),
+      controller,
+      uw,
+      report,
+    ),
+  )
 }
 
 export async function runFeatureCommand(
@@ -132,39 +113,43 @@ export async function runFeatureCommand(
   }
   const operator = createOperatorConfirmation(ctx)
   operator.progress('Preparing feature operation')
-  const cwd = ctx.cwd
-  let sessionId: string | undefined
-  try {
-    sessionId = ctx.sessionManager.getSessionId()
-  } catch {
-    sessionId = undefined
+  const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
+  const report = (message: string) => {
+    if (reporting.isCurrent()) reportFeatureTerminalStatus(pi, message)
   }
+  let canReportFailure = () => false
   const work = (async () => {
-    const controller = reviewControllerFor(pi)
-    controller.observeRootContext(ctx)
-    if (parsed.control === 'init') {
-      await runPreparedFeatureInit(pi, operator, parsed.args, ctx)
-      return
-    }
-    // Read-only from here, before any await, until the source is classified.
-    beginFeatureUwIntake(pi, operator, ctx)
     try {
-      const workflow = await loadInstalledFeatureWorkflow(pi, options)
+      const controller = reviewControllerFor(pi)
+      controller.observeRootContext(ctx)
+      if (parsed.control === 'init') {
+        await runPreparedFeatureInit(pi, operator, parsed.args, ctx, report)
+        return
+      }
+      // Read-only from here, before any await, until the source is classified.
+      beginFeatureUwIntake(pi, operator, ctx)
+      const workflow = await loadInstalledFeatureWorkflow(report, options)
       if (!ownsFeatureUwOperation(pi, operator)) return
       if (workflow === undefined) {
         cancelFeatureUwOperation(pi, operator)
         return
       }
-      const uw = await featureCommandUw(ctx, operator, options, pi, parsed.control)
+      const uw = await featureCommandUw(ctx, operator, options, parsed.control)
       if (!ownsFeatureUwOperation(pi, operator)) return
-      await runClassifiedFeatureCommand(args, composition, ctx, operator, workflow, controller, uw)
+      await runClassifiedFeatureCommand(args, composition, ctx, operator, workflow, controller, uw, reporting)
+    } catch (error) {
+      canReportFailure = reporting.captureFailure()
+      cancelFeatureUwOperation(pi, operator)
+      throw error
     } finally {
+      if (parsed.control === 'init') cancelFeatureUwOperation(pi, operator)
       // An entry that ended unclassified (refusal, stale replacement) never stays read-only.
       settleFeatureUwIntake(pi, operator)
+      operator.progress(null)
     }
   })()
   await raceOperatorHold(work, operator.held, (error) => {
-    if (!sameCommand(ctx, cwd, sessionId) || !ownsFeatureUwOperation(pi, operator)) return
+    if (!canReportFailure()) return
     reportFeatureTerminalStatus(pi, featureErrorMessage(error))
   })
 }
@@ -181,11 +166,15 @@ export async function continueFramedFeature(
   const { pi, options } = composition
   const { ctx, continuation, operator } = input
   if (!rootContext(ctx)) throw new Error('framing-continuation-root-required')
+  const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
+  const report = (message: string) => {
+    if (reporting.isCurrent()) reportFeatureTerminalStatus(pi, message)
+  }
   beginFeatureUwContinuation(pi, operator, ctx)
   const controller = reviewControllerFor(pi)
   controller.observeRootContext(ctx)
   try {
-    const workflow = await loadInstalledFeatureWorkflow(pi, options)
+    const workflow = await loadInstalledFeatureWorkflow(report, options)
     if (!ownsFeatureUwOperation(pi, operator)) return
     if (workflow === undefined) {
       cancelFeatureUwOperation(pi, operator)
@@ -197,6 +186,7 @@ export async function continueFramedFeature(
       workflow,
       controller,
       continuation.uw,
+      reporting,
     )
     const result = await workflow.continueFeature(continuation)
     if (!ownsFeatureUwOperation(pi, operator)) return
@@ -206,7 +196,8 @@ export async function continueFramedFeature(
     if (withCoverage === undefined) return
     await deliverFeatureResult(continuation.reference, withCoverage, host)
   } catch (error) {
+    const canReport = reporting.captureFailure()
     cancelFeatureUwOperation(pi, operator)
-    reportFeatureTerminalStatus(pi, featureErrorMessage(error))
+    if (canReport()) reportFeatureTerminalStatus(pi, featureErrorMessage(error))
   }
 }

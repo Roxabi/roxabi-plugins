@@ -42,6 +42,17 @@ function mount(prepared: PreparedOperatorProposal = proposal) {
   return { view, terminal, choice }
 }
 
+/** Apply the native client's disabled/action contract before delivering a click to the component. */
+function clickNative(view: View, node: unknown, act: string): boolean {
+  if (typeof node !== 'object' || node === null) return false
+  const candidate = node as { key?: string; p?: { disabled?: unknown; actions?: { click?: string } }; c?: unknown[] }
+  if (candidate.p?.actions?.click === act && !candidate.p.disabled) {
+    view.handleNativeEvent?.({ type: 'action', key: candidate.key ?? '', act, mods: [] })
+    return true
+  }
+  return candidate.c?.some((child) => clickNative(view, child, act)) ?? false
+}
+
 async function alignedHeadingAtPadding(padding: number): Promise<readonly string[] | undefined> {
   const hostile = structuredClone(proposal)
   if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
@@ -263,13 +274,37 @@ describe('operator dialog input and viewport', () => {
     await expect(mounted.choice).resolves.toBe('confirm')
   })
 
-  it('rejects a native confirmation at an unsafe height and allows refusal after height recovery', async () => {
+  it.each([true, false])(
+    'vetoes an unsafe native click and accepts the first click after height recovery (buttons=%s)',
+    async (buttons) => {
+      const mounted = mount()
+      mounted.terminal.rows = 2
+      const description = mounted.view.describe?.({
+        cols: 80,
+        supports: () => buttons,
+      } as unknown as DescribeContext)
+      let resolved: OperatorChoice | undefined
+      void mounted.choice.then((choice) => {
+        resolved = choice
+      })
+      expect(clickNative(mounted.view, description, 'confirm')).toBe(true)
+      await Promise.resolve()
+      expect(resolved).toBeUndefined()
+      mounted.terminal.rows = 10
+      expect(clickNative(mounted.view, description, 'refuse')).toBe(true)
+      await expect(mounted.choice).resolves.toBe('refuse')
+    },
+  )
+
+  it('does not accept an ANSI decision after a shrink or before a fresh layout after growth', async () => {
     const mounted = mount()
-    mounted.view.describe?.({ cols: 80, supports: () => true } as unknown as DescribeContext)
+    mounted.view.render(80)
     mounted.terminal.rows = 2
-    mounted.view.handleNativeEvent?.({ type: 'action', key: 'actions/confirm', act: 'confirm', mods: [] })
-    mounted.terminal.rows = 10
-    mounted.view.handleNativeEvent?.({ type: 'action', key: 'actions/refuse', act: 'refuse', mods: [] })
-    await expect(mounted.choice).resolves.toBe('refuse')
+    mounted.view.handleInput?.('c')
+    mounted.view.render(80)
+    mounted.terminal.rows = 18
+    mounted.view.handleInput?.('r')
+    mounted.view.handleInput?.('\u001b')
+    await expect(mounted.choice).resolves.toBe('defer')
   })
 })

@@ -15,7 +15,7 @@ import { sisterImplementationHistory } from './multi-sister-plan-fixture.ts'
 import { sisterCurrentPull, sisterDeclaredPull } from './multi-sister-pull-fixture.ts'
 import { declaredNativeGit } from './native-declared-git.ts'
 import type { DeclaredCheckout, NativeWorldFacts, nativeImplementationWorld } from './native-implementation-world.ts'
-import { operatorDialogUi } from './operator-dialog-ui.ts'
+import { operatorDialogUi, operatorRootContext } from './operator-dialog-ui.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
 const artifacts = mkdtempSync(join(tmpdir(), 'omp-sister-protocol-'))
@@ -195,7 +195,7 @@ export async function installedMultiSisterFixture(
   let displayed = ''
   const newCommand = async () => {
     const operator = createOperatorConfirmation({
-      agent: { kind: 'main', depth: 0 },
+      ...operatorRootContext(options.cwd ?? '/fixture', { getArtifactsDir: () => options.artifactsDir ?? artifacts }),
       hasUI: true,
       mode: 'tui',
       ui: operatorDialogUi(
@@ -207,7 +207,6 @@ export async function installedMultiSisterFixture(
           displayed = text
         },
       ),
-      localProtocolOptions: { getArtifactsDir: () => options.artifactsDir ?? artifacts },
     } as unknown as ExtensionContext)
     return createInstalledUwOperations({
       cwd: options.cwd ?? '/fixture',

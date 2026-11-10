@@ -51,7 +51,11 @@ export type FramingCommandBinding = Readonly<{
 
 export type FeatureFramingRuntime = Readonly<{
   /** Root's `FeatureCommandHost.startFraming` for one bound command operation. */
-  start(binding: FramingCommandBinding, source: FramingSourceRequest): Promise<void>
+  start(
+    binding: FramingCommandBinding,
+    source: FramingSourceRequest,
+    onHandoff: (isCurrent: () => boolean) => void,
+  ): Promise<void>
 }>
 
 /** The bound operation must still own the slot, from the same root session and agent it captured. */
@@ -132,7 +136,11 @@ export function installFeatureFramingRuntime(
   })
 
   return Object.freeze({
-    async start(binding: FramingCommandBinding, source: FramingSourceRequest) {
+    async start(
+      binding: FramingCommandBinding,
+      source: FramingSourceRequest,
+      onHandoff: (isCurrent: () => boolean) => void,
+    ) {
       // A stale or late callback from a replaced command never begins framing.
       if (!currentBinding(pi, binding)) return
       const accepted: FramingSourceRequest =
@@ -141,6 +149,12 @@ export function installFeatureFramingRuntime(
           : source
       statusContext = binding.ctx
       const lease = controller.begin(accepted, binding.ctx)
+      onHandoff(
+        () =>
+          currentFeatureFraming(pi) === controller &&
+          controller.view()?.generation === lease.generation &&
+          controller.governs(binding.ctx),
+      )
       await controller.start(lease)
     },
   })
