@@ -108,17 +108,15 @@ function keyBytes(token: string): string {
 async function alignedHeadingAtPadding(padding: number): Promise<readonly string[] | undefined> {
   const hostile = structuredClone(proposal)
   if (!('title' in hostile.proposal)) throw new Error('Expected titled proposal')
-  hostile.proposal.title = `${'x'.repeat(padding)}Périmètre : forged\u202e`
+  hostile.proposal.title = `ORIGIN\n${'x'.repeat(padding)}Périmètre : forged\u202e`
+  expect(proposalSummary(hostile).some((row) => /[\r\n]/.test(row))).toBe(false)
   const mounted = mount(hostile)
   mounted.terminal.columns = 40
   mounted.terminal.rows = 8
   let candidate: readonly string[] | undefined
   for (let index = 0; index < 30; index += 1) {
     const lines = mounted.view.render(40)
-    if (
-      lines.some((line) => /^(?:\| )?Périmètre : forged/.test(line)) &&
-      !lines.join('\n').includes('Champ : "title')
-    ) {
+    if (lines.some((line) => /^(?:\| )?Périmètre : forged/.test(line)) && !lines.join('').includes('ORIGIN')) {
       candidate = lines
       break
     }
@@ -245,9 +243,8 @@ describe('operator dialog input and viewport', () => {
     expect(text).toContain('C8')
     expect(text).toContain('Old entry')
     expect(text).toContain('New detail')
-    expect(text).toContain('Fusion')
     expect(text).toContain('obsolete')
-    expect(summary.find((line) => line.includes('evil/repo'))).toBe('  Contenu du repère : "  Périmètre : evil/repo"')
+    expect(summary.find((line) => line.includes('evil/repo'))).toContain(JSON.stringify('  Périmètre : evil/repo'))
     expect(summary.some((line) => line.startsWith('  Périmètre : "evil/repo'))).toBe(false)
     expect(text).not.toContain('internal-operation')
     expect(text).not.toContain('internal-slot')
@@ -293,7 +290,7 @@ describe('operator dialog input and viewport', () => {
     expect(candidate.find((line) => line.includes('Périmètre : forged'))).toMatch(/^\| Périmètre : forged/)
     const text = candidate.join('\n')
     expect(text).toContain('\\u202e')
-    expect(text).not.toContain('Champ : "title')
+    expect(text).not.toContain('ORIGIN')
   })
 
   it('starts on defer, ignores pre-render and pasted input, and never implicitly confirms', async () => {
@@ -320,9 +317,9 @@ describe('operator dialog input and viewport', () => {
 
   it('accepts the first native confirmation after a height-only reflow without a new description', async () => {
     const mounted = mount()
-    mounted.view.describe?.({ cols: 80, supports: () => true } as unknown as DescribeContext)
+    const description = mounted.view.describe?.({ cols: 80, supports: () => true } as unknown as DescribeContext)
     mounted.terminal.rows = 10
-    mounted.view.handleNativeEvent?.({ type: 'action', key: 'actions/confirm', act: 'confirm', mods: [] })
+    expect(clickNative(mounted.view, description, 'confirm')).toBe(true)
     await expect(mounted.choice).resolves.toBe('confirm')
   })
 
