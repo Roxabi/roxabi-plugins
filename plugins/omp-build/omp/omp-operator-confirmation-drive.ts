@@ -1,7 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
-import { captureOrigin } from '../roxabi/feature-framing-controller-lease.ts'
+import type { FramingOrigin } from '../roxabi/feature-framing-controller-lease.ts'
 import type { OperatorResult, PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { showOperatorProposal } from './omp-operator-confirmation-dialog.ts'
 import type { OperatorChoice } from './omp-operator-confirmation-input.ts'
@@ -14,9 +14,6 @@ import {
   type Slot,
   setPortStatus,
 } from './omp-operator-confirmation-presenter.ts'
-
-const PENDING_STATUS = 'Confirmation pending'
-const APPLYING_STATUS = 'Applying confirmed action'
 
 function refusal(proposal: PreparedOperatorProposal, code: string, message: string): readonly UwDiagnostic[] {
   const target = proposal.proposal
@@ -43,6 +40,7 @@ type ProposalDetail = Parameters<typeof showOperatorProposal>[2]
 
 type ConfirmationDrive<T> = {
   ctx: ExtensionContext
+  origin: FramingOrigin
   port: object
   proposal: PreparedOperatorProposal
   action: (evidence: OperatorConfirmationEvidence) => Promise<T>
@@ -142,8 +140,8 @@ async function readChoice(drive: ConfirmationDrive<unknown>, slot: Slot): Promis
 }
 
 async function confirmationTurn<T>(drive: ConfirmationDrive<T>, slot: Slot): Promise<OperatorResult<T> | 'again'> {
-  if (!here(slot.origin, drive.ctx)) return drive.unavailable(drive.proposal)
-  setPortStatus(drive.presenter, drive.port, PENDING_STATUS)
+  if (!stillRoot(drive.ctx, drive.live()) || !here(slot.origin, drive.ctx)) return drive.unavailable(drive.proposal)
+  setPortStatus(drive.presenter, drive.port, slot.origin, 'visible')
   const choice = await readChoice(drive, slot)
   if (choice === 'failed') {
     drive.failShow()
@@ -164,7 +162,7 @@ async function confirmationTurn<T>(drive: ConfirmationDrive<T>, slot: Slot): Pro
   }
   if (decision !== 'confirm') return decision
   if (!here(slot.origin, drive.ctx)) return drive.unavailable(drive.proposal)
-  setPortStatus(drive.presenter, drive.port, APPLYING_STATUS)
+  setPortStatus(drive.presenter, drive.port, slot.origin, 'applying')
   drive.releaseSlot(slot)
   // An already-started action is not rolled back when the SDK signal aborts.
   return {
@@ -179,10 +177,9 @@ async function confirmationTurn<T>(drive: ConfirmationDrive<T>, slot: Slot): Pro
 }
 
 export async function driveConfirmation<T>(drive: ConfirmationDrive<T>): Promise<OperatorResult<T>> {
-  const origin = captureOrigin(drive.ctx)
-  const slot = createSlot(drive.port, origin, drive.signal)
+  const slot = createSlot(drive.port, drive.origin, drive.signal)
   drive.bindSlot(slot)
-  if (!here(origin, drive.ctx)) return drive.unavailable(drive.proposal)
+  if (!here(drive.origin, drive.ctx)) return drive.unavailable(drive.proposal)
   enqueue(drive.presenter, slot)
   if (!(await awaitVisible(slot, drive.cancelled, drive.live))) return drive.unavailable(drive.proposal)
   while (drive.live() && !drive.signal.aborted) {

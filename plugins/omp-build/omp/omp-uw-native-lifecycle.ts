@@ -4,9 +4,14 @@ import { createProductionActionPorts } from '../roxabi/uw-input-readers.ts'
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { defaultGit } from '../roxabi/workflow-checkout.ts'
 import { createOmpFixPort, type OmpBuildExtensionApi, reviewControllerFor } from './omp-controller.ts'
-import { beginFeatureUwOperation, cancelFeatureUwOperation } from './omp-feature-composition.ts'
+import {
+  beginFeatureUwOperation,
+  cancelFeatureUwOperation,
+  createFeatureOperationReportGuard,
+} from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
 import type { CommandOperatorPort } from './omp-operator-confirmation.ts'
+import { reportStopped } from './omp-uw-result.ts'
 import type { NativeBatch } from './review-runtime/contracts.ts'
 import { releaseTaskMask } from './review-runtime/task-mask-lease.ts'
 
@@ -14,7 +19,7 @@ export async function runNativeUwOperation(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
   privateOperator: CommandOperatorPort,
-  run: (operator: CommandOperatorPort, nativeHost: UwNativeHost) => Promise<void>,
+  run: (operator: CommandOperatorPort, nativeHost: UwNativeHost, isCurrent: () => boolean) => Promise<void>,
 ): Promise<void> {
   const controller = reviewControllerFor(pi)
   controller.observeRootContext(ctx)
@@ -39,6 +44,7 @@ export async function runNativeUwOperation(
     held: privateOperator.held,
   }
   const operator = beginFeatureUwOperation(pi, leased)
+  const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
   const nativeHost: UwNativeHost = {
     native,
     actionReaders: { git: defaultGit(), createPorts: createProductionActionPorts },
@@ -94,22 +100,12 @@ export async function runNativeUwOperation(
       started.resolve()
     },
   }
-  const stillHere = (): boolean => {
-    if (ctx.cwd !== cwd) return false
-    try {
-      return ctx.sessionManager?.getSessionId() === session
-    } catch {
-      return false
-    }
-  }
   const completion = (async () => {
     try {
-      await run(operator, nativeHost)
+      await run(operator, nativeHost, reporting.isCurrent)
     } catch (error) {
-      if (abort.signal.aborted || !stillHere()) return
-      pi.sendMessage(`uw-stopped: ${error instanceof Error ? error.message : String(error)}`, {
-        triggerTurn: false,
-      })
+      if (abort.signal.aborted || !reporting.isCurrent()) return
+      reportStopped(pi, ctx, error instanceof Error ? error.message : String(error))
     } finally {
       cancelFeatureUwOperation(pi, operator)
     }

@@ -1,5 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import { captureOrigin } from '../roxabi/feature-framing-controller-lease.ts'
+import { captureOrigin, type FramingOrigin } from '../roxabi/feature-framing-controller-lease.ts'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
 import { retainActionRecordSync } from './action-communication.ts'
 import { driveConfirmation, type EscapeMode, stillRoot, unavailable } from './omp-operator-confirmation-drive.ts'
@@ -7,15 +7,19 @@ import {
   adoptWriter,
   clearPortStatus,
   drop,
+  feedbackText,
   here,
   knownRequest,
   latestMatching,
+  notifyOperator,
   type Presenter,
   presenterFor,
   retire,
   type Slot,
+  type StatusEntry,
   sessionPresenter,
   setPortStatus,
+  stopPortStatus,
 } from './omp-operator-confirmation-presenter.ts'
 
 /** Per-command capability. Composition cancels it on command/session liveness loss. */
@@ -26,10 +30,14 @@ export type CommandOperatorPort = OperatorPort & {
   readonly held: Promise<void>
 }
 
-export type OperatorReopen = 'reopened' | 'visible' | 'none' | 'other-origin' | 'preparing' | 'pending'
+export type OperatorReopen = 'reopened' | 'visible' | 'none' | 'other-origin' | 'preparing' | 'pending' | 'applying'
 
 function interactive(ctx: ExtensionContext): boolean {
   return ctx.agent?.kind === 'main' && ctx.agent.depth === 0 && ctx.hasUI && ctx.mode === 'tui' && ctx.ui != null
+}
+
+function actionInFlight(entry: StatusEntry | null | undefined): entry is StatusEntry {
+  return entry?.phase === 'applying' || entry?.phase === 'applying-after-stop'
 }
 
 /**
@@ -94,16 +102,16 @@ export function createOperatorConfirmation(
   const cancellation = new AbortController()
   let active: Slot | null = null
   let bound: Presenter | null = null
+  let origin: FramingOrigin | null = null
   const heldGate = Promise.withResolvers<void>()
   const resolveHeld = (): void => {
     heldGate.resolve()
   }
   const held = heldGate.promise
-  const clearOwn = (): void => {
+  const clearOwn = (settled = false): void => {
     if (bound === null) return
-    bound.preparing.delete(port)
     bound.cancellers.delete(port)
-    clearPortStatus(bound, port)
+    if (settled || !stopPortStatus(bound, port)) clearPortStatus(bound, port)
     if (active !== null) retire(bound, active)
     active = null
   }
@@ -117,21 +125,19 @@ export function createOperatorConfirmation(
     },
     progress(text) {
       if (text === null) {
-        if (bound !== null) {
-          bound.preparing.delete(port)
-          clearPortStatus(bound, port)
-        }
+        if (bound !== null && !actionInFlight(bound.statuses.get(port))) clearPortStatus(bound, port)
         return
       }
       if (!live || !interactive(ctx)) return
+      if (actionInFlight(bound?.statuses.get(port))) return
       const presenter = presenterFor(ctx)
       if (presenter === null) return
-      const origin = captureOrigin(ctx)
+      origin ??= captureOrigin(ctx)
+      if (!here(origin, ctx)) return
       adoptWriter(presenter, ctx, port)
       bound = presenter
       presenter.cancellers.set(port, () => port.cancel())
-      presenter.preparing.set(port, origin)
-      setPortStatus(presenter, port, text)
+      setPortStatus(presenter, port, origin, 'preparing', text)
     },
     held,
     async executeConfirmed(proposal, action) {
@@ -139,20 +145,22 @@ export function createOperatorConfirmation(
       const presenter = presenterFor(ctx)
       if (presenter === null) return unavailable(proposal)
       consumed = true
-      const displayedDigest = proposal.digest
-      const displayedProposal = JSON.stringify(proposal.proposal, null, 2)
-      const detail = retainActionRecordSync(ctx, 'proposal', proposal.proposal)
       adoptWriter(presenter, ctx, port)
       bound = presenter
       presenter.cancellers.set(port, () => port.cancel())
-      presenter.preparing.delete(port)
-      const cancelled = new Promise<void>((resolve) => {
-        if (cancellation.signal.aborted) resolve()
-        else cancellation.signal.addEventListener('abort', () => resolve(), { once: true })
-      })
       try {
+        origin ??= captureOrigin(ctx)
+        if (!here(origin, ctx)) return unavailable(proposal)
+        const displayedDigest = proposal.digest
+        const displayedProposal = JSON.stringify(proposal.proposal, null, 2)
+        const detail = retainActionRecordSync(ctx, 'proposal', proposal.proposal)
+        const cancelled = new Promise<void>((resolve) => {
+          if (cancellation.signal.aborted) resolve()
+          else cancellation.signal.addEventListener('abort', () => resolve(), { once: true })
+        })
         return await driveConfirmation({
           ctx,
+          origin,
           port,
           proposal,
           action,
@@ -179,7 +187,7 @@ export function createOperatorConfirmation(
         })
       } finally {
         detachExternal()
-        clearOwn()
+        clearOwn(true)
       }
     },
   }
@@ -187,25 +195,44 @@ export function createOperatorConfirmation(
   return port
 }
 
+function explain(ctx: ExtensionContext, state: OperatorReopen, message: string): OperatorReopen {
+  notifyOperator(ctx, message)
+  return state
+}
+
+const OTHER_ORIGIN = 'Une opération existe dans un autre contexte ; aucune confirmation ouverte ici.'
+
 /** Redraws the latest hidden same-origin proposal. Does not prepare, read or write. */
 export function reopenOperatorConfirmation(ctx: ExtensionContext): OperatorReopen {
   if (!interactive(ctx)) return 'none'
   const presenter = sessionPresenter(ctx)
   if (presenter === undefined || !knownRequest(presenter)) return 'none'
-  if (presenter.visible !== null) return 'visible'
+  if (presenter.visible !== null) {
+    return here(presenter.visible.origin, ctx)
+      ? explain(ctx, 'visible', 'La confirmation est déjà ouverte ; choisir une action dans la fenêtre.')
+      : explain(ctx, 'other-origin', OTHER_ORIGIN)
+  }
   const hidden = latestMatching(presenter.hidden, ctx, 'hidden')
   if (hidden !== null) {
     drop(presenter.hidden, hidden)
     presenter.visible = hidden
     hidden.state = 'visible'
     hidden.reopen()
-    return 'reopened'
+    return explain(ctx, 'reopened', 'Proposition conservée rouverte ; aucune décision confirmée par ce raccourci.')
   }
-  if (presenter.waiting.some((slot) => slot.state === 'waiting' && here(slot.origin, ctx))) return 'pending'
-  for (const prepared of presenter.preparing.values()) {
-    if (here(prepared, ctx)) return 'preparing'
+  if (presenter.waiting.some((slot) => slot.state === 'waiting' && here(slot.origin, ctx)))
+    return explain(
+      ctx,
+      'pending',
+      'La proposition attend son tour derrière une autre confirmation ; aucune décision prise.',
+    )
+  let current: StatusEntry | null = null
+  for (const entry of presenter.statuses.values()) {
+    if (here(entry.origin, ctx) && (current === null || entry.generation > current.generation)) current = entry
   }
-  return 'other-origin'
+  if (current?.phase === 'preparing') return explain(ctx, 'preparing', feedbackText(current))
+  if (actionInFlight(current)) return explain(ctx, 'applying', feedbackText(current))
+  return explain(ctx, 'other-origin', OTHER_ORIGIN)
 }
 
 /** Cancels visible, waiting, held and preparing frames for this session. Does not touch workflow leases. */
@@ -217,7 +244,6 @@ export function cancelOperatorConfirmations(ctx: ExtensionContext, reason: strin
   presenter.visible = null
   presenter.waiting = []
   presenter.hidden = []
-  presenter.preparing.clear()
   presenter.cancellers.clear()
   for (const cancelOne of cancel) cancelOne()
 }

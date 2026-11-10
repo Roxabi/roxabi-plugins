@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.4
+
+- Acknowledge valid commands through the public UI before ports and long remote reads. Explain every confirmation shortcut and keep phase status outside model/user progress messages.
+- Distinguish preparation, queued/open/held confirmation and a started action. Retain honest started-after-stop feedback until settlement; consultation neither confirms again nor falls through to new framing.
+- Report current preparation and post-hold failures once, preserve canonical final outcomes, and never equate a confirmed choice with successful publication.
+- Keep reports and result files within the captured full session/location and actual artifact sink. UI notification/status failures cannot interrupt cleanup or alter an operation's result.
+- The product-version bump changes the effective workflow config digest. This source delivery grants no activation, tooling pin, installed-runtime upgrade or terminalization exception.
+
 ## 0.18.3
 
 - Ask a direct question for each typed confirmation, with the target and the effects the current writer performs. Technical JSON, digests and the detail reference stay under `D Détails`. Supplied text stays quoted so it cannot forge an action line.

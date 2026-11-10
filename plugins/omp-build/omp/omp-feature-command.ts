@@ -29,6 +29,7 @@ import {
 } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
+import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
 import type { NativeBatchController } from './review-runtime/controller.ts'
 
 /** The intake becomes ordinary once its first classification is not framing, or fails. */
@@ -112,10 +113,12 @@ export async function runFeatureCommand(
     return
   }
   const operator = createOperatorConfirmation(ctx)
-  operator.progress('Preparing feature operation')
+  operator.progress('/feature')
   const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
   const report = (message: string) => {
-    if (reporting.isCurrent()) reportFeatureTerminalStatus(pi, message)
+    if (!reporting.isCurrent()) return
+    reportFeatureTerminalStatus(pi, message)
+    notifyOperator(ctx, message)
   }
   let canReportFailure = () => false
   const work = (async () => {
@@ -149,10 +152,17 @@ export async function runFeatureCommand(
       reporting.settleCommand()
     }
   })()
-  await raceOperatorHold(work, operator.held, (error) => {
+  const reportFailure = (error: unknown): void => {
     if (!canReportFailure()) return
-    reportFeatureTerminalStatus(pi, featureErrorMessage(error))
-  })
+    const message = featureErrorMessage(error)
+    reportFeatureTerminalStatus(pi, message)
+    notifyOperator(ctx, message, 'error')
+  }
+  try {
+    await raceOperatorHold(work, operator.held, reportFailure)
+  } catch (error) {
+    reportFailure(error)
+  }
 }
 
 /**
@@ -199,7 +209,11 @@ export async function continueFramedFeature(
   } catch (error) {
     const canReport = reporting.captureFailure()
     cancelFeatureUwOperation(pi, operator)
-    if (canReport()) reportFeatureTerminalStatus(pi, featureErrorMessage(error))
+    if (canReport()) {
+      const message = featureErrorMessage(error)
+      reportFeatureTerminalStatus(pi, message)
+      notifyOperator(ctx, message, 'error')
+    }
   } finally {
     reporting.settleCommand()
   }

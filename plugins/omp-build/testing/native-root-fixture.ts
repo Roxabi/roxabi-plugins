@@ -16,11 +16,18 @@ export function provisionNativeRoot(context: Record<string, unknown>): void {
   // Dedicated lease tests may provide their own registry/session boundary.
   const existing = registry.get(agent.id)
   if (existing && (contextRefs.get(context) === existing || !fixtureRefs.has(existing))) return
-  const manager = context.sessionManager as Record<string, () => string> | undefined
+  const manager = context.sessionManager as
+    | { getSessionFile?: () => string | undefined; getCwd?: () => string; getArtifactsDir?: () => string | null }
+    | undefined
   if (!manager) return
   const cwd = String(context.cwd)
   manager.getSessionFile ??= () => `${cwd}/fixture-session.jsonl`
   manager.getCwd ??= () => cwd
+  if (manager.getArtifactsDir === undefined) {
+    const protocol = context.localProtocolOptions as { getArtifactsDir?(): string } | undefined
+    const artifacts = protocol?.getArtifactsDir?.() ?? null
+    manager.getArtifactsDir = () => artifacts
+  }
   context.modelRegistry ??= {}
   let active = ['read', 'task', 'omp_build_execute_native_batch']
   let mounted: string[] = []

@@ -2,6 +2,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { Component } from '@oh-my-pi/pi-tui'
 import type { DescribeContext, NativeNode, NativeScreen, NativeUiEvent } from '@oh-my-pi/pi-tui/native/node'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
+import { nativeText } from './omp-operator-confirmation-field.ts'
 import {
   type ConfirmationMotion,
   commitDialogInput,
@@ -12,15 +13,6 @@ import {
 } from './omp-operator-confirmation-input.ts'
 import { operatorDialogLayout } from './omp-operator-confirmation-layout.ts'
 import { proposalSummary } from './omp-operator-confirmation-summary.ts'
-
-function nativeText(value: string): string {
-  return value
-    .replace(
-      /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
-      (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
-    )
-    .replace(/\p{Cc}/gu, '')
-}
 
 function nativeButton(label: string, act: string, key: string, buttons: boolean): NativeNode {
   const title = `${label}  ${key === 'escape' ? 'esc' : key}`

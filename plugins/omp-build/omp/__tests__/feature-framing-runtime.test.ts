@@ -6,6 +6,7 @@ import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import {
   CHILD_AGENT,
   CWD,
+  confirmationProposal,
   contextOf,
   installed,
   session,
@@ -17,7 +18,7 @@ import { consultableProtocolOptions } from '../../testing/protocol-retention.uni
 import { fixture as uwFixture } from '../../testing/uw-operations-fixture.ts'
 import { UW } from '../../testing/uw-operations-fixture-input.ts'
 import * as operatorConfirmation from '../omp-operator-confirmation.ts'
-import { createOperatorConfirmation, reopenOperatorConfirmation } from '../omp-operator-confirmation.ts'
+import { createOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
 const realCreateOperatorConfirmation = operatorConfirmation.createOperatorConfirmation
 
@@ -47,28 +48,6 @@ function captureCommandPort() {
     restore: () => spy.mockRestore(),
   }
 }
-
-const confirmationProposal = {
-  digest: '4'.repeat(64),
-  proposal: {
-    format: 'omp-build-material-acceptance/2',
-    operationId: 'accept-material-fixture-42',
-    uw: UW,
-    mandate: { scope: UW, recordId: 'm1', kind: 'mandate' },
-    predecessor: {
-      scope: UW,
-      recordId: 'p1',
-      kind: 'operator-control',
-    },
-    assessment: {
-      scope: UW,
-      recordId: 'a1',
-      kind: 'action-receipt',
-    },
-    classification: 'material',
-    exactInputs: {},
-  },
-} as unknown as Parameters<operatorConfirmation.CommandOperatorPort['executeConfirmed']>[0]
 
 async function interviewing(host: ReturnType<typeof installed>, root: ExtensionContext, args: string) {
   await host.command(args, root)
@@ -205,16 +184,6 @@ describe('assisted /feature framing in the installed extension', () => {
     await expect(pending).resolves.toMatchObject({ status: 'confirmed', value: 'once' })
     expect(effects).toEqual(['once'])
   })
-
-  it('does not start framing when reopen reports preparing', async () => {
-    const host = installed()
-    const root = contextOf(session())
-    const operator = createOperatorConfirmation(root)
-    operator.progress('Reading fictional abandon')
-    expect(reopenOperatorConfirmation(root)).toBe('preparing')
-    await host.shortcut(root)
-    expect(host.procedureReads()).toBe(0)
-  })
 })
 
 describe('/feature intake before classification', () => {
@@ -281,7 +250,7 @@ describe('/feature intake before classification', () => {
     await host.command(args, root)
     expect(statuses.some((text) => text !== undefined)).toBe(true)
     expect(statuses.at(-1)).toBeUndefined()
-    expect(reopenOperatorConfirmation(root)).toBe('none')
+    expect(operatorConfirmation.reopenOperatorConfirmation(root)).toBe('none')
   })
 
   it('does not send a late feature result to a new session after a held command was confirmed', async () => {
