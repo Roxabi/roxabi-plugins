@@ -19,16 +19,20 @@ const proposal = {
   },
 } as unknown as PreparedOperatorProposal
 
-type View = Pick<Component, 'render' | 'handleInput' | 'describe' | 'handleNativeEvent'>
+type View = Pick<Component, 'render' | 'handleInput' | 'describe' | 'describeScreen' | 'handleNativeEvent'>
 function mount(prepared: PreparedOperatorProposal = proposal) {
   let view!: View
   const terminal = { columns: 80, rows: 18 }
   const result = Promise.withResolvers<OperatorChoice>()
+  const decisions: OperatorChoice[] = []
   const ui = {
     custom: (
       factory: (tui: unknown, theme: unknown, keys: unknown, done: (choice: OperatorChoice) => void) => View,
     ) => {
-      view = factory({ terminal, requestRender() {} }, {}, operatorDialogKeybindings, result.resolve)
+      view = factory({ terminal, requestRender() {} }, {}, operatorDialogKeybindings, (value) => {
+        decisions.push(value)
+        result.resolve(value)
+      })
       return result.promise
     },
   }
@@ -39,18 +43,66 @@ function mount(prepared: PreparedOperatorProposal = proposal) {
     'local://exact',
     controller.signal,
   )
-  return { view, terminal, choice }
+  return { view, terminal, choice, decisions }
 }
 
-/** Apply the native client's disabled/action contract before delivering a click to the component. */
-function clickNative(view: View, node: unknown, act: string): boolean {
-  if (typeof node !== 'object' || node === null) return false
-  const candidate = node as { key?: string; p?: { disabled?: unknown; actions?: { click?: string } }; c?: unknown[] }
-  if (candidate.p?.actions?.click === act && !candidate.p.disabled) {
-    view.handleNativeEvent?.({ type: 'action', key: candidate.key ?? '', act, mods: [] })
-    return true
+type NativeAction = { view: View; act: string; key: string }
+
+/** Consume the advertised actions, including component children in the fixed native surface. */
+function nativeActions(view: View, node: unknown, cx?: DescribeContext): NativeAction[] {
+  if (Array.isArray(node)) return node.flatMap((child) => nativeActions(view, child, cx))
+  if (typeof node !== 'object' || node === null) return []
+  const candidate = node as View & {
+    key?: string
+    p?: { disabled?: unknown; actions?: { click?: string } }
+    c?: unknown[]
   }
-  return candidate.c?.some((child) => clickNative(view, child, act)) ?? false
+  if (cx && typeof candidate.describe === 'function') return nativeActions(candidate, candidate.describe(cx), cx)
+  const act = candidate.p?.actions?.click
+  return [
+    ...(act && !candidate.p?.disabled ? [{ view, act, key: candidate.key ?? '' }] : []),
+    ...(candidate.c ?? []).flatMap((child) => nativeActions(view, child, cx)),
+  ]
+}
+
+function clickNative(view: View, node: unknown, act: string): boolean {
+  const action = nativeActions(view, node).find((candidate) => candidate.act === act)
+  action?.view.handleNativeEvent?.({ type: 'action', key: action.key, act, mods: [] })
+  return action !== undefined
+}
+
+function nativeText(node: unknown): string {
+  if (Array.isArray(node)) return node.map(nativeText).join('\n')
+  if (typeof node !== 'object' || node === null) return ''
+  const candidate = node as { p?: { text?: unknown }; c?: unknown[] }
+  return [typeof candidate.p?.text === 'string' ? candidate.p.text : '', nativeText(candidate.c)].join('\n')
+}
+
+function longProposal(): PreparedOperatorProposal {
+  const prepared = structuredClone(proposal)
+  if (!('title' in prepared.proposal)) throw new Error('Expected titled proposal')
+  prepared.proposal.title = `BEGIN ${'reachable '.repeat(600)}END`
+  return prepared
+}
+
+function frame(mounted: ReturnType<typeof mount>, columns: number, rows: number): readonly string[] {
+  mounted.terminal.columns = columns
+  mounted.terminal.rows = rows
+  const lines = mounted.view.render(columns)
+  expect(lines.length).toBeLessThanOrEqual(rows)
+  // These supplied fixtures use single-cell Latin text; native pixel geometry is a real Tern proof.
+  for (const line of lines) expect(line.length).toBeLessThanOrEqual(columns)
+  return lines.slice(0, rows)
+}
+
+function advertised(lines: readonly string[]): string[] {
+  return lines.flatMap((line) => Array.from(line.matchAll(/\[([^\]\s]+)\]/g), (match) => match[1] ?? ''))
+}
+
+function keyBytes(token: string): string {
+  if (token === 'Esc') return '\u001b'
+  if (token.length === 1) return token.toLowerCase()
+  throw new Error(`Unknown advertised key: ${token}`)
 }
 
 async function alignedHeadingAtPadding(padding: number): Promise<readonly string[] | undefined> {
@@ -306,5 +358,97 @@ describe('operator dialog input and viewport', () => {
     mounted.view.handleInput?.('r')
     mounted.view.handleInput?.('\u001b')
     await expect(mounted.choice).resolves.toBe('defer')
+  })
+
+  it.each([
+    [80, 18],
+    [40, 12],
+    [40, 8],
+  ])('operates every advertised ANSI action within a %sx%s viewport', async (columns, rows) => {
+    for (const prepared of [proposal, longProposal()]) {
+      const reference = mount(prepared)
+      const tokens = advertised(frame(reference, columns, rows))
+      reference.view.handleInput?.('\u001b')
+      await reference.choice
+      const outcomes: OperatorChoice[] = []
+      let toggles = 0
+      for (const token of tokens) {
+        const mounted = mount(prepared)
+        const before = frame(mounted, columns, rows)
+        mounted.view.handleInput?.(keyBytes(token))
+        if (mounted.decisions.length) {
+          outcomes.push(...mounted.decisions)
+        } else {
+          expect(frame(mounted, columns, rows).join('\n')).toContain('local://exact')
+          mounted.view.handleInput?.(keyBytes(token))
+          expect(frame(mounted, columns, rows)).toEqual(before)
+          mounted.view.handleInput?.('\u001b')
+          toggles += 1
+        }
+        await mounted.choice
+      }
+      expect(outcomes.sort()).toEqual(['confirm', 'defer', 'refuse'])
+      expect(toggles).toBe(1)
+    }
+  })
+
+  it.each([
+    [80, 18],
+    [40, 12],
+    [40, 8],
+  ])('reaches a long ANSI body without losing its actions at %sx%s', async (columns, rows) => {
+    const mounted = mount(longProposal())
+    let previous = frame(mounted, columns, rows)
+    const actionRows = previous.filter((line) => advertised([line]).length)
+    let sawBegin = previous.join('').replaceAll('| ', '').includes('BEGIN')
+    let sawEnd = false
+    for (let step = 0; step < 400; step += 1) {
+      mounted.view.handleInput?.('\u001b[B')
+      const next = frame(mounted, columns, rows)
+      expect(next.filter((line) => advertised([line]).length)).toEqual(actionRows)
+      const visible = next.join('').replaceAll('| ', '')
+      sawBegin ||= visible.includes('BEGIN')
+      sawEnd ||= visible.includes('END')
+      if (next.join('\n') === previous.join('\n')) break
+      previous = next
+    }
+    expect(sawBegin).toBe(true)
+    expect(sawEnd).toBe(true)
+    mounted.view.handleInput?.('\u001b')
+    await expect(mounted.choice).resolves.toBe('defer')
+  })
+
+  it.each([true, false])('consumes the fixed native action surface with long content (buttons=%s)', async (buttons) => {
+    const cx = { cols: 39, supports: () => buttons } as unknown as DescribeContext
+    const open = () => {
+      const mounted = mount(longProposal())
+      mounted.terminal.columns = 39
+      mounted.terminal.rows = 11
+      const screen = mounted.view.describeScreen?.(cx)
+      return { ...mounted, screen, actions: nativeActions(mounted.view, screen?.dock, cx) }
+    }
+    const reference = open()
+    const acts = reference.actions.map((action) => action.act)
+    reference.view.handleInput?.('\u001b')
+    await reference.choice
+    const outcomes: OperatorChoice[] = []
+    let toggles = 0
+    for (const act of acts) {
+      const mounted = open()
+      const action = mounted.actions.find((candidate) => candidate.act === act)
+      action?.view.handleNativeEvent?.({ type: 'action', key: action.key, act, mods: [] })
+      if (mounted.decisions.length) {
+        outcomes.push(...mounted.decisions)
+      } else {
+        expect(nativeText(mounted.view.describeScreen?.(cx)?.main)).toContain('local://exact')
+        action?.view.handleNativeEvent?.({ type: 'action', key: action.key, act, mods: [] })
+        expect(nativeText(mounted.view.describeScreen?.(cx)?.main)).toBe(nativeText(mounted.screen?.main))
+        mounted.view.handleInput?.('\u001b')
+        toggles += 1
+      }
+      await mounted.choice
+    }
+    expect(outcomes.sort()).toEqual(['confirm', 'defer', 'refuse'])
+    expect(toggles).toBe(1)
   })
 })

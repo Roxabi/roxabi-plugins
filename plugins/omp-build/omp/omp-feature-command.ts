@@ -146,6 +146,7 @@ export async function runFeatureCommand(
       // An entry that ended unclassified (refusal, stale replacement) never stays read-only.
       settleFeatureUwIntake(pi, operator)
       operator.progress(null)
+      reporting.settleCommand()
     }
   })()
   await raceOperatorHold(work, operator.held, (error) => {
@@ -199,5 +200,7 @@ export async function continueFramedFeature(
     const canReport = reporting.captureFailure()
     cancelFeatureUwOperation(pi, operator)
     if (canReport()) reportFeatureTerminalStatus(pi, featureErrorMessage(error))
+  } finally {
+    reporting.settleCommand()
   }
 }

@@ -135,7 +135,7 @@ export function featureOperationGeneration(pi: OmpBuildExtensionApi): number {
 
 export type FeatureOperationReportGuard = ReturnType<typeof createFeatureOperationReportGuard>
 
-/** Bind notifications to this command; an explicit framing handoff can adopt its exact lease. */
+/** Notifications retain origin after command settlement; framing keeps its exact lease. */
 export function createFeatureOperationReportGuard(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
@@ -145,6 +145,7 @@ export function createFeatureOperationReportGuard(
   const agentId = ctx.agent.id
   const sessionId = ctx.sessionManager.getSessionId()
   let owner = () => ownsFeatureUwOperation(pi, operator)
+  let phase: 'command' | 'background' | 'framing' = 'command'
   const sameOrigin = () => {
     try {
       return (
@@ -157,14 +158,18 @@ export function createFeatureOperationReportGuard(
       return false
     }
   }
-  const isCurrent = () => sameOrigin() && owner()
+  const isCurrent = () => sameOrigin() && (phase === 'background' || owner())
   return {
     isCurrent,
+    settleCommand() {
+      if (phase === 'command' && isCurrent()) phase = 'background'
+    },
     handoff(isCurrentLease: () => boolean) {
       owner = isCurrentLease
+      phase = 'framing'
     },
     captureFailure() {
-      const permitted = isCurrent()
+      const permitted = sameOrigin() && owner()
       const generation = featureOperationGeneration(pi)
       return () => permitted && sameOrigin() && featureOperationGeneration(pi) === generation
     },
