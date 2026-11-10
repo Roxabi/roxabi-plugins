@@ -42,10 +42,10 @@ export function registerOmpCommandsAndTools(
     description: 'Prepare and dispatch the host-authorized native review for one existing pull request.',
     parameters: ompBuildStartReviewParametersJsonSchema,
     approval: 'write',
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const parsed = ompBuildStartReviewParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-start-review-parameters')
-      await dispatchDefaultReview(pi, ctx, parsed.data.pr === undefined ? '' : String(parsed.data.pr))
+      await dispatchDefaultReview(pi, ctx, parsed.data.pr === undefined ? '' : String(parsed.data.pr), { signal })
       return {
         content: [
           { type: 'text', text: 'Native review inventory was confirmed and the prepared batch was announced.' },

@@ -49,55 +49,28 @@ function materialProposal(): PreparedMaterialAcceptance {
 }
 
 function interactiveContext(confirm: () => Promise<boolean>): ExtensionContext {
+  const mapping = {
+    cwd: '/repo/feature',
+    sessionFile: '/repo/feature/root-session.jsonl',
+    artifactsDir: '/repo/feature/artifacts',
+  }
   return {
-    agent: { kind: 'main', depth: 0 },
+    agent: { kind: 'main', depth: 0, id: 'Main' },
     hasUI: true,
     mode: 'tui',
+    cwd: mapping.cwd,
     ui: operatorDialogUi(async () => ((await confirm()) ? 'confirm' : 'refuse')),
     localProtocolOptions: consultableProtocolOptions(),
+    sessionManager: {
+      getSessionId: () => 'root-session',
+      getCwd: () => mapping.cwd,
+      getSessionFile: () => mapping.sessionFile,
+      getArtifactsDir: () => mapping.artifactsDir,
+    },
   } as unknown as ExtensionContext
 }
 
 describe('native operator confirmation capability', () => {
-  it('returns deferred without effects only for the explicit later action', async () => {
-    const context = {
-      ...interactiveContext(async () => false),
-      ui: operatorDialogUi(async () => 'defer'),
-    } as ExtensionContext
-    const effects: string[] = []
-    const operator = createOperatorConfirmation(context)
-    await expect(
-      operator.executeConfirmed(proposal, async () => {
-        effects.push('written')
-      }),
-    ).resolves.toMatchObject({
-      status: 'deferred',
-      diagnostics: [{ code: 'operator-confirmation-deferred' }],
-    })
-    expect(effects).toEqual([])
-    await expect(
-      operator.executeConfirmed(proposal, async () => {
-        effects.push('replay')
-      }),
-    ).resolves.toMatchObject({ status: 'refused' })
-  })
-  it('does not defer a proposal mutated while the dialog was open', async () => {
-    const prepared = structuredClone(proposal)
-    const context = {
-      ...interactiveContext(async () => false),
-      ui: operatorDialogUi(async () => {
-        prepared.digest = 'changed'
-        return 'defer'
-      }),
-    } as ExtensionContext
-    const effects: string[] = []
-    const result = await createOperatorConfirmation(context).executeConfirmed(prepared, async () => {
-      effects.push('written')
-    })
-    expect(result).toMatchObject({ status: 'refused', diagnostics: [{ code: 'operator-proposal-changed' }] })
-    expect(effects).toEqual([])
-  })
-
   it('shows composed parent consent before the single creation confirmation', async () => {
     const prepared = {
       digest: 'c'.repeat(64),

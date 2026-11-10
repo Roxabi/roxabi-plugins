@@ -8,6 +8,8 @@ import { actionOperationMethods } from '../../roxabi/uw-action-operations.ts'
 import { sha256Bytes } from '../../roxabi/uw-action-result.ts'
 import { fixtureUwOperations, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
+import { operatorRootContext } from '../../testing/operator-dialog-ui.ts'
+import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { registerUwCommand } from '../omp-uw-command.ts'
 
 test('registered /uw action refuses to expand a reviewed replay', async () => {
@@ -55,9 +57,8 @@ test('registered /uw action refuses to expand a reviewed replay', async () => {
     }))
     if (handler === undefined) throw new Error('registered command unavailable')
     const context = {
-      cwd: directory,
+      ...operatorRootContext(directory, consultableProtocolOptions()),
       hasUI: false,
-      agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 },
     } as unknown as ExtensionContext
     await handler(`action ${path}`, context)
     expect(messages.some((message) => message.includes('review-input-changed'))).toBe(true)

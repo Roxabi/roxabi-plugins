@@ -1,5 +1,21 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import type { OperatorChoice } from '../omp/omp-operator-confirmation-dialog.ts'
+import type { OperatorChoice } from '../omp/omp-operator-confirmation-input.ts'
+
+/** One fictional root identity with the stable live mappings required by the real confirmation port. */
+export function operatorRootContext(cwd: string, protocol: { getArtifactsDir(): string }) {
+  const artifactsDir = protocol.getArtifactsDir()
+  return {
+    agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 } as const,
+    cwd,
+    sessionManager: {
+      getSessionId: () => `${cwd}:${artifactsDir}`,
+      getCwd: () => cwd,
+      getSessionFile: () => undefined,
+      getArtifactsDir: () => artifactsDir,
+    },
+    localProtocolOptions: { getArtifactsDir: () => artifactsDir },
+  }
+}
 
 /** Default host keybindings used by the custom UI test seam. */
 export const operatorDialogKeybindings = {
@@ -28,19 +44,78 @@ export function operatorDialogUi(
     const result = Promise.withResolvers<unknown>()
     const terminal = { rows: 18, columns: 80 }
     const tui = { terminal, requestRender: () => undefined }
-    const component = await factory(tui as never, {} as never, operatorDialogKeybindings as never, result.resolve)
+    let mounted: MountedOperatorDialog | undefined
+    const finish = (value: unknown) => {
+      mounted?.dispose?.()
+      result.resolve(value)
+    }
+    mounted = await factory(tui as never, {} as never, operatorDialogKeybindings as never, finish)
     const display: string[] = []
     for (let i = 0; i < 2000; i++) {
-      const lines = component.render(80)
+      const lines = mounted.render(80)
       const rendered = lines.join('\n')
       if (display.at(-1) === rendered) break
       display.push(rendered)
-      component.handleInput?.('\u001b[B')
+      mounted.handleInput?.('\u001b[B')
     }
     onDisplay?.(display.join('\n'))
     const choice = await decide()
-    component.handleInput?.(choice === 'confirm' ? 'c' : choice === 'refuse' ? 'r' : '\u001b')
+    mounted.handleInput?.(choice === 'confirm' ? 'c' : choice === 'refuse' ? 'r' : '\u001b')
     return result.promise
   }
   return { custom } as unknown as ExtensionContext['ui']
+}
+
+export type MountedOperatorDialog = {
+  render(width: number): readonly string[]
+  handleInput?(input: string): void
+  dispose?(): void
+}
+
+/** Mount each real dialog and leave input to the test. No auto key, no viewport claim. */
+export function manualOperatorDialog(): {
+  ui: ExtensionContext['ui']
+  views: MountedOperatorDialog[]
+  nextMount(): Promise<MountedOperatorDialog>
+} {
+  const views: MountedOperatorDialog[] = []
+  const waiters: Array<(view: MountedOperatorDialog) => void> = []
+  let delivered = 0
+  const custom = async (factory: Parameters<ExtensionContext['ui']['custom']>[0]) => {
+    const result = Promise.withResolvers<unknown>()
+    const terminal = { rows: 18, columns: 80 }
+    let mounted: MountedOperatorDialog | undefined
+    const finish = (value: unknown) => {
+      mounted?.dispose?.()
+      result.resolve(value)
+    }
+    mounted = await factory(
+      { terminal, requestRender: () => undefined } as never,
+      {} as never,
+      operatorDialogKeybindings as never,
+      finish,
+    )
+    mounted.render(80)
+    views.push(mounted)
+    const waiter = waiters.shift()
+    if (waiter) waiter(mounted)
+    return result.promise
+  }
+  return {
+    ui: { custom } as unknown as ExtensionContext['ui'],
+    views,
+    nextMount() {
+      const existing = views[delivered]
+      if (existing) {
+        delivered += 1
+        return Promise.resolve(existing)
+      }
+      const pending = Promise.withResolvers<MountedOperatorDialog>()
+      waiters.push((view) => {
+        delivered += 1
+        pending.resolve(view)
+      })
+      return pending.promise
+    },
+  }
 }

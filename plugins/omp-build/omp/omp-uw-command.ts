@@ -14,9 +14,13 @@ import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from 
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
-import { beginFeatureUwOperation, cancelFeatureUwOperation } from './omp-feature-composition.ts'
+import {
+  beginFeatureUwOperation,
+  cancelFeatureUwOperation,
+  createFeatureOperationReportGuard,
+} from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
-import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
+import { createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
 import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
 import { type ParsedUwCommand, parseCreateCommand, parseIssueCommand, parseProposalCommand } from './omp-uw-parse.ts'
 import { reportResult } from './omp-uw-result.ts'
@@ -166,6 +170,15 @@ function reportOutcome(pi: OmpBuildExtensionApi, ctx: ExtensionContext, outcome:
   else pi.sendMessage(`uw-stopped: ${outcome.reason}`, { triggerTurn: false })
 }
 
+function sameCommand(ctx: ExtensionContext, cwd: string, sessionId: string | undefined): boolean {
+  if (ctx.cwd !== cwd) return false
+  try {
+    return ctx.sessionManager?.getSessionId() === sessionId
+  } catch {
+    return false
+  }
+}
+
 export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperationsFactory): void {
   pi.registerCommand('uw', {
     description: 'Read, prepare, confirm, write, create, or accept one own UW Spec.',
@@ -176,6 +189,14 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
         return
       }
       const privateOperator = createOperatorConfirmation(ctx)
+      privateOperator.progress('Preparing UW operation')
+      const cwd = ctx.cwd
+      let sessionId: string | undefined
+      try {
+        sessionId = ctx.sessionManager?.getSessionId()
+      } catch {
+        sessionId = undefined
+      }
       const ownsRootCapability = rootContext(ctx)
       if (ownsRootCapability && (parsed.kind === 'sister' || parsed.kind === 'promote-report')) {
         await runNativeUwOperation(pi, ctx, privateOperator, async (operator, nativeHost) => {
@@ -186,28 +207,40 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
             nativeHost,
           })
           const outcome = await executeUwCommand(parsed, operations)
-          if (!nativeHost.signal.aborted) reportOutcome(pi, ctx, outcome)
+          if (!nativeHost.signal.aborted && sameCommand(ctx, cwd, sessionId)) reportOutcome(pi, ctx, outcome)
         })
         return
       }
       const operator = ownsRootCapability ? beginFeatureUwOperation(pi, privateOperator) : privateOperator
-      try {
-        reportOutcome(
-          pi,
-          ctx,
-          await executeUwCommand(
+      const reporting = ownsRootCapability ? createFeatureOperationReportGuard(pi, ctx, operator) : null
+      const isCurrent = reporting?.isCurrent ?? (() => sameCommand(ctx, cwd, sessionId))
+      const captureFailure = reporting?.captureFailure ?? (() => isCurrent)
+      let canReportFailure = () => false
+      const work = (async () => {
+        try {
+          const outcome = await executeUwCommand(
             parsed,
             await factory({
               cwd: ctx.cwd,
               operator,
               artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
             }),
-          ),
-        )
-      } finally {
-        if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
-        else operator.cancel()
-      }
+          )
+          if (isCurrent()) reportOutcome(pi, ctx, outcome)
+        } catch (error) {
+          canReportFailure = captureFailure()
+          throw error
+        } finally {
+          if (ownsRootCapability) cancelFeatureUwOperation(pi, operator)
+          else operator.cancel()
+        }
+      })()
+      await raceOperatorHold(work, privateOperator.held, (error) => {
+        if (!canReportFailure()) return
+        pi.sendMessage(`uw-stopped: ${error instanceof Error ? error.message : String(error)}`, {
+          triggerTurn: false,
+        })
+      })
     },
   })
 }

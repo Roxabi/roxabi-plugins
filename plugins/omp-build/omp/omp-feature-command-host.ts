@@ -11,6 +11,7 @@ import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { type OmpBuildExtensionApi, ownedFixRunFor, reportFeatureTerminalStatus } from './omp-controller'
+import type { FeatureOperationReportGuard } from './omp-feature-composition.ts'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
 import type { FeatureFramingRuntime, FramingCommandBinding } from './omp-framing-runtime.ts'
 import { requestParentCoverage } from './omp-parent-coverage.ts'
@@ -72,13 +73,13 @@ async function startInstalledFeatureFix(
 }
 
 export async function loadInstalledFeatureWorkflow(
-  pi: OmpBuildExtensionApi,
+  report: (message: string) => void,
   options: FeatureCommandOptions,
 ): Promise<FeatureWorkflow | undefined> {
   try {
     return options.featureWorkflow ?? (await loadFeatureWorkflow())
   } catch (error) {
-    reportFeatureTerminalStatus(pi, `feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
+    report(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
     return undefined
   }
 }
@@ -89,6 +90,7 @@ export function createFeatureCommandHost(
   workflow: FeatureWorkflow,
   controller: NativeBatchController,
   uw: FeatureCommandHost['uw'],
+  report: FeatureOperationReportGuard,
 ): FeatureCommandHost {
   const { pi, options, interruptOwnedFeatureWork, framing } = composition
   const { ctx } = binding
@@ -98,9 +100,11 @@ export function createFeatureCommandHost(
     principal: options.principalCwd?.(ctx.cwd) ?? isInstalledPrincipal(ctx.cwd),
     workflow,
     native: createNativeReviewPort(pi, controller),
-    send: async (message) => reportFeatureTerminalStatus(pi, message),
+    send: async (message) => {
+      if (report.isCurrent()) reportFeatureTerminalStatus(pi, message)
+    },
     status: (message) => ctx.ui?.setStatus?.('omp-build-watch', message),
-    startFraming: (source) => framing.start(binding, source),
+    startFraming: (source) => framing.start(binding, source, report.handoff),
     requestParentCoverage: (request) => requestParentCoverage(ctx, request),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
     releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),

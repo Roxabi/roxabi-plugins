@@ -6,6 +6,7 @@ import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { cleanupFixtureActions, batch as nativeBatch } from '../../testing/review-runtime-support'
+import { UW, fixture as uwFixture } from '../../testing/uw-operations-fixture.ts'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import { reviewControllerFor } from '../omp-controller'
@@ -53,7 +54,6 @@ function installed(
 ) {
   const sent: string[] = []
   const statuses: Array<string | undefined> = []
-  const context = { ...root, ui: { setStatus: (_key: string, text: string | undefined) => statuses.push(text) } }
   const commands = new Map<string, { handler: (args: string, ctx: typeof root) => Promise<void> }>()
   const sessions = new Map<string, CapturedHandler>()
   const registered = new Map<string, CapturedHandler[]>()
@@ -83,19 +83,31 @@ function installed(
     ...(exec === undefined ? {} : { exec }),
   })
   provisionNativeRoot(root)
+  const origin = { sessionId: root.sessionManager.getSessionId(), cwd: root.cwd }
+  const context = {
+    ...root,
+    sessionManager: {
+      ...root.sessionManager,
+      getSessionId: () => origin.sessionId,
+      getCwd: () => origin.cwd,
+    },
+    ui: { setStatus: (_key: string, text: string | undefined) => statuses.push(text) },
+  }
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
-  return { pi, sent, statuses, context, commands, sessions }
+  return { pi, sent, statuses, context, commands, sessions, origin }
 }
 
 describe('installed /feature command CI watch', () => {
-  it('does not product-pause or abort CI watch on ordinary session_stop settle', async () => {
+  it('reports a watch blocker after settled-turn abort without pausing or aborting the watch', async () => {
     const pauses: string[] = []
     let aborted = false
+    const pending = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
     const featureWorkflow = workflow({
       continueFeature: async () => ({
         kind: 'watch',
         command: "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
       }),
+      consumeWatchExit: async () => ({ kind: 'blocked', reason: 'failed-checks' }),
       requestFeatureSessionPause: async (input) => {
         pauses.push(input.reason)
         return { kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }
@@ -105,27 +117,32 @@ describe('installed /feature command CI watch', () => {
       options?.signal?.addEventListener('abort', () => {
         aborted = true
       })
-      return new Promise<{ code: number; killed: boolean; stdout: string; stderr: string }>(() => undefined)
+      return pending.promise
     })
     await host.commands.get('feature')?.handler('#12', host.context)
     const stop = host.sessions.get('session_stop')
     expect(stop).toBeTypeOf('function')
-    await stop?.({ signal: new AbortController().signal }, host.context)
+    const turn = new AbortController()
+    await stop?.({ signal: turn.signal }, host.context)
+    turn.abort()
     expect(pauses).toEqual([])
     expect(aborted).toBe(false)
     expect(host.statuses.join('\n')).toContain('ci-watch: running')
     expect(host.statuses.join('\n')).toContain('/feature pause')
     expect(host.statuses.join('\n')).toContain('/feature abandon')
     expect(host.sent).toEqual([])
-    expect(host.sent.join('\n')).not.toContain('pause-unconfirmed')
-    expect(host.sent.join('\n')).not.toContain('pause-confirmed')
+    pending.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(host.sent).toEqual(['feature-stopped: failed-checks'])
   })
 
-  it('keeps a watch blocker visible after progress was shown only as status', async () => {
+  it('reports a watch blocker after an intervening read-only UW command', async () => {
     const pending = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
     const observed = Promise.withResolvers<void>()
+    const operations = uwFixture().operations
     const host = installed(
       {
+        uwOperations: () => operations,
         featureWorkflow: workflow({
           continueFeature: async () => ({
             kind: 'watch',
@@ -144,10 +161,46 @@ describe('installed /feature command CI watch', () => {
     await host.commands.get('feature')?.handler('#12', host.context)
     expect(host.statuses.join('\n')).toContain('/feature pause')
     expect(host.sent).toEqual([])
+    await host.commands.get('uw')?.handler(`read ${UW.target}`, host.context)
+    expect(host.sent).toContainEqual(expect.stringContaining(UW.target))
+    const beforeWatch = host.sent.length
     pending.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
     await observed.promise
-    await Promise.resolve()
-    expect(host.sent.join('\n')).toContain('failed-checks')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(host.sent.slice(beforeWatch)).toEqual(['feature-stopped: failed-checks'])
+  })
+
+  it.each(['session', 'cwd'] as const)('does not send an owned watch outcome to a different %s', async (changed) => {
+    const pending = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
+    let consumed = false
+    const operations = uwFixture().operations
+    const host = installed(
+      {
+        uwOperations: () => operations,
+        featureWorkflow: workflow({
+          continueFeature: async () => ({
+            kind: 'watch',
+            command:
+              "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
+          }),
+          consumeWatchExit: async () => {
+            consumed = true
+            return { kind: 'blocked', reason: 'failed-checks' }
+          },
+        }),
+      },
+      () => pending.promise,
+    )
+    await host.commands.get('feature')?.handler('#12', host.context)
+    await host.commands.get('uw')?.handler(`read ${UW.target}`, host.context)
+    expect(host.sent).toContainEqual(expect.stringContaining(UW.target))
+    const beforeWatch = host.sent.length
+    if (changed === 'session') host.origin.sessionId = 'session-after-new'
+    else host.origin.cwd = '/repo/other'
+    pending.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(consumed).toBe(true)
+    expect(host.sent.slice(beforeWatch)).toEqual([])
   })
 
   it('keeps the replacement watch status when the aborted watch settles late', async () => {
@@ -168,7 +221,6 @@ describe('installed /feature command CI watch', () => {
     )
     await host.commands.get('feature')?.handler('#12', host.context)
     await host.commands.get('feature')?.handler('#12', host.context)
-    expect(host.statuses.at(-2)).toBeUndefined()
     const replacementStatus = host.statuses.at(-1)
     expect(replacementStatus).toContain('/feature pause')
     first.resolve({ code: 1, killed: false, stdout: '', stderr: '' })

@@ -198,7 +198,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
       statuses.push(message)
     },
     procedurePorts: () => supply.ports,
-    operator: (receiving) => createOperatorConfirmation(receiving),
+    operator: (receiving) => createOperatorConfirmation(receiving, { escape: 'defer' }),
     uw: async ({ operator }) =>
       options.written
         ? createInstalledUwOperations({

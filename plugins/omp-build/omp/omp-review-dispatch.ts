@@ -47,6 +47,7 @@ type DefaultReviewOptions = {
   prepareReview?: typeof prepareReviewInputs
   expansion?: PrepareReviewInputsOptions['expansion']
   scopedGuard?: () => boolean
+  signal?: AbortSignal
 }
 
 type ReplacementDispatchOptions = {
@@ -117,7 +118,7 @@ async function dispatchDefaultReview(
   args: string,
   options: DefaultReviewOptions = {},
 ): Promise<void> {
-  const { onComplete, prepareReview = prepareReviewInputs, scopedGuard, expansion } = options
+  const { onComplete, prepareReview = prepareReviewInputs, scopedGuard, expansion, signal } = options
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const supplied = args.trim()
   if (supplied !== '' && !/^[1-9]\d*$/.test(supplied))
@@ -129,7 +130,7 @@ async function dispatchDefaultReview(
     cwd: ctx.cwd,
     pr: supplied === '' ? undefined : Number(supplied),
     contextWindow,
-    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx)),
+    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal })),
     pluginPin: hostPluginPin(),
     expansion,
   })

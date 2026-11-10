@@ -33,6 +33,10 @@ export async function runNativeUwOperation(
       abort.abort('uw-operation-cancelled')
       if (batch !== null) void native.stopOwned(batch, 'uw-operation-cancelled').catch(() => undefined)
     },
+    progress(text) {
+      privateOperator.progress(text)
+    },
+    held: privateOperator.held,
   }
   const operator = beginFeatureUwOperation(pi, leased)
   const nativeHost: UwNativeHost = {
@@ -90,17 +94,25 @@ export async function runNativeUwOperation(
       started.resolve()
     },
   }
+  const stillHere = (): boolean => {
+    if (ctx.cwd !== cwd) return false
+    try {
+      return ctx.sessionManager?.getSessionId() === session
+    } catch {
+      return false
+    }
+  }
   const completion = (async () => {
     try {
       await run(operator, nativeHost)
     } catch (error) {
-      if (!abort.signal.aborted)
-        pi.sendMessage(`uw-stopped: ${error instanceof Error ? error.message : String(error)}`, {
-          triggerTurn: false,
-        })
+      if (abort.signal.aborted || !stillHere()) return
+      pi.sendMessage(`uw-stopped: ${error instanceof Error ? error.message : String(error)}`, {
+        triggerTurn: false,
+      })
     } finally {
       cancelFeatureUwOperation(pi, operator)
     }
   })()
-  await Promise.race([started.promise, completion])
+  await Promise.race([started.promise, completion, privateOperator.held])
 }

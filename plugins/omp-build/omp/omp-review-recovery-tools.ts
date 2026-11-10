@@ -60,10 +60,10 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
       'Prepare fresh review evidence and publish one one-use review-replacement-grant after a confirmed interruption. Starts no review tasks.',
     parameters: ompBuildRecoveryPrParametersJsonSchema,
     approval: 'write',
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const parsed = ompBuildRecoveryPrParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-grant-review-replacement-parameters')
-      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx))
+      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }))
       const published = await ghGrantInterruptedReviewReplacement({
         cwd: ctx.cwd,
         pr: parsed.data.pr,
@@ -89,10 +89,10 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
       'Confirm and activate the linked replacement inventory for the unconsumed one-use review replacement grant.',
     parameters: ompBuildRecoveryReplaceParametersJsonSchema,
     approval: 'write',
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const parsed = ompBuildRecoveryReplaceParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-replace-interrupted-review-parameters')
-      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx))
+      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }))
       const published = await ghReplaceInterruptedReview({
         cwd: ctx.cwd,
         pr: parsed.data.pr,
