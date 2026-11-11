@@ -1,7 +1,7 @@
 import { FINDING_TARGET_FORMAT } from './finding-target-schema.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { sameOwnSpecRef } from './record-diagnostics.ts'
-import { currentEffectiveEngagementProblem } from './spec-effective-engagement.ts'
+import { currentEffectiveEngagementProblem, type TerminalChildSuccession } from './spec-effective-engagement.ts'
 import { type SpecEffective, specEffectiveSchema } from './spec-effective-schema.ts'
 import type { SpecVersionVector } from './uw-completion-types.ts'
 import type { UwResult } from './uw-diagnostics.ts'
@@ -112,7 +112,11 @@ function effectiveValue(
 }
 
 /** Resolve each pinned accepted prefix only after its complete authenticated chain has been replayed. */
-function resolveEffective(input: SpecEffectiveRequest, controlAuthority: boolean): UwResult<SpecEffective> {
+function resolveEffective(
+  input: SpecEffectiveRequest,
+  controlAuthority: boolean,
+  succession: TerminalChildSuccession | null,
+): UwResult<SpecEffective> {
   const own = acceptedAt(input.own, input)
   if (own === null)
     return refusal(
@@ -130,19 +134,27 @@ function resolveEffective(input: SpecEffectiveRequest, controlAuthority: boolean
   const states = inheritedStates(input, own)
   if (!states.ok) return states
   if (input.mode === 'current') {
-    const problem = currentEffectiveEngagementProblem(input, states.value, controlAuthority)
+    const problem = currentEffectiveEngagementProblem(input, states.value, controlAuthority, succession)
     if (problem !== null) return problem
   }
   return effectiveValue(own, states.value, vector, input.own)
 }
 
 export function resolveSpecEffective(input: SpecEffectiveRequest): UwResult<SpecEffective> {
-  return resolveEffective(input, false)
+  return resolveEffective(input, false, null)
 }
 
 /** Current authority for a control that must separately validate its proposed wait edges. */
 export function resolveSpecEffectiveForControl(
   input: Extract<SpecEffectiveRequest, { mode: 'current' }>,
 ): UwResult<SpecEffective> {
-  return resolveEffective(input, true)
+  return resolveEffective(input, true, null)
+}
+
+/** Validate only the active Parent's engagement while its exact terminal child is explicitly replaced. */
+export function resolveSpecEffectiveForTerminalChildSuccession(
+  input: Extract<SpecEffectiveRequest, { mode: 'current' }>,
+  succession: TerminalChildSuccession,
+): UwResult<SpecEffective> {
+  return resolveEffective(input, false, succession)
 }

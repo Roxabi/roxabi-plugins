@@ -28,6 +28,7 @@ function discoveredPullRequest(data: unknown): DeliveryPrDiscovery {
 export async function discoverDeliveryPr(
   gh: Gh,
   cwd: string,
+  repository: string,
   head: string,
   base: string,
 ): Promise<DeliveryPrDiscovery> {
@@ -36,6 +37,8 @@ export async function discoverDeliveryPr(
     raw = await gh(cwd, [
       'pr',
       'list',
+      '--repo',
+      repository,
       '--head',
       head,
       '--base',

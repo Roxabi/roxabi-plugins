@@ -1,15 +1,20 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
-import { historyFor, type WorkflowBindingRecord, workflowOperationProblem } from './workflow-control.ts'
+import {
+  historyFor,
+  type SuccessorClaim,
+  successorClaim,
+  type WorkflowBindingRecord,
+  workflowOperationProblem,
+} from './workflow-control.ts'
 
 type BindingCandidate =
   | { status: 'bound'; binding: WorkflowBindingRecord }
   | { status: 'absent' }
   | { status: 'incomplete' | 'conflicting' | 'incompatible-format'; diagnostics: Diagnostic[] }
 type BindingRefusal = Extract<BindingCandidate, { status: 'incomplete' | 'conflicting' | 'incompatible-format' }>
-type SuccessorClaim = { status: 'none' } | BindingRefusal | { status: 'next'; ref: ExternalRecordRef }
 
 type BindingInput = {
   pullRequest: Scope
@@ -34,38 +39,6 @@ function claimsBinding(operation: DecodedHistory['operations'][number]): boolean
     operation.claimedKinds.includes('workflow-binding') ||
     operation.record?.kind === 'workflow-binding'
   )
-}
-function successorClaim(history: DecodedHistory, mandate: ExternalRecordRef): SuccessorClaim {
-  const controls = history.operations.filter(
-    (operation) =>
-      operation.authority !== 'foreign' &&
-      operation.record?.kind === 'operator-control' &&
-      operation.record.payload.control === 'select-successor' &&
-      sameRef(operation.record.payload.predecessor, mandate),
-  )
-  if (controls.length === 0) return { status: 'none' }
-  if (
-    controls.some(
-      (operation) =>
-        operation.status !== 'complete' || operation.authority !== 'accounted' || operation.record === null,
-    )
-  ) {
-    return bindingRefusal('incomplete', [
-      diagnostic('unconfirmed', 'A select-successor claim does not confirm an authorized binding chain'),
-    ])
-  }
-  const refs = controls.flatMap((operation) =>
-    operation.record?.kind === 'operator-control' && operation.record.payload.control === 'select-successor'
-      ? [operation.record.payload.successor]
-      : [],
-  )
-  const first = refs[0]
-  if (first === undefined || first.kind !== 'mandate' || refs.some((ref) => !sameRef(ref, first))) {
-    return bindingRefusal('conflicting', [
-      diagnostic('conflicting', 'Select-successor controls do not name one mandate'),
-    ])
-  }
-  return { status: 'next', ref: first }
 }
 
 function uniqueBindings(bindings: WorkflowBindingRecord[]): BindingCandidate | WorkflowBindingRecord[] {

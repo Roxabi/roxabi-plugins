@@ -11052,6 +11052,26 @@ function successorOf(history, mandate) {
   const control = controlsOf(history).find((record) => record.payload.control === "select-successor" && sameRef2(record.payload.predecessor, mandateRef));
   return control?.payload.control === "select-successor" ? control.payload.successor : null;
 }
+function successorClaim(history, mandate) {
+  const controls = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" && sameRef2(operation.record.payload.predecessor, mandate));
+  if (controls.length === 0)
+    return { status: "none" };
+  if (controls.some((operation) => operation.status !== "complete" || operation.authority !== "accounted" || operation.record === null)) {
+    return {
+      status: "incomplete",
+      diagnostics: [diagnostic2("unconfirmed", "A select-successor claim does not confirm an authorized binding chain")]
+    };
+  }
+  const refs = controls.flatMap((operation) => operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" ? [operation.record.payload.successor] : []);
+  const first = refs[0];
+  if (first === undefined || first.kind !== "mandate" || refs.some((ref) => !sameRef2(ref, first))) {
+    return {
+      status: "conflicting",
+      diagnostics: [diagnostic2("conflicting", "Select-successor controls do not name one mandate")]
+    };
+  }
+  return { status: "next", ref: first };
+}
 
 // plugins/omp-build/engine/cause-effect-validation.ts
 function matchingIdentity(operation, identity) {
@@ -11764,21 +11784,33 @@ function collectNativeChildren(uw, root, nodes, accepted, diagnostics, children)
 }
 function projectNativeUwChildren(input) {
   if (input.graph.status === "incomplete")
-    return {
-      ok: false,
-      diagnostics: input.graph.diagnostics.length ? input.graph.diagnostics : [diag2(input.uw, "graph-incomplete", "Native graph is incomplete", "children")]
-    };
+    return incompleteGraph2(input.uw, input.graph);
   if (input.accepted.status === "refused")
     return { ok: false, diagnostics: input.accepted.diagnostics };
-  const nodes = new Map(input.graph.nodes.map((node) => [scopeKey(node.uw), node]));
-  const root = nodes.get(scopeKey(input.uw));
+  return projectCompleteChildren(input.uw, input.graph, input.accepted.status === "accepted" ? input.accepted.value.children : null);
+}
+function projectNativeUwChildrenAgainstCommitments(input) {
+  if (input.graph.status === "incomplete")
+    return incompleteGraph2(input.uw, input.graph);
+  return projectCompleteChildren(input.uw, input.graph, input.commitments);
+}
+function incompleteGraph2(uw, graph) {
+  return {
+    ok: false,
+    diagnostics: graph.diagnostics.length ? graph.diagnostics : [diag2(uw, "graph-incomplete", "Native graph is incomplete", "children")]
+  };
+}
+function projectCompleteChildren(uw, graph, commitments) {
+  const nodes = new Map;
+  for (const node of graph.nodes)
+    nodes.set(scopeKey(node.uw), node);
+  const root = nodes.get(scopeKey(uw));
   if (root === undefined)
-    return { ok: false, diagnostics: [diag2(input.uw, "graph-incomplete", "Selected UW is absent", "children")] };
+    return { ok: false, diagnostics: [diag2(uw, "graph-incomplete", "Selected UW is absent", "children")] };
   const diagnostics = [];
-  const accepted = input.accepted.status === "accepted" ? input.accepted.value.children : null;
-  checkAcceptedChildren(input.uw, root, nodes, accepted, diagnostics);
+  checkAcceptedChildren(uw, root, nodes, commitments, diagnostics);
   const children = [];
-  collectNativeChildren(input.uw, root, nodes, accepted, diagnostics, children);
+  collectNativeChildren(uw, root, nodes, commitments, diagnostics, children);
   return diagnostics.length ? { ok: false, diagnostics } : { ok: true, value: children };
 }
 
@@ -14176,24 +14208,6 @@ function refKey(ref) {
 function claimsBinding(operation) {
   return operation.kind === "workflow-binding" || operation.claimedKinds.includes("workflow-binding") || operation.record?.kind === "workflow-binding";
 }
-function successorClaim(history, mandate) {
-  const controls = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" && sameRef2(operation.record.payload.predecessor, mandate));
-  if (controls.length === 0)
-    return { status: "none" };
-  if (controls.some((operation) => operation.status !== "complete" || operation.authority !== "accounted" || operation.record === null)) {
-    return bindingRefusal("incomplete", [
-      diagnostic2("unconfirmed", "A select-successor claim does not confirm an authorized binding chain")
-    ]);
-  }
-  const refs = controls.flatMap((operation) => operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" ? [operation.record.payload.successor] : []);
-  const first = refs[0];
-  if (first === undefined || first.kind !== "mandate" || refs.some((ref) => !sameRef2(ref, first))) {
-    return bindingRefusal("conflicting", [
-      diagnostic2("conflicting", "Select-successor controls do not name one mandate")
-    ]);
-  }
-  return { status: "next", ref: first };
-}
 function uniqueBindings(bindings) {
   const byMandate = new Map;
   for (const binding of bindings) {
@@ -15217,6 +15231,24 @@ function executableGraph(mandate) {
   return parsed;
 }
 
+// plugins/omp-build/engine/workflow-mandate-history.ts
+function historyRefusal(history) {
+  const problem = workflowOperationProblem(history);
+  if (problem !== null && mandatesOf(history).length === 0 && problem === "incomplete")
+    return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
+  if (problem === "ambiguous")
+    return refused("ambiguous", [diagnostic2("ambiguous", "Workflow history conflicts")]);
+  if (problem === incompatibleFormat) {
+    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem);
+    return refused(problem, [formatDiagnostic ?? diagnostic2(problem, "Mandate uses an incompatible format")]);
+  }
+  if (problem === "unconfirmed")
+    return refused("unconfirmed", [diagnostic2("unconfirmed", "Workflow history has an incomplete operation")]);
+  if (problem === "incomplete")
+    return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
+  return null;
+}
+
 // plugins/omp-build/engine/workflow-parent.ts
 function parentListings(mandate, histories, causal) {
   const scope = mandateScope(mandate);
@@ -15262,22 +15294,6 @@ function epicParentProblem(mandate, histories, causal) {
 function cycleRefusal(history, seen) {
   const scopeKey = `${history.source.scope.repository}\x00${history.source.scope.target}`;
   return seen.has(scopeKey) ? refused("ambiguous", [diagnostic2("ambiguous", "Mandate parent chain cycles")]) : null;
-}
-function historyRefusal(history) {
-  const problem = workflowOperationProblem(history);
-  if (problem !== null && mandatesOf(history).length === 0 && problem === "incomplete")
-    return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
-  if (problem === "ambiguous")
-    return refused("ambiguous", [diagnostic2("ambiguous", "Workflow history conflicts")]);
-  if (problem === incompatibleFormat) {
-    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem);
-    return refused(problem, [formatDiagnostic ?? diagnostic2(problem, "Mandate uses an incompatible format")]);
-  }
-  if (problem === "unconfirmed")
-    return refused("unconfirmed", [diagnostic2("unconfirmed", "Workflow history has an incomplete operation")]);
-  if (problem === "incomplete")
-    return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
-  return null;
 }
 function noMandateRefusal(history) {
   const claimed = history.operations.some((operation) => operation.kind === "mandate" || operation.claimedKinds.includes("mandate"));
@@ -15457,6 +15473,92 @@ function resolveOwnSpecAuthority(history, externalHistories, causal, seen = new 
   return { ok: true, value: { mandate: selected, accepted: accepted.spec } };
 }
 
+// plugins/omp-build/engine/workflow-terminal-mandate.ts
+function terminalMandate(history) {
+  const refusedHistory = historyRefusal(history);
+  if (refusedHistory !== null)
+    return fail(refusedHistory.evidence);
+  const lineage = { bound: new Map, successors: new Map, tip: null };
+  for (const mandate of mandatesOf(history)) {
+    const problem = terminalMemberProblem(history, mandate, lineage);
+    if (problem !== null)
+      return fail(problem);
+  }
+  const tip = lineage.tip;
+  if (tip === null)
+    return fail([diagnostic2("successor-unconfirmed", "No unique terminal mandate tip exists")]);
+  for (const control of controlsOf(history)) {
+    const problem = terminalControlProblem(history, control, lineage.bound);
+    if (problem !== null)
+      return fail(problem);
+  }
+  const problem = terminalLineageProblem(history, lineage, tip);
+  if (problem !== null)
+    return fail(problem);
+  return {
+    ok: true,
+    value: { mandate: tip, ref: { scope: history.source.scope, recordId: tip.recordId, kind: "mandate" } }
+  };
+}
+function terminalMemberProblem(history, mandate, lineage) {
+  const ref = { scope: history.source.scope, recordId: mandate.recordId, kind: "mandate" };
+  const authenticated = bindExternalRef(ref, history);
+  if (!authenticated.ok)
+    return authenticated.diagnostics;
+  if (authenticated.value.kind !== "mandate" || !equalScope(mandateScope(authenticated.value), ref.scope))
+    return [diagnostic2("successor-unconfirmed", "Antecedent mandate does not belong to this UW")];
+  lineage.bound.set(mandate.recordId, authenticated.value);
+  const claim = successorClaim(history, ref);
+  if (claim.status !== "none" && claim.status !== "next")
+    return claim.diagnostics;
+  if (claim.status === "next") {
+    if (claim.ref.kind !== "mandate" || !equalScope(claim.ref.scope, history.source.scope))
+      return [diagnostic2("successor-unconfirmed", "Successor claim leaves this UW")];
+    lineage.successors.set(mandate.recordId, claim.ref.recordId);
+  } else {
+    if (lineage.tip !== null)
+      return [diagnostic2("ambiguous", "More than one mandate lineage tip exists")];
+    lineage.tip = authenticated.value;
+  }
+  return null;
+}
+function terminalControlProblem(history, control, bound) {
+  const target = control.payload.control === "abandon" ? control.payload.mandate : control.payload.control === "select-successor" ? control.payload.predecessor : null;
+  if (target === null)
+    return null;
+  if (target.kind !== "mandate" || !equalScope(target.scope, history.source.scope) || !bound.has(target.recordId))
+    return [diagnostic2("successor-unconfirmed", "Terminal control does not name this mandate lineage")];
+  const authenticated = bindExternalRef({ scope: history.source.scope, recordId: control.recordId, kind: "operator-control" }, history);
+  if (!authenticated.ok)
+    return authenticated.diagnostics;
+  if (authenticated.value.repository !== history.source.scope.repository || authenticated.value.target !== history.source.scope.target)
+    return [diagnostic2("successor-unconfirmed", "Terminal control does not belong to this UW")];
+  return null;
+}
+function terminalLineageProblem(history, lineage, tip) {
+  if (!abandoned(history, tip))
+    return [diagnostic2("successor-not-terminal", "Terminal mandate tip must be explicitly abandoned")];
+  const visited = new Set;
+  let current = tip;
+  for (;; ) {
+    if (visited.has(current.recordId))
+      return [diagnostic2("cycle", "Mandate succession contains a cycle")];
+    visited.add(current.recordId);
+    const antecedent = current.payload.antecedent;
+    if (antecedent === null)
+      break;
+    if (antecedent.kind !== "mandate" || !equalScope(antecedent.scope, history.source.scope))
+      return [diagnostic2("successor-unconfirmed", "Antecedent leaves this UW")];
+    const previous = lineage.bound.get(antecedent.recordId);
+    if (previous === undefined || lineage.successors.get(previous.recordId) !== current.recordId)
+      return [diagnostic2("successor-unconfirmed", "Antecedent and successor controls do not confirm one chain")];
+    current = previous;
+  }
+  if (visited.size !== lineage.bound.size)
+    return [diagnostic2("ambiguous", "Mandate history contains an orphan or competing lineage")];
+  return null;
+}
+
 // plugins/omp-build/engine/spec-effective-engagement.ts
 function refusal(input, code, message) {
   return {
@@ -15467,7 +15569,7 @@ function refusal(input, code, message) {
 function unresolvedChildAuthority(history, managed) {
   return workflowOperationProblem(history) !== null || history.operations.some((operation) => (operation.kind === "mandate" || operation.claimedKinds.includes("mandate") || operation.kind === "spec-identity" || operation.claimedKinds.includes("spec-identity")) && (operation.authority === "foreign" ? !managed : operation.status !== "complete" || operation.record === null));
 }
-function childEngagementProblem(child, input) {
+function managedChildHistory(child, input) {
   const history = historyFor(child.scope, input.histories);
   if (history === null || !history.source.complete)
     return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} history is unavailable`);
@@ -15477,17 +15579,34 @@ function childEngagementProblem(child, input) {
   const managed = mandatesOf(history).length > 0;
   if (unresolvedChildAuthority(history, managed))
     return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} has an unresolved authority claim`);
-  if (!managed)
+  return managed ? history : null;
+}
+function engagedChildMandate(history, parent, succession) {
+  if (succession === null) {
+    const selected = selectedMandate(history);
+    return "kind" in selected && selected.kind === "mandate" ? selected : null;
+  }
+  const terminal = terminalMandate(history);
+  const owner = parent.chain[0];
+  if (!terminal.ok || !sameRef2(terminal.value.ref, succession.tip) || owner?.kind !== "mandate")
     return null;
-  const selected = selectedMandate(history);
-  if (!("kind" in selected) || selected.kind !== "mandate")
-    return refusal(input, "effective-child-unavailable", `Accepted child ${child.scope.repository} ${child.scope.target} has no unique active mandate`);
+  const lineage = terminal.value.mandate.payload.parent;
+  return lineage !== null && sameRef2(lineage, owner.source) ? terminal.value.mandate : null;
+}
+function childEngagementProblem(child, input, parent, succession) {
+  const history = managedChildHistory(child, input);
+  if (history === null || "ok" in history)
+    return history;
+  const terminal = succession !== null && equalScope(succession.child, child.scope) ? succession : null;
+  const selected = engagedChildMandate(history, parent, terminal);
+  if (selected === null)
+    return refusal(input, terminal === null ? "effective-child-unavailable" : "effective-child-succession-unconfirmed", terminal === null ? `Accepted child ${child.scope.repository} ${child.scope.target} has no unique active mandate` : `Accepted child ${child.scope.repository} ${child.scope.target} has no authenticated terminal engagement with this Parent`);
   const current = resolveAcceptedSpec(selected, input.histories);
   if (!current.ok || current.spec.ref.version !== child.specVersion || current.spec.tier !== child.tier || current.spec.snapshot.spec.version !== child.snapshot.spec.version)
     return refusal(input, "effective-child-engagement-mismatch", `Accepted child ${child.scope.repository} ${child.scope.target} version or tier has changed`);
   return null;
 }
-function stateEngagementProblem(state, parent, input) {
+function stateEngagementProblem(state, parent, input, succession) {
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, state.ref.uw));
   if (!node || (parent === undefined ? node.parent !== null : node.parent === null || !equalScope(node.parent, parent.ref.uw)))
     return refusal(input, "effective-native-ancestry-mismatch", "Complete native ancestry does not match accepted inheritance");
@@ -15504,7 +15623,7 @@ function stateEngagementProblem(state, parent, input) {
   if (!projected.ok)
     return { ok: false, diagnostics: [...projected.diagnostics] };
   for (const child of state.children) {
-    const problem = childEngagementProblem(child, input);
+    const problem = childEngagementProblem(child, input, state, succession);
     if (problem !== null)
       return problem;
   }
@@ -15515,7 +15634,18 @@ function stateEngagementProblem(state, parent, input) {
     return refusal(input, "effective-parent-engagement-mismatch", "Current parent does not engage the exact child version, tier and coverage");
   return null;
 }
-function currentEffectiveEngagementProblem(input, states, controlAuthority) {
+function terminalParentChildrenProblem(input, historical) {
+  for (const child of historical.children) {
+    const history = managedChildHistory(child, input);
+    if (history === null)
+      continue;
+    if ("ok" in history)
+      return history;
+    return refusal(input, "successor-child-mandate-bound", `Accepted child ${child.scope.repository} ${child.scope.target} has a mandate bound to the former Parent`);
+  }
+  return null;
+}
+function currentEffectiveEngagementProblem(input, states, controlAuthority, succession) {
   const checked = validateUwGraph(input.graph);
   if (!checked.ok) {
     const diagnostics = controlAuthority ? checked.diagnostics.filter((item) => item.code !== "graph-cycle") : [...checked.diagnostics];
@@ -15523,7 +15653,7 @@ function currentEffectiveEngagementProblem(input, states, controlAuthority) {
       return { ok: false, diagnostics };
   }
   for (const [index, state] of states.entries()) {
-    const problem = stateEngagementProblem(state, states[index + 1], input);
+    const problem = stateEngagementProblem(state, states[index + 1], input, index === 0 ? succession : null);
     if (problem !== null)
       return problem;
   }
@@ -15599,7 +15729,7 @@ function effectiveValue(own, states, vector, requested) {
   });
   return parsed.success ? { ok: true, value: parsed.data } : refusal2(requested, "effective-malformed", "Authenticated Spec does not form a valid effective Spec");
 }
-function resolveEffective(input, controlAuthority) {
+function resolveEffective(input, controlAuthority, succession) {
   const own = acceptedAt(input.own, input);
   if (own === null)
     return refusal2(input.own, "effective-own-unavailable", "The exact accepted own Spec and its complete chain are unavailable or ambiguous");
@@ -15610,17 +15740,20 @@ function resolveEffective(input, controlAuthority) {
   if (!states.ok)
     return states;
   if (input.mode === "current") {
-    const problem = currentEffectiveEngagementProblem(input, states.value, controlAuthority);
+    const problem = currentEffectiveEngagementProblem(input, states.value, controlAuthority, succession);
     if (problem !== null)
       return problem;
   }
   return effectiveValue(own, states.value, vector, input.own);
 }
 function resolveSpecEffective(input) {
-  return resolveEffective(input, false);
+  return resolveEffective(input, false, null);
 }
 function resolveSpecEffectiveForControl(input) {
-  return resolveEffective(input, true);
+  return resolveEffective(input, true, null);
+}
+function resolveSpecEffectiveForTerminalChildSuccession(input, succession) {
+  return resolveEffective(input, false, succession);
 }
 
 // plugins/omp-build/engine/cause-validation-frame.ts
@@ -25809,7 +25942,9 @@ function acceptedChildDiagnostics(projection, input, child, native) {
     diagnostics.push(diag3(input.uw, "material-change-pending", `Accepted child ${child.scope.target} Spec version drifted from ${child.specVersion} to ${current.specVersion}`, "children", { uw: child.scope, connection: "state" }));
   return diagnostics;
 }
-function assessUwAdmission(input) {
+var assessUwAdmission = (input) => assess2(input, null);
+var assessTerminalChildParentAdmission = (input, succession) => assess2(input, succession);
+function assess2(input, succession) {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw));
   const framed = framingDiagnostics(input, root);
   const aggregate = readFramingMembership(input);
@@ -25818,12 +25953,13 @@ function assessUwAdmission(input) {
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics];
   let applicability = "unresolved";
   if (input.accepted.status === "accepted") {
-    const effective = resolveSpecEffective({
+    const request = {
       mode: "current",
       own: input.accepted.value.ref,
       histories: input.histories,
       graph: input.graph
-    });
+    };
+    const effective = succession === null ? resolveSpecEffective(request) : resolveSpecEffectiveForTerminalChildSuccession(request, succession);
     if (effective.ok)
       applicability = "resolved";
     else
@@ -30021,6 +30157,7 @@ export {
   assessHistoricalCauseDispositions,
   assessParentInsertionEngagement,
   assessPlanCoverage,
+  assessTerminalChildParentAdmission,
   assessUwAdmission,
   assessUwCompletion,
   assessmentProposalOriginSchema,
@@ -30084,6 +30221,7 @@ export {
   createGhIssueWritePorts,
   createIssueWriter,
   createReviewClassCatalogues,
+  createUwDeliveryFactReader,
   creationContextSchema,
   criterionDeclarationSchema,
   criterionEvidenceSchema,
@@ -30255,6 +30393,7 @@ export {
   producerTestCitationSchema,
   producerTestExecutionSchema,
   projectNativeUwChildren,
+  projectNativeUwChildrenAgainstCommitments,
   projectRecord,
   projectUwDelivery,
   projectUwWaits,
@@ -30343,6 +30482,7 @@ export {
   scopedRefsOf,
   selectApplicableMandate,
   selectWorkflowBinding,
+  selectWorkflowBindingClaims,
   selectedReviewOperations,
   selectorAdmitted,
   shippedProductVersion,
@@ -30366,6 +30506,8 @@ export {
   submissionSchema,
   successorOf,
   summarizeReviews,
+  terminalMandate,
+  terminalParentChildrenProblem,
   testExecutionSchema,
   toDiagnostic,
   toDiagnostics,

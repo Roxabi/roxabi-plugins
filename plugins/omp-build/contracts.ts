@@ -42,6 +42,7 @@ export type {
   NativeTargetResolution,
   WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
+export { createUwDeliveryFactReader } from './adapters/github-workflow/uw-delivery-facts.ts'
 export { readUwCompletionObservation } from './adapters/github-workflow/uw-observation.ts'
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
@@ -204,6 +205,7 @@ export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } fr
 export { bindImplementationCommand } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
+export { selectWorkflowBindingClaims } from './engine/workflow-pr-binding-chain.ts'
 export { reconstructWorkflow } from './engine/workflow-reconstruction-admission.ts'
 export type {
   NativeSelector,
@@ -223,6 +225,7 @@ export {
 } from './engine/workflow-spec-assessment.ts'
 export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
 export { authenticatedAssessResult } from './engine/workflow-spec-authentication-chain.ts'
+export { type TerminalMandate, terminalMandate } from './engine/workflow-terminal-mandate.ts'
 export {
   type OmpBuildPrepareCheckoutParameters,
   type OmpBuildRecoveryPrParameters,

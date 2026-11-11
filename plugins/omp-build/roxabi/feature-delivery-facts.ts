@@ -182,7 +182,7 @@ async function discoverIssueDelivery(
   if (typeof branch !== 'string' || branch.length === 0 || typeof base !== 'string' || base.length === 0) {
     return { ok: true, pullRequest: null, delivery: null }
   }
-  const discovered = await discoverDeliveryPr(options.gh, options.cwd, branch, base)
+  const discovered = await discoverDeliveryPr(options.gh, options.cwd, targetScope.repository, branch, base)
   if (!discovered.ok) return discovered
   if (discovered.number === null) return { ok: true, pullRequest: null, delivery: null }
   const scope = loaded.githubScope(targetScope.repository, discovered.number)

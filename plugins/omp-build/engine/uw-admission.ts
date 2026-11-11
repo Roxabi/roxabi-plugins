@@ -2,7 +2,8 @@ import { assessCauseHolds } from './cause-hold.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import type { Scope } from './record-values.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
-import { resolveSpecEffective } from './spec-effective.ts'
+import { resolveSpecEffective, resolveSpecEffectiveForTerminalChildSuccession } from './spec-effective.ts'
+import type { TerminalChildSuccession } from './spec-effective-engagement.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwCompletionAssessment } from './uw-completion-types.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
@@ -245,7 +246,15 @@ function acceptedChildDiagnostics(
   return diagnostics
 }
 
-export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
+export const assessUwAdmission = (input: UwAdmissionInput): UwAdmission => assess(input, null)
+
+/** Initial-selection facts for one explicit child replacement, never landing authority. */
+export const assessTerminalChildParentAdmission = (
+  input: InitialUwAdmissionInput,
+  succession: TerminalChildSuccession,
+): UwAdmission => assess(input, succession)
+
+function assess(input: UwAdmissionInput, succession: TerminalChildSuccession | null): UwAdmission {
   const root = input.graph.nodes.find((node) => sameScope(node.uw, input.uw))
   const framed = framingDiagnostics(input, root)
   const aggregate = readFramingMembership(input)
@@ -253,12 +262,16 @@ export function assessUwAdmission(input: UwAdmissionInput): UwAdmission {
   const deliverable = [...framed, ...validateUwGraph(input.graph).diagnostics]
   let applicability: UwAdmission['applicability'] = 'unresolved'
   if (input.accepted.status === 'accepted') {
-    const effective = resolveSpecEffective({
-      mode: 'current',
+    const request = {
+      mode: 'current' as const,
       own: input.accepted.value.ref,
       histories: input.histories,
       graph: input.graph,
-    })
+    }
+    const effective =
+      succession === null
+        ? resolveSpecEffective(request)
+        : resolveSpecEffectiveForTerminalChildSuccession(request, succession)
     if (effective.ok) applicability = 'resolved'
     else deliverable.push(...effective.diagnostics)
   }

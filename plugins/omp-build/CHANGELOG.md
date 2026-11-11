@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.5
+
+- Authenticate the own abandoned mandate tip and its complete successor chain before explicit succession. Authenticated successor controls keep earlier revoked predecessors superseded without inventing separate abandon records. Historical accepted framing is an input to succession, not renewed delivery authority.
+- Preserve complete child commitments and ordered inherited references. A Parent with a managed child cannot silently replace the child's fixed parent mandate; nested succession retains the active ancestor's ordinary guards.
+- Prepare and consume Parent coverage confirmation against the authenticated historical acceptance, including the normal principal-to-worktree handoff.
+- Collect explicit own-UW PR facts before publication, retain those commitments across bootstrap, preserve the same compatible request and pin its native facts and authenticated binding proof across later writes. A later refusal can leave a published successor or selection control; publication is not transactional.
+- Update the source product version only. This release does not activate tooling, move its pin, upgrade an installed cache or authorize a suspended witness.
+
 ## 0.18.4
 
 - Acknowledge valid commands through the public UI before ports and long remote reads. Explain every confirmation shortcut and keep phase status outside model/user progress messages.

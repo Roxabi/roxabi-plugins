@@ -1,7 +1,7 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { readSelectionIssueView } from '../adapters/github-native/issue-views.ts'
 import { resolveNativeTarget } from '../adapters/github-workflow/native-facts.ts'
-import { readUwGraph } from '../dist/contracts.js'
+import { projectNativeUwChildrenAgainstCommitments, readUwGraph } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'
@@ -157,8 +157,7 @@ async function resolveIssueCheckout(input: {
   const graph = await readUwGraph(scope, { cwd, gh })
   const projected = checkoutTarget({
     uw: scope,
-    graph,
-    accepted: { status: 'absent' },
+    children: projectNativeUwChildrenAgainstCommitments({ uw: scope, graph, commitments: null }),
     branch: branchFor({ number, title: issue.title, labels: issue.labels }),
   })
   if ('kind' in projected) return { status: 'blocked', reason: projected.reason }

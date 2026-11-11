@@ -25,8 +25,8 @@ export type SelectedFeature = {
   mandate: MandateRecord | null
   acceptedSpec: AcceptedOwnSpec | null
   mandateRef: ScopedRecordRef | null
-  /** This call published the UW's first Mandate, consuming any supplied initial coverage intent. */
-  firstMandateEstablished: boolean
+  /** This call published the first or successor Mandate, consuming supplied coverage intent. */
+  mandatePublished: boolean
 }
 
 type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'>
@@ -71,7 +71,7 @@ export async function selectFeatureMandate(
 
 async function finishSelection(
   authority: FeatureAuthority,
-  { state: updated, firstMandateEstablished }: { state: SelectionState; firstMandateEstablished: boolean },
+  { state: updated, mandatePublished }: { state: SelectionState; mandatePublished: boolean },
   exactMandateRef: ScopedRecordRef | undefined,
   issue: SelectionIssueSpec,
   number: number,
@@ -111,7 +111,7 @@ async function finishSelection(
     mandate,
     acceptedSpec: own.ok ? own.value.accepted : null,
     mandateRef,
-    firstMandateEstablished,
+    mandatePublished,
   }
 }
 
@@ -134,8 +134,8 @@ async function updateMandateSelection(
   branch: string,
   parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
   parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
-): Promise<{ state: SelectionState; firstMandateEstablished: boolean } | ContinueFeatureResult> {
-  let state: SelectionState = authority
+): Promise<{ state: SelectionState; mandatePublished: boolean } | ContinueFeatureResult> {
+  const state: SelectionState = authority
   if (
     control === 'new' &&
     state.selection.status === 'refused' &&
@@ -146,10 +146,12 @@ async function updateMandateSelection(
       uwRead,
       reader,
       branch,
+      parentCoverage,
+      parentCoverageBasis,
       ...state,
     })
     if ('kind' in successor) return successor
-    state = successor
+    return { state: successor, mandatePublished: true }
   }
   if (
     state.selection.status === 'refused' &&
@@ -166,9 +168,9 @@ async function updateMandateSelection(
       parentCoverageBasis,
     })
     if ('kind' in established) return established
-    return { state: { ...state, ...established }, firstMandateEstablished: true }
+    return { state: { ...state, ...established }, mandatePublished: true }
   }
-  return { state, firstMandateEstablished: false }
+  return { state, mandatePublished: false }
 }
 
 async function prepareSelectionSession(
