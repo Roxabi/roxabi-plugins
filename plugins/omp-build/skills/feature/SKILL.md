@@ -2,8 +2,9 @@
 name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N]'
-description: Reference for the installed /feature command: controls, human decisions, and where records live.
-version: 0.1.12
+description: >-
+  Reference for the installed /feature command: controls, human decisions, and where records live.
+version: 0.1.13
 ---
 
 # Feature
@@ -13,6 +14,10 @@ The installed `/feature` command owns selection and continuation. `omp/index.ts`
 A source package or skill read does not attest installation or the loaded runtime.
 
 Worktree topology follows [GLOSSARY.md](../../GLOSSARY.md). The body carries a proposed own Spec in the sole English-heading grammar documented in the plugin README; author-language statements are preserved. Accepted Own Spec and version-pinned inherited clauses come from the applicable `/4` mandates and their authenticated assessment/operator chains; manual body edits remain proposals.
+
+## Public-safe publication
+
+Before a GitHub publication, the submitting human or agent reviews every final title, body and comment part. Omit secret values, client data, raw logs, private operational inventory and security-report details; use the project's private security contact. Existing-tool scanning is best-effort only and cannot replace this semantic review. No automatic scanner gate, native adapter, provisioning command or new writer is added by this guidance. The existing confirmation and publication-authority checks remain required.
 
 ## Operator controls
 

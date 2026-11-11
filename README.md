@@ -17,6 +17,8 @@ omp plugin install omp-build@roxabi-marketplace
 
 Restart OMP after installing or upgrading a plugin; do not use `/reload-plugins`.
 
+GitHub drafts require semantic confidentiality review; existing-tool scanning is best-effort, not a new automatic publisher gate. See the [issue-triage instructions](plugins/issue-triage/skills/issue-triage/SKILL.md#public-safe-publication) and [omp-build instructions](plugins/omp-build/skills/feature/SKILL.md#public-safe-publication). No scanner dependency or native adapter is added.
+
 ## Retained plugins
 
 | Plugin | Host | Description |
