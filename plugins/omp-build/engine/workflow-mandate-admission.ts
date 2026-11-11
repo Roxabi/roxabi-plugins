@@ -1,5 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, fail, incompatibleFormat, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
@@ -15,10 +15,10 @@ import {
   refused,
   successorOf,
   unliftedPause,
-  workflowOperationProblem,
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
+import { historyRefusal } from './workflow-mandate-history.ts'
 import { epicParentProblem } from './workflow-parent.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
@@ -28,22 +28,6 @@ type MandateRefusalSelection = Extract<MandateSelection, { status: 'refused' }>
 function cycleRefusal(history: DecodedHistory, seen: ReadonlySet<string>): MandateRefusalSelection | null {
   const scopeKey = `${history.source.scope.repository}\0${history.source.scope.target}`
   return seen.has(scopeKey) ? refused('ambiguous', [diagnostic('ambiguous', 'Mandate parent chain cycles')]) : null
-}
-
-export function historyRefusal(history: DecodedHistory): MandateRefusalSelection | null {
-  const problem = workflowOperationProblem(history)
-  if (problem !== null && mandatesOf(history).length === 0 && problem === 'incomplete')
-    return refused('incomplete', [diagnostic('incomplete', 'History pagination is incomplete')])
-  if (problem === 'ambiguous') return refused('ambiguous', [diagnostic('ambiguous', 'Workflow history conflicts')])
-  if (problem === incompatibleFormat) {
-    const formatDiagnostic = history.diagnostics.find((entry) => entry.code === problem)
-    return refused(problem, [formatDiagnostic ?? diagnostic(problem, 'Mandate uses an incompatible format')])
-  }
-  if (problem === 'unconfirmed')
-    return refused('unconfirmed', [diagnostic('unconfirmed', 'Workflow history has an incomplete operation')])
-  if (problem === 'incomplete')
-    return refused('incomplete', [diagnostic('incomplete', 'History pagination is incomplete')])
-  return null
 }
 
 function noMandateRefusal(history: DecodedHistory): MandateRefusalSelection {

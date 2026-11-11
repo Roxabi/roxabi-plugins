@@ -11,6 +11,10 @@ export type MandateRecord = Extract<CanonicalRecord, { kind: 'mandate' }>
 export type ControlRecord = Extract<CanonicalRecord, { kind: 'operator-control' }>
 export type ReceiptRecord = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 export type WorkflowBindingRecord = Extract<CanonicalRecord, { kind: 'workflow-binding' }>
+export type SuccessorClaim =
+  | { status: 'none' }
+  | { status: 'next'; ref: ExternalRecordRef }
+  | { status: 'incomplete' | 'conflicting' | 'incompatible-format'; diagnostics: Diagnostic[] }
 
 export type PauseBinding = {
   mandate: ExternalRecordRef
@@ -257,4 +261,40 @@ export function successorOf(history: DecodedHistory, mandate: MandateRecord): Ex
     (record) => record.payload.control === 'select-successor' && sameRef(record.payload.predecessor, mandateRef),
   )
   return control?.payload.control === 'select-successor' ? control.payload.successor : null
+}
+
+/** Observe one accounted successor claim without choosing a foreign or competing successor. */
+export function successorClaim(history: DecodedHistory, mandate: ExternalRecordRef): SuccessorClaim {
+  const controls = history.operations.filter(
+    (operation) =>
+      operation.authority !== 'foreign' &&
+      operation.record?.kind === 'operator-control' &&
+      operation.record.payload.control === 'select-successor' &&
+      sameRef(operation.record.payload.predecessor, mandate),
+  )
+  if (controls.length === 0) return { status: 'none' }
+  if (
+    controls.some(
+      (operation) =>
+        operation.status !== 'complete' || operation.authority !== 'accounted' || operation.record === null,
+    )
+  ) {
+    return {
+      status: 'incomplete',
+      diagnostics: [diagnostic('unconfirmed', 'A select-successor claim does not confirm an authorized binding chain')],
+    }
+  }
+  const refs = controls.flatMap((operation) =>
+    operation.record?.kind === 'operator-control' && operation.record.payload.control === 'select-successor'
+      ? [operation.record.payload.successor]
+      : [],
+  )
+  const first = refs[0]
+  if (first === undefined || first.kind !== 'mandate' || refs.some((ref) => !sameRef(ref, first))) {
+    return {
+      status: 'conflicting',
+      diagnostics: [diagnostic('conflicting', 'Select-successor controls do not name one mandate')],
+    }
+  }
+  return { status: 'next', ref: first }
 }

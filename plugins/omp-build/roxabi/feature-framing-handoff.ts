@@ -1,4 +1,9 @@
-import { canonicalValueDigest, framingObservationDigest, sameScope } from '../dist/contracts.js'
+import {
+  canonicalValueDigest,
+  framingObservationDigest,
+  projectNativeUwChildren,
+  sameScope,
+} from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
@@ -110,8 +115,7 @@ export async function prepareFramedFeatureHandoff(input: {
   if (!Number.isSafeInteger(number) || number < 1) return { kind: 'blocked', reason: 'issue-unreadable' }
   const projected = checkoutTarget({
     uw: written.root,
-    graph: read.graph,
-    accepted: read.accepted,
+    children: projectNativeUwChildren({ uw: written.root, graph: read.graph, accepted: read.accepted }),
     branch: branchFor({ number, title: node.title, labels: [...node.labels] }),
   })
   if ('kind' in projected) return projected

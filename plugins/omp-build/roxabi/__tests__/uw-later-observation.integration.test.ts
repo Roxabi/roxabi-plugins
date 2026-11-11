@@ -111,7 +111,7 @@ it.each(['reopened', 'not-planned', 'missing-identity'] as const)(
       acceptedSpec: before.accepted.value,
       mandateRef: { scope: world.context.original, kind: 'mandate', recordId: world.mandate.recordId },
       issue: { title: 'Original', body: world.body, labels: ['size:S'], updatedAt: '2026-10-27T12:00:00Z' },
-      firstMandateEstablished: false,
+      mandatePublished: false,
     }
     if (change === 'reopened') {
       sister.state = 'OPEN'

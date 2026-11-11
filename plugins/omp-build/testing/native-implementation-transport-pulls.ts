@@ -49,21 +49,23 @@ export function nativePullResponse(
   const branch = branchPullResponse(args, repository, pulls)
   if (branch !== undefined) return branch
   if (
-    args.length === 12 &&
+    args.length === 14 &&
     args[0] === 'pr' &&
     args[1] === 'list' &&
-    args[2] === '--head' &&
-    args[4] === '--base' &&
-    args[6] === '--state' &&
-    args[7] === 'all' &&
-    args[8] === '--limit' &&
-    args[9] === '30' &&
-    args[10] === '--json' &&
-    args[11] === 'number,isCrossRepository,state'
+    args[2] === '--repo' &&
+    args[3] === repository &&
+    args[4] === '--head' &&
+    args[6] === '--base' &&
+    args[8] === '--state' &&
+    args[9] === 'all' &&
+    args[10] === '--limit' &&
+    args[11] === '30' &&
+    args[12] === '--json' &&
+    args[13] === 'number,isCrossRepository,state'
   )
     return JSON.stringify(
       [...pulls.values()]
-        .filter((pull) => pull.branch === args[3] && pull.base === args[5])
+        .filter((pull) => pull.scope.repository === repository && pull.branch === args[5] && pull.base === args[7])
         .map((pull) => ({ number: nativeNumber(pull.scope), isCrossRepository: false, state: pull.state })),
     )
   const pullsQuery =

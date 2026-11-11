@@ -115,6 +115,8 @@ it('holds the current feature continuation when framing becomes incomplete immed
       [
         'pr',
         'list',
+        '--repo',
+        'acme/app',
         '--head',
         `feat/${numberOf(root)}-process-requests`,
         '--base',

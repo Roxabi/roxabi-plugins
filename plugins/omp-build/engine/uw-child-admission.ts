@@ -9,7 +9,11 @@ import {
   type UwNativeNode,
   unknownWayfinderLabels,
 } from './uw-graph.ts'
-import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
+
+export type NativeUwChildrenProjection =
+  | { ok: true; value: readonly UwNativeNode[] }
+  | { ok: false; diagnostics: readonly UwDiagnostic[] }
 
 function diag(
   uw: Scope,
@@ -30,7 +34,7 @@ function checkAcceptedChildren(
   uw: Scope,
   root: UwNativeNode,
   nodes: ReadonlyMap<string, UwNativeNode>,
-  accepted: AcceptedOwnSpec['children'] | null,
+  accepted: readonly AcceptedChildCommitment[] | null,
   diagnostics: UwDiagnostic[],
 ): void {
   for (const child of accepted ?? []) {
@@ -71,7 +75,7 @@ function collectNativeChildren(
   uw: Scope,
   root: UwNativeNode,
   nodes: ReadonlyMap<string, UwNativeNode>,
-  accepted: AcceptedOwnSpec['children'] | null,
+  accepted: readonly AcceptedChildCommitment[] | null,
   diagnostics: UwDiagnostic[],
   children: UwNativeNode[],
 ): void {
@@ -112,23 +116,51 @@ export function projectNativeUwChildren(input: {
   uw: Scope
   graph: UwGraphObservation
   accepted: AcceptedOwnSpecResult
-}): { ok: true; value: readonly UwNativeNode[] } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
-  if (input.graph.status === 'incomplete')
-    return {
-      ok: false,
-      diagnostics: input.graph.diagnostics.length
-        ? input.graph.diagnostics
-        : [diag(input.uw, 'graph-incomplete', 'Native graph is incomplete', 'children')],
-    }
+}): NativeUwChildrenProjection {
+  if (input.graph.status === 'incomplete') return incompleteGraph(input.uw, input.graph)
   if (input.accepted.status === 'refused') return { ok: false, diagnostics: input.accepted.diagnostics }
-  const nodes = new Map(input.graph.nodes.map((node) => [scopeKey(node.uw), node]))
-  const root = nodes.get(scopeKey(input.uw))
+  return projectCompleteChildren(
+    input.uw,
+    input.graph,
+    input.accepted.status === 'accepted' ? input.accepted.value.children : null,
+  )
+}
+
+/** Null means no commitment baseline; an empty array is an authenticated historical leaf. */
+export function projectNativeUwChildrenAgainstCommitments(input: {
+  uw: Scope
+  graph: UwGraphObservation
+  commitments: readonly AcceptedChildCommitment[] | null
+}): NativeUwChildrenProjection {
+  if (input.graph.status === 'incomplete') return incompleteGraph(input.uw, input.graph)
+  return projectCompleteChildren(input.uw, input.graph, input.commitments)
+}
+
+function incompleteGraph(
+  uw: Scope,
+  graph: Extract<UwGraphObservation, { status: 'incomplete' }>,
+): NativeUwChildrenProjection {
+  return {
+    ok: false,
+    diagnostics: graph.diagnostics.length
+      ? graph.diagnostics
+      : [diag(uw, 'graph-incomplete', 'Native graph is incomplete', 'children')],
+  }
+}
+
+function projectCompleteChildren(
+  uw: Scope,
+  graph: Extract<UwGraphObservation, { status: 'complete' }>,
+  commitments: readonly AcceptedChildCommitment[] | null,
+): NativeUwChildrenProjection {
+  const nodes = new Map<string, UwNativeNode>()
+  for (const node of graph.nodes) nodes.set(scopeKey(node.uw), node)
+  const root = nodes.get(scopeKey(uw))
   if (root === undefined)
-    return { ok: false, diagnostics: [diag(input.uw, 'graph-incomplete', 'Selected UW is absent', 'children')] }
+    return { ok: false, diagnostics: [diag(uw, 'graph-incomplete', 'Selected UW is absent', 'children')] }
   const diagnostics: UwDiagnostic[] = []
-  const accepted = input.accepted.status === 'accepted' ? input.accepted.value.children : null
-  checkAcceptedChildren(input.uw, root, nodes, accepted, diagnostics)
+  checkAcceptedChildren(uw, root, nodes, commitments, diagnostics)
   const children: UwNativeNode[] = []
-  collectNativeChildren(input.uw, root, nodes, accepted, diagnostics, children)
+  collectNativeChildren(uw, root, nodes, commitments, diagnostics, children)
   return diagnostics.length ? { ok: false, diagnostics } : { ok: true, value: children }
 }

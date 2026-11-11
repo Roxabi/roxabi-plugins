@@ -1,18 +1,19 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:638-705,2009-2156
 
 import { randomUUID } from 'node:crypto'
+import { resolveAcceptedSpec, sameScope, terminalMandate } from '../dist/contracts.js'
+import type { Result } from '../engine/result.ts'
+import type { NativeDeliveryPullRequest } from '../engine/uw-completion-types.ts'
 import type { UwTier } from '../engine/uw-spec.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
+import type { TerminalMandate } from '../engine/workflow-terminal-mandate.ts'
+import { type Contracts, type History, type HistoryRecord, publishRecord, type Scope } from './feature-engine.ts'
 import {
-  type Contracts,
-  type History,
-  type HistoryRecord,
-  isRecord,
-  payload,
-  publishRecord,
-  type Scope,
-} from './feature-engine.ts'
-import { preserveSuccessorBinding } from './feature-succession-binding.ts'
+  prepareSuccessorBinding,
+  preserveSuccessorBinding,
+  recheckSuccessorBinding,
+} from './feature-succession-binding.ts'
 
 export type { Gh } from './feature-succession-binding.ts'
 
@@ -39,75 +40,44 @@ type SuccessorShared = Pick<
   | 'coverage'
 >
 
-export function mandatesInHistory(history: History): MandateRecord[] {
-  const mandates: MandateRecord[] = []
-  for (const operation of history.operations) {
-    if (operation.status === 'complete' && operation.record?.kind === 'mandate') mandates.push(operation.record)
-  }
-  return mandates
-}
+export type SuccessionBasis = Readonly<{ terminal: TerminalMandate; historical: AcceptedOwnSpec }>
 
-export function selectSuccessorControl(
-  history: History,
-  predecessor: { scope: Scope; recordId: string; kind: 'mandate' },
-): { successor: { scope: Scope; recordId: string; kind: string } } | null {
-  for (const operation of history.operations) {
-    const record = operation.record
-    if (operation.status !== 'complete' || record?.kind !== 'operator-control') continue
-    const body = payload(record)
-    if (body.control !== 'select-successor' || !isRecord(body.predecessor)) continue
-    const pred = body.predecessor
-    if (
-      isRecord(pred.scope) &&
-      pred.scope.repository === predecessor.scope.repository &&
-      pred.scope.target === predecessor.scope.target &&
-      pred.recordId === predecessor.recordId &&
-      pred.kind === 'mandate' &&
-      isRecord(body.successor) &&
-      typeof body.successor.recordId === 'string' &&
-      isRecord(body.successor.scope)
-    ) {
-      return {
-        successor: {
-          scope: body.successor.scope,
-          recordId: body.successor.recordId,
-          kind: body.successor.kind,
-        },
-      }
-    }
-  }
-  return null
-}
-
-/** Intact abandoned/revoked tip that `/feature new` must succeed. */
-export function successionAntecedent(
-  history: History,
-): { mandate: MandateRecord; ref: { scope: Scope; recordId: string; kind: 'mandate' } } | { reason: string } {
-  const mandates = mandatesInHistory(history)
-  if (mandates.length === 0) return { reason: 'mandate-missing' }
-  const last = mandates[mandates.length - 1]
-  if (last === undefined) return { reason: 'mandate-missing' }
-  const ref = {
-    scope: { repository: last.repository, target: last.target },
-    recordId: last.recordId,
-    kind: 'mandate' as const,
-  }
-  const existing = selectSuccessorControl(history, ref)
-  if (existing === null) return { mandate: last, ref }
-  const tip = mandates.find((mandate) => mandate.recordId === existing.successor.recordId)
-  if (tip === undefined) return { reason: 'successor-unconfirmed' }
-  return {
-    mandate: tip,
-    ref: { scope: { repository: tip.repository, target: tip.target }, recordId: tip.recordId, kind: 'mandate' },
-  }
+export function readSuccessionBasis(history: History, histories: readonly History[]): Result<SuccessionBasis> {
+  const terminal = terminalMandate(history)
+  if (!terminal.ok) return terminal
+  const historical = resolveAcceptedSpec(terminal.value.mandate, histories)
+  return historical.ok
+    ? { ok: true, value: { terminal: terminal.value, historical: historical.spec } }
+    : { ok: false, diagnostics: historical.evidence }
 }
 
 type SuccessorAntecedent = { scope: Scope; recordId: string; kind: 'mandate' }
+
+function confirmSuccessorAntecedent(
+  history: History,
+  scope: Scope,
+  expected: TerminalMandate['ref'],
+): { ok: true; value: TerminalMandate } | { ok: false; reason: string } {
+  const antecedent = terminalMandate(history)
+  if (!antecedent.ok) return { ok: false, reason: 'successor-antecedent-unconfirmed' }
+  if (
+    !sameScope(scope, antecedent.value.ref.scope) ||
+    !sameScope(antecedent.value.ref.scope, expected.scope) ||
+    antecedent.value.ref.recordId !== expected.recordId
+  )
+    return { ok: false, reason: 'successor-antecedent-changed' }
+  return antecedent
+}
+
+function invalidSuccessorRun(payload: ReturnType<typeof successorRolePayload>): boolean {
+  return payload.role === 'epic' && !/^[a-z0-9]{8}$/.test(payload.run)
+}
 
 export async function publishSuccessorMandate(input: {
   loaded: Contracts
   history: History
   scope: Scope
+  basis: SuccessionBasis
   ownSpec: MandatePayload['ownSpec']
   tier: UwTier
   children: AcceptedChildCommitment[]
@@ -118,18 +88,34 @@ export async function publishSuccessorMandate(input: {
   cwd: string
   parents: readonly History[]
   target: FeatureCheckoutTarget
+  observedPullRequests: readonly NativeDeliveryPullRequest[]
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const antecedent = successionAntecedent(input.history)
-  if ('reason' in antecedent) return { ok: false, reason: antecedent.reason }
+  const antecedent = confirmSuccessorAntecedent(input.history, input.scope, input.basis.terminal.ref)
+  if (!antecedent.ok) return antecedent
   const productVersion = input.loaded.shippedProductVersion()
-  const prior = antecedent.mandate.payload
+  const prior = antecedent.value.mandate.payload
   const baseAndBranch = { base: prior.base, branch: input.target.kind === 'parent' ? null : input.target.branch }
-  const shared = await successorShared(input, antecedent.ref, prior, baseAndBranch, productVersion)
+  const shared = await successorShared(input, antecedent.value.ref, prior, baseAndBranch, productVersion)
   if (!shared.ok) return shared
   const rolePayload = successorRolePayload(prior, shared.shared)
-  if (rolePayload.role === 'epic' && !/^[a-z0-9]{8}$/.test(rolePayload.run)) {
+  if (invalidSuccessorRun(rolePayload)) {
     return { ok: false, reason: 'epic-run-unreadable' }
   }
+  const bindingContext = {
+    loaded: input.loaded,
+    gh: input.gh,
+    cwd: input.cwd,
+    successorScope: input.scope,
+    branch: baseAndBranch.branch,
+    base: baseAndBranch.base,
+  }
+  const preparedBinding = await prepareSuccessorBinding(
+    bindingContext,
+    input.history,
+    antecedent.value.ref,
+    input.observedPullRequests,
+  )
+  if (!preparedBinding.ok) return preparedBinding
   const successorId = randomUUID()
   const controlId = randomUUID()
   const mandatePublished = await publishRecord(
@@ -152,29 +138,26 @@ export async function publishSuccessorMandate(input: {
   if (!mandatePublished.ok) return { ok: false, reason: mandatePublished.reason }
   const refreshed = await input.loaded.readComposedWorkflowHistory([input.scope], { cwd: input.cwd, gh: input.gh })
   if (!refreshed.ok || !refreshed.histories[0]) return { ok: false, reason: 'successor-unconfirmed' }
+  const beforeControl = await recheckSuccessorBinding(bindingContext, preparedBinding.plan)
+  if (!beforeControl.ok) return beforeControl
   const controlPublished = await publishRecord(
     input.loaded,
     refreshed.histories[0],
-    successorControlRecord(input.scope, antecedent.ref, successorId, controlId),
+    successorControlRecord(input.scope, antecedent.value.ref, successorId, controlId),
     input.gh,
     input.cwd,
-    refreshed.histories.slice(1),
+    input.parents,
   )
-  if (baseAndBranch.branch !== null) {
-    const bound = await preserveSuccessorBinding({
-      loaded: input.loaded,
-      gh: input.gh,
-      cwd: input.cwd,
-      issueHistory: refreshed.histories[0],
-      successorId,
-      successorScope: input.scope,
-      antecedentRecordId: antecedent.mandate.recordId,
-      branch: baseAndBranch.branch,
-      base: baseAndBranch.base,
-    })
-    if (!bound.ok) return bound
+  if (!controlPublished.ok) return { ok: false, reason: controlPublished.reason }
+  let bindingHistory = refreshed.histories[0]
+  if (preparedBinding.plan.kind === 'pull-request') {
+    const afterControl = await input.loaded.readComposedWorkflowHistory([input.scope], { cwd: input.cwd, gh: input.gh })
+    if (!afterControl.ok || !afterControl.histories[0]) return { ok: false, reason: 'successor-unconfirmed' }
+    bindingHistory = afterControl.histories[0]
   }
-  return controlPublished.ok ? { ok: true } : { ok: false, reason: controlPublished.reason }
+  const bound = await preserveSuccessorBinding(bindingContext, preparedBinding.plan, successorId, bindingHistory)
+  if (!bound.ok) return bound
+  return { ok: true }
 }
 
 async function successorShared(

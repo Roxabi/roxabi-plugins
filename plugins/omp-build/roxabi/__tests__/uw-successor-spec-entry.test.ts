@@ -2,15 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import type { FeatureAuthority } from '../feature-continuation-admission.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
-import { specEntrySelection } from '../feature-selection-spec-entry.ts'
 import { setup, statement, time, uw } from './uw-successor-spec-entry-support.ts'
-
-const successor = vi.hoisted(() => vi.fn())
-vi.mock('../feature-selection-successor.ts', () => ({ createSuccessorSelection: successor }))
-
-vi.mock('../uw-spec', () => ({
-  readSelectionIssueSpec: async () => ({ title: 'Legacy UW', body: '', labels: [], updatedAt: time }),
-}))
 
 describe('explicit successor selection', () => {
   it.each(['abandoned', 'revoked'] as const)(
@@ -18,8 +10,11 @@ describe('explicit successor selection', () => {
     async (reason) => {
       const subject = setup(true)
       const read = await subject.read(uw)
-      successor.mockReset()
-      const gh = vi.fn()
+      const gh = vi.fn(async (_cwd: string, args: string[]) => {
+        if (args[0] === 'issue' && args[1] === 'view')
+          return JSON.stringify({ title: 'Legacy UW', body: '', labels: [], updatedAt: time })
+        throw new Error(`Unexpected GitHub effect: ${args.join(' ')}`)
+      })
       const git = vi.fn()
       const authority = {
         scope: uw,
@@ -37,37 +32,7 @@ describe('explicit successor selection', () => {
         diagnostics: read.parsed.diagnostics,
       })
       expect(subject.counts()).toEqual({ confirmations: 0, patches: 0 })
-      expect(gh).not.toHaveBeenCalled()
-      expect(successor).not.toHaveBeenCalled()
       expect(git).not.toHaveBeenCalled()
-    },
-  )
-
-  it.each(['abandoned', 'revoked'] as const)(
-    'routes a conformant %s successor to the normal successor path',
-    async (reason) => {
-      const subject = setup(true)
-      const read = await subject.read(uw)
-      const selection = { status: 'refused', reason } as FeatureAuthority['selection']
-      const conformant = { ...read, parsed: subject.original }
-      expect(specEntrySelection('new', { scope: uw, selection }, conformant)).toBeNull()
-      const authority = {
-        scope: uw,
-        selection,
-        context: { cwd: '/fixture', gh: vi.fn(), git: vi.fn() },
-        identity: { ok: false },
-        target: { status: 'issue' },
-        history: subject.history,
-        parentHistories: [],
-        causal: {},
-      } as unknown as FeatureAuthority
-      successor.mockReset()
-      successor.mockResolvedValue({ kind: 'blocked', reason: 'successor-test-stop' })
-      expect(
-        await selectFeatureMandate('new', undefined, authority, subject.operations, { readUw: async () => conformant }),
-      ).toEqual({ kind: 'blocked', reason: 'successor-test-stop' })
-      expect(successor).toHaveBeenCalledOnce()
-      expect(successor).toHaveBeenCalledWith(expect.objectContaining({ authority, uwRead: conformant }))
     },
   )
 

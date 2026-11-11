@@ -1,7 +1,12 @@
 /** Public UW admission, framing, identity, graph and Spec contracts. */
 
-export { assessUwAdmission } from './engine/uw-admission.ts'
-export { projectNativeUwChildren } from './engine/uw-child-admission.ts'
+export { type TerminalChildSuccession, terminalParentChildrenProblem } from './engine/spec-effective-engagement.ts'
+export { assessTerminalChildParentAdmission, assessUwAdmission } from './engine/uw-admission.ts'
+export {
+  type NativeUwChildrenProjection,
+  projectNativeUwChildren,
+  projectNativeUwChildrenAgainstCommitments,
+} from './engine/uw-child-admission.ts'
 export {
   causeDependencyAdjustmentInputSchema,
   uwCreateInputSchema,

@@ -1,4 +1,5 @@
 import {
+  assessTerminalChildParentAdmission,
   canonicalValueDigest,
   isWayfinder,
   projectNativeUwChildren,
@@ -10,6 +11,8 @@ import {
   workflowOperationProblem,
 } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
+import type { TerminalChildSuccession } from '../engine/spec-effective-engagement.ts'
+import type { UwAdmission } from '../engine/uw-admission.ts'
 import type { OwnSpecRef, SpecSnapshot, UwTier } from '../engine/uw-spec-schema.ts'
 import type { UwRead } from './uw-contract.ts'
 import { readCurrentFramingFacts } from './uw-current-facts.ts'
@@ -20,6 +23,17 @@ export async function resolveParentWorktreeAnchor(input: {
   read: UwRead
 }): Promise<{ ok: true; anchor: Scope } | { ok: false; reason: string }> {
   return walkAncestry(input)
+}
+
+/** The exact terminal subject may be checked historically; every other engagement stays active. */
+export async function resolveSuccessorWorktreeAnchor(input: {
+  subject: Scope
+  read: UwRead
+  succession: TerminalChildSuccession
+}): Promise<{ ok: true; anchor: Scope } | { ok: false; reason: string }> {
+  if (!sameScope(input.subject, input.succession.child) || !sameScope(input.subject, input.succession.tip.scope))
+    return { ok: false, reason: 'parent-anchor-successor-mismatch' }
+  return walkAncestry(input, undefined, input.succession)
 }
 
 /** Check planned first-child facts against the same authenticated ancestry walk. */
@@ -43,6 +57,7 @@ export async function checkPlannedAncestry(input: {
 async function walkAncestry(
   input: { subject: Scope; read: UwRead },
   planned?: { spec: SpecSnapshot['spec']; tier: UwTier; inherited: readonly OwnSpecRef[] },
+  succession?: TerminalChildSuccession,
 ): Promise<{ ok: true; anchor: Scope } | { ok: false; reason: string }> {
   if (!hasCompleteSubjectObservation(input.subject, input.read))
     return { ok: false, reason: 'parent-anchor-observation-incomplete' }
@@ -57,20 +72,26 @@ async function walkAncestry(
     if (node.parent.repository !== input.subject.repository || input.read.observedReader === undefined)
       return { ok: false, reason: 'parent-anchor-ancestry-incomplete' }
     const ancestor = await input.read.observedReader.readUw(node.parent)
-    if (!isConfirmedAncestor(ancestor, node.parent, input.read.observation))
-      return { ok: false, reason: 'parent-anchor-ancestor-unconfirmed' }
-    if (!hasConfirmedChild(ancestor, current)) return { ok: false, reason: 'parent-anchor-ancestry-invalid' }
-    const problem = await confirmAncestorCommitment(
-      input.read.observation,
-      ancestor,
-      ancestor.accepted,
-      current,
-      planned,
-    )
+    const problem = await ancestorStepProblem(input.read, ancestor, node.parent, current, planned, succession)
     if (problem !== null) return { ok: false, reason: problem }
     planned = undefined
+    succession = undefined
     current = ancestor
   }
+}
+
+async function ancestorStepProblem(
+  read: UwRead & { observation: Extract<UwRead['observation'], { status: 'complete' }> },
+  ancestor: UwRead,
+  parent: Scope,
+  current: UwRead,
+  planned?: { spec: SpecSnapshot['spec']; tier: UwTier; inherited: readonly OwnSpecRef[] },
+  succession?: TerminalChildSuccession,
+): Promise<string | null> {
+  const admission = succession === undefined ? ancestor.admission : terminalChildParentAdmission(ancestor, succession)
+  if (!isConfirmedAncestor(ancestor, parent, read.observation, admission)) return 'parent-anchor-ancestor-unconfirmed'
+  if (!hasConfirmedChild(ancestor, current)) return 'parent-anchor-ancestry-invalid'
+  return confirmAncestorCommitment(read.observation, ancestor, ancestor.accepted, current, planned)
 }
 
 function hasCompleteSubjectObservation(
@@ -103,6 +124,7 @@ function isConfirmedAncestor(
   ancestor: UwRead,
   parent: Scope,
   observation: UwRead['observation'],
+  admission: UwAdmission | null,
 ): ancestor is UwRead & {
   graph: Extract<UwRead['graph'], { status: 'complete' }>
   accepted: Extract<UwRead['accepted'], { status: 'accepted' }>
@@ -112,7 +134,7 @@ function isConfirmedAncestor(
     ancestor.observation === observation &&
     ancestor.graph.status === 'complete' &&
     ancestor.accepted.status === 'accepted' &&
-    ancestor.admission.deliverable.ok
+    admission?.deliverable.ok === true
   )
 }
 
@@ -168,4 +190,22 @@ async function confirmAncestorCommitment(
   )
     return 'parent-anchor-commitment-mismatch'
   return null
+}
+
+function terminalChildParentAdmission(ancestor: UwRead, succession: TerminalChildSuccession): UwAdmission | null {
+  if (!ancestor.identity.ok) return null
+  return assessTerminalChildParentAdmission(
+    {
+      uw: ancestor.uw,
+      graph: ancestor.graph,
+      proposed: ancestor.proposed,
+      accepted: ancestor.accepted,
+      identities: ancestor.identity.value,
+      histories: ancestor.histories,
+      catalogues: ancestor.catalogues,
+      completion: ancestor.completion,
+      phase: 'initial-selection',
+    },
+    succession,
+  )
 }

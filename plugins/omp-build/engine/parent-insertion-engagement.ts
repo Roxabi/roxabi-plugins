@@ -5,7 +5,8 @@ import { toDiagnostics } from './uw-diagnostics.ts'
 import { type UwGraphObservation, validateUwGraph } from './uw-graph.ts'
 import { unliftedPause } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
-import { historyRefusal, selectedMandate } from './workflow-mandate-admission.ts'
+import { selectedMandate } from './workflow-mandate-admission.ts'
+import { historyRefusal } from './workflow-mandate-history.ts'
 
 export type ParentEngagementEvidence = Readonly<{
   parent: Scope

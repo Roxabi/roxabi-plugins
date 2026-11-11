@@ -42,8 +42,8 @@ async function continueFeatureAtTarget(
     input.parentCoverageBasis,
   )
   if (isResult(selected)) return selected
-  // The first Mandate consumed the initial coverage intent; its accepted coverage governs the rest of this call.
-  const current = selected.firstMandateEstablished ? withoutCoverageIntent(input) : input
+  // A newly published Mandate consumed the intent; its accepted coverage governs the rest of this call.
+  const current = selected.mandatePublished ? withoutCoverageIntent(input) : input
   const observation = await readFeatureObservation(current.control, selected, current)
   return isResult(observation)
     ? observation

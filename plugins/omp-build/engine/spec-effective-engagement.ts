@@ -1,5 +1,7 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { equalScope } from './record-diagnostics.ts'
+import { equalScope, sameRef } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
+import type { Scope } from './record-values.ts'
 import { projectNativeUwChildren } from './uw-child-admission.ts'
 import type { UwResult } from './uw-diagnostics.ts'
 import { isWayfinder, type UwGraphObservation, unknownWayfinderLabels, validateUwGraph } from './uw-graph.ts'
@@ -7,13 +9,16 @@ import { currentOwnSpecProblem } from './uw-spec-currentness.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
-import { historyFor, mandatesOf, workflowOperationProblem } from './workflow-control.ts'
+import { historyFor, type MandateRecord, mandatesOf, workflowOperationProblem } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
+import { terminalMandate } from './workflow-terminal-mandate.ts'
 
 type CurrentEngagement = { own: OwnSpecRef; graph: UwGraphObservation; histories: readonly DecodedHistory[] }
+type EngagementRefusal = Extract<UwResult<never>, { ok: false }>
+export type TerminalChildSuccession = Readonly<{ child: Scope; tip: ExternalRecordRef & { kind: 'mandate' } }>
 
-function refusal(input: CurrentEngagement, code: string, message: string): UwResult<never> {
+function refusal(input: CurrentEngagement, code: string, message: string): EngagementRefusal {
   return {
     ok: false,
     diagnostics: [{ code, message, location: { kind: 'record', ref: input.own.sourceAccepted }, related: [] }],
@@ -35,7 +40,11 @@ function unresolvedChildAuthority(history: DecodedHistory, managed: boolean): bo
   )
 }
 
-function childEngagementProblem(child: AcceptedChildCommitment, input: CurrentEngagement): UwResult<never> | null {
+/** Null proves absence of a managed child; a returned history is already checked and managed. */
+function managedChildHistory(
+  child: AcceptedChildCommitment,
+  input: CurrentEngagement,
+): DecodedHistory | EngagementRefusal | null {
   const history = historyFor(child.scope, input.histories)
   if (history === null || !history.source.complete)
     return refusal(
@@ -57,13 +66,42 @@ function childEngagementProblem(child: AcceptedChildCommitment, input: CurrentEn
       'effective-child-unavailable',
       `Accepted child ${child.scope.repository} ${child.scope.target} has an unresolved authority claim`,
     )
-  if (!managed) return null
-  const selected = selectedMandate(history)
-  if (!('kind' in selected) || selected.kind !== 'mandate')
+  return managed ? history : null
+}
+
+function engagedChildMandate(
+  history: DecodedHistory,
+  parent: AcceptedOwnSpec,
+  succession: TerminalChildSuccession | null,
+): MandateRecord | null {
+  if (succession === null) {
+    const selected = selectedMandate(history)
+    return 'kind' in selected && selected.kind === 'mandate' ? selected : null
+  }
+  const terminal = terminalMandate(history)
+  const owner = parent.chain[0]
+  if (!terminal.ok || !sameRef(terminal.value.ref, succession.tip) || owner?.kind !== 'mandate') return null
+  const lineage = terminal.value.mandate.payload.parent
+  return lineage !== null && sameRef(lineage, owner.source) ? terminal.value.mandate : null
+}
+
+function childEngagementProblem(
+  child: AcceptedChildCommitment,
+  input: CurrentEngagement,
+  parent: AcceptedOwnSpec,
+  succession: TerminalChildSuccession | null,
+): UwResult<never> | null {
+  const history = managedChildHistory(child, input)
+  if (history === null || 'ok' in history) return history
+  const terminal = succession !== null && equalScope(succession.child, child.scope) ? succession : null
+  const selected = engagedChildMandate(history, parent, terminal)
+  if (selected === null)
     return refusal(
       input,
-      'effective-child-unavailable',
-      `Accepted child ${child.scope.repository} ${child.scope.target} has no unique active mandate`,
+      terminal === null ? 'effective-child-unavailable' : 'effective-child-succession-unconfirmed',
+      terminal === null
+        ? `Accepted child ${child.scope.repository} ${child.scope.target} has no unique active mandate`
+        : `Accepted child ${child.scope.repository} ${child.scope.target} has no authenticated terminal engagement with this Parent`,
     )
   const current = resolveAcceptedSpec(selected, input.histories)
   if (
@@ -84,6 +122,7 @@ function stateEngagementProblem(
   state: AcceptedOwnSpec,
   parent: AcceptedOwnSpec | undefined,
   input: CurrentEngagement,
+  succession: TerminalChildSuccession | null,
 ): UwResult<never> | null {
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, state.ref.uw))
   if (
@@ -115,7 +154,7 @@ function stateEngagementProblem(
   })
   if (!projected.ok) return { ok: false, diagnostics: [...projected.diagnostics] }
   for (const child of state.children) {
-    const problem = childEngagementProblem(child, input)
+    const problem = childEngagementProblem(child, input, state, succession)
     if (problem !== null) return problem
   }
   if (parent === undefined) return null
@@ -136,10 +175,29 @@ function stateEngagementProblem(
   return null
 }
 
+/** No future Parent identity can preserve a child's existing mandate-bound inheritance. */
+export function terminalParentChildrenProblem(
+  input: CurrentEngagement,
+  historical: AcceptedOwnSpec,
+): EngagementRefusal | null {
+  for (const child of historical.children) {
+    const history = managedChildHistory(child, input)
+    if (history === null) continue
+    if ('ok' in history) return history
+    return refusal(
+      input,
+      'successor-child-mandate-bound',
+      `Accepted child ${child.scope.repository} ${child.scope.target} has a mandate bound to the former Parent`,
+    )
+  }
+  return null
+}
+
 export function currentEffectiveEngagementProblem(
   input: CurrentEngagement,
   states: readonly AcceptedOwnSpec[],
   controlAuthority: boolean,
+  succession: TerminalChildSuccession | null,
 ): UwResult<never> | null {
   const checked = validateUwGraph(input.graph)
   if (!checked.ok) {
@@ -149,7 +207,7 @@ export function currentEffectiveEngagementProblem(
     if (diagnostics.length) return { ok: false, diagnostics }
   }
   for (const [index, state] of states.entries()) {
-    const problem = stateEngagementProblem(state, states[index + 1], input)
+    const problem = stateEngagementProblem(state, states[index + 1], input, index === 0 ? succession : null)
     if (problem !== null) return problem
   }
   return null

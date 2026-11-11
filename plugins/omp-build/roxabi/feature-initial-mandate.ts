@@ -31,7 +31,11 @@ export async function establishFirstMandate(input: {
   const { authority, uwRead, reader, branch, history } = input
   const { scope } = authority
   if (uwRead === null || reader === undefined) return { kind: 'blocked', reason: 'uw-read-required' }
-  const projected = checkoutTarget({ uw: scope, graph: uwRead.graph, accepted: uwRead.accepted, branch })
+  const projected = checkoutTarget({
+    uw: scope,
+    children: projectNativeUwChildren({ uw: scope, graph: uwRead.graph, accepted: uwRead.accepted }),
+    branch,
+  })
   if ('kind' in projected) return projected
   const anchor = await resolveParentWorktreeAnchor({ subject: scope, read: uwRead })
   if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
