@@ -25,6 +25,8 @@ Requires authenticated `gh` (`gh auth status`).
 
 OMP `/issue-triage` dumps the skill with `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_SKILL_DIR}` expanded (extension; restart after install). Claude substitutes those placeholders at skill load.
 
+Before a GitHub write, apply [public-safe publication](skills/issue-triage/SKILL.md#public-safe-publication): review the final content semantically and treat existing-tool scanning as best-effort only. These are procedural instructions, not an automatic gate, a new scanner dependency or proof that a plugin upgrade is installed.
+
 ## Usage
 
 Triggers: `"triage"` | `"create issue"` | `"set size"` | `"set priority"` | `"blocked by"` | `"set parent"` | `"child of"` | `"sub-issue"` | `"file an issue"` | `"log a bug"` | `"open an issue"` | `"file a bug"` | `"add issue"` | `"new issue"` | `"set lane"` | `"set type"`.

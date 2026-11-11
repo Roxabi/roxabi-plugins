@@ -1,8 +1,9 @@
 ---
 name: issue-triage
 argument-hint: '[list | set <num> | create --title "..." [--parent N] [--size S] [--priority P] [--type T] [--lane L]]'
-description: Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks an issue up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
-version: 0.6.5
+description: >-
+  Triage/create GitHub issues — set size/priority/lane/type labels, manage dependencies & parent/child. Run before `/feature` picks an issue up. Triggers: "triage" | "create issue" | "set size" | "set priority" | "blocked by" | "set parent" | "child of" | "sub-issue" | "file an issue" | "log a bug" | "open an issue" | "file a bug" | "add issue" | "new issue" | "set lane" | "set type".
+version: 0.6.6
 allowed-tools: Bash, Read, ToolSearch
 ---
 
@@ -19,6 +20,12 @@ Use this standalone skill for issue creation, labels and native relations. A
 `docs/agents/issue-tracker.md`. Omp-build automated issue body, label, relation
 and state writes go through UW; humans may also change issues directly. Neither
 an edit nor a native close alone accepts a Spec or establishes UW completion.
+
+## Public-safe publication
+
+Before any GitHub write, review the final title, body and comment text for meaning. Omit secret values, client data, raw logs and private operational inventory; use a minimal sanitized reproduction. Security-report details go to the project's private disclosure channel, not a public issue. This is the submitting agent's review, not an extra human approval for every issue.
+
+A trusted existing scanner can add a best-effort check with updates and provider verification disabled. Inspect results privately and do not publish a finding. A clean exit does not prove complete coverage or confidentiality: format detection can skip text, and private prose, attachments and links still need review. This guidance adds no automatic scanner gate, native adapter, setup command or writer.
 
 ## Instructions
 
