@@ -15,6 +15,7 @@ type BindingCandidate =
   | { status: 'absent' }
   | { status: 'incomplete' | 'conflicting' | 'incompatible-format'; diagnostics: Diagnostic[] }
 type BindingRefusal = Extract<BindingCandidate, { status: 'incomplete' | 'conflicting' | 'incompatible-format' }>
+type BindingClaims = BindingRefusal | { status: 'absent' } | WorkflowBindingRecord[]
 
 type BindingInput = {
   pullRequest: Scope
@@ -163,7 +164,7 @@ function resolveBindingChain(
   return { status: 'bound', binding: head }
 }
 
-function invalidClaims(claims: readonly DecodedHistory['operations'][number][]): BindingCandidate | null {
+function invalidClaims(claims: readonly DecodedHistory['operations'][number][]): BindingRefusal | null {
   if (claims.some((operation) => operation.status === 'conflict')) {
     return bindingRefusal('conflicting', [diagnostic('conflicting', 'Workflow-binding parts conflict')])
   }
@@ -213,7 +214,7 @@ function appendDistinctBinding(records: WorkflowBindingRecord[], record: Workflo
 function recordsForClaims(
   claims: readonly DecodedHistory['operations'][number][],
   input: BindingInput,
-): BindingCandidate | WorkflowBindingRecord[] {
+): BindingRefusal | WorkflowBindingRecord[] {
   const records: WorkflowBindingRecord[] = []
   for (const operation of claims) {
     const record = validatedBindingClaim(operation, input)
@@ -224,7 +225,7 @@ function recordsForClaims(
   return records
 }
 
-export function selectWorkflowBindingClaims(input: BindingInput): BindingCandidate | WorkflowBindingRecord[] {
+export function selectWorkflowBindingClaims(input: BindingInput): BindingClaims {
   const history = historyFor(input.pullRequest, input.histories)
   if (history === null)
     return bindingRefusal('incomplete', [diagnostic('missing-history', 'Pull request history is missing')])

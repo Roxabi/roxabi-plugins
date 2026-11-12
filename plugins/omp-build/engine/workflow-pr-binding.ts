@@ -5,6 +5,7 @@ import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { Result } from './result.ts'
+import { bindingMatchesMandate, bindingPolicy } from './workflow-binding-policy.ts'
 import {
   bindExternalRef,
   historyFor,
@@ -12,7 +13,7 @@ import {
   type WorkflowBindingRecord,
   workflowOperationProblem,
 } from './workflow-control.ts'
-import { selectWorkflowBindingCandidate } from './workflow-pr-binding-chain.ts'
+import { selectWorkflowBindingCandidate, selectWorkflowBindingClaims } from './workflow-pr-binding-chain.ts'
 
 export function confirmedAccountedMandate(history: DecodedHistory, ref: ExternalRecordRef): MandateRecord | null {
   const matches = history.operations.filter(
@@ -39,6 +40,33 @@ export type WorkflowBindingSelection =
   | { status: 'absent' }
   | { status: 'incomplete' | 'conflicting' | 'incompatible-format'; diagnostics: Diagnostic[] }
 
+function validateBindingClaims(
+  claims: WorkflowBindingRecord[],
+  histories: readonly DecodedHistory[],
+): WorkflowBindingSelection | null {
+  for (const claim of claims) {
+    const claimHome = historyFor(claim.payload.mandate.scope, histories)
+    const mandate = claimHome === null ? null : confirmedAccountedMandate(claimHome, claim.payload.mandate)
+    if (claimHome === null || !claimHome.source.complete || mandate === null)
+      return {
+        status: 'incomplete',
+        diagnostics: [diagnostic('incomplete', 'Binding mandate record is not confirmed')],
+      }
+    const policy = bindingPolicy(mandate)
+    if (policy === 'unknown')
+      return {
+        status: 'incompatible-format',
+        diagnostics: [diagnostic('incompatible-format', 'Binding mandate policy version is unknown')],
+      }
+    if (policy === 'bounded' && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
+      return {
+        status: 'conflicting',
+        diagnostics: [diagnostic('mandate-mismatch', 'Workflow-binding branch or base does not match its mandate')],
+      }
+  }
+  return null
+}
+
 export function selectWorkflowBinding(input: {
   pullRequest: Scope
   histories: readonly DecodedHistory[]
@@ -46,6 +74,10 @@ export function selectWorkflowBinding(input: {
 }): WorkflowBindingSelection {
   const chained = selectWorkflowBindingCandidate(input)
   if (chained.status !== 'bound') return chained
+  const claims = selectWorkflowBindingClaims(input)
+  if (!Array.isArray(claims)) return claims
+  const claimsProblem = validateBindingClaims(claims, input.histories)
+  if (claimsProblem !== null) return claimsProblem
   const home = historyFor(chained.binding.payload.mandate.scope, input.histories)
   if (home === null || !home.source.complete) {
     return {

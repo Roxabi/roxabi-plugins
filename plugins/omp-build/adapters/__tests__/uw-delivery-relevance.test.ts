@@ -16,12 +16,20 @@ const date = '2026-10-21T00:00:00Z'
 const body = '## Acceptance\n- [ ] Save keeps the selected region'
 const head = 'a'.repeat(40)
 const fixture = createWorkflowFixtures({
-  productVersion: '0.16.0',
+  productVersion: '0.18.8',
   config: { version: 'fixture/1', digest: canonicalValueDigest({}), effective: {} },
   head,
   editedAt: date,
 })
 const current = fixture.featureMandate(root, { branch: 'feature/1', body })
+const legacyFixture = createWorkflowFixtures({
+  productVersion: '0.16.0',
+  config: { version: 'fixture/1', digest: canonicalValueDigest({}), effective: {} },
+  head,
+  editedAt: date,
+})
+const legacyCurrent = legacyFixture.featureMandate(root, { branch: 'feature/1', body })
+const legacyHistory = legacyFixture.historyFrom([legacyCurrent], 'operator')
 const outside = fixture.featureMandate(other, {
   branch: 'feature/2',
   recordId: 'mandate-other',
@@ -46,17 +54,19 @@ const comments = (bodies: string[], author = 'operator') =>
   bodies.map((value, index) => comment(value, index + 1, author))
 const page = (nodes: unknown[]) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } })
 
-function setup(order = [12, 11]) {
+function setup(order = [12, 11], legacy = false) {
   const pages = new Map<number, ReturnType<typeof comments>>([
-    [1, comments(fixture.framedBodies([current], 'operator'))],
+    [1, comments(fixture.framedBodies([legacy ? legacyCurrent : current], 'operator'))],
     [2, comments([rawLegacy])],
     [11, comments(fixture.framedBodies([currentBinding], 'operator', [currentHistory]))],
     [12, comments(fixture.framedBodies([outsideBinding], 'operator', [outsideHistory]))],
   ])
+  const requests: string[][] = []
   const options = {
     cwd: '/fixture',
     readAuthor: 'operator',
     gh: async (_cwd: string, args: string[]) => {
+      requests.push(args)
       if (args[1] === 'graphql') {
         const numberArg = args.find((entry) => entry.startsWith('number='))
         if (numberArg === undefined)
@@ -64,12 +74,17 @@ function setup(order = [12, 11]) {
             data: {
               repository: {
                 pullRequests: page(
-                  order.map((number) => ({
-                    number,
-                    headRefName: `feature/${number - 10}`,
-                    baseRefName: 'main',
-                    repository: { nameWithOwner: 'acme/app' },
-                  })),
+                  order
+                    .filter((number) => {
+                      const branch = args.find((entry) => entry.startsWith('branch='))?.slice(7)
+                      return branch === undefined || branch === `feature/${number - 10}`
+                    })
+                    .map((number) => ({
+                      number,
+                      headRefName: `feature/${number - 10}`,
+                      baseRefName: 'main',
+                      repository: { nameWithOwner: 'acme/app' },
+                    })),
                 ),
               },
             },
@@ -113,13 +128,13 @@ function setup(order = [12, 11]) {
       throw new Error(`unexpected request ${args.join(' ')}`)
     },
   }
-  return { pages, options, reader: createUwDeliveryFactReader(options) }
+  return { pages, options, requests, reader: createUwDeliveryFactReader(options) }
 }
 
 it.each([{ order: [12, 11] }, { order: [11, 12] }])(
-  'excludes legacy bindings in candidate order $order',
+  'locates only current-branch candidates in order $order',
   async ({ order }) => {
-    const { reader } = setup(order)
+    const { reader, requests } = setup(order)
     const result = await reader.read(root, [currentHistory])
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -128,6 +143,12 @@ it.each([{ order: [12, 11] }, { order: [11, 12] }])(
     expect(scopes).toContainEqual(relevantPr)
     expect(scopes).toContainEqual(root)
     expect(scopes).not.toContainEqual(unrelatedPr)
+    expect(requests.some((args) => args.some((arg) => arg.includes('/issues/12/comments')))).toBe(false)
+    const enumerations = requests.filter(
+      (args) => args[1] === 'graphql' && !args.some((arg) => arg.startsWith('number=')),
+    )
+    expect(enumerations).toHaveLength(1)
+    expect(enumerations[0]).toContain('branch=feature/1')
     expect(scopes).not.toContainEqual(other)
   },
 )
@@ -180,7 +201,7 @@ it('retains both predecessor and successor authority in the cached relevant home
     payload: {
       control: 'select-successor',
       controlId: 'select-successor',
-      mandate: successorRef,
+      mandate: predecessor,
       predecessor,
       successor: successorRef,
     },
@@ -255,10 +276,48 @@ it('preserves an independently required legacy seed instead of globally redactin
   )
 })
 
-it('refuses the same legacy mandate when its own UW is observed', async () => {
-  const { reader } = setup([12])
-  const result = await reader.read(other, [])
-  expect(result).toMatchObject({ ok: false, diagnostics: [expect.objectContaining({ code: 'incompatible-format' })] })
+it('refuses uncovered legacy history before reading native PRs', async () => {
+  const { reader, requests } = setup([12], true)
+  const result = await reader.read(root, [legacyHistory])
+  expect(result).toMatchObject({
+    ok: false,
+    diagnostics: [expect.objectContaining({ code: 'legacy-coverage-incomplete' })],
+  })
+  expect(requests).toEqual([])
+})
+
+it('uses exhaustive relevance only for an explicit uncovered legacy succession', async () => {
+  const { reader, pages, requests } = setup([12, 11], true)
+  const binding = legacyFixture.workflowBinding(relevantPr, legacyCurrent, 'feature/1', 'main')
+  pages.set(11, comments(legacyFixture.framedBodies([binding], 'operator', [legacyHistory])))
+  const result = await reader.read(root, [legacyHistory], 'legacy-succession')
+  expect(result).toMatchObject({
+    ok: true,
+    value: { facts: { uw: root, pullRequests: [{ pullRequest: relevantPr }] } },
+  })
+  const enumerations = requests.filter(
+    (args) => args[1] === 'graphql' && !args.some((arg) => arg.startsWith('number=')),
+  )
+  expect(enumerations).toHaveLength(1)
+  expect(enumerations[0]?.some((arg) => arg.startsWith('branch='))).toBe(false)
+  expect(requests.some((args) => args.some((arg) => arg.includes('/issues/12/comments')))).toBe(true)
+  if (!result.ok) return
+  expect(result.value.histories.map((history) => history.source.scope)).not.toContainEqual(unrelatedPr)
+})
+
+it('keeps explicit succession branch-filtered for a new-policy home', async () => {
+  const { reader, requests } = setup()
+  const result = await reader.read(root, [currentHistory], 'legacy-succession')
+  expect(result).toMatchObject({
+    ok: true,
+    value: { facts: { uw: root, pullRequests: [{ pullRequest: relevantPr }] } },
+  })
+  const enumerations = requests.filter(
+    (args) => args[1] === 'graphql' && !args.some((arg) => arg.startsWith('number=')),
+  )
+  expect(enumerations).toHaveLength(1)
+  expect(enumerations[0]).toContain('branch=feature/1')
+  expect(requests.some((args) => args.some((arg) => arg.includes('/issues/12/comments')))).toBe(false)
 })
 
 it.each([{ outsideFirst: false }, { outsideFirst: true }])(
@@ -279,53 +338,53 @@ it.each([{ outsideFirst: false }, { outsideFirst: true }])(
 )
 
 it('does not treat unresolved nonbinding work as an empty binding history', async () => {
-  const { reader, pages } = setup([12])
+  const { reader, pages } = setup([12], true)
   pages.set(12, [comment('<!-- omp-build-record v=1 kind=mandate id=bad operationId=bad-op part=1/2 data=e30 -->', 1)])
-  const result = await reader.read(root, [currentHistory])
+  const result = await reader.read(root, [legacyHistory], 'legacy-succession')
   expect(result).toMatchObject({ ok: false, diagnostics: [expect.objectContaining({ code: 'unconfirmed' })] })
 })
 
 it('accepts a clean unbound PR as absence, but not a foreign-only binding', async () => {
-  const clean = setup([12])
+  const clean = setup([12], true)
   clean.pages.set(12, [])
-  expect(await clean.reader.read(root, [currentHistory])).toMatchObject({
+  expect(await clean.reader.read(root, [legacyHistory], 'legacy-succession')).toMatchObject({
     ok: true,
     value: { facts: { uw: root, pullRequests: [] } },
   })
-  const foreign = setup([12])
+  const foreign = setup([12], true)
   foreign.pages.set(12, comments(fixture.framedBodies([outsideBinding], 'operator', [outsideHistory]), 'stranger'))
-  expect(await foreign.reader.read(root, [currentHistory])).toMatchObject({
+  expect(await foreign.reader.read(root, [legacyHistory], 'legacy-succession')).toMatchObject({
     ok: false,
     diagnostics: [expect.objectContaining({ code: 'foreign' })],
   })
 })
 
 it('refuses a binding whose native branch disagrees, even when its home is unrelated', async () => {
-  const { reader, pages } = setup([12])
+  const { reader, pages } = setup([12], true)
   const wrong = fixture.workflowBinding(unrelatedPr, outside, 'different', 'main')
   pages.set(12, comments(fixture.framedBodies([wrong], 'operator', [outsideHistory])))
-  expect(await reader.read(root, [currentHistory])).toMatchObject({
+  expect(await reader.read(root, [legacyHistory], 'legacy-succession')).toMatchObject({
     ok: false,
     diagnostics: [expect.objectContaining({ code: 'native-mismatch' })],
   })
 })
 
 it('refuses a malformed binding claim even alongside a valid unrelated claim', async () => {
-  const { reader, pages } = setup([12])
+  const { reader, pages } = setup([12], true)
   const existing = pages.get(12)
   if (!existing) throw new Error('missing PR fixture')
   pages.set(12, [
     ...existing,
     comment('<!-- omp-build-record v=1 kind=workflow-binding id=bad operationId=bad-op part=1/2 data=e30 -->', 100),
   ])
-  expect(await reader.read(root, [currentHistory])).toMatchObject({
+  expect(await reader.read(root, [legacyHistory], 'legacy-succession')).toMatchObject({
     ok: false,
     diagnostics: [expect.objectContaining({ code: 'incomplete' })],
   })
 })
 
 it('refuses an unreadable candidate history rather than treating it as unrelated', async () => {
-  const { options } = setup([12])
+  const { options } = setup([12], true)
   const gh = options.gh
   const reader = createUwDeliveryFactReader({
     ...options,
@@ -334,7 +393,7 @@ it('refuses an unreadable candidate history rather than treating it as unrelated
       return gh(cwd, args)
     },
   })
-  expect(await reader.read(root, [currentHistory])).toMatchObject({
+  expect(await reader.read(root, [legacyHistory], 'legacy-succession')).toMatchObject({
     ok: false,
     diagnostics: [expect.objectContaining({ code: 'incomplete' })],
   })

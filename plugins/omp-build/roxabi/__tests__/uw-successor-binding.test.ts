@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { nativeComment } from '../../adapters/__tests__/github-workflow-support.ts'
 import { selectWorkflowBinding } from '../../dist/contracts.js'
+import { parseRecord } from '../../engine/record-construction.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { resolveFeatureAuthority } from '../feature-continuation-admission.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
@@ -49,6 +50,7 @@ test.each(['bound', 'unbound', 'merged'] as const)('a successor preserves the sa
   })
   const previous = subject.native.comments.get(70)?.map((comment) => comment.body)
   const result = await selectNew(subject)
+  expect(subject.github.exhaustiveEnumerations).toBeGreaterThanOrEqual(2)
   expect(result).toMatchObject({ authority: { selection: { status: 'applicable' } } })
   if ('kind' in result || result.mandate === null) throw new Error('Expected successor selection')
   const after = await subject.reader.readUw(scope)
@@ -62,6 +64,29 @@ test.each(['bound', 'unbound', 'merged'] as const)('a successor preserves the sa
       ?.slice(0, previous?.length)
       .map((comment) => comment.body),
   ).toEqual(previous)
+})
+
+test('a legacy mandate appended after successor publication prevents control publication', async () => {
+  let controlsBefore = 0
+  const subject = await abandonedLeaf((world) => {
+    controlsBefore =
+      world.native.comments.get(41)?.filter((comment) => comment.body.includes('kind=operator-control')).length ?? 0
+    const later = parseRecord({ ...world.original, recordId: 'concurrent-old', operationId: 'concurrent-old-op' })
+    if (!later.ok) throw new Error('invalid concurrent mandate fixture')
+    let inserted = false
+    world.github.hooks.afterComment = (kind, number) => {
+      if (!inserted && kind === 'mandate' && number === 41) {
+        inserted = true
+        world.seed(later.value)
+      }
+    }
+  })
+  const result = await selectNew(subject)
+  expect(result).toMatchObject({ kind: 'blocked' })
+  expect(subject.native.comments.get(41)?.some((comment) => comment.body.includes('id=concurrent-old'))).toBe(true)
+  expect(
+    subject.native.comments.get(41)?.filter((comment) => comment.body.includes('kind=operator-control')),
+  ).toHaveLength(controlsBefore)
 })
 
 test('closed matching PRs refuse before any issue or PR append', async () => {

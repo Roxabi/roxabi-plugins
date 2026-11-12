@@ -1,10 +1,11 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
 import type { UwDeliveryFacts } from '../../engine/uw-completion-types.ts'
+import { deliveryCoverage } from '../../engine/uw-delivery-coverage.ts'
 import type { GitHubOptions } from '../github/types.ts'
 import { collectDeliveryCandidates } from './uw-delivery-candidates.ts'
 import { type CommitRead, createCommitRangeReader } from './uw-delivery-commit-ranges.ts'
-import { type Enumeration, enumeratePullRequests } from './uw-delivery-enumeration.ts'
+import { type Enumeration, enumeratePullRequests, enumeratePullRequestsByBranch } from './uw-delivery-enumeration.ts'
 import { collectDeliveryIntegrations } from './uw-delivery-integrations.ts'
 
 type ObservedCommit = UwDeliveryFacts['commits'][number]
@@ -80,13 +81,17 @@ async function readAncestry(
 
 function readEnumeration(
   uw: Scope,
+  branches: readonly string[],
+  exhaustive: boolean,
   options: GitHubOptions,
   repositories: Map<string, Promise<Enumeration>>,
 ): Promise<Enumeration> {
-  const repositoryKey = uw.repository.toLowerCase()
+  const repositoryKey = `${uw.repository.toLowerCase()}\0${exhaustive ? '*' : JSON.stringify([...branches].sort())}`
   let enumeration = repositories.get(repositoryKey)
   if (enumeration === undefined) {
-    enumeration = enumeratePullRequests(uw.repository, options)
+    enumeration = exhaustive
+      ? enumeratePullRequests(uw.repository, options)
+      : enumeratePullRequestsByBranch(uw.repository, branches, options)
     repositories.set(repositoryKey, enumeration)
   }
   return enumeration
@@ -95,6 +100,32 @@ function readEnumeration(
 function enumerationResult(candidates: Enumeration) {
   if (candidates.ok) return { diagnostics: [], values: candidates.value }
   return { diagnostics: candidates.diagnostics, values: 'partial' in candidates ? candidates.partial : [] }
+}
+
+function coverageForRead(home: DecodedHistory | undefined, mode: 'ordinary' | 'legacy-succession') {
+  if (home === undefined)
+    return {
+      ok: false as const,
+      diagnostics: [{ code: 'legacy-coverage-incomplete', message: 'UW home history is missing' }],
+    }
+  const coverage = deliveryCoverage(home)
+  if (!coverage.ok) return coverage
+  if (coverage.uncovered && mode !== 'legacy-succession')
+    return {
+      ok: false as const,
+      diagnostics: [
+        { code: 'legacy-coverage-incomplete', message: 'Legacy UW history requires explicit succession observation' },
+      ],
+    }
+  return { ok: true as const, home, coverage }
+}
+
+function combinedHistories(histories: readonly DecodedHistory[], home: DecodedHistory, kept: DecodedHistory[]) {
+  return [
+    ...histories,
+    ...(!histories.includes(home) ? [home] : []),
+    ...kept.filter((history) => !histories.includes(history) && history !== home),
+  ]
 }
 
 /** Observation-local; create a new reader after native effects. */
@@ -107,6 +138,7 @@ export function createUwDeliveryFactReader(options: GitHubOptions) {
   async function read(
     uw: Scope,
     histories: readonly DecodedHistory[],
+    mode: 'ordinary' | 'legacy-succession' = 'ordinary',
   ): Promise<{ ok: true; value: { facts: UwDeliveryFacts; histories: readonly DecodedHistory[] } } | DeliveryFailure> {
     const kept: DecodedHistory[] = []
     const pulls: UwDeliveryFacts['pullRequests'][number][] = []
@@ -120,11 +152,16 @@ export function createUwDeliveryFactReader(options: GitHubOptions) {
     })
     const conflict = loadHistories(histories, loaded)
     if (conflict !== null) return failure(conflict)
-    const candidates = enumerationResult(await readEnumeration(uw, options, repositories))
+    const checked = coverageForRead(loaded.get(`${uw.repository}\0${uw.target}`), mode)
+    if (!checked.ok) return failure(checked.diagnostics)
+    const { home, coverage } = checked
+    const candidates = enumerationResult(
+      await readEnumeration(uw, coverage.branches, coverage.uncovered, options, repositories),
+    )
     enumerationDiagnostics = candidates.diagnostics
     const collected = await collectDeliveryCandidates(candidates.values, uw, options, loaded, kept, pulls)
     if (!collected.ok) return failure(collected.diagnostics)
-    const all = [...histories, ...kept.filter((history) => !histories.includes(history))]
+    const all = combinedHistories(histories, home, kept)
     const ranges = collectDeliveryIntegrations(uw, all, pulls, integrations)
     const commitRead = await readCommitRanges(
       uw,

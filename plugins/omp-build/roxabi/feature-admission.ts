@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
+import { bindingMatchesMandate, bindingPolicy } from '../dist/contracts.js'
 import { explicitParentHistories } from './feature-context.ts'
 import { type Contracts, type History, loadContracts } from './feature-engine.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
@@ -100,6 +101,25 @@ function bindingRecords(history: History) {
   })
 }
 
+function existingBinding(
+  history: History,
+  mandate: Parameters<typeof bindingPolicy>[0],
+  branch: string,
+  base: string,
+): { ok: true; recordId: string } | { ok: false; reason: string } | null {
+  const bindings = bindingRecords(history)
+  if (bindings.some((item) => item.status !== 'complete')) return { ok: false, reason: 'binding-partial' }
+  const matches = bindings.filter((item) => bindingMatches(item.payload, mandate.recordId, branch, base))
+  if (bindings.length > 1 || (bindings.length === 1 && matches.length === 0))
+    return { ok: false, reason: 'binding-conflict' }
+  const policy = bindingPolicy(mandate)
+  if (policy === 'unknown') return { ok: false, reason: 'mandate-policy-unknown' }
+  const existing = matches[0]
+  if ((existing === undefined || policy === 'bounded') && !bindingMatchesMandate(mandate, branch, base))
+    return { ok: false, reason: 'mandate-metadata-mismatch' }
+  return existing ? { ok: true, recordId: existing.recordId } : null
+}
+
 /**
  * Publish the one PR-to-mandate association after native head/base match.
  * A confirmed matching record is reused. A conflict is not replaced.
@@ -119,16 +139,8 @@ export async function confirmWorkflowBinding(input: {
   if (!native.ok) return native
   const context = await readBindingContext(loaded, input, gh, native.repository)
   if (!context.ok) return context
-  const bindings = bindingRecords(context.history)
-  if (bindings.some((item) => item.status !== 'complete')) return { ok: false, reason: 'binding-partial' }
-  const matches = bindings.filter((item) =>
-    bindingMatches(item.payload, context.mandate.recordId, input.branch, input.base),
-  )
-  if (bindings.length > 1 || (bindings.length === 1 && matches.length === 0)) {
-    return { ok: false, reason: 'binding-conflict' }
-  }
-  const existing = matches[0]
-  if (existing) return { ok: true, recordId: existing.recordId }
+  const existing = existingBinding(context.history, context.mandate, input.branch, input.base)
+  if (existing !== null) return existing
   const recordId = `workflow-binding:${context.prScope.target}:${context.mandate.recordId}`
   const built = loaded.buildRecord({
     repository: context.prScope.repository,
