@@ -98,9 +98,12 @@ plugins/
     commands/             — (optional) slash commands
 .claude-plugin/
   marketplace.json        — marketplace manifest
+playbooks/                  — standalone procedures; not installed, not catalogued
+  website-portfolio-audit.md
 ```
 
 Source of truth is always this repo. Installed cache copies are ephemeral.
+A file under `playbooks/` is an autonomous procedure. It is not a plugin, has no catalog entry, and is not installed.
 
 ## External marketplace curation
 

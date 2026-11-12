@@ -64,7 +64,8 @@ See [External marketplace curation](CONTRIBUTING.md#external-marketplace-curatio
 
 - [Contributing](CONTRIBUTING.md) — workflow, plugin creation, release and curation
 - [Issue tracker contract](docs/agents/issue-tracker.md) — relations, tiers and labels read by `issue-triage`
-- [Historical archive](archived/README.md) — inert source, former guides, ADRs, analyses and playbooks; not runtime dependencies
+- [Website portfolio audit](playbooks/website-portfolio-audit.md) — read-only procedure: inventory, SEO, GEO, security/quality, performance, network synthesis
+- [Historical archive](archived/README.md) — inert source, former guides, ADRs, analyses and archived playbooks; not runtime dependencies and not the live audit procedure
 
 ## License
 
