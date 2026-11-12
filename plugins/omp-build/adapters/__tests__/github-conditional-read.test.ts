@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { githubScope, readGitHubHistory } from '../github/transport.ts'
 
 type NativeComment = {
@@ -21,6 +21,14 @@ function comment(id: number, body = `comment ${id}`): NativeComment {
 }
 
 type NotModifiedSignal = 'stdout' | 'message' | 'success'
+type Held = { entered: () => void; released: Promise<void> }
+type State = {
+  comments: NativeComment[]
+  charged: number
+  validators: (string | null)[]
+  fault: Error | null
+  held: Held | null
+}
 
 function sentValidator(args: readonly string[]): string | null {
   const header = args.indexOf('--header')
@@ -35,17 +43,33 @@ function notModified(signal: NotModifiedSignal, etag: string): string {
   throw signal === 'message' ? failure : Object.assign(failure, { stdout: unchanged })
 }
 
+/** A failed `gh api --include` call: its error text and the response it printed before failing. */
+function failedCall(status: string, etag: string): Error {
+  return Object.assign(new Error(`Command failed: gh api\ngh: ${status}`), {
+    stdout: `HTTP/2.0 502 Bad Gateway\r\nEtag: ${etag}\r\n\r\n{"message":"Server Error"}`,
+    stderr: `gh: ${status}\n`,
+  })
+}
+
+/** GitHub decides at request time; the returned thunk delivers that decision, possibly later. */
+function answer(state: State, signal: NotModifiedSignal, validator: string | null, etag: string): () => string {
+  const fault = state.fault
+  if (fault !== null)
+    return () => {
+      throw fault
+    }
+  if (validator === etag) return () => notModified(signal, etag)
+  state.charged += 1
+  const output = `HTTP/2.0 200 OK\nContent-Type: application/json\r\nEtag: ${etag}\r\n\r\n${JSON.stringify(state.comments)}`
+  return () => output
+}
+
 /**
  * GitHub as `gh api --include` reports it: one validator per representation, and a body-less 304
  * while that validator still matches. Only a 200 is charged to the quota.
  */
 function github(issue: number, signal: NotModifiedSignal = 'stdout') {
-  const state = {
-    comments: [comment(1), comment(2)],
-    charged: 0,
-    validators: [] as (string | null)[],
-    fault: null as string | null,
-  }
+  const state: State = { comments: [comment(1), comment(2)], charged: 0, validators: [], fault: null, held: null }
   const etag = () => {
     const digest = createHash('sha256').update(JSON.stringify(state.comments)).digest('hex')
     return `W/"${digest}"`
@@ -57,13 +81,30 @@ function github(issue: number, signal: NotModifiedSignal = 'stdout') {
       gh: async (_cwd, args) => {
         const validator = sentValidator(args)
         state.validators.push(validator)
-        if (state.fault !== null) throw new Error(state.fault)
-        if (validator === etag()) return notModified(signal, etag())
-        state.charged += 1
-        return `HTTP/2.0 200 OK\nContent-Type: application/json\r\nEtag: ${etag()}\r\n\r\n${JSON.stringify(state.comments)}`
+        const deliver = answer(state, signal, validator, etag())
+        const held = state.held
+        state.held = null
+        if (held !== null) {
+          held.entered()
+          await held.released
+        }
+        return deliver()
       },
     })
-  return { state, etag, read }
+  /** Keep the next call's answer in transit until released. */
+  const hold = () => {
+    let entered = () => {}
+    let release = () => {}
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    state.held = { entered, released }
+    return { started, release }
+  }
+  return { state, etag, read, hold }
 }
 
 describe('GitHub history revalidation', () => {
@@ -100,11 +141,44 @@ describe('GitHub history revalidation', () => {
   it('reports a failed read as incomplete instead of answering from the retained history', async () => {
     const native = github(104)
     await native.read()
-    native.state.fault = 'gh: Bad Gateway (HTTP 502)'
+    native.state.fault = failedCall('Bad Gateway (HTTP 502)', native.etag())
     const failed = await native.read()
     expect(failed.complete).toBe(false)
     expect(failed.comments).toEqual([])
-    expect(failed.diagnostics).toEqual([{ code: 'github-read-failed', message: 'gh: Bad Gateway (HTTP 502)' }])
+    expect(failed.diagnostics.map((entry) => entry.code)).toEqual(['github-read-failed'])
+    expect(failed.diagnostics[0]?.message).toContain('HTTP 502')
+  })
+
+  it('keeps the newest history retained when an older overlapping read is confirmed late', async () => {
+    const native = github(107)
+    await native.read()
+    const late = native.hold()
+    const older = native.read()
+    await late.started
+    native.state.comments = [comment(1), comment(2), comment(3)]
+    const newer = await native.read()
+    late.release()
+    expect((await older).comments).toHaveLength(2)
+    expect(newer.comments).toHaveLength(3)
+    const after = await native.read()
+    expect(after).toEqual(newer)
+    expect(native.state.validators.at(-1)).toBe(native.etag())
+    expect(native.state.charged).toBe(2)
+  })
+
+  it('never offers one credential the validator retained under another', async () => {
+    const native = github(108)
+    try {
+      vi.stubEnv('GH_TOKEN', 'credential-a')
+      await native.read()
+      vi.stubEnv('GH_TOKEN', 'credential-b')
+      const other = await native.read()
+      expect(other.complete).toBe(true)
+      expect(native.state.validators).toEqual([null, null])
+      expect(native.state.charged).toBe(2)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('keeps reading in full through a transport that reports no validator', async () => {

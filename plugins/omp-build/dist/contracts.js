@@ -21803,7 +21803,7 @@ function forget(key) {
 }
 function retain(key, etag, body) {
   forget(key);
-  const entry = { etag, body: gzipSync(body) };
+  const entry = { etag, body: new Uint8Array(gzipSync(body)) };
   if (entry.body.byteLength > RETAINED_LIMIT_BYTES)
     return;
   retained.set(key, entry);
@@ -21815,8 +21815,10 @@ function retain(key, etag, body) {
   }
 }
 function reuse(key, known) {
-  retained.delete(key);
-  retained.set(key, known);
+  if (retained.get(key) === known) {
+    retained.delete(key);
+    retained.set(key, known);
+  }
   return gunzipSync(known.body).toString("utf8");
 }
 async function readRevalidated(options, endpoint) {

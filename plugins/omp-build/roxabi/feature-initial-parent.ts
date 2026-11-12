@@ -1,5 +1,6 @@
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import { causalRefusal } from './causal-refusal.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
@@ -43,7 +44,7 @@ export async function firstMandateParent(
   const ancestry = await mandateParentHistories(context.engine, history, options)
   if (!ancestry.ok) return { kind: 'blocked', reason: ancestry.reason }
   const causal = await composeObservedUwCausalContext(uwRead, [history, ...ancestry.parents], options)
-  if (!causal.ok) return { kind: 'blocked', reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
+  if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
   const selected = context.engine.resolveOwnSpecAuthority(history, ancestry.parents, causal.value)
   if (!selected.ok) return { kind: 'blocked', reason: 'parent-mandate-unconfirmed', diagnostics: selected.diagnostics }
   const commitment = selected.value.accepted.children.find(

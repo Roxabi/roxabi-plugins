@@ -142,8 +142,8 @@ export function mergeFixUwHistories(
 }
 
 /** The refusal codes are unchanged; the observation's own reasons ride along when it has any. */
-function unavailableObservation(code: string, reasons: readonly string[]): FixActionResult<never> {
-  const diagnostics = ['fix-own-uw-unsettled', code]
+function unsettled(codes: readonly string[], reasons: readonly string[]): FixActionResult<never> {
+  const diagnostics = ['fix-own-uw-unsettled', ...codes]
   return reasons.length === 0 ? { ok: false, diagnostics } : { ok: false, diagnostics, reasons }
 }
 
@@ -158,13 +158,13 @@ export async function composeObservedUwCausalContext(
     read.causalObservation.histories !== read.histories ||
     read.causalObservation.catalogues !== read.catalogues
   )
-    return unavailableObservation('fix-causal-observation-unavailable', observationReasons(read.observation))
+    return unsettled(['fix-causal-observation-unavailable'], observationReasons(read.observation))
   if (
     read.observation.status !== 'complete' ||
     read.observation.histories !== read.histories ||
     read.observation.catalogues !== read.catalogues
   )
-    return unavailableObservation('fix-completion-observation-unavailable', observationReasons(read.observation))
+    return unsettled(['fix-completion-observation-unavailable'], observationReasons(read.observation))
   const scopes = new Set<string>()
   let own = false
   const policy = withRoxabiGitHubPolicy(options)
@@ -207,7 +207,7 @@ export async function readFreshUwCausalContext(
     return composeObservedUwCausalContext(read, selected, options)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    return unavailableObservation('fix-completion-observation-unavailable', [reasonLine(`uw-read-failed: ${detail}`)])
+    return unsettled(['fix-completion-observation-unavailable'], [reasonLine(`uw-read-failed: ${detail}`)])
   }
 }
 
@@ -267,6 +267,9 @@ async function collectJointUwCausalContext(
     histories,
   )
   if (observation.status !== 'complete')
-    return failure('fix-own-uw-unsettled', ...observation.diagnostics.map((item) => item.code))
+    return unsettled(
+      observation.diagnostics.map((item) => item.code),
+      observationReasons(observation),
+    )
   return { ok: true, value: { histories: observation.histories, catalogues: observation.catalogues, observation } }
 }

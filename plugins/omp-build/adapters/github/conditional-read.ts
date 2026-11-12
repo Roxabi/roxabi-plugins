@@ -1,7 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { type GitHubOptions, gh, viewerCredentialKey } from './types.ts'
 
-type Retained = { etag: string; body: Buffer }
+type Retained = { etag: string; body: Uint8Array }
 type Included = { status: number; etag: string | null; body: string }
 
 const RETAINED_LIMIT_BYTES = 64 * 1024 * 1024
@@ -38,7 +38,8 @@ function forget(key: string): void {
 
 function retain(key: string, etag: string, body: string): void {
   forget(key)
-  const entry = { etag, body: gzipSync(body) }
+  // An exact-size copy: the counted bytes are the bytes held, whatever buffer zlib allocated.
+  const entry = { etag, body: new Uint8Array(gzipSync(body)) }
   if (entry.body.byteLength > RETAINED_LIMIT_BYTES) return
   retained.set(key, entry)
   retainedBytes += entry.body.byteLength
@@ -48,9 +49,12 @@ function retain(key: string, etag: string, body: string): void {
   }
 }
 
+/** The body GitHub just confirmed. Recency moves only while this is still the retained entry. */
 function reuse(key: string, known: Retained): string {
-  retained.delete(key)
-  retained.set(key, known)
+  if (retained.get(key) === known) {
+    retained.delete(key)
+    retained.set(key, known)
+  }
   return gunzipSync(known.body).toString('utf8')
 }
 
