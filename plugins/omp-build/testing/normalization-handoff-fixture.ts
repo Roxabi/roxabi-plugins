@@ -26,7 +26,8 @@ export function normalizationHandoffFixture() {
       return JSON.stringify({ number: 910, state: 'open', body, user: { login: 'fixture' } })
     }
     if (command === JSON.stringify(['api', 'user', '--jq', '.login'])) return 'fixture'
-    if (command === JSON.stringify(['api', `repos/${repository}/issues/910/comments?per_page=100&page=1`])) return '[]'
+    if (command === JSON.stringify(['api', `repos/${repository}/issues/910/comments?per_page=100&page=1`, '--include']))
+      return '[]'
     if (
       command ===
       JSON.stringify([

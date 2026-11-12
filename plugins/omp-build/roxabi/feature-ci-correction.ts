@@ -4,6 +4,7 @@ import type { Scope } from '../engine/record-values.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
+import { causalRefusal } from './causal-refusal.ts'
 import { readDecodedHistory } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
@@ -57,12 +58,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
     cwd: input.cwd,
     gh: input.gh,
   })
-  if (!causal.ok)
-    return {
-      kind: 'blocked',
-      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
-      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
-    }
+  if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
   const selected = input.selectApplicableMandate(mandateHistory, input.parents, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null) {
     return { kind: 'blocked', reason: 'mandate-missing' }

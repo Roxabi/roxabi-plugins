@@ -4,7 +4,10 @@ import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { FixPolicy } from './fix-domain'
 import type { ActionSubject } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
-export type FixActionResult<T> = { ok: true; value: T } | { ok: false; diagnostics: string[] }
+/** `reasons` names why an observation was unavailable, for the operator only: it is never a published code. */
+export type FixActionResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; diagnostics: string[]; reasons?: readonly string[] }
 
 export type FixScope = Scope
 

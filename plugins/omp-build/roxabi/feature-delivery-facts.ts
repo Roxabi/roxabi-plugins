@@ -10,6 +10,7 @@ import {
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import { causalRefusal } from './causal-refusal.ts'
 import { explicitParentHistories } from './feature-context.ts'
 import { discoverDeliveryPr } from './feature-delivery-discovery.ts'
 import type { Contracts, History, Scope, WorkflowEvidence } from './feature-engine.ts'
@@ -98,12 +99,7 @@ async function composeChantier(
     uwRead === null
       ? await readFreshUwCausalContext(issue.source.scope, selected, options)
       : await composeObservedUwCausalContext(uwRead, selected, options)
-  if (!causal.ok)
-    return {
-      ok: false,
-      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
-      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
-    }
+  if (!causal.ok) return { ok: false, ...causalRefusal(causal) }
   const composed = loaded.composeChantier({ issue, pullRequest, parents, causal: causal.value })
   return composed.ok
     ? { ok: true, evidence: composed.value, delivery }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.7
+
+- Revalidate workflow history comment pages with GitHub (`If-None-Match`). An unchanged page answers `304`, which the primary rate limit does not charge: repeated closure reads in one host process cost quota only for the histories that changed. Every read still asks GitHub; the in-memory, compressed, byte-capped copy is returned on that `304` alone and never replaces a failed request.
+- Name the failed reads when a causal context is refused for an unavailable observation at `/feature` selection, continuation, succession or CI correction. `fix-own-uw-unsettled` and the codes after it are unchanged; the observation's own diagnostics follow them in the operator stop. Start publication and PR binding still report the code alone.
+- Read latency is unchanged: histories are still read sequentially.
+- Update the source product version only. This release does not activate tooling, move its pin, upgrade an installed cache or authorize a suspended witness.
+
 ## 0.18.5
 
 - Authenticate the own abandoned mandate tip and its complete successor chain before explicit succession. Authenticated successor controls keep earlier revoked predecessors superseded without inventing separate abandon records. Historical accepted framing is an input to succession, not renewed delivery authority.
