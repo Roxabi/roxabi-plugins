@@ -23820,13 +23820,13 @@ async function enumeratePullRequests(repository, options, branch = null) {
     cursor = next;
   }
 }
-async function enumeratePullRequestsByBranch(repository, branches, options) {
+async function enumeratePullRequestsByBranch(repository, branches, options, readBranch = (branch) => enumeratePullRequests(repository, options, branch)) {
   const found = [];
   const identities = new Map;
   for (const branch of new Set(branches)) {
     if (branch.length === 0)
       return { ok: false, diagnostics: [{ code: "incomplete", message: "Mandate branch is empty" }], partial: found };
-    const result = await enumeratePullRequests(repository, options, branch);
+    const result = await readBranch(branch);
     const values = result.ok ? result.value : ("partial" in result) ? result.partial : [];
     const problem = collectCandidates(values, identities, found);
     if (problem !== null)
@@ -23927,13 +23927,16 @@ async function readAncestry(input, ancestryReads, readCommitRanges) {
   return { ok: true, value: observed };
 }
 function readEnumeration(uw, branches, exhaustive, options, repositories) {
-  const repositoryKey = `${uw.repository.toLowerCase()}\x00${exhaustive ? "*" : JSON.stringify([...branches].sort())}`;
-  let enumeration = repositories.get(repositoryKey);
-  if (enumeration === undefined) {
-    enumeration = exhaustive ? enumeratePullRequests(uw.repository, options) : enumeratePullRequestsByBranch(uw.repository, branches, options);
-    repositories.set(repositoryKey, enumeration);
-  }
-  return enumeration;
+  const readBranch = (branch) => {
+    const key = JSON.stringify([uw.repository.toLowerCase(), branch]);
+    let enumeration = repositories.get(key);
+    if (enumeration === undefined) {
+      enumeration = enumeratePullRequests(uw.repository, options, branch);
+      repositories.set(key, enumeration);
+    }
+    return enumeration;
+  };
+  return exhaustive ? readBranch(null) : enumeratePullRequestsByBranch(uw.repository, branches, options, readBranch);
 }
 function enumerationResult(candidates) {
   if (candidates.ok)

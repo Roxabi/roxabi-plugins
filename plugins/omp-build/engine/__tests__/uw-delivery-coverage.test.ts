@@ -1,7 +1,9 @@
 import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { encodeParts } from '../../adapters/github/history-encoder.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { deliveryCoverage } from '../uw-delivery-coverage.ts'
+import { bindExternalRef } from '../workflow-control.ts'
 import { featureMandate, history, must, SCOPE } from './workflow-test-support.ts'
 
 const original = featureMandate()
@@ -89,6 +91,55 @@ test('a valid old-policy successor after the new-policy cut is explicitly refuse
     }),
   )
   expect(deliveryCoverage(history([original, next, control, later, laterControl]))).toMatchObject({
+    ok: false,
+    diagnostics: [
+      { code: 'legacy-coverage-incomplete', message: 'Legacy mandate appears after the coverage boundary' },
+    ],
+  })
+})
+
+test('refuses a complete legacy mandate whose parts straddle the successor first part', () => {
+  const baseline = history([original, next, control])
+  const originalOperation = baseline.operations.find((operation) => operation.recordId === original.recordId)
+  const successorOperation = baseline.operations.find((operation) => operation.recordId === next.recordId)
+  if (originalOperation === undefined || successorOperation === undefined || originalOperation.parts.length !== 1)
+    throw new Error('Expected single-part baseline mandates')
+  const originalPart = baseline.source.comments.find(
+    (comment) => comment.locator === originalOperation.parts[0]?.locator,
+  )
+  const nextPart = successorOperation.parts[0]
+  if (originalPart === undefined || nextPart === undefined) throw new Error('Missing baseline mandate parts')
+  const oldBodies = must(encodeParts(original, '# mandate', 400))
+  expect(oldBodies.length).toBeGreaterThan(1)
+  const splitParts = oldBodies.map((body) => ({ ...originalPart, body }))
+  const beforeSuccessor = baseline.source.comments.flatMap((comment) =>
+    comment.locator === originalPart.locator ? splitParts : [comment],
+  )
+  const cut = beforeSuccessor.findIndex((comment) => comment.locator === nextPart.locator)
+  const oldStart = beforeSuccessor.indexOf(splitParts[0])
+  if (cut < 0 || oldStart < 0) throw new Error('Missing ordering anchors')
+  const straddled = [...beforeSuccessor]
+  const tail = straddled.splice(oldStart + 1, splitParts.length - 1)
+  const successorIndex = straddled.findIndex((comment) => comment.locator === nextPart.locator)
+  straddled.splice(successorIndex + 1, 0, ...tail)
+  const decoded = (comments: typeof straddled) =>
+    decodeHistory({
+      ...baseline.source,
+      comments: comments.map((comment, index) => ({
+        ...comment,
+        nativeId: String(index + 1),
+        locator: `${SCOPE.target}:comment:${index + 1}`,
+      })),
+    })
+  const complete = decoded(beforeSuccessor)
+  const crossed = decoded(straddled)
+  for (const record of [original, next, control]) {
+    expect(bindExternalRef({ scope: SCOPE, kind: record.kind, recordId: record.recordId }, crossed)).toMatchObject({
+      ok: true,
+    })
+  }
+  expect(deliveryCoverage(complete)).toMatchObject({ ok: true, uncovered: false })
+  expect(deliveryCoverage(crossed)).toMatchObject({
     ok: false,
     diagnostics: [
       { code: 'legacy-coverage-incomplete', message: 'Legacy mandate appears after the coverage boundary' },

@@ -86,15 +86,16 @@ function readEnumeration(
   options: GitHubOptions,
   repositories: Map<string, Promise<Enumeration>>,
 ): Promise<Enumeration> {
-  const repositoryKey = `${uw.repository.toLowerCase()}\0${exhaustive ? '*' : JSON.stringify([...branches].sort())}`
-  let enumeration = repositories.get(repositoryKey)
-  if (enumeration === undefined) {
-    enumeration = exhaustive
-      ? enumeratePullRequests(uw.repository, options)
-      : enumeratePullRequestsByBranch(uw.repository, branches, options)
-    repositories.set(repositoryKey, enumeration)
+  const readBranch = (branch: string | null): Promise<Enumeration> => {
+    const key = JSON.stringify([uw.repository.toLowerCase(), branch])
+    let enumeration = repositories.get(key)
+    if (enumeration === undefined) {
+      enumeration = enumeratePullRequests(uw.repository, options, branch)
+      repositories.set(key, enumeration)
+    }
+    return enumeration
   }
-  return enumeration
+  return exhaustive ? readBranch(null) : enumeratePullRequestsByBranch(uw.repository, branches, options, readBranch)
 }
 
 function enumerationResult(candidates: Enumeration) {

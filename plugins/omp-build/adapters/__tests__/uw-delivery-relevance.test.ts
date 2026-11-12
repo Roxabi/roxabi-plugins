@@ -2,6 +2,8 @@ import { expect, it } from 'vitest'
 import { canonicalValueDigest } from '../../engine/canonical-value.ts'
 import { buildRecord, parseRecord } from '../../engine/record-construction.ts'
 import { createReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
+import { assessUwCompletion } from '../../engine/uw-completion.ts'
+import { scopeKey } from '../../engine/uw-graph.ts'
 import { selectWorkflowBinding } from '../../engine/workflow-pr-binding.ts'
 import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import { githubScope } from '../github/transport.ts'
@@ -163,6 +165,56 @@ it('keeps the completion cut complete and scoped to the current UW', async () =>
   expect(scopes).toContainEqual(relevantPr)
   expect(scopes).not.toContainEqual(unrelatedPr)
   expect(scopes).not.toContainEqual(other)
+})
+
+it('refuses a retargeted bound PR through the branch-filtered delivery observation', async () => {
+  const { options, requests } = setup([12, 11])
+  const gh = options.gh
+  const observation = await readUwCompletionObservation(
+    root,
+    {
+      ...options,
+      gh: async (cwd, args) => {
+        const response = await gh(cwd, args)
+        if (args[1] !== 'graphql' || args.some((arg) => arg.startsWith('number='))) return response
+        const data = JSON.parse(response) as {
+          data: { repository: { pullRequests: { nodes: { number: number; baseRefName: string }[] } } }
+        }
+        for (const candidate of data.data.repository.pullRequests.nodes)
+          if (candidate.number === 11) candidate.baseRefName = 'release'
+        return JSON.stringify(data)
+      },
+    },
+    async () => createReviewClassCatalogues([]),
+  )
+  const enumerations = requests.filter(
+    (args) => args[1] === 'graphql' && !args.some((arg) => arg.startsWith('number=')),
+  )
+  expect(enumerations).toHaveLength(1)
+  expect(enumerations[0]).toContain('branch=feature/1')
+  expect(requests.some((args) => args.some((arg) => arg.includes('/issues/11/comments')))).toBe(true)
+  expect(requests.some((args) => args.some((arg) => arg.includes('/issues/12/comments')))).toBe(false)
+  expect(observation.histories.map((history) => history.source.scope)).toContainEqual(relevantPr)
+  expect(
+    selectWorkflowBinding({
+      pullRequest: relevantPr,
+      histories: observation.histories,
+      native: { branch: 'feature/1', base: 'main' },
+    }),
+  ).toMatchObject({ status: 'bound', mandate: { scope: root, recordId: current.recordId } })
+  expect(
+    selectWorkflowBinding({
+      pullRequest: relevantPr,
+      histories: observation.histories,
+      native: { branch: 'feature/1', base: 'release' },
+    }),
+  ).toMatchObject({ status: 'conflicting', diagnostics: [expect.objectContaining({ code: 'native-mismatch' })] })
+  expect(observation.status).toBe('incomplete')
+  if (observation.status !== 'incomplete') throw new Error('Retargeted binding must refuse delivery observation')
+  expect(observation.diagnostics).toEqual(
+    expect.arrayContaining([expect.objectContaining({ code: 'native-mismatch' })]),
+  )
+  expect(assessUwCompletion(observation).dependencies.get(scopeKey(root))).toMatchObject({ state: 'held' })
 })
 
 it('retains a cached relevant home on a later read without retaining excluded candidates', async () => {

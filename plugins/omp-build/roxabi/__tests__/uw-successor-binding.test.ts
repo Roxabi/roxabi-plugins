@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { nativeComment } from '../../adapters/__tests__/github-workflow-support.ts'
+import { encodeParts } from '../../adapters/github/history-encoder.ts'
 import { selectWorkflowBinding } from '../../dist/contracts.js'
 import { parseRecord } from '../../engine/record-construction.ts'
+import { bindExternalRef } from '../../engine/workflow-control.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { resolveFeatureAuthority } from '../feature-continuation-admission.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
@@ -68,22 +70,57 @@ test.each(['bound', 'unbound', 'merged'] as const)('a successor preserves the sa
 
 test('a legacy mandate appended after successor publication prevents control publication', async () => {
   let controlsBefore = 0
+  const writes: Promise<string>[] = []
   const subject = await abandonedLeaf((world) => {
     controlsBefore =
       world.native.comments.get(41)?.filter((comment) => comment.body.includes('kind=operator-control')).length ?? 0
     const later = parseRecord({ ...world.original, recordId: 'concurrent-old', operationId: 'concurrent-old-op' })
     if (!later.ok) throw new Error('invalid concurrent mandate fixture')
+    const frames = encodeParts(later.value, '# mandate', 65536)
+    if (!frames.ok) throw new Error('cannot encode concurrent mandate fixture')
     let inserted = false
     world.github.hooks.afterComment = (kind, number) => {
       if (!inserted && kind === 'mandate' && number === 41) {
         inserted = true
-        world.seed(later.value)
+        for (const frame of frames.value)
+          writes.push(
+            world.native.gh('/work', [
+              'api',
+              'repos/acme/app/issues/41/comments',
+              '--method',
+              'POST',
+              '-f',
+              `body=${frame}`,
+            ]),
+          )
       }
     }
   })
   const result = await selectNew(subject)
-  expect(result).toMatchObject({ kind: 'blocked' })
-  expect(subject.native.comments.get(41)?.some((comment) => comment.body.includes('id=concurrent-old'))).toBe(true)
+  await Promise.all(writes)
+  expect(result).toMatchObject({ kind: 'blocked', reason: 'successor-ancestry-changed' })
+  expect(writes.length).toBeGreaterThan(0)
+  const home = await ownHistory(subject)
+  const successor = home.operations.find(
+    (operation) =>
+      operation.record?.kind === 'mandate' &&
+      operation.record.recordId !== subject.original.recordId &&
+      operation.record.recordId !== 'concurrent-old',
+  )
+  if (successor?.record?.kind !== 'mandate') throw new Error('Missing published successor')
+  const old = home.operations.find((operation) => operation.recordId === 'concurrent-old')
+  if (old === undefined) throw new Error('Missing concurrent legacy mandate')
+  expect(bindExternalRef({ scope, kind: 'mandate', recordId: successor.record.recordId }, home)).toMatchObject({
+    ok: true,
+  })
+  expect(bindExternalRef({ scope, kind: 'mandate', recordId: 'concurrent-old' }, home)).toMatchObject({ ok: true })
+  const nextIds = successor.parts.map((part) =>
+    Number(home.source.comments.find((comment) => comment.locator === part.locator)?.nativeId),
+  )
+  const oldIds = old.parts.map((part) =>
+    Number(home.source.comments.find((comment) => comment.locator === part.locator)?.nativeId),
+  )
+  expect(Math.min(...oldIds)).toBeGreaterThan(Math.max(...nextIds))
   expect(
     subject.native.comments.get(41)?.filter((comment) => comment.body.includes('kind=operator-control')),
   ).toHaveLength(controlsBefore)

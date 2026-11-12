@@ -154,13 +154,14 @@ export async function enumeratePullRequestsByBranch(
   repository: string,
   branches: readonly string[],
   options: GitHubOptions,
+  readBranch: (branch: string) => Promise<Enumeration> = (branch) => enumeratePullRequests(repository, options, branch),
 ): Promise<Enumeration> {
   const found: Candidate[] = []
   const identities = new Map<string, Candidate>()
   for (const branch of new Set(branches)) {
     if (branch.length === 0)
       return { ok: false, diagnostics: [{ code: 'incomplete', message: 'Mandate branch is empty' }], partial: found }
-    const result = await enumeratePullRequests(repository, options, branch)
+    const result = await readBranch(branch)
     const values = result.ok ? result.value : 'partial' in result ? result.partial : []
     const problem = collectCandidates(values, identities, found)
     if (problem !== null) return { ok: false, diagnostics: [problem], partial: found }
