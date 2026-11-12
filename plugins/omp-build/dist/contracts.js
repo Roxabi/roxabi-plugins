@@ -21769,6 +21769,82 @@ function publicationFailure(status, history, diagnostics) {
   return { status, history, diagnostics };
 }
 
+// plugins/omp-build/adapters/github/conditional-read.ts
+import { gunzipSync, gzipSync } from "node:zlib";
+var RETAINED_LIMIT_BYTES = 64 * 1024 * 1024;
+var retained = new Map;
+var retainedBytes = 0;
+function parseIncluded(output) {
+  const status = /^HTTP\/\S+ (\d{3})\b/.exec(output);
+  if (status === null)
+    return null;
+  const blank = /\r?\n\r?\n/.exec(output);
+  const head = blank === null ? output : output.slice(0, blank.index);
+  return {
+    status: Number(status[1]),
+    etag: /^etag:[ \t]*(\S+)/im.exec(head)?.[1] ?? null,
+    body: blank === null ? "" : output.slice(blank.index + blank[0].length)
+  };
+}
+function notModified(error) {
+  if (error === null || typeof error !== "object")
+    return false;
+  const failed = error;
+  if (typeof failed.stdout === "string" && parseIncluded(failed.stdout)?.status === 304)
+    return true;
+  return [failed.stderr, failed.message].some((text) => typeof text === "string" && /\bHTTP 304\b/.test(text));
+}
+function forget(key) {
+  const entry = retained.get(key);
+  if (entry === undefined)
+    return;
+  retained.delete(key);
+  retainedBytes -= entry.body.byteLength;
+}
+function retain(key, etag, body) {
+  forget(key);
+  const entry = { etag, body: gzipSync(body) };
+  if (entry.body.byteLength > RETAINED_LIMIT_BYTES)
+    return;
+  retained.set(key, entry);
+  retainedBytes += entry.body.byteLength;
+  for (const oldest of retained.keys()) {
+    if (retainedBytes <= RETAINED_LIMIT_BYTES)
+      break;
+    forget(oldest);
+  }
+}
+function reuse(key, known) {
+  retained.delete(key);
+  retained.set(key, known);
+  return gunzipSync(known.body).toString("utf8");
+}
+async function readRevalidated(options, endpoint) {
+  const key = `${viewerCredentialKey()}\x00${endpoint}`;
+  const known = retained.get(key);
+  const args = ["api", endpoint, "--include"];
+  if (known !== undefined)
+    args.push("--header", `If-None-Match: ${known.etag}`);
+  let output;
+  try {
+    output = await gh(options)(options.cwd, args);
+  } catch (error) {
+    if (known === undefined || !notModified(error))
+      throw error;
+    return reuse(key, known);
+  }
+  const response = parseIncluded(output);
+  if (response === null)
+    return output;
+  if (response.status === 304 && known !== undefined)
+    return reuse(key, known);
+  if (response.status === 200 && response.etag !== null)
+    retain(key, response.etag, response.body);
+  else
+    forget(key);
+  return response.body;
+}
+
 // plugins/omp-build/adapters/github/transport.ts
 function githubScope(repository, number) {
   if (!RECORD_REPOSITORY.test(repository) || !Number.isSafeInteger(number) || number < 1) {
@@ -21789,10 +21865,7 @@ function validateAuthors(expectedAuthor, stopAuthor) {
   }
 }
 async function readCommentPage(scope, number, page, options) {
-  const output = await gh(options)(options.cwd, [
-    "api",
-    `repos/${scope.repository}/issues/${number}/comments?per_page=100&page=${page}`
-  ]);
+  const output = await readRevalidated(options, `repos/${scope.repository}/issues/${number}/comments?per_page=100&page=${page}`);
   let parsed;
   try {
     parsed = JSON.parse(output);

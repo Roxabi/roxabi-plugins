@@ -158,7 +158,7 @@ export function parseComment(value: unknown, scope: Scope, page: number, index: 
   }
 }
 
-function viewerCredentialKey(): string {
+export function viewerCredentialKey(): string {
   // `gh api user` answers for the process token, not for cwd.
   return `${process.env.GH_HOST ?? ''}\0${process.env.GH_CONFIG_DIR ?? ''}\0${process.env.GH_TOKEN ?? ''}\0${process.env.GITHUB_TOKEN ?? ''}`
 }

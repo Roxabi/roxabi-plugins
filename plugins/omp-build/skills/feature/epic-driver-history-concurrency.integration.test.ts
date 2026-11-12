@@ -197,9 +197,9 @@ it('keeps injected gh effects authoritative for review histories', async () => {
   expect([...result]).toEqual([])
   expect(calls).toEqual([
     'api user --jq .login',
-    'api repos/example/repo/issues/101/comments?per_page=100&page=1',
-    'api repos/example/repo/issues/102/comments?per_page=100&page=1',
-    'api repos/example/repo/issues/103/comments?per_page=100&page=1',
+    'api repos/example/repo/issues/101/comments?per_page=100&page=1 --include',
+    'api repos/example/repo/issues/102/comments?per_page=100&page=1 --include',
+    'api repos/example/repo/issues/103/comments?per_page=100&page=1 --include',
   ])
   expect(existsSync(join(repo, 'events'))).toBe(false)
 })

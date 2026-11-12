@@ -9,12 +9,14 @@ import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { reviewRoot } from '../../testing/record-builders.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { causalRefusal } from '../causal-refusal.ts'
+import { featureStopMessage } from '../feature-presentation.ts'
 import { composeObservedUwCausalContext } from '../fix-uw-histories.ts'
 import { createInstalledUwReadPort } from '../uw-read-port.ts'
 
 const scope = { repository: 'acme/app', target: 'acme/app#42' }
 
-async function observed(catalogueAvailable: boolean, includeInventory = true) {
+async function observed(catalogueAvailable: boolean, includeInventory = true, historyFault: string | null = null) {
   const inventory = reviewRoot({ scope, id: 'observed-review' })
   if (inventory.payload.stage !== 'initial' || inventory.payload.purpose !== 'review')
     throw new Error('expected inventory')
@@ -54,10 +56,12 @@ async function observed(catalogueAvailable: boolean, includeInventory = true) {
         },
       })
     }
-    if (args.some((arg) => arg.includes('/issues/42/comments')))
+    if (args.some((arg) => arg.includes('/issues/42/comments'))) {
+      if (historyFault !== null) throw new Error(historyFault)
       return JSON.stringify(
         includeInventory ? encoded.comments.map((item, index) => nativeComment(index + 1, item.body)) : [],
       )
+    }
     throw new Error(`unexpected request: ${args.join(' ')}`)
   }
   const options = { cwd: '/fixture', gh, readAuthor: 'automation' }
@@ -121,6 +125,18 @@ it('refuses detached completion proofs and retained-root unavailable projections
       diagnostics: expect.arrayContaining(['fix-causal-observation-unavailable']),
     })
   }
+})
+
+it('tells the operator which GitHub read failed when the observation is unavailable', async () => {
+  const { read, options } = await observed(true, true, 'gh: API rate limit exceeded for user ID 1 (HTTP 403)')
+  expect(read.causalObservation.status).toBe('unavailable')
+  const refused = await composeObservedUwCausalContext(read, [], options)
+  if (refused.ok) throw new Error('unavailable observation accepted')
+  expect(refused.diagnostics).toEqual(['fix-own-uw-unsettled', 'fix-causal-observation-unavailable'])
+  const stop = featureStopMessage({ kind: 'blocked', ...causalRefusal(refused) })?.split('\n') ?? []
+  expect(stop.slice(0, 2)).toEqual(['feature-stopped: fix-own-uw-unsettled', 'fix-causal-observation-unavailable'])
+  expect(stop.slice(2).join('\n')).toContain('acme/app#42')
+  expect(stop.slice(2).join('\n')).toContain('API rate limit exceeded')
 })
 
 it('extends a completed observation through newly selected and recursively cited scopes', async () => {

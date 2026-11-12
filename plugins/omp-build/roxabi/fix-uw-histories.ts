@@ -3,6 +3,7 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
+import { observationReasons, reasonLine } from './causal-refusal.ts'
 import { defaultGh } from './feature-engine.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
@@ -140,6 +141,12 @@ export function mergeFixUwHistories(
   return { ok: true, value: [...histories.values()].map((entry) => entry.history) }
 }
 
+/** The refusal codes are unchanged; the observation's own reasons ride along when it has any. */
+function unavailableObservation(code: string, reasons: readonly string[]): FixActionResult<never> {
+  const diagnostics = ['fix-own-uw-unsettled', code]
+  return reasons.length === 0 ? { ok: false, diagnostics } : { ok: false, diagnostics, reasons }
+}
+
 /** Reuse only the completed closure and catalogue table of this exact UW observation. */
 export async function composeObservedUwCausalContext(
   read: UwRead,
@@ -151,13 +158,13 @@ export async function composeObservedUwCausalContext(
     read.causalObservation.histories !== read.histories ||
     read.causalObservation.catalogues !== read.catalogues
   )
-    return failure('fix-own-uw-unsettled', 'fix-causal-observation-unavailable')
+    return unavailableObservation('fix-causal-observation-unavailable', observationReasons(read.observation))
   if (
     read.observation.status !== 'complete' ||
     read.observation.histories !== read.histories ||
     read.observation.catalogues !== read.catalogues
   )
-    return failure('fix-own-uw-unsettled', 'fix-completion-observation-unavailable')
+    return unavailableObservation('fix-completion-observation-unavailable', observationReasons(read.observation))
   const scopes = new Set<string>()
   let own = false
   const policy = withRoxabiGitHubPolicy(options)
@@ -198,8 +205,9 @@ export async function readFreshUwCausalContext(
       ...(options.readAuthor === undefined ? {} : { readAuthor: options.readAuthor }),
     }).readUw(scope)
     return composeObservedUwCausalContext(read, selected, options)
-  } catch {
-    return failure('fix-own-uw-unsettled', 'fix-completion-observation-unavailable')
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return unavailableObservation('fix-completion-observation-unavailable', [reasonLine(`uw-read-failed: ${detail}`)])
   }
 }
 

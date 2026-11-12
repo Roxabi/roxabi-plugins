@@ -1,5 +1,6 @@
 import { canonicalValueDigest, createUwDeliveryFactReader, sameScope } from '../dist/contracts.js'
 import type { UwDeliveryFacts } from '../engine/uw-completion-types.ts'
+import { causalRefusal } from './causal-refusal.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
@@ -51,12 +52,7 @@ export async function currentSuccessionBasis(
     cwd: authority.context.cwd,
     gh: authority.context.gh,
   })
-  if (!causal.ok)
-    return {
-      kind: 'blocked',
-      reason: causal.diagnostics[0] ?? 'successor-observation-unconfirmed',
-      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
-    }
+  if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal, 'successor-observation-unconfirmed') }
   const basis = readSuccessionBasis(history, causal.value.histories)
   return basis.ok
     ? { basis: basis.value, histories: causal.value.histories }

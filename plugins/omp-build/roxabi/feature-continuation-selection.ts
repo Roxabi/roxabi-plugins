@@ -3,6 +3,7 @@ import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
+import { causalRefusal } from './causal-refusal.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
@@ -88,12 +89,7 @@ async function finishSelection(
           cwd: context.cwd,
           gh: context.gh,
         })
-  if ('ok' in causal && !causal.ok)
-    return {
-      kind: 'blocked',
-      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
-      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
-    }
+  if ('ok' in causal && !causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
   const selectionCausal = 'ok' in causal ? causal.value : causal
   const applicable = context.engine.selectApplicableMandate(updated.history, updated.parentHistories, selectionCausal)
   const exactProblem = exactSelectionProblem(applicable, exactMandateRef)

@@ -1,12 +1,12 @@
 import type { History } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
+import { readRevalidated } from './conditional-read.ts'
 import {
   diagnostic,
   expectedReadAuthor,
   GitHubHistoryReadError,
   type GitHubOptions,
-  gh,
   parseComment,
   RECORD_REPOSITORY,
   targetNumber,
@@ -34,10 +34,10 @@ function validateAuthors(expectedAuthor: string, stopAuthor: string | null): voi
 }
 
 async function readCommentPage(scope: Scope, number: number, page: number, options: GitHubOptions): Promise<unknown[]> {
-  const output = await gh(options)(options.cwd, [
-    'api',
+  const output = await readRevalidated(
+    options,
     `repos/${scope.repository}/issues/${number}/comments?per_page=100&page=${page}`,
-  ])
+  )
   let parsed: unknown
   try {
     parsed = JSON.parse(output)

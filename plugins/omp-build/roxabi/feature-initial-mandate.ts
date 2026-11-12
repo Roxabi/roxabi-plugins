@@ -2,6 +2,7 @@ import { canonicalValueDigest, projectNativeUwChildren } from '../dist/contracts
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
+import { causalRefusal } from './causal-refusal.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
@@ -220,12 +221,7 @@ async function confirmFirstMandateSelection(
   if (!parents.ok) return { kind: 'blocked', reason: parents.reason }
   const read = await reader.readUw(scope)
   const causal = await composeObservedUwCausalContext(read, [history, ...parents.parents], options)
-  if (!causal.ok)
-    return {
-      kind: 'blocked',
-      reason: causal.diagnostics[0] ?? 'causal-history-unavailable',
-      diagnostics: causal.diagnostics.slice(1).map((message) => ({ code: message, message })),
-    }
+  if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
   const selected = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
   if (selected.status !== 'applicable' || selected.mandate === null)
     return { kind: 'blocked', reason: 'first-mandate-unconfirmed' }

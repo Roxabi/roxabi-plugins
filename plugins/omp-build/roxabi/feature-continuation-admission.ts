@@ -2,6 +2,7 @@ import { readWorkflowBinding } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { MandateSelection } from '../engine/workflow-mandate.ts'
+import { causalRefusal } from './causal-refusal.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import { bindsOwnPause, inhibit } from './feature-control.ts'
@@ -230,7 +231,7 @@ async function selectHistoryAuthority(
   const parents = await mandateParentHistories(context.engine, history, options)
   if (!parents.ok) return disarmParents(input, native, context, parents.reason)
   const causal = await readFreshUwCausalContext(native.scope, [history, ...parents.parents], options)
-  if (!causal.ok) return disarmParents(input, native, context, causal.diagnostics[0] ?? 'causal-history-unavailable')
+  if (!causal.ok) return disarmParents(input, native, context, causalRefusal(causal))
   const selection = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
   if (
     exactMandateRef === undefined &&
@@ -252,9 +253,10 @@ async function disarmParents(
   input: ContinueFeatureInput,
   native: { target: ResolvedTarget; scope: Scope },
   context: FeatureContext,
-  reason: string,
+  refusal: string | ReturnType<typeof causalRefusal>,
 ): Promise<ContinueFeatureResult> {
-  if (input.control !== 'pause' && input.control !== 'abandon') return { kind: 'blocked', reason }
+  if (input.control !== 'pause' && input.control !== 'abandon')
+    return typeof refusal === 'string' ? { kind: 'blocked', reason: refusal } : { kind: 'blocked', ...refusal }
   await disarmKnownTarget(context.gh, context.cwd, native.target, null)
   return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
 }
