@@ -406,7 +406,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. When upgrading, explicitly retain the bounded semantics of 0.18.8; do not infer coverage from the version alone.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Version 0.18.10 retains the bounded semantics of 0.18.8 and 0.18.9; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
