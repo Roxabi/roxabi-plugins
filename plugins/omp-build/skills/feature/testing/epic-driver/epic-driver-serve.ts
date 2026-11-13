@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { parseIssueSpecBody, rawSource } from '../../../../contracts.ts'
 import { roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
@@ -36,6 +36,25 @@ export function serveComments(issue: number, comments: Comment[]): void {
       })),
     ),
   )
+}
+
+export function addForeignMandateClaim(issue: 1 | 2, claim: 'legacy' | 'copy'): void {
+  const file = path.join(sandboxOf().state, `comments-${issue}.json`)
+  const comments = JSON.parse(readFileSync(file, 'utf8'))
+  const originals = comments.filter((entry: { body: string }) => entry.body.includes('kind=mandate '))
+  if (originals.length === 0) throw new Error('missing mandate copy fixture')
+  const bodies =
+    claim === 'legacy' ? ['<!-- omp-build:mandate -->'] : originals.map((entry: { body: string }) => entry.body)
+  comments.push(
+    ...bodies.map((body: string, index: number) => ({
+      id: 9000 + index,
+      body,
+      user: { login: 'intruder' },
+      created_at: '2026-10-21T12:00:00Z',
+      updated_at: '2026-10-21T12:00:00Z',
+    })),
+  )
+  writeFileSync(file, JSON.stringify(comments))
 }
 
 export function serveEpic(

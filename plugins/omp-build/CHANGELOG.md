@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.8
+
+- Require new-policy PR bindings to match the mandate and native branch and base at publication and selection, while retaining historical off-branch and branchless facts under their original rules.
+- Discover covered delivery candidates by every relevant mandate branch across all PR states and pages, without filtering by base; canonical bindings remain the association authority.
+- Preserve both exhaustive observations for the first uncovered legacy succession. Bound a fully observed, rediscoverable old prefix only through an authenticated new-policy successor control; incomplete, competing or post-boundary legacy history refuses.
+- Ignore foreign claims when determining UW home-history coverage; candidate PR binding guards remain strict and can still refuse foreign-only claims.
+- Update the source product version only. This release does not activate tooling, move its pin, upgrade an installed cache or authorize a suspended witness.
+
 ## 0.18.7
 
 - Revalidate workflow history comment pages with GitHub (`If-None-Match`). An unchanged page answers `304`, which the primary rate limit does not charge: repeated closure reads in one host process cost quota only for the histories that changed. Every read still asks GitHub; the in-memory, compressed, byte-capped copy is returned on that `304` alone and never replaces a failed request.

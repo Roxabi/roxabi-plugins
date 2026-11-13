@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { createUwDeliveryFactReader } from '../adapters/github-workflow/uw-delivery-facts.ts'
 import { criterionDeclarationSchema } from '../engine/criterion-evidence-schema.ts'
 import { FINDING_TARGET_FORMAT } from '../engine/finding-target-schema.ts'
-import { buildRecord } from '../engine/record-construction.ts'
+import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { bindExternalRef } from '../engine/workflow-control.ts'
@@ -17,6 +17,15 @@ const mandate = fixtures.featureMandate(UW99, { branch: 'feature/other', base: '
 const binding = fixtures.workflowBinding(PR77, mandate, 'feature/other', 'main')
 const start = fixtures.implementStart(mandate)
 const mandateHistory = fixtures.historyFrom([mandate, start], 'operator')
+function legacyHome(scope: Scope) {
+  const original = fixtures.featureMandate(scope, { branch: 'feature/own', base: 'main' })
+  const parsed = parseRecord({
+    ...original,
+    payload: { ...original.payload, config: { ...original.payload.config, productVersion: '0.18.7' } },
+  })
+  if (!parsed.ok) throw new Error('invalid legacy mandate fixture')
+  return fixtures.historyFrom([parsed.value], 'operator')
+}
 
 function foreignReceipt(): CanonicalRecord {
   const base = fixtures.rejectedImplementResult(mandate)
@@ -133,7 +142,7 @@ function readFacts(
     cwd: '/tmp',
     gh: gh(timeline, pulls, extraComments, extraMandateComments),
     readAuthor: 'operator',
-  }).read(UW42, [])
+  }).read(UW42, [legacyHome(UW42)], 'legacy-succession')
 }
 
 it('keeps a PR bound to another UW out of this delivery', async () => {
@@ -248,8 +257,9 @@ it('enumerates repository pull requests once per observation across multiple UW 
       })
     },
   })
-  const first = await reader.read(UW42, [])
-  const second = await reader.read({ repository: 'other/repo', target: 'other/repo#43' }, [])
+  const secondUw = { repository: 'other/repo', target: 'other/repo#43' }
+  const first = await reader.read(UW42, [legacyHome(UW42)], 'legacy-succession')
+  const second = await reader.read(secondUw, [legacyHome(secondUw)], 'legacy-succession')
   expect(first.ok).toBe(true)
   expect(second.ok).toBe(true)
   expect(pages).toBe(1)

@@ -104,9 +104,10 @@ function main() {
   if (argv[0] === 'api' && argv[1] === 'graphql') {
     if (!argv.some((value) => value.startsWith('query='))) fail('unexpected gh GraphQL argv')
     const query = argv.find((value) => value.startsWith('query='))
-    if (query === 'query=query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}') {
+    if (query === 'query=query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}') {
       if (graphVariable('owner') !== 'acme' || graphVariable('name') !== 'app' || graphVariable('cursor') !== undefined) fail('unexpected pull enumeration scope or cursor')
-      output({ data: { repository: { pullRequests: { nodes: [{ number: 7, headRefName: 'feat/7-fixture', baseRefName: 'main', repository: { nameWithOwner: 'acme/app' } }], pageInfo: { hasNextPage: false, endCursor: null } } } } })
+      const branch = graphVariable('branch')
+      output({ data: { repository: { pullRequests: { nodes: branch === undefined || branch === 'feat/7-fixture' ? [{ number: 7, headRefName: 'feat/7-fixture', baseRefName: 'main', repository: { nameWithOwner: 'acme/app' } }] : [], pageInfo: { hasNextPage: false, endCursor: null } } } } })
       return
     }
     if (isNativeGraphQuery(query)) {

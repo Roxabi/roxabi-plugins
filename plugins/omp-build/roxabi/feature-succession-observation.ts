@@ -1,4 +1,4 @@
-import { canonicalValueDigest, createUwDeliveryFactReader, sameScope } from '../dist/contracts.js'
+import { canonicalValueDigest, createUwDeliveryFactReader, deliveryCoverage, sameScope } from '../dist/contracts.js'
 import type { UwDeliveryFacts } from '../engine/uw-completion-types.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { mandateParentHistories } from './feature-context.ts'
@@ -27,9 +27,23 @@ export async function successorOwnDelivery(
     gh: authority.context.gh,
     readAuthor: own.source.expectedAuthor,
   })
-  const observed = await createUwDeliveryFactReader(options).read(authority.scope, histories)
+  const coverage = deliveryCoverage(own)
+  if (!coverage.ok)
+    return { kind: 'blocked', reason: 'successor-legacy-coverage-incomplete', diagnostics: coverage.diagnostics }
+  const observed = await createUwDeliveryFactReader(options).read(authority.scope, histories, 'legacy-succession')
   if (!observed.ok)
     return { kind: 'blocked', reason: 'successor-delivery-unconfirmed', diagnostics: observed.diagnostics }
+  if (coverage.uncovered && observed.value.facts.pullRequests.some((pull) => !coverage.branches.includes(pull.branch)))
+    return {
+      kind: 'blocked',
+      reason: 'successor-legacy-unlocatable-binding',
+      diagnostics: [
+        {
+          code: 'legacy-coverage-incomplete',
+          message: 'A historical PR is not rediscoverable from the UW mandate branches',
+        },
+      ],
+    }
   const merged = mergeFixUwHistories(histories, observed.value.histories)
   return merged.ok
     ? observed.value.facts

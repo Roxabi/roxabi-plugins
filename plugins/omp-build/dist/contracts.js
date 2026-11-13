@@ -14198,6 +14198,25 @@ function resolveAcceptedSpecChain(input) {
   return { ok: true, spec: accepted };
 }
 
+// plugins/omp-build/engine/workflow-binding-policy.ts
+function bindingPolicy(mandate) {
+  const match = /^(0)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(mandate.payload.config.productVersion);
+  if (match === null)
+    return "unknown";
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (!Number.isSafeInteger(minor) || !Number.isSafeInteger(patch))
+    return "unknown";
+  if (minor < 18 || minor === 18 && patch <= 7)
+    return "legacy";
+  if (minor === 18 && patch === 8)
+    return "bounded";
+  return "unknown";
+}
+function bindingMatchesMandate(mandate, branch, base) {
+  return mandate.payload.branch !== null && mandate.payload.branch === branch && mandate.payload.base === base;
+}
+
 // plugins/omp-build/engine/workflow-pr-binding-chain.ts
 function bindingRefusal(status, diagnostics) {
   return { status, diagnostics };
@@ -14377,7 +14396,8 @@ function selectWorkflowBindingCandidate(input) {
   const records = selectWorkflowBindingClaims(input);
   if (!Array.isArray(records))
     return records;
-  return resolveBindingChain(records, input.histories);
+  const candidate = resolveBindingChain(records, input.histories);
+  return candidate.status === "bound" ? { ...candidate, claims: records } : candidate;
 }
 
 // plugins/omp-build/engine/workflow-pr-binding.ts
@@ -14389,10 +14409,36 @@ function confirmedAccountedMandate(history, ref) {
   const record = matches[0]?.record;
   return record?.kind === "mandate" ? record : null;
 }
+function validateBindingClaims(claims, histories) {
+  for (const claim of claims) {
+    const claimHome = historyFor(claim.payload.mandate.scope, histories);
+    const mandate = claimHome === null ? null : confirmedAccountedMandate(claimHome, claim.payload.mandate);
+    if (claimHome === null || !claimHome.source.complete || mandate === null)
+      return {
+        status: "incomplete",
+        diagnostics: [diagnostic2("incomplete", "Binding mandate record is not confirmed")]
+      };
+    const policy = bindingPolicy(mandate);
+    if (policy === "unknown")
+      return {
+        status: "incompatible-format",
+        diagnostics: [diagnostic2("incompatible-format", "Binding mandate policy version is unknown")]
+      };
+    if (policy === "bounded" && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
+      return {
+        status: "conflicting",
+        diagnostics: [diagnostic2("mandate-mismatch", "Workflow-binding branch or base does not match its mandate")]
+      };
+  }
+  return null;
+}
 function selectWorkflowBinding(input) {
   const chained = selectWorkflowBindingCandidate(input);
   if (chained.status !== "bound")
     return chained;
+  const claimsProblem = validateBindingClaims(chained.claims, input.histories);
+  if (claimsProblem !== null)
+    return claimsProblem;
   const home = historyFor(chained.binding.payload.mandate.scope, input.histories);
   if (home === null || !home.source.complete) {
     return {
@@ -23254,6 +23300,148 @@ async function readComposedWorkflowHistory(scopes, options) {
   return { ok: true, scopes: [...scopes], histories, records: validated.records };
 }
 
+// plugins/omp-build/engine/uw-delivery-coverage.ts
+function refused2(message) {
+  return { ok: false, diagnostics: [{ code: "legacy-coverage-incomplete", message }] };
+}
+function collectMandates(home, operations) {
+  const mandates = [];
+  for (const operation of operations) {
+    if (operation.record?.kind !== "mandate")
+      continue;
+    if (operation.status !== "complete" || operation.authority !== "accounted")
+      return refused2("UW mandate is not accounted");
+    const record = operation.record;
+    const authenticated = bindExternalRef({ scope: home.source.scope, kind: "mandate", recordId: record.recordId }, home);
+    if (!authenticated.ok)
+      return refused2(`UW mandate ${record.recordId} is not authenticated`);
+    const indexes = operation.parts.map((part) => home.source.comments.findIndex((comment) => comment.locator === part.locator));
+    if (indexes.length === 0 || indexes.some((index) => index < 0))
+      return refused2("UW mandate ordering is incomplete");
+    if (bindingPolicy(record) === "unknown")
+      return refused2(`UW mandate ${record.recordId} has an unknown policy`);
+    mandates.push({ record, first: Math.min(...indexes), last: Math.max(...indexes) });
+  }
+  return { ok: true, mandates };
+}
+function validateControls(home, operations, byId) {
+  for (const operation of operations) {
+    const control = operation.record;
+    if (control?.kind !== "operator-control" || control.payload.control !== "select-successor")
+      continue;
+    const predecessor = control.payload.predecessor;
+    if (operation.status !== "complete" || operation.authority !== "accounted" || predecessor.kind !== "mandate" || !equalScope(predecessor.scope, home.source.scope) || !byId.has(predecessor.recordId) || !bindExternalRef({ scope: home.source.scope, kind: "operator-control", recordId: control.recordId }, home).ok)
+      return refused2("UW successor control is incomplete or unauthenticated");
+  }
+  return null;
+}
+function collectSuccessors(home, mandates, byId) {
+  const successors = new Map;
+  for (const { record } of mandates) {
+    const claim = successorClaim(home, { scope: home.source.scope, recordId: record.recordId, kind: "mandate" });
+    if (claim.status === "none")
+      continue;
+    if (claim.status !== "next" || claim.ref.kind !== "mandate" || !equalScope(claim.ref.scope, home.source.scope) || !byId.has(claim.ref.recordId))
+      return refused2("UW mandate successor chain is incomplete or conflicting");
+    successors.set(record.recordId, claim.ref.recordId);
+  }
+  return { ok: true, successors };
+}
+function validateLineage(home, mandates, byId, successors) {
+  if (mandates.length === 0)
+    return null;
+  const tips = mandates.filter(({ record }) => !successors.has(record.recordId));
+  if (tips.length !== 1)
+    return refused2("UW home has multiple or missing mandate lineage tips");
+  const visited = new Set;
+  let current = tips[0]?.record;
+  while (current !== undefined) {
+    if (visited.has(current.recordId))
+      return refused2("UW mandate lineage contains a cycle");
+    visited.add(current.recordId);
+    const antecedent = current.payload.antecedent;
+    if (antecedent === null)
+      break;
+    if (antecedent.kind !== "mandate" || !equalScope(antecedent.scope, home.source.scope) || successors.get(antecedent.recordId) !== current.recordId)
+      return refused2("UW mandate lineage has an unconfirmed antecedent");
+    current = byId.get(antecedent.recordId);
+    if (current === undefined)
+      return refused2("UW mandate lineage has a missing antecedent");
+  }
+  if (visited.size !== mandates.length)
+    return refused2("UW mandate history contains an orphan or competing lineage");
+  return null;
+}
+function controlBoundary(home, operation, mandates) {
+  const control = operation.record;
+  if (control?.kind !== "operator-control" || control.payload.control !== "select-successor")
+    return { ok: true, boundary: null };
+  const payload = control.payload;
+  if (operation.status !== "complete" || operation.authority !== "accounted")
+    return refused2("Successor control is not accounted");
+  const successor = mandates.find(({ record }) => record.recordId === payload.successor.recordId && equalScope(payload.successor.scope, home.source.scope));
+  if (successor === undefined || bindingPolicy(successor.record) !== "bounded")
+    return { ok: true, boundary: null };
+  const predecessor = payload.predecessor;
+  if (predecessor.kind !== "mandate" || !equalScope(predecessor.scope, home.source.scope) || successor.record.payload.antecedent === null || !sameRef2(successor.record.payload.antecedent, predecessor) || !sameRef2(payload.mandate, predecessor) || !mandates.some(({ record }) => record.recordId === predecessor.recordId))
+    return refused2("Successor coverage control has inconsistent ancestry");
+  const claim = successorClaim(home, predecessor);
+  const authenticated = bindExternalRef({ scope: home.source.scope, kind: "operator-control", recordId: control.recordId }, home);
+  if (!authenticated.ok || claim.status !== "next" || !sameRef2(claim.ref, payload.successor))
+    return refused2("Successor coverage control is not authenticated");
+  const indexes = operation.parts.map((part) => home.source.comments.findIndex((comment) => comment.locator === part.locator));
+  if (indexes.length === 0 || indexes.some((index) => index < 0))
+    return refused2("Successor control ordering is incomplete");
+  if (successor.last >= Math.min(...indexes))
+    return refused2("Successor mandate does not precede coverage control");
+  return { ok: true, boundary: successor.first };
+}
+function findBoundary(home, operations, mandates) {
+  let boundary = null;
+  for (const operation of operations) {
+    const result = controlBoundary(home, operation, mandates);
+    if (!result.ok)
+      return result;
+    if (result.boundary !== null)
+      boundary = boundary === null ? result.boundary : Math.min(boundary, result.boundary);
+  }
+  return { ok: true, boundary };
+}
+function deliveryCoverage(home) {
+  if (workflowOperationProblem(home) !== null)
+    return refused2("UW home history is incomplete or ambiguous");
+  const operations = home.operations.filter((operation) => operation.authority !== "foreign");
+  const collected = collectMandates(home, operations);
+  if (!collected.ok)
+    return collected;
+  const mandates = collected.mandates;
+  const byId = new Map(mandates.map(({ record }) => [record.recordId, record]));
+  const controlProblem = validateControls(home, operations, byId);
+  if (controlProblem !== null)
+    return controlProblem;
+  const successors = collectSuccessors(home, mandates, byId);
+  if (!successors.ok)
+    return successors;
+  const lineageProblem = validateLineage(home, mandates, byId, successors.successors);
+  if (lineageProblem !== null)
+    return lineageProblem;
+  const branches = [
+    ...new Set(mandates.flatMap(({ record }) => record.payload.branch === null ? [] : [record.payload.branch]))
+  ];
+  const legacy = mandates.filter(({ record }) => bindingPolicy(record) === "legacy");
+  if (legacy.length === 0)
+    return { ok: true, branches, uncovered: false };
+  const coverageBoundary = findBoundary(home, operations, mandates);
+  if (!coverageBoundary.ok)
+    return coverageBoundary;
+  const boundary = coverageBoundary.boundary;
+  if (boundary === null)
+    return { ok: true, branches, uncovered: true };
+  if (legacy.some(({ last }) => last >= boundary))
+    return refused2("Legacy mandate appears after the coverage boundary");
+  return { ok: true, branches, uncovered: false };
+}
+
 // plugins/omp-build/adapters/github-workflow/uw-delivery-candidates.ts
 function actionFailure(code, message) {
   return { ok: false, diagnostics: [{ code, message }] };
@@ -23523,7 +23711,7 @@ function createCommitRangeReader(options) {
 function actionFailure2(code, message) {
   return { ok: false, diagnostics: [{ code, message }] };
 }
-var PULLS = `query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}`;
+var PULLS = `query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}`;
 function asPage(value) {
   if (value === null || typeof value !== "object")
     return null;
@@ -23550,10 +23738,10 @@ function asCandidate(value) {
     return null;
   }
 }
-async function readPullPage(owner, name, cursor, options) {
+async function readPullPage(owner, name, cursor, branch, options) {
   let data;
   try {
-    data = await graphqlVariables(options, PULLS, { owner, name, cursor });
+    data = await graphqlVariables(options, PULLS, { owner, name, cursor, branch });
   } catch (error) {
     return actionFailure2("record-unreadable", error instanceof Error ? error.message : "Pull request enumeration is unreadable");
   }
@@ -23563,7 +23751,30 @@ async function readPullPage(owner, name, cursor, options) {
     return actionFailure2("incomplete", "Pull request enumeration is incomplete");
   return { ok: true, value: page };
 }
-async function enumeratePullRequests(repository, options) {
+function addCandidate(candidate, identities, found) {
+  const key = `${candidate.scope.repository.toLowerCase()}\x00${candidate.scope.target.toLowerCase()}`;
+  const previous = identities.get(key);
+  if (previous === undefined) {
+    identities.set(key, candidate);
+    found.push(candidate);
+    return null;
+  }
+  if (previous.scope.repository !== candidate.scope.repository || previous.scope.target !== candidate.scope.target || previous.branch !== candidate.branch || previous.base !== candidate.base)
+    return {
+      code: "conflicting-duplicate",
+      message: `Conflicting pull request observations for ${candidate.scope.target}`
+    };
+  return null;
+}
+function collectCandidates(values, identities, found) {
+  for (const candidate of values) {
+    const problem = addCandidate(candidate, identities, found);
+    if (problem !== null)
+      return problem;
+  }
+  return null;
+}
+async function enumeratePullRequests(repository, options, branch = null) {
   const found = [];
   const incomplete = (code, message) => ({
     ok: false,
@@ -23581,20 +23792,16 @@ async function enumeratePullRequests(repository, options) {
       const candidate = asCandidate(node);
       if (candidate === null)
         return incomplete("incomplete", "Pull request identity is incomplete");
-      const key = `${candidate.scope.repository.toLowerCase()}\x00${candidate.scope.target.toLowerCase()}`;
-      const previous = identities.get(key);
-      if (previous !== undefined) {
-        if (previous.scope.repository !== candidate.scope.repository || previous.scope.target !== candidate.scope.target || previous.branch !== candidate.branch || previous.base !== candidate.base)
-          return incomplete("conflicting-duplicate", `Conflicting pull request observations for ${candidate.scope.target}`);
-        continue;
-      }
-      identities.set(key, candidate);
-      found.push(candidate);
+      if (branch !== null && candidate.branch !== branch)
+        return incomplete("incomplete", `Pull request ${candidate.scope.target} does not match the requested branch`);
+      const problem = addCandidate(candidate, identities, found);
+      if (problem !== null)
+        return incomplete(problem.code, problem.message);
     }
     return null;
   };
   for (;; ) {
-    const page = await readPullPage(owner, name, cursor, options);
+    const page = await readPullPage(owner, name, cursor, branch, options);
     if (!page.ok)
       return { ...page, partial: found };
     const invalid = collectPage(page.value.nodes);
@@ -23608,6 +23815,22 @@ async function enumeratePullRequests(repository, options) {
     seen.add(next);
     cursor = next;
   }
+}
+async function enumeratePullRequestsByBranch(repository, branches, options, readBranch = (branch) => enumeratePullRequests(repository, options, branch)) {
+  const found = [];
+  const identities = new Map;
+  for (const branch of new Set(branches)) {
+    if (branch.length === 0)
+      return { ok: false, diagnostics: [{ code: "incomplete", message: "Mandate branch is empty" }], partial: found };
+    const result = await readBranch(branch);
+    const values = result.ok ? result.value : ("partial" in result) ? result.partial : [];
+    const problem = collectCandidates(values, identities, found);
+    if (problem !== null)
+      return { ok: false, diagnostics: [problem], partial: found };
+    if (!result.ok)
+      return { ok: false, diagnostics: result.diagnostics, partial: found };
+  }
+  return { ok: true, value: found };
 }
 
 // plugins/omp-build/adapters/github-workflow/uw-delivery-integrations.ts
@@ -23699,26 +23922,54 @@ async function readAncestry(input, ancestryReads, readCommitRanges) {
   }
   return { ok: true, value: observed };
 }
-function readEnumeration(uw, options, repositories) {
-  const repositoryKey = uw.repository.toLowerCase();
-  let enumeration = repositories.get(repositoryKey);
-  if (enumeration === undefined) {
-    enumeration = enumeratePullRequests(uw.repository, options);
-    repositories.set(repositoryKey, enumeration);
-  }
-  return enumeration;
+function readEnumeration(uw, branches, exhaustive, options, repositories) {
+  const readBranch = (branch) => {
+    const key = JSON.stringify([uw.repository.toLowerCase(), branch]);
+    let enumeration = repositories.get(key);
+    if (enumeration === undefined) {
+      enumeration = enumeratePullRequests(uw.repository, options, branch);
+      repositories.set(key, enumeration);
+    }
+    return enumeration;
+  };
+  return exhaustive ? readBranch(null) : enumeratePullRequestsByBranch(uw.repository, branches, options, readBranch);
 }
 function enumerationResult(candidates) {
   if (candidates.ok)
     return { diagnostics: [], values: candidates.value };
   return { diagnostics: candidates.diagnostics, values: "partial" in candidates ? candidates.partial : [] };
 }
+function coverageForRead(home, mode) {
+  if (home === undefined)
+    return {
+      ok: false,
+      diagnostics: [{ code: "legacy-coverage-incomplete", message: "UW home history is missing" }]
+    };
+  const coverage = deliveryCoverage(home);
+  if (!coverage.ok)
+    return coverage;
+  if (coverage.uncovered && mode !== "legacy-succession")
+    return {
+      ok: false,
+      diagnostics: [
+        { code: "legacy-coverage-incomplete", message: "Legacy UW history requires explicit succession observation" }
+      ]
+    };
+  return { ok: true, home, coverage };
+}
+function combinedHistories(histories, home, kept) {
+  return [
+    ...histories,
+    ...!histories.includes(home) ? [home] : [],
+    ...kept.filter((history) => !histories.includes(history) && history !== home)
+  ];
+}
 function createUwDeliveryFactReader(options) {
   const repositories = new Map;
   const loaded = new Map;
   const readCommitRanges = createCommitRangeReader(options);
   const ancestryReads = new Map;
-  async function read(uw, histories) {
+  async function read(uw, histories, mode = "ordinary") {
     const kept = [];
     const pulls = [];
     const integrations = [];
@@ -23732,12 +23983,16 @@ function createUwDeliveryFactReader(options) {
     const conflict = loadHistories(histories, loaded);
     if (conflict !== null)
       return failure(conflict);
-    const candidates = enumerationResult(await readEnumeration(uw, options, repositories));
+    const checked = coverageForRead(loaded.get(`${uw.repository}\x00${uw.target}`), mode);
+    if (!checked.ok)
+      return failure(checked.diagnostics);
+    const { home, coverage } = checked;
+    const candidates = enumerationResult(await readEnumeration(uw, coverage.branches, coverage.uncovered, options, repositories));
     enumerationDiagnostics = candidates.diagnostics;
     const collected = await collectDeliveryCandidates(candidates.values, uw, options, loaded, kept, pulls);
     if (!collected.ok)
       return failure(collected.diagnostics);
-    const all = [...histories, ...kept.filter((history) => !histories.includes(history))];
+    const all = combinedHistories(histories, home, kept);
     const ranges = collectDeliveryIntegrations(uw, all, pulls, integrations);
     const commitRead = await readCommitRanges(uw, [...ranges.values()], pulls.flatMap((pull) => pull.mergeCommit === null ? [] : [pull.mergeCommit]), true);
     observed.push(...commitRead.ok ? commitRead.value : commitRead.partial);
@@ -30242,6 +30497,8 @@ export {
   authorizeReviewContextSuccessor,
   bindExternalRef,
   bindImplementationCommand,
+  bindingMatchesMandate,
+  bindingPolicy,
   boundFramingCoverageIntentSchema,
   buildComposedMaterialAcceptanceControl,
   buildFixOnlyMandate,
@@ -30311,6 +30568,7 @@ export {
   decodeHistory,
   decodedHistorySchema,
   deliveredChildCommit,
+  deliveryCoverage,
   deliveryDataRefSchema,
   deriveRecallPlan,
   deriveReviewState,

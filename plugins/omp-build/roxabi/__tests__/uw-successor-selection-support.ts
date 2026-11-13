@@ -7,11 +7,14 @@ import type { Scope } from '../../engine/record-values.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import { type FeatureAuthority, resolveFeatureAuthority } from '../feature-continuation-admission.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
 import { loadContracts } from '../feature-engine.ts'
 import { createInstalledUwReadPort } from '../uw-read-port.ts'
 import type { GitRunner } from '../workflow-checkout.ts'
+import { configPinDigest, effectiveWorkflowConfig } from '../workflow-config-digest.ts'
+import { WORKFLOW_CONFIG_VERSION } from '../workflow-graph.ts'
 import { successorGitHub } from './uw-successor-native-github.ts'
 
 export const scope: Scope = { repository: 'acme/app', target: 'acme/app#41' }
@@ -21,6 +24,13 @@ export const head = 'a'.repeat(40)
 export const branch = 'feature/bounded'
 const time = '2026-10-27T12:00:00Z'
 const fixtures = roxabiWorkflowFixtures()
+const legacyEffective = effectiveWorkflowConfig('0.18.7', [])
+export const legacyFixtures = createWorkflowFixtures({
+  productVersion: '0.18.7',
+  config: { version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(legacyEffective), effective: legacyEffective },
+  head: '1111111111111111111111111111111111111111',
+  editedAt: '2026-10-21T12:00:00Z',
+})
 
 function must<T>(result: { ok: true; value: T } | { ok: false; diagnostics: readonly { code: string }[] }): T {
   if (!result.ok) throw new Error(result.diagnostics.map((item) => item.code).join(','))
@@ -109,7 +119,11 @@ export function successorControl(
       payload: {
         control: 'select-successor',
         controlId: recordId,
-        mandate: successorRef,
+        mandate: {
+          scope: { repository: predecessor.repository, target: predecessor.target },
+          recordId: predecessor.recordId,
+          kind: 'mandate',
+        },
         predecessor: {
           scope: { repository: predecessor.repository, target: predecessor.target },
           recordId: predecessor.recordId,
@@ -224,9 +238,25 @@ export async function selectNew(subject: Awaited<ReturnType<typeof selectionWorl
   return selectFeatureMandate('new', undefined, subject.resolution, undefined, subject.reader)
 }
 
+/** Retry through a new public authority read, never the pre-interruption selection. */
+export async function retryNew(subject: Awaited<ReturnType<typeof selectionWorld>>) {
+  const { cwd, git, gh } = subject.authority.context
+  const fresh = await resolveFeatureAuthority({
+    cwd,
+    reference: scope.target,
+    control: 'new',
+    principal: false,
+    git,
+    gh,
+    read: subject.reader,
+  })
+  if ('kind' in fresh) return fresh
+  return selectFeatureMandate('new', undefined, fresh, undefined, subject.reader)
+}
+
 export async function abandonedLeaf(mutate?: MutateWorld) {
   const own = specFor(scope, 'Preserve authorized requests across explicit succession.')
-  const original = fixtures.featureMandate(scope, {
+  const original = legacyFixtures.featureMandate(scope, {
     recordId: 'mandate-original',
     operationId: 'mandate-operation',
     ownSpec: own.ownSpec,

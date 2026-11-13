@@ -18,6 +18,7 @@ type CommentHooks = { rejectControl: boolean; afterComment: (kind: string | null
 /** Stateful native PRs and comment transport faults; no workflow internals are replaced. */
 export function successorGitHub(issues: Parameters<typeof nativeGitHub>[0]) {
   const native = nativeGitHub(issues)
+  let exhaustiveEnumerations = 0
   const pulls = new Map<number, Pull>()
   const hooks = {
     rejectControl: false,
@@ -44,16 +45,19 @@ export function successorGitHub(issues: Parameters<typeof nativeGitHub>[0]) {
     if (args[0] === 'pr' && args[1] === 'list') return listPulls(pulls, args)
     if (args[0] === 'pr' && args[1] === 'view') return readPull(pulls, args)
     if (args[0] === 'api' && args[1] === 'graphql' && field(args, 'query')?.includes('pullRequests(first:100')) {
+      if (field(args, 'branch') === undefined) exhaustiveEnumerations++
       return JSON.stringify({
         data: {
           repository: {
             pullRequests: {
-              nodes: [...pulls.values()].map((pull) => ({
-                number: pull.number,
-                headRefName: pull.branch,
-                baseRefName: pull.base,
-                repository: { nameWithOwner: 'acme/app' },
-              })),
+              nodes: [...pulls.values()]
+                .filter((pull) => field(args, 'branch') === undefined || pull.branch === field(args, 'branch'))
+                .map((pull) => ({
+                  number: pull.number,
+                  headRefName: pull.branch,
+                  baseRefName: pull.base,
+                  repository: { nameWithOwner: 'acme/app' },
+                })),
               pageInfo: { hasNextPage: false, endCursor: null },
             },
           },
@@ -62,7 +66,16 @@ export function successorGitHub(issues: Parameters<typeof nativeGitHub>[0]) {
     }
     return restRequest(native, pulls, hooks, cwd, args)
   }
-  return { native, gh, pulls, addPull, hooks }
+  return {
+    native,
+    gh,
+    pulls,
+    addPull,
+    hooks,
+    get exhaustiveEnumerations() {
+      return exhaustiveEnumerations
+    },
+  }
 }
 
 function field(args: string[], name: string): string | undefined {

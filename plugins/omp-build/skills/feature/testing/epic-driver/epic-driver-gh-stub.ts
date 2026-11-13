@@ -64,10 +64,12 @@ case "$1 \${2:-}" in
       [[ "$q" == *" owner=o "* && "$q" == *" name=r"* ]] || { echo "stub gh: wrong native graph repository" >&2; exit 9; }
       [[ "$q" != *" labelsCursor="* && "$q" != *" childrenCursor="* && "$q" != *" blockersCursor="* ]] || { echo "stub gh: undeclared graph page" >&2; exit 9; }
     fi
-    if [[ "$q" == *'pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED])'* && "$q" == *' owner=o '* && "$q" == *' name=r'* ]]; then
+    if [[ "$q" == *'pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch)'* && "$q" == *' owner=o '* && "$q" == *' name=r'* ]]; then
       query delivery-pulls
       [[ "$q" != *" cursor="* ]] || { echo "stub gh: undeclared PR page" >&2; exit 9; }
-      jq -se '[.[][]] | if any(.[]; .repository.nameWithOwner != "o/r") then error("foreign PR observation") else group_by(.number) | map(.[0] as $first | if all(.[]; . == $first) then $first else error("conflicting PR observations") end) | if length > 100 then error("undeclared PR pagination") else {data:{repository:{pullRequests:{pageInfo:{hasNextPage:false,endCursor:null},nodes:.}}}} end end' "$S"/branch-prs-*.json
+      branch=""; has_branch=false
+      for arg in "$@"; do [[ "$arg" == branch=* ]] && { branch="\${arg#branch=}"; has_branch=true; }; done
+      jq -se --arg branch "$branch" --argjson has_branch "$has_branch" '[.[][]] | if any(.[]; .repository.nameWithOwner != "o/r") then error("foreign PR observation") else group_by(.number) | map(.[0] as $first | if all(.[]; . == $first) then $first else error("conflicting PR observations") end) | map(select(($has_branch | not) or .headRefName == $branch)) | if length > 100 then error("undeclared PR pagination") else {data:{repository:{pullRequests:{pageInfo:{hasNextPage:false,endCursor:null},nodes:.}}}} end end' "$S"/branch-prs-*.json
     elif [[ "$q" == *EpicContainmentBranch* ]]; then
       query containment-branch
       branch=""

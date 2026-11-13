@@ -166,7 +166,7 @@ function boundLanding(
 
 describe('workflow landing decisions', () => {
   it('treats a mandate without a PR binding as missing, not fix-only', async () => {
-    const mandate = fixOnlyMandate(SCOPE, { body, ownSpec })
+    const mandate = fixOnlyMandate(SCOPE, { body, ownSpec, branch: 'feat/42-save' })
     const decision = requireLandingMandate(
       await landingInput([historyFrom([mandate]), blank(PR)], mandate, [rootNode], []),
     )
@@ -175,7 +175,7 @@ describe('workflow landing decisions', () => {
   })
 
   it('refuses a fix-only mandate when the accounted PR binding names it', async () => {
-    const mandate = fixOnlyMandate(SCOPE, { body, ownSpec })
+    const mandate = fixOnlyMandate(SCOPE, { body, ownSpec, branch: 'feat/42-save' })
     expect(requireLandingMandate(await boundLanding(mandate, [rootNode], [], []))).toMatchObject({
       ok: false,
       reason: 'fix-only',
@@ -183,11 +183,12 @@ describe('workflow landing decisions', () => {
   })
 
   it('does not refuse review or fix when the same mandate cannot land', async () => {
-    const fix = fixOnlyMandate(SCOPE, { body, ownSpec, config: graphConfig('fix') })
+    const fix = fixOnlyMandate(SCOPE, { body, ownSpec, branch: 'feat/42-save', config: graphConfig('fix') })
     const review = fixOnlyMandate(SCOPE, {
       recordId: 'mandate-review',
       operationId: 'op-mandate-review',
       body,
+      branch: 'feat/42-save',
       ownSpec,
       config: graphConfig('review'),
     })

@@ -9,15 +9,13 @@ function actionFailure(code: string, message: string): Result<never> {
 }
 
 /**
- * One delivery observation. Cost, not a cache or a bulk comment reader:
- * one GraphQL page per 100 repository PRs, then the existing REST comment
- * reader (100 comments per page) for the UW, every candidate PR, and each
- * distinct mandate home needed to resolve a binding claim. GraphQL comment
- * identity is not proven equivalent to REST, so comments stay on that reader.
- * Absent and other-UW bindings are excluded before receipt or review expansion.
- * An unresolved claim or an unreadable required history refuses the read.
+ * One delivery observation: one GraphQL page per 100 matching PRs, then the
+ * existing REST comment reader for each candidate and referenced mandate home.
+ * A null branch is reserved for explicit uncovered-legacy observations;
+ * filtered branches locate candidates and do not establish their binding.
+ * An unresolved claim or unreadable required history refuses the read.
  */
-const PULLS = `query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}`
+const PULLS = `query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}`
 
 export type Candidate = { scope: Scope; branch: string; base: string }
 type Page = { nodes: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
@@ -54,11 +52,12 @@ async function readPullPage(
   owner: string,
   name: string,
   cursor: string | null,
+  branch: string | null,
   options: GitHubOptions,
 ): Promise<Result<Page>> {
   let data: unknown
   try {
-    data = await graphqlVariables(options, PULLS, { owner, name, cursor })
+    data = await graphqlVariables(options, PULLS, { owner, name, cursor, branch })
   } catch (error) {
     return actionFailure(
       'record-unreadable',
@@ -76,7 +75,44 @@ async function readPullPage(
 
 export type Enumeration = Result<Candidate[]> | { ok: false; diagnostics: Diagnostic[]; partial: Candidate[] }
 
-export async function enumeratePullRequests(repository: string, options: GitHubOptions): Promise<Enumeration> {
+function addCandidate(candidate: Candidate, identities: Map<string, Candidate>, found: Candidate[]): Diagnostic | null {
+  const key = `${candidate.scope.repository.toLowerCase()}\0${candidate.scope.target.toLowerCase()}`
+  const previous = identities.get(key)
+  if (previous === undefined) {
+    identities.set(key, candidate)
+    found.push(candidate)
+    return null
+  }
+  if (
+    previous.scope.repository !== candidate.scope.repository ||
+    previous.scope.target !== candidate.scope.target ||
+    previous.branch !== candidate.branch ||
+    previous.base !== candidate.base
+  )
+    return {
+      code: 'conflicting-duplicate',
+      message: `Conflicting pull request observations for ${candidate.scope.target}`,
+    }
+  return null
+}
+
+function collectCandidates(
+  values: readonly Candidate[],
+  identities: Map<string, Candidate>,
+  found: Candidate[],
+): Diagnostic | null {
+  for (const candidate of values) {
+    const problem = addCandidate(candidate, identities, found)
+    if (problem !== null) return problem
+  }
+  return null
+}
+
+export async function enumeratePullRequests(
+  repository: string,
+  options: GitHubOptions,
+  branch: string | null = null,
+): Promise<Enumeration> {
   const found: Candidate[] = []
   const incomplete = (code: string, message: string): Enumeration => ({
     ok: false,
@@ -92,28 +128,15 @@ export async function enumeratePullRequests(repository: string, options: GitHubO
     for (const node of nodes) {
       const candidate = asCandidate(node)
       if (candidate === null) return incomplete('incomplete', 'Pull request identity is incomplete')
-      const key = `${candidate.scope.repository.toLowerCase()}\0${candidate.scope.target.toLowerCase()}`
-      const previous = identities.get(key)
-      if (previous !== undefined) {
-        if (
-          previous.scope.repository !== candidate.scope.repository ||
-          previous.scope.target !== candidate.scope.target ||
-          previous.branch !== candidate.branch ||
-          previous.base !== candidate.base
-        )
-          return incomplete(
-            'conflicting-duplicate',
-            `Conflicting pull request observations for ${candidate.scope.target}`,
-          )
-        continue
-      }
-      identities.set(key, candidate)
-      found.push(candidate)
+      if (branch !== null && candidate.branch !== branch)
+        return incomplete('incomplete', `Pull request ${candidate.scope.target} does not match the requested branch`)
+      const problem = addCandidate(candidate, identities, found)
+      if (problem !== null) return incomplete(problem.code, problem.message)
     }
     return null
   }
   for (;;) {
-    const page = await readPullPage(owner, name, cursor, options)
+    const page = await readPullPage(owner, name, cursor, branch, options)
     if (!page.ok) return { ...page, partial: found }
     const invalid = collectPage(page.value.nodes)
     if (invalid !== null) return invalid
@@ -124,4 +147,25 @@ export async function enumeratePullRequests(repository: string, options: GitHubO
     seen.add(next)
     cursor = next
   }
+}
+
+/** Enumerate every distinct branch, retaining no ambiguous or partial result as complete. */
+export async function enumeratePullRequestsByBranch(
+  repository: string,
+  branches: readonly string[],
+  options: GitHubOptions,
+  readBranch: (branch: string) => Promise<Enumeration> = (branch) => enumeratePullRequests(repository, options, branch),
+): Promise<Enumeration> {
+  const found: Candidate[] = []
+  const identities = new Map<string, Candidate>()
+  for (const branch of new Set(branches)) {
+    if (branch.length === 0)
+      return { ok: false, diagnostics: [{ code: 'incomplete', message: 'Mandate branch is empty' }], partial: found }
+    const result = await readBranch(branch)
+    const values = result.ok ? result.value : 'partial' in result ? result.partial : []
+    const problem = collectCandidates(values, identities, found)
+    if (problem !== null) return { ok: false, diagnostics: [problem], partial: found }
+    if (!result.ok) return { ok: false, diagnostics: result.diagnostics, partial: found }
+  }
+  return { ok: true, value: found }
 }

@@ -66,7 +66,7 @@ it('observes unlinked candidates without turning factual seeds into dependency o
   const editedAt = '2026-10-21T00:00:00Z'
   const body = '## Acceptance\n- [ ] Save keeps the selected region'
   const fixture = createWorkflowFixtures({
-    productVersion: '0.16.0',
+    productVersion: '0.18.8',
     config: { version: 'fixture/1', digest: canonicalValueDigest({}), effective: {} },
     head: 'a'.repeat(40),
     editedAt,
@@ -149,7 +149,7 @@ it('refreshes an earlier managed UW after delivery discovers additional PR histo
   const earlierHead = 'b'.repeat(40)
   const currentHead = 'c'.repeat(40)
   const fixture = createWorkflowFixtures({
-    productVersion: '0.16.0',
+    productVersion: '0.18.8',
     config: { version: 'fixture/1', digest: canonicalValueDigest({}), effective: {} },
     head: base,
     editedAt,
@@ -183,12 +183,14 @@ it('refreshes an earlier managed UW after delivery discovers additional PR histo
         data: {
           repository: {
             pullRequests: page(
-              [11, 12].map((number) => ({
-                number,
-                headRefName: `feature/${number - 10}`,
-                baseRefName: 'main',
-                repository: { nameWithOwner: 'acme/app' },
-              })),
+              [11, 12]
+                .filter((number) => args.includes(`branch=feature/${number - 10}`))
+                .map((number) => ({
+                  number,
+                  headRefName: `feature/${number - 10}`,
+                  baseRefName: 'main',
+                  repository: { nameWithOwner: 'acme/app' },
+                })),
             ),
           },
         },

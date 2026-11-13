@@ -40,7 +40,10 @@ function reviewDeliveryGitResponse(args, repository) {
 function reviewDeliveryPullsResponse(args, fixture) {
   if (args[0] !== 'api' || args[1] !== 'graphql') return null
   const query = args.find((arg) => String(arg).startsWith('query='))
-  if (typeof query !== 'string' || !query.includes('pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED])'))
+  if (
+    typeof query !== 'string' ||
+    !query.includes('pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch)')
+  )
     return null
   const [owner, name] = fixture.repository.split('/')
   if (
@@ -49,18 +52,22 @@ function reviewDeliveryPullsResponse(args, fixture) {
     args.some((arg) => String(arg).startsWith('cursor='))
   )
     throw new Error('Unexpected fixture pull enumeration scope or cursor')
+  const branch = args.find((arg) => String(arg).startsWith('branch='))
   return JSON.stringify({
     data: {
       repository: {
         pullRequests: {
-          nodes: [
-            {
-              number: fixture.pr,
-              headRefName: 'feat/save',
-              baseRefName: 'main',
-              repository: { nameWithOwner: fixture.repository },
-            },
-          ],
+          nodes:
+            branch === undefined || branch === 'branch=feat/save'
+              ? [
+                  {
+                    number: fixture.pr,
+                    headRefName: 'feat/save',
+                    baseRefName: 'main',
+                    repository: { nameWithOwner: fixture.repository },
+                  },
+                ]
+              : [],
           pageInfo: { hasNextPage: false, endCursor: null },
         },
       },

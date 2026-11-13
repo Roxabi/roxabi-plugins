@@ -215,7 +215,7 @@ describe('workflow authority behavior', () => {
         payload: {
           control: 'select-successor',
           controlId: 'select-epic-parent-two',
-          mandate: { scope: PARENT, recordId: parentTwo.recordId, kind: 'mandate' },
+          mandate: parentOneRef,
           predecessor: parentOneRef,
           successor: { scope: PARENT, recordId: parentTwo.recordId, kind: 'mandate' },
         },

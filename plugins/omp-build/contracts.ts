@@ -164,11 +164,13 @@ export {
   type Verdict,
   verdictSchema,
 } from './engine/record-values.ts'
+export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
+export { bindingMatchesMandate, bindingPolicy } from './engine/workflow-binding-policy.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
 export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
@@ -182,7 +184,12 @@ export {
   recheckComposedAssessmentDelta,
   recheckComposedParentAcceptance,
 } from './engine/workflow-composed-material-preparation.ts'
-export { bindExternalRef, type MandateRecord, type PauseBinding } from './engine/workflow-control.ts'
+export {
+  bindExternalRef,
+  type MandateRecord,
+  type PauseBinding,
+  workflowOperationProblem,
+} from './engine/workflow-control.ts'
 export { assessFixMandate } from './engine/workflow-correction-admission.ts'
 export { buildFixOnlyMandate, type FixMandateAssessment } from './engine/workflow-correction-mandate.ts'
 export type { WorkflowCondition, WorkflowGraph, WorkflowGraphAction } from './engine/workflow-graph.ts'

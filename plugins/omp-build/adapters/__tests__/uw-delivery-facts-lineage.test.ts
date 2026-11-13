@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { actionInputDigest } from '../../engine/action-input.ts'
-import { buildRecord } from '../../engine/record-construction.ts'
+import { buildRecord, parseRecord } from '../../engine/record-construction.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { githubScope } from '../github/transport.ts'
 import { createUwDeliveryFactReader } from '../github-workflow/uw-delivery-facts.ts'
@@ -8,7 +8,13 @@ import { createUwDeliveryFactReader } from '../github-workflow/uw-delivery-facts
 const uw = githubScope('acme/app', 42)
 const pr = githubScope('acme/app', 77)
 const fixtures = roxabiWorkflowFixtures()
-const mandate = fixtures.featureMandate(uw, { branch: 'feature/42', base: 'main' })
+const legacy = fixtures.featureMandate(uw, { branch: 'feature/42', base: 'main' })
+const parsedMandate = parseRecord({
+  ...legacy,
+  payload: { ...legacy.payload, config: { ...legacy.payload.config, productVersion: '0.18.8' } },
+})
+if (!parsedMandate.ok || parsedMandate.value.kind !== 'mandate') throw new Error('invalid bounded mandate fixture')
+const mandate = parsedMandate.value
 const start = fixtures.implementStart(mandate)
 const original = fixtures.rejectedImplementResult(mandate)
 const actionManifest = {
