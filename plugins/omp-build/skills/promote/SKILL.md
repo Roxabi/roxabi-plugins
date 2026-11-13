@@ -357,6 +357,8 @@ Display PR URL (`$PR_URL`).
 Promotion PR created: {URL}
 
 ⚠️  MERGE WITH MERGE COMMIT (not squash) — see ## Merge method.
+Frozen staging SHA: {SHA}
+Before merge: confirm staging still points to {SHA}; if it moved, return to Step 4b.
 
 After merge:
   1. Follow the repository's authorized production deployment procedure
@@ -608,7 +610,7 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 ## Safety Rules
 
 1. ¬force-push to μ ∨ σ
-2. Promotion PR: ¬auto-merge — user merges after review (merge commit). Changelog PR (Step 6b): `--auto --merge` via required checks
+2. Candidate publication follows repository authorization and protections (Step 4b). Never auto-merge the promotion PR; the user merges the reviewed SHA after green CI.
 3. Always show changelog before creating PR
 4. Always check CI before promoting
 5. Always warn about open PRs on σ
