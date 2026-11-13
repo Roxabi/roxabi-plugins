@@ -173,14 +173,6 @@ function findBoundary(
 export function deliveryCoverage(home: DecodedHistory): DeliveryCoverage {
   if (workflowOperationProblem(home) !== null) return refused('UW home history is incomplete or ambiguous')
   const operations = home.operations.filter((operation) => operation.authority !== 'foreign')
-  if (
-    home.operations.some(
-      (operation) =>
-        operation.authority === 'foreign' &&
-        (operation.kind === 'mandate' || operation.claimedKinds.includes('mandate')),
-    )
-  )
-    return refused('UW home has an untrusted mandate claim')
   const collected = collectMandates(home, operations)
   if (!collected.ok) return collected
   const mandates = collected.mandates

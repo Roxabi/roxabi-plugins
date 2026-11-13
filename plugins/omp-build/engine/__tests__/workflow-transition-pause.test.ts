@@ -167,7 +167,7 @@ describe('workflow transition pause behavior', () => {
           control: 'select-successor',
           controlId: 'select-successor',
           predecessor: { scope: SCOPE, recordId: antecedent.recordId, kind: 'mandate' },
-          mandate: { scope: SCOPE, recordId: successor.recordId, kind: 'mandate' },
+          mandate: { scope: SCOPE, recordId: antecedent.recordId, kind: 'mandate' },
           successor: { scope: SCOPE, recordId: successor.recordId, kind: 'mandate' },
         },
       }),

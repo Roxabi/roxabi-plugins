@@ -390,6 +390,8 @@ For new-policy bindings, publication and selection require a non-null mandate br
 
 The first succession of an uncovered legacy history retains both exhaustive repository-wide observations, including all old mandates in the UW home, not just the selected lineage. It can therefore remain expensive. A genuine successful new-policy successor control can bound a fully observed old prefix; an incomplete prefix or an old mandate added after that boundary refuses explicitly. Ordinary reads do not silently launch a global fallback scan, and a version or cache alone does not prove historical absence.
 
+Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions.
+
 A create input has this shape; coordinates and content here are fictional:
 
 ```json

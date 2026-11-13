@@ -23,6 +23,57 @@ function singleNativeStartParts(wire: ReturnType<typeof encodeParts>) {
   return wire.value
 }
 
+async function expectEditedWorkRefused(
+  {
+    world,
+    scenario,
+    confirmations,
+  }: Pick<Parameters<Parameters<typeof inWorld>[0]>[0], 'world' | 'scenario' | 'confirmations'>,
+  recordId: string,
+  nativeId: string,
+  editedBody: string,
+) {
+  const after = await world.operations.readUw(scenario.leaf)
+  expect(after.observation).toMatchObject({
+    status: 'incomplete',
+    diagnostics: [
+      expect.objectContaining({
+        code: 'legacy-coverage-incomplete',
+        message: 'UW home history is incomplete or ambiguous',
+      }),
+    ],
+  })
+  const home = after.observation.histories.find((item) => item.source.scope.target === scenario.leaf.target)
+  if (!home) throw new Error('Edited native history is missing')
+  expect(home.source.comments.find((comment) => comment.nativeId === nativeId)?.body).toBe(editedBody)
+  expect(home.operations.find((operation) => operation.recordId === recordId)).toMatchObject({ status: 'invalid' })
+  expect(home.diagnostics).toContainEqual(
+    expect.objectContaining({ code: 'record-edited', message: expect.stringContaining(recordId) }),
+  )
+  const confirmationCount = confirmations()
+  const result = await continueFeature({
+    cwd: world.cwd,
+    reference: '202',
+    control: 'continue',
+    principal: false,
+    git: world.git,
+    gh: world.gh,
+    uw: world.operations,
+  })
+  expect(result, JSON.stringify(result)).toMatchObject({
+    kind: 'blocked',
+    reason: 'fix-own-uw-unsettled',
+    diagnostics: expect.arrayContaining([
+      expect.objectContaining({ message: expect.stringContaining('legacy-coverage-incomplete') }),
+    ]),
+  })
+  expect(confirmations()).toBe(confirmationCount)
+  const reread = await world.operations.readUw(scenario.leaf)
+  expect(reread.observation.histories.map((item) => item.source)).toEqual(
+    after.observation.histories.map((item) => item.source),
+  )
+}
+
 describe('captured work during material assessment', () => {
   test('accounts for actual completed plan and both independently captured specialist reviews', async () => {
     await inWorld(async ({ world, scenario, git }) => {
@@ -372,7 +423,7 @@ describe('captured work during material assessment', () => {
   test.each(['child', 'raw-submission', 'slot-action'] as const)(
     'holds after the actual published specialist witness loses its %s binding',
     async (change) => {
-      await inWorld(async ({ world, scenario, git }) => {
+      await inWorld(async ({ world, scenario, git, confirmations }) => {
         const ctx = {
           world,
           git,
@@ -393,6 +444,7 @@ describe('captured work during material assessment', () => {
           const { action: _action, ...host } = contribution.host
           return { ...contribution, host }
         })
+        expect(contributions).not.toEqual(original.payload.contributions)
         const edited = buildRecord({ ...original, payload: { ...original.payload, contributions } })
         if (!edited.ok)
           throw new Error(`Edited specialist witness is not canonical: ${JSON.stringify(edited.diagnostics)}`)
@@ -432,8 +484,10 @@ describe('captured work during material assessment', () => {
           }
         }
         await replaceNativeComments()
-        const after = await world.operations.readUw(scenario.leaf)
-        expect(inspectCapturedWorkForAssessment(evidence(after, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+        const nativeId = operation.parts[0]?.nativeId
+        const editedBody = bodies[0]
+        if (!nativeId || editedBody === undefined) throw new Error('Edited native review part is missing')
+        await expectEditedWorkRefused({ world, scenario, confirmations }, original.recordId, nativeId, editedBody)
       })
     },
   )
@@ -441,7 +495,7 @@ describe('captured work during material assessment', () => {
   test.each(['code', 'inherited-constraint', 'accepted-source'] as const)(
     'refuses a native START whose %s was edited after its paired result was published',
     async (change) => {
-      await inWorld(async ({ world, scenario, git }) => {
+      await inWorld(async ({ world, scenario, git, confirmations }) => {
         const ctx = {
           world,
           git,
@@ -502,6 +556,7 @@ describe('captured work during material assessment', () => {
                 }
         }
         const manifest = changedManifest()
+        expect(manifest).not.toEqual(previous.manifest)
         const edited = buildRecord({
           ...actualStart,
           payload: {
@@ -518,8 +573,7 @@ describe('captured work during material assessment', () => {
         const encoded = parts[0]
         if (encoded === undefined) throw new Error('Expected one canonical edited native comment')
         world.editComment(scenario.leaf, nativeId, encoded, '2026-10-29T12:00:00Z')
-        const after = await world.operations.readUw(scenario.leaf)
-        expect(inspectCapturedWorkForAssessment(evidence(after, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+        await expectEditedWorkRefused({ world, scenario, confirmations }, actualStart.recordId, nativeId, encoded)
       })
     },
   )

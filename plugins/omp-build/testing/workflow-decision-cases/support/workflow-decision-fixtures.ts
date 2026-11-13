@@ -1,17 +1,19 @@
+import { createHash } from 'node:crypto'
 import { decodeHistory } from '../../../adapters/github/history-codec.ts'
 import { canonicalValueDigest } from '../../../engine/action-input.ts'
 import type { ActionInputs } from '../../../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../../engine/record-schema.ts'
-import type { Json, Scope } from '../../../engine/record-values.ts'
+import type { Scope } from '../../../engine/record-values.ts'
 import { resolveSpecEffective } from '../../../engine/spec-effective.ts'
 import type { SpecEffective } from '../../../engine/spec-effective-schema.ts'
 import { resolveAcceptedSpec } from '../../../engine/workflow-accepted-spec.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
+import type { WorkflowGraph } from '../../../engine/workflow-graph.ts'
 import type { PlanOutput } from '../../../engine/workflow-output-schema.ts'
 import type { WorkflowFacts } from '../../../engine/workflow-reconstruction-types.ts'
 import { pinAcceptedSources } from '../../../roxabi/uw-action-observe.ts'
-import { workflowConfigDigest } from '../../../roxabi/workflow-config-digest.ts'
+import { canonicalJson, configPinDigest, effectiveWorkflowConfig } from '../../../roxabi/workflow-config-digest.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
 
 const WORKFLOW_FIXTURES = roxabiWorkflowFixtures()
@@ -39,7 +41,7 @@ export function blank(scope: Scope = SCOPE): DecodedHistory {
   })
 }
 
-export function nodeGraph(action: 'implement' | 'stop' | 'fix' | 'review'): Json {
+export function nodeGraph(action: 'implement' | 'stop' | 'fix' | 'review'): WorkflowGraph {
   const { config } = fixtureConfig()
   return {
     version: 1,
@@ -57,7 +59,15 @@ export function nodeGraph(action: 'implement' | 'stop' | 'fix' | 'review'): Json
 
 export function graphConfig(action: 'implement' | 'stop' | 'fix' | 'review') {
   const { config } = fixtureConfig()
-  return { version: config.version, digest: workflowConfigDigest(), effective: { graph: nodeGraph(action) } }
+  const graph = nodeGraph(action)
+  const effective = {
+    ...effectiveWorkflowConfig(config.productVersion, []),
+    graph,
+    graphDigest: createHash('sha256')
+      .update(canonicalJson({ version: graph.configVersion, nodes: graph.nodes, edges: graph.edges }))
+      .digest('hex'),
+  }
+  return { version: config.version, digest: configPinDigest(effective), effective }
 }
 
 export function decisions(reviewStep: 'stop' | null = null, ciWatchStatus: 'green' | null = null) {

@@ -16,6 +16,7 @@ const { epicControlTarget } = vi.hoisted(() => ({ epicControlTarget: vi.fn() }))
 
 vi.mock('../skills/feature/epic-driver.ts', () => ({ epicControlTarget }))
 
+import { legacyFixtures } from './__tests__/uw-successor-selection-support.ts'
 import { disarmBranchBeforePush, disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 
 type Gate = { reviewed: boolean; autoMerge: boolean }
@@ -182,7 +183,8 @@ function featureAuthority() {
 function epicAuthority() {
   const fixtures = roxabiWorkflowFixtures()
   const child = fixtures.childSnapshot(contracts.githubScope('acme/app', 43), '## Acceptance\n- [ ] Deliver the child')
-  const mandate = fixtures.epicMandate(target.scope, [child], { recordId: 'mandate-42' })
+  // This branchless Parent binding is a historical association, not a newly admitted binding.
+  const mandate = legacyFixtures.epicMandate(target.scope, [child], { recordId: 'mandate-42' })
   const mandateHistory = fixtures.historyFrom([mandate])
   const prScope = contracts.githubScope('acme/app', 9)
   const binding = fixtures.workflowBinding(prScope, mandate, 'epic/42', 'main')

@@ -119,7 +119,11 @@ export function successorControl(
       payload: {
         control: 'select-successor',
         controlId: recordId,
-        mandate: successorRef,
+        mandate: {
+          scope: { repository: predecessor.repository, target: predecessor.target },
+          recordId: predecessor.recordId,
+          kind: 'mandate',
+        },
         predecessor: {
           scope: { repository: predecessor.repository, target: predecessor.target },
           recordId: predecessor.recordId,

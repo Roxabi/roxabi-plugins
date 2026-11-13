@@ -41,6 +41,7 @@ import {
   strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
 import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
+import { addForeignMandateClaim } from './testing/epic-driver/epic-driver-serve.ts'
 
 afterEach(cleanupSandbox)
 
@@ -260,6 +261,18 @@ describe('epic-driver — accepted child containment after topology drift', () =
     expect(run.json()).toMatchObject({ failed: [] })
   })
 
+  it.each(([1, 2] as const).flatMap((home) => (['legacy', 'copy'] as const).map((claim) => ({ home, claim }))))(
+    'control-disarm contains the accepted child despite foreign $claim on home $home',
+    ({ home, claim }) => {
+      prepareArmedChild('none')
+      addForeignMandateClaim(home, claim)
+      const run = drive(['control-disarm'])
+      expect(run.code, run.stderr).toBe(0)
+      expect(run.json()).toMatchObject({ failed: [] })
+      expectDisarmed()
+    },
+  )
+
   it.each(['control', 'drop'])('%s cannot claim clean containment after the child mandate was edited', (action) => {
     prepareArmedChild('removed')
     clearIssuePrLinks()
@@ -372,7 +385,7 @@ describe('epic-driver — accepted child containment after topology drift', () =
   })
 })
 
-function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent' | 'epic'): void {
+function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent'): void {
   const { epic, state } = sandbox()
   const branch = 'feat/1-own-work'
   git(epic, 'switch', '-q', '-c', branch, 'refs/remotes/origin/main')
@@ -398,7 +411,7 @@ function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent' | 'epic'): void {
     run: RUN,
   }
   const epicMandate = fixtures.epicMandate(rootScope, children, options)
-  const mandate = role === 'epic' ? epicMandate : fixtures.featureMandate(rootScope, options)
+  const mandate = fixtures.featureMandate(rootScope, options)
   const records: CanonicalRecord[] = [mandate]
   if (role === 'accepted-parent') {
     const initial = mandateAssessmentState(mandate)
@@ -420,7 +433,7 @@ function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent' | 'epic'): void {
   const rootHistory = fixtures.historyFrom(records, ME, ME)
   const accepted = resolveAcceptedSpec(mandate, [rootHistory])
   if (!accepted.ok) throw new Error(`root acceptance refused: ${accepted.reason}`)
-  expect(mandate.payload.role).toBe(role === 'epic' ? 'epic' : 'feature')
+  expect(mandate.payload.role).toBe('feature')
   expect(effectiveMandateRole(mandate.payload.role, accepted.spec)).toBe(role === 'leaf' ? 'feature' : 'epic')
   expect(accepted.spec.children).toHaveLength(role === 'leaf' ? 0 : 1)
 
@@ -489,13 +502,43 @@ describe('epic-driver — own bound PR containment', () => {
       )
   })
 
-  it('control-disarm contains an own PR bound to an original epic mandate', () => {
-    prepareArmedOwnPr('epic')
+  it('control-disarm contains an own PR bound before its mandate accepted children', () => {
+    prepareArmedOwnPr('accepted-parent')
     const run = drive(['control-disarm'])
     expect(run.code, run.stderr).toBe(0)
     expect(run.json()).toMatchObject({ failed: [] })
     expectDisarmed()
   })
+
+  it.each(['legacy', 'copy'] as const)('control-disarm contains the own PR despite a foreign %s claim', (claim) => {
+    prepareArmedOwnPr('accepted-parent')
+    addForeignMandateClaim(1, claim)
+    const run = drive(['control-disarm'])
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({ failed: [] })
+    expectDisarmed()
+  })
+
+  it.each(['leaf', 'accepted-parent'] as const)(
+    'control-disarm refuses an edited %s home without disarming',
+    (role) => {
+      prepareArmedOwnPr(role)
+      const file = path.join(sandboxOf().state, 'comments-1.json')
+      const comments = JSON.parse(readFileSync(file, 'utf8'))
+      const mandate = comments.find((entry: { body: string }) => entry.body.includes('kind=mandate '))
+      if (!mandate) throw new Error('missing root mandate fixture')
+      mandate.updated_at = '2026-10-21T10:00:01Z'
+      writeFileSync(file, JSON.stringify(comments))
+
+      const run = drive(['control-disarm'])
+      expect(run.code).not.toBe(0)
+      const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
+      expect(pr.autoMergeRequest).not.toBeNull()
+      expect(pr.labels).toContainEqual({ name: 'reviewed' })
+      expect(writes().filter((entry) => entry.startsWith('merge 11 ') || entry.startsWith('edit 11 '))).toEqual([])
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(comments)
+    },
+  )
 })
 
 async function prepareFinalReview(blocking: boolean): Promise<string> {

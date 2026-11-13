@@ -1,4 +1,4 @@
-import { nativeNumber, nativePage, nativeReference } from './native-implementation-transport-graph.ts'
+import { nativeNumber, nativeReference } from './native-implementation-transport-graph.ts'
 import type { NativeWorldFacts } from './native-implementation-world.ts'
 
 type Pull = NativeWorldFacts['pullRequests'][number]
@@ -40,12 +40,47 @@ function branchPullResponse(args: readonly string[], repository: string, pulls: 
   )
 }
 
+function graphPullResponse(args: readonly string[], repository: string, pulls: Map<string, Pull>): string | undefined {
+  const query =
+    'query=query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}'
+  if (args[0] !== 'api' || args[1] !== 'graphql' || args[3] !== query) return undefined
+  const variables = new Map<string, string>()
+  for (let index = 4; index < args.length; index += 2) {
+    if (args[index] !== '-f') throw new Error('Invalid pull enumeration variable')
+    const value = args[index + 1]
+    if (value === undefined || !value.includes('=')) throw new Error('Invalid pull enumeration variable')
+    const split = value.indexOf('=')
+    variables.set(value.slice(0, split), value.slice(split + 1))
+  }
+  const [owner, name] = repository.split('/')
+  if (variables.get('owner') !== owner || variables.get('name') !== name)
+    throw new Error('Undeclared pull enumeration repository')
+  const branch = variables.get('branch')
+  const cursor = variables.get('cursor')
+  if (cursor !== undefined && !/^[1-9]\d*$/.test(cursor)) throw new Error('Invalid pull enumeration cursor')
+  const offset = cursor === undefined ? 0 : Number(cursor)
+  const matching = [...pulls.values()]
+    .filter((pull) => pull.scope.repository === repository && (branch === undefined || pull.branch === branch))
+    .map((pull) => ({ ...nativeReference(pull.scope), headRefName: pull.branch, baseRefName: pull.base }))
+  const end = offset + 100
+  const hasNextPage = end < matching.length
+  return JSON.stringify({
+    data: {
+      repository: {
+        pullRequests: {
+          nodes: matching.slice(offset, end),
+          pageInfo: { hasNextPage, endCursor: hasNextPage ? String(end) : null },
+        },
+      },
+    },
+  })
+}
+
 export function nativePullResponse(
   args: readonly string[],
   repository: string,
   pulls: Map<string, Pull>,
 ): string | undefined {
-  const [owner, name] = repository.split('/')
   const branch = branchPullResponse(args, repository, pulls)
   if (branch !== undefined) return branch
   if (
@@ -68,32 +103,8 @@ export function nativePullResponse(
         .filter((pull) => pull.scope.repository === repository && pull.branch === args[5] && pull.base === args[7])
         .map((pull) => ({ number: nativeNumber(pull.scope), isCrossRepository: false, state: pull.state })),
     )
-  const pullsQuery =
-    'query=query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}'
-  if (
-    args.length === 8 &&
-    args[0] === 'api' &&
-    args[1] === 'graphql' &&
-    args[2] === '-f' &&
-    args[3] === pullsQuery &&
-    args[4] === '-f' &&
-    args[5] === `owner=${owner}` &&
-    args[6] === '-f' &&
-    args[7] === `name=${name}`
-  )
-    return JSON.stringify({
-      data: {
-        repository: {
-          pullRequests: nativePage(
-            [...pulls.values()].map((pull) => ({
-              ...nativeReference(pull.scope),
-              headRefName: pull.branch,
-              baseRefName: pull.base,
-            })),
-          ),
-        },
-      },
-    })
+  const graph = graphPullResponse(args, repository, pulls)
+  if (graph !== undefined) return graph
   if (args[0] === 'pr' && args[1] === 'view') {
     const target = `${args[4]}#${args[2]}`
     const pull = pulls.get(target)

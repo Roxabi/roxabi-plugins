@@ -23413,8 +23413,6 @@ function deliveryCoverage(home) {
   if (workflowOperationProblem(home) !== null)
     return refused2("UW home history is incomplete or ambiguous");
   const operations = home.operations.filter((operation) => operation.authority !== "foreign");
-  if (home.operations.some((operation) => operation.authority === "foreign" && (operation.kind === "mandate" || operation.claimedKinds.includes("mandate"))))
-    return refused2("UW home has an untrusted mandate claim");
   const collected = collectMandates(home, operations);
   if (!collected.ok)
     return collected;

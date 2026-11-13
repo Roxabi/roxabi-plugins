@@ -167,6 +167,64 @@ it('keeps the completion cut complete and scoped to the current UW', async () =>
   expect(scopes).not.toContainEqual(other)
 })
 
+it.each(['legacy', 'copy'] as const)('ordinary delivery ignores a foreign %s mandate claim', async (claim) => {
+  const { pages, options } = setup()
+  const home = pages.get(1)
+  if (!home) throw new Error('missing home fixture')
+  const bodies = claim === 'legacy' ? ['<!-- omp-build:mandate -->'] : fixture.framedBodies([current], 'operator')
+  pages.set(1, [...home, ...bodies.map((body, index) => comment(body, 1000 + index, 'intruder'))])
+  const observation = await readUwCompletionObservation(root, options, async () => createReviewClassCatalogues([]))
+  expect(observation).toMatchObject({
+    status: 'complete',
+    delivery: [{ uw: root, pullRequests: [{ pullRequest: relevantPr }] }],
+  })
+})
+
+it('does not let an intruder modern mandate cover a legacy home', async () => {
+  const { pages, options } = setup([11], true)
+  const home = pages.get(1)
+  if (!home) throw new Error('missing home fixture')
+  const bodies = fixture.framedBodies([current], 'operator')
+  pages.set(1, [...home, ...bodies.map((body, index) => comment(body, 1000 + index, 'intruder'))])
+  const catalogues = async () => createReviewClassCatalogues([])
+  const ordinary = await readUwCompletionObservation(root, options, catalogues)
+  expect(ordinary).toMatchObject({
+    status: 'incomplete',
+    diagnostics: expect.arrayContaining([
+      expect.objectContaining({
+        code: 'legacy-coverage-incomplete',
+        message: 'Legacy UW history requires explicit succession observation',
+      }),
+    ]),
+  })
+})
+
+it.each(['partial', 'unknown-version'] as const)(
+  'does not hide a trusted %s mandate behind a foreign claim',
+  async (damage) => {
+    const { pages, options } = setup()
+    const home = pages.get(1)
+    if (!home) throw new Error('missing home fixture')
+    if (damage === 'partial') {
+      const part = home.find((entry) => entry.body.includes('kind=mandate '))
+      if (!part) throw new Error('missing mandate part')
+      part.body = part.body.replace('part=1/1', 'part=1/2')
+    } else {
+      const future = parseRecord({
+        ...current,
+        payload: { ...current.payload, config: { ...current.payload.config, productVersion: '0.19.0' } },
+      })
+      if (!future.ok) throw new Error('invalid future-version fixture')
+      pages.set(1, comments(fixture.framedBodies([future.value], 'operator')))
+    }
+    const trusted = pages.get(1)
+    if (!trusted) throw new Error('missing damaged home fixture')
+    pages.set(1, [...trusted, comment('<!-- omp-build:mandate -->', 1000, 'intruder')])
+    const observation = await readUwCompletionObservation(root, options, async () => createReviewClassCatalogues([]))
+    expect(observation).toMatchObject({ status: 'incomplete' })
+  },
+)
+
 it('refuses a retargeted bound PR through the branch-filtered delivery observation', async () => {
   const { options, requests } = setup([12, 11])
   const gh = options.gh

@@ -58,7 +58,7 @@ export function nativeGitHub(seed: Record<number, Partial<Issue>> = {}) {
         return JSON.stringify({ data: { addBlockedBy: {} } })
       })
     }
-    if (query.includes('pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED])'))
+    if (query.includes('pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch)'))
       return JSON.stringify({ data: { repository: { pullRequests: page([]) } } })
     const number = Number(field(args, 'number'))
     const issue = known(number)

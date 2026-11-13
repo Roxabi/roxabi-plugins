@@ -1,12 +1,29 @@
 import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
+import { configPinDigest, effectiveWorkflowConfig } from '../../roxabi/workflow-config-digest.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { deliveryCoverage } from '../uw-delivery-coverage.ts'
 import { bindExternalRef } from '../workflow-control.ts'
 import { featureMandate, history, must, SCOPE } from './workflow-test-support.ts'
 
-const original = featureMandate()
+const current = featureMandate()
+const legacyEffective = effectiveWorkflowConfig('0.18.7', [])
+const original = must(
+  parseRecord({
+    ...current,
+    payload: {
+      ...current.payload,
+      config: {
+        ...current.payload.config,
+        productVersion: '0.18.7',
+        digest: configPinDigest(legacyEffective),
+        effective: legacyEffective,
+      },
+    },
+  }),
+)
+if (original.kind !== 'mandate') throw new Error('Expected legacy mandate fixture')
 const ref = { scope: SCOPE, recordId: original.recordId, kind: 'mandate' as const }
 const next = must(
   parseRecord({
@@ -14,7 +31,7 @@ const next = must(
     recordId: 'next',
     operationId: 'next-op',
     inputs: [...original.inputs, ref.recordId],
-    payload: { ...original.payload, antecedent: ref, config: { ...original.payload.config, productVersion: '0.18.8' } },
+    payload: { ...original.payload, antecedent: ref, config: current.payload.config },
   }),
 )
 if (next.kind !== 'mandate') throw new Error('Expected successor mandate fixture')
@@ -36,6 +53,14 @@ const control = must(
   }),
 )
 
+test('current synthetic mandate declares bounded coverage on its own branch', () => {
+  expect(deliveryCoverage(history([current]))).toEqual({
+    ok: true,
+    uncovered: false,
+    branches: ['feature/bounded'],
+  })
+})
+
 test('requires a new-policy successor control to cover legacy home history', () => {
   expect(deliveryCoverage(history([original]))).toMatchObject({ ok: true, uncovered: true })
   expect(deliveryCoverage(history([original, next, control]))).toMatchObject({
@@ -49,7 +74,7 @@ test('a legacy successor control cannot establish the new coverage boundary', ()
   const oldNext = must(
     parseRecord({
       ...next,
-      payload: { ...next.payload, config: { ...next.payload.config, productVersion: '0.18.7' } },
+      payload: { ...next.payload, config: original.payload.config },
     }),
   )
   expect(deliveryCoverage(history([original, oldNext, control]))).toMatchObject({ ok: true, uncovered: true })

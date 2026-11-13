@@ -2,7 +2,9 @@ import { expect, it } from 'vitest'
 import { featureMandate, history, must, SCOPE } from '../../engine/__tests__/workflow-test-support.ts'
 import { buildRecord, parseRecord } from '../../engine/record-construction.ts'
 import type { Scope } from '../../engine/record-values.ts'
+import { configPinDigest, effectiveWorkflowConfig } from '../../roxabi/workflow-config-digest.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import { createUwDeliveryFactReader } from '../github-workflow/uw-delivery-facts.ts'
 
 it('ordinary reads explicitly refuse uncovered legacy history without a repository scan', async () => {
@@ -14,7 +16,16 @@ it('ordinary reads explicitly refuse uncovered legacy history without a reposito
       throw new Error('unexpected native read')
     },
   })
-  const result = await reader.read(SCOPE, [history([featureMandate()])])
+  const productVersion = '0.18.7'
+  const effective = effectiveWorkflowConfig(productVersion, [])
+  const legacyFixtures = createWorkflowFixtures({
+    productVersion,
+    config: { version: effective.compatibility, digest: configPinDigest(effective), effective },
+    head: null,
+    editedAt: '2026-10-21T00:00:00Z',
+  })
+  const legacy = legacyFixtures.featureMandate(SCOPE, { branch: 'feature/bounded', base: 'main' })
+  const result = await reader.read(SCOPE, [history([legacy])])
   expect(result).toMatchObject({ ok: false, diagnostics: [{ code: 'legacy-coverage-incomplete' }] })
   expect(calls).toEqual([])
 })
