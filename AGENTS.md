@@ -62,7 +62,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 - **Source of truth** = active repo source: `plugins/<plugin-name>/`. `archived/` is inert historical source, never an execution or installation target.
 - **Never edit cache only** — changes lost on plugin update/reinstall.
-- **Workflow:** edit an active catalogued plugin → commit + push → reinstall that plugin to refresh the local cache.
+- **Workflow:** edit and verify an active catalogued plugin locally. Commit, push, or publish only when authorized; existing authorization suffices. To install published changes, reinstall that plugin to refresh the local cache.
 - **Versioning:** OMP catalogued plugins declare matching `package.json` and `.omp-plugin/marketplace.json` versions. Bump both together.
 
 ## Style
