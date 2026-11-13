@@ -13,7 +13,7 @@ import {
   type WorkflowBindingRecord,
   workflowOperationProblem,
 } from './workflow-control.ts'
-import { selectWorkflowBindingCandidate, selectWorkflowBindingClaims } from './workflow-pr-binding-chain.ts'
+import { selectWorkflowBindingCandidate } from './workflow-pr-binding-chain.ts'
 
 export function confirmedAccountedMandate(history: DecodedHistory, ref: ExternalRecordRef): MandateRecord | null {
   const matches = history.operations.filter(
@@ -74,9 +74,7 @@ export function selectWorkflowBinding(input: {
 }): WorkflowBindingSelection {
   const chained = selectWorkflowBindingCandidate(input)
   if (chained.status !== 'bound') return chained
-  const claims = selectWorkflowBindingClaims(input)
-  if (!Array.isArray(claims)) return claims
-  const claimsProblem = validateBindingClaims(claims, input.histories)
+  const claimsProblem = validateBindingClaims(chained.claims, input.histories)
   if (claimsProblem !== null) return claimsProblem
   const home = historyFor(chained.binding.payload.mandate.scope, input.histories)
   if (home === null || !home.source.complete) {

@@ -8,7 +8,7 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { resolveFeatureAuthority } from '../feature-continuation-admission.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
 import { abandonedParent } from './uw-successor-parent-fixtures.ts'
-import { abandon, abandonedLeaf, branch, scope, selectNew } from './uw-successor-selection-support.ts'
+import { abandon, abandonedLeaf, branch, retryNew, scope, selectNew } from './uw-successor-selection-support.ts'
 
 const bootstrap = vi.hoisted(() => ({ after: async () => {} }))
 vi.mock('../workflow-checkout.ts', async (importOriginal) => ({
@@ -210,6 +210,17 @@ test('failed successor control publication never appends a PR binding', async ()
       .map((operation) => operation.record?.payload),
   ).not.toContainEqual(expect.objectContaining({ control: 'select-successor' }))
   expect(subject.native.comments.get(70)?.map((comment) => comment.body)).toEqual(previous)
+  const issueBeforeRetry = subject.native.comments.get(41)?.map((comment) => comment.body)
+  subject.github.hooks.rejectControl = false
+  const retry = await retryNew(subject)
+  expect(retry).toMatchObject({ kind: 'blocked', reason: 'fix-own-uw-unsettled' })
+  expect(subject.native.comments.get(41)?.map((comment) => comment.body)).toEqual(issueBeforeRetry)
+  expect(subject.native.comments.get(70)?.map((comment) => comment.body)).toEqual(previous)
+  const readback = await subject.reader.readUw(scope)
+  expect(readback.observation).toMatchObject({
+    status: 'incomplete',
+    diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'legacy-coverage-incomplete' })]),
+  })
 })
 
 test('ordinary PR conversation after preparation does not invalidate authenticated binding facts', async () => {

@@ -5,7 +5,7 @@ import { createUwDeliveryFactReader, selectWorkflowBinding } from '../../dist/co
 import { parseRecord } from '../../engine/record-construction.ts'
 import { bindExternalRef } from '../../engine/workflow-control.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { abandonedLeaf, branch, scope, selectNew } from './uw-successor-selection-support.ts'
+import { abandonedLeaf, branch, retryNew, scope, selectNew } from './uw-successor-selection-support.ts'
 
 const bootstrap = vi.hoisted(() => ({ after: async () => {} }))
 vi.mock('../workflow-checkout.ts', async (importOriginal) => ({
@@ -217,6 +217,32 @@ test('interruption after control does not turn the predecessor binding into a co
   })
   expect(
     selectWorkflowBinding({ pullRequest: pull, histories: after.histories, native: { branch, base: 'main' } }),
+  ).toMatchObject({
+    status: 'incomplete',
+    diagnostics: [{ code: 'unconfirmed', message: 'Authorized successor has no workflow-binding on this PR' }],
+  })
+  const issueBeforeRetry = subject.native.comments.get(41)?.map((comment) => comment.body)
+  const pullBeforeRetry = subject.native.comments.get(70)?.map((comment) => comment.body)
+  const existing = subject.github.pulls.get(70)
+  if (!existing) throw new Error('Missing interrupted pull request')
+  existing.state = 'OPEN'
+  subject.github.hooks.afterComment = () => {}
+  const retry = await retryNew(subject)
+  expect(retry).toMatchObject({ kind: 'blocked', reason: 'fix-own-uw-unsettled' })
+  expect(subject.native.comments.get(41)?.map((comment) => comment.body)).toEqual(issueBeforeRetry)
+  expect(subject.native.comments.get(70)?.map((comment) => comment.body)).toEqual(pullBeforeRetry)
+  const retried = await subject.reader.readUw(scope)
+  expect(retried.observation).toMatchObject({
+    status: 'incomplete',
+    diagnostics: expect.arrayContaining([
+      expect.objectContaining({
+        code: 'unconfirmed',
+        message: 'Authorized successor has no workflow-binding on this PR',
+      }),
+    ]),
+  })
+  expect(
+    selectWorkflowBinding({ pullRequest: pull, histories: retried.histories, native: { branch, base: 'main' } }),
   ).toMatchObject({
     status: 'incomplete',
     diagnostics: [{ code: 'unconfirmed', message: 'Authorized successor has no workflow-binding on this PR' }],

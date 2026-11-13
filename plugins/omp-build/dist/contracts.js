@@ -14396,7 +14396,8 @@ function selectWorkflowBindingCandidate(input) {
   const records = selectWorkflowBindingClaims(input);
   if (!Array.isArray(records))
     return records;
-  return resolveBindingChain(records, input.histories);
+  const candidate = resolveBindingChain(records, input.histories);
+  return candidate.status === "bound" ? { ...candidate, claims: records } : candidate;
 }
 
 // plugins/omp-build/engine/workflow-pr-binding.ts
@@ -14435,10 +14436,7 @@ function selectWorkflowBinding(input) {
   const chained = selectWorkflowBindingCandidate(input);
   if (chained.status !== "bound")
     return chained;
-  const claims = selectWorkflowBindingClaims(input);
-  if (!Array.isArray(claims))
-    return claims;
-  const claimsProblem = validateBindingClaims(claims, input.histories);
+  const claimsProblem = validateBindingClaims(chained.claims, input.histories);
   if (claimsProblem !== null)
     return claimsProblem;
   const home = historyFor(chained.binding.payload.mandate.scope, input.histories);

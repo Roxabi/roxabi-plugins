@@ -44,8 +44,6 @@ export async function prepareSuccessorBinding(
   if (discovered.number === null || scope === null) return { ok: true, plan: { kind: 'absent', number: null } }
   const facts = await readBindingFacts(context, discovered.number, scope)
   if (!facts.ok) return facts
-  if (context.branch === null || facts.native.branch !== context.branch || facts.native.base !== context.base)
-    return { ok: false, reason: 'mandate-metadata-mismatch' }
   const prior = observed[0]
   if (prior !== undefined && !matchesObserved(prior, facts.native))
     return { ok: false, reason: 'successor-binding-observation-changed' }

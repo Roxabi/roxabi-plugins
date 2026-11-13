@@ -247,8 +247,14 @@ export function selectWorkflowBindingClaims(input: BindingInput): BindingClaims 
   return recordsForClaims(claims, input)
 }
 
-export function selectWorkflowBindingCandidate(input: BindingInput): BindingCandidate {
+export function selectWorkflowBindingCandidate(
+  input: BindingInput,
+):
+  | BindingRefusal
+  | { status: 'absent' }
+  | { status: 'bound'; binding: WorkflowBindingRecord; claims: WorkflowBindingRecord[] } {
   const records = selectWorkflowBindingClaims(input)
   if (!Array.isArray(records)) return records
-  return resolveBindingChain(records, input.histories)
+  const candidate = resolveBindingChain(records, input.histories)
+  return candidate.status === 'bound' ? { ...candidate, claims: records } : candidate
 }

@@ -238,6 +238,22 @@ export async function selectNew(subject: Awaited<ReturnType<typeof selectionWorl
   return selectFeatureMandate('new', undefined, subject.resolution, undefined, subject.reader)
 }
 
+/** Retry through a new public authority read, never the pre-interruption selection. */
+export async function retryNew(subject: Awaited<ReturnType<typeof selectionWorld>>) {
+  const { cwd, git, gh } = subject.authority.context
+  const fresh = await resolveFeatureAuthority({
+    cwd,
+    reference: scope.target,
+    control: 'new',
+    principal: false,
+    git,
+    gh,
+    read: subject.reader,
+  })
+  if ('kind' in fresh) return fresh
+  return selectFeatureMandate('new', undefined, fresh, undefined, subject.reader)
+}
+
 export async function abandonedLeaf(mutate?: MutateWorld) {
   const own = specFor(scope, 'Preserve authorized requests across explicit succession.')
   const original = legacyFixtures.featureMandate(scope, {
