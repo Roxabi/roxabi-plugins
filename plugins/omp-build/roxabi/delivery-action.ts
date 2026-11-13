@@ -30,7 +30,7 @@ export function procedureIndexTask(procedure: string, indexPath: string): string
   return [
     procedure,
     `Index: ${indexPath}`,
-    'Read only that index and the files it names. Return only the structured result. Do not fetch live records or publish.',
+    'Read UW data and normative references from the indexed action snapshot. Follow the role profile for worktree access. Return only the structured result. Do not fetch live records or publish.',
   ].join('\n')
 }
 
@@ -155,6 +155,23 @@ export async function observeHeadCode(
   const head = await observeSha(git, cwd, 'HEAD')
   if (head === null) return { ok: false, reason: 'code-unobserved' }
   return { ok: true, code: { repository, base: head, head, referenceCommit: head } }
+}
+
+export async function observeCleanHeadCode(
+  git: GitRunner,
+  cwd: string,
+  repository: string,
+): Promise<{ ok: true; code: DeliveryCode } | { ok: false; reason: 'code-unobserved' | 'code-worktree-dirty' }> {
+  try {
+    const code = await observeHeadCode(git, cwd, repository)
+    if (!code.ok) return code
+    const status = await git(cwd, ['status', '--porcelain', '--untracked-files=all'])
+    if (status.code !== 0) return { ok: false, reason: 'code-unobserved' }
+    if (status.stdout.length !== 0) return { ok: false, reason: 'code-worktree-dirty' }
+    return code
+  } catch {
+    return { ok: false, reason: 'code-unobserved' }
+  }
 }
 
 export function codePin(

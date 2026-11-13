@@ -69,7 +69,7 @@ export function candidateSource(input: {
 }
 
 export function observedEvidenceContext(_evidence: ObservedEvidence): string {
-  return 'omp-build review action. Read only the procedure and the index named on each task.'
+  return 'omp-build review action. Follow each procedure and role profile; use the indexed snapshot for UW data and normative references.'
 }
 
 export function slotsForInitial(specTask: NativeTask, panel: ReviewPanel): ReviewSlot[] {

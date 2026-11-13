@@ -136,7 +136,8 @@ async function prepareCiCorrection(
     batch: {
       operationId: product.identity.operationId,
       tasks: {
-        context: 'omp-build correction action. Read only the procedure and the index named on the task.',
+        context:
+          'omp-build correction action. Follow the procedure and role profile; use the indexed snapshot for UW data and normative references.',
         tasks: [intakeTask],
       },
     },

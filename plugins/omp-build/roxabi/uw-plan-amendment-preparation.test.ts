@@ -137,7 +137,11 @@ it('prepares one amendment from the selected draft and both original specialist 
       SCOPE,
       mandate,
       operations,
-      async () => ({ code: 0, stdout: '1111111111111111111111111111111111111111', stderr: '' }),
+      async (_cwd, args) => ({
+        code: 0,
+        stdout: args[0] === 'status' ? '' : '1111111111111111111111111111111111111111',
+        stderr: '',
+      }),
     )
     expect(result.kind).toBe('action')
     if (result.kind !== 'action') throw new Error(JSON.stringify(result))

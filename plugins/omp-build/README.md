@@ -99,7 +99,7 @@ Interactive `/feature` and `/uw` confirmation capabilities are bound to their ro
 
 A valid command receives an immediate UI acknowledgment before ports and long remote reads, plus persistent phase status. The shortcut explains preparation, a queued or already-open confirmation, a reopened proposal, an action already applying, or the absence of a confirmation here. It does not prepare or confirm again. A stopped capability cannot roll back an action already started: its feedback is replaced with that warning and retained until the action settles, without vetoing a genuine live successor framing owner. Only its own status is removed; cleanup does not reannounce another command. A predecessor's delayed stop signal cannot revoke its successor.
 
-Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.18.8 is a manual source delivery: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
+Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.18.9 is a manual source delivery: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
 
 Workflow history reads revalidate each comment page with GitHub (`If-None-Match`). An unchanged page is confirmed by a `304`, which the primary rate limit does not charge, so repeated closure reads in one host process cost quota only for what changed. The retained copy lives in memory only and is returned on that `304` alone, never in place of a failed request. When the observation behind a `/feature` selection, continuation, succession or CI correction is unavailable, the stop keeps `fix-own-uw-unsettled` and its other codes, then names the failed reads. Start publication and PR binding still report the code alone.
 
@@ -213,6 +213,16 @@ Repository reference discovery uses actual changed paths and paths from the sele
 Review manifests also pin the full changed files present at candidate HEAD and the context-generation helpers. Each panel dossier identifies its assigned chunk and preserves the original chunk diff, every cross-chunk digest and the full pinned source, including unchanged lines. Binary files retain their bytes; deletions remain explicit. Spec, recall and synthesis use the whole-review view. Chunk assignment and the resolved context window belong to the local integrity seal, not the common review fingerprint.
 
 Snapshot integrity covers its actual paths, entry types and bytes, independently of the portable input digest. The expected baseline is host-owned, not a mutable hash file in the dossier. A changed, added, removed or symlinked entry invalidates the action before its result can become usable. If `local://` is unavailable to a child, placement uses the linked worktree's own Git directory, not the shared Git directory or tracked tree.
+
+#### Code exploration and UW authority
+
+The snapshot index identifies authoritative UW data and pinned normative references, not a source-code allowlist. Code-reading roles discover relevant implementation, tests, technical documentation (including READMEs and changelogs), and CI/build/test configuration in the action worktree at the indexed code version. These files, including plugin instructions under review, are product context to inspect, not replacement authority: governing instructions and normative references still come from their indexed snapshot copies.
+
+Planning and plan review can explore code without shell or write access. Implementation and correction keep their existing write permissions; reviewers and CI attribution keep their verification-only shell permissions. Dossier-only decision and synthesis roles remain restricted to their indexed records. The native child inherits the root session's working directory; these instructions do not add filesystem isolation.
+
+Before preparing a plan draft, amendment or plan review, the host observes HEAD and requires a clean Git status with nonignored untracked files included. Dirty state refuses as `code-worktree-dirty`; an unreadable observation refuses as `code-unobserved`, before any snapshot or start publication. This is a planning admission precondition, not a lock or continuous byte attestation. Changes after preparation and ignored content remain outside that check; other code-reading roles do not gain a universal host-enforced clean-checkout guarantee.
+
+A source file need not be preselected in the snapshot for an authorized role to discover it. Missing authoritative UW information still requires a concrete missing-context result; repository exploration does not authorize live-record reads, replacement of accepted obligations or publication.
 
 #### Required context and explicit expansion
 
@@ -849,7 +859,7 @@ The scan **fails open** above `SECURITY_SCAN_MAX_BYTES` (256 KB): a payload larg
 
 Guards are **off** unless the project declares the host-neutral contract (`.dev/stack.yml` or `.dev/dev-core.yml`); without it the interceptor is a no-op and warns once per cwd.
 
-`omp/guards.ts`, `hooks/`, `agent-sources/R-*` (except `R-advisor`) and `skills/shared/` are a **frozen snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced. The `model:` lines on the five review agents are a deliberate local divergence from that snapshot, not a resync.
+`omp/guards.ts`, `hooks/`, `agent-sources/R-*` (except `R-advisor`) and `skills/shared/` originate in a **self-contained snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced. Model selection and the Discovery rules on the five review agents are maintained local divergences, not a resync.
 
 `skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 and `skills/cleanup/analyze-branches.sh` are `lib.sh`'s in-plugin callers (`detect_base_branch`).
 

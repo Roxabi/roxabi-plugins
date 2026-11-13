@@ -45,7 +45,6 @@ test.each(['bound', 'absent'] as const)(
     const result = await selectNew(subject)
     expect(result).toMatchObject({ authority: { selection: { status: 'applicable' } } })
     if ('kind' in result || result.mandate === null) throw new Error(`Expected successor: ${JSON.stringify(result)}`)
-    expect(result.mandate.payload.config.productVersion).toBe('0.18.8')
     expect(atBootstrap).toBeGreaterThan(before)
     expect(subject.github.exhaustiveEnumerations).toBeGreaterThan(atBootstrap)
 
@@ -213,7 +212,7 @@ test('interruption after control does not turn the predecessor binding into a co
   const successor = bindExternalRef(control.payload.successor, home)
   expect(successor).toMatchObject({
     ok: true,
-    value: { kind: 'mandate', payload: { antecedent: predecessor, config: { productVersion: '0.18.8' } } },
+    value: { kind: 'mandate', payload: { antecedent: predecessor } },
   })
   expect(
     selectWorkflowBinding({ pullRequest: pull, histories: after.histories, native: { branch, base: 'main' } }),

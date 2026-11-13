@@ -88,7 +88,7 @@ export function declaredNativeGit(
   const checkoutObservation = (key: string) => {
     const head = checkoutHead(key)
     if (head !== undefined) return head
-    if (key === 'status --porcelain') return ok()
+    if (key === 'status --porcelain' || key === 'status --porcelain --untracked-files=all') return ok()
     if (key === 'rev-parse --abbrev-ref HEAD') return ok(current.branch === null ? 'HEAD' : current.branch)
     if (key === `rev-parse --verify origin/${current.base}^{commit}` || key === `rev-parse origin/${current.base}`)
       return ok(current.baseTip)
