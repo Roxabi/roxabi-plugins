@@ -216,9 +216,11 @@ Snapshot integrity covers its actual paths, entry types and bytes, independently
 
 #### Code exploration and UW authority
 
-The snapshot index identifies authoritative UW data and pinned normative references, not a source-code allowlist. Code-reading roles discover relevant implementation, tests and technical build configuration in the action worktree at the indexed code version. They use the snapshot copies of the named normative references rather than substituting worktree instructions, workflow configuration or glossaries.
+The snapshot index identifies authoritative UW data and pinned normative references, not a source-code allowlist. Code-reading roles discover relevant implementation, tests, technical documentation (including READMEs and changelogs), and CI/build/test configuration in the action worktree at the indexed code version. These files, including plugin instructions under review, are product context to inspect, not replacement authority: governing instructions and normative references still come from their indexed snapshot copies.
 
 Planning and plan review can explore code without shell or write access. Implementation and correction keep their existing write permissions; reviewers and CI attribution keep their verification-only shell permissions. Dossier-only decision and synthesis roles remain restricted to their indexed records. The native child inherits the root session's working directory; these instructions do not add filesystem isolation.
+
+Before preparing a plan draft, amendment or plan review, the host observes HEAD and requires a clean Git status with nonignored untracked files included. Dirty state refuses as `code-worktree-dirty`; an unreadable observation refuses as `code-unobserved`, before any snapshot or start publication. This is a planning admission precondition, not a lock or continuous byte attestation. Changes after preparation and ignored content remain outside that check; other code-reading roles do not gain a universal host-enforced clean-checkout guarantee.
 
 A source file need not be preselected in the snapshot for an authorized role to discover it. Missing authoritative UW information still requires a concrete missing-context result; repository exploration does not authorize live-record reads, replacement of accepted obligations or publication.
 

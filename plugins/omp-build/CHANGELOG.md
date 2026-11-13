@@ -2,8 +2,9 @@
 
 ## 0.18.9
 
-- Restore role-scoped code exploration in the action worktree for planning, plan review, implementation, review and correction. Source, tests and technical build configuration need not be preselected in the snapshot.
+- Restore role-scoped code exploration in the action worktree for planning, plan review, implementation, review and correction. Source, tests, technical documentation and CI/build/test configuration need not be preselected in the snapshot.
 - Keep authoritative UW data and pinned normative references snapshot-only. Preserve dossier-only roles, existing tool permissions, snapshot integrity and publication authority; do not claim filesystem or credential isolation.
+- Require a clean observed worktree before preparing a plan draft, amendment or specialist plan review, including nonignored untracked files. Dirty or unreadable state refuses before action preparation; no cleanup or continuous filesystem guarantee is implied.
 - Recognize 0.18.9 under the existing bounded PR-binding policy; unknown policy versions still refuse.
 - Update the source product version only. This release does not activate tooling, move its pin, upgrade an installed cache or authorize a suspended witness.
 

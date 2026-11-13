@@ -8,7 +8,7 @@ import {
   confirmStartReadback,
   deliveryBatch,
   deliveryTask,
-  observeHeadCode,
+  observeCleanHeadCode,
   prepareDeliveryAction,
   prepareRefusal,
   uwSubject,
@@ -83,7 +83,7 @@ async function startPlanAmendment(
   if (reviewRefs.length !== 2) return blocks('prepare-action-unavailable')
   const operationId = randomUUID()
   const startId = randomUUID()
-  const code = await observeHeadCode(git, cwd, scope.repository)
+  const code = await observeCleanHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
   const prepared = await prepareDeliveryAction(
     uw,
@@ -168,7 +168,7 @@ async function startPlanDraft(
   if (approved.accepted.snapshot.spec.criteria.length === 0) return { kind: 'operator-decision', reason: 'needs-scope' }
   const operationId = randomUUID()
   const startId = randomUUID()
-  const code = await observeHeadCode(git, cwd, scope.repository)
+  const code = await observeCleanHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
   const prepared = await prepareDeliveryAction(
     uw,

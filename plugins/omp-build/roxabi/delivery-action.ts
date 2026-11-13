@@ -157,6 +157,23 @@ export async function observeHeadCode(
   return { ok: true, code: { repository, base: head, head, referenceCommit: head } }
 }
 
+export async function observeCleanHeadCode(
+  git: GitRunner,
+  cwd: string,
+  repository: string,
+): Promise<{ ok: true; code: DeliveryCode } | { ok: false; reason: 'code-unobserved' | 'code-worktree-dirty' }> {
+  try {
+    const code = await observeHeadCode(git, cwd, repository)
+    if (!code.ok) return code
+    const status = await git(cwd, ['status', '--porcelain', '--untracked-files=all'])
+    if (status.code !== 0) return { ok: false, reason: 'code-unobserved' }
+    if (status.stdout.length !== 0) return { ok: false, reason: 'code-worktree-dirty' }
+    return code
+  } catch {
+    return { ok: false, reason: 'code-unobserved' }
+  }
+}
+
 export function codePin(
   repository: string,
   base: string,

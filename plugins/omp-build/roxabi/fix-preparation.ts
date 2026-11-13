@@ -225,7 +225,8 @@ export async function prepareStandaloneFix(
       batch: {
         operationId: input.identity.operationId,
         tasks: {
-          context: 'omp-build correction action. Follow the procedure and role profile; use the indexed snapshot for UW data and normative references.',
+          context:
+            'omp-build correction action. Follow the procedure and role profile; use the indexed snapshot for UW data and normative references.',
           tasks,
         },
       },
