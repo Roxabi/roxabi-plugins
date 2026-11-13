@@ -50,16 +50,16 @@ PREVIEW=$(bash "$T" "$COMPONENT" origin/main origin/main origin/staging); RC=$?
 | `10` | no reachable tag = **first release** | `VERSION="${COMPONENT}/v0.1.0"`; if `git tag -l "${COMPONENT}/v*"` is **non-empty** (tags exist but unreachable), **warn** — a higher tag may live on a staging lineage |
 | `≥1` other | git/arg error | **REFUSE** — never invent a version |
 
-The preview is a **proposal**, not a decision. `Custom version` is **retained** as the escape hatch
-for the multi-component repos `/promote` does not yet handle (factory, cortex); it is no longer
-*required* on single-component repos.
-
-→ present choice: **Use {VERSION}** (Recommended) | **Custom version**.
+The preview is a proposal, not consent. Offer **Use {VERSION}** or **Stop**.
+`--finalize` derives the version from the merge and cannot honor a custom version.
+If the repository needs a different version or a multi-component release that this
+derivation cannot represent, stop before the first write and follow its own release procedure.
 
 ## Stamp Version Files (Step 2b)
 
 Write the previewed version into every path in `release.version_files` **before** the promotion PR,
 so each file becomes a witness of the derivation (S4/D12/D14).
+For `--dry-run`, report the proposed stamps without writing them.
 
 ```bash
 FILES=$(yq -r '.release.version_files[]?' .dev/stack.yml 2>/dev/null \
@@ -78,8 +78,8 @@ FILES=$(yq -r '.release.version_files[]?' .dev/stack.yml 2>/dev/null \
 ## Release surfaces (Steps 3–4 and finalize)
 
 1. **Inventory.** Establish the previous production boundary and candidate SHA, version and delivery date from repository history, merged PRs and available deployment evidence. Inventory the actual delta between those boundaries, including direct commits and hotfixes, not only PRs merged to staging. If the production boundary is unknown, qualify it and establish the delivered scope before claiming coverage. Keep changes in staging that are not delivered in `Unreleased`.
-2. **Discover.** Read the project's documentation and inventory its routes and release surfaces, then trace any user-facing changelog through its actual data source (RSC, API, static catalogue or other). Record the technical changelog and rendered-source paths. If a catalogue exists, update it; do not create a separate third journal. If the project uses minor-version pages as its rendered source, update the existing minor page or create the next minor page following that project's convention. Do not assume `docs/changelog/vX-Y.md` is rendered. A project with a documented, evidenced absence of a secondary public surface records **N/A** with the inspected sources and rationale in summary, PR and finalize; the technical changelog remains mandatory. Never create a new interface or journal just to satisfy this gate. Failed reads or uncertain discovery are not proof of absence: stop and resolve them.
-3. **Prepare applicable surfaces in the candidate before freeze, review, CI and smoke.** Update the technical changelog for the delivered delta and, when a user-facing source exists, include every change useful to users there, filtered of internal-only detail and written in French or the project's language. Both must agree on version, date and delivered scope; preserve the project's editorial format and stable historical context. Record the paths or sourced N/A and evidence mapping the inventory to the entries in the promotion summary and PR checklist. A newly tagged release uses its exact version and date.
+2. **Discover.** Read the project's documentation and inventory its routes and release surfaces, then trace any user-facing changelog through its actual data source (RSC, API, static catalogue or other). Record the technical changelog and rendered-source paths. If a catalogue exists, update it; do not create a separate third journal. If the project uses minor-version pages as its rendered source, update the existing minor page or create the next minor page following that project's convention. Do not assume `docs/changelog/vX-Y.md` is rendered. When the inventory establishes absence of a secondary public surface, record **N/A** with the inspected sources and rationale in summary, PR and finalize; the technical changelog remains mandatory. Never create a new interface or journal just to satisfy this gate. Failed reads or uncertain discovery are not proof of absence: stop and resolve them.
+3. **Prepare applicable surfaces in the candidate before freeze, review, CI and smoke.** Update the technical changelog for the delivered delta and, when a user-facing source exists, include every change useful to users there, filtered of internal-only detail and written in the project's language. Both must agree on version, date and delivered scope; preserve the project's editorial format and stable historical context. Before publishing the candidate, verify the version derivation, exact technical release section and applicable public notes against the intended delta. Record the paths or sourced N/A and evidence mapping the inventory to the entries in the promotion summary and PR checklist. A newly tagged release uses its exact version and date.
 4. **Finalize gate.** Before finalize consent, read the mandatory technical changelog and any discovered user-facing source from the promotion merge SHA, not the current worktree; verify the expected release and inventory coverage, or substantiate N/A from that SHA. If a required surface is absent, incomplete or cannot be verified, stop and use the repository's correction procedure. Never rewrite a historical tag or mutate anything before consent. This editorial gate is separate from the version derivation and witness warnings.
 5. **Delivery proof.** Tag and GitHub Release are not evidence of deployment. After an authorized deploy, verify any actual production changelog surface authenticated if required: actual entries and version anchor, plus referenced media if present. Record dated evidence linked to the deployment; do not declare delivery complete without synchronized applicable notes and that proof, or the sourced N/A. Respect the repository's deployment and authorization procedure.
 
