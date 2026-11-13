@@ -63,6 +63,8 @@ Symlinking into `~/.omp/agent/agents/` is not supported — use `link` (or the c
 
 `omp/index.ts` registers `/feature` and calls `runInstalledFeatureCommand` in `roxabi/feature-entry.ts`. That registered command does not dump `skills/feature/SKILL.md`. Explicit `skill://feature` or `/skill:feature` access supplies reference material for human decisions, not a second lifecycle or execution authority. The local T3 qualification below covers workflow integration, not semantic-model quality or hosted activation; both remain separately authorized.
 
+`/promote` prepares the technical changelog and any existing user-facing release source together; its [release-artifact procedure](skills/promote/references/release-artifacts.md) defines discovery, sourced N/A and the pre-finalize and post-deploy gates.
+
 The UW contract cutover is delivered manually under [#901](https://github.com/Roxabi/roxabi-plugins/issues/901): #905 → #906 → #907 → #908 receive independent review and manual merges before the separate real [#910](https://github.com/Roxabi/roxabi-plugins/issues/910) qualification. This release alone does not qualify `/feature`; manual review and green CI do not manufacture native workflow authority.
 
 ### Controls

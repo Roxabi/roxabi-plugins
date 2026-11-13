@@ -75,95 +75,20 @@ FILES=$(yq -r '.release.version_files[]?' .dev/stack.yml 2>/dev/null \
 > *legitimately ahead* of the newest tag — `release-consistency` (push path) fails only when a file
 > is **behind** its tag, never ahead (D14).
 
-## Generate Changelog (Step 3)
+## Release surfaces (Steps 3–4 and finalize)
 
-Build Δ from all PRs merged to staging since last promotion:
+1. **Inventory.** Establish the previous production boundary and candidate SHA, version and delivery date from repository history, merged PRs and available deployment evidence. Inventory the actual delta between those boundaries, including direct commits and hotfixes, not only PRs merged to staging. If the production boundary is unknown, qualify it and establish the delivered scope before claiming coverage. Keep changes in staging that are not delivered in `Unreleased`.
+2. **Discover.** Read the project's documentation and inventory its routes and release surfaces, then trace any user-facing changelog through its actual data source (RSC, API, static catalogue or other). Record the technical changelog and rendered-source paths. If a catalogue exists, update it; do not create a separate third journal. If the project uses minor-version pages as its rendered source, update the existing minor page or create the next minor page following that project's convention. Do not assume `docs/changelog/vX-Y.md` is rendered. A project with a documented, evidenced absence of a secondary public surface records **N/A** with the inspected sources and rationale in summary, PR and finalize; the technical changelog remains mandatory. Never create a new interface or journal just to satisfy this gate. Failed reads or uncertain discovery are not proof of absence: stop and resolve them.
+3. **Prepare applicable surfaces in the candidate before freeze, review, CI and smoke.** Update the technical changelog for the delivered delta and, when a user-facing source exists, include every change useful to users there, filtered of internal-only detail and written in French or the project's language. Both must agree on version, date and delivered scope; preserve the project's editorial format and stable historical context. Record the paths or sourced N/A and evidence mapping the inventory to the entries in the promotion summary and PR checklist. A newly tagged release uses its exact version and date.
+4. **Finalize gate.** Before finalize consent, read the mandatory technical changelog and any discovered user-facing source from the promotion merge SHA, not the current worktree; verify the expected release and inventory coverage, or substantiate N/A from that SHA. If a required surface is absent, incomplete or cannot be verified, stop and use the repository's correction procedure. Never rewrite a historical tag or mutate anything before consent. This editorial gate is separate from the version derivation and witness warnings.
+5. **Delivery proof.** Tag and GitHub Release are not evidence of deployment. After an authorized deploy, verify any actual production changelog surface authenticated if required: actual entries and version anchor, plus referenced media if present. Record dated evidence linked to the deployment; do not declare delivery complete without synchronized applicable notes and that proof, or the sourced N/A. Respect the repository's deployment and authorization procedure.
 
-```bash
-# Find merge base
-MERGE_BASE=$(git merge-base main staging)
+For an out-of-train hotfix or delivery without a new tag, follow the repository's hotfix procedure: record a dated correction under the existing version in all applicable surfaces, preserving its original date. Do not invent a version, tag or publication, or rerun finalize for that correction. This is not an additional `/promote` route.
 
-# List merge commits (PRs) since merge base
-git log $MERGE_BASE..staging --merges --oneline
+## Commit release surfaces to staging (Step 4)
 
-# Or list all commits with PR references
-git log $MERGE_BASE..staging --oneline --grep="(#"
-```
-
-Fetch merged PRs via GitHub API:
-
-```bash
-SINCE=$(git log -1 --format="%aI" $MERGE_BASE)
-gh pr list --base staging --state merged --json number,title,mergedAt,author,labels --jq "[.[] | select(.mergedAt > \"$SINCE\")]"
-```
-
-Format as Δ grouped by commit type (feat, fix, docs, chore, etc.). Include PR numbers + titles.
-
-## Commit Changelog to Staging (Step 4)
-
-### 4a. Update CHANGELOG.md
-
-Prepend new release entry in [Keep a Changelog](https://keepachangelog.com/) format:
-
-```markdown
-## [$VERSION] - YYYY-MM-DD
-
-### Added
-- feat(web): add user profile page (#42)
-
-### Fixed
-- fix(api): resolve timeout on large queries (#43)
-
-### Changed
-- docs: update deployment guide (#44)
-```
-
-Use Edit to prepend after header (after "Entries are generated automatically by `/promote` and committed to staging before the promotion PR.").
-
-### 4b. Update changelog page (grouped by minor V)
-
-Pages grouped by **minor version**: one page per `vX.Y` (e.g., `docs/changelog/v0-2.md`). Patch releases appended to existing minor page, newest first.
-
-Prefer `.md`. If only a legacy `.mdx` page exists for that minor, read it and write updates there (do not rename; do not create new `.mdx`).
-
-**∃ minor page** (e.g., releasing v0.2.2 ∧ `docs/changelog/v0-2.md` ∃, or legacy `.mdx`):
-1. Read existing page
-2. Prepend new patch entry **after frontmatter**, before previous entries
-3. Separate entries w/ `---`
-
-**¬∃ minor page** (e.g., releasing v0.3.0):
-1. Create `docs/changelog/vX-Y.md`
-2. Add frontmatter + first entry
-
-Page format:
-
-```md
----
-title: vX.Y.x
-description: All vX.Y releases
----
-
-## vX.Y.Z — Month DD, YYYY
-
-### Features
-- feat(web): add user profile page (#42)
-
-### Fixes
-- fix(api): resolve timeout on large queries (#43)
-
----
-
-## vX.Y.0 — Month DD, YYYY
-
-### Features
-- feat(api): initial release (#1)
-```
-
-
-### 4d. Commit to staging
-
-`git add CHANGELOG.md docs/changelog/` + a Conventional Commit subject
-(`chore(release): add $VERSION changelog`). The repo's own `AGENTS.md`/`CLAUDE.md`
-wins where it says otherwise — this plugin ships no commit convention of its own.
-
-> Commits to staging, ¬main. Release notes included in staging→main PR.
+Stage the applicable discovered paths and any version files using the repository's
+`AGENTS.md`/`CLAUDE.md` conventions; use a Conventional Commit subject such as
+`chore(release): add $VERSION changelog` where compatible. Commit to staging,
+not main, so the applicable surfaces are included in the staging→main PR. Respect
+the operator's authorization and the project's branch protection.
