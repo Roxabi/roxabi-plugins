@@ -62,7 +62,7 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 - **Source of truth** = active repo source: `plugins/<plugin-name>/`. `archived/` is inert historical source, never an execution or installation target.
 - **Never edit cache only** — changes lost on plugin update/reinstall.
-- **Workflow:** edit and verify an active catalogued plugin locally. Commit, push, or publish only when authorized; existing authorization suffices. To install published changes, reinstall that plugin to refresh the local cache.
+- **Workflow:** edit and verify plugin source locally without changing the operator's live installation. Commit, push, open a PR, merge, or publish only with explicit authorization; existing valid authorization suffices. Refreshing a live installation is a separate authorized action: follow the plugin's runtime-specific update instructions, not automatically after merge.
 - **Versioning:** OMP catalogued plugins declare matching `package.json` and `.omp-plugin/marketplace.json` versions. Bump both together.
 
 ## Style
@@ -75,6 +75,6 @@ Keep all READMEs current. Adding/modifying/removing a plugin → update:
 
 ## Gotchas
 
-- Cache ¬auto-updated after source edits — re-install the plugin (`claude plugin install <name>`). ¬rsync.
+- Source edits do not refresh installed caches. For an authorized live refresh, follow the plugin's runtime-specific update instructions. ¬rsync.
 - `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}` links ∈ SKILL.md = runtime-resolved, ¬render ∈ GitHub/VS Code previews
 - **3rd-party plugin MCP servers** — external plugins (e.g. `knowledge-work-plugins/design`) may bundle `.mcp.json` w/ MCP servers (Slack, Figma, Linear, …) → auth warnings on startup. Disable w/o removing: empty `mcpServers` ∈ both `~/.claude/plugins/marketplaces/<marketplace>/<plugin>/.mcp.json` ∧ `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/.mcp.json`, then `git update-index --skip-worktree <path>` ∈ marketplace repo → `git pull` won't restore them.
