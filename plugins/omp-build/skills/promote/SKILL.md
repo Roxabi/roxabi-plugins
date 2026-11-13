@@ -40,11 +40,11 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := user choi
 | 1 | pre-flight | ✓ | ¬REFUSE | **read-only** — see below |
 | 1b | pin-swap | — | ¬branch= deps remain | no-op if zero branch= deps |
 | 2 | version | ✓ | V detected | first user choice |
-| 3 | changelog | ✓ | CHANGELOG.md updated | — |
-| 4 | commit | ✓ | `git log` shows commit | first worktree write |
-| 5 | preview | — | deploy success | `--skip-preview` skips |
+| 3 | changelog | ✓ | applicable release surfaces cover the delivered delta | [release surfaces](skill://promote/references/release-artifacts.md#release-surfaces-steps-34-and-finalize) |
+| 4 | commit | ✓ | applicable surfaces in candidate before validation | first worktree write |
+| 4b | publish-candidate | ✓ | staging SHA contains release surfaces; CI green | before freeze and preview |
+| 5 | preview | — | deploy success on frozen SHA | `--skip-preview` skips |
 | 6 | summary | ✓ | summary printed | — |
-| 6b | changelog-commit | — | PR merged → staging | branch protection |
 | 7 | create-pr | ✓ | PR URL shown | — |
 | 8 | post-merge | — | — | reminder |
 | 9 | finalize | — | tag + release ∃ | `--finalize` only — reads and derives, **then asks**, then writes |
@@ -58,6 +58,9 @@ result — a `--finalize` that tags and pushes because it was invoked is the sam
 "the invocation is the consent" argument this skill rejects for `/feature` and
 `/cleanup`. Any edit that moves a mutation earlier than the choice that
 authorises it is a defect, not an optimisation.
+Before any write, establish that the repository's release model and components can use this skill's derived version; otherwise stop and follow its release procedure.
+
+**`--dry-run`** plans version stamps, release notes and preview without stamping, editing, committing or publishing a candidate, preview, PR, tag or release.
 
 ## Pre-flight
 
@@ -173,13 +176,13 @@ in the *promoted repository*, and this plugin ships no writer for it. The probe
 refuses on a measured absence — never unconditionally, or the remediation it
 prints could not be satisfied by doing what it says.
 
-**Unfinalized promote (S5/D8)** — the newest merged promote **by PR metadata**, never by commit lineage (a `<merge>^2`-vs-staging ancestry test false-positives after any backmerge — it flags real hotfixes #267/#257 as promotes):
+**Unfinalized promote (S5/D8)** — identify the newest merged promote by PR metadata, never by commit lineage (backmerges can otherwise misclassify hotfixes). Read its explicit intent from the PR, repository procedure and journals before treating a missing tag as an abandoned release:
 
-```bash
-LAST=$(gh pr list --base main --head staging --state merged --limit 1 --json number,mergeCommit --jq '.[0].mergeCommit.oid')
-# Derive its version: price.sh "$COMPONENT" "${LAST}^1" "$LAST". No matching tag on that version → offer to resume:
-#   "Unfinalized promote detected (PR merged, no tag). Run /promote --finalize?"
-```
+- Documented dated delivery under an existing version without a new tag → not an unfinalized release; do not propose finalize.
+- Explicit intent to cut a new release → if its matching tag is absent, offer `/promote --finalize`.
+- Ambiguous or conflicting intent → ask the operator to clarify before proposing a tag.
+
+Revalidate this classification at Step 9; invocation alone is not evidence of release intent.
 
 **Version-file drift (S5)** — each `release.version_files` path is compared to `BASE`; `file < BASE` = hand-drift (reconcile: re-stamp from BASE), `file > BASE` = a promote stopped after step 2b (resume: re-open the promotion PR). `[]` → skip.
 
@@ -260,14 +263,20 @@ Logic lives in `skill://promote/lib/pin-swap.ts` (pure functions, I/O-injected).
 
 ## Steps 2-4 — Version, Changelog, Commit
 
-Read [references/release-artifacts.md](skill://promote/references/release-artifacts.md) for full procedure.
+Read [references/release-artifacts.md](skill://promote/references/release-artifacts.md) for the release-surface inventory, discovery, preparation and delivery gate. Step 3 establishes concrete paths or sourced N/A and coverage; Step 4 includes applicable surfaces in the candidate before freeze, review, CI and smoke.
 
 Step 4 is where a branch is first checked out: `git checkout staging` belongs here,
 after the version choice, never in pre-flight.
 
+## Step 4b — Publish and freeze candidate
+
+After explicit authorization, publish the prepared candidate to staging using the repository's branch protections. If staging requires a PR, open it and wait for its actual merge, not merely auto-merge being armed. Fetch staging and record its resulting SHA; verify it contains the intended version stamps and release surfaces. Never reset or overwrite a worktree to sync it.
+
+Re-derive the version and recheck exact notes and inventory on that SHA, then freeze it and require CI and the repository's smoke checks on that same SHA before promotion. Any staging change invalidates the version, notes and validation: return to preparation and repeat CI and smoke. `--dry-run` reports the plan and skips publication.
+
 ## Step 5 — Deploy Preview
 
-¬`--skip-preview` ⇒
+Unless `--skip-preview` or `--dry-run`, dispatch on staging only while its tip equals the frozen SHA. Verify the resulting workflow run actually targets that SHA before accepting the result; a moved tip or mismatched run invalidates the candidate and returns to Step 4b. `--dry-run` only describes the preview.
 
 ```bash
 gh workflow run deploy-preview.yml --ref staging -f target=both
@@ -291,21 +300,13 @@ Promotion Summary
   Files:     {N} files changed
   CI:        passing/failing/pending
   Preview:   verified/skipped
+  Surfaces:  {technical path} · {rendered-source path or sourced N/A}
+  Coverage:  {inventory boundaries and evidence mapping entries to delivered delta}
 ```
 
 `--dry-run` ⇒ display + stop. "Run `/promote` to create the promotion PR."
 
-## Step 6b — Changelog Commit
-
-σ may have branch protection. Direct push fails →
-1. Branch: `git branch chore/$VERSION-changelog staging`
-2. Push: `git push origin chore/$VERSION-changelog`
-3. PR: `gh pr create --base staging --head chore/$VERSION-changelog --title "chore(release): add $VERSION changelog"`
-4. Merge: `gh pr merge <N> --auto --merge --delete-branch` (merge commit — ¬squash, see `## Merge method`). **`--auto` only *arms* auto-merge and returns immediately — it does not block.** Then poll until it lands, or step 7 reads a stale `origin/staging`:
-   ```bash
-   until [ "$(gh pr view <N> --json state --jq .state)" = MERGED ]; do sleep 10; done
-   ```
-5. Sync: `git fetch origin staging && git reset --hard origin/staging`
+Before creating or merging the promotion PR, recheck that the remote staging tip still equals the frozen SHA and that the derived version, both applicable release surfaces and CI/smoke evidence belong to it. If it moved, stop and repeat preparation and validation.
 
 ## Step 7 — Create Promotion PR
 
@@ -323,7 +324,8 @@ cat >"$BODY_FILE" <<EOF
 - [x] CI passing on staging
 - [x] No open PRs targeting staging (or acknowledged)
 - [{preview_check}] Deploy preview verified
-- [x] Release notes committed to staging
+- [x] Applicable release surfaces committed to staging: {technical path} · {rendered-source path or sourced N/A}
+- [x] Delivered-delta coverage evidence: {boundaries and mapping}
 
 ---
 Generated with [Roxabi omp-build](https://github.com/Roxabi/roxabi-plugins) via \`/promote\`
@@ -355,11 +357,13 @@ Display PR URL (`$PR_URL`).
 Promotion PR created: {URL}
 
 ⚠️  MERGE WITH MERGE COMMIT (not squash) — see ## Merge method.
+Frozen staging SHA: {SHA}
+Before merge: confirm staging still points to {SHA}; if it moved, return to Step 4b.
 
 After merge:
-  1. Production deploy runs from main
-  2. Verify production at your domain
-  3. Run /promote --finalize to tag + create GitHub Release
+  1. Follow the repository's authorized production deployment procedure
+  2. Verify the production changelog surface if applicable and record evidence per release-artifacts.md
+  3. For a tagged release, run /promote --finalize to tag + create GitHub Release
   4. Run /cleanup to clean up merged branches
 ```
 
@@ -373,6 +377,8 @@ git fetch origin main      # refs/remotes/* only
 gh pr list --base main --head staging --state merged --limit 1 --json number,title,mergedAt
 ```
 ¬merged → REFUSE: "Merge the promotion PR first."
+
+**Release-intent gate.** Revalidate the newest merged PR against its explicit intent, repository procedure and journals as in Step 1a. A documented delivery without a new tag stops here; an explicit new-release intent may proceed. If intent is ambiguous or conflicting, ask the operator before deriving a version or proposing any tag. Do not infer intent from the absence of a tag or from the invocation.
 
 There is no `git checkout main && git pull` here. `--finalize` runs from wherever
 the operator is — routinely a feature worktree — and a checkout either fails or
@@ -404,7 +410,7 @@ guaranteed to be the base. The base ref is, and 9a's fetch is what makes it
 current — hence the ordering. Nothing is written before this guard: 9a fetches
 and lists, and the first mutation is the tag in 9d.
 
-**9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The finalize verdict (structural REFUSE, drift REFUSE, witness WARN, per-artifact act) is computed by `lib/finalize.ts` — the **tested classifier IS the executed decision** (#369), not a bash re-implementation of part of it. The PR title, CHANGELOG heading and version file are compared only to **WARN** (D7); a disagreement prints repair actions and finalize **tags the derived version anyway**, because the merge already shipped and a post-merge REFUSE would re-manufacture the shipped-no-release defect. Gather the inputs:
+**9b.** Derive V from the **merge object alone** (S11/D4) — never from a witness. The verdict is computed by `lib/finalize.ts` (structural REFUSE, drift REFUSE, witness WARN, per-artifact act). The PR title, changelog heading and version file remain WARN-only witnesses (D7); independently, the exact derived-version release notes and applicable surfaces are mandatory before consent. Gather the inputs:
 
 ```bash
 M=$(gh pr list --base main --head staging --state merged --limit 1 --json mergeCommit --jq '.[0].mergeCommit.oid')
@@ -435,15 +441,35 @@ VERSION="${COMPONENT}/v${DERIVED}"
 
 # Witnesses (WARN-only, D7) — empty string ⇒ artifact absent (a null witness, D12).
 TITLE_V=$(gh pr view "$M" --json title --jq '.title' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
-# Witnesses come out of the merge object, not the working tree: with no checkout
-# the tree is whatever branch the operator was on, and a feature branch's
-# CHANGELOG is not a witness of what main shipped.
-HEADING_V=$(git show "${M}:CHANGELOG.md" 2>/dev/null | grep -oE '^##[[:space:]]+\[?v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+# Discover TECHNICAL_CHANGELOG from project documentation at M; use CHANGELOG.md
+# only if that discovery establishes it as the technical source. Failure to
+# establish a concrete path stops finalize.
+: "${TECHNICAL_CHANGELOG:?REFUSE: technical changelog path not established}"
+HEADING_V=$(git show "${M}:${TECHNICAL_CHANGELOG}" 2>/dev/null | grep -E '^##[[:space:]]+\[?([^][[:space:]]+/)?v?[0-9]+\.[0-9]+\.[0-9]+([][:space:]]|$)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
 VFILE=$(yq -r '.release.version_files[0] // ""' .dev/stack.yml 2>/dev/null || true)
 FILE_V=$([ -n "$VFILE" ] && git show "${M}:${VFILE}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
-CHANGELOG_CONTENT=$(git show "${M}:CHANGELOG.md" 2>/dev/null | awk '/^## /{n++} n==1' || true)
+# Select exactly the derived release heading, not the first section (often Unreleased).
+CHANGELOG_SOURCE=$(git show "${M}:${TECHNICAL_CHANGELOG}") || { echo "REFUSE: merge changelog unavailable"; exit 1; }
+CHANGELOG_CONTENT=$(printf '%s\n' "$CHANGELOG_SOURCE" | awk -v full="$VERSION" -v bare="$DERIVED" '
+  /^##[[:space:]]/ {
+    if (in_section) in_section=0
+    heading=$0
+    sub(/^##[[:space:]]+/, "", heading)
+    sub(/[[:space:]].*$/, "", heading)
+    sub(/^\[/, "", heading)
+    sub(/\].*$/, "", heading)
+    if (heading == full || heading == "v" bare || heading == bare) {
+      found++; in_section=1; print; next
+    }
+  }
+  in_section { print; if ($0 ~ /[^[:space:]]/) content=1 }
+  END { if (found != 1 || !content) exit 1 }
+') || { echo "REFUSE: exact release section missing, empty or ambiguous"; exit 1; }
+NOTES_HEADING=$(printf '%s\n' "$CHANGELOG_CONTENT" | head -n1)
 ```
-`Custom version` is retained only as the multi-component escape hatch (factory/cortex), never required here.
+The selected `CHANGELOG_CONTENT` is the exact block later passed to `--notes`; an absent, empty or ambiguous section stops before consent. The heading witness remains an independent WARN-only comparison.
+
+**9b.1 — Release surfaces gate (read-only).** Before consent, apply the merge-SHA verification in [release-artifacts.md](skill://promote/references/release-artifacts.md#release-surfaces-steps-34-and-finalize), including sourced N/A where applicable. Compare `CHANGELOG_CONTENT` destined for `--notes` against the delivered-delta inventory and the applicable public notes. Missing, divergent or unverifiable coverage stops finalize for correction through the repository procedure; it does not change `price.sh` or the classifier's witness warnings.
 
 **9c — Decision gate. Nothing above this line writes; nothing below it runs unanswered.**
 A pushed tag is public the moment it lands, and a GitHub Release announces it;
@@ -459,6 +485,9 @@ Derived:   {VERSION}          ← price.sh over {M}^1..{M}, BASE floor {BASE}
 Target:    tag {VERSION} → {M}
 State:     tag={TAG_STATE} · release={RELEASE_STATE}
 Witnesses: title={TITLE_V} · changelog={HEADING_V} · file={FILE_V}   (WARN-only, D7)
+Surfaces:  {technical path} · {rendered-source path or N/A with sources and rationale}
+Coverage:  {inventory boundaries, mapping and gate result}
+Notes:     {NOTES_HEADING} · exact section at {M} verified
 
 Options:
   1. Finalize — push the tag at {M}, create the GitHub Release
@@ -471,7 +500,7 @@ Anything other than an explicit Option 1 stops here, having written nothing.
 derivation, no tag. A `refuse` verdict from `finalize.ts` (Step 9d) still stops
 the run after the gate: consent is not a check.
 
-**9d.** On Option 1, let `finalize.ts` rule, then reconcile tag + release **per artifact** (D16). Re-evaluate after each act, so a finalize that died mid-way recovers and the loop converges (tag → create-release → noop). `finalize.ts` owns every hard REFUSE (≠2 parents, not-a-promote, empty payload, tag/release drift) and emits the witness WARNs:
+**9d.** On Option 1, let `finalize.ts` rule, then reconcile tag + release **per artifact** (D16). Re-evaluate after each act, so a finalize that died mid-way recovers and the loop converges (tag → create-release → noop). `finalize.ts` owns the structural and artifact-drift REFUSEs (≠2 parents, not-a-promote, empty payload, tag/release drift) and emits the witness WARNs; the separate release-surfaces gate precedes consent:
 
 ```bash
 for _ in 1 2 3; do
@@ -581,7 +610,7 @@ split brain (N10) — two release writers, one repo. Switch modes by flipping th
 ## Safety Rules
 
 1. ¬force-push to μ ∨ σ
-2. Promotion PR: ¬auto-merge — user merges after review (merge commit). Changelog PR (Step 6b): `--auto --merge` via required checks
+2. Candidate publication follows repository authorization and protections (Step 4b). Never auto-merge the promotion PR; the user merges the reviewed SHA after green CI.
 3. Always show changelog before creating PR
 4. Always check CI before promoting
 5. Always warn about open PRs on σ

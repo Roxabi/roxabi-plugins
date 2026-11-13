@@ -8,7 +8,7 @@ export function bindingPolicy(mandate: MandateRecord): 'legacy' | 'bounded' | 'u
   const patch = Number(match[3])
   if (!Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return 'unknown'
   if (minor < 18 || (minor === 18 && patch <= 7)) return 'legacy'
-  if (minor === 18 && (patch === 8 || patch === 9)) return 'bounded'
+  if (minor === 18 && (patch === 8 || patch === 9 || patch === 10)) return 'bounded'
   return 'unknown'
 }
 
