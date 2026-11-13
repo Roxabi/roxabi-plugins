@@ -30,7 +30,7 @@ export function procedureIndexTask(procedure: string, indexPath: string): string
   return [
     procedure,
     `Index: ${indexPath}`,
-    'Read only that index and the files it names. Return only the structured result. Do not fetch live records or publish.',
+    'Read UW data and normative references from the indexed action snapshot. Follow the role profile for worktree access. Return only the structured result. Do not fetch live records or publish.',
   ].join('\n')
 }
 

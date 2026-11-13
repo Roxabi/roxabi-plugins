@@ -70,13 +70,13 @@ For `/R-dev-review`, use Conventional Comments labels: `issue(blocking):` for sh
 
 This dispatch returns the structured plan-review, not a findings memo.
 
-The task is the procedure and the index path. Read that index and the files it names in this action’s own UW snapshot. Do not expect the Spec, dossier, or earlier results in the task. Do not fetch live UW or GitHub records. Return only the structured result. The orchestrator validates and publishes; this role does not.
+The task is the procedure and the index path. Read UW data and pinned normative references only from that index and the files it names in this action’s own UW snapshot. Normative references include pinned plugin and repository workflow instructions, workflow configuration, and glossaries; do not substitute worktree copies. Ordinary implementation, build, and test configuration can be explored in the worktree when the role permits. Do not expect the Spec, dossier, or earlier results in the task. Do not fetch live UW or GitHub records. Return only the structured result. The orchestrator validates and publishes; this role does not.
 
 If required context is absent, do not invent it or produce a positive result. Return {outcome:"missing-context",missing:[{locator,reason,targets}]} with a nonempty missing list, a concrete reason, and applicable finding targets (or an empty targets array). Locator is exactly one of {kind:"file-request",repository,path,revisionHint}, {kind:"record-request",repository,target,recordKind,requestedId,selector}, or {kind:"information-request",description}; nullable fields must be present. Requests are not canonical source records.
 
 Do not run a shell, write the worktree, publish, push, comment, or close.
 
-Review the plan named by the index once. Read each accepted criterion that plan maps, from the index, not from task text.
+Review the plan named by the index once. Read each accepted criterion that plan maps from the snapshot, and explore relevant code in the action worktree at the indexed code version. For this dispatch, the source-agent discovery restriction to indexed source does not apply; the snapshot remains authoritative for UW data and normative references.
 
 Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions when reviewing the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.
 

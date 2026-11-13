@@ -99,7 +99,7 @@ Interactive `/feature` and `/uw` confirmation capabilities are bound to their ro
 
 A valid command receives an immediate UI acknowledgment before ports and long remote reads, plus persistent phase status. The shortcut explains preparation, a queued or already-open confirmation, a reopened proposal, an action already applying, or the absence of a confirmation here. It does not prepare or confirm again. A stopped capability cannot roll back an action already started: its feedback is replaced with that warning and retained until the action settles, without vetoing a genuine live successor framing owner. Only its own status is removed; cleanup does not reannounce another command. A predecessor's delayed stop signal cannot revoke its successor.
 
-Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.18.8 is a manual source delivery: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
+Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.18.9 is a manual source delivery: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
 
 Workflow history reads revalidate each comment page with GitHub (`If-None-Match`). An unchanged page is confirmed by a `304`, which the primary rate limit does not charge, so repeated closure reads in one host process cost quota only for what changed. The retained copy lives in memory only and is returned on that `304` alone, never in place of a failed request. When the observation behind a `/feature` selection, continuation, succession or CI correction is unavailable, the stop keeps `fix-own-uw-unsettled` and its other codes, then names the failed reads. Start publication and PR binding still report the code alone.
 
@@ -213,6 +213,14 @@ Repository reference discovery uses actual changed paths and paths from the sele
 Review manifests also pin the full changed files present at candidate HEAD and the context-generation helpers. Each panel dossier identifies its assigned chunk and preserves the original chunk diff, every cross-chunk digest and the full pinned source, including unchanged lines. Binary files retain their bytes; deletions remain explicit. Spec, recall and synthesis use the whole-review view. Chunk assignment and the resolved context window belong to the local integrity seal, not the common review fingerprint.
 
 Snapshot integrity covers its actual paths, entry types and bytes, independently of the portable input digest. The expected baseline is host-owned, not a mutable hash file in the dossier. A changed, added, removed or symlinked entry invalidates the action before its result can become usable. If `local://` is unavailable to a child, placement uses the linked worktree's own Git directory, not the shared Git directory or tracked tree.
+
+#### Code exploration and UW authority
+
+The snapshot index identifies authoritative UW data and pinned normative references, not a source-code allowlist. Code-reading roles discover relevant implementation, tests and technical build configuration in the action worktree at the indexed code version. They use the snapshot copies of the named normative references rather than substituting worktree instructions, workflow configuration or glossaries.
+
+Planning and plan review can explore code without shell or write access. Implementation and correction keep their existing write permissions; reviewers and CI attribution keep their verification-only shell permissions. Dossier-only decision and synthesis roles remain restricted to their indexed records. The native child inherits the root session's working directory; these instructions do not add filesystem isolation.
+
+A source file need not be preselected in the snapshot for an authorized role to discover it. Missing authoritative UW information still requires a concrete missing-context result; repository exploration does not authorize live-record reads, replacement of accepted obligations or publication.
 
 #### Required context and explicit expansion
 

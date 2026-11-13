@@ -47,7 +47,6 @@ describe('native correction execution', () => {
       const consumer = conserved[index]?.batch.tasks.tasks[0]
       expect(consumer).toEqual(binding.task)
       expect(consumer?.task).toContain(`Index: ${binding.task.action.snapshot.indexPath}`)
-      expect(consumer?.task).toContain('Read only that index and the files it names.')
       expect(conserved[index]?.children[0]).toMatchObject({
         id: binding.task.name,
         expectedId: binding.task.name,

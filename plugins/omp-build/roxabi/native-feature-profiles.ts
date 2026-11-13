@@ -26,7 +26,7 @@ export const nativePlanReviewProfileNames = ['R-workflow-plan-architect', 'R-wor
 export const nativePlanReviewSpecialistAgents = ['R-architect', 'R-adversarial'] as const
 
 const snapshotBase =
-  'The task is the procedure and the index path. Read that index and the files it names in this action’s own UW snapshot. Do not expect the Spec, dossier, or earlier results in the task. Do not fetch live UW or GitHub records. Return only the structured result. The orchestrator validates and publishes; this role does not.'
+  'The task is the procedure and the index path. Read UW data and pinned normative references only from that index and the files it names in this action’s own UW snapshot. Normative references include pinned plugin and repository workflow instructions, workflow configuration, and glossaries; do not substitute worktree copies. Ordinary implementation, build, and test configuration can be explored in the worktree when the role permits. Do not expect the Spec, dossier, or earlier results in the task. Do not fetch live UW or GitHub records. Return only the structured result. The orchestrator validates and publishes; this role does not.'
 const snapshot = `${snapshotBase}\n\nIf required context is absent, do not invent it or produce a positive result. Return {outcome:"missing-context",missing:[{locator,reason,targets}]} with a nonempty missing list, a concrete reason, and applicable finding targets (or an empty targets array). Locator is exactly one of {kind:"file-request",repository,path,revisionHint}, {kind:"record-request",repository,target,recordKind,requestedId,selector}, or {kind:"information-request",description}; nullable fields must be present. Requests are not canonical source records.`
 
 const readOnly = 'Do not run a shell, write the worktree, publish, push, comment, or close.'
@@ -38,7 +38,7 @@ const planReviewInstructions = [
   'This dispatch returns the structured plan-review, not a findings memo.',
   snapshot,
   readOnly,
-  'Review the plan named by the index once. Read each accepted criterion that plan maps, from the index, not from task text.',
+  'Review the plan named by the index once. Read each accepted criterion that plan maps from the snapshot, and explore relevant code in the action worktree at the indexed code version. For this dispatch, the source-agent discovery restriction to indexed source does not apply; the snapshot remains authoritative for UW data and normative references.',
   'Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions when reviewing the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.',
   'Report each blocking gap between a criterion id and the plan’s code or evidence mapping. A blocker has id, criterionId, and gap. Outcome clear has no blockers. Outcome blocking names every blocker.',
   'A clear outcome does not cover an accepted criterion id the plan omits. Do not return clear to override missing coverage or a missing verdict. Done when outcome is clear and blockers is empty, or outcome is blocking and every blocker has those three fields. This is the one specialist pass. It does not implement, open a pull request, or spend a fix round.',
@@ -55,7 +55,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     body: [
       snapshot,
       readOnly,
-      'Read the exact accepted and proposed states, captured ancestor and child sources, and any created-child plan from the index.',
+      'Read only the exact accepted and proposed states, captured ancestor and child sources, and any created-child plan from the index. Do not explore repository code.',
       'Classify the complete change as editorial, material, or unknown. Evaluate every applicable inherited invariant and exclusion against the proposed parent, existing children, and created-child slot.',
       'Return a structured compatibility judgment for each required constraint, with the exact captured evidence that supports its consistency, conflict, or uncertainty. Preserve the identity of every qualified constraint and child slot.',
       'An editorial change leaves the approved target, scope, criteria, and constraints unchanged. A material change alters one or more of them. Use unknown when the captured evidence cannot support either classification.',
@@ -72,9 +72,9 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     body: [
       snapshot,
       readOnly,
-      'Map every accepted criterion id named by the index to the pinned code and the evidence that will prove it. Reuse patterns already in that pinned tree. A recovered or amended plan uses the same index, not a dumped prior result.',
+      'Map every accepted criterion id named by the index to the pinned code and the evidence that will prove it. Explore relevant code in the action worktree at the indexed code version; reuse its patterns. A recovered or amended plan uses the same index, not a dumped prior result.',
       'Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions in the plan. Preserve qualified owners; only own criteria are criterion coverage obligations.',
-      '1. Read the accepted criteria and the pinned base paths the index names.',
+      '1. Read the accepted criteria from the snapshot and explore the relevant pinned base code in the worktree.',
       '2. Map each criterion id to the code it changes, the evidence that will prove it, and the relative git paths that change.',
       '3. When the index names blocking plan-review originals, amend from those originals.',
       '4. Return steps and resolutions. Each step has id, change, doneWhen, criterionIds, evidence, and a non-empty paths array of relative git paths. A draft with no blockers returns an empty resolutions array. An amendment returns one resolution per required blocker, naming that blocker and the step ids that address it.',
@@ -112,7 +112,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
       snapshotBase,
       'If required context is absent, return the normal blocked implementation output with commitSHAs, commands, criteria, and reason, plus a nonempty missing array of {locator,reason,targets}. Declare every accepted criterion honestly, using unverified when evidence is absent; do not invent declarations. Locator is exactly one of {kind:"file-request",repository,path,revisionHint}, {kind:"record-request",repository,target,recordKind,requestedId,selector}, or {kind:"information-request",description}; nullable fields must be present. Requests are not canonical source records.',
       credential,
-      'For an integrate action, validate the index-pinned parent candidate, every completed child version and code range, the accepted coverage, and the parent criteria. Return outcome integrated with those actual sources, code, command claims, and criterion declarations. A candidate already containing all child merges needs no new commit; never invent a commit or code range. If required context is missing, return the structured missing-context output.',
+      'Explore relevant code in the approved action worktree at the indexed code version. For an integrate action, validate the index-pinned parent candidate, every completed child version and code range, the accepted coverage, and the parent criteria. Return outcome integrated with those actual sources, code, command claims, and criterion declarations. A candidate already containing all child merges needs no new commit; never invent a commit or code range. If required context is missing, return the structured missing-context output.',
       'For an implement action, implement the confirmed plan named by the index inside the approved worktree. A recovered implementation uses that same index and declaration rule. Follow the steps below for implementation.',
       'Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions to the implementation or integration. Preserve qualified owners; declare only own criteria, not ancestor criteria.',
       '1. Apply the confirmed plan. Use the repository’s test-first seam only where that plan names one. A criterion does not require a test command.',
@@ -136,7 +136,7 @@ export const nativeFeatureProfiles: readonly NativeFeatureProfile[] = [
     body: [
       snapshot,
       credential,
-      'Attribute the failing checks named by the index. Do not query GitHub for a fresher log, implement a repair, or publish.',
+      'Attribute the failing checks named by the index. Explore relevant code in the action worktree at the indexed code version. Do not query GitHub for a fresher log, implement a repair, or publish.',
       '1. Read the failing-check evidence and the approved scope named by the index.',
       '2. Attribute the failure to change, pre-existing, infra, unknown, or out-of-scope.',
       '3. Return that attribution and the evidence that supports it. Unreadable named evidence is unknown, with that fact.',
