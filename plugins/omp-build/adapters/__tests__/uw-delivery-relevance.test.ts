@@ -212,7 +212,7 @@ it.each(['partial', 'unknown-version'] as const)(
     } else {
       const future = parseRecord({
         ...current,
-        payload: { ...current.payload, config: { ...current.payload.config, productVersion: '0.19.0' } },
+        payload: { ...current.payload, config: { ...current.payload.config, productVersion: '0.999.0' } },
       })
       if (!future.ok) throw new Error('invalid future-version fixture')
       pages.set(1, comments(fixture.framedBodies([future.value], 'operator')))

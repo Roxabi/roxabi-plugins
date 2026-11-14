@@ -116,6 +116,29 @@ function integrationOrphan(name: string): World & { checkout: string; head: stri
 
 describe('/feature resolve-interruption over a read-only START', () => {
   it(
+    'reports partial rather than paused when a genuine abandonment is observed after publication',
+    () => {
+      const world = planOrphan()
+      const outcome = resolve(world, 'abandoned-readback', { operator: 'abandon-readback' })
+
+      expect(outcome.observed).toContainEqual({
+        abandon: 'abandoned',
+        selection: 'abandoned',
+        historicalResolution: true,
+      })
+      expect(outcome.result).toMatchObject({
+        kind: 'blocked',
+        reason: expect.stringContaining('uw-partial; resolution may exist; no automatic retry or resume'),
+        diagnostics: [expect.objectContaining({ code: 'interruption-pause-unconfirmed' })],
+      })
+      expect(resolutions(world.box)).toHaveLength(1)
+      expect(controls(world.box)).toContain('abandon')
+      expect(controls(world.box)).not.toContain('resume')
+    },
+    TIMEOUT,
+  )
+
+  it(
     'refuses before any observation, proposal or effect when the session pause is not confirmed',
     () => {
       const world = planOrphan({ paused: false })

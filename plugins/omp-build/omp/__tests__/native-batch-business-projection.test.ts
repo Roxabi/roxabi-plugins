@@ -21,7 +21,6 @@ const QUEUED = /\bqueued\b/i
 const RUNNING = /\brunning\b/i
 const STOPPING = /\bstopping\b/i
 const WITHDRAWN = /\bwithdrawn\b|\b(?:never|not) started\b/i
-const UNCERTAIN = /\buncertain\b|\bunknown\b|\bunconfirmed\b/i
 const NOTHING_RUNNING =
   /\bnothing (?:is |was )?(?:running|executing|in progress)\b|\bno executor (?:is )?(?:running|active)\b/i
 const NO_BUSINESS_EFFECT =
@@ -167,13 +166,14 @@ describe('native batch business projection on the root status line', () => {
     expect(status.everRunning()).toBe(false)
   })
 
-  it('keeps a stopped admitted batch stopping then uncertain, never withdrawn or idle', async () => {
+  it('keeps an admitted stop non-idle and does not claim executor cessation', async () => {
     const harness = bridgeHarness()
     const status = statusLine()
     const context = { ...root, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, context)
     const plan = projected(uwBatch('plan', ['R-workflow-plan']))
-    harness.controller.activate(plan.batch, idle())
+    const onStop = vi.fn(async () => undefined)
+    harness.controller.activate(plan.batch, { onComplete: async () => undefined, onStop })
     expect(await harness.admitBatch(plan.batch, 'task-call', context)).toBe(true)
 
     const stopping = harness.controller.stopOwned(plan.batch, 'owner-stop')
@@ -186,7 +186,10 @@ describe('native batch business projection on the root status line', () => {
 
     const stopped = status.last()
     expectBusinessIdentity(stopped, plan)
-    expect(stopped).toMatch(UNCERTAIN)
+    expect(onStop).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ complete: false }), {
+      kind: 'unattributed',
+      origin: 'host-stop',
+    })
     expect(stopped).not.toMatch(WITHDRAWN)
     expect(stopped).not.toMatch(NOTHING_RUNNING)
     expect(stopped).not.toMatch(WORKFLOW_SUCCESS)

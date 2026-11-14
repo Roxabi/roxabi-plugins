@@ -12,7 +12,14 @@ const { createInstalledUwOperations } = await import('../roxabi/uw-installed-ope
 const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
 
 type Executor = 'settled' | 'busy' | 'unobserved' | 'missing' | 'known-unretained-terminal'
-type OperatorMode = 'confirm' | 'defer' | 'stale-commit' | 'stale-comment' | 'throw-before' | 'throw-after'
+type OperatorMode =
+  | 'confirm'
+  | 'defer'
+  | 'stale-commit'
+  | 'stale-comment'
+  | 'throw-before'
+  | 'throw-after'
+  | 'abandon-readback'
 type Payload = {
   reference: string
   start: string | null
@@ -53,7 +60,8 @@ function payloadFrom(raw: unknown): Payload {
     operator !== 'stale-commit' &&
     operator !== 'stale-comment' &&
     operator !== 'throw-before' &&
-    operator !== 'throw-after'
+    operator !== 'throw-after' &&
+    operator !== 'abandon-readback'
   )
     throw new Error('payload-operator-invalid')
   return {
@@ -200,19 +208,78 @@ if (payload.start !== null) {
   }
 }
 
+async function withAbandonOnFinalRead(
+  cwd: string,
+  operations: Awaited<ReturnType<typeof createInstalledUwOperations>>,
+) {
+  const { createUwInterruptionResolution } = await import('../roxabi/uw-interruption-resolution.ts')
+  const { defaultGh } = await import('../roxabi/feature-engine.ts')
+  const { withRoxabiGitHubPolicy } = await import('../roxabi/github-policy.ts')
+  const { viewer, selectApplicableMandate, startResolution } = await import('../dist/contracts.js')
+  const gh = defaultGh()
+  const author = await viewer({ cwd, gh })
+  const reader = createInstalledUwReadPort({ cwd, gh, readAuthor: author })
+  async function readAfterAbandon(scope: Parameters<typeof reader.readUw>[0]) {
+    const abandoned = await operations.abandon(scope)
+    if (abandoned.status !== 'abandoned') throw new Error(`fixture abandon failed: ${JSON.stringify(abandoned)}`)
+    const read = await reader.readUw(scope)
+    if (read.observation.status !== 'complete') throw new Error('fixture final observation incomplete')
+    const home = read.observation.histories.find(
+      (entry) => entry.source.scope.repository === scope.repository && entry.source.scope.target === scope.target,
+    )
+    if (home === undefined) throw new Error('fixture final home missing')
+    const selection = selectApplicableMandate(
+      home,
+      read.observation.histories.filter((entry) => entry !== home),
+      {
+        histories: read.observation.histories,
+        catalogues: read.observation.catalogues,
+        observation: read.observation,
+      },
+    )
+    if (payload.start === null) throw new Error('fixture START missing')
+    const historical = startResolution(read.observation.histories, {
+      scope,
+      recordId: payload.start,
+      kind: 'action-receipt',
+    })
+    observed.push({
+      abandon: abandoned.status,
+      selection: selection.status === 'refused' ? selection.reason : selection.status,
+      historicalResolution: historical.ok && historical.value !== null,
+    })
+    return read
+  }
+  let reads = 0
+  const resolveInterruption = createUwInterruptionResolution({
+    operator,
+    github: withRoxabiGitHubPolicy({ cwd, gh, readAuthor: author, writerLogin: author }),
+    reader: {
+      async readUw(scope) {
+        reads += 1
+        if (reads === 3) return readAfterAbandon(scope)
+        return reader.readUw(scope)
+      },
+    },
+  })
+  return { ...operations, resolveInterruption }
+}
+
 if (payload.startTarget !== null) {
   // The probe loads SDK-backed modules, so it must follow fixture SDK settings installation.
   const { probePrResolution } = await import('./feature-interruption-pr-probe.ts')
   await probePrResolution(cwd, { ...payload, startTarget: payload.startTarget }, prompts, observed)
 } else {
   const workflow = await loadFeatureWorkflow()
+  const installed = await createInstalledUwOperations({ cwd, operator })
+  const uw = payload.operator === 'abandon-readback' ? await withAbandonOnFinalRead(cwd, installed) : installed
   const input = {
     cwd,
     reference: payload.reference,
     control: 'resolve-interruption',
     principal: false,
     read: createInstalledUwReadPort({ cwd }),
-    uw: await createInstalledUwOperations({ cwd, operator }),
+    uw,
     interruption: payload.start === null ? {} : { start: payload.start },
   } as unknown as ContinueFeatureInput
   const result = await workflow.continueFeature(input)

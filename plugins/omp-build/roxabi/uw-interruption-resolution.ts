@@ -179,6 +179,38 @@ async function publishAndReadback(
         problem(uw, 'interruption-readback-unconfirmed', 'Published resolution could not be authenticated'),
       ],
     }
+  const home = readback.observation.histories.find((history) => sameScope(history.source.scope, uw))
+  const selection =
+    home === undefined
+      ? null
+      : selectApplicableMandate(
+          home,
+          readback.observation.histories.filter((history) => history !== home),
+          {
+            histories: readback.observation.histories,
+            catalogues: readback.observation.catalogues,
+            observation: readback.observation,
+          },
+        )
+  if (
+    selection === null ||
+    !ownsConfirmedPause(selection, request.mandate) ||
+    selection.status !== 'refused' ||
+    selection.reason !== 'paused' ||
+    selection.pause.confirmation.recordId !== record.payload.predecessor.recordId ||
+    !sameScope(selection.pause.confirmation.scope, record.payload.predecessor.scope)
+  )
+    return {
+      status: 'partial',
+      uw,
+      diagnostics: [
+        problem(
+          uw,
+          'interruption-pause-unconfirmed',
+          'Resolution was retained, but the current pause could not be confirmed',
+        ),
+      ],
+    }
   return { status: 'resolved', start: request.start, resolution: { ...ref(record), kind: 'operator-control' } }
 }
 

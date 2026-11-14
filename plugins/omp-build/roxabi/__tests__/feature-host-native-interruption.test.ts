@@ -160,25 +160,81 @@ describe('Feature native owner acquisition and typed stop forwarding', () => {
     expect(await harness.admitBatch(prepared, 'reported-push-call', root)).toBe(true)
     await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
     await harness.yieldChild('slot-a', { findings: [] })
-    await harness.settleBatch({
-      toolCallId: 'reported-push-call',
-      errors: [],
-      results: [
-        {
-          id: 'slot-a',
-          index: 0,
-          agent: 'R-review-adversarial',
-          exitCode: 0,
-          structuredOutput: { status: 'valid', data: { findings: [] } },
-        },
-      ],
-    })
+    await expect(
+      harness.settleBatch({
+        toolCallId: 'reported-push-call',
+        errors: [],
+        results: [
+          {
+            id: 'slot-a',
+            index: 0,
+            agent: 'R-review-adversarial',
+            exitCode: 0,
+            structuredOutput: { status: 'valid', data: { findings: [] } },
+          },
+        ],
+      }),
+    ).rejects.toThrow('retention-unconfirmed')
     expect(sent.join('\n')).toContain('retention-unconfirmed')
     expect(sent.join('\n')).toContain('feature/42')
     expect(sent.join('\n')).toContain('abc123')
     expect(reasons.join('\n')).toContain('feature/42')
     expect(reasons.join('\n')).toContain('abc123')
   })
+
+  it.each([false, true])(
+    'keeps typed publication facts across the real settlement fence (retained=%s)',
+    async (retained) => {
+      const harness = bridgeHarness()
+      const { host } = fixture(harness)
+      const prepared = batch(['slot-a'])
+      const notification = new Error('notification unavailable')
+      host.workflow.publishFeatureNativeResult = async () => ({
+        published: false,
+        retained,
+        reason: 'publication refused',
+        confirmedRemote: { branch: 'feature/42', tip: 'abc123' },
+      })
+      host.send = async () => {
+        throw notification
+      }
+      await announceFeatureBatch('42', prepared, start(`settlement-notification-${retained}`), host, noDelivery)
+      expect(await harness.admitBatch(prepared, 'settlement-call', root)).toBe(true)
+      await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
+      await harness.yieldChild('slot-a', { findings: [] })
+      const pending = harness.settleBatch({
+        toolCallId: 'settlement-call',
+        errors: [],
+        results: [
+          {
+            id: 'slot-a',
+            index: 0,
+            agent: 'R-review-adversarial',
+            exitCode: 0,
+            structuredOutput: { status: 'valid', data: { findings: [] } },
+          },
+        ],
+      })
+      const fence = harness.controller.settlementFor(prepared)
+      const fenceResult = fence.then(
+        () => null,
+        (error: unknown) => error,
+      )
+      const pendingResult = pending.then(
+        () => null,
+        (error: unknown) => error,
+      )
+      const error = await fenceResult
+      expect(await pendingResult).toBe(error)
+      expect(error).toBeInstanceOf(AggregateError)
+      const aggregate = error as AggregateError
+      expect(aggregate.message).toContain('publication refused')
+      expect(aggregate.message).toContain('feature/42')
+      expect(aggregate.message).toContain('abc123')
+      expect(aggregate.errors).toContain(notification)
+      expect(aggregate.cause).toBeInstanceOf(Error)
+    },
+  )
 
   it.each([
     ['completed', false],

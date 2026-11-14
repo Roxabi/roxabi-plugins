@@ -84,17 +84,19 @@ export async function executeOwnedBatch(
     await controller.stopOwned(batch, 'native-root-or-action-unavailable')
     throw new Error('native root or action unavailable')
   }
+  let compact: ReturnType<NativeBatchController['prepareOwnedResult']>
+  let settlement: Promise<void>
   try {
-    try {
-      const observation = await observeExecution(pi, controller, batch, toolCallId, ctx, signal, rootOwner.current)
-      const compact = controller.prepareOwnedResult(observation, ctx)
-      controller.queueOwnedSettlement(observation)
-      return compact
-    } finally {
-      controller.finishExecution(batch)
-    }
+    const observation = await observeExecution(pi, controller, batch, toolCallId, ctx, signal, rootOwner.current)
+    compact = controller.prepareOwnedResult(observation, ctx)
+    controller.queueOwnedSettlement(observation)
+    settlement = controller.settlementFor(batch)
   } catch (error) {
     await controller.stopOwned(batch, 'native-result-publication-failed')
     throw error
+  } finally {
+    controller.finishExecution(batch)
   }
+  await settlement
+  return compact
 }

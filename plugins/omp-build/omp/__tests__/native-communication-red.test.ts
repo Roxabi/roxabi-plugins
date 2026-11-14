@@ -174,7 +174,7 @@ describe('native communication red probes', () => {
     await vi.waitFor(() => expect(stops).toBe(2))
     expect(setStatus.mock.lastCall?.[1]).toBe(activeStatus)
     gate.resolve()
-    await pending
+    await expect(pending).rejects.toThrow('first stop failed')
     expect(setStatus.mock.lastCall?.[1]).toEqual(expect.any(String))
     expect(setStatus.mock.lastCall?.[1]).not.toBe(activeStatus)
   })

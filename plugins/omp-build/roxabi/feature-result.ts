@@ -12,7 +12,13 @@ import { implementationEffectAuthority } from './feature-implementation-authoriz
 import { publishImplementationNegative } from './feature-implementation-negative.ts'
 import { publishAfterRemoteProof } from './feature-implementation-publication.ts'
 import { claimedToolCallIds } from './feature-implementation-receipt.ts'
-import { checkResultFence, retainedRefusal, retainImplementationResult } from './feature-implementation-retention.ts'
+import {
+  checkResultFence,
+  type ImplementationClaims,
+  type RetainedCommit,
+  retainedRefusal,
+  retainImplementationResult,
+} from './feature-implementation-retention.ts'
 import { publishIntegrationResult } from './feature-integration-result.ts'
 import { proveAuthorizedBranch } from './feature-publication.ts'
 import { bindImplementationResult, type ImplementationResultBinding } from './feature-result-binding.ts'
@@ -69,6 +75,46 @@ function stoppedImplementationReason(stop: NativeStop | undefined): string | nul
     : stop?.kind === 'invalid-terminal'
       ? 'implementation-output-invalid'
       : null
+}
+
+async function retainRemoteRefusal(
+  binding: ImplementationResultBinding,
+  input: FeatureNativeResultInput,
+  claims: ImplementationClaims,
+  commits: readonly RetainedCommit[],
+  commands: HostEffectAdmission['commands'],
+  remote: { reason: string; confirmedRemote?: { branch: string; tip: string } },
+): Promise<FeatureNativePublication> {
+  const confirmedRemote = remote.confirmedRemote
+  if (remote.reason === 'implementation-start-resolved')
+    return {
+      published: false,
+      retained: false,
+      reason: remote.reason,
+      ...(confirmedRemote === undefined ? {} : { confirmedRemote }),
+    }
+  if (confirmedRemote === undefined) {
+    const retained = await retainImplementationResult(binding, input, claims, remote.reason, commits, commands)
+    return retainedRefusal(retained, remote.reason)
+  }
+  try {
+    const retained = await retainImplementationResult(
+      binding,
+      input,
+      claims,
+      remote.reason,
+      commits,
+      commands,
+      confirmedRemote,
+    )
+    return retainedRefusal(retained, remote.reason, confirmedRemote)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw Object.assign(
+      new Error(`${message} (confirmed remote tip ${confirmedRemote.branch} ${confirmedRemote.tip})`, { cause: error }),
+      { confirmedRemote },
+    )
+  }
 }
 
 export async function publishFeatureNativeResult(input: FeatureNativeResultInput): Promise<FeatureNativePublication> {
@@ -152,19 +198,7 @@ export async function publishFeatureNativeResult(input: FeatureNativeResultInput
       return effect()
     },
   })
-  if (!remote.ok) {
-    if (remote.reason === 'implementation-start-resolved')
-      return { published: false, retained: false, reason: remote.reason }
-    const retained = await retainImplementationResult(
-      binding,
-      input,
-      claims,
-      remote.reason,
-      commits,
-      admission.commands,
-    )
-    return retainedRefusal(retained, remote.reason)
-  }
+  if (!remote.ok) return retainRemoteRefusal(binding, input, claims, commits, admission.commands, remote)
   return publishAfterRemoteProof(binding, input, claims, commits, admission, prerequisites.child, {
     branch: binding.branch,
     tip: remote.remoteTip,

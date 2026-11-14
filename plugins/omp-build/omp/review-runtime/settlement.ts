@@ -107,11 +107,14 @@ export function isolatedReceivedSettlement(
             kind: 'withheld',
             cause: 'settlement-failure',
           })
-        } catch {
-          // The rejection is observed here; a late callback must not renew authority.
+        } catch (stopError) {
+          throw new AggregateError([error, stopError], `Settlement failed: ${message}; stop callback failed`, {
+            cause: error,
+          })
         } finally {
           presentTerminal(active, ownsPresentation, 'stopped')
         }
+        throw error
       },
     )
     .finally(() => {

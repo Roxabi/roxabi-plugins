@@ -30,7 +30,26 @@ describe('implementation branch effect authority', () => {
     })
 
     expect(authority).toHaveBeenCalled()
-    expect(result).toMatchObject({ ok: false })
+    expect(result).toEqual({
+      ok: false,
+      reason: 'implementation-authority-withdrawn',
+      confirmedRemote: { branch, tip },
+    })
+    expect(calls.some(([command]) => command === 'push')).toBe(false)
+  })
+
+  it('retains the already-observed tip when authority throws', async () => {
+    const { git, calls } = branchGit(tip)
+    const cause = new Error('authority unreadable')
+    const authority = async () => {
+      throw cause
+    }
+    await expect(
+      proveAuthorizedBranch(git, '/checkout', branch, tip, {
+        effect: authority,
+        beforePush: authority,
+      }),
+    ).rejects.toMatchObject({ cause, confirmedRemote: { branch, tip } })
     expect(calls.some(([command]) => command === 'push')).toBe(false)
   })
 

@@ -13,14 +13,15 @@ import { withNativeImplementationWorld } from '../testing/native-implementation-
 import { observedComment } from '../testing/record-history.ts'
 import { roxabiRecordFixtures } from '../testing/roxabi-presets.ts'
 import { readDecodedHistory } from './feature-context.ts'
+import { resolveFeatureAuthority } from './feature-continuation-admission.ts'
 import { readFeatureObservation } from './feature-continuation-observation.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
-import type { ContinueFeatureResult } from './feature-contract.ts'
-import { loadContracts } from './feature-engine.ts'
+import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 import { reconcileWithdrawalHistories } from './fix-uw-histories.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
 import { createInstalledUwReadPort } from './uw-read-port.ts'
+import { readSelectionIssueSpec } from './uw-spec'
 
 const scope = { repository: 'acme/app', target: 'acme/app#42' }
 const otherScope = { repository: 'acme/app', target: 'acme/app#43' }
@@ -264,6 +265,48 @@ async function assertWithdrawalNativeFacts(input: {
   }
 }
 
+async function selectedWithdrawalAuthority(input: {
+  cwd: string
+  git: NonNullable<ContinueFeatureInput['git']>
+  gh: Gh
+  reader: UwReadPort
+  before: UwRead
+  uw: typeof scope
+}): Promise<SelectedFeature> {
+  if (input.before.observation.status !== 'complete') throw new Error('incomplete initial observation')
+  const primary = input.before.histories.find((history) => history.source.scope.target === input.uw.target)
+  if (!primary) throw new Error('missing native issue history')
+  const authority = await resolveFeatureAuthority({
+    cwd: input.cwd,
+    reference: '#44',
+    control: 'continue',
+    principal: true,
+    gh: input.gh,
+    git: input.git,
+    read: input.reader,
+  })
+  if ('kind' in authority) throw new Error(`fixture authority refused: ${JSON.stringify(authority)}`)
+  const ownSpec = authority.context.engine.resolveOwnSpecAuthority(
+    authority.history,
+    authority.parentHistories,
+    authority.causal,
+  )
+  if (!ownSpec.ok) throw new Error(`fixture own Spec unavailable: ${JSON.stringify(ownSpec.diagnostics)}`)
+  const issue = await readSelectionIssueSpec(input.cwd, input.uw.repository, 42, input.gh)
+  if (issue === null) throw new Error('fixture issue unavailable')
+  return {
+    authority,
+    number: 44,
+    reader: input.reader,
+    uwRead: input.before,
+    mandate: ownSpec.value.mandate,
+    acceptedSpec: ownSpec.value.accepted,
+    mandateRef: { scope: input.uw, recordId: ownSpec.value.mandate.recordId, kind: 'mandate' },
+    issue,
+    mandatePublished: false,
+  }
+}
+
 describe('complete observation refresh after native withdrawal', () => {
   it.each(['none', 'tier', 'label'] as const)(
     'reconciles a real post-withdrawal cut; sibling drift=%s',
@@ -364,29 +407,14 @@ describe('complete observation refresh after native withdrawal', () => {
           const beforeHistory = await readDecodedHistory(pr, world.cwd, gh)
           if (!beforeHistory.ok) throw new Error('native PR history unavailable')
           const before = await reader.readUw(uw)
-          if (before.observation.status !== 'complete') throw new Error('incomplete initial observation')
-          const primary = before.histories.find((history) => history.source.scope.target === uw.target)
-          if (!primary) throw new Error('missing native issue history')
-          const engine = await loadContracts()
-          if ('missing' in engine) throw new Error(`missing engine: ${engine.missing}`)
-          const selected = {
-            authority: {
-              context: { cwd: world.cwd, gh, git: world.git, engine },
-              target: { status: 'pull-request', scope: pr },
-              scope: uw,
-              history: primary,
-              parentHistories: [],
-              identity: { ok: false, reason: 'no-session' },
-              onPrincipal: true,
-            },
-            number: 44,
+          const selected = await selectedWithdrawalAuthority({
+            cwd: world.cwd,
+            git: world.git,
+            gh,
             reader,
-            uwRead: before,
-            mandate: null,
-            acceptedSpec: null,
-            mandateRef: null,
-            issue: null,
-          } as unknown as SelectedFeature
+            before,
+            uw,
+          })
           const previous = JSON.stringify(before.observation)
           const result = await readFeatureObservation('resume', selected)
           expect(withdrawals).toBeGreaterThan(0)

@@ -1,5 +1,22 @@
 import type { GitRunner } from './workflow-checkout.ts'
 
+async function authorizeObservedTip(
+  branch: string,
+  tip: string,
+  effect: () => Promise<{ ok: true } | { ok: false; reason: string }>,
+) {
+  const confirmedRemote = { branch, tip }
+  try {
+    const authorized = await effect()
+    return authorized.ok ? { ok: true as const, remoteTip: tip } : { ...authorized, confirmedRemote }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw Object.assign(new Error(`${message} (confirmed remote tip ${branch} ${tip})`, { cause: error }), {
+      confirmedRemote,
+    })
+  }
+}
+
 export async function proveAuthorizedBranch(
   git: GitRunner,
   cwd: string,
@@ -9,7 +26,9 @@ export async function proveAuthorizedBranch(
     effect: () => Promise<{ ok: true } | { ok: false; reason: string }>
     beforePush: () => Promise<{ ok: true } | { ok: false; reason: string }>
   },
-): Promise<{ ok: true; remoteTip: string } | { ok: false; reason: string }> {
+): Promise<
+  { ok: true; remoteTip: string } | { ok: false; reason: string; confirmedRemote?: { branch: string; tip: string } }
+> {
   const current = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (current.code !== 0 || current.stdout.trim() !== branch)
     return { ok: false, reason: 'implementation-branch-mismatch' }
@@ -17,10 +36,8 @@ export async function proveAuthorizedBranch(
   if (head.code !== 0 || head.stdout.trim() !== tip) return { ok: false, reason: 'implementation-head-mismatch' }
   const observed = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const observedTip = observed.stdout.trim().split(/\s+/)[0] ?? ''
-  if (observed.code === 0 && observedTip === tip) {
-    const authorized = await authority.effect()
-    return authorized.ok ? { ok: true, remoteTip: observedTip } : authorized
-  }
+  if (observed.code === 0 && observedTip === tip)
+    return authorizeObservedTip(branch, observedTip, () => authority.effect())
   const authorized = await authority.beforePush()
   if (!authorized.ok) return authorized
   const pushed = await git(cwd, ['push', 'origin', `HEAD:refs/heads/${branch}`])

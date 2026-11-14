@@ -9,7 +9,10 @@ import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
 
-export async function invokeOmpIncompleteNative(cwd: string): Promise<{
+export async function invokeOmpIncompleteNative(
+  cwd: string,
+  executionErrors: boolean,
+): Promise<{
   operationId: string
   activeAfterSettlement: boolean
   messages: string[]
@@ -92,7 +95,7 @@ export async function invokeOmpIncompleteNative(cwd: string): Promise<{
     try {
       const observation = {
         toolCallId: active.operationId,
-        errors: ['incomplete-native'],
+        errors: executionErrors ? ['incomplete-native'] : [],
         results: [
           {
             index: 0,

@@ -21,7 +21,7 @@ export type Outcome = { result: Record<string, unknown>; prompts: Prompt[]; obse
 type RunPayload = {
   start: string | null
   executor: 'settled' | 'busy' | 'unobserved' | 'missing' | 'known-unretained-terminal'
-  operator: 'confirm' | 'defer' | 'stale-commit' | 'stale-comment' | 'throw-before' | 'throw-after'
+  operator: 'confirm' | 'defer' | 'stale-commit' | 'stale-comment' | 'throw-before' | 'throw-after' | 'abandon-readback'
   inject: string | null
   startTarget: string | null
   mandateId: string | null

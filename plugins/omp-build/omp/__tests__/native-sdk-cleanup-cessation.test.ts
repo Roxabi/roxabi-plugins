@@ -1,7 +1,14 @@
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseAgent } from '../../../../__mocks__/@oh-my-pi/pi-coding-agent/task/agents.ts'
+import { announceFeatureBatch } from '../../roxabi/feature-host-native.ts'
 import { claimStartActivation, startDispatch } from '../../roxabi/feature-start-executions.ts'
+import {
+  cleanup as cleanupFeatureHost,
+  fixture as featureHost,
+  noDelivery,
+  start,
+} from '../../testing/feature-host-native-interruption-fixture.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { batch, bridgeHarness, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { executeOwnedBatch } from '../review-runtime/batch-execution.ts'
@@ -41,6 +48,7 @@ vi.mock('../review-runtime/executed-child-profile.ts', () => ({ loadPinnedProfil
 
 afterEach(() => {
   cleanupFixtureActions()
+  cleanupFeatureHost()
   vi.resetAllMocks()
 })
 
@@ -194,6 +202,54 @@ describe('deferred SDK cleanup is batch-scoped', () => {
       expect(startDispatch(startA)).toEqual({ kind: 'activated', operationId: a.operationId })
     } finally {
       pending.resolve()
+    }
+  })
+  it('returns both publisher and notification failures across the actual owned tool boundary', async () => {
+    const f = setup()
+    const prepared = batch(['slot-a'])
+    prepared.operationId = 'publication-boundary'
+    const { host } = featureHost(f.h)
+    host.native = f.port
+    const cause = new Error('original publisher cause')
+    const primary = new Error('publisher failed', { cause })
+    const notification = new Error('notification failed')
+    host.workflow.publishFeatureNativeResult = async () => {
+      throw primary
+    }
+    host.send = async () => {
+      throw notification
+    }
+    authorize(prepared)
+    sdk.run.mockImplementationOnce(async (options: { id: string; index: number }) => ({
+      id: options.id,
+      index: options.index,
+      agent: 'R-review-adversarial',
+      exitCode: 1,
+      error: 'child ended',
+    }))
+    await announceFeatureBatch('42', prepared, start('publication-boundary-start'), host, noDelivery)
+    const wire = f.h.controller.wire(prepared)
+    if (!wire) throw new Error('missing owned batch wire')
+    try {
+      const error = await executeOwnedBatch(
+        f.h.native,
+        f.h.controller,
+        'publication-boundary-call',
+        wire,
+        undefined,
+        f.ctx as never,
+      ).then(
+        () => null,
+        (failure: unknown) => failure,
+      )
+      expect(error).toBeInstanceOf(AggregateError)
+      const aggregate = error as AggregateError
+      expect(aggregate.errors).toContain(primary)
+      expect(aggregate.errors).toContain(notification)
+      expect(aggregate.cause).toBe(primary)
+      expect(primary.cause).toBe(cause)
+    } finally {
+      await releaseTaskMask(f.h.controller, false, prepared)
     }
   })
 })
