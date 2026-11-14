@@ -17,34 +17,40 @@ function quote(value: string): string {
  * other call exits 1. Every call is logged, so a test can assert what was asked
  * and prove the host gh was never the one answering.
  */
-export function hermeticGh(root: string, answer?: { argv: string[]; body: string }): HermeticGh {
+export function hermeticGh(
+  root: string,
+  answer?: { argv: string[]; body: string } | { argv: string[]; body: string }[],
+): HermeticGh {
   const bin = path.join(root, 'gh-stub', 'bin')
   const config = path.join(root, 'gh-stub', 'config')
   const log = path.join(root, 'gh-stub', 'calls.log')
   mkdirSync(bin, { recursive: true })
   mkdirSync(config, { recursive: true })
-  const expected = answer ? answer.argv.map(quote).join(' ') : ''
-  const body = answer ? answer.body.replace(/'/g, `'\\''`) : ''
+  const answers = answer ? (Array.isArray(answer) ? answer : [answer]) : []
+  const branches = answers
+    .map(({ argv, body }) => {
+      const expected = argv.map(quote).join(' ')
+      return `expected=(${expected})
+if [ "$#" -eq "\${#expected[@]}" ]; then
+  matched=1
+  i=0
+  for arg in "$@"; do [ "$arg" = "\${expected[$i]}" ] || matched=0; i=$((i + 1)); done
+  if [ "$matched" -eq 1 ]; then printf '%s' ${quote(body)}; exit 0; fi
+fi`
+    })
+    .join('\n')
   writeFileSync(
     path.join(bin, 'gh'),
     `#!/usr/bin/env bash
 for arg in "$@"; do printf '%s\\n' "$arg" >> ${quote(log)} || true; done
 printf '%s\\n' '<end>' >> ${quote(log)} || true
-${
-  answer
-    ? `expected=(${expected})
-[ "$#" -eq "\${#expected[@]}" ] || exit 1
-i=0
-for arg in "$@"; do [ "$arg" = "\${expected[$i]}" ] || exit 1; i=$((i + 1)); done
-printf '%s' '${body}'
-exit 0`
-    : 'exit 1'
-}
+${branches}
+exit 1
 `,
   )
   chmodSync(path.join(bin, 'gh'), 0o755)
   const inherited = Object.entries(process.env).filter(
-    ([key]) => !key.startsWith('GIT_') && !key.startsWith('GH_') && key !== 'GITHUB_TOKEN',
+    ([key]) => !key.startsWith('GIT_') && !key.startsWith('GH_') && key !== 'GITHUB_TOKEN' && key !== 'GITHUB_REPO',
   )
   const env: NodeJS.ProcessEnv = {
     ...Object.fromEntries(inherited),
