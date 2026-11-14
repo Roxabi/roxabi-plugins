@@ -5,6 +5,7 @@
 - Recenter `/cleanup` on read-only multi-repository worktree inventory and explicitly selected worktree removal. Preserve every branch; remove coupled remote deletion, label sweeps and CI cancellation.
 - Enforce fresh path/HEAD identity, local-data, Git-operation, lock and observable process-usage checks in the bundled executor. Keep active, dirty and nonempty orphan paths; incomplete usage observations require a separate exact-path human acknowledgement. Remove empty shells with `rmdir` only; reject blanket `--yes`.
 - Replace the misleading merge-proof analyzer with worktree-level safety checks and outcome-based Git integration coverage.
+- Recognize 0.18.11 under the existing bounded PR-binding policy; unknown policy versions still refuse.
 - Update source only. No cleanup, installed-runtime upgrade, tooling activation or pin change is authorized by this release.
 
 ## 0.18.9
