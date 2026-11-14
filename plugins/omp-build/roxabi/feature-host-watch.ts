@@ -1,6 +1,13 @@
 import { parseInstalledWatchCommand } from './feature-command.ts'
 import type { ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'
-import { rememberFeatureOwner, settleOwnedFeatureWatch, startOwnedFeatureWatch } from './feature-host-ownership.ts'
+import {
+  isOwnedFeatureWatch,
+  type OwnedFeature,
+  ownedFeatureFor,
+  rememberFeatureOwner,
+  settleOwnedFeatureWatch,
+  startOwnedFeatureWatch,
+} from './feature-host-ownership.ts'
 
 export async function startInstalledFeatureWatch(
   reference: string,
@@ -14,12 +21,20 @@ export async function startInstalledFeatureWatch(
     return
   }
   const controller = startOwnedFeatureWatch(host.key)
-  controller.signal.addEventListener('abort', () => host.status(undefined), { once: true })
-  rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: true })
+  const owner = { reference, cwd: host.cwd, pausable: true }
+  controller.signal.addEventListener(
+    'abort',
+    () => {
+      if (ownedFeatureFor(host.key) === owner) host.status(undefined)
+    },
+    { once: true },
+  )
+  rememberFeatureOwner(host.key, owner)
   settleInstalledWatch(
     reference,
     host,
     controller,
+    owner,
     host.cwd,
     watch.pr,
     host.exec('bash', watch.args, { cwd: host.cwd, signal: controller.signal }),
@@ -27,7 +42,7 @@ export async function startInstalledFeatureWatch(
   )
   // Idle Esc/RPC while only this host watch runs is not a workflow pause (D2-B).
   host.status(
-    'ci-watch: running. Idle Esc/RPC does not pause or disarm this watch — use /feature pause or /feature abandon; session switch/shutdown still pause.',
+    `ci-watch: running · UW ${reference} · PR #${watch.pr} · host CI watch (no agent) · next: observe checks. Idle Esc/RPC does not pause or disarm this watch — use /feature pause or /feature abandon; session switch/shutdown still pause.`,
   )
 }
 
@@ -35,6 +50,7 @@ function settleInstalledWatch(
   reference: string,
   host: FeatureCommandHost,
   controller: AbortController,
+  owner: OwnedFeature,
   cwd: string,
   pr: number,
   pending: Promise<{ code: number; killed: boolean }>,
@@ -42,33 +58,56 @@ function settleInstalledWatch(
 ): void {
   void pending.then(
     async (result) => {
-      if (!settleOwnedFeatureWatch(host.key, controller)) return
-      host.status(undefined)
+      if (!isOwnedFeatureWatch(host.key, controller) || ownedFeatureFor(host.key) !== owner) return
       if (result.killed || result.code < 0) {
+        host.status(undefined)
+        settleOwnedFeatureWatch(host.key, controller)
         await host.send('feature-stopped: watch-exit-unobserved')
         return
       }
       if (host.featureContinuationInhibited()) {
+        host.status(undefined)
+        settleOwnedFeatureWatch(host.key, controller)
         await host.send('feature-stopped: continuation-inhibited')
         return
       }
-      try {
-        const next = await host.workflow.consumeWatchExit({
-          cwd,
-          pr,
-          code: result.code,
-          reference,
-          ...(host.uw === undefined ? {} : { uw: host.uw }),
-        })
-        await deliver(next)
-      } catch (error) {
-        await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
-      }
+      host.status(
+        `ci-watch: finished · UW ${reference} · PR #${pr} · host continuation (no agent) · next: assess checks and landing`,
+      )
+      await deliverWatchExit(reference, host, controller, owner, cwd, pr, result.code, deliver)
     },
     async (error: unknown) => {
-      if (!settleOwnedFeatureWatch(host.key, controller)) return
+      if (!settleOwnedFeatureWatch(host.key, controller) || ownedFeatureFor(host.key) !== owner) return
       host.status(undefined)
       await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
     },
   )
+}
+
+async function deliverWatchExit(
+  reference: string,
+  host: FeatureCommandHost,
+  controller: AbortController,
+  owner: OwnedFeature,
+  cwd: string,
+  pr: number,
+  code: number,
+  deliver: (result: ContinueFeatureResult) => Promise<void>,
+): Promise<void> {
+  try {
+    const next = await host.workflow.consumeWatchExit({
+      cwd,
+      pr,
+      code,
+      reference,
+      ...(host.uw === undefined ? {} : { uw: host.uw }),
+    })
+    if (!settleOwnedFeatureWatch(host.key, controller) || ownedFeatureFor(host.key) !== owner) return
+    await deliver(next)
+  } catch (error) {
+    if (controller.signal.aborted || ownedFeatureFor(host.key) !== owner) return
+    host.status(undefined)
+    settleOwnedFeatureWatch(host.key, controller)
+    await host.send(`feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }

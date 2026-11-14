@@ -3,14 +3,29 @@ import type { ExternalRecordRef, ScopedRecordRef } from '../engine/record-refere
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment, ParentCoverage } from '../engine/workflow-mandate-schema.ts'
-import type { NativeBatch, NativeBatchCallbacks, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import type {
+  NativeBatch,
+  NativeBatchCallbacks,
+  NativeBatchResult,
+  NativeStop,
+} from '../omp/review-runtime/contracts.ts'
+import type { FeatureLandReentry } from '../skills/feature/workflow-outcome.js'
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
 import type { FramingSourceRequest } from './feature-framing-contract.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
-import type { UwOperations, UwReadPort } from './uw-contract.ts'
+import type { UwOperationResult, UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
-export type FeatureControl = 'select' | 'continue' | 'resume' | 'pause' | 'abandon' | 'new' | 'material-decision'
+export type FeatureControl =
+  | 'select'
+  | 'continue'
+  | 'resume'
+  | 'pause'
+  | 'abandon'
+  | 'new'
+  | 'material-decision'
+  | 'resolve-interruption'
+
 export type FeatureSessionReason = 'session-stop' | 'session-switch' | 'session-shutdown'
 
 export type FeatureNativePort = {
@@ -44,6 +59,16 @@ export type ParentCoverageRequest = {
   }[]
 }
 
+/**
+ * The step a recoverable hold leaves open: an operator repair named by the landing outcome, a fresh
+ * `/feature` run whose engine decides, a Mandate repair, or a landing diagnosis. Final stops never carry one.
+ */
+export type FeatureHoldNext =
+  | Exclude<FeatureLandReentry, 'none'>
+  | 'feature-reentry'
+  | 'resolve-mandate-then-land'
+  | 'diagnose-landing'
+
 export type ContinueFeatureResult =
   | { kind: 'action'; node: string; followUp: NativeBatch; start: ScopedRecordRef }
   | { kind: 'watch'; command: string }
@@ -56,9 +81,26 @@ export type ContinueFeatureResult =
       attributionRecordId: string
       uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
     }
-  | { kind: 'blocked'; reason: string; diagnostics?: readonly Diagnostic[]; coverageRequest?: ParentCoverageRequest }
+  | {
+      kind: 'blocked'
+      reason: string
+      diagnostics?: readonly Diagnostic[]
+      coverageRequest?: ParentCoverageRequest
+      /** Present only on a recoverable hold; its owner stays pausable. */
+      next?: FeatureHoldNext
+    }
   | { kind: 'paused'; confirmed: boolean; reason: string }
-  | { kind: 'abandoned'; confirmed: boolean }
+  | {
+      kind: 'abandoned'
+      confirmed: boolean
+      failure?:
+        | {
+            phase: 'uw'
+            status: Exclude<UwOperationResult['status'], 'abandoned' | 'deferred'>
+            diagnostics: readonly Diagnostic[]
+          }
+        | { phase: 'disarm'; evidence: unknown }
+    }
   | { kind: 'terminal'; reason: string; diagnostics?: readonly Diagnostic[] }
   | { kind: 'session-cwd'; path: string; instruction: string }
   | { kind: 'operator-decision'; reason: string }
@@ -78,6 +120,9 @@ export type ContinueFeatureInput = {
   parentCoverageBasis?: ParentCoverageRequest
   /** Trusted host composition only. Omit for the ordinary published pin. */
   pluginPin?: TrustedHostPluginPin
+  /** Ephemeral owner fence for a native continuation; never persisted. */
+  owned?: () => boolean
+  interruption?: { start?: string }
 }
 
 export type FeatureSessionPauseInput = {
@@ -90,8 +135,14 @@ export type FeatureSessionPauseInput = {
 
 export type FeatureNativePublication =
   | { published: true; retained: true; receipt?: ScopedRecordRef }
-  | { published: false; retained: true; reason: string; receipt?: ScopedRecordRef }
-  | { published: false; retained: false; reason: string }
+  | {
+      published: false
+      retained: true
+      reason: string
+      receipt?: ScopedRecordRef
+      confirmedRemote?: { branch: string; tip: string }
+    }
+  | { published: false; retained: false; reason: string; confirmedRemote?: { branch: string; tip: string } }
 
 export type FeatureWorkflow = {
   continueFeature(input: ContinueFeatureInput): Promise<ContinueFeatureResult>
@@ -109,6 +160,7 @@ export type FeatureWorkflow = {
     result: NativeBatchResult
     start: ScopedRecordRef
     startHead?: string
+    stop?: NativeStop
     git?: GitRunner
     gh?: Gh
   }): Promise<FeatureNativePublication>
@@ -116,7 +168,8 @@ export type FeatureWorkflow = {
 }
 
 export type ParsedFeatureCommand =
-  | { ok: true; control: FeatureControl; reference: string }
+  | { ok: true; control: Exclude<FeatureControl, 'resolve-interruption'>; reference: string }
+  | { ok: true; control: 'resolve-interruption'; reference: string; start?: string }
   | { ok: true; control: 'init'; args: readonly string[] }
   | { ok: false; reason: string }
 

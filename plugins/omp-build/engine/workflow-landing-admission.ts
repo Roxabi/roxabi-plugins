@@ -18,19 +18,17 @@ import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import {
   abandoned,
   bindExternalRef,
-  confirmedPause,
   historyFor,
   type MandateRecord,
   mandateScope,
-  outstandingPauseInAuthority,
   successorOf,
-  unliftedPause,
 } from './workflow-control.ts'
 import type { LandingMandateDecision, LandingRefusal } from './workflow-landing.ts'
 import { type LandingCandidate, selectedCandidate } from './workflow-landing-binding.ts'
 import type { MandateRefusal } from './workflow-mandate.ts'
 import { childCommitmentRefusal, selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { epicParentProblem } from './workflow-parent.ts'
+import { confirmedPause, outstandingPauseInAuthority, unliftedPause } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 
 export type LandingMandateInput = {

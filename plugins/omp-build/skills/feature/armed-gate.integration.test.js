@@ -104,6 +104,21 @@ describe('durable review stop', () => {
     })
   })
 
+  it('disarms a red watch in feature mode without publishing a stop before engine admission', async () => {
+    const history = reviewHistory([
+      { head: HEADS[0], verdict: 'Approve (clean)' },
+      { head: HEADS[1], verdict: 'Approve (clean)' },
+      { head: HEADS[2], verdict: 'Approve (clean)' },
+    ])
+    const { gh, git, state, calls } = gateGh(history, { head: HEADS[2], armed: true })
+    await expect(applyCiWatchExit(WORKTREE, PR, 1, { gh, git, stopPublication: 'engine' })).resolves.toMatchObject({
+      status: 'ci-failed',
+      disarmed: true,
+    })
+    expect(state).toEqual({ head: HEADS[2], label: false, auto: false })
+    expect(calls.filter((args) => args.includes('POST') && args.some((arg) => /kind=stop\b/.test(arg)))).toEqual([])
+  })
+
   it('clears the watcher arm when its selected review was edited', async () => {
     const linked = await linkedApproval(HEADS[0])
     const review = linked.pr.source.comments.find((entry) => entry.body.includes('kind=review '))

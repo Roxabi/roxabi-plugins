@@ -59,7 +59,11 @@ export function native(
     async stopOwned(batch, reason) {
       if (active !== batch || callbacks === null) return
       active = null
-      await callbacks.onStop(reason, { batch, children: [], raw: { stopped: reason }, complete: false })
+      await callbacks.onStop(
+        reason,
+        { batch, children: [], raw: { stopped: reason }, complete: false },
+        { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
+      )
     },
     async announce(batch) {
       const task = batch.tasks.tasks[0]

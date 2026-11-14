@@ -1,7 +1,7 @@
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import type { PauseBinding } from '../engine/workflow-control.ts'
+import type { PauseBinding } from '../engine/workflow-pause.ts'
 import { epicFinalReviewRequest, epicNext, epicReport, epicStep } from '../skills/feature/epic-driver.ts'
-import { featureLandOutcome } from '../skills/feature/workflow-outcome.js'
+import type { Step as EpicStep } from '../skills/feature/epic-types.ts'
 import { prepareEpicFinalReviewMaterials } from './epic-range-finalization.ts'
 import { continueCiCorrection, continueReviewBoundFix } from './feature-ci-correction.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
@@ -11,6 +11,7 @@ import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-cont
 import { payload } from './feature-engine.ts'
 import { runEpicPostMergeHook } from './feature-epic-actions.ts'
 import { landFeature } from './feature-landing.ts'
+import { landingContinuation } from './feature-landing-continuation.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 
 type ContinueAtTarget = (
@@ -18,6 +19,8 @@ type ContinueAtTarget = (
   exactMandateRef?: ScopedRecordRef,
   noImplicitResume?: boolean,
   completedReport?: boolean,
+  /** Cause of an engine re-entry after landing; the engine may not select `land` again in this call. */
+  landingReentry?: string,
 ) => Promise<ContinueFeatureResult>
 
 export async function coordinateContinuationEffects(
@@ -33,9 +36,9 @@ export async function coordinateContinuationEffects(
   const { context } = authority
   switch (action) {
     case 'fix':
-      return observation.facts.failedChecks === null
-        ? continueReviewBoundFix(selected, observation)
-        : continueCiCorrection(authority, observation, selected.reader ?? input.read ?? input.uw)
+      return observation.decisions.reviewStep === 'fix-ci'
+        ? continueCiCorrection(authority, observation, selected.reader ?? input.read ?? input.uw)
+        : continueReviewBoundFix(selected, observation)
     case 'land':
       return coordinateLanding(input, exactMandateRef, authority, observation, continueAtTarget)
     case 'resume':
@@ -88,16 +91,10 @@ async function coordinateLanding(
     ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
   })
   if ('kind' in landed) return landed
-  const outcome = featureLandOutcome(landed)
-  if (outcome.action === 'start-watch' || outcome.action === 'reattach-watch') {
-    return typeof landed.watch === 'string'
-      ? { kind: 'watch', command: landed.watch }
-      : { kind: 'blocked', reason: 'watch-missing' }
-  }
-  if (outcome.action === 'report-merged') return reenterCurrent(input, exactMandateRef, authority, continueAtTarget)
-  return outcome.action === 'stop' || outcome.action === 'blocked'
-    ? { kind: 'terminal', reason: outcome.reason }
-    : { kind: 'blocked', reason: outcome.action }
+  const next = landingContinuation(landed)
+  return next.kind === 'result'
+    ? next.result
+    : reenterCurrent(input, exactMandateRef, authority, continueAtTarget, next.cause)
 }
 
 function reenterCurrent(
@@ -105,11 +102,15 @@ function reenterCurrent(
   exactMandateRef: ScopedRecordRef | undefined,
   authority: FeatureAuthority,
   continueAtTarget: ContinueAtTarget,
+  landingReentry?: string,
 ): Promise<ContinueFeatureResult> {
   const { context } = authority
   return continueAtTarget(
     { ...input, cwd: context.cwd, control: 'continue', principal: false, git: context.git, gh: context.gh },
     exactMandateRef,
+    false,
+    false,
+    landingReentry,
   )
 }
 
@@ -134,9 +135,26 @@ async function continueEpicNext(
           git,
           gh,
         })
-      : { kind: 'terminal', reason: `epic-${step.action}` }
+      : heldEpicStep(step)
   } catch (error) {
     return { kind: 'blocked', reason: error instanceof Error ? error.message : 'epic-next-failed' }
+  }
+}
+
+/**
+ * Any live Epic step but a child to start or resume is unfinished work of the Epic itself: integration,
+ * the final review, the post-merge hook, and the completion or drop report are engine actions of a fresh
+ * `/feature` run. This call holds on that step; it neither ends the Epic nor starts that work.
+ */
+function heldEpicStep(step: EpicStep): ContinueFeatureResult {
+  const reason =
+    step.action === 'drop' || step.action === 'stop' ? `epic-${step.action}:${step.stop}` : `epic-${step.action}`
+  const message = step.reason.trim()
+  return {
+    kind: 'blocked',
+    reason,
+    next: 'feature-reentry',
+    ...(message === '' ? {} : { diagnostics: [{ code: `epic-${step.action}`, message }] }),
   }
 }
 

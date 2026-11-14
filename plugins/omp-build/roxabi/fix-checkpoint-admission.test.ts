@@ -168,7 +168,7 @@ describe('fix checkpoint UW delivery admission', () => {
       leaf.history,
       null,
       [],
-      'fix',
+      'fix-ci',
       { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
       read,
     )
@@ -190,12 +190,12 @@ describe('fix checkpoint UW delivery admission', () => {
       options: { cwd: '/worktree' },
     }
     const evidence = { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] }
-    const baseline = await authorizeFixAction(input, leaf.history, null, [], 'fix', evidence, read)
+    const baseline = await authorizeFixAction(input, leaf.history, null, [], 'fix-ci', evidence, read)
     expect(baseline).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
     expect(git).toHaveBeenCalledTimes(1)
     git.mockClear()
     const histories = read.histories.filter((history) => history.source.scope.target !== UW.target)
-    const result = await authorizeFixAction(input, prHistory, null, [], 'fix', evidence, {
+    const result = await authorizeFixAction(input, prHistory, null, [], 'fix-ci', evidence, {
       ...read,
       histories,
       causalObservation: { status: 'complete', histories, catalogues: read.catalogues },
@@ -274,8 +274,16 @@ describe('fix checkpoint UW delivery admission', () => {
       options: { cwd: '/worktree' },
     }
     const liveEvidence = { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] }
-    const ciCompleted = await authorizeFixAction(input, completed.history, null, [], 'fix', liveEvidence, completedRead)
-    const ciBlocked = await authorizeFixAction(input, blocked.history, null, [], 'fix', liveEvidence, blockedRead)
+    const ciCompleted = await authorizeFixAction(
+      input,
+      completed.history,
+      null,
+      [],
+      'fix-ci',
+      liveEvidence,
+      completedRead,
+    )
+    const ciBlocked = await authorizeFixAction(input, blocked.history, null, [], 'fix-ci', liveEvidence, blockedRead)
 
     expect(ciCompleted).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
     expect(ciBlocked).toMatchObject({ ok: false })

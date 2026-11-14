@@ -113,6 +113,8 @@ export function installFeatureSessionLifecycle(
   })
   pi.on('session_switch', (_event, ctx) => {
     if (!rootContext(ctx)) return
+    // The status channel persists across sessions; clear it before any asynchronous pause.
+    ctx.ui?.setStatus?.('omp-build-watch', undefined)
     interruptOwnedFixRun(pi, 'session-switched')
     return pauseFeatureOnSessionEnd('session-switch')
   })

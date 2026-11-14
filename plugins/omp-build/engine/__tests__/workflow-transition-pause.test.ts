@@ -22,6 +22,45 @@ import {
 } from './workflow-transition-native-fixture.ts'
 
 describe('workflow transition pause behavior', () => {
+  test.each([
+    { name: 'product version', overrides: { productVersion: '0.0.0' }, reason: 'config-drift' },
+    { name: 'configuration digest', overrides: { configDigest: '0'.repeat(64) }, reason: 'config-drift' },
+    { name: 'supported configuration', overrides: { supportedConfigVersions: [] }, reason: 'unsupported-config' },
+  ])(
+    'refuses an explicit resume with incompatible $name without changing the confirmed pause',
+    async ({ overrides, reason }) => {
+      const feature = featureMandate()
+      const pause = pauseControls(feature, 'incompatible-resume')
+      const issue = history([feature, pause.requested, pause.confirmed])
+      const evidence = {
+        issue,
+        pullRequest: null,
+        parents: [],
+        causal: await nativeCausal([issue], [rootNode]),
+      }
+      const decisions: SpecializedDecisions = {
+        reviewStep: null,
+        epicStep: null,
+        epicLand: null,
+        ciWatchStatus: null,
+        publish: { status: 'absent', evidence: [] },
+        landing: { status: 'absent', evidence: [] },
+        watch: { status: 'absent', evidence: [] },
+      }
+      expect(reconstructWorkflow({ evidence, facts: facts(overrides), decisions })).toMatchObject({
+        status: 'paused',
+        confirmed: true,
+        mandateId: feature.recordId,
+      })
+      for (const intent of [{ explicitResume: true }, { explicitSelection: true }]) {
+        expect(reconstructWorkflow({ evidence, facts: facts({ ...overrides, ...intent }), decisions })).toMatchObject({
+          status: 'blocked',
+          reason,
+        })
+      }
+    },
+  )
+
   test('refuses unconfirmed own pauses and preserves successor pause controls', async () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
     const feature = featureMandate()

@@ -1,134 +1,13 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import type { ActionMessage } from '../action-communication.ts'
+import { nativeBatchStatus } from '../action-communication.ts'
 import { flushPendingYields } from './capture'
 import { groundCapturedChildren } from './child-capture.ts'
-import { contextNegativeChildren } from './context-negative.ts'
-import { stopForMissingContext } from './context-negative-stop.ts'
-import type { NativeBatch, NativeBatchResult, NativeChildResult, NativeExecutionObservation } from './contracts'
+import type { NativeBatch, NativeBatchResult, NativeExecutionObservation, NativeStop } from './contracts'
 import { rootCurrent } from './executed-child-lifecycle.ts'
-import { bindNativeObservations } from './observation-capture.ts'
 import { blocked, integrityFailure, publishRaw } from './settlement-evidence'
+import { preparedReceived, stopAfterPublication, stopBeforePublication, stopIfLate } from './settlement-received'
 import type { ActiveBatch } from './state'
-import { capturedChild, type ResolvedTaskResult, resolveTaskResult } from './task-result-resolution'
-
-async function notify(active: ActiveBatch, message: ActionMessage): Promise<void> {
-  try {
-    await active.communication?.message(message)
-  } catch {
-    // A visible-message failure must not change admission or reopen the result hook.
-  }
-}
-
-type ReceivedSettlement = {
-  children: NativeChildResult[]
-  integrity: string | null
-  result: NativeBatchResult
-}
-
-async function preparedReceived(
-  active: ActiveBatch,
-  event: NativeExecutionObservation,
-  resolved: ResolvedTaskResult,
-): Promise<ReceivedSettlement> {
-  const grounded = await groundCapturedChildren(active, resolved.result.children)
-  let integrity = await integrityFailure(active)
-  const negatives =
-    integrity === null && event.errors.length === 0 && resolved.identitiesMatch
-      ? contextNegativeChildren(active.batch, grounded)
-      : null
-  if (negatives?.invalidBinding) integrity = 'action-binding-unregistered-or-mismatched'
-  let children = integrity === null ? (negatives?.children ?? grounded) : blocked(grounded, integrity)
-  if (integrity === null && event.errors.length === 0 && resolved.identitiesMatch) {
-    children = bindNativeObservations(active.batch, children)
-  }
-  const hasNegative = children.some((child) => child.contextBlock !== undefined)
-  const canPublishContext = (): boolean =>
-    active.contextPublicationOwned && active.retentionFailed === null && rootCurrent(active)
-  if (hasNegative) {
-    active.contextPublicationOwned = active.continuationClosed === null && active.retentionFailed === null
-    children = children.map((child) => ({ ...child, canPublishContext }))
-  }
-  return {
-    children,
-    integrity,
-    result: {
-      ...resolved.result,
-      children,
-      ...(hasNegative ? { canPublishContext } : {}),
-      complete:
-        integrity === null &&
-        resolved.complete &&
-        active.continuationClosed === null &&
-        active.retentionFailed === null,
-    },
-  }
-}
-
-async function stopBeforePublication(
-  active: ActiveBatch,
-  result: NativeBatchResult,
-  detach: (active: ActiveBatch) => void,
-): Promise<boolean> {
-  if (active.retentionFailed === null && rootCurrent(active)) return false
-  if (active.retentionFailed === null) active.retentionFailed = 'native-root-generation-changed'
-  detach(active)
-  await active.callbacks.onStop(`retention-failed:${active.retentionFailed}`, { ...result, complete: false })
-  return true
-}
-
-async function notifyIntegrity(active: ActiveBatch, integrity: string, result: NativeBatchResult): Promise<void> {
-  await notify(active, {
-    kind: 'blocker',
-    summary: `native batch ${active.batch.operationId} blocked: action integrity failed`,
-    actionableFacts: [`reason: ${integrity}`, 'credentialMode: procedural-fallback'],
-    nextAction: 'restore the registered action snapshot or prepare a new one before retrying',
-    detailRef: active.retainedResultRef ?? 'retention-unavailable',
-  })
-  await active.callbacks.onStop(`action-integrity-failed:${integrity}`, result)
-}
-
-async function stopIfLate(active: ActiveBatch, result: NativeBatchResult): Promise<boolean> {
-  if (active.retentionFailed === null && active.continuationClosed === null && rootCurrent(active)) return false
-  const reason =
-    active.retentionFailed !== null
-      ? `retention-failed:${active.retentionFailed}`
-      : (active.continuationClosed ?? 'native-root-generation-changed')
-  await active.callbacks.onStop(reason, result)
-  return true
-}
-
-async function stopAfterPublication(
-  active: ActiveBatch,
-  event: NativeExecutionObservation,
-  resolved: ResolvedTaskResult,
-  prepared: ReceivedSettlement,
-  publicationErrors: readonly string[],
-): Promise<boolean> {
-  if (prepared.result.canPublishContext && !prepared.result.canPublishContext()) return true
-  if (prepared.integrity !== null) {
-    await notifyIntegrity(active, prepared.integrity, prepared.result)
-    return true
-  }
-  if (publicationErrors.length > 0) {
-    await active.callbacks.onStop(`raw-publication-failed:${publicationErrors.join('; ')}`, prepared.result)
-    return true
-  }
-  if (active.continuationClosed !== null) {
-    await active.callbacks.onStop(active.continuationClosed, prepared.result)
-    return true
-  }
-  if (await stopIfLate(active, prepared.result)) return true
-  const negatives = prepared.children.filter((child) => child.contextBlock !== undefined)
-  if (negatives.length === 0) {
-    if (!resolved.complete) {
-      await active.callbacks.onStop(incompleteReason(event, resolved), prepared.result)
-      return true
-    }
-    return false
-  }
-  await stopForMissingContext(active, prepared.result, negatives, notify)
-  return true
-}
+import { capturedChild, resolveTaskResult } from './task-result-resolution'
 
 export function ownsBatchPresentation(
   active: ActiveBatch,
@@ -146,7 +25,13 @@ function presentTerminal(
 ): void {
   if (!ownsPresentation(active.batch)) return
   try {
-    active.communication?.status(`omp-build: native batch ${active.batch.operationId} ${status}`)
+    const phase =
+      status === 'completed'
+        ? 'native output received'
+        : active.admittedToolCallId === null
+          ? 'withdrawn · executor not started'
+          : 'continuation stopped'
+    active.communication?.status(nativeBatchStatus(active.batch, phase))
   } catch {
     // Status presentation cannot change settlement.
   }
@@ -170,11 +55,12 @@ export async function settleReceivedBatch(
     if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return
     const canContinue = (): boolean =>
       active.continuationClosed === null && active.retentionFailed === null && rootCurrent(active)
-    if (await stopIfLate(active, prepared.result)) return
+    if (await stopIfLate(active, prepared.result, resolved, event)) return
+    status = 'completed'
     await active.callbacks.onComplete(prepared.result, canContinue)
-    if (await stopIfLate(active, prepared.result)) return
+    if (await stopIfLate(active, prepared.result, resolved, event)) return
     await active.callbacks.onSettled?.(prepared.result, canContinue)
-    if (await stopIfLate(active, prepared.result)) return
+    if (await stopIfLate(active, prepared.result, resolved, event)) return
     status = 'completed'
   } catch (error) {
     failed = true
@@ -199,7 +85,10 @@ export function isolatedReceivedSettlement(
     return Promise.resolve().then(async () => {
       detach(active)
       try {
-        await active.callbacks.onStop(`settlement-isolation-failed:${message}`, null)
+        await active.callbacks.onStop(`settlement-isolation-failed:${message}`, null, {
+          kind: 'withheld',
+          cause: 'settlement-failure',
+        })
       } catch {
         // Observed. The live SDK event is not reused and no substitute event is built.
       } finally {
@@ -212,14 +101,24 @@ export function isolatedReceivedSettlement(
     .then(
       () => undefined,
       async (error) => {
+        if (active.continuationClosed === 'action-context-missing') {
+          presentTerminal(active, ownsPresentation, 'stopped')
+          throw error
+        }
         const message = error instanceof Error ? error.message : String(error)
         try {
-          await active.callbacks.onStop(`settlement-failed:${message}`, null)
-        } catch {
-          // The rejection is observed here; a late callback must not renew authority.
+          await active.callbacks.onStop(`settlement-failed:${message}`, null, {
+            kind: 'withheld',
+            cause: 'settlement-failure',
+          })
+        } catch (stopError) {
+          throw new AggregateError([error, stopError], `Settlement failed: ${message}; stop callback failed`, {
+            cause: error,
+          })
         } finally {
           presentTerminal(active, ownsPresentation, 'stopped')
         }
+        throw error
       },
     )
     .finally(() => {
@@ -227,11 +126,27 @@ export function isolatedReceivedSettlement(
     })
 }
 
-function incompleteReason(event: NativeExecutionObservation, resolved: ResolvedTaskResult): string {
-  if (event.errors.length > 0) return `native-execution-failed:${event.errors.join('; ')}`
-  if (!resolved.exactCount) return 'unexpected-required-child-count'
-  if (!resolved.identitiesMatch) return 'unexpected-required-child-id'
-  return resolved.result.children.find((child) => !child.usable)?.reason ?? 'required-child-invalid'
+function stoppedDisposition(
+  active: ActiveBatch,
+  integrity: string | null,
+  publicationErrors: readonly string[],
+  reason: string,
+): { reason: string; stop: NativeStop } {
+  if (integrity !== null)
+    return { reason: `action-integrity-failed:${integrity}`, stop: { kind: 'withheld', cause: 'integrity' } }
+  if (publicationErrors.length > 0)
+    return {
+      reason: `raw-publication-failed:${publicationErrors.join('; ')}`,
+      stop: { kind: 'withheld', cause: 'raw-publication' },
+    }
+  const origin = active.stopOrigin
+  return {
+    reason,
+    stop:
+      origin !== null && active.admittedToolCallId === null
+        ? { kind: 'interrupted', origin, proof: 'not-dispatched' }
+        : { kind: 'unattributed', origin },
+  }
 }
 
 export function settleStoppedBatch(
@@ -252,13 +167,8 @@ export function settleStoppedBatch(
       const usableBlocked = integrity === null ? children : blocked(children, integrity)
       const result: NativeBatchResult = { batch: active.batch, children: usableBlocked, raw: null, complete: false }
       const publicationErrors = await publishRaw(active.callbacks, usableBlocked)
-      const stopReason =
-        integrity !== null
-          ? `action-integrity-failed:${integrity}`
-          : publicationErrors.length === 0
-            ? reason
-            : `raw-publication-failed:${publicationErrors.join('; ')}`
-      await active.callbacks.onStop(stopReason, result)
+      const disposition = stoppedDisposition(active, integrity, publicationErrors, reason)
+      await active.callbacks.onStop(disposition.reason, result, disposition.stop)
     } finally {
       presentTerminal(active, ownsPresentation, 'stopped')
     }

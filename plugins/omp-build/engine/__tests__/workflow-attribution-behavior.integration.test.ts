@@ -38,6 +38,7 @@ describe('workflow CI attribution behavior', () => {
         { from: 'ready', to: 'attribute-ci', when: 'ci-red' },
         { from: 'ready', to: 'fix', when: 'ci-attributed-change' },
         { from: 'ready', to: 'stop', when: 'ci-attribution-refused' },
+        { from: 'ready', to: 'fix', when: 'review-step-fix' },
         { from: 'ready', to: 'stop', when: 'review-step-stop' },
       ],
       initial: 'ready',
@@ -225,7 +226,7 @@ describe('workflow CI attribution behavior', () => {
     )
     expect(parseRecord({ ...receipt, payload: { ...receipt.payload, exactInputs: rerunInputs } }).ok).toBe(false)
     const decisions = {
-      reviewStep: 'fix' as const,
+      reviewStep: 'fix-ci' as const,
       epicStep: null,
       epicLand: null,
       ciWatchStatus: 'red' as const,
@@ -242,6 +243,18 @@ describe('workflow CI attribution behavior', () => {
         evidenceDigest,
       }),
     }
+    const unattributed = {
+      ...shared,
+      evidence: await nativeEvidence(history([binding(mandated, pr)], pr)),
+    }
+    expect(reconstructWorkflow({ ...unattributed, decisions })).toMatchObject({
+      status: 'action',
+      action: 'attribute-ci',
+    })
+    expect(reconstructWorkflow({ ...unattributed, decisions: { ...decisions, reviewStep: 'fix' } })).toMatchObject({
+      status: 'action',
+      action: 'fix',
+    })
     expect(reconstructWorkflow({ ...shared, decisions })).toMatchObject({ status: 'action', action: 'fix' })
     const unknownReceipt = must(
       parseRecord({

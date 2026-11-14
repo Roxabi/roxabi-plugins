@@ -25,6 +25,7 @@ type Observation = {
   diagnostics: unknown[]
   active: unknown
   fixRun: unknown
+  settlementError: { message: string; errors: string[]; causeIsPrimary: boolean } | null
 }
 
 type BoundaryObservation = {
@@ -132,6 +133,7 @@ describe('native review disposition retention', () => {
       const valid = await run(task, baseline.box, baseline.cwd, false)
       expect(valid.initialAccepted).toBe('accepted')
       expect(valid.accepted).toBe('accepted')
+      expect(valid.settlementError).toBeNull()
       expect(records(valid.after).some((item) => item.kind === 'review')).toBe(true)
       expect(
         records(origin(valid)).some(
@@ -141,6 +143,11 @@ describe('native review disposition retention', () => {
 
       await seedReviewFixture(broken.box, broken.cwd)
       const observed = await run(task, broken.box, broken.cwd, true)
+      expect(observed.settlementError).toMatchObject({
+        message: expect.stringContaining('decision-refused:unknown-reference,missing-cause'),
+        errors: [expect.stringContaining('decision-refused:unknown-reference,missing-cause'), expect.any(String)],
+        causeIsPrimary: true,
+      })
       expect(observed.initialAccepted).toBe('accepted')
       expect(observed.accepted).toBe('accepted')
       const before = records(observed.before)

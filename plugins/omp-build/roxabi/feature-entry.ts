@@ -6,17 +6,19 @@ import type {
   FeatureFixTerminal,
 } from './feature-contract.ts'
 import { continueWithParentCoverage } from './feature-coverage-continuation.ts'
+import { deliverPrincipalRefusal, preservesFeatureResult, settleStoppedOwner } from './feature-entry-stops.ts'
 import { deliverEpicFinalReview } from './feature-epic-delivery.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
 import { abortOwnedFeatureWatch, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
 import { startInstalledFeatureWatch } from './feature-host-watch.ts'
 import {
   featureErrorMessage,
-  featureSessionCwdMessage,
+  featureResultStatus,
   featureStopMessage,
   principalRefusalMessage,
 } from './feature-presentation.ts'
 import { deliverSessionCwd } from './feature-session-cwd.ts'
+import { recordStartNotActivated } from './feature-start-executions.ts'
 
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
   const parsed = parseFeatureCommand(args)
@@ -41,6 +43,9 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     principal: host.principal,
     ...(host.uw === undefined ? {} : { uw: host.uw }),
     ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
+    ...(parsed.control === 'resolve-interruption'
+      ? { interruption: { ...(parsed.start === undefined ? {} : { start: parsed.start }) } }
+      : {}),
   }
   await continueFeatureCommand(args, commandInput, host)
 }
@@ -61,6 +66,10 @@ async function continueFeatureCommand(
     await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
     return
   }
+  if (control === 'resolve-interruption') {
+    await deliverInterruptionResult(commandInput.reference, result, host)
+    return
+  }
   if (result.kind === 'framing') {
     await host.startFraming(
       result.source.kind === 'free-text' ? { kind: 'free-text', acceptedArgs: args } : result.source,
@@ -79,46 +88,17 @@ async function continueFeatureCommand(
   await deliverFeatureResult(commandInput.reference, result, host)
 }
 
-/**
- * Initial framing is dispatched before this delivery-only gate. A valid move still passes
- * unchanged; the principal checkout refuses every delivery action.
- */
-async function deliverPrincipalRefusal(host: FeatureCommandHost, result: ContinueFeatureResult): Promise<void> {
-  const stop = featureStopMessage(result)
-  if (stop === null && result.kind === 'session-cwd') {
-    await host.send(featureSessionCwdMessage(result.path, result.instruction))
-  } else {
-    await host.send(principalRefusalMessage(host.cwd, stop ?? refusedWork(result)))
-  }
-}
-
-/** Work the principal declines to start, named by kind; any other kind is not a workflow result. */
-function refusedWork(result: ContinueFeatureResult): string {
-  switch (result.kind) {
-    case 'action':
-    case 'watch':
-    case 'review':
-    case 'fix':
-    case 'admitted-ci-correction':
-    case 'epic-final-review':
-      return `workflow-result: ${result.kind}`
-    default:
-      return 'feature-stopped: feature-result-invalid'
-  }
-}
-
-function preservesFeatureResult(result: ContinueFeatureResult): boolean {
-  switch (result.kind) {
-    case 'session-cwd':
-    case 'paused':
-    case 'abandoned':
-    case 'blocked':
-    case 'terminal':
-    case 'operator-decision':
-      return true
-    default:
-      return false
-  }
+async function deliverInterruptionResult(
+  reference: string,
+  result: ContinueFeatureResult,
+  host: FeatureCommandHost,
+): Promise<void> {
+  const message = featureStopMessage(result) ?? 'feature-stopped: interruption-result-invalid'
+  await host.send(
+    result.kind === 'paused' && result.confirmed && result.reason === 'interruption-resolved'
+      ? `${message}\nUW ${reference} remains paused · next: /feature resume ${reference}`
+      : message,
+  )
 }
 
 export async function deliverFeatureResult(
@@ -130,10 +110,14 @@ export async function deliverFeatureResult(
     await host.startFraming(result.source, result.source.kind === 'free-text' ? result.source.acceptedArgs : reference)
     return
   }
-  if (host.featureContinuationInhibited() && !preservesFeatureResult(result))
+  if (host.featureContinuationInhibited() && !preservesFeatureResult(result)) {
+    if (result.kind === 'action') recordStartNotActivated(result.start)
     return await host.send('feature-stopped: continuation-inhibited')
+  }
   if (result.kind === 'session-cwd') return deliverSessionCwd(result, host)
   settleStoppedOwner(reference, result, host)
+  if (result.kind === 'blocked' || result.kind === 'paused') host.status(featureResultStatus(reference, result))
+  else if (result.kind === 'terminal' || (result.kind === 'abandoned' && result.confirmed)) host.status(undefined)
   const stop = featureStopMessage(result)
   if (stop !== null) {
     await host.send(stop)
@@ -172,26 +156,6 @@ async function deliverFeatureWatch(
   await startInstalledFeatureWatch(reference, result.command, host, async (next) =>
     deliverFeatureResult(reference, next, host),
   )
-}
-
-/** Owner bookkeeping a stop leaves behind, a no-op for work; its operator text comes from `featureStopMessage`. */
-function settleStoppedOwner(reference: string, result: ContinueFeatureResult, host: FeatureCommandHost): void {
-  const retained = { reference, cwd: host.cwd, pausable: false }
-  switch (result.kind) {
-    case 'paused':
-      rememberFeatureOwner(host.key, retained)
-      return
-    case 'abandoned':
-      if (result.confirmed === true) releaseFeatureOwner(host.key)
-      else rememberFeatureOwner(host.key, retained)
-      return
-    case 'blocked':
-      rememberFeatureOwner(host.key, retained)
-      return
-    case 'terminal':
-      releaseFeatureOwner(host.key)
-      return
-  }
 }
 
 async function deliverFeatureReview(

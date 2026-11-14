@@ -113,7 +113,7 @@ export async function runFeatureCommand(
     return
   }
   const operator = createOperatorConfirmation(ctx)
-  operator.progress('/feature')
+  operator.progress(parsed.control === 'init' ? '/feature init' : `/feature ${parsed.reference}`)
   const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
   const report = (message: string) => {
     if (!reporting.isCurrent()) return

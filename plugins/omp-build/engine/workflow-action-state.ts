@@ -54,8 +54,12 @@ export function workflowBound(
   })
   return selected.status === 'bound' && selected.mandateRecord.recordId === mandate.recordId
 }
+const INTERRUPTION_INVALID_CODES = new Set<string>(['interruption-resolution-invalid'])
+
 export function completionBlockReason(completion: ActionCompletion): WorkflowBlockReason {
   const code = completion.evidence[0]?.code
+  if (code === 'action-interrupted') return 'action-interrupted'
+  if (code !== undefined && INTERRUPTION_INVALID_CODES.has(code)) return 'interruption-invalid'
   if (
     code === 'missing-contribution' ||
     code === 'missing-history' ||

@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CauseSisterInput } from '../../engine/cause-disposition-schema.ts'
+import type { ScopedRecordRef } from '../../engine/record-references.ts'
 import type { NativeBatch } from '../../omp/review-runtime/contracts.ts'
 import { createNativeReviewPort } from '../../omp/review-runtime/port.ts'
 import { releaseTaskMask } from '../../omp/review-runtime/task-mask-lease.ts'
 import { composedAssessmentJudgment, composedSisterRequest } from '../../testing/composed-sister-scenario.ts'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
 import { bridgeHarness, cleanupFixtureActions, root } from '../../testing/review-runtime-support.ts'
+import { startDispatch } from '../feature-start-executions.ts'
 import type { InstalledPluginPin } from '../uw-action-contract.ts'
 import { createProductionActionPorts } from '../uw-input-readers.ts'
 import type { UwNativeHost } from '../uw-installed-operations.ts'
@@ -40,6 +42,7 @@ export async function scenario(
   afterParentRelation?: (world: MutationWorld) => void,
   preflightRequest?: (request: CauseSisterInput) => CauseSisterInput,
   onPrepared?: (world: MutationWorld, operationId: string) => void,
+  mode?: 'stop-assessment',
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'omp-composed-sister-'))
   directories.push(directory)
@@ -77,6 +80,7 @@ export async function scenario(
   const abort = new AbortController()
   const runner = defaultGit()
   let batch: NativeBatch | null = null
+  let assessmentStart: ScopedRecordRef | null = null
   let pin: InstalledPluginPin | null = null
   const pluginRoot = fileURLToPath(new URL('../../', import.meta.url))
   const bytes = (path: string) => new Uint8Array(readFileSync(join(pluginRoot, path)))
@@ -137,8 +141,9 @@ export async function scenario(
           throw new Error('Native continuation lost ownership')
       })
     },
-    onStarted() {
+    onStarted(event) {
       if (batch === null) throw new Error('Assessment start has no batch')
+      assessmentStart = event.assessmentStart
       started.resolve(batch)
     },
   }
@@ -167,6 +172,11 @@ export async function scenario(
   if (opened.kind !== 'started') {
     if (preflightRequest !== undefined) return { world, request, decisions, result: opened.value }
     throw new Error(`Assessment did not start: ${JSON.stringify(opened.value)}`)
+  }
+  if (mode === 'stop-assessment') {
+    if (assessmentStart === null) throw new Error('Assessment START unavailable')
+    await harness.controller.stopOwned(opened.value, 'assessment-test-stop')
+    return { world, request, decisions, result: await outcome, assessmentStop: startDispatch(assessmentStart) }
   }
   if (decisions.length !== 0 || world.issues.has(43))
     throw new Error('Confirmation or sister creation occurred before the assessment')

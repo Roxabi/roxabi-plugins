@@ -94,16 +94,32 @@ export function createFeatureCommandHost(
 ): FeatureCommandHost {
   const { pi, options, interruptOwnedFeatureWork, framing } = composition
   const { ctx } = binding
+  const native = createNativeReviewPort(pi, controller)
   return {
     key: pi,
     cwd: ctx.cwd,
     principal: options.principalCwd?.(ctx.cwd) ?? isInstalledPrincipal(ctx.cwd),
     workflow,
-    native: createNativeReviewPort(pi, controller),
+    native: {
+      ...native,
+      activate(batch, callbacks) {
+        if (!report.isCurrent()) throw new Error('feature operation origin is no longer current')
+        native.activate(batch, callbacks)
+      },
+      async announce(batch) {
+        if (!report.isCurrent()) {
+          await native.stopOwned(batch, 'feature-operation-origin-changed')
+          throw new Error('feature operation origin is no longer current')
+        }
+        await native.announce(batch)
+      },
+    },
     send: async (message) => {
       if (report.isCurrent()) reportFeatureTerminalStatus(pi, message)
     },
-    status: (message) => ctx.ui?.setStatus?.('omp-build-watch', message),
+    status: (message) => {
+      if (report.isCurrent()) ctx.ui?.setStatus?.('omp-build-watch', message)
+    },
     startFraming: (source) => framing.start(binding, source, report.handoff),
     requestParentCoverage: (request) => requestParentCoverage(ctx, request),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),

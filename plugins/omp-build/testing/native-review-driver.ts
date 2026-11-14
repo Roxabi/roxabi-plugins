@@ -206,12 +206,12 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
   input.controller.queueOwnedSettlement(observation)
   const settlement = input.controller.ownedSettlement()
   input.controller.finishExecution(batch)
-  // The host ends the tool's turn independently of asynchronous settlement.
-  // This releases the old task-mask lease before a successor is announced.
-  await emit(input.events, 'agent_end', { willContinue: false }, input.context)
-  await settlement
+  const endTurn = emit(input.events, 'agent_end', { willContinue: false }, input.context)
+  const outcomes = await Promise.allSettled([endTurn, settlement])
+  const failures = outcomes.flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : []))
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'Review driver turn and settlement failed')
 }
-
 export async function createReviewDriver(
   cwd: string,
   contextWindow = 128_000,

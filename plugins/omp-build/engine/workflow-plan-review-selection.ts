@@ -9,9 +9,10 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { capturedAssessmentSourcesMatch } from './workflow-assessment-child-sources.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
-import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { planDigest, planOutputSchema } from './workflow-output-schema.ts'
 import type { PlanMacro, PlanMacroPhase, WorkflowEvidence } from './workflow-plan.ts'
 
@@ -32,10 +33,11 @@ export type ReviewContext = {
 function reviewContextProblem(
   history: DecodedHistory,
   empty: EmptyMacro,
+  excluded: ReadonlySet<string>,
   contextLeaf?: ReceiptRecord,
 ): PlanMacro | null {
   for (const action of ['plan', 'plan-review'] as const) {
-    const terminal = workflowContextTerminal(history, action, contextLeaf)
+    const terminal = workflowContextTerminal(history, action, contextLeaf, excluded)
     if (terminal === 'missing')
       return empty('blocked', [diagnostic('action-context-missing', `${action} requires expanded context`)])
     if (terminal === 'uncertain')
@@ -55,22 +57,34 @@ export function prepareReview(
   contextLeaf?: ReceiptRecord,
 ): ReviewContext | { macro: PlanMacro } {
   const history = evidence.issue
-  const problem = reviewContextProblem(history, empty, contextLeaf)
+  const gate = interruptionGate(
+    classifyAttempts({
+      histories: [history, ...evidence.causal.histories],
+      scan: [history],
+      actions: ['plan', 'plan-review'],
+    }),
+  )
+  if (gate.kind === 'stop')
+    return { macro: empty(gate.completion.status === 'uncertain' ? 'uncertain' : 'blocked', gate.completion.evidence) }
+  const excluded = gate.excluded
+  const problem = reviewContextProblem(history, empty, excluded, contextLeaf)
   if (problem !== null) return { macro: problem }
-  const starts = receiptsFor(history, 'plan', 'start')
-  const results = planResults(history).filter(
+  const starts = receiptsFor(history, 'plan', 'start', excluded)
+  const results = planResults(history, excluded).filter(
     (record) =>
       planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) &&
       !(producerOutputValid('plan', record.payload.structured) && missingContextOf(record.payload.structured) !== null),
   )
   if (
-    starts.some((start) => !planResults(history).some((result) => result.payload.actionId === start.payload.actionId))
+    starts.some(
+      (start) => !planResults(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
+    )
   ) {
     return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
   }
   if (
-    receiptsFor(history, 'plan-review', 'start').some(
-      (start) => !planReviews(history).some((result) => result.payload.actionId === start.payload.actionId),
+    receiptsFor(history, 'plan-review', 'start', excluded).some(
+      (start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
     )
   ) {
     return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
@@ -88,7 +102,7 @@ export function prepareReview(
   if (!parsedPlan.success) return { macro: empty('blocked', [diagnostic('malformed', 'plan result is not a plan')]) }
   const coverage = assessPlanCoverage({ spec: accepted, plan: parsedPlan.data })
   if (!coverage.ok) return { macro: empty('blocked', coverage.diagnostics) }
-  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data))
+  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data), excluded)
   if (!review.ok) return { macro: empty('blocked', review.diagnostics) }
   if (review.value === null) {
     return {
@@ -100,15 +114,15 @@ export function prepareReview(
   return { latest, review: review.value, results, accepted }
 }
 
-function planResults(history: DecodedHistory): PlanResultReceipt[] {
-  return receiptsFor(history, 'plan', 'result').filter(
+function planResults(history: DecodedHistory, excluded: ReadonlySet<string>): PlanResultReceipt[] {
+  return receiptsFor(history, 'plan', 'result', excluded).filter(
     (record): record is PlanResultReceipt =>
       record.payload.action === 'plan' && record.payload.phase === 'result' && nativeResultValid(record),
   )
 }
 
-function planReviews(history: DecodedHistory): PlanReviewReceipt[] {
-  return receiptsFor(history, 'plan-review', 'result').filter(
+function planReviews(history: DecodedHistory, excluded: ReadonlySet<string>): PlanReviewReceipt[] {
+  return receiptsFor(history, 'plan-review', 'result', excluded).filter(
     (record): record is PlanReviewReceipt =>
       record.payload.action === 'plan-review' && record.payload.phase === 'result' && nativeResultValid(record),
   )
@@ -118,10 +132,14 @@ function receiptsFor(
   history: DecodedHistory,
   action: 'plan' | 'plan-review',
   phase: 'start' | 'result',
+  excluded: ReadonlySet<string>,
 ): ReceiptRecord[] {
   return recordsOf(history).filter(
     (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' && record.payload.action === action && record.payload.phase === phase,
+      record.kind === 'action-receipt' &&
+      record.payload.action === action &&
+      record.payload.phase === phase &&
+      !excludedReceipt(record, excluded),
   )
 }
 
@@ -147,9 +165,15 @@ function planMatchesMandate(
   )
 }
 
-function matchingReview(history: DecodedHistory, mandate: MandateRecord, latest: PlanResultReceipt, digest: string) {
+function matchingReview(
+  history: DecodedHistory,
+  mandate: MandateRecord,
+  latest: PlanResultReceipt,
+  digest: string,
+  excluded: ReadonlySet<string>,
+) {
   return uniqueAccounted(
-    planReviews(history).filter(
+    planReviews(history, excluded).filter(
       (record) =>
         !record.payload.contributions.some(
           (contribution) =>

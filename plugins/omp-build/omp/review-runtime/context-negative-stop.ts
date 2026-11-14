@@ -19,16 +19,5 @@ export async function stopForMissingContext(
   })
   if (!result.canPublishContext?.()) return
   active.continuationClosed = 'action-context-missing'
-  try {
-    await active.callbacks.onStop('action-context-missing', result)
-  } catch (error) {
-    if (!result.canPublishContext?.()) return
-    await notify(active, {
-      kind: 'blocker',
-      summary: `native batch ${active.batch.operationId} could not conserve its missing-context result`,
-      actionableFacts: [error instanceof Error ? error.message : String(error)],
-      nextAction: 'inspect the retained result and resolve the conservation failure before preparing another action',
-      detailRef: active.retainedResultRef ?? 'retention-unavailable',
-    })
-  }
+  await active.callbacks.onStop('action-context-missing', result, { kind: 'context-negative' })
 }

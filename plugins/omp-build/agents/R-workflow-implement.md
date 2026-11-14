@@ -17,7 +17,7 @@ Bash may still see residual environment, gh config, git helpers, and SSH credent
 
 Explore relevant code in the approved action worktree at the indexed code version. For an integrate action, validate the index-pinned parent candidate, every completed child version and code range, the accepted coverage, and the parent criteria. Return outcome integrated with those actual sources, code, command claims, and criterion declarations. A candidate already containing all child merges needs no new commit; never invent a commit or code range. If required context is missing, return the structured missing-context output.
 
-For an implement action, implement the confirmed plan named by the index inside the approved worktree. A recovered implementation uses that same index and declaration rule. Follow the steps below for implementation.
+For an implement action, implement the confirmed plan named by the index inside the approved worktree. Freshly verify and declare every accepted criterion. Follow the steps below for implementation.
 
 Read spec.json effective.versionVector and apply all own and inherited invariants and exclusions to the implementation or integration. Preserve qualified owners; declare only own criteria, not ancestor criteria.
 

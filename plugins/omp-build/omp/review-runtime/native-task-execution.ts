@@ -26,8 +26,6 @@ export type TaskContext = {
   runSubprocess: typeof import('@oh-my-pi/pi-coding-agent/task/executor').runSubprocess
 }
 
-const deferredCleanups = new Set<Promise<void>>()
-
 async function authorizeSpawn(context: TaskContext, policy: EffectiveSubagentPolicy, id: string, index: number) {
   const { options, root, session, signal, resolveConfiguredModelPatterns } = context
   const model = policy.modelOverride?.length ? options.ctx.models.resolve(policy.modelOverride.join(',')) : undefined
@@ -156,13 +154,6 @@ export async function executeNativeTask(context: TaskContext, task: NativeTask, 
         enableMCP: false,
         restrictToolNames: true,
         signal,
-        onCleanupDeferred: (completion) => {
-          deferredCleanups.add(completion)
-          void completion.then(
-            () => deferredCleanups.delete(completion),
-            () => deferredCleanups.delete(completion),
-          )
-        },
         eventBus: options.pi.events,
         subagentEventBus: session.subagentEventBus,
         authStorage: session.authStorage,

@@ -70,6 +70,8 @@ export type NativeChildResult = {
   nativeProvenance?: Extract<EvidenceProvenance, { kind: 'native' }>
   /** Exact terminal native child result, or null when no child result arrived. */
   raw: Json
+  /** Fact from the actual SDK terminal, absent when no terminal was received. */
+  sdkTerminal?: 'returned' | 'aborted'
   partialText: string | null
   /** The native final structured value only after strict terminal validation. */
   structured: Json | null
@@ -90,6 +92,24 @@ export type NativeBatchResult = {
   complete: boolean
 }
 
+export type NativeStopOrigin = 'host-stop' | 'sdk-abort'
+export type NativeStop =
+  | { kind: 'interrupted'; origin: NativeStopOrigin; proof: 'not-dispatched' }
+  | { kind: 'completed-after-stop'; origin: NativeStopOrigin }
+  | { kind: 'invalid-terminal'; origin: NativeStopOrigin | null }
+  | { kind: 'unattributed'; origin: NativeStopOrigin | null }
+  | { kind: 'context-negative' }
+  | {
+      kind: 'withheld'
+      cause:
+        | 'integrity'
+        | 'retention'
+        | 'root-generation'
+        | 'raw-publication'
+        | 'settlement-failure'
+        | 'execution-errors'
+    }
+
 export type NativeBatchCallbacks = {
   /** Called once for each terminal or missing native child result before product interpretation. */
   onChildResult?: (child: NativeChildResult) => void | Promise<void>
@@ -97,7 +117,7 @@ export type NativeBatchCallbacks = {
   onComplete: (result: NativeBatchResult, canContinue: () => boolean) => void | Promise<void>
   /** Called once after onComplete resolves. agent_end does not invoke this. */
   onSettled?: (result: NativeBatchResult, canContinue: () => boolean) => void | Promise<void>
-  onStop: (reason: string, result: NativeBatchResult | null) => void | Promise<void>
+  onStop: (reason: string, result: NativeBatchResult | null, stop: NativeStop) => void | Promise<void>
 }
 
 /** The public SDK extension surface used by this bridge. */

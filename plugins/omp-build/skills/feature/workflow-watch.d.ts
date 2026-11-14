@@ -23,5 +23,5 @@ export declare function applyCiWatchExit(
   cwd: string,
   pr: number | string,
   code: number,
-  options?: { gh?: Gh; git?: Git; mode?: string },
+  options?: { gh?: Gh; git?: Git; mode?: string; stopPublication?: 'watch' | 'engine' },
 ): Promise<CiWatchExit>

@@ -59,6 +59,7 @@ function installed(
 ) {
   const sent: string[] = []
   const statuses: Array<string | undefined> = []
+  const statusMap = new Map<string, string>()
   const commands = new Map<string, { handler: (args: string, ctx: typeof root) => Promise<void> }>()
   const sessions = new Map<string, CapturedHandler>()
   const registered = new Map<string, CapturedHandler[]>()
@@ -96,11 +97,86 @@ function installed(
       getSessionId: () => origin.sessionId,
       getCwd: () => origin.cwd,
     },
-    ui: { setStatus: (_key: string, text: string | undefined) => statuses.push(text) },
+    ui: {
+      setStatus: (key: string, text: string | undefined) => {
+        statuses.push(text)
+        if (text === undefined) statusMap.delete(key)
+        else statusMap.set(key, text)
+      },
+    },
   }
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
-  return { pi, sent, statuses, context, commands, sessions, origin }
+  return { pi, sent, statuses, statusMap, context, commands, sessions, origin }
 }
+
+describe('session switch status projection', () => {
+  it('clears the old watch on switch and keeps a successor through its late exit', async () => {
+    const exit = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
+    const host = installed(
+      {
+        featureWorkflow: workflow({
+          continueFeature: async (input) =>
+            input.reference === '42'
+              ? {
+                  kind: 'watch',
+                  command:
+                    "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
+                }
+              : { kind: 'blocked', reason: 'behind', next: 'update-branch-then-land' },
+        }),
+      },
+      () => exit.promise,
+    )
+    await host.commands.get('feature')?.handler('#42', host.context)
+    expect(host.statusMap.get('omp-build-watch')).toContain('UW 42')
+    host.origin.sessionId = 'new-session'
+    await host.sessions.get('session_switch')?.({}, host.context)
+    expect(host.statusMap.has('omp-build-watch')).toBe(false)
+    await host.commands.get('feature')?.handler('#43', host.context)
+    const successor = host.statusMap.get('omp-build-watch')
+    expect(successor).toContain('UW 43')
+    exit.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(host.statusMap.get('omp-build-watch')).toBe(successor)
+  })
+
+  it('does not clear the new session projection when the old pause finishes late', async () => {
+    const exit = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
+    const entered = Promise.withResolvers<void>()
+    const gate = Promise.withResolvers<void>()
+    const host = installed(
+      {
+        featureWorkflow: workflow({
+          continueFeature: async (input) =>
+            input.reference === '42'
+              ? {
+                  kind: 'watch',
+                  command:
+                    "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
+                }
+              : { kind: 'blocked', reason: 'behind', next: 'update-branch-then-land' },
+          requestFeatureSessionPause: async () => {
+            entered.resolve()
+            await gate.promise
+            return { kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }
+          },
+        }),
+      },
+      () => exit.promise,
+    )
+    await host.commands.get('feature')?.handler('#42', host.context)
+    host.origin.sessionId = 'new-session'
+    const switching = host.sessions.get('session_switch')?.({}, host.context)
+    await entered.promise
+    await host.commands.get('feature')?.handler('#43', host.context)
+    const successor = host.statusMap.get('omp-build-watch')
+    expect(successor).toContain('UW 43')
+    gate.resolve()
+    await switching
+    expect(host.statusMap.get('omp-build-watch')).toBe(successor)
+    exit.resolve({ code: 1, killed: false, stdout: '', stderr: '' })
+  })
+})
 
 describe('installed /feature command CI watch', () => {
   it('reports a watch blocker after settled-turn abort without pausing or aborting the watch', async () => {
@@ -155,7 +231,7 @@ describe('installed /feature command CI watch', () => {
               "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
           }),
           consumeWatchExit: async () => {
-            expect(host.statuses.at(-1)).toBeUndefined()
+            expect(host.statuses.at(-1)).toMatch(/UW .*12.*host continuation.*next:/i)
             observed.resolve()
             return { kind: 'blocked', reason: 'failed-checks' }
           },
@@ -340,7 +416,7 @@ describe('installed /feature command CI watch', () => {
     await host.commands.get('feature')?.handler('#12', root)
     await host.sessions.get('session_shutdown')?.({ signal: new AbortController().signal }, root)
     expect(featureWorkflow.pauses).toEqual([])
-    expect(host.sent).toEqual(['feature-stopped: done'])
+    expect(host.sent).toEqual([expect.stringMatching(/^feature-done:.*done/)])
   })
 
   it('executes the existing ci-watch command once and feeds a real exit to the coordinator', async () => {
@@ -420,5 +496,73 @@ describe('installed /feature command CI watch', () => {
     await host.commands.get('feature')?.handler('#12', root)
     expect(executed).toBe(false)
     expect(host.sent).toEqual(['feature-stopped: watch-command-invalid'])
+  })
+})
+
+describe('installed /feature held landing ownership', () => {
+  const userInterrupt = { message: { role: 'assistant', stopReason: 'aborted', errorId: 67108864 } }
+  const held = { kind: 'blocked', reason: 'behind', next: 'update-branch-then-land' } as const
+
+  function pausing(impl: Partial<FeatureWorkflow>) {
+    const pauses: Array<{ reason: string; reference: string | undefined }> = []
+    const featureWorkflow = workflow({
+      ...impl,
+      requestFeatureSessionPause: async (input) => {
+        pauses.push({ reason: input.reason, reference: input.reference })
+        return { kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }
+      },
+    })
+    return { pauses, featureWorkflow }
+  }
+
+  it.each([
+    ['message_end', userInterrupt, 'session-stop'],
+    ['session_switch', {}, 'session-switch'],
+  ] as const)('pauses a held landing it owns on %s', async (event, payload, reason) => {
+    const { pauses, featureWorkflow } = pausing({ continueFeature: async () => held })
+    const host = installed({ featureWorkflow })
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(host.sent).toEqual(['feature-held: behind\nnext: update-branch-then-land'])
+
+    await host.sessions.get(event)?.(payload as never, root)
+
+    expect(pauses).toEqual([{ reason, reference: expect.stringMatching(/12$/) }])
+  })
+
+  it('pauses a held landing reached from a watch exit', async () => {
+    const consumed = Promise.withResolvers<void>()
+    const { pauses, featureWorkflow } = pausing({
+      continueFeature: async () => ({
+        kind: 'watch',
+        command: "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
+      }),
+      consumeWatchExit: async () => {
+        consumed.resolve()
+        return held
+      },
+    })
+    const host = installed({ featureWorkflow }, async () => ({ code: 7, killed: false, stdout: '', stderr: '' }))
+    await host.commands.get('feature')?.handler('#12', root)
+    await consumed.promise
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(host.sent).toEqual(['feature-held: behind\nnext: update-branch-then-land'])
+
+    await host.sessions.get('message_end')?.(userInterrupt as never, root)
+
+    expect(pauses).toEqual([{ reason: 'session-stop', reference: expect.stringMatching(/12$/) }])
+  })
+
+  it.each([
+    [{ kind: 'terminal', reason: 'review-bound' }, 'feature-stopped: review-bound'],
+    [{ kind: 'blocked', reason: 'config-drift' }, 'feature-stopped: config-drift'],
+  ] as const)('does not pause a stop without a held next decision: %o', async (result, message) => {
+    const { pauses, featureWorkflow } = pausing({ continueFeature: async () => result })
+    const host = installed({ featureWorkflow })
+    await host.commands.get('feature')?.handler('#12', root)
+
+    await host.sessions.get('message_end')?.(userInterrupt as never, root)
+
+    expect(pauses).toEqual([])
+    expect(host.sent).toEqual([message])
   })
 })

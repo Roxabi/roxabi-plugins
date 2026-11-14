@@ -16,7 +16,11 @@ export declare function reviewStep(
   records: Pick<ReviewSummary, 'reviews' | 'verdict' | 'head' | 'spent'>,
   at: { head: string | null | undefined; ciFailed?: boolean },
 ): ReviewStep
-export declare function persistObservedCiStop(cwd: string, pr: number | string, deps?: { gh?: Gh }): Promise<boolean>
+export declare function persistObservedCiStop(
+  cwd: string,
+  pr: number | string,
+  deps?: { gh?: Gh; expectedHead?: string; expectedReviewId?: string },
+): Promise<boolean>
 /** Progress selector only. It does not admit landing; landPr and CI allow exits do. */
 export declare function nextReviewStep(
   cwd: string,

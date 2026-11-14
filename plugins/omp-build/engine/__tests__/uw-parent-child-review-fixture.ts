@@ -99,7 +99,8 @@ export async function childReview(input: ChildReviewInput) {
     implementation?.kind !== 'action-receipt' ||
     implementation.payload.action !== 'implement' ||
     implementation.payload.phase !== 'result' ||
-    !implementation.payload.structured
+    !implementation.payload.structured ||
+    implementation.payload.structured.outcome === 'missing-context'
   )
     throw new Error('Missing child implementation capture')
   const declaration = implementation.payload.structured.criteria[0]

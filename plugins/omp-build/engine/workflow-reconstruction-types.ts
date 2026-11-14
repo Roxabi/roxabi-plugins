@@ -1,7 +1,7 @@
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
-import type { PauseBinding } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
+import type { PauseBinding } from './workflow-pause.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 
 export type WorkflowBlockReason =
@@ -11,6 +11,8 @@ export type WorkflowBlockReason =
   | 'config-drift'
   | 'unsupported-config'
   | 'action-uncertain'
+  | 'action-interrupted'
+  | 'interruption-invalid'
   | 'unknown-outcome'
   | 'ambiguous-transition'
   | 'session-cwd'
@@ -78,7 +80,7 @@ export type WorkflowFacts = {
 export type NativeSelectorStatus = 'absent' | 'published' | 'uncertain' | 'failed' | 'not-applicable'
 export type NativeSelector = { status: NativeSelectorStatus; evidence: Diagnostic[] }
 export type SpecializedDecisions = {
-  reviewStep: 'review' | 'fix' | 'land' | 'stop' | null
+  reviewStep: 'review' | 'fix' | 'fix-ci' | 'land' | 'stop' | null
   epicStep: 'start' | 'resume' | 'stop' | 'final-review' | 'post-merge' | 'complete' | 'drop' | null
   epicLand: boolean | null
   ciWatchStatus: 'green' | 'red' | 'pending' | 'timeout' | 'behind' | 'unknown' | null

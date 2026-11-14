@@ -29,7 +29,12 @@ function legacyHome(scope: Scope) {
 
 function foreignReceipt(): CanonicalRecord {
   const base = fixtures.rejectedImplementResult(mandate)
-  if (base.payload.action !== 'implement' || base.payload.phase !== 'result' || base.payload.admission === null) {
+  if (
+    base.payload.action !== 'implement' ||
+    base.payload.phase !== 'result' ||
+    base.payload.admission === null ||
+    base.payload.structured?.outcome === 'missing-context'
+  ) {
     throw new Error('expected an implement result')
   }
   const built = buildRecord({

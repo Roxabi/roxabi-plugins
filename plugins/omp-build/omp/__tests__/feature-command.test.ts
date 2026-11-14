@@ -1,6 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FeatureAuthority } from '../../roxabi/feature-continuation-admission.ts'
+import { applyFeatureControl } from '../../roxabi/feature-continuation-controls.ts'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
+import { createUwAbandon } from '../../roxabi/uw-abandon.ts'
+import type { OperatorPort, UwOperations } from '../../roxabi/uw-contract.ts'
 import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
 import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
@@ -196,6 +200,53 @@ describe('installed /feature command', () => {
     await host.commands.get('feature')?.handler('abandon #12', root)
     expect(host.sent).toEqual(['feature-stopped: abandon-unconfirmed'])
     expect(host.sent.join('\n')).not.toContain('feature-abandoned')
+  })
+
+  it('reports the UW refusal diagnostic through /feature abandon without publishing or continuing', async () => {
+    const scope = { repository: 'acme/app', target: 'acme/app#12' }
+    const mandate = { kind: 'mandate', recordId: 'mandate-1', payload: { role: 'leaf', branch: 'work' } }
+    const gh = vi.fn(async () => {
+      throw new Error('Unexpected GitHub publication')
+    })
+    const confirm = vi.fn()
+    const readUw = vi.fn(async () => {
+      throw new Error('Native authority read failed: connection reset')
+    })
+    const abandon = createUwAbandon({
+      reader: { readUw },
+      operator: { executeConfirmed: confirm } as unknown as OperatorPort,
+      github: { cwd: root.cwd, gh },
+    })
+    const authority = {
+      context: {
+        cwd: root.cwd,
+        gh,
+        engine: { resolveAcceptedSpec: () => ({ ok: true, spec: {} }), effectiveMandateRole: () => 'leaf' },
+      },
+      history: { source: { scope } },
+      scope,
+      selection: { status: 'applicable', mandate },
+      target: null,
+      parentHistories: [],
+      causal: { histories: [] },
+    } as unknown as FeatureAuthority
+    const continuation = vi.fn(async (input: { control: string }) => {
+      expect(input.control).toBe('abandon')
+      return applyFeatureControl('abandon', authority, { abandon } as unknown as UwOperations)
+    })
+    const host = installed({ featureWorkflow: workflow({ continueFeature: continuation }) })
+
+    await host.commands.get('feature')?.handler('abandon #12', root)
+
+    expect(readUw).toHaveBeenCalledOnce()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(gh).not.toHaveBeenCalled()
+    expect(continuation).toHaveBeenCalledOnce()
+    expect(host.sent).toHaveLength(1)
+    expect(host.sent[0]).toContain('refused')
+    expect(host.sent[0]).toContain('abandon-unconfirmed')
+    expect(host.sent[0]).toContain('Native authority read failed: connection reset')
+    expect(host.sent[0]).not.toContain('feature-abandoned')
   })
 
   it('rejects an argv material decision at the /uw UI boundary before creating operations', async () => {

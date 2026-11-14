@@ -16,7 +16,7 @@ import { type IntegrationOutput, integrationOutputSchema } from './uw-integratio
 import { inspectIntegrationSources } from './workflow-captured-integration-sources.ts'
 import type { CapturedInvocation } from './workflow-captured-inventory.ts'
 import { capturedPlanForInvocation } from './workflow-captured-plan.ts'
-import { workflowContextNegative } from './workflow-context-terminal.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
 import type { ReceiptRecord } from './workflow-control.ts'
 import { type ImplementationOutput, implementationOutputSchema } from './workflow-output-schema.ts'
 import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'

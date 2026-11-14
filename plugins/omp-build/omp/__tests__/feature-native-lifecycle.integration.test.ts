@@ -151,7 +151,7 @@ describe('feature native lifecycle through the installed OMP extension', () => {
           expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0, effectiveCwd: checkout }),
         ]),
       },
-      admission: { admitted: false, published: false, reason: 'implementation-admission-refused' },
+      admission: { admitted: false, published: false, reason: 'implementation-local-inhibition' },
     })
   })
 
@@ -214,7 +214,10 @@ describe('feature native lifecycle through the installed OMP extension', () => {
     expect(implementationRecords(box, 'start')).toHaveLength(1)
   })
 
-  it('durably retains an incomplete native child before the Feature host stops without continuation or approval', () => {
+  it.each([
+    ['omp-incomplete-native', 'incomplete', 'action-uncertain'],
+    ['omp-invalid-native', 'completed', 'implementation-output-invalid'],
+  ] as const)('retains %s without continuation or approval', (operation, completion, reason) => {
     const { box, checkout } = liveFeatureFixture()
     const localHeadBefore = git(box, checkout, ['rev-parse', 'HEAD'])
     expect(localHeadBefore).toBe(box.sha.main)
@@ -223,7 +226,7 @@ describe('feature native lifecycle through the installed OMP extension', () => {
       operationId: string
       activeAfterSettlement: boolean
       messages: string[]
-    }>(box, checkout, path.join(box.root, 'home-incomplete-native'), 'omp-incomplete-native')
+    }>(box, checkout, path.join(box.root, 'home-incomplete-native'), operation)
 
     expect(observed.activeAfterSettlement).toBe(false)
     expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(1)
@@ -241,11 +244,15 @@ describe('feature native lifecycle through the installed OMP extension', () => {
       start: { scope: SCOPE, recordId: start?.recordId, kind: 'action-receipt' },
       exactInputs: { mandateId: 'mandate-feature-1', planActionId: 'act-plan-1' },
       native: {
-        completion: 'incomplete',
+        completion,
         strict: 'invalid',
         raw: INCOMPLETE_NATIVE_TERMINAL,
       },
-      admission: { admitted: false, published: false, reason: 'action-uncertain' },
+      structured:
+        operation === 'omp-invalid-native'
+          ? null
+          : { outcome: 'blocked', reason: 'action-uncertain', commands: [], criteria: [], commitSHAs: [] },
+      admission: { admitted: false, published: false, reason },
     })
   })
 })

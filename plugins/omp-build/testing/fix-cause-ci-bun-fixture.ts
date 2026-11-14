@@ -219,7 +219,7 @@ async function main(): Promise<void> {
       history,
       binding.value.history,
       binding.value.externalHistories,
-      'fix',
+      'fix-ci',
       live.value,
       read,
     )

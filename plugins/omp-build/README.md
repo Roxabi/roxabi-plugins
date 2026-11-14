@@ -69,17 +69,22 @@ The UW contract cutover is delivered manually under [#901](https://github.com/Ro
 
 ### Controls
 
-`parseFeatureCommand` is the word list. A known transition does not ask again. There is no per-PR merge approval.
+`parseFeatureCommand` is the word list. Routine transitions do not ask again; explicit material and interruption decisions require their genuine operator confirmation. There is no per-PR merge approval.
 
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. |
-| `/feature resume <reference>` | Resumes an ordinary confirmed pause. A review-bound or safety stop is not a pause. |
+| `/feature resume <reference>` | Checks the runtime version and effective configuration before resuming an ordinary confirmed pause. The mandate's pinned review requirements remain in force. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the selected mandate, including when that mandate has its own confirmed pause. No automatic renewal. |
 | `/feature new <reference>` | Explicit successor over the authenticated own abandoned mandate tip. It names the antecedent, publishes `select-successor` and preserves a compatible existing PR. Historical framing is not current authority, ancestor revocation is not own abandonment, and `/feature <reference>` never renews a mandate. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the genuine operator-confirmation route for the exact authenticated material or unknown assessment. An `accept`/`reject` argv suffix is not authority and is refused. `/uw accept-material` uses the same acceptance chain. |
+| `/feature resolve-interruption <reference> [--start <recordId>]` | Resolves one exact START only with current-process proof that activation was prevented or the batch closed before native admission, under a compatible runtime and an own confirmed pause. Genuine confirmation is required; success remains paused and needs a separate explicit resume. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
+
+Interruption resolution covers `plan`, `plan-review`, `implement`, `integrate`, `assess-spec` and `attribute-ci`, not the separate review-replacement or fix protocols. Closure before admission counts only after the fenced stop and confirmed terminal RESULT retention; pending, failed or uncertain publication remains blocked. Missing, conflicting or already-admitted dispatch evidence refuses resolution, including after restart. A stop request, missing result or human attestation is not proof.
+
+Resolution rereads causal history, runtime and exact dispatch evidence before publication. It proves no native child dispatch, not absence of earlier preparation or root-turn effects; it does not reconcile effects, adopt commits or roll back preparation already performed. Ordinary subsequent admission owns fresh checkout and code checks. Invalid terminal output, ordinary context-negative results and malformed legacy history remain blocking; an invalid legacy START is not bypassed by an abandon record.
 
 Explicit succession retains the existing delivery boundaries:
 
@@ -93,15 +98,17 @@ The confirmation starts on `Plus tard`. Tab/Left/Right selects an action, Enter 
 
 Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
 
-During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `resume`, `material-decision` and `init` are parsed as controls, not framed as free text.
+During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `resume`, `material-decision`, `resolve-interruption` and `init` are parsed as controls, not framed as free text.
 
 Detected mid-turn user interruption, session switch, and shutdown await the durable pause for a pausable owner. Confirmation is the read-back `pause-confirmed` control, not the local interrupt. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause is not a resumable pause.
+
+The owning session projects the UW, business action, executors and next decision. Queued is not running; a finished native batch is not workflow success. Recoverable landing holds preserve their reason, next action and pausable owner without looping immediately into landing. Uncertain execution never means “nothing is running.” A late outcome from a replaced owner or session cannot overwrite the current projection. Abandonment refusal retains its UW diagnostics; confirmed abandonment with unconfirmed disarm is reported separately, not as rollback.
 
 Interactive `/feature` and `/uw` confirmation capabilities are bound to their root command: ordinary idle settlement preserves an open confirmation; root abort, session switch, shutdown, or command replacement invalidates it. Escape or `Plus tard` keeps that exact proposal pending. `ctrl+alt+u` reopens it in the same live session and location and does not approve it. A command that was not deferred this way still requires explicit re-entry.
 
 A valid command receives an immediate UI acknowledgment before ports and long remote reads, plus persistent phase status. The shortcut explains preparation, a queued or already-open confirmation, a reopened proposal, an action already applying, or the absence of a confirmation here. It does not prepare or confirm again. A stopped capability cannot roll back an action already started: its feedback is replaced with that warning and retained until the action settles, without vetoing a genuine live successor framing owner. Only its own status is removed; cleanup does not reannounce another command. A predecessor's delayed stop signal cannot revoke its successor.
 
-Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.18.9 is a manual source delivery: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
+Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.19.0 is a manual source change: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
 
 Workflow history reads revalidate each comment page with GitHub (`If-None-Match`). An unchanged page is confirmed by a `304`, which the primary rate limit does not charge, so repeated closure reads in one host process cost quota only for what changed. The retained copy lives in memory only and is returned on that `304` alone, never in place of a failed request. When the observation behind a `/feature` selection, continuation, succession or CI correction is unavailable, the stop keeps `fix-own-uw-unsettled` and its other codes, then names the failed reads. Start publication and PR binding still report the code alone.
 
@@ -147,7 +154,7 @@ Removed integration configuration is not read during adoption, worktree start, r
 
 The only project override of the shipped workflow definition is `review.additional_requirements` in the committed `.dev/stack.yml` at `refs/remotes/origin/<base>:.dev/stack.yml`. Existing `landing`, `release`, and `commands` configuration remains in force. `parseWorkflowOverride` accepts a list of non-empty strings. Absent `review`, or a null list, means none. `review.graph` and `review.workflow` are refused. There is no `.omp-build/workflow.json`. The mandate records that list as `effective.additionalRequirements`. An uncommitted working-tree edit is not that snapshot. The list does not replace the shipped graph, a review bound, or landing admission.
 
-A confirmed checkpoint is a published record read back, plus the Git facts that bind it. An OMP goal, transcript, or local session file is not authority. Local environment files are not authority either: dependency installs, indexes, and the per-git-dir bootstrap marker `omp-build-bootstrapped` plus lock `omp-build-bootstrap.lock`. They can be rebuilt. A cold machine does not copy the marker, those caches, or a transcript. Cannot resume: unpublished commits, a result never published, an action whose effect is uncertain, a pause request without observed disarm, a local-only worktree change. Moving machines needs the same operator identity, this plugin, GitHub auth, and the project tools, then `/feature <reference>` in the intended worktree. The environment is rebuilt there, not copied. Comment edit or deletion remains an accepted risk. There is no new anti-tamper store.
+A confirmed checkpoint is a published record read back, plus the Git facts that bind it. An OMP goal, transcript, or local session file is not authority. Local environment files are not authority either: dependency installs, indexes, and the per-git-dir bootstrap marker `omp-build-bootstrapped` plus lock `omp-build-bootstrap.lock`. They can be rebuilt. A cold machine does not copy the marker, those caches, or a transcript. Unpublished commits, a missing result, uncertain effects, an unconfirmed pause and local-only worktree changes do not directly authorize resume. Eligible interrupted actions require the explicit resolution above; its confirmed control preserves the original START and effects rather than treating them as successful work. Moving machines needs the same operator identity, this plugin, GitHub auth, and the project tools, then `/feature <reference>` in the intended worktree. The environment is rebuilt there, not copied. Comment edit or deletion remains an accepted risk. There is no new anti-tamper store.
 
 The landing binding on every base is the confirmed `workflow-binding` on that PR. A closing keyword, issue body, or branch name is not landing authority.
 
@@ -406,7 +413,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Version 0.18.11 retains the bounded semantics of 0.18.8 through 0.18.10; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Version 0.19.0 retains the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -535,6 +542,8 @@ Implementation receipts retain SDK-observed terminal material in `native.raw` an
 The receipt contract does not claim complete SDK-stream retention: it does not retain every intermediate submission or partial text. The offline lifetime witnesses also do not establish actual SDK shutdown ordering or task cancellation.
 
 Before implementation or correction effects and their pushes, the host checks the current remote mandate and controls again and honors the local interruption fence. A terminal result can still be preserved after a pause without authorizing another effect. GitHub reads and Git writes are not atomic: this is not a cross-provider lock, and it cannot guarantee exclusion of a control published after the final authority read.
+
+If a remote branch and tip were confirmed before a later publication refusal or retention failure, the owned failure reports them. This fact does not establish RESULT retention, grant authority or authorize a resume; owner fences remain in force.
 
 Implementation command claims contain only `toolCallId`, `command` and `exitCode`; a claim is not an observation. Criterion evidence is admitted against matching completed host captures, with genuinely observed output, working directory and code linkage. Combined output remains combined unless separate streams were actually observed. A model's printed output, asserted SHA or selected tool ID alone cannot establish that linkage; an unobserved linkage stays explicitly unverified.
 
@@ -797,6 +806,8 @@ action. `nextReviewStep` retains specialized PR review/bound policy; `landPr` an
 `requireLandingMandate` admission at actual landing. Explicit standalone review
 and autonomous correction keep their separately admitted paths; neither grants
 landing authority. The feature skill is reference material, not another router.
+
+Feature CI observation and watch exits preserve read failures and clear unsafe landing arms before the engine decides; they do not publish a business stop themselves. Requested changes with red CI remain an ordinary review fix. An approving current head with red CI goes through attribution; a third-approval CI stop is published only after the engine selects `bound-stop`, with a fresh head and review binding. Standalone watch callers retain their separately admitted bounded-stop policy.
 
 Landing resolves mode from `readLanding` on the PR base ref (`origin/<base>`): stack `landing.mode`, else
 `merge-on-green.yml`, else native. It returns the absolute `/ci-watch` command.

@@ -55,13 +55,7 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
       result: { status: 'mandate-refused', reason: 'incomplete', error: 'current landing coordinates are incomplete' },
     }
   }
-  const mandate = await currentLandingMandate(
-    cwd,
-    pr,
-    ghFn,
-    { head, base: base.name, baseTip: base.tip },
-    gitFn ?? gitResult,
-  )
+  const mandate = await currentLandingMandate(cwd, pr, ghFn, { head, base: base.name, baseTip: base.tip }, gitFn)
   if (!mandate.admitted) {
     return {
       policy: 'unarmed',
@@ -85,7 +79,7 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
     pr,
     ghFn,
     { head: lastHead, base: base.name, baseTip: base.tip },
-    gitFn ?? gitResult,
+    gitFn,
   )
   const after = await readHeadRefOid(cwd, pr, ghFn)
   const finalGate = { ...gate, headRefOid: after }
@@ -157,9 +151,15 @@ async function enforceWatchGate(cwd, pr, watched, ghFn) {
   return { ...watched.result, ...(receipt.disarmed && { disarmed: true }) }
 }
 
-export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh, git: gitFn } = {}) {
+export async function applyCiWatchExit(
+  cwd,
+  pr,
+  code,
+  { gh: ghFn = gh, git: gitFn = gitResult, stopPublication = 'watch' } = {},
+) {
   const watched = await readWatchExit(cwd, pr, code, ghFn, gitFn)
   const result = await enforceWatchGate(cwd, pr, watched, ghFn)
+  if (stopPublication === 'engine') return result
   const persisted = await persistWatchCiStop(cwd, pr, code, watched, ghFn, gitFn)
   if (persisted.failure) throw persisted.failure
   return result

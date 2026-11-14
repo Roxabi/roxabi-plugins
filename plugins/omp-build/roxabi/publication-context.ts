@@ -72,9 +72,7 @@ export function createPublicationContextResolver(
     if (isRetainedReportPublication(record)) return historicalPromotionContext(record, options)
     const candidate = candidateInputs(record)
     const scopes = publicationScopes(record, history, externalHistories, candidate)
-    const cited = await readReviewInputHistories(history, { cwd: options.cwd, gh, readAuthor: options.readAuthor }, [
-      ...scopes.values(),
-    ])
+    const cited = await readReviewInputHistories(history, { ...options, gh }, [...scopes.values()])
     if (!cited.ok) return cited
     const catalogues = await loadReviewClassCatalogues({
       histories: [history, ...cited.value],

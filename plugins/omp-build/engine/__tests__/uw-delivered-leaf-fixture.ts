@@ -196,7 +196,8 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
     implementation?.kind !== 'action-receipt' ||
     implementation.payload.action !== 'implement' ||
     implementation.payload.phase !== 'result' ||
-    implementation.payload.structured === null
+    implementation.payload.structured === null ||
+    implementation.payload.structured.outcome === 'missing-context'
   )
     throw new Error('Expected captured implementation result')
   const declaration = implementation.payload.structured.criteria[0]

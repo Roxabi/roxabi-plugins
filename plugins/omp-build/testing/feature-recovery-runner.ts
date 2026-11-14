@@ -139,7 +139,8 @@ async function invokeSdkDriver(operationName: string): Promise<unknown> {
     case 'omp-lifetime':
       return invokeOmpLifetime()
     case 'omp-incomplete-native':
-      return invokeOmpIncompleteNative(cwd ?? '')
+    case 'omp-invalid-native':
+      return invokeOmpIncompleteNative(cwd ?? '', operationName === 'omp-incomplete-native')
     case 'omp-live-interleave':
       return invokeOmpLiveInterleave(cwd ?? '')
     case 'omp-review-lifecycle':

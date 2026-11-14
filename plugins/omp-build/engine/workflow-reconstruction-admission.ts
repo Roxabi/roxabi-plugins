@@ -1,19 +1,21 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
+import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import {
   abandoned,
-  confirmedPause,
   type MandateRecord,
+  mandateScope,
   mandatesOf,
-  outstandingPauseInAuthority,
-  outstandingPauseRequest,
   workflowOperationProblem,
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
+import { INTERRUPTION_ACTIONS } from './workflow-interruption-proof.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from './workflow-mandate-admission.ts'
+import { confirmedPause, outstandingPauseInAuthority, outstandingPauseRequest } from './workflow-pause.ts'
 import type { WorkflowCausalContext, WorkflowEvidence } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import { assessmentDecision } from './workflow-reconstruction-assessment.ts'
@@ -69,13 +71,44 @@ function inactiveMandateDecision(
   return blocked('successor-required', evidence)
 }
 
+/** An explicit resume never reruns over an unresolved attempt of the paused mandate (issue and pull request). */
+function pausedInterruptionDecision(
+  mandate: MandateRecord,
+  history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
+): WorkflowDecision | null {
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+  const gate = interruptionGate(
+    classifyAttempts({
+      histories: [history, ...externalHistories, ...causal.histories],
+      scan: [history, ...externalHistories],
+      actions: INTERRUPTION_ACTIONS,
+      select: (receipt) => 'scope' in receipt.payload.mandate && sameRef(receipt.payload.mandate, mandateRef),
+    }),
+  )
+  if (gate.kind === 'clear') return null
+  const evidence = gate.completion.evidence
+  if (gate.completion.status === 'uncertain') return blocked('action-uncertain', evidence)
+  return blocked(evidence[0]?.code === 'action-interrupted' ? 'action-interrupted' : 'interruption-invalid', evidence)
+}
+
 function pausedMandateDecision(
   selection: Extract<MandateSelection, { status: 'refused'; reason: 'paused' }>,
   history: DecodedHistory,
+  externalHistories: readonly DecodedHistory[],
+  causal: WorkflowCausalContext,
   facts: WorkflowFacts,
 ): WorkflowDecision {
   const ownPause = equalScope(selection.pause.mandate.scope, history.source.scope)
   if (ownPause && (facts.explicitSelection || facts.explicitResume) && sessionReady(facts)) {
+    const mandate = mandatesOf(history).find((record) => record.recordId === selection.pause.mandate.recordId)
+    if (mandate === undefined)
+      return blocked('missing-history', [diagnostic('missing-history', 'Paused mandate is unavailable')])
+    const configuration = configurationDecision(mandate, facts)
+    if (configuration !== null) return configuration
+    const interruption = pausedInterruptionDecision(mandate, history, externalHistories, causal)
+    if (interruption !== null) return interruption
     return {
       status: 'action',
       action: 'resume',
@@ -118,7 +151,7 @@ function selectedMandate(
   if (selection.reason === 'missing') return missingMandateDecision(facts)
   if (selection.reason === 'abandoned' || selection.reason === 'revoked')
     return inactiveMandateDecision(selection.reason, history, facts, selection.evidence)
-  if (selection.reason === 'paused') return pausedMandateDecision(selection, history, facts)
+  if (selection.reason === 'paused') return pausedMandateDecision(selection, history, externalHistories, causal, facts)
   return refusalDecision(selection)
 }
 
@@ -138,6 +171,10 @@ function localAuthorityDecision(
     return blocked('pause-unconfirmed', [diagnostic('pause-unconfirmed', 'Pause was requested and not confirmed')])
   const outstandingPause = outstandingPauseInAuthority(mandate, [history, ...externalHistories])
   if (outstandingPause !== null) return blocked('pause-unconfirmed', [outstandingPause])
+  return configurationDecision(mandate, facts)
+}
+
+function configurationDecision(mandate: MandateRecord, facts: WorkflowFacts): WorkflowDecision | null {
   if (facts.productVersion !== mandate.payload.config.productVersion)
     return blocked('config-drift', [diagnostic('config-drift', 'Host product version differs from the mandate')])
   if (!facts.supportedConfigVersions.includes(mandate.payload.config.version))

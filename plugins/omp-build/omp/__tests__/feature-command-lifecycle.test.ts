@@ -84,7 +84,7 @@ function admittedCiCorrection(): Extract<ContinueFeatureResult, { kind: 'admitte
 }
 
 /** Every result kind that hands work on, one each. */
-function handedWork(): ContinueFeatureResult[] {
+function handedWork(scenario: 'principal' | 'inhibited' | 'active'): ContinueFeatureResult[] {
   return [
     {
       kind: 'action',
@@ -92,7 +92,7 @@ function handedWork(): ContinueFeatureResult[] {
       followUp: batch('matrix-action'),
       start: {
         scope: { repository: 'acme/widgets', target: 'acme/widgets#42' },
-        recordId: 'matrix-start',
+        recordId: `matrix-start-${scenario}`,
         kind: 'action-receipt',
       },
     },
@@ -285,7 +285,7 @@ describe('principal refusal stays one message', () => {
   })
 
   it('starts no work the workflow hands back and names what it refused', async () => {
-    for (const result of handedWork()) {
+    for (const result of handedWork('principal')) {
       const fixture = principal(async () => result)
       await runInstalledFeatureCommand('#42', fixture.value)
       expect(fixture.starts).toEqual([])
@@ -388,7 +388,7 @@ describe('prepared epic final review delivery', () => {
 
   it('reports continuation inhibition instead of starting any active feature result', async () => {
     const fixture = resultHost(true)
-    for (const result of handedWork()) await deliverFeatureResult('#42', result, fixture.value)
+    for (const result of handedWork('inhibited')) await deliverFeatureResult('#42', result, fixture.value)
     expect(fixture.starts).toEqual([])
     expect(fixture.sent).toEqual([
       'feature-stopped: continuation-inhibited',
@@ -402,7 +402,7 @@ describe('prepared epic final review delivery', () => {
 
   it('starts every active feature result when continuation is not inhibited', async () => {
     const fixture = resultHost(false)
-    for (const result of handedWork()) await deliverFeatureResult('#42', result, fixture.value)
+    for (const result of handedWork('active')) await deliverFeatureResult('#42', result, fixture.value)
     expect(fixture.starts).toEqual(['action', 'watch', 'review', 'fix', 'admitted-ci-correction', 'epic-final-review'])
     expect(fixture.corrections).toMatchObject([{ reference: '#42', attributionRecordId: 'ci-attribution-42' }])
   })
@@ -424,7 +424,7 @@ describe('prepared epic final review delivery', () => {
       'pause-unconfirmed: unconfirmed',
       'feature-abandoned',
       'feature-stopped: refused',
-      'feature-stopped: done',
+      expect.stringMatching(/^feature-done:.*done/),
       'feature-stopped: operator-decision:hold',
     ])
   })
