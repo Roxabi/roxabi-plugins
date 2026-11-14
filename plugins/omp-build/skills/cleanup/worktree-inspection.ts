@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { inspectArtifactTrees } from './worktree-artifact-trees'
+import { classifyIgnored } from './worktree-artifacts'
 import { type Changes, canonical, git, inside, message, type Row } from './worktree-shared'
 
 type Activity = 'idle' | 'active' | 'unknown'
@@ -66,21 +68,26 @@ function applyUsage(row: Row) {
   row.requiresUsageConfirmation = usage.activity === 'unknown'
   if (usage.activity === 'active') row.reasons.push('used by a same-user process')
 }
-function status(path: string): Changes {
+// One status pass yields the change counts and the worktree-relative paths Git reports as ignored. Git collapses an
+// ignored directory into one entry with a trailing slash; its children are not listed.
+function status(path: string): { changes: Changes; ignored: string[] } {
   const entries = git(path, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching').split('\0')
-  const counts = { tracked: 0, untracked: 0, ignored: 0 }
+  const changes = { tracked: 0, untracked: 0, ignored: 0 }
+  const ignored: string[] = []
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i]
     if (!entry) continue
     const code = entry.slice(0, 2)
-    if (code === '??') counts.untracked++
-    else if (code === '!!') counts.ignored++
-    else {
-      counts.tracked++
+    if (code === '??') changes.untracked++
+    else if (code === '!!') {
+      changes.ignored++
+      ignored.push(entry.slice(3))
+    } else {
+      changes.tracked++
       if (code.includes('R') || code.includes('C')) i++
     }
   }
-  return counts
+  return { changes, ignored }
 }
 function identity(path: string): { dev: string; ino: string } {
   const s = lstatSync(path, { bigint: true })
@@ -88,8 +95,18 @@ function identity(path: string): { dev: string; ino: string } {
     throw new Error('path is missing, inaccessible, or has a symlink component')
   return { dev: String(s.dev), ino: String(s.ino) }
 }
+// Binding the ignored-entry manifest stales a selection when an artifact root or protected entry appears or vanishes;
+// content changes inside a listed root are covered by its whole-subtree approval.
 function token(row: Row, id: unknown): string {
-  const facts = { commonDir: row.commonDir, path: row.path, branch: row.branch, head: row.head, kind: row.kind, id }
+  const facts = {
+    commonDir: row.commonDir,
+    path: row.path,
+    branch: row.branch,
+    head: row.head,
+    kind: row.kind,
+    id,
+    ignoredEntries: row.ignoredEntries,
+  }
   return createHash('sha256').update(JSON.stringify(facts)).digest('hex')
 }
 function detachedReachable(repo: string, head: string | null): boolean {
@@ -145,17 +162,28 @@ function inspectOperations(row: Row) {
     if (pathExists(path)) row.reasons.push(`git operation in progress: ${name}`)
   }
 }
+function inspectLocalData(row: Row) {
+  const observed = status(row.path)
+  row.localChanges = observed.changes
+  row.ignoredEntries = classifyIgnored(observed.ignored)
+  row.requiresArtifactConfirmation = row.ignoredEntries.some((entry) => entry.kind !== 'protected')
+  if (observed.changes.tracked) row.reasons.push('changes to tracked files')
+  if (observed.changes.untracked) row.reasons.push('untracked files that Git does not ignore')
+  const kept = row.ignoredEntries.filter((entry) => entry.kind === 'protected').length
+  if (kept) row.reasons.push(`unrecognized or sensitive ignored data: ${kept} path(s)`)
+}
 function inspectRegistered(row: Row, record: Record<string, string>, repo: string): unknown {
   const id = identity(row.path)
   if (record.bare === undefined) {
-    row.localChanges = status(row.path)
-    if (Object.values(row.localChanges).some((n) => n > 0)) row.reasons.push('local tracked, untracked or ignored data')
+    inspectLocalData(row)
     inspectIndex(row)
     inspectOperations(row)
   }
   applyUsage(row)
   if (record.detached !== undefined && !detachedReachable(repo, row.head))
     row.reasons.push('detached HEAD is not reachable from a local branch or tag')
+  // Only an otherwise removable row pays for the metadata walk; a kept row is already preserved.
+  if (!row.reasons.length && row.requiresArtifactConfirmation) inspectArtifactTrees(row)
   return id
 }
 

@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.19.1 (unreleased)
+## 0.19.2 (unreleased)
 
-- Resolve tracker repository defaults only when needed, so feature init can preview and apply the selected checkout's tracker from an installed script outside that checkout. Recognize 0.19.1 under the existing bounded PR-binding policy; unknown versions remain unknown. This does not migrate records or activate tooling.
+- Resolve tracker repository defaults only when needed, so feature init can preview and apply the selected checkout's tracker from an installed script outside that checkout. Recognize 0.19.2 under the existing bounded PR-binding policy; unknown versions remain unknown. This does not migrate records or activate tooling.
+
+## 0.19.1
+
+- Treat a finite set of already-ignored dependency, cache and build-output artifacts as conditional cleanup candidates. Keep tracked changes, nonignored untracked files and unknown local data protected.
+- Require explicit exact-path selection and `--ack-ignored-artifacts` for the entire listed artifacts; bind fresh inventory tokens to the exact visible ignored manifest. Incomplete usage observations still require a separate `--ack-unknown-usage` acknowledgement. Artifact names and metadata do not prove regenerability.
+- Walk artifact metadata without reading payloads or following internal symlinks. Preserve nested Git repositories, mountpoints, special files and uncertain filesystem states; remove approved worktrees with ordinary `git worktree remove` only and preserve every branch.
+- Present short, explicit path batches without preselected deletion choices.
+- Recognize exactly 0.19.1 under the bounded PR-binding policy with the same writer contract as 0.19.0; future versions remain unknown. This source update alone neither migrates mandates, moves tooling pins, upgrades installed caches, authorizes cleanup nor qualifies native delivery.
 
 ## 0.19.0 (unreleased)
 
