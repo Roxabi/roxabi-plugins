@@ -66,7 +66,9 @@ On inventory errors, show the failed observation and keep affected candidates.
 
 Show only eligible rows as selectable, with **nothing preselected**, and offer
 "Keep everything". State the exact effect: remove this worktree directory,
-preserve its branch and commits; or remove this proven-empty shell.
+preserve all branch/tag refs and their reachable commits; or remove this
+proven-empty shell. Removing a registered worktree also removes its own reflogs.
+Do not promise preservation of reflog-only commits.
 
 Wait for a genuine human reply identifying the paths. An earlier request to
 improve this skill, an inventory request, a token or a CLI flag is not consent to
@@ -76,7 +78,8 @@ Process observations are a safety signal, not proof that every agent session is
 idle. Detected active usage always blocks. If observations are incomplete or
 unsupported, show that warning and the available evidence, and obtain an
 additional explicit reply confirming that this exact worktree is no longer used
-despite the incomplete observation. Without that reply, keep the path.
+despite the incomplete observation. Without that reply, keep the path. Stop
+writers before selection; observations are not an atomic filesystem lock.
 
 ## 3. Execute the selected rows
 

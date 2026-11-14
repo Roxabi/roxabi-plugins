@@ -1,7 +1,18 @@
 import { readdirSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { applyUsage, identity, inspectRegistered, token } from './worktree-inspection'
-import { canonical, command, excludedDirectories, git, inside, message, scanner, type Options, type Report, type Row } from './worktree-shared'
+import {
+  canonical,
+  command,
+  excludedDirectories,
+  git,
+  inside,
+  message,
+  type Options,
+  type Report,
+  type Row,
+  scanner,
+} from './worktree-shared'
 
 function discover(root: string, found: string[], errors: Report['errors']) {
   let path: string

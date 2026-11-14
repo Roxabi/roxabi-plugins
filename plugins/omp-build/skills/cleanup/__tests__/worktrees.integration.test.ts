@@ -62,23 +62,10 @@ function row(target: string): Row {
   return found as Row
 }
 
-function remove(target: string, token: string, confirm = target, cwd = root) {
-  return command(
-    [
-      'remove',
-      '--repo',
-      repo,
-      '--path',
-      target,
-      '--expect',
-      token,
-      '--confirm',
-      confirm,
-      '--ack-unknown-usage',
-      target,
-    ],
-    cwd,
-  )
+function remove(target: string, entry: Row, confirm = target, cwd = root) {
+  const args = ['remove', '--repo', repo, '--path', target, '--expect', entry.token, '--confirm', confirm]
+  if (entry.activity === 'unknown') args.push('--ack-unknown-usage', target)
+  return command(args, cwd)
 }
 
 function linked(name: string, branch = `feat/${name}`): string {
@@ -116,7 +103,7 @@ describe('worktree cleanup CLI', () => {
       expect(command([...args, '--ack-unknown-usage', `${target}-other`]).status).not.toBe(0)
       expect(existsSync(target)).toBe(true)
     }
-    const result = remove(target, entry.token)
+    const result = remove(target, entry)
     expect(result.status, result.stderr).toBe(0)
     expect(existsSync(target)).toBe(false)
     expect(git(repo, home, 'rev-parse', '--verify', 'refs/heads/feat/clean').trim()).toMatch(/^[0-9a-f]+$/)
@@ -133,7 +120,7 @@ describe('worktree cleanup CLI', () => {
     const entry = row(target)
     expect(entry.localChanges?.[kind as 'tracked' | 'untracked' | 'ignored']).toBeGreaterThan(0)
     expect(entry.eligible).toBe(false)
-    expect(remove(target, entry.token).status).not.toBe(0)
+    expect(remove(target, entry).status).not.toBe(0)
     expect(readFileSync(file, 'utf8')).toBe(`precious ${kind}\n`)
   })
 
@@ -146,7 +133,7 @@ describe('worktree cleanup CLI', () => {
     expect(git(target, home, 'status', '--porcelain').trim()).toBe('')
     const entry = row(target)
     expect(entry.eligible).toBe(false)
-    expect(remove(target, entry.token).status).not.toBe(0)
+    expect(remove(target, entry).status).not.toBe(0)
     expect(readFileSync(file, 'utf8')).toBe('hidden local data\n')
   })
 
@@ -158,7 +145,7 @@ describe('worktree cleanup CLI', () => {
     expect(git(target, home, 'status', '--porcelain').trim()).toBe('')
     const entry = row(target)
     expect(entry.eligible).toBe(false)
-    expect(remove(target, entry.token).status).not.toBe(0)
+    expect(remove(target, entry).status).not.toBe(0)
     expect(git(target, home, 'rev-parse', '--verify', 'MERGE_HEAD').trim()).toBe(commit)
   })
 
@@ -175,7 +162,7 @@ describe('worktree cleanup CLI', () => {
     expect(entry, `missing ${target}`).toBeDefined()
     if (!entry) throw new Error(`missing ${target}`)
     expect(entry.eligible).toBe(true)
-    expect(remove(target, entry.token).status).toBe(0)
+    expect(remove(target, entry).status).toBe(0)
     expect(existsSync(target)).toBe(false)
     expect(git(repo, home, 'rev-parse', '--verify', 'refs/heads/feat/healthy').trim()).toMatch(/^[0-9a-f]+$/)
   })
@@ -188,7 +175,7 @@ describe('worktree cleanup CLI', () => {
     const target = linked('bare-linked')
     const entry = row(target)
     expect(entry.eligible).toBe(true)
-    const result = remove(target, entry.token)
+    const result = remove(target, entry)
     expect(result.status, result.stderr).toBe(0)
     expect(existsSync(target)).toBe(false)
     expect(git(repo, home, 'rev-parse', '--verify', 'refs/heads/feat/bare-linked').trim()).toMatch(/^[0-9a-f]+$/)
@@ -210,7 +197,7 @@ describe('worktree cleanup CLI', () => {
       expect(entry, `missing ${target}`).toBeDefined()
       if (!entry) throw new Error(`missing ${target}`)
       expect(entry.eligible).toBe(false)
-      expect(remove(target, entry.token, target, target === current ? current : root).status).not.toBe(0)
+      expect(remove(target, entry, target, target === current ? current : root).status).not.toBe(0)
       expect(existsSync(target)).toBe(true)
     }
   })
@@ -220,10 +207,10 @@ describe('worktree cleanup CLI', () => {
     const target = linked('stale')
     const original = row(target)
     expect(original.eligible).toBe(true)
-    expect(remove(target, original.token, `${target}-other`).status).not.toBe(0)
-    expect(remove(target, 'incorrect-token').status).not.toBe(0)
+    expect(remove(target, original, `${target}-other`).status).not.toBe(0)
+    expect(remove(target, { ...original, token: 'incorrect-token' }).status).not.toBe(0)
     git(target, home, 'commit', '-q', '--allow-empty', '-m', 'changed')
-    expect(remove(target, original.token).status).not.toBe(0)
+    expect(remove(target, original).status).not.toBe(0)
     const updated = row(target)
     const originalInode = statSync(target).ino
     git(repo, home, 'worktree', 'remove', target)
@@ -231,7 +218,7 @@ describe('worktree cleanup CLI', () => {
     git(repo, home, 'worktree', 'add', '-q', target, 'feat/stale')
     expect(statSync(target).ino).not.toBe(originalInode)
     expect(git(target, home, 'rev-parse', 'HEAD').trim()).toBe(git(repo, home, 'rev-parse', 'feat/stale').trim())
-    expect(remove(target, updated.token).status).not.toBe(0)
+    expect(remove(target, updated).status).not.toBe(0)
     expect(existsSync(path.join(target, 'README.md'))).toBe(true)
   })
 
@@ -256,9 +243,9 @@ describe('worktree cleanup CLI', () => {
     expect(changedRow.eligible).toBe(true)
     expect(nonemptyRow.eligible).toBe(false)
     writeFileSync(path.join(changed, 'keep'), 'new')
-    expect(remove(changed, changedRow.token).status).not.toBe(0)
-    expect(remove(nonempty, nonemptyRow.token).status).not.toBe(0)
-    expect(remove(empty, emptyRow.token).status).toBe(0)
+    expect(remove(changed, changedRow).status).not.toBe(0)
+    expect(remove(nonempty, nonemptyRow).status).not.toBe(0)
+    expect(remove(empty, emptyRow).status).toBe(0)
     expect(existsSync(empty)).toBe(false)
     expect(readFileSync(path.join(changed, 'keep'), 'utf8')).toBe('new')
     expect(readFileSync(path.join(nonempty, 'keep'), 'utf8')).toBe('original')
@@ -273,7 +260,7 @@ describe('worktree cleanup CLI', () => {
       const entry = row(target)
       expect(entry.activity).toBe('active')
       expect(entry.eligible).toBe(false)
-      expect(remove(target, entry.token).status).not.toBe(0)
+      expect(remove(target, entry).status).not.toBe(0)
       expect(existsSync(target)).toBe(true)
     } finally {
       child.kill()

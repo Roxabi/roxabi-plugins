@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { canonical, git, inside, message, type Changes, type Row } from './worktree-shared'
+import { type Changes, canonical, git, inside, message, type Row } from './worktree-shared'
 
 type Activity = 'idle' | 'active' | 'unknown'
 type Usage = { activity: Activity; evidence: string[]; warnings: string[] }
