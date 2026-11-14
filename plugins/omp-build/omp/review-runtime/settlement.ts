@@ -101,6 +101,10 @@ export function isolatedReceivedSettlement(
     .then(
       () => undefined,
       async (error) => {
+        if (active.continuationClosed === 'action-context-missing') {
+          presentTerminal(active, ownsPresentation, 'stopped')
+          throw error
+        }
         const message = error instanceof Error ? error.message : String(error)
         try {
           await active.callbacks.onStop(`settlement-failed:${message}`, null, {

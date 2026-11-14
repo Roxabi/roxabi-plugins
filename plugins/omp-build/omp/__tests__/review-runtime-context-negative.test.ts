@@ -1,7 +1,15 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { announceFeatureBatch } from '../../roxabi/feature-host-native.ts'
+import { startDispatch } from '../../roxabi/feature-start-executions.ts'
 import { fixturePreparedAction } from '../../testing/action-input-fixtures.ts'
+import {
+  cleanup as cleanupFeatureHost,
+  fixture as featureHost,
+  noDelivery,
+  start,
+} from '../../testing/feature-host-native-interruption-fixture.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import {
   type BridgeHarness,
@@ -27,6 +35,7 @@ const negative = {
 
 afterEach(() => {
   cleanupFixtureActions()
+  cleanupFeatureHost()
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
@@ -119,6 +128,80 @@ describe('native runtime missing-context settlement', () => {
     expect(result.complete).toBe(true)
     expect(result.children).toEqual(retained)
   })
+
+  it.each([false, true])(
+    'preserves Feature publication failure through the real negative settlement fence (session switch=%s)',
+    async (switchSession) => {
+      const harness = bridgeHarness()
+      const prepared = preparedBatch(`negative-failure-${switchSession}`)
+      const { host } = featureHost(harness)
+      let stops = 0
+      const activate = host.native.activate
+      host.native.activate = (batch, callbacks) =>
+        activate(batch, {
+          ...callbacks,
+          onStop: async (reason, result, stop) => {
+            stops++
+            await callbacks.onStop(reason, result, stop)
+          },
+        })
+      const ref = start(`negative-failure-start-${switchSession}`)
+      const entered = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const cause = new Error('original publisher cause')
+      const primary = new Error('missing-context publication failed', { cause })
+      const notification = new Error('notification failed')
+      const sent = vi.fn(async () => {
+        throw notification
+      })
+      host.send = sent
+      host.workflow.publishFeatureNativeResult = async (input) => {
+        expect(input.stop).toEqual({ kind: 'context-negative' })
+        expect(input.result.children[0]?.contextBlock?.missing).toEqual(negative.missing)
+        entered.resolve()
+        await release.promise
+        throw primary
+      }
+      await announceFeatureBatch('42', prepared, ref, host, noDelivery)
+      await admit(harness, prepared, 'negative-failure-call')
+      const childId = `negative-failure-${switchSession}`
+      await capture(harness, prepared, childId, childId, 'negative-failure-call')
+      const pending = harness.settleBatch(terminal('negative-failure-call', childId))
+      const observed = pending.then(
+        () => null,
+        (error: unknown) => error,
+      )
+      const fence = harness.controller.settlementFor(prepared).then(
+        () => null,
+        (error: unknown) => error,
+      )
+      await entered.promise
+      const switched = switchSession
+        ? harness.emitBridge('session_switch', {}, root).then(
+            () => null,
+            (error: unknown) => error,
+          )
+        : Promise.resolve(null)
+      release.resolve()
+      const error = await observed
+      expect(await fence).toBe(error)
+      await switched
+      if (switchSession) {
+        expect(error).toBe(primary)
+        expect(sent).not.toHaveBeenCalled()
+      } else {
+        expect(error).toBeInstanceOf(AggregateError)
+        const aggregate = error as AggregateError
+        expect(aggregate.errors).toEqual([primary, notification])
+        expect(aggregate.cause).toBe(primary)
+        expect(aggregate.message).toContain(primary.message)
+        expect(sent).toHaveBeenCalledTimes(1)
+      }
+      expect(primary.cause).toBe(cause)
+      expect(stops).toBe(1)
+      expect(startDispatch(ref)).toEqual({ kind: 'activated', operationId: prepared.operationId })
+    },
+  )
 
   it('retains a valid plan-review negative alongside an invalid sibling without claiming a complete batch', async () => {
     const harness = bridgeHarness()
