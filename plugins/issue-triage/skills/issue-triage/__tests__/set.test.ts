@@ -8,13 +8,10 @@ import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issu
 // Provide base project config for tests
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-// Only GITHUB_REPO is stubbed. The resolvers are pure and are the contract under
-// test: re-implementing them in a factory let the suite stay green while the real
-// `resolvePriority` regressed (PR #528 review). `vitest.config.ts` sets
-// `env.GITHUB_REPO`, so importing the real module is safe despite the hoist.
+// Keep the pure resolvers real; only the default repository is stubbed.
 vi.mock('../../shared/adapters/config-helpers', async (importOriginal) => ({
   ...(await importOriginal<typeof ConfigHelpers>()),
-  GITHUB_REPO: 'Test/test-repo',
+  detectGitHubRepo: () => 'Test/test-repo',
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({

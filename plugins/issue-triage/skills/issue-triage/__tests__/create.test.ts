@@ -6,11 +6,10 @@ import type * as ConfigHelpers from '../../shared/adapters/config-helpers'
 
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-// Only GITHUB_REPO is stubbed — the resolvers are pure and are part of the
-// contract under test (PR #528 review).
+// Keep the pure resolvers real; only the default repository is stubbed.
 vi.mock('../../shared/adapters/config-helpers', async (importOriginal) => ({
   ...(await importOriginal<typeof ConfigHelpers>()),
-  GITHUB_REPO: 'Test/test-repo',
+  detectGitHubRepo: () => 'Test/test-repo',
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({

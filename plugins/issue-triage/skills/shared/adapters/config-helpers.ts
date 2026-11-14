@@ -255,8 +255,6 @@ export function resolveLane(input: string): string | undefined {
 
 // --- Exports consolidated from legacy config.ts shim ---
 
-export const GITHUB_REPO = detectGitHubRepo()
-
 /** Map canonical size → GitHub label name. */
 export const SIZE_LABEL_MAP: Record<string, string> = {
   S: 'size:S',

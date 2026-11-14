@@ -5,7 +5,7 @@
  */
 
 import {
-  GITHUB_REPO,
+  detectGitHubRepo,
   PRIORITY_LABEL_MAP,
   PRIORITY_LABELS_SET,
   PRIORITY_SHORT,
@@ -60,7 +60,7 @@ function priorityFromLabels(labels: { name: string }[]): string | null {
 }
 
 async function fetchAllIssues(): Promise<GhIssueNode[]> {
-  const [owner, name] = GITHUB_REPO.split('/')
+  const [owner, name] = detectGitHubRepo().split('/')
   const all: GhIssueNode[] = []
   let cursor: string | null = null
   let prevCursor: string | null = null

@@ -48,6 +48,8 @@ Adopt a repository. `init` writes `docs/agents/issue-tracker.md` only when that 
 
 Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--root checkout]`. `--root` selects the local contract's git toplevel for reading and writing; it does not change Bun's startup directory or select the GitHub repository. When starting in the trusted CLI directory, preserve the target separately with `GITHUB_REPO`. Without `--root`, contract lookup retains the current-directory behavior.
 
+Importing the tracker adapters does not discover a repository. Calls with explicit repository coordinates use them directly; standalone calls that need a default resolve it at use time and report a missing configuration then.
+
 Contract-path confinement resolves every ancestor and final symlink. External physical contract destinations, non-directory ancestors, cycles and chains exceeding 40 symlink expansions are refused before GitHub or contract writes. Missing internal targets retain their full path and are created at the resolved physical destination. The original contract path is rechecked after creating its physical parent; this is not atomic protection against concurrent filesystem changes.
 
 A trailing slash on an internal directory ancestor is allowed, including when that directory must be created. A final contract target ending in `/` or `/.` is directory-required and is refused: the contract must remain a usable file.

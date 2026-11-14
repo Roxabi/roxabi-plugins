@@ -7,7 +7,7 @@
  * A rejected PATCH does not roll back label or relation writes that already landed.
  */
 
-import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
+import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
   addSubIssue,
@@ -246,8 +246,7 @@ async function resolveWrites(issueNumber: number, opts: SetOptions, type: string
   const rmChildren = opts.rmChild ? requireRefs(opts.rmChild, '--rm-child') : []
 
   const applyType = Boolean(type && !opts.subjectRepo)
-  const org = GITHUB_REPO.split('/')[0]
-  const typeId = applyType && type ? await lookup(() => resolveIssueTypeId(org, type)) : undefined
+  const typeId = applyType && type ? await lookup(() => resolveIssueTypeId(detectGitHubRepo().split('/')[0], type)) : undefined
 
   let parentRef: ParsedIssueRef | null = null
   if (opts.rmParent) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.19.1 (unreleased)
+
+- Resolve tracker repository defaults only when needed, so feature init can preview and apply the selected checkout's tracker from an installed script outside that checkout. Recognize 0.19.1 under the existing bounded PR-binding policy; unknown versions remain unknown. This does not migrate records or activate tooling.
+
 ## 0.19.0 (unreleased)
 
 - Let the workflow engine decide CI continuation and business stops from fresh observations. Check runtime/configuration compatibility before offering resume; preserve read failures instead of inventing business verdicts.

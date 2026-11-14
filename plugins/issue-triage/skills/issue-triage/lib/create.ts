@@ -3,7 +3,7 @@
  * Issues-only mode: size/priority/status/lane are set via labels only (no ProjectV2 board).
  */
 
-import { GITHUB_REPO } from '../../shared/adapters/config-helpers'
+import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
 import {
   addBlockedBy,
   addSubIssue,
@@ -105,7 +105,7 @@ function resolveType(input: string): string {
 
 /** Resolve the org's id for a canonical type; an unknown or unreachable org type refuses the command. */
 async function resolveOrgTypeId(canonical: string): Promise<string> {
-  const org = GITHUB_REPO.split('/')[0]
+  const org = detectGitHubRepo().split('/')[0]
   try {
     return await resolveIssueTypeId(org, canonical)
   } catch (error) {

@@ -21,7 +21,7 @@ const GRAPHQL_URL = `${GITHUB_API}/graphql`
 
 // --- Standalone helper functions ---
 
-import { GITHUB_REPO } from './config-helpers'
+import { detectGitHubRepo } from './config-helpers'
 
 let cachedToken: string | undefined
 
@@ -90,7 +90,7 @@ export async function ghGraphQL(query: string, variables: Record<string, unknown
 
 /** Get issue node ID via REST API. */
 export async function getNodeId(issueNumber: number | string, repo?: string): Promise<string> {
-  const repoSlug = repo ?? GITHUB_REPO
+  const repoSlug = repo ?? detectGitHubRepo()
   const res = await fetch(`${GITHUB_API}/repos/${repoSlug}/issues/${issueNumber}`, {
     headers: authHeaders(),
   })
@@ -104,7 +104,7 @@ export async function getNodeId(issueNumber: number | string, repo?: string): Pr
 
 /** Replace an issue body. An empty string clears it. Never reads the current body. */
 export async function updateIssueBody(issueNumber: number, body: string, repo?: string): Promise<void> {
-  const repoSlug = repo ?? GITHUB_REPO
+  const repoSlug = repo ?? detectGitHubRepo()
   const res = await fetch(`${GITHUB_API}/repos/${repoSlug}/issues/${issueNumber}`, {
     method: 'PATCH',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -129,7 +129,7 @@ export async function createGitHubIssue(
   if (body) payload.body = body
   if (labels?.length) payload.labels = labels
 
-  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/issues`, {
+  const res = await fetch(`${GITHUB_API}/repos/${detectGitHubRepo()}/issues`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -206,7 +206,7 @@ export async function updateLabels(
   issueNumber: number,
   add: string[],
   remove: string[],
-  repo: string = GITHUB_REPO,
+  repo: string = detectGitHubRepo(),
 ): Promise<void> {
   let removeExisting = remove
   if (remove.length) {
@@ -266,7 +266,7 @@ export async function resolveIssueTypeId(org: string, typeName: string): Promise
 
 /** Get the parent's complete issue reference, or null if none. */
 export async function getParentRef(issueNumber: number): Promise<ParsedIssueRef | null> {
-  const [owner, repo] = GITHUB_REPO.split('/')
+  const [owner, repo] = detectGitHubRepo().split('/')
   const data = (await ghGraphQL(PARENT_QUERY, { owner, repo, number: issueNumber })) as {
     data: { repository: { issue: { parent: { number: number; repository: { nameWithOwner: string } } | null } } }
   }
@@ -281,7 +281,7 @@ export interface IssueLabelSet {
 }
 
 /** Label names defined on the repository. Does not delete any. */
-export async function listLabelNames(repo: string = GITHUB_REPO): Promise<string[]> {
+export async function listLabelNames(repo: string = detectGitHubRepo()): Promise<string[]> {
   const out = await run(['gh', 'label', 'list', '--repo', repo, '--limit', '500', '--json', 'name', '--jq', '.[].name'])
   return out
     .split('\n')
@@ -296,7 +296,7 @@ export async function listLabelNames(repo: string = GITHUB_REPO): Promise<string
  */
 export async function ensureLabel(
   name: string,
-  repo: string = GITHUB_REPO,
+  repo: string = detectGitHubRepo(),
   color = 'ededed',
 ): Promise<'created' | 'present'> {
   const existing = await listLabelNames(repo)
@@ -308,7 +308,7 @@ export async function ensureLabel(
 }
 
 /** Every issue (not pull request) with its labels and body. Read-only. */
-export async function listIssueLabelSets(repo: string = GITHUB_REPO): Promise<IssueLabelSet[]> {
+export async function listIssueLabelSets(repo: string = detectGitHubRepo()): Promise<IssueLabelSet[]> {
   const out = await run([
     'gh',
     'issue',
