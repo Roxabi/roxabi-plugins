@@ -2,11 +2,6 @@
 # Sourced scanner configuration and ownership fences. The entry validates CLI arguments before sourcing this file.
 # It exports no policy: all globals retain the scanner's original names and values.
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -z "$repo_root" ]; then
-  echo "orphan_shells=none"
-  exit 0
-fi
 
 # canon: physical path, missing components allowed. lexical: `.`/`..` folded
 # without resolving symlinks. GNU realpath has both; elsewhere use python3.
@@ -20,7 +15,10 @@ fi
 
 declare -A REGISTERED=()
 principal=""
-while IFS= read -r line; do
+registered_list="$(mktemp)" || exit 1
+trap 'rm -f -- "$registered_list"' EXIT
+git worktree list --porcelain -z > "$registered_list" || exit 1
+while IFS= read -r -d '' line; do
   case "$line" in
     worktree\ *)
       p="$(canon "${line#worktree }")"
@@ -28,21 +26,29 @@ while IFS= read -r line; do
       [ -n "$principal" ] || principal="$p"
       ;;
   esac
-done < <(git worktree list --porcelain 2>/dev/null || true)
-[ -n "$principal" ] || principal="$(canon "$repo_root")"
+done < "$registered_list"
+if [ -z "$principal" ]; then
+  echo "git worktree list returned no principal" >&2
+  exit 1
+fi
 repo_name="$(basename "$principal")"
+principal_bare="$(git -C "$principal" rev-parse --is-bare-repository)" || exit 1
 
 common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
 ours_worktrees="$(canon "$common_dir")/worktrees"
 
 # An in-principal root is scanned only while git tracks nothing under it.
 untracked_in_principal() {
-  [ -z "$(git -C "$principal" ls-files -- "$1" 2>/dev/null)" ]
+  local tracked
+  tracked="$(git -C "$principal" ls-files -- "$1")" || { echo "cannot inspect tracked paths under $1" >&2; exit 1; }
+  [ -z "$tracked" ]
 }
 
 claude_root="$principal/.claude/worktrees"
 claude_root_exempt=false
-untracked_in_principal "$claude_root" && claude_root_exempt=true
+if [ "$principal_bare" != true ]; then
+  untracked_in_principal "$claude_root" && claude_root_exempt=true
+fi
 
 # Parse only the map path consumed here. The NUL protocol keeps a configured
 # trailing newline intact and makes parser failure distinct from an empty base.
@@ -129,7 +135,7 @@ esac
 feature_root="$wt_base/$repo_name"
 feature_root_exempt=false
 case "$feature_root" in
-  "$principal"/*) untracked_in_principal "$feature_root" && feature_root_exempt=true ;;
+  "$principal"/*) if [ "$principal_bare" != true ]; then untracked_in_principal "$feature_root" && feature_root_exempt=true; fi ;;
 esac
 
 in_exempt_root() {
