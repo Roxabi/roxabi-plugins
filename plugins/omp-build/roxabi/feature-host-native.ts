@@ -141,8 +141,9 @@ async function deliverContextNegative(
   const publication = await publishNativeResult(host, result, owns, stop)
   if (result.canPublishContext?.() !== true || !owns()) return
   if (!publication.retained || !('receipt' in publication) || publication.receipt === undefined) {
-    await host.send(
-      `feature-stopped: ${publication.published ? 'action-context-unconfirmed' : publicationFailure(publication)}`,
+    await notifyPublicationFailure(
+      host,
+      new Error(publication.published ? 'action-context-unconfirmed' : publicationFailure(publication)),
     )
     return
   }

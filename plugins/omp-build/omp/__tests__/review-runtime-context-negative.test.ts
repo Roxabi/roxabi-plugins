@@ -203,6 +203,117 @@ describe('native runtime missing-context settlement', () => {
     },
   )
 
+  it.each([
+    ['unretained', 'fail'],
+    ['retained', 'fail'],
+    ['published', 'fail'],
+    ['unretained', 'send'],
+    ['retained', 'send'],
+    ['unretained', 'switch'],
+    ['retained', 'switch'],
+  ] as const)('preserves %s context-negative publication facts when notification is %s', async (kind, mode) => {
+    const harness = bridgeHarness()
+    const prepared = preparedBatch(`negative-refusal-${kind}-${mode}`)
+    const { host } = featureHost(harness)
+    const ref = start(`negative-refusal-start-${kind}-${mode}`)
+    const notification = new Error('notification unavailable')
+    const sent = vi.fn(async () => {
+      if (mode === 'fail') throw notification
+    })
+    host.send = sent
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    host.workflow.publishFeatureNativeResult = async (input) => {
+      expect(input.stop).toEqual({ kind: 'context-negative' })
+      expect(input.result.children[0]?.contextBlock?.missing).toEqual(negative.missing)
+      entered.resolve()
+      await release.promise
+      return kind === 'published'
+        ? { published: true, retained: true }
+        : {
+            published: false,
+            retained: kind === 'retained',
+            reason: 'publication refused',
+            confirmedRemote: { branch: 'feature/42', tip: 'abc123' },
+          }
+    }
+    await announceFeatureBatch('42', prepared, ref, host, noDelivery)
+    await admit(harness, prepared, 'negative-refusal-call')
+    const childId = `negative-refusal-${kind}-${mode}`
+    await capture(harness, prepared, childId, childId, 'negative-refusal-call')
+    const pending = harness.settleBatch(terminal('negative-refusal-call', childId))
+    const observed = pending.then(
+      () => null,
+      (error: unknown) => error,
+    )
+    const fence = harness.controller.settlementFor(prepared).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    await entered.promise
+    const switched =
+      mode === 'switch'
+        ? harness.emitBridge('session_switch', {}, root).then(
+            () => null,
+            (error: unknown) => error,
+          )
+        : Promise.resolve(null)
+    release.resolve()
+    const error = await observed
+    expect(await fence).toBe(error)
+    await switched
+    if (mode === 'fail') {
+      expect(error).toBeInstanceOf(AggregateError)
+      const aggregate = error as AggregateError
+      const primary = aggregate.errors[0]
+      expect(primary).toBeInstanceOf(Error)
+      expect(aggregate.errors[1]).toBe(notification)
+      expect(aggregate.cause).toBe(primary)
+      expect(aggregate.message).toContain(kind === 'published' ? 'action-context-unconfirmed' : 'publication refused')
+      if (kind !== 'published') {
+        expect(aggregate.message).toContain('feature/42')
+        expect(aggregate.message).toContain('abc123')
+      }
+      expect(sent).toHaveBeenCalledTimes(1)
+    } else {
+      expect(error).toBeNull()
+      if (mode === 'switch') expect(sent).not.toHaveBeenCalled()
+      else
+        expect(sent).toHaveBeenCalledWith(
+          'feature-stopped: publication refused · confirmed remote tip: feature/42 abc123',
+        )
+    }
+    expect(startDispatch(ref)).toEqual({ kind: 'activated', operationId: prepared.operationId })
+  })
+
+  it('delivers the retained missing-context receipt as a blocked result', async () => {
+    const harness = bridgeHarness()
+    const prepared = preparedBatch('negative-retained-receipt')
+    const { host, sent } = featureHost(harness)
+    const receipt = start('negative-retained-result')
+    const delivered: unknown[] = []
+    host.workflow.publishFeatureNativeResult = async () => ({
+      published: false,
+      retained: true,
+      reason: 'action-context-missing',
+      receipt,
+    })
+    await announceFeatureBatch('42', prepared, start('negative-receipt-start'), host, async (result) => {
+      delivered.push(result)
+    })
+    await admit(harness, prepared, 'negative-receipt-call')
+    await capture(harness, prepared, 'negative-retained-receipt', 'negative-retained-receipt', 'negative-receipt-call')
+    await harness.settleBatch(terminal('negative-receipt-call', 'negative-retained-receipt'))
+    expect(sent).toEqual([])
+    expect(delivered).toMatchObject([
+      {
+        kind: 'blocked',
+        reason: 'action-context-missing',
+        diagnostics: [{ detail: { receipt: { ...receipt, selector: '/payload' } } }],
+      },
+    ])
+  })
+
   it('retains a valid plan-review negative alongside an invalid sibling without claiming a complete batch', async () => {
     const harness = bridgeHarness()
     const prepared = preparedBatch('review-first')
