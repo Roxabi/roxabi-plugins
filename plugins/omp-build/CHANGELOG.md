@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.1
+
+- Treat a finite set of already-ignored dependency, cache and build-output artifacts as conditional cleanup candidates. Keep tracked changes, nonignored untracked files and unknown local data protected.
+- Require explicit exact-path selection and `--ack-ignored-artifacts` for the entire listed artifacts; bind fresh inventory tokens to the exact visible ignored manifest. Incomplete usage observations still require a separate `--ack-unknown-usage` acknowledgement. Artifact names and metadata do not prove regenerability.
+- Walk artifact metadata without reading payloads or following internal symlinks. Preserve nested Git repositories, mountpoints, special files and uncertain filesystem states; remove approved worktrees with ordinary `git worktree remove` only and preserve every branch.
+- Present short, explicit path batches without preselected deletion choices.
+- Recognize exactly 0.19.1 under the bounded PR-binding policy with the same writer contract as 0.19.0; future versions remain unknown. This source update alone neither migrates mandates, moves tooling pins, upgrades installed caches, authorizes cleanup nor qualifies native delivery.
+
 ## 0.19.0 (unreleased)
 
 - Let the workflow engine decide CI continuation and business stops from fresh observations. Check runtime/configuration compatibility before offering resume; preserve read failures instead of inventing business verdicts.
