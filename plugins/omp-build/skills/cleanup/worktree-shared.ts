@@ -4,6 +4,9 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 type Changes = { tracked: number; untracked: number; ignored: number }
+// `protected` keeps the worktree; the other kinds are recognized ignored artifacts that need path-bound confirmation.
+type ArtifactKind = 'dependency' | 'cache' | 'build-output' | 'protected'
+type IgnoredEntry = { path: string; kind: ArtifactKind }
 type Row = {
   repository: string
   commonDir: string
@@ -12,6 +15,8 @@ type Row = {
   head: string | null
   kind: string
   localChanges: Changes | null
+  ignoredEntries: IgnoredEntry[]
+  requiresArtifactConfirmation: boolean
   activity: 'idle' | 'active' | 'unknown'
   requiresUsageConfirmation: boolean
   warnings: string[]
@@ -38,6 +43,7 @@ type Options = {
   expect?: string
   confirm?: string
   ackUnknownUsage?: string
+  ackIgnoredArtifacts?: string
 }
 
 // Git hooks and parent shells can redirect even `git -C`; do not inherit any Git configuration or location overrides.
@@ -74,5 +80,5 @@ function canonical(path: string) {
   return realpathSync(resolve(path))
 }
 
-export type { Changes, Options, Report, Row }
+export type { ArtifactKind, Changes, IgnoredEntry, Options, Report, Row }
 export { canonical, command, excludedDirectories, git, inside, message, scanner }

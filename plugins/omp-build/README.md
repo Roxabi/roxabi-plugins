@@ -413,7 +413,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Version 0.19.0 retains the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 and 0.19.1 retain the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -921,7 +921,7 @@ For built-in task spawns without a `model`: explicit call model, then `task.agen
 | `dev-review` | `/dev-review` and `omp_build_start_review` · native spec → panel → recall → synthesis |
 | `fix` | `/fix` · native correction profiles; the Feature review-bound handoff starts the same path; not an inline walk |
 | `promote` | `/promote` (registered command) · the optional tail |
-| `cleanup` | `/cleanup` · read-only worktree inventory, then explicitly confirmed guarded removal; branches preserved |
+| `cleanup` | `/cleanup` · read-only worktree inventory, then explicitly confirmed guarded removal of clean or artifact-only worktrees; branches preserved |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
 `dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Findings identify a local accepted criterion/invariant or explicitly declare outside-Spec work; outside-Spec findings may still block. Each cause receives an evidence-backed [cause disposition](GLOSSARY.md): fix in the original UW, propose a sister that blocks the original, propose a sister after the original, or retain a report on the original UW without creating an issue. Missing or contested blocking evidence stays blocking for motivated operator adjudication; it never triggers a blind fix or automatic report. Exclusions cover only explicitly excluded additional work, not introduced regression, security defects or invariant violations. A sister is created only after genuine confirmation of its exact framed proposal, under the same parent and through the existing UW writer. Active or indeterminate parent delivery holds the addition; accepted coverage belongs to the parent capability. No grouped nonblocking issue is created.
@@ -944,17 +944,53 @@ observation errors are explicit; a partial report is not an empty inventory.
 
 The bundled `skills/cleanup/worktrees.ts` exposes `inventory` and one-path
 `remove`. Removal re-inspects the inventory token, path identity, retained HEAD,
-local data (including untracked, ignored and index-hidden files), locks,
-in-progress Git operations and observable same-user process usage. Detected
-active usage always blocks. Unsupported or incomplete usage observations stay
-explicitly unknown and require an additional human confirmation for that path,
-carried as `--ack-unknown-usage <path>`. All other preservation reasons remain
-blocking; there is no blanket override. Process observations do not prove that
-every agent session is idle. Tokens and CLI confirmation flags are selection
-data, not evidence of human consent.
+local data (tracked changes, untracked files, ignored data and index-hidden
+files), locks, in-progress Git operations and observable same-user process
+usage. Detected active usage always blocks. Unsupported or incomplete usage
+observations stay explicitly unknown and require an additional human
+confirmation for that path, carried as `--ack-unknown-usage <path>`. All other
+preservation reasons remain blocking; there is no blanket override. Process
+observations do not prove that every agent session is idle. Tokens and CLI
+confirmation flags are selection data, not evidence of human consent. The human
+text inventory omits tokens; `inventory --json` carries them.
 
-Registered worktrees use `git worktree remove` without force; their branches
-survive, merged or not. The complementary orphan scanner retains configured
+Ignored data is classified from the same `git status` pass; only entries Git
+already ignores can qualify, each under the exact path Git reports. A fixed,
+case-sensitive allowlist with no repository override recognizes dependency
+directories (`node_modules`, `.venv`) and caches (`__pycache__`,
+`.pytest_cache`, `.ruff_cache`, `.cache/trufflehog`), including entries Git
+lists inside them, regular `*.tsbuildinfo` files, and build/test output
+directories (`.astro`, `dist`, `test-results`) only when Git reports the
+directory itself as ignored. Every other ignored entry keeps the worktree,
+including `.env`, databases, a file Git lists individually inside a build-output
+directory, any `.git` path, a file or symlink bearing a directory name, and
+exposed names matching a partial, defense-in-depth sensitive-name list; truly
+untracked files and tracked changes keep it too. A directory Git reports as one
+entry is approved as a whole subtree: file contents are never read, names do
+not prove regeneration, and any manual dependency patch, secret or state inside
+it is deleted with the worktree.
+
+Before such a row becomes removable, a metadata-only walk of the recognized
+entries (names and no-follow file types; no file contents, `HEAD` or Git
+configuration read, no symlink followed) keeps it on a Linux mount point at or
+below the worktree, a nested `.git` of any type, a directory holding `HEAD` next
+to Git directory names, a special file, a symlink or replaced directory where
+Git saw a directory or regular file, or any observation error. `git worktree
+remove` would otherwise delete nested repositories with their refs and stashes
+and recurse through mounts. The walk detects Git metadata only; human approval
+must exclude any other version-control checkout or unique data. Other platforms keep artifact rows, and the mount
+table is reread immediately before removal. The walk is one non-atomic pass, so
+writers and mount changes must stop before selection. A row with recognized
+artifacts additionally requires the human to confirm their disposability for
+that exact path, carried as `--ack-ignored-artifacts <path>`; the flag is
+rejected where fresh inspection finds none. The token binds every reported path
+and kind, so an entry that appears or vanishes stales the selection. Ignore
+rules are never edited to unlock a row.
+
+Registered worktrees use `git worktree remove` without force, which deletes
+ignored contents with the worktree; this repository's branches survive, merged
+or not. That removal is not atomic: a failure may leave a partially removed
+directory, reported as observed and never retried with force. The complementary orphan scanner retains configured
 feature, legacy `~/.omp/worktrees/<repo>` and principal `.claude/worktrees` roots.
 Only freshly revalidated empty shells can be removed, using `rmdir`; nonempty
 shells remain diagnostic. `--scope <#N>` filters exact branch issue numbers and

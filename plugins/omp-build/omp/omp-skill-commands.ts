@@ -30,7 +30,7 @@ export const SKILL_COMMANDS: readonly SkillCommand[] = [
   },
   {
     name: 'cleanup',
-    description: 'Inventory worktrees and remove explicitly selected clean paths while preserving branches',
+    description: 'Inventory worktrees; review ignored artifacts and remove selected paths, preserving branches',
     requires: [],
   },
   {
