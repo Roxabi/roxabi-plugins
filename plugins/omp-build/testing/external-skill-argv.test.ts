@@ -410,11 +410,11 @@ bun "$T" init`),
 
   it('bare bun / option+value / env-prefix / continuation', () => {
     expect(skillArgvHits("bun 'skill://issue-triage/triage.ts' init")).not.toEqual([])
-    expect(skillArgvHits('bash -o pipefail skill://cleanup/gather-state.sh')).not.toEqual([])
+    expect(skillArgvHits('bun skill://cleanup/worktrees.ts inventory')).not.toEqual([])
     expect(skillArgvHits('GITHUB_REPO=acme/x bun skill://issue-triage/triage.ts init')).not.toEqual([])
     expect(
-      skillArgvHits(`bash \\
-  skill://cleanup/gather-state.sh`),
+      skillArgvHits(`bun \\
+  skill://cleanup/worktrees.ts inventory`),
     ).not.toEqual([])
   })
 })

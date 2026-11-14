@@ -30,7 +30,7 @@ export const SKILL_COMMANDS: readonly SkillCommand[] = [
   },
   {
     name: 'cleanup',
-    description: 'Clean merged branches, worktrees and remotes after verification',
+    description: 'Inventory worktrees and remove explicitly selected clean paths while preserving branches',
     requires: [],
   },
   {

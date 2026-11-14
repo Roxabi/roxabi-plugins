@@ -406,7 +406,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Version 0.18.10 retains the bounded semantics of 0.18.8 and 0.18.9; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Version 0.18.11 retains the bounded semantics of 0.18.8 through 0.18.10; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -491,7 +491,7 @@ Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds th
 | `/feature` | `omp/index.ts` → `registerCommand('feature')` → `runInstalledFeatureCommand`. Not a skill dump. User lane. |
 | `/uw` | Native operator command for proposed/accepted reads, exact proposals, confirmed writes/creation and material acceptance. No agent tool or argv confirmation grant. |
 | `/promote` | `registerCommand('promote')`. Dumps `skills/promote/SKILL.md`. User lane. |
-| `/cleanup` | `registerCommand('cleanup')`. Dumps `skills/cleanup/SKILL.md`. User lane. |
+| `/cleanup` | `registerCommand('cleanup')`. Loads the worktree-only guide; inventory and confirmed single-path removals use its guarded CLI. |
 | `/ci-watch` | `registerCommand('ci-watch')`. Dumps `skills/ci-watch/SKILL.md`. User lane. |
 | `/dev-review` | `registerCommand('dev-review')`. Dispatches the host-authorized native review. Not a skill dump. |
 | `/fix` | `registerCommand('fix')`. Dispatches the host-authorized native correction. Not a skill dump. |
@@ -863,7 +863,7 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 `omp/guards.ts`, `hooks/`, `agent-sources/R-*` (except `R-advisor`) and `skills/shared/` originate in a **self-contained snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced. Model selection and the Discovery rules on the five review agents are maintained local divergences, not a resync.
 
-`skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 and `skills/cleanup/analyze-branches.sh` are `lib.sh`'s in-plugin callers (`detect_base_branch`).
+`skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 remains an in-plugin caller of `detect_base_branch`; cleanup no longer classifies or deletes branches.
 
 > **Known caveat, this slice only.** While both this plugin and `dev-core` are installed, both interceptors see the same `tool_call` and reach the same verdict — the snapshots are byte-identical and read the same escape hatch. Expect the refusal, and the no-contract warning, to be reported **once per plugin**: each extension owns a private warned-cwd set, so neither dedupes the other.
 
@@ -910,24 +910,46 @@ For built-in task spawns without a `model`: explicit call model, then `task.agen
 | `dev-review` | `/dev-review` and `omp_build_start_review` · native spec → panel → recall → synthesis |
 | `fix` | `/fix` · native correction profiles; the Feature review-bound handoff starts the same path; not an inline walk |
 | `promote` | `/promote` (registered command) · the optional tail |
-| `cleanup` | `/cleanup` (registered command) · the optional tail |
+| `cleanup` | `/cleanup` · read-only worktree inventory, then explicitly confirmed guarded removal; branches preserved |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
 `dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Findings identify a local accepted criterion/invariant or explicitly declare outside-Spec work; outside-Spec findings may still block. Each cause receives an evidence-backed [cause disposition](GLOSSARY.md): fix in the original UW, propose a sister that blocks the original, propose a sister after the original, or retain a report on the original UW without creating an issue. Missing or contested blocking evidence stays blocking for motivated operator adjudication; it never triggers a blind fix or automatic report. Exclusions cover only explicitly excluded additional work, not introduced regression, security defects or invariant violations. A sister is created only after genuine confirmation of its exact framed proposal, under the same parent and through the existing UW writer. Active or indeterminate parent delivery holds the addition; accepted coverage belongs to the parent capability. No grouped nonblocking issue is created.
 
-They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing. `cleanup/analyze-branches.sh` has no such problem: it is a script, so it resolves `../shared/lib.sh` from its own `BASH_SOURCE`.
+They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing.
 
-`promote` and `cleanup` are the #495 snapshot of dev-core's tail. They are
-**offered after land, never automatic, and never inside the review→fix loop**.
-`/feature` offers `promote` only for `release.model: staging-train`, not trunk.
-Two behaviours changed in the copy: `promote/preflight.sh` is now read-only (dev-core's ran
-`git checkout staging && git pull` before asking the operator anything), and
-`cleanup/scan-orphan-worktree-shells.sh` scans three roots: `~/.omp/worktrees/<repo>/`
-(legacy leftover of the retired `ensureWorktree`; still scanned; `/feature` does not write here),
-`<principal>/.claude/worktrees/` (harness-created worktrees), and `<worktree base>/<repo>/<slug>`
-(the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`),
-instead of the Grok roots this plugin never writes to. dev-core's `shared/references/release-convention.md` did not travel: its two
-rules are inlined in `promote/SKILL.md` § Merge method.
+`promote` and `cleanup` remain optional: **offered after land, never automatic,
+and never inside the review→fix loop**. `/feature` offers `promote` only for
+`release.model: staging-train`, not trunk. `promote/preflight.sh` is read-only;
+its merge rules are inlined in `promote/SKILL.md`.
+
+### Worktree-only cleanup
+
+`/cleanup` inventories the current repository without mutation. Repeated
+`--repo <path>` selects repositories; repeated `--root <path>` discovers nested
+repositories and archives. `--all` now discovers below the current directory
+instead of acting as a synonym for a single-repository sweep. Linked worktrees
+are deduplicated by canonical Git common directory. Discovery exclusions and
+observation errors are explicit; a partial report is not an empty inventory.
+
+The bundled `skills/cleanup/worktrees.ts` exposes `inventory` and one-path
+`remove`. Removal re-inspects the inventory token, path identity, retained HEAD,
+local data (including untracked, ignored and index-hidden files), locks,
+in-progress Git operations and observable same-user process usage. Detected
+active usage always blocks. Unsupported or incomplete usage observations stay
+explicitly unknown and require an additional human confirmation for that path,
+carried as `--ack-unknown-usage <path>`. All other preservation reasons remain
+blocking; there is no blanket override. Process observations do not prove that
+every agent session is idle. Tokens and CLI confirmation flags are selection
+data, not evidence of human consent.
+
+Registered worktrees use `git worktree remove` without force; their branches
+survive, merged or not. The complementary orphan scanner retains configured
+feature, legacy `~/.omp/worktrees/<repo>` and principal `.claude/worktrees` roots.
+Only freshly revalidated empty shells can be removed, using `rmdir`; nonempty
+shells remain diagnostic. `--scope <#N>` filters exact branch issue numbers and
+excludes unattributed shells. `--report-only` stops after inventory; `--yes` is
+rejected. Branch deletion, fetch/prune, GitHub labels and CI cancellation are
+outside this workflow and require separate operator mandates.
 
 **The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
 
