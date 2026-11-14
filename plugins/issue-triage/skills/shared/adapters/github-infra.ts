@@ -40,7 +40,7 @@ export const STANDARD_LABELS: LabelDef[] = [
  * Sync priority label on a GitHub issue. Adds the target label and removes stale ones.
  * Non-fatal: logs a warning on failure but does not throw.
  */
-export async function syncPriorityLabel(issueNumber: number, canonical: string): Promise<boolean> {
+export async function syncPriorityLabel(issueNumber: number, canonical: string, repo: string): Promise<boolean> {
   const target = PRIORITY_LABEL_MAP[canonical]
   if (!target) return false
 
@@ -48,7 +48,7 @@ export async function syncPriorityLabel(issueNumber: number, canonical: string):
 
   try {
     const { updateLabels } = await import('./github-adapter')
-    await updateLabels(issueNumber, [target], stale)
+    await updateLabels(issueNumber, [target], stale, repo)
     return true
   } catch (err) {
     console.error(`Warning: Failed to sync priority label for #${issueNumber}: ${err}`)
@@ -60,7 +60,7 @@ export async function syncPriorityLabel(issueNumber: number, canonical: string):
  * Sync size label on a GitHub issue. Adds the target label and removes stale ones.
  * Non-fatal: logs a warning on failure but does not throw.
  */
-export async function syncSizeLabel(issueNumber: number, canonical: string): Promise<boolean> {
+export async function syncSizeLabel(issueNumber: number, canonical: string, repo: string): Promise<boolean> {
   const target = SIZE_LABEL_MAP[canonical]
   if (!target) return false
 
@@ -68,7 +68,7 @@ export async function syncSizeLabel(issueNumber: number, canonical: string): Pro
 
   try {
     const { updateLabels } = await import('./github-adapter')
-    await updateLabels(issueNumber, [target], stale)
+    await updateLabels(issueNumber, [target], stale, repo)
     return true
   } catch (err) {
     console.error(`Warning: Failed to sync size label for #${issueNumber}: ${err}`)
@@ -80,7 +80,7 @@ export async function syncSizeLabel(issueNumber: number, canonical: string): Pro
  * Sync lane label on a GitHub issue. Adds the target label and removes stale ones.
  * Non-fatal: logs a warning on failure but does not throw.
  */
-export async function syncLaneLabel(issueNumber: number, canonical: string): Promise<boolean> {
+export async function syncLaneLabel(issueNumber: number, canonical: string, repo: string): Promise<boolean> {
   const target = LANE_LABEL_MAP[canonical]
   if (!target) return false
 
@@ -88,7 +88,7 @@ export async function syncLaneLabel(issueNumber: number, canonical: string): Pro
 
   try {
     const { updateLabels } = await import('./github-adapter')
-    await updateLabels(issueNumber, [target], stale)
+    await updateLabels(issueNumber, [target], stale, repo)
     return true
   } catch (err) {
     console.error(`Warning: Failed to sync lane label for #${issueNumber}: ${err}`)
@@ -100,7 +100,7 @@ export async function syncLaneLabel(issueNumber: number, canonical: string): Pro
  * Sync status label on a GitHub issue. Adds the target label and removes stale ones.
  * Non-fatal: logs a warning on failure but does not throw.
  */
-export async function syncStatusLabel(issueNumber: number, canonical: string): Promise<boolean> {
+export async function syncStatusLabel(issueNumber: number, canonical: string, repo: string): Promise<boolean> {
   const target = STATUS_LABEL_MAP[canonical]
   if (!target) return false
 
@@ -108,7 +108,7 @@ export async function syncStatusLabel(issueNumber: number, canonical: string): P
 
   try {
     const { updateLabels } = await import('./github-adapter')
-    await updateLabels(issueNumber, [target], stale)
+    await updateLabels(issueNumber, [target], stale, repo)
     return true
   } catch (err) {
     console.error(`Warning: Failed to sync status label for #${issueNumber}: ${err}`)

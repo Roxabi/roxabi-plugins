@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.19.2 (unreleased)
+
+- Resolve tracker repository defaults only when needed, so feature init can preview and apply the selected checkout's tracker from an installed script outside that checkout. Recognize 0.19.2 under the existing bounded PR-binding policy; unknown versions remain unknown. This does not migrate records or activate tooling.
+
 ## 0.19.1
 
 - Treat a finite set of already-ignored dependency, cache and build-output artifacts as conditional cleanup candidates. Keep tracked changes, nonignored untracked files and unknown local data protected.

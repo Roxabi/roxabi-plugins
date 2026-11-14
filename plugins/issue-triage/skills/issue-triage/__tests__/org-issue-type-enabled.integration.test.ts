@@ -7,7 +7,7 @@ import { defaultInitDeps, initIssues } from '../lib/init'
 // The real adapter runs; only the network edge (`fetch`) is stubbed. An org type
 // with `isEnabled: false` is listed by the API but GitHub refuses to set an
 // issue to it, so it must count as unavailable on every path (#626).
-// Hoisted: GITHUB_REPO is read when the adapter's config module is first imported.
+// Provide the default repository for calls that need it.
 vi.hoisted(() => {
   process.env.GITHUB_REPO = 'Acme/app'
   process.env.GITHUB_TOKEN ||= 'not-used-fetch-is-stubbed'
