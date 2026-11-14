@@ -404,6 +404,11 @@ describe('complete observation refresh after native withdrawal', () => {
           const reader = createInstalledUwReadPort({ cwd: world.cwd, gh, readAuthor: 'roxabi-bot' })
           const siblingBefore = await reader.readUw(sibling)
           const beforePull = await readNativePullRequestFacts(pr.repository, 44, { cwd: world.cwd, gh })
+          expect(JSON.parse(await gh(world.cwd, ['api', `repos/${pr.repository}/issues/44`]))).toMatchObject({
+            number: 44,
+            state: 'open',
+            pull_request: {},
+          })
           const beforeHistory = await readDecodedHistory(pr, world.cwd, gh)
           if (!beforeHistory.ok) throw new Error('native PR history unavailable')
           const before = await reader.readUw(uw)
