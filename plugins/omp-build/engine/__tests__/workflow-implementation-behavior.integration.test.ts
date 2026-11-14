@@ -290,7 +290,7 @@ describe('workflow implementation behavior', () => {
         evidenceDigest: currentDigest,
       }),
       decisions: {
-        reviewStep: 'fix',
+        reviewStep: 'fix-ci',
         epicStep: null,
         epicLand: null,
         ciWatchStatus: 'red',

@@ -2,9 +2,10 @@ import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { capturedChildOwnSources } from './workflow-assessment-child-sources.ts'
-import { workflowContextNegative } from './workflow-context-terminal.ts'
-import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import type { WorkflowFacts } from './workflow-reconstruction-types.ts'
@@ -72,8 +73,20 @@ export function assessSpecCompletion(
       facts.currentSpec,
     ),
   }
-  const receipts = recordsOf(evidence.issue).filter((record): record is ReceiptRecord =>
-    isMatchingAssessment(record, mandateRef, exactInputs),
+  const gate = interruptionGate(
+    classifyAttempts({
+      histories: [evidence.issue, ...evidence.causal.histories],
+      scan: [evidence.issue],
+      actions: ['assess-spec'],
+      select: (record) => isMatchingAssessment(record, mandateRef, exactInputs),
+    }),
+  )
+  if (gate.kind === 'stop') return gate.completion
+  const receipts = recordsOf(evidence.issue).filter(
+    (record): record is ReceiptRecord =>
+      isMatchingAssessment(record, mandateRef, exactInputs) &&
+      record.kind === 'action-receipt' &&
+      !excludedReceipt(record, gate.excluded),
   )
   const negativeIds = new Set(receipts.filter(workflowContextNegative).map((record) => record.payload.actionId))
   const starts = receipts.filter(

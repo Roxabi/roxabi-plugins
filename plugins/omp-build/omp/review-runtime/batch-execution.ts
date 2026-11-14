@@ -52,6 +52,7 @@ async function observeExecution(
   } catch (error) {
     observation.errors.push(error instanceof Error ? error.message : String(error))
   }
+  if (signal?.aborted === true) controller.noteExecutionAborted(batch)
   if (!current()) observation.errors.push('native root generation changed')
   try {
     if (!(await taskMaskCurrent(controller, batch)))

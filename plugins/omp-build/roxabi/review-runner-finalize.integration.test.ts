@@ -98,7 +98,8 @@ async function fixture(refuseWrite = false, validCriterion = false) {
     missingImplementation?.kind !== 'action-receipt' ||
     missingImplementation.payload.action !== 'implement' ||
     missingImplementation.payload.phase !== 'result' ||
-    missingImplementation.payload.structured === null
+    missingImplementation.payload.structured === null ||
+    missingImplementation.payload.structured.outcome === 'missing-context'
   )
     throw new Error('fixture implementation result missing')
   const missingCriterion = missingImplementation.payload.structured.criteria[0]
@@ -138,7 +139,8 @@ async function fixture(refuseWrite = false, validCriterion = false) {
       implementation?.kind !== 'action-receipt' ||
       implementation.payload.action !== 'implement' ||
       implementation.payload.phase !== 'result' ||
-      implementation.payload.structured === null
+      implementation.payload.structured === null ||
+      implementation.payload.structured.outcome === 'missing-context'
     )
       throw new Error('fixture implementation result missing')
     const declaration = implementation.payload.structured.criteria[0]

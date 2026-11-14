@@ -2,7 +2,6 @@ import { effectiveMandateRole, missingContextOutputSchema } from '../dist/contra
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
-import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import { causalRefusal } from './causal-refusal.ts'
 import { readDecodedHistory } from './feature-context.ts'
@@ -13,7 +12,6 @@ import { type Contracts, type History, isRecord } from './feature-engine.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 import { admitAttributedCiCorrection } from './fix-ci-admission.ts'
 import { boundCorrection } from './fix-mandate-resolution.ts'
-import { classifyCiCorrectionStep } from './fix-mandate-types.ts'
 import {
   composeObservedUwCausalContext,
   extendObservedUwCausalContext,
@@ -22,7 +20,6 @@ import {
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
-import type { GitRunner } from './workflow-checkout.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 
@@ -255,34 +252,4 @@ export function latestAttributeCiChangeReceiptId(history: DecodedHistory, head: 
     if (recordId !== null) return recordId
   }
   return null
-}
-
-export async function classifyRedCiBeforeDispatch(
-  cwd: string,
-  pr: number,
-  gh: Gh,
-  git: GitRunner,
-  onBarrier?: (barrier: WithdrawalBarrier) => void,
-): Promise<ContinueFeatureResult | null> {
-  try {
-    const step = await nextReviewStep(cwd, pr, { ciFailed: true, gh, git })
-    if (step.barrier) onBarrier?.(step.barrier)
-    const classified = classifyCiCorrectionStep(step)
-    if (classified.status === 'spent') {
-      return { kind: 'terminal', reason: classified.reason }
-    }
-    if (classified.status === 'unsafe') {
-      return { kind: 'blocked', reason: classified.reason }
-    }
-    if (classified.status === 'refused' && classified.action === 'stop') {
-      return { kind: 'blocked', reason: classified.reason ?? 'ci-correction-refused' }
-    }
-    return null
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (message.includes('latest review record to approve the current head')) {
-      return { kind: 'blocked', reason: 'head-unapproved' }
-    }
-    return { kind: 'blocked', reason: `ci-correction-step-unreadable:${message}` }
-  }
 }

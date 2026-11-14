@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { causeDependencyAdjustmentProposalSchema } from '../../engine/cause-dependency-adjustment-schema.ts'
 import { nativeObservationDigest } from '../../engine/uw-native-observation-schema.ts'
 import type { PreparedMaterialAcceptance } from '../../engine/workflow-spec-assessment.ts'
+import { featureStopMessage } from '../../roxabi/feature-presentation.ts'
 import type { PreparedUwProposal, PreparedUwReopen } from '../../roxabi/uw-contract.ts'
-import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
+import { manualOperatorDialog, operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { createOperatorConfirmation } from '../omp-operator-confirmation.ts'
 
@@ -318,6 +319,73 @@ describe('native operator confirmation capability', () => {
       diagnostics: [{ code: 'operator-confirmation-declined' }],
     })
 
+    expect(effects).toEqual([])
+  })
+
+  it('reports a dialog exception without executing the confirmed action or exposing credentials', async () => {
+    const failure = new Error(
+      '\nTerminal unavailable GH_TOKEN=gh-fake GITHUB_TOKEN=github-fake access_token=access-fake\n' +
+        'Authorization: token token-fake Authorization: Basic basic-fake Authorization: Bearer bearer-fake\n' +
+        'Cause: render failed\u001b\u009b\u202e\u2066',
+    )
+    failure.stack = 'private stack payload'
+    const operator = createOperatorConfirmation(
+      interactiveContext(async () => {
+        throw failure
+      }),
+    )
+    const effects: string[] = []
+
+    const result = await operator.executeConfirmed(proposal, async () => {
+      effects.push('published')
+      return 'published'
+    })
+
+    expect(result).toMatchObject({
+      status: 'refused',
+      diagnostics: [
+        { code: 'operator-confirmation-unavailable', message: expect.stringContaining('Terminal unavailable') },
+      ],
+    })
+    if (result.status !== 'refused') throw new Error('Expected refusal')
+    expect(result.diagnostics[0]?.message).not.toContain('gh-fake')
+    const message = featureStopMessage({
+      kind: 'abandoned',
+      confirmed: false,
+      failure: { phase: 'uw', status: 'refused', diagnostics: result.diagnostics },
+    })
+    expect(message).toContain('\\nCause: render failed')
+    for (const secret of ['gh-fake', 'github-fake', 'access-fake', 'token-fake', 'basic-fake', 'bearer-fake']) {
+      expect(message).not.toContain(secret)
+    }
+    expect(message).not.toContain('\u001b')
+    expect(message).not.toContain('\u009b')
+    expect(message).not.toContain('\u202e')
+    expect(message).not.toContain('\u2066')
+    expect(message).toContain('\\u202e')
+    expect(message).toContain('\\u2066')
+    expect(JSON.stringify(result)).not.toContain('private stack payload')
+    expect(effects).toEqual([])
+  })
+
+  it('keeps cancellation of a visible dialog distinct from a UI failure', async () => {
+    const dialog = manualOperatorDialog()
+    const ctx = interactiveContext(async () => true)
+    Object.assign(ctx, { ui: dialog.ui })
+    const execution = new AbortController()
+    const operator = createOperatorConfirmation(ctx, { signal: execution.signal })
+    const effects: string[] = []
+    const pending = operator.executeConfirmed(proposal, async () => {
+      effects.push('published')
+      return 'published'
+    })
+
+    await dialog.nextMount()
+    execution.abort()
+    await expect(pending).resolves.toMatchObject({
+      status: 'refused',
+      diagnostics: [{ code: 'operator-confirmation-required' }],
+    })
     expect(effects).toEqual([])
   })
 

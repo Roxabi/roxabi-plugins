@@ -40,7 +40,7 @@ export function conditionHolds(
     case 'review-step-review':
       return decisions.reviewStep === 'review'
     case 'review-step-fix':
-      return decisions.reviewStep === 'fix' && decisions.ciWatchStatus !== 'red'
+      return decisions.reviewStep === 'fix'
     case 'review-step-land':
       return decisions.reviewStep === 'land' && workflowBound(mandate, history, pullRequest, facts)
     case 'review-step-stop':
@@ -151,7 +151,7 @@ function ciConditionHolds(
   mandate: MandateRecord | null,
   pullRequest: DecodedHistory | null,
 ): boolean {
-  if (decisions.ciWatchStatus !== 'red' || decisions.reviewStep !== 'fix') return false
+  if (decisions.ciWatchStatus !== 'red' || decisions.reviewStep !== 'fix-ci') return false
   const bound = boundCiAttribution([history, ...(pullRequest === null ? [] : [pullRequest])], facts, mandate)
   if (when === 'ci-red') return !bound.change && !bound.refused
   return when === 'ci-attributed-change' ? bound.change : bound.refused

@@ -43,7 +43,7 @@ describe('native communication red probes', () => {
       onComplete: async () => undefined,
       onStop: async () => undefined,
     })
-    expect(setStatus).toHaveBeenCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} active`)
+    expect(setStatus.mock.lastCall?.[1]).toMatch(/\bqueued\b/i)
     expect(harness.messages).toEqual([])
   })
 
@@ -56,12 +56,16 @@ describe('native communication red probes', () => {
     await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
     harness.controller.activate(prepared, { onComplete: async () => undefined, onStop })
     await harness.admitBatch(prepared, 'task-call', statusRoot)
+    const activeStatus = setStatus.mock.lastCall?.[1]
+    expect(typeof activeStatus).toBe('string')
     await harness.settleBatch({ ...completingResult('slot-a'), errors: ['execution failed'] })
     expect(onStop).toHaveBeenCalledWith(
       'native-execution-failed:execution failed',
       expect.objectContaining({ complete: false }),
+      expect.anything(),
     )
-    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+    expect(setStatus.mock.lastCall?.[1]).toEqual(expect.any(String))
+    expect(setStatus.mock.lastCall?.[1]).not.toBe(activeStatus)
   })
 
   it('replaces active status when the current batch is stopped', async () => {
@@ -73,8 +77,8 @@ describe('native communication red probes', () => {
     await harness.emitBridge('session_start', { type: 'session_start' }, statusRoot)
     harness.controller.activate(prepared, { onComplete: async () => undefined, onStop })
     await harness.controller.stopOwned(prepared, 'owner-stop')
-    expect(onStop).toHaveBeenCalledWith('owner-stop', expect.objectContaining({ complete: false }))
-    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+    expect(onStop).toHaveBeenCalledWith('owner-stop', expect.objectContaining({ complete: false }), expect.anything())
+    expect(setStatus.mock.lastCall?.[1]).toMatch(/withdrawn/i)
   })
 
   it('does not let an older stopped generation replace a newer active status', async () => {
@@ -97,7 +101,7 @@ describe('native communication red probes', () => {
     harness.controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
     gate.resolve()
     await stopping
-    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} active`)
+    expect(setStatus.mock.lastCall?.[1]).toMatch(/\bqueued\b/i)
   })
 
   it('does not publish an old terminal status after the root session changes', async () => {
@@ -117,6 +121,7 @@ describe('native communication red probes', () => {
     })
     const stopping = harness.controller.stopOwned(prepared, 'owner-stop')
     await vi.waitFor(() => expect(entered).toBe(true))
+    const writesBeforeSwitch = setStatus.mock.calls.length
     await harness.emitBridge(
       'session_start',
       { type: 'session_start' },
@@ -127,7 +132,7 @@ describe('native communication red probes', () => {
     )
     gate.resolve()
     await stopping
-    expect(setStatus).toHaveBeenCalledTimes(1)
+    expect(setStatus).toHaveBeenCalledTimes(writesBeforeSwitch)
   })
 
   it('replaces active status even when the stop callback throws', async () => {
@@ -143,7 +148,7 @@ describe('native communication red probes', () => {
       },
     })
     await expect(harness.controller.stopOwned(prepared, 'owner-stop')).rejects.toThrow('stop failed')
-    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+    expect(setStatus.mock.lastCall?.[1]).toMatch(/withdrawn/i)
   })
 
   it('waits for exceptional settlement stop handling before presenting the terminal status', async () => {
@@ -163,12 +168,15 @@ describe('native communication red probes', () => {
       },
     })
     await harness.admitBatch(prepared, 'task-call', statusRoot)
+    const activeStatus = setStatus.mock.lastCall?.[1]
+    expect(typeof activeStatus).toBe('string')
     const pending = harness.settleBatch({ ...completingResult('slot-a'), errors: ['execution failed'] })
     await vi.waitFor(() => expect(stops).toBe(2))
-    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} active`)
+    expect(setStatus.mock.lastCall?.[1]).toBe(activeStatus)
     gate.resolve()
     await pending
-    expect(setStatus).toHaveBeenLastCalledWith('omp-build', `omp-build: native batch ${prepared.operationId} stopped`)
+    expect(setStatus.mock.lastCall?.[1]).toEqual(expect.any(String))
+    expect(setStatus.mock.lastCall?.[1]).not.toBe(activeStatus)
   })
 
   it('fences the exact live batch before awaiting its registered terminal', async () => {
@@ -236,17 +244,20 @@ describe('native communication red probes', () => {
     await harness.admitChild(prepared, 'slot-a', 'slot-a', { root: statusRoot, skipRootCall: true })
     await harness.yieldChild('slot-a', { findings: [] })
     const baseline = harness.messages.length
+    const activeStatus = setStatus.mock.lastCall?.[1]
+    expect(typeof activeStatus).toBe('string')
     const pending = harness.settleBatch(completingResult('slot-a'))
     await vi.waitFor(() => expect(order).toContain('onComplete'))
     expect(harness.messages).toHaveLength(baseline)
-    expect(setStatus).not.toHaveBeenCalledWith('omp-build', 'omp-build: native batch native-op completed')
+    expect(setStatus.mock.lastCall?.[1]).toBe(activeStatus)
     gate.resolve()
     await pending
     expect(publicationsAtEntry).toBe(baseline)
     expect(publicationsAtSettle).toBe(baseline)
     expect(order).toEqual(['onComplete', 'onComplete-settled', 'onSettled'])
     expect(harness.messages).toHaveLength(baseline)
-    expect(setStatus).toHaveBeenCalledWith('omp-build', 'omp-build: native batch native-op completed')
+    expect(setStatus.mock.lastCall?.[1]).toEqual(expect.any(String))
+    expect(setStatus.mock.lastCall?.[1]).not.toBe(activeStatus)
   })
 
   it('preserves the actual child id of an authorized mapped allocation', async () => {

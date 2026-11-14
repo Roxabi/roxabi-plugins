@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0 (unreleased)
+
+- Let the workflow engine decide CI continuation and business stops from fresh observations. Check runtime/configuration compatibility before offering resume; preserve read failures instead of inventing business verdicts.
+- Restrict confirmed interruption resolution to exact STARTs positively prevented from activation or fenced closed before native admission in the current process. Closure requires confirmed terminal RESULT retention; pending, failed or uncertain publication, missing evidence and admitted dispatch stay blocked. Resolution remains paused.
+- Keep prior preparation and root-turn effects intact and let ordinary admission perform fresh code checks; resolution proves no native child dispatch, not absence of all effects. It does not reconcile effects, adopt implementation commits or assert successful execution. Malformed legacy history remains blocking, including beside a synthetic abandon.
+- Preserve a confirmed remote branch and tip in owned later failure reports without claiming RESULT retention or granting authority or resume.
+- Preserve recoverable landing holds, their next decision and pausable ownership. Project the UW, action and executors in the owning session; distinguish queued, running, stopping, uncertain, paused, held and done. Keep abandonment refusal and partial-disarm diagnostics.
+- Recognize 0.19.0 under the bounded PR-binding policy; future versions remain unknown. This source change neither migrates existing mandates nor activates tooling, changes a pin/cache, authorizes a suspended witness or qualifies native delivery.
+
 ## 0.18.9
 
 - Restore role-scoped code exploration in the action worktree for planning, plan review, implementation, review and correction. Source, tests, technical documentation and CI/build/test configuration need not be preselected in the snapshot.

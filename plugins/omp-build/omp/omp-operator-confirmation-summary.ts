@@ -210,6 +210,26 @@ function adjudicationLines(proposal: CauseAdjudicationProposal): string[] {
   return lines
 }
 
+function interruptionLines(proposal: Record<string, unknown>): string[] {
+  const lines = [
+    asked('Résoudre l’interruption de ', scopeText(proposal.uw)),
+    summaryField('Action : ', typeof proposal.action === 'string' ? proposal.action : ''),
+    summaryField('Action ID : ', typeof proposal.actionId === 'string' ? proposal.actionId : ''),
+  ]
+  if (isRecord(proposal.start) && typeof proposal.start.recordId === 'string') {
+    lines.push(summaryField('START : ', proposal.start.recordId))
+    lines.push(summaryField('Scope START : ', scopeText(proposal.start.scope)))
+  }
+  if (isRecord(proposal.result) && typeof proposal.result.recordId === 'string') {
+    lines.push(summaryField('RESULT : ', proposal.result.recordId))
+    lines.push(summaryField('Scope RESULT : ', scopeText(proposal.result.scope)))
+  } else lines.push('START orphelin : aucun RESULT.')
+  lines.push('L’hôte a établi que cette action native n’a pas été envoyée aux exécutants.')
+  lines.push('Les préparatifs déjà effectués ne sont pas annulés ; les vérifications ordinaires restent nécessaires.')
+  lines.push('Le flux reste en pause ; aucune reprise automatique.')
+  return lines
+}
+
 function unsupportedLines(proposal: Proposal): string[] {
   return ['Proposition à examiner', unrecognizedWarning(recognizedScope(proposal))]
 }
@@ -237,6 +257,9 @@ function fallbackLines(proposal: Proposal): string[] {
 /** Human decision lines. Technical JSON stays in the dialog details. */
 export function proposalSummary(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
+  const candidate: unknown = proposal
+  if (isRecord(candidate) && candidate.format === 'omp-build-interruption-resolution/2')
+    return interruptionLines(candidate)
   if (proposal.format === 'omp-build-uw-framing/1') return framingSummary(proposal)
   if (proposal.format === 'omp-build-uw-abandon/1') return abandonLines(proposal)
   if (proposal.format === 'omp-build-uw-reopen/1') return reopenLines(proposal)

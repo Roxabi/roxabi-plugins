@@ -139,7 +139,7 @@ async function admitBoundCiCorrection(
     history,
     linked.value.history,
     linked.value.externalHistories,
-    'fix',
+    'fix-ci',
     live.value,
     linked.value.currentSpec.read,
   )

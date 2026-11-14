@@ -103,7 +103,9 @@ export function createFeatureCommandHost(
     send: async (message) => {
       if (report.isCurrent()) reportFeatureTerminalStatus(pi, message)
     },
-    status: (message) => ctx.ui?.setStatus?.('omp-build-watch', message),
+    status: (message) => {
+      if (report.isCurrent()) ctx.ui?.setStatus?.('omp-build-watch', message)
+    },
     startFraming: (source) => framing.start(binding, source, report.handoff),
     requestParentCoverage: (request) => requestParentCoverage(ctx, request),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),

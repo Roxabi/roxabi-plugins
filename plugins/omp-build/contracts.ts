@@ -168,6 +168,18 @@ export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
+export {
+  type AttemptClassification,
+  classifyAttempts,
+  type InterruptionGate,
+  interruptionGate,
+  interruptionResolutionCandidate,
+  type ResolutionCandidate,
+  type ResolvableStart,
+  resolvableStarts,
+  startResolution,
+  type UnresolvedAttempt,
+} from './engine/workflow-action-interruption.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { bindingMatchesMandate, bindingPolicy } from './engine/workflow-binding-policy.ts'
@@ -186,8 +198,10 @@ export {
 } from './engine/workflow-composed-material-preparation.ts'
 export {
   bindExternalRef,
+  excludedReceipt,
   type MandateRecord,
-  type PauseBinding,
+  receiptStartKey,
+  scopedStartKey,
   workflowOperationProblem,
 } from './engine/workflow-control.ts'
 export { assessFixMandate } from './engine/workflow-correction-admission.ts'
@@ -199,6 +213,26 @@ export {
   workflowGraphActionSchema,
   workflowGraphSchema,
 } from './engine/workflow-graph.ts'
+export {
+  authenticateInterruptedReceiptPair,
+  HOST_INTERRUPTION_MARKER,
+  hostInterruptionDiagnostic,
+  INTERRUPTION_ACTIONS,
+  INTERRUPTION_RESOLUTION_FORMAT,
+  INTERRUPTION_RESOLUTION_PREFIX,
+  type InterruptionAction,
+  type InterruptionResolution,
+  interruptedResult,
+  interruptionResolutionDigest,
+  interruptionResolutionRecordId,
+  isInterruptionAction,
+  isInterruptionResolution,
+  type ResolutionIndex,
+  type ResolutionPayload,
+  type ResolutionProposal,
+  type ResolutionRecord,
+} from './engine/workflow-interruption-proof.ts'
+export { admitInterruptionResolution, resolutionIndex } from './engine/workflow-interruption-resolution.ts'
 export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
 export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
@@ -208,6 +242,12 @@ export {
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
+export {
+  interruptionActionSchema,
+  interruptionExecutorSchema,
+  interruptionRuntimeSchema,
+} from './engine/workflow-operator-control-schema.ts'
+export type { PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { bindImplementationCommand } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'

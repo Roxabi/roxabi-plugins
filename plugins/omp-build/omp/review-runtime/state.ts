@@ -5,6 +5,7 @@ import type {
   NativeBatch,
   NativeBatchCallbacks,
   NativeProofBashCall,
+  NativeStopOrigin,
   NativeTaskWireInput,
   Submission,
 } from './contracts'
@@ -53,6 +54,7 @@ export type ActiveBatch = {
   announcementDispatched: boolean
   settling: boolean
   continuationClosed: string | null
+  stopOrigin: NativeStopOrigin | null
   contextPublicationOwned: boolean
   retentionFailed: string | null
   childSlots: Map<string, number>
@@ -103,6 +105,7 @@ export function createActiveBatch(
     announcementDispatched: false,
     settling: false,
     continuationClosed: null,
+    stopOrigin: null,
     contextPublicationOwned: false,
     retentionFailed: null,
     childSlots: new Map(),

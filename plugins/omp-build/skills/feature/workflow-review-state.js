@@ -50,7 +50,7 @@ export function reviewStep(records, { head, ciFailed = false }) {
   return { action: 'review', reason: 'no-verdict', reviews }
 }
 
-export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
+export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh, expectedHead, expectedReviewId } = {}) {
   const history = await readReviewHistory(cwd, pr, ghFn)
   const cited = await readReviewInputHistories(history, { cwd, gh: ghFn })
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
@@ -62,6 +62,12 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
   const summary = reviewRecords(history, { catalogues, externalHistories: cited.value })
   if (!summary.ok) throw reviewRefusal(summary)
   const gate = await readGate(cwd, pr, ghFn)
+  if (
+    (expectedHead !== undefined && gate.headRefOid !== expectedHead) ||
+    (expectedReviewId !== undefined && summary.value.reviewId !== expectedReviewId)
+  ) {
+    throw new Error('observed CI stop review or head changed')
+  }
   if (!isCommitSha(gate.headRefOid) || summary.value.head !== gate.headRefOid || !approves(summary.value.verdict))
     throw new Error('required CI stop is no longer bound to a current approving review')
   const state = deriveReviewState(

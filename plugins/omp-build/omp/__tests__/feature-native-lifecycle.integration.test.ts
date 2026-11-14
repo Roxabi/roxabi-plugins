@@ -151,7 +151,7 @@ describe('feature native lifecycle through the installed OMP extension', () => {
           expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0, effectiveCwd: checkout }),
         ]),
       },
-      admission: { admitted: false, published: false, reason: 'implementation-admission-refused' },
+      admission: { admitted: false, published: false, reason: 'implementation-local-inhibition' },
     })
   })
 
@@ -214,7 +214,7 @@ describe('feature native lifecycle through the installed OMP extension', () => {
     expect(implementationRecords(box, 'start')).toHaveLength(1)
   })
 
-  it('durably retains an incomplete native child before the Feature host stops without continuation or approval', () => {
+  it('retains a returned invalid native terminal without continuation or approval', () => {
     const { box, checkout } = liveFeatureFixture()
     const localHeadBefore = git(box, checkout, ['rev-parse', 'HEAD'])
     expect(localHeadBefore).toBe(box.sha.main)
@@ -241,11 +241,12 @@ describe('feature native lifecycle through the installed OMP extension', () => {
       start: { scope: SCOPE, recordId: start?.recordId, kind: 'action-receipt' },
       exactInputs: { mandateId: 'mandate-feature-1', planActionId: 'act-plan-1' },
       native: {
-        completion: 'incomplete',
+        completion: 'completed',
         strict: 'invalid',
         raw: INCOMPLETE_NATIVE_TERMINAL,
       },
-      admission: { admitted: false, published: false, reason: 'action-uncertain' },
+      structured: null,
+      admission: { admitted: false, published: false, reason: 'implementation-output-invalid' },
     })
   })
 })

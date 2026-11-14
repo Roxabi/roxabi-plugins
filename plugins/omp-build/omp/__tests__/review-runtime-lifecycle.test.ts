@@ -385,6 +385,23 @@ describe('native review bridge lifecycle', () => {
 })
 
 describe('native batch controller ownership fences', () => {
+  it('does not report activation failure after the executor was claimed when status presentation throws', () => {
+    const controller = new NativeBatchController()
+    const prepared = batch(['slot-a'])
+    controller.bindCommunication({
+      status() {
+        throw new Error('status unavailable')
+      },
+      message() {},
+      async retain() {
+        return 'local://retained'
+      },
+    })
+    controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
+    expect(controller.active()).toBe(prepared)
+    controller.inactive()
+  })
+
   it('does not confer live-batch ownership on a structural clone', async () => {
     const controller = new NativeBatchController()
     const prepared = batch(['slot-a'])

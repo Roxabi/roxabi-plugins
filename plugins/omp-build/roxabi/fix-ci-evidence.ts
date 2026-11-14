@@ -121,7 +121,7 @@ export async function authorizeFixAction(
   history: DecodedHistory,
   linked: DecodedHistory | null,
   parents: readonly DecodedHistory[],
-  reviewStep: 'fix' | 'review' | 'land' | 'stop',
+  reviewStep: 'fix-ci',
   liveEvidence: LiveCiEvidence,
   uw: UwRead,
 ): Promise<FixActionResult<readonly string[]>> {
@@ -218,7 +218,7 @@ async function reconstructAuthorizedFix(
   history: DecodedHistory,
   linked: DecodedHistory | null,
   parents: readonly DecodedHistory[],
-  reviewStep: 'fix' | 'review' | 'land' | 'stop',
+  reviewStep: 'fix-ci',
   liveEvidence: LiveCiEvidence,
   currentFacts: CurrentFixFacts,
   commit: string,

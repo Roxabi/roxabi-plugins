@@ -5,7 +5,10 @@ export async function proveAuthorizedBranch(
   cwd: string,
   branch: string,
   tip: string,
-  authorizePush: () => Promise<boolean>,
+  authority: {
+    effect: () => Promise<{ ok: true } | { ok: false; reason: string }>
+    beforePush: () => Promise<{ ok: true } | { ok: false; reason: string }>
+  },
 ): Promise<{ ok: true; remoteTip: string } | { ok: false; reason: string }> {
   const current = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (current.code !== 0 || current.stdout.trim() !== branch)
@@ -14,13 +17,17 @@ export async function proveAuthorizedBranch(
   if (head.code !== 0 || head.stdout.trim() !== tip) return { ok: false, reason: 'implementation-head-mismatch' }
   const observed = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const observedTip = observed.stdout.trim().split(/\s+/)[0] ?? ''
-  if (observed.code === 0 && observedTip === tip) return { ok: true, remoteTip: observedTip }
-  if (!(await authorizePush())) return { ok: false, reason: 'implementation-admission-refused' }
+  if (observed.code === 0 && observedTip === tip) {
+    const authorized = await authority.effect()
+    return authorized.ok ? { ok: true, remoteTip: observedTip } : authorized
+  }
+  const authorized = await authority.beforePush()
+  if (!authorized.ok) return authorized
   const pushed = await git(cwd, ['push', 'origin', `HEAD:refs/heads/${branch}`])
-  if (pushed.code !== 0) return { ok: false, reason: 'implementation-not-remote' }
+  if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed' }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
-  if (remote.code !== 0 || remoteTip !== tip) return { ok: false, reason: 'implementation-not-remote' }
+  if (remote.code !== 0 || remoteTip !== tip) return { ok: false, reason: 'implementation-remote-unconfirmed' }
   return { ok: true, remoteTip }
 }
 
@@ -32,7 +39,7 @@ export async function proveAuthorizedPublishedBase(
   repository: string,
   base: string,
   tip: string,
-  authorized: () => Promise<boolean>,
+  authorized: () => Promise<{ ok: true } | { ok: false; reason: string }>,
 ): Promise<{ ok: true; remoteTip: string } | { ok: false; reason: string }> {
   const origin = await git(cwd, ['remote', 'get-url', 'origin'])
   if (origin.code !== 0 || origin.stdout.trim() === '') return { ok: false, reason: 'integration-origin-unreadable' }
@@ -50,7 +57,8 @@ export async function proveAuthorizedPublishedBase(
   } catch {
     return { ok: false, reason: 'integration-origin-unreadable' }
   }
-  if (!(await authorized())) return { ok: false, reason: 'integration-authority-changed' }
+  const firstAuthority = await authorized()
+  if (!firstAuthority.ok) return firstAuthority
   const fetched = await git(cwd, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`])
   if (fetched.code !== 0) return { ok: false, reason: 'integration-base-unreadable' }
   const [branch, head, local, remote] = await Promise.all([
@@ -71,7 +79,8 @@ export async function proveAuthorizedPublishedBase(
     remoteTip !== tip
   )
     return { ok: false, reason: 'integration-base-not-published' }
-  if (!(await authorized())) return { ok: false, reason: 'integration-authority-changed' }
+  const secondAuthority = await authorized()
+  if (!secondAuthority.ok) return secondAuthority
   const [originAgain, remoteAgain, headAgain, branchAgain, statusAgain] = await Promise.all([
     git(cwd, ['remote', 'get-url', 'origin']),
     git(cwd, ['ls-remote', 'origin', `refs/heads/${base}`]),

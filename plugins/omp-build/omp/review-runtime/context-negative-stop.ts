@@ -20,7 +20,7 @@ export async function stopForMissingContext(
   if (!result.canPublishContext?.()) return
   active.continuationClosed = 'action-context-missing'
   try {
-    await active.callbacks.onStop('action-context-missing', result)
+    await active.callbacks.onStop('action-context-missing', result, { kind: 'context-negative' })
   } catch (error) {
     if (!result.canPublishContext?.()) return
     await notify(active, {

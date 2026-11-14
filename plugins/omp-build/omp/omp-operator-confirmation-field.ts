@@ -11,6 +11,20 @@ export function nativeText(value: string): string {
     .replace(/\p{Cc}/gu, '')
 }
 
+/** Human-facing error projection; recognized credential patterns only, not exhaustive redaction. */
+export function safeOperatorError(message: string): string {
+  const redacted = message
+    .replace(
+      /\b(?:[a-z0-9]+_)*(?:token|password|secret|authorization)\s*[:=]\s*(?:(?:bearer|token|basic)\s+)?(?:"[^"]*"|'[^']*'|\S+)/gi,
+      '[redacted]',
+    )
+    .replace(/\bbearer\s+(?:"[^"]*"|'[^']*'|\S+)/gi, 'Bearer [redacted]')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t')
+  return nativeText(redacted)
+}
+
 export function summaryField(trustedPrefix: string, rawValue: string): string {
   return `${trustedPrefix}${JSON.stringify(rawValue)}`
 }

@@ -3,17 +3,11 @@ import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Scope } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
-import {
-  historyFor,
-  type MandateRecord,
-  mandateScope,
-  outstandingPauseInAuthority,
-  recordsOf,
-  refused,
-} from './workflow-control.ts'
+import { historyFor, type MandateRecord, mandateScope, recordsOf, refused } from './workflow-control.ts'
 import type { FixMandateAssessment } from './workflow-correction-mandate.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
 import { ciAttributionSchema } from './workflow-output-schema.ts'
+import { outstandingPauseInAuthority } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
 

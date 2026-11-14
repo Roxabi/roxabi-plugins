@@ -151,10 +151,8 @@ export {
   abandoned,
   historyFor,
   mandateScope,
-  outstandingPauseRequest,
   recordsOf,
   successorOf,
-  unliftedPause,
   workflowOperationProblem,
 } from './engine/workflow-control.ts'
 export { resolveCurrentInheritedOwnSpecRefs } from './engine/workflow-current-inheritance.ts'
@@ -168,16 +166,17 @@ export {
   acceptedChildCommitmentSchema,
   type MandatePayload,
   mandatePayloadSchema,
-  type OperatorControlPayload,
-  operatorControlPayloadSchema,
   parentCoverageSchema,
   validParentCoverage,
   type WorkflowBindingPayload,
   workflowBindingPayloadSchema,
 } from './engine/workflow-mandate-schema.ts'
+export { type OperatorControlPayload, operatorControlPayloadSchema } from './engine/workflow-operator-control-schema.ts'
 export {
   type CiAttribution,
   ciAttributionSchema,
+  type DeliveryMissingContext,
+  deliveryMissingContextSchema,
   type ImplementationOutput,
   implementationOutputSchema,
   type PlanBlockerRef,
@@ -195,6 +194,7 @@ export {
   type SpecAssessment,
   specAssessmentSchema,
 } from './engine/workflow-output-schema.ts'
+export { outstandingPauseRequest, unliftedPause } from './engine/workflow-pause.ts'
 export { confirmedAccountedMandate } from './engine/workflow-pr-binding.ts'
 export { ciExactSchema } from './engine/workflow-receipt-exact.ts'
 export {

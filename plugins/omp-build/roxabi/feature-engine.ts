@@ -5,6 +5,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Diagnostic, Scope } from '../engine/record-values.ts'
 import { authorizeStartPublication, recheckStartPublication } from './feature-start-publication.ts'
+import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 
 const execFileAsync = promisify(execFile)
@@ -30,6 +31,8 @@ const requiredContractNames = [
   'failedCheckEvidenceDigest',
   'resolveAcceptedSpec',
   'bindExternalRef',
+  'resolvableStarts',
+  'startResolution',
 ] as const
 
 type RequiredContractName = (typeof requiredContractNames)[number]
@@ -88,10 +91,11 @@ export async function publishRecord(
   const histories = [history, ...(externalHistories ?? [])]
   const authorized = await authorizeStartPublication(built.value, contracts, histories, cwd, gh)
   if (!authorized.ok) return authorized
+  const options = withRoxabiGitHubPolicy({ cwd, gh, ...(canPublish === undefined ? {} : { canPublish }) })
   const published = await contracts.publishConfirmedWorkflowRecord(
     built.value,
-    { cwd, gh, ...(canPublish === undefined ? {} : { canPublish }) },
-    createPublicationContextResolver({ cwd, gh }, null),
+    options,
+    createPublicationContextResolver(options, null),
     externalHistories,
   )
   if (published.status !== 'confirmed') {

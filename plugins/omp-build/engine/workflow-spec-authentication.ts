@@ -8,12 +8,11 @@ import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 
 export { sameAssessInputs } from './workflow-spec-assessment.ts'
 
-import {
-  observeAssessmentContextReplay,
-  workflowContextNegative,
-  workflowContextTerminal,
-} from './workflow-context-terminal.ts'
+import { startResolution } from './workflow-action-interruption.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import { observeAssessmentContextReplay, workflowContextTerminal } from './workflow-context-terminal.ts'
 import { bindExternalRef, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { resolutionIndex } from './workflow-interruption-resolution.ts'
 import { specChainFailure } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
@@ -83,13 +82,16 @@ export function confirmedAssessPairs(
   mandateRef: ExternalRecordRef,
   replayContext?: AssessmentReplayContext,
 ): AcceptedSpecResult | { ok: true } {
+  const resolutions = resolutionIndex(histories)
+  if (!resolutions.ok) return { ok: false, reason: 'incomplete', evidence: resolutions.diagnostics }
+  const excluded = new Set(resolutions.value.resolved.keys())
   if (
     replayContext !== undefined &&
     !recordsOf(home).some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext))
   )
     return specChainFailure('incomplete', 'Spec assessment replay start is not authenticated', 'action-uncertain')
   for (const record of recordsOf(home)) {
-    const checked = confirmedAssessStart(record, home, histories, mandateRef, replayContext)
+    const checked = confirmedAssessStart(record, home, histories, mandateRef, excluded, replayContext)
     if (!checked.ok) return checked
   }
   return { ok: true }
@@ -100,12 +102,16 @@ function confirmedAssessStart(
   home: DecodedHistory,
   histories: readonly DecodedHistory[],
   mandateRef: ExternalRecordRef,
+  excluded: ReadonlySet<string>,
   replayContext?: AssessmentReplayContext,
 ): AcceptedSpecResult | { ok: true } {
   if (record.kind !== 'action-receipt' || record.payload.action !== 'assess-spec' || record.payload.phase !== 'start')
     return { ok: true }
   if (!sameRef(record.payload.mandate, mandateRef)) return { ok: true }
   const startRef = receiptRef(record)
+  const resolution = startResolution(histories, startRef)
+  if (!resolution.ok) return { ok: false, reason: 'incomplete', evidence: resolution.diagnostics }
+  if (resolution.value !== null) return { ok: true }
   const results = recordsOf(home).filter(
     (candidate) =>
       candidate.kind === 'action-receipt' &&
@@ -122,7 +128,7 @@ function confirmedAssessStart(
   if (results.length > 1) return specChainFailure('ambiguous', 'Spec assessment start has competing results')
   const result = results[0]
   if (result !== undefined && result.kind === 'action-receipt' && workflowContextNegative(result))
-    return contextAssessment(home, mandateRef, replayContext)
+    return contextAssessment(home, mandateRef, excluded, replayContext)
   const authenticated = authenticatedAssessResult(result ?? record, histories, mandateRef)
   return authenticated.ok ? { ok: true } : authenticated
 }
@@ -130,6 +136,7 @@ function confirmedAssessStart(
 function contextAssessment(
   home: DecodedHistory,
   mandateRef: ExternalRecordRef,
+  excluded: ReadonlySet<string>,
   replayContext?: AssessmentReplayContext,
 ): AcceptedSpecResult | { ok: true } {
   const replayStart = recordsOf(home).find(
@@ -138,8 +145,8 @@ function contextAssessment(
   )
   const terminal =
     replayStart === undefined
-      ? workflowContextTerminal(home, 'assess-spec')
-      : observeAssessmentContextReplay(home, replayStart)
+      ? workflowContextTerminal(home, 'assess-spec', undefined, excluded)
+      : observeAssessmentContextReplay(home, replayStart, excluded)
   if (terminal === 'clear' || terminal === 'observed') return { ok: true }
   if (terminal === 'ambiguous') return specChainFailure('ambiguous', 'Spec assessment context has competing successors')
   return specChainFailure(

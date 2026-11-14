@@ -1,15 +1,13 @@
 import {
-  bindExternalRef,
   canonicalValueDigest,
+  deliveryMissingContextSchema,
+  excludedReceipt,
   historyFor,
-  missingContextOf,
   missingContextOutputSchema,
   outstandingPauseRequest,
-  producerImplementationOutputSchema,
-  recordOperation,
   recordsOf,
+  resolutionIndex,
   unliftedPause,
-  validateActionInputs,
   workflowContextDirectSuccessor,
   workflowContextResolution,
   workflowContextTerminal,
@@ -19,16 +17,19 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
-import { authenticate } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { currentAccountedMandate } from './uw-action-selection.ts'
 import { matchesRequestedSubject } from './uw-action-subject.ts'
 import { validateExpansionHistory } from './uw-context-negative-history.ts'
+import {
+  authenticateNegative,
+  authenticateStart,
+  type Family,
+  type Negative,
+  type Receipt,
+} from './uw-context-negative-receipt.ts'
 
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
-type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
-type Family = 'frame' | 'assess-spec' | 'attribute-ci' | 'implement'
-type Negative = Receipt & { payload: Extract<Receipt['payload'], { action: Family; phase: 'result' }> }
 export type NonPlanExpansion = {
   previous: ActionInputs
   histories: readonly DecodedHistory[]
@@ -38,8 +39,7 @@ export type NonPlanExpansion = {
 
 function negativeOutput(result: Negative): boolean {
   if (result.payload.action === 'implement') {
-    const parsed = producerImplementationOutputSchema.safeParse(result.payload.structured)
-    return parsed.success && parsed.data.outcome === 'blocked' && missingContextOf(parsed.data) !== null
+    return deliveryMissingContextSchema.safeParse(result.payload.structured).success
   }
   return missingContextOutputSchema.safeParse(result.payload.structured).success
 }
@@ -85,6 +85,7 @@ function outstandingCandidate(
   result: Negative,
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
+  excluded: ReadonlySet<string>,
 ): Result<boolean> {
   const terminal = authenticateNegative(result, request, histories)
   if (!terminal.ok) return terminal
@@ -92,25 +93,29 @@ function outstandingCandidate(
   if (!start.ok) return start
   const history = historyFor({ repository: result.repository, target: result.target }, histories)
   if (history === null) return actionFailure('record-unreadable', 'Negative result history is absent')
-  const state = workflowContextResolution(history, result)
+  const state = workflowContextResolution(history, result, excluded)
   if (state === 'clear') return { ok: true, value: false }
   if (state !== 'missing')
     return actionFailure('action-input-missing', 'Selected negative lineage is not uniquely resolved')
-  const direct = workflowContextDirectSuccessor(history, result)
+  const direct = workflowContextDirectSuccessor(history, result, excluded)
   if (direct.status === 'successor') return { ok: true, value: false }
   if (direct.status !== 'missing')
     return actionFailure('action-input-missing', 'Selected negative lineage is not uniquely resolved')
   return { ok: true, value: true }
 }
 
-function selectNegative(request: UwActionRequest, histories: readonly DecodedHistory[]): Result<Negative | null> {
+function selectNegative(
+  request: UwActionRequest,
+  histories: readonly DecodedHistory[],
+  excluded: ReadonlySet<string>,
+): Result<Negative | null> {
   const records = histories.flatMap(recordsOf)
   const candidates: Negative[] = []
   for (const ref of request.expandedContext) {
     const candidate = candidateForRef(ref, request.purpose, records)
     if (!candidate.ok) return candidate
     if (candidate.value === null) continue
-    const outstanding = outstandingCandidate(candidate.value, request, histories)
+    const outstanding = outstandingCandidate(candidate.value, request, histories, excluded)
     if (!outstanding.ok) return outstanding
     if (outstanding.value) candidates.push(candidate.value)
   }
@@ -123,63 +128,6 @@ function selectNegative(request: UwActionRequest, histories: readonly DecodedHis
   return result === undefined
     ? actionFailure('record-unreadable', 'Negative result is absent')
     : { ok: true, value: result }
-}
-
-function authenticateNegative(
-  result: Negative,
-  request: UwActionRequest,
-  histories: readonly DecodedHistory[],
-): Result<true> {
-  const body = result.payload
-  if (
-    body.actionId === request.actionId ||
-    body.native.completion !== 'completed' ||
-    body.native.strict !== 'valid' ||
-    body.admission !== null
-  )
-    return actionFailure('record-unreadable', 'Negative result is not an authenticated terminal')
-  const resultHistory = historyFor({ repository: result.repository, target: result.target }, histories)
-  const startHistory = historyFor(body.start.scope, histories)
-  if (
-    recordOperation(histories, result)?.authority !== 'accounted' ||
-    !authenticate(result, histories).ok ||
-    resultHistory === null ||
-    startHistory === null ||
-    !bindExternalRef({ scope: resultHistory.source.scope, kind: result.kind, recordId: result.recordId }, resultHistory)
-      .ok ||
-    !bindExternalRef(body.start, startHistory).ok
-  )
-    return actionFailure('record-unreadable', 'Negative result is not bound to authenticated history')
-  return { ok: true, value: true }
-}
-
-function authenticateStart(result: Negative, histories: readonly DecodedHistory[]): Result<Receipt> {
-  const records = histories.flatMap(recordsOf)
-  const body = result.payload
-  const starts = records.filter(
-    (record) =>
-      record.kind === 'action-receipt' &&
-      record.payload.phase === 'start' &&
-      record.recordId === body.start.recordId &&
-      record.repository === body.start.scope.repository &&
-      record.target === body.start.scope.target,
-  )
-  const start = starts[0]
-  if (
-    starts.length !== 1 ||
-    start?.kind !== 'action-receipt' ||
-    start.payload.phase !== 'start' ||
-    start.payload.action !== body.action ||
-    start.payload.actionId !== body.actionId ||
-    !equal(start.payload.exactInputs, body.exactInputs) ||
-    !equal(start.payload.mandate, body.mandate) ||
-    !equal(start.payload.inputs, body.inputs) ||
-    recordOperation(histories, start)?.authority !== 'accounted' ||
-    !authenticate(start, histories).ok ||
-    !validateActionInputs(body.inputs).ok
-  )
-    return actionFailure('record-unreadable', 'Negative result does not match its accounted start')
-  return { ok: true, value: start }
 }
 
 function validateExpansionRequest(result: Negative, request: UwActionRequest): Result<true> {
@@ -215,11 +163,15 @@ function validateExpansionRequest(result: Negative, request: UwActionRequest): R
   return { ok: true, value: true }
 }
 
-function validateRemaining(histories: readonly DecodedHistory[], result: Negative): Result<true> {
+function validateRemaining(
+  histories: readonly DecodedHistory[],
+  result: Negative,
+  excluded: ReadonlySet<string>,
+): Result<true> {
   if (
     histories.some((history) =>
       ['frame', 'plan', 'plan-review', 'assess-spec', 'attribute-ci', 'implement'].some(
-        (action) => workflowContextTerminal(history, action, result) !== 'clear',
+        (action) => workflowContextTerminal(history, action, result, excluded) !== 'clear',
       ),
     )
   )
@@ -228,7 +180,9 @@ function validateRemaining(histories: readonly DecodedHistory[], result: Negativ
     .flatMap(recordsOf)
     .filter(
       (record): record is Receipt =>
-        record.kind === 'action-receipt' && record.payload.action === result.payload.action,
+        record.kind === 'action-receipt' &&
+        record.payload.action === result.payload.action &&
+        !excludedReceipt(record, excluded),
     )
   if (
     remaining.some(
@@ -277,13 +231,16 @@ export function nonPlanExpansion(
   histories: readonly DecodedHistory[],
 ): Result<NonPlanExpansion | null> {
   if (!['frame', 'assess-spec', 'attribute-ci', 'implement'].includes(request.purpose)) return { ok: true, value: null }
-  const selected = selectNegative(request, histories)
+  const index = resolutionIndex(histories)
+  if (!index.ok) return actionFailure('action-input-missing', 'Interruption resolution is invalid')
+  const excluded = new Set(index.value.resolved.keys())
+  const selected = selectNegative(request, histories, excluded)
   if (!selected.ok) return selected
   if (selected.value === null) return { ok: true, value: null }
   const result = selected.value
   const expanded = validateExpansionRequest(result, request)
   if (!expanded.ok) return expanded
-  const remaining = validateRemaining(histories, result)
+  const remaining = validateRemaining(histories, result, excluded)
   if (!remaining.ok) return remaining
   const mandate = validateCurrentMandate(result, request, histories)
   if (!mandate.ok) return mandate

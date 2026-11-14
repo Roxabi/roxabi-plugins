@@ -7,8 +7,9 @@ import { resolveAcceptedSpec, resolveAcceptedSpecAt, resolveAcceptedSpecPrefixes
 import { observeAssessmentContextReplay, workflowContextTerminal } from '../workflow-context-terminal.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { resolveOwnSpecAuthority } from '../workflow-mandate-admission.ts'
+import { appendRecords, interruptionResolution, receiptOf } from './workflow-interruption-support.ts'
 import { assessFixture, mandateAssessmentState, shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
-import { BODY, history, must, SCOPE } from './workflow-test-support.ts'
+import { BODY, history, must, pauseControls, SCOPE } from './workflow-test-support.ts'
 
 test('observes only a linked authenticated pending expanded-context assessment', async () => {
   const mandated = shippedFeatureMandate()
@@ -86,6 +87,45 @@ test('observes only a linked authenticated pending expanded-context assessment',
   expect(resolveAcceptedSpec(mandated, [issue], replay)).toMatchObject({ ok: true })
   expect(resolveAcceptedSpecAt(mandated, [issue], initial.ref, replay)).toMatchObject({ ok: true })
   expect(resolveAcceptedSpecPrefixes(mandated, [issue], replay)).toMatchObject({ ok: true })
+  const pause = pauseControls(mandated, 'expanded-interruption-pause')
+  const resolution = interruptionResolution({
+    mandate: mandated,
+    pause: pause.confirmed,
+    start: receiptOf(start),
+    result: null,
+  })
+  const successor = must(
+    buildRecord({
+      ...start,
+      recordId: 'replacement-expanded-start',
+      operationId: 'replacement-expanded-op',
+      payload: { ...start.payload, actionId: 'replacement-expanded-action' },
+    }),
+  )
+  const pending = appendRecords(history([mandated, prior.start, negative, start, pause.requested, pause.confirmed]), [
+    resolution,
+    pause.resumed,
+    successor,
+  ])
+  const pendingReplay = { ...replay, actionId: 'replacement-expanded-action' }
+  const original = resolveAcceptedSpec(mandated, [history([mandated])])
+  expect(original.ok).toBe(true)
+  expect(resolveAcceptedSpec(mandated, [pending], pendingReplay)).toEqual(original)
+  const positive = must(
+    buildRecord({
+      ...prior.result,
+      recordId: 'replacement-expanded-result',
+      operationId: 'replacement-expanded-result-op',
+      payload: {
+        ...prior.result.payload,
+        actionId: 'replacement-expanded-action',
+        inputs,
+        start: { scope: SCOPE, kind: 'action-receipt', recordId: successor.recordId },
+      },
+    }),
+  )
+  const completed = appendRecords(pending, [positive])
+  expect(resolveAcceptedSpec(mandated, [completed])).toMatchObject({ ok: true })
   const historical: Extract<SpecEffectiveRequest, { mode: 'historical' }> = {
     mode: 'historical',
     own: initial.ref,

@@ -27,11 +27,10 @@ import { type SpecIdentityPayload, specIdentityPayloadSchema } from './uw-identi
 import {
   type MandatePayload,
   mandatePayloadSchema,
-  type OperatorControlPayload,
-  operatorControlPayloadSchema,
   type WorkflowBindingPayload,
   workflowBindingPayloadSchema,
 } from './workflow-mandate-schema.ts'
+import { type OperatorControlPayload, operatorControlPayloadSchema } from './workflow-operator-control-schema.ts'
 import { type ActionReceiptPayload, actionReceiptPayloadSchema } from './workflow-receipt-schema.ts'
 
 const envelope = {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { producerImplementationOutputSchema } from '../dist/contracts.js'
+import { deliveryMissingContextSchema } from '../dist/contracts.js'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import { matchesContextNegative } from './feature-context-negative.ts'
 import type { FeatureNativePublication } from './feature-contract.ts'
@@ -17,9 +17,8 @@ export async function publishImplementationNegative(
   const child = binding.child
   if (!child || !matchesContextNegative(child, binding.start.payload.actionId, binding.start.payload.inputs))
     return { published: false, retained: false, reason: 'action-context-binding-mismatch' }
-  const parsed = producerImplementationOutputSchema.safeParse(child.structured)
-  if (!parsed.success || parsed.data.outcome !== 'blocked' || parsed.data.missing === undefined)
-    return { published: false, retained: false, reason: 'implementation-output-invalid' }
+  const parsed = deliveryMissingContextSchema.safeParse(child.structured)
+  if (!parsed.success) return { published: false, retained: false, reason: 'implementation-output-invalid' }
   const recordId = randomUUID()
   const published = await publishRecord(
     binding.loaded,

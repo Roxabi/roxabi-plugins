@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { batch, bridgeHarness, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
-import type { NativeBatchResult } from '../review-runtime/contracts.ts'
+import type { NativeBatchResult, NativeStop } from '../review-runtime/contracts.ts'
 import { createNativeReviewPort } from '../review-runtime/port.ts'
 
 // Only the public registry/session boundary is simulated; no child lifecycle is fabricated.
@@ -74,6 +74,7 @@ function fixture(idle: boolean, taskMounted = false) {
   })
   const stopped: string[] = []
   const stoppedResults: Array<NativeBatchResult | null> = []
+  const stopFacts: NativeStop[] = []
   const completed = vi.fn()
   const stoppedSignal = Promise.withResolvers<void>()
   const port = createNativeReviewPort(harness.native, harness.controller)
@@ -81,7 +82,8 @@ function fixture(idle: boolean, taskMounted = false) {
     await harness.emitBridge('session_start', {}, ctx)
     port.activate(prepared, {
       onComplete: completed,
-      onStop: async (reason, result) => {
+      onStop: async (reason, result, stop) => {
+        stopFacts.push(stop)
         stopped.push(reason)
         stoppedResults.push(result)
         stoppedSignal.resolve()
@@ -99,6 +101,7 @@ function fixture(idle: boolean, taskMounted = false) {
     sends,
     stopped,
     stoppedResults,
+    stopFacts,
     stoppedSignal,
     completed,
     surface: () => ({ active: [...active], mounted: [...mounted] }),
@@ -253,6 +256,34 @@ describe('scoped native dispatch tool mask', () => {
       })
     },
   )
+
+  it('classifies an SDK-aborted terminal using the real owned-tool signal', async () => {
+    const f = fixture(true)
+    const registration = vi.spyOn(f.harness.native, 'registerTool')
+    installNativeBatchBridge(f.harness.native, f.harness.controller)
+    const tool = registration.mock.calls
+      .map(([definition]) => definition)
+      .find((definition) => definition.name === owned)
+    if (!tool) throw new Error('owned tool not registered')
+    adapter.capture.mockResolvedValue({ current: () => true })
+    const abort = new AbortController()
+    adapter.execute.mockImplementation(async (options) => {
+      expect(options.bindChild('sdk-child', 0, { provider: 'fixture-provider', id: 'fixture-model' })).toBe(true)
+      abort.abort()
+      return {
+        results: [{ id: 'sdk-child', index: 0, agent: 'R-review-adversarial', exitCode: 1, aborted: true }],
+        errors: ['aborted'],
+      }
+    })
+    await f.start()
+    await f.port.announce(f.prepared)
+    const wire = f.harness.controller.wire(f.prepared)
+    if (!wire) throw new Error('batch not wired')
+    const execute = tool.execute as (...args: never[]) => Promise<unknown>
+    await execute('sdk-abort-call' as never, wire as never, abort.signal as never, undefined as never, f.ctx as never)
+    await f.stoppedSignal.promise
+    expect(f.stopFacts).toEqual([{ kind: 'unattributed', origin: 'sdk-abort' }])
+  })
 
   it.each(['journal', 'file', 'provider', 'cwd', 'ref', 'session', 'modelRegistry', 'costGate'] as const)(
     'does not restore into a changed %s identity',

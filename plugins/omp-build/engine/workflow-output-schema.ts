@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { missingContextItemSchema } from './action-context.ts'
+import { missingContextItemSchema, missingContextOutputSchema } from './action-context.ts'
 import { recordInputRefSchema } from './action-input-refs.ts'
 import {
   criterionDeclarationSchema,
@@ -228,6 +228,11 @@ export const producerImplementationOutputSchema = z.discriminatedUnion('outcome'
     reason: z.string().min(1),
   }),
 ])
+export const deliveryMissingContextSchema = z.union([
+  missingContextOutputSchema,
+  producerImplementationOutputSchema.refine((value) => value.outcome === 'blocked' && value.missing !== undefined),
+])
+export type DeliveryMissingContext = z.infer<typeof deliveryMissingContextSchema>
 export type ProducerImplementationOutput = z.infer<typeof producerImplementationOutputSchema>
 export type ImplementationOutput = z.infer<typeof implementationOutputSchema>
 export const ciAttributionSchema = z.strictObject({
