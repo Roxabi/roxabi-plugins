@@ -32,7 +32,7 @@ export default defineConfig({
     // Root-only: vitest runs a root globalSetup once per run, not per project.
     globalSetup: ['./vitest.global-setup.ts'],
     env: {
-      // Prevent config.ts from throwing during module evaluation.
+      // Supply the default repository to tests that use implicit coordinates.
       // Tests that need a different value override via process.env or vi.mock.
       GITHUB_REPO: 'Test/test-repo',
     },

@@ -104,8 +104,8 @@ function resolveType(input: string): string {
 }
 
 /** Resolve the org's id for a canonical type; an unknown or unreachable org type refuses the command. */
-async function resolveOrgTypeId(canonical: string): Promise<string> {
-  const org = detectGitHubRepo().split('/')[0]
+async function resolveOrgTypeId(canonical: string, repo: string): Promise<string> {
+  const org = repo.split('/')[0]
   try {
     return await resolveIssueTypeId(org, canonical)
   } catch (error) {
@@ -119,11 +119,16 @@ async function applyType(issueNumber: number, nodeId: string, canonical: string,
   console.log(`Type=${canonical} #${issueNumber}`)
 }
 
-async function applyRelationships(nodeId: string, issueNumber: number, opts: CreateOptions): Promise<void> {
+async function applyRelationships(
+  nodeId: string,
+  issueNumber: number,
+  opts: CreateOptions,
+  repo: string,
+): Promise<void> {
   if (opts.parent) {
     const parentRef = parseIssueRefs(opts.parent)[0]
     if (parentRef) {
-      const parentNodeId = await getNodeId(parentRef.number, parentRef.repo)
+      const parentNodeId = await getNodeId(parentRef.number, parentRef.repo ?? repo)
       await addSubIssue(parentNodeId, nodeId)
       console.log(`Parent=${formatRef(parentRef)} #${issueNumber}`)
     }
@@ -131,7 +136,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
 
   if (opts.addChild) {
     for (const childRef of parseIssueRefs(opts.addChild)) {
-      const childNodeId = await getNodeId(childRef.number, childRef.repo)
+      const childNodeId = await getNodeId(childRef.number, childRef.repo ?? repo)
       await addSubIssue(nodeId, childNodeId)
       console.log(`Child=${formatRef(childRef)} #${issueNumber}`)
     }
@@ -139,7 +144,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
 
   if (opts.blockedBy) {
     for (const ref of parseIssueRefs(opts.blockedBy)) {
-      const blockingNodeId = await getNodeId(ref.number, ref.repo)
+      const blockingNodeId = await getNodeId(ref.number, ref.repo ?? repo)
       await addBlockedBy(nodeId, blockingNodeId)
       console.log(`BlockedBy=${formatRef(ref)} #${issueNumber}`)
     }
@@ -147,7 +152,7 @@ async function applyRelationships(nodeId: string, issueNumber: number, opts: Cre
 
   if (opts.blocks) {
     for (const ref of parseIssueRefs(opts.blocks)) {
-      const blockedNodeId = await getNodeId(ref.number, ref.repo)
+      const blockedNodeId = await getNodeId(ref.number, ref.repo ?? repo)
       await addBlockedBy(blockedNodeId, nodeId)
       console.log(`Blocks=${formatRef(ref)} #${issueNumber}`)
     }
@@ -173,28 +178,29 @@ export async function createIssue(args: string[]): Promise<void> {
     lane: opts.lane,
     status: opts.status,
   })
-  const typeId = type ? await resolveOrgTypeId(type) : undefined
+  const repo = detectGitHubRepo()
+  const typeId = type ? await resolveOrgTypeId(type, repo) : undefined
 
   const labels = opts.labels
     ?.split(',')
     .map((l) => l.trim())
     .filter(Boolean)
-  const result = await createGitHubIssue(opts.title, opts.body, labels)
+  const result = await createGitHubIssue(repo, opts.title, opts.body, labels)
   const issueNumber = result.number
   console.log(`Created #${issueNumber}: ${opts.title}`)
 
-  const nodeId = await getNodeId(issueNumber)
+  const nodeId = await getNodeId(issueNumber, repo)
 
   if (type && typeId) await applyType(issueNumber, nodeId, type, typeId)
 
   // Labels only (issues-only mode). A label the repo does not carry must not
   // cancel the relationship writes queued behind it — collect, then fail last.
-  const unwritten = await writeLabels(issueNumber, flags)
+  const unwritten = await writeLabels(issueNumber, flags, repo)
 
   // `finally`: a throw from the relationship writes must not swallow the
   // report of a label that never landed.
   try {
-    await applyRelationships(nodeId, issueNumber, opts)
+    await applyRelationships(nodeId, issueNumber, opts, repo)
   } finally {
     if (unwritten.length > 0) {
       console.error(`Error: label not written for ${unwritten.join(', ')} on #${issueNumber}`)

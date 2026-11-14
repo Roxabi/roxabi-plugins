@@ -122,9 +122,41 @@ describe('feature init installed layout', () => {
 
   it('plans and applies the tracker in a linked worktree from the installed script directory', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-tracker-'))
-    const labels = ['size:S', 'size:F-lite', 'size:F-full', 'P0-critical', 'P1-high', 'P2-medium', 'P3-low', 'reviewed', 'epic']
-    const labelRead = ['label', 'list', '--repo', 'github.com/acme/app', '--limit', '500', '--json', 'name', '--jq', '.[].name']
-    const issueRead = ['issue', 'list', '--repo', 'github.com/acme/app', '--state', 'all', '--limit', '5000', '--json', 'number,labels,body']
+    const labels = [
+      'size:S',
+      'size:F-lite',
+      'size:F-full',
+      'P0-critical',
+      'P1-high',
+      'P2-medium',
+      'P3-low',
+      'reviewed',
+      'epic',
+    ]
+    const labelRead = [
+      'label',
+      'list',
+      '--repo',
+      'github.com/acme/app',
+      '--limit',
+      '500',
+      '--json',
+      'name',
+      '--jq',
+      '.[].name',
+    ]
+    const issueRead = [
+      'issue',
+      'list',
+      '--repo',
+      'github.com/acme/app',
+      '--state',
+      'all',
+      '--limit',
+      '5000',
+      '--json',
+      'number,labels,body',
+    ]
     const gh = hermeticGh(root, [
       { argv: ARGV, body: LABELS },
       { argv: labelRead, body: labels.join('\n') },
@@ -146,19 +178,55 @@ describe('feature init installed layout', () => {
     expect(preview.stdout).toContain('1 issue relabels skipped')
     expect(existsSync(contract)).toBe(false)
     expect(readFileSync(stack, 'utf8')).toBe(before)
-    expect(gh.calls().every((call) => [ARGV, labelRead, issueRead].some((allowed) => JSON.stringify(call) === JSON.stringify(allowed)))).toBe(true)
+    expect(
+      gh
+        .calls()
+        .every((call) =>
+          [ARGV, labelRead, issueRead].some((allowed) => JSON.stringify(call) === JSON.stringify(allowed)),
+        ),
+    ).toBe(true)
     const digest = /^digest: ([0-9a-f]+)$/m.exec(preview.stdout)?.[1]
     expect(digest).toBeTruthy()
-    const apply = spawnSync(REAL_BUN, ['--no-env-file', cli, '--dir', wt, '--approve', digest ?? '', '--operator-approval', 'apply the displayed proposal'], options)
+    const apply = spawnSync(
+      REAL_BUN,
+      [
+        '--no-env-file',
+        cli,
+        '--dir',
+        wt,
+        '--approve',
+        digest ?? '',
+        '--operator-approval',
+        'apply the displayed proposal',
+      ],
+      options,
+    )
     expect(apply.status, `${apply.stderr}\n${apply.stdout}`).toBe(0)
     expect(readFileSync(contract, 'utf8')).toContain('acme/app')
     expect(existsSync(path.join(repo, 'docs', 'agents', 'issue-tracker.md'))).toBe(false)
-    expect(gh.calls().every((call) => [ARGV, labelRead, issueRead].some((allowed) => JSON.stringify(call) === JSON.stringify(allowed)))).toBe(true)
+    expect(
+      gh
+        .calls()
+        .every((call) =>
+          [ARGV, labelRead, issueRead].some((allowed) => JSON.stringify(call) === JSON.stringify(allowed)),
+        ),
+    ).toBe(true)
   })
 
   it('uses an explicit adapter repository without ambient discovery and diagnoses a missing default on use', () => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-explicit-repo-'))
-    const argv = ['label', 'list', '--repo', 'github.com/acme/app', '--limit', '500', '--json', 'name', '--jq', '.[].name']
+    const argv = [
+      'label',
+      'list',
+      '--repo',
+      'github.com/acme/app',
+      '--limit',
+      '500',
+      '--json',
+      'name',
+      '--jq',
+      '.[].name',
+    ]
     const gh = hermeticGh(root, { argv, body: 'size:S\n' })
     const adapter = path.join(ISSUE_TRIAGE_SRC, 'skills/shared/adapters/github-adapter.ts')
     const driver = `
@@ -168,7 +236,9 @@ describe('feature init installed layout', () => {
       catch (error) { console.log(error.message) }
     `
     const result = spawnSync(REAL_BUN, ['--no-env-file', '-e', driver, adapter], {
-      cwd: root, env: gh.env, encoding: 'utf8',
+      cwd: root,
+      env: gh.env,
+      encoding: 'utf8',
     })
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('["size:S"]')

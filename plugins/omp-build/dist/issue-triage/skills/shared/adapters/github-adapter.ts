@@ -121,6 +121,7 @@ export async function updateIssueBody(issueNumber: number, body: string, repo?: 
 
 /** Create a new GitHub issue via REST API. Returns the issue URL and number. */
 export async function createGitHubIssue(
+  repo: string,
   title: string,
   body?: string,
   labels?: string[],
@@ -129,7 +130,7 @@ export async function createGitHubIssue(
   if (body) payload.body = body
   if (labels?.length) payload.labels = labels
 
-  const res = await fetch(`${GITHUB_API}/repos/${detectGitHubRepo()}/issues`, {
+  const res = await fetch(`${GITHUB_API}/repos/${repo}/issues`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -265,8 +266,8 @@ export async function resolveIssueTypeId(org: string, typeName: string): Promise
 }
 
 /** Get the parent's complete issue reference, or null if none. */
-export async function getParentRef(issueNumber: number): Promise<ParsedIssueRef | null> {
-  const [owner, repo] = detectGitHubRepo().split('/')
+export async function getParentRef(issueNumber: number, repoSlug: string): Promise<ParsedIssueRef | null> {
+  const [owner, repo] = repoSlug.split('/')
   const data = (await ghGraphQL(PARENT_QUERY, { owner, repo, number: issueNumber })) as {
     data: { repository: { issue: { parent: { number: number; repository: { nameWithOwner: string } } | null } } }
   }

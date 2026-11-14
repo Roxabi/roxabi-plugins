@@ -71,6 +71,7 @@ interface BoundRef {
 }
 
 interface ResolvedWrites {
+  subjectRepo: string
   subjectNodeId?: string
   typeId?: string
   blockedBy: BoundRef[]
@@ -228,10 +229,10 @@ async function lookup<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-async function bindRefs(refs: ParsedIssueRef[]): Promise<BoundRef[]> {
+async function bindRefs(refs: ParsedIssueRef[], defaultRepo: string): Promise<BoundRef[]> {
   const bound: BoundRef[] = []
   for (const ref of refs) {
-    bound.push({ ref, nodeId: await lookup(() => getNodeId(ref.number, ref.repo)) })
+    bound.push({ ref, nodeId: await lookup(() => getNodeId(ref.number, ref.repo ?? defaultRepo)) })
   }
   return bound
 }
@@ -244,13 +245,18 @@ async function resolveWrites(issueNumber: number, opts: SetOptions, type: string
   const parent = opts.parent ? requireRefs(opts.parent, '--parent')[0] : undefined
   const children = opts.addChild ? requireRefs(opts.addChild, '--add-child') : []
   const rmChildren = opts.rmChild ? requireRefs(opts.rmChild, '--rm-child') : []
+  const refs = [...blockedBy, ...blocks, ...rmBlockedBy, ...rmBlocks, ...children, ...rmChildren]
+  if (parent) refs.push(parent)
+  const defaultRepo =
+    !opts.subjectRepo || refs.some((ref) => !ref.repo) ? await lookup(async () => detectGitHubRepo()) : opts.subjectRepo
+  const subjectRepo = opts.subjectRepo ?? defaultRepo
 
   const applyType = Boolean(type && !opts.subjectRepo)
-  const typeId = applyType && type ? await lookup(() => resolveIssueTypeId(detectGitHubRepo().split('/')[0], type)) : undefined
+  const typeId = applyType && type ? await lookup(() => resolveIssueTypeId(subjectRepo.split('/')[0], type)) : undefined
 
   let parentRef: ParsedIssueRef | null = null
   if (opts.rmParent) {
-    parentRef = await lookup(() => getParentRef(issueNumber))
+    parentRef = await lookup(() => getParentRef(issueNumber, subjectRepo))
   }
 
   const needsSubject = Boolean(
@@ -264,7 +270,7 @@ async function resolveWrites(issueNumber: number, opts: SetOptions, type: string
       rmChildren.length ||
       parentRef,
   )
-  const subjectNodeId = needsSubject ? await lookup(() => getNodeId(issueNumber, opts.subjectRepo)) : undefined
+  const subjectNodeId = needsSubject ? await lookup(() => getNodeId(issueNumber, subjectRepo)) : undefined
 
   const removedParent =
     parentRef && subjectNodeId
@@ -275,15 +281,16 @@ async function resolveWrites(issueNumber: number, opts: SetOptions, type: string
       : undefined
 
   return {
+    subjectRepo,
     subjectNodeId,
     typeId,
-    blockedBy: await bindRefs(blockedBy),
-    blocks: await bindRefs(blocks),
-    rmBlockedBy: await bindRefs(rmBlockedBy),
-    rmBlocks: await bindRefs(rmBlocks),
-    parent: parent ? (await bindRefs([parent]))[0] : undefined,
-    children: await bindRefs(children),
-    rmChildren: await bindRefs(rmChildren),
+    blockedBy: await bindRefs(blockedBy, defaultRepo),
+    blocks: await bindRefs(blocks, defaultRepo),
+    rmBlockedBy: await bindRefs(rmBlockedBy, defaultRepo),
+    rmBlocks: await bindRefs(rmBlocks, defaultRepo),
+    parent: parent ? (await bindRefs([parent], defaultRepo))[0] : undefined,
+    children: await bindRefs(children, defaultRepo),
+    rmChildren: await bindRefs(rmChildren, defaultRepo),
     removedParent,
   }
 }
@@ -422,7 +429,7 @@ export async function setIssue(args: string[]): Promise<void> {
   const resolved = await resolveWrites(opts.issueNumber, opts, type)
 
   if (type && !opts.subjectRepo) await applyType(opts.issueNumber, type, resolved)
-  const unwritten = await writeLabels(opts.issueNumber, labels)
+  const unwritten = await writeLabels(opts.issueNumber, labels, resolved.subjectRepo)
 
   try {
     await applyDependencies(opts.issueNumber, opts, resolved)
@@ -437,7 +444,7 @@ export async function setIssue(args: string[]): Promise<void> {
 
   if (opts.bodySet || opts.clearBody) {
     try {
-      await updateIssueBody(opts.issueNumber, opts.body ?? '', opts.subjectRepo)
+      await updateIssueBody(opts.issueNumber, opts.body ?? '', resolved.subjectRepo)
     } catch (error) {
       fail(`Error: ${(error as Error).message}`)
     }

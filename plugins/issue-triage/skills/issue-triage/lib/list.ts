@@ -59,8 +59,8 @@ function priorityFromLabels(labels: { name: string }[]): string | null {
   return null
 }
 
-async function fetchAllIssues(): Promise<GhIssueNode[]> {
-  const [owner, name] = detectGitHubRepo().split('/')
+async function fetchAllIssues(repo: string): Promise<GhIssueNode[]> {
+  const [owner, name] = repo.split('/')
   const all: GhIssueNode[] = []
   let cursor: string | null = null
   let prevCursor: string | null = null
@@ -134,7 +134,7 @@ export function renderTree(
 export async function listIssues(args: string[]): Promise<void> {
   const jsonOutput = args.includes('--json')
   const untriagedOnly = args.includes('--untriaged')
-  const nodes = await fetchAllIssues()
+  const nodes = await fetchAllIssues(detectGitHubRepo())
   const rows = buildRows(nodes)
   const byNumber = new Map(rows.map((r) => [r.number, r]))
 
