@@ -14659,7 +14659,7 @@ function bindingPolicy(mandate) {
     return "legacy";
   if (minor === 18 && (patch === 8 || patch === 9 || patch === 10 || patch === 11))
     return "bounded";
-  if (minor === 19 && patch === 0)
+  if (minor === 19 && (patch === 0 || patch === 1))
     return "bounded";
   return "unknown";
 }

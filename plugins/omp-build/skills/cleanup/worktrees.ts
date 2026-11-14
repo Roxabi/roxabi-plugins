@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 import { rmdirSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
+import { mountPointsWithin } from './worktree-artifact-trees'
 import { inventory } from './worktree-inventory'
-import { git, message, type Options, type Report, type Row } from './worktree-shared'
+import { type ArtifactKind, git, message, type Options, type Report, type Row } from './worktree-shared'
 
 function applyValue(options: Options, key: string, value: string) {
   switch (key) {
@@ -27,19 +28,14 @@ function applyValue(options: Options, key: string, value: string) {
     case '--ack-unknown-usage':
       options.ackUnknownUsage = value
       break
+    case '--ack-ignored-artifacts':
+      options.ackIgnoredArtifacts = value
+      break
     default:
       throw new Error(`unknown argument: ${key}`)
   }
 }
-function validateOptions(options: Options) {
-  if (options.scope !== undefined && !/^[1-9][0-9]*$/.test(options.scope))
-    throw new Error('--scope requires a positive issue number')
-  if (options.repos.length && options.roots.length) throw new Error('choose --repo or --root, not both')
-  if (options.command === 'inventory') {
-    if (options.target || options.expect || options.confirm || options.ackUnknownUsage)
-      throw new Error('removal options require remove')
-    return
-  }
+function validateRemoveOptions(options: Options) {
   if (
     options.repos.length !== 1 ||
     options.roots.length ||
@@ -53,6 +49,19 @@ function validateOptions(options: Options) {
     throw new Error('--path must be absolute and --confirm must exactly match it')
   if (options.ackUnknownUsage && options.ackUnknownUsage !== options.target)
     throw new Error('--ack-unknown-usage must exactly match --path')
+  if (options.ackIgnoredArtifacts && options.ackIgnoredArtifacts !== options.target)
+    throw new Error('--ack-ignored-artifacts must exactly match --path')
+}
+function validateOptions(options: Options) {
+  if (options.scope !== undefined && !/^[1-9][0-9]*$/.test(options.scope))
+    throw new Error('--scope requires a positive issue number')
+  if (options.repos.length && options.roots.length) throw new Error('choose --repo or --root, not both')
+  if (options.command === 'inventory') {
+    if (options.target || options.expect || options.confirm || options.ackUnknownUsage || options.ackIgnoredArtifacts)
+      throw new Error('removal options require remove')
+    return
+  }
+  validateRemoveOptions(options)
 }
 function consumeOption(options: Options, args: string[], seen: Set<string>, key: string) {
   if (seen.has(key) && key !== '--repo' && key !== '--root') throw new Error(`duplicate ${key}`)
@@ -66,8 +75,17 @@ function consumeOption(options: Options, args: string[], seen: Set<string>, key:
     if (key === '--all') options.roots.push(process.cwd())
     return
   }
-  if (!['--repo', '--root', '--scope', '--path', '--expect', '--confirm', '--ack-unknown-usage'].includes(key))
-    throw new Error(`unknown argument: ${key}`)
+  const valued = [
+    '--repo',
+    '--root',
+    '--scope',
+    '--path',
+    '--expect',
+    '--confirm',
+    '--ack-unknown-usage',
+    '--ack-ignored-artifacts',
+  ]
+  if (!valued.includes(key)) throw new Error(`unknown argument: ${key}`)
   const value = args.shift()
   if (!value || value.startsWith('--')) throw new Error(`${key} requires a value`)
   applyValue(options, key, value)
@@ -108,12 +126,26 @@ function renderUsageWarnings(rows: Row[]) {
   }
   for (const warning of other) console.log(`Uninspected: ${warning}`)
 }
+const artifactLabels: Record<ArtifactKind, string> = {
+  dependency: 'Ignored dependencies (entire contents removed; file contents not read)',
+  cache: 'Ignored caches (entire contents removed; file contents not read)',
+  'build-output': 'Ignored build/test output (entire contents removed; file contents not read; not proven regenerable)',
+  protected: 'Ignored data that keeps this worktree (unrecognized or sensitive)',
+}
+function renderArtifacts(row: Row) {
+  for (const kind of Object.keys(artifactLabels) as ArtifactKind[]) {
+    const paths = row.ignoredEntries.filter((entry) => entry.kind === kind).map((entry) => JSON.stringify(entry.path))
+    if (paths.length) console.log(`  ${artifactLabels[kind]}: ${paths.join(', ')}`)
+  }
+  if (row.eligible && row.requiresArtifactConfirmation)
+    console.log(`  Ignored artifacts present; disposability confirmation required: ${JSON.stringify(row.path)}`)
+}
 function render(report: Report, json: boolean) {
   if (json) {
     console.log(JSON.stringify(report, null, 2))
     return
   }
-  console.log('PATH\tKIND\tBRANCH\tACTIVITY\tELIGIBLE\tREASONS\tTOKEN')
+  console.log('PATH\tKIND\tBRANCH\tACTIVITY\tELIGIBLE\tREASONS')
   for (const row of report.worktrees) {
     console.log(
       [
@@ -123,9 +155,9 @@ function render(report: Report, json: boolean) {
         row.activity,
         row.eligible ? 'yes' : 'no',
         row.reasons.join('; ') || '-',
-        row.token,
       ].join('\t'),
     )
+    renderArtifacts(row)
     if (row.requiresUsageConfirmation)
       console.log(`  Usage inspection incomplete; additional confirmation required: ${JSON.stringify(row.path)}`)
     for (const evidence of row.usageEvidence) console.log(`  Usage: ${evidence}`)
@@ -134,7 +166,21 @@ function render(report: Report, json: boolean) {
   console.log(
     `Discovery excludes directories: ${report.discoveryExclusions.directoryNames.join(', ')}; symlinks are not followed`,
   )
+  console.log('Removal tokens are reported only by inventory --json')
   for (const error of report.errors) console.error(`${error.path}: ${error.message}`)
+}
+// Each acknowledgment is required exactly when fresh inspection requires it; usage is checked before artifacts.
+function checkAcknowledgments(options: Options, row: Row) {
+  if (row.requiresUsageConfirmation && options.ackUnknownUsage !== row.path)
+    throw new Error('process inspection incomplete; explicit --ack-unknown-usage EXACT_PATH is required')
+  if (!row.requiresUsageConfirmation && options.ackUnknownUsage)
+    throw new Error('--ack-unknown-usage is unnecessary: fresh process inspection is complete')
+  if (row.requiresArtifactConfirmation && options.ackIgnoredArtifacts !== row.path)
+    throw new Error(
+      'ignored artifacts are removed with the worktree; explicit --ack-ignored-artifacts EXACT_PATH is required',
+    )
+  if (!row.requiresArtifactConfirmation && options.ackIgnoredArtifacts)
+    throw new Error('--ack-ignored-artifacts is unnecessary: fresh inventory found no ignored artifacts')
 }
 function removeTarget(options: Options, report: Report): string {
   if (report.errors.some((error) => error.scope === 'repository' || error.scope === undefined))
@@ -146,10 +192,10 @@ function removeTarget(options: Options, report: Report): string {
     throw new Error('orphan scanner failed; resolve the scanner error before removing an orphan')
   if (row.token !== options.expect)
     throw new Error('inventory token is stale; inventory again and select the target afresh')
-  if (row.requiresUsageConfirmation && options.ackUnknownUsage !== row.path)
-    throw new Error('process inspection incomplete; explicit --ack-unknown-usage EXACT_PATH is required')
-  if (!row.requiresUsageConfirmation && options.ackUnknownUsage)
-    throw new Error('--ack-unknown-usage is unnecessary: fresh process inspection is complete')
+  checkAcknowledgments(options, row)
+  // Mount topology can change after inventory; Git's recursive removal would cross a new mount.
+  if (row.requiresArtifactConfirmation && mountPointsWithin(row.path).length)
+    throw new Error('a mount point is at or below the worktree; removal refused')
   if (row.kind === 'registered' || row.kind === 'detached') git(options.repos[0], 'worktree', 'remove', '--', row.path)
   else if (row.kind === 'empty_parent' || row.kind === 'empty_untracked') rmdirSync(row.path)
   else throw new Error('unsupported target classification')
