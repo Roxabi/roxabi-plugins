@@ -10,21 +10,16 @@ import {
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { cancelOperatorConfirmations } from './omp-operator-confirmation.ts'
+import { invalidateActivation, invalidatePendingActivation } from './tooling-pin-state.ts'
 
 /** Root session and agent captured synchronously when a `/feature` operation began. */
 export type FeatureOperationOrigin = Readonly<{ sessionId: string; agentId: string }>
-
 /**
  * `ordinary`: a confirmation-capable UW operation. `intake`: a `/feature` command whose source is not
  * classified yet; it stays read-only until classified. `framing`: the framing controller's lease.
  */
 type Occupant =
-  | Readonly<{
-      kind: 'ordinary'
-      generation: number
-      operator: FramingOperator
-      origin: FeatureOperationOrigin | null
-    }>
+  | Readonly<{ kind: 'ordinary'; generation: number; operator: FramingOperator; origin: FeatureOperationOrigin | null }>
   | Readonly<{ kind: 'intake'; generation: number; operator: FramingOperator; origin: FeatureOperationOrigin }>
   | Readonly<{ kind: 'framing'; generation: number; controller: FramingController; revoke: (reason: string) => void }>
 
@@ -63,10 +58,9 @@ function occupy(pi: OmpBuildExtensionApi, next: (generation: number) => Occupant
 }
 
 function exactOperation(pi: OmpBuildExtensionApi, operator: FramingOperator) {
-  const occupant = operationSlots.get(pi)?.occupant
-  return occupant !== undefined && occupant !== null && occupant.kind !== 'framing' && occupant.operator === operator
-    ? occupant
-    : null
+  const occupant = currentOccupant(pi)
+  if (occupant === null || occupant.kind === 'framing' || occupant.operator !== operator) return null
+  return occupant
 }
 
 /** Clears the exact occupant (same generation) and invalidates it; a newer occupant is untouched. */
@@ -238,6 +232,10 @@ function currentOccupant(pi: OmpBuildExtensionApi): Occupant | null {
   return operationSlots.get(pi)?.occupant ?? null
 }
 
+export function featureOperationOccupied(pi: OmpBuildExtensionApi): boolean {
+  return currentOccupant(pi) !== null
+}
+
 /** Completes a revoked framing lease's settlement; a live lease is untouched. */
 function settleRevokedFraming(pi: OmpBuildExtensionApi, reason: string): boolean {
   const occupant = currentOccupant(pi)
@@ -255,6 +253,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
     (reason: string) =>
     (_event: unknown, ctx: ExtensionContext): void => {
       if (!rootContext(ctx)) return
+      invalidateActivation(pi)
       const occupant = currentOccupant(pi)
       if (occupant !== null) invalidateExact(pi, occupant.generation, reason)
       cancelOperatorConfirmations(ctx, reason)
@@ -263,6 +262,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
     if (!rootContext(ctx)) return
     const occupant = currentOccupant(pi)
     if (event.signal.aborted) {
+      invalidatePendingActivation(pi)
       if (occupant !== null) invalidateExact(pi, occupant.generation, 'session-stop-aborted')
       cancelOperatorConfirmations(ctx, 'session-stop-aborted')
       return
@@ -274,6 +274,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
       'abort',
       () => {
         if (currentOccupant(pi)?.generation !== generation) return
+        invalidatePendingActivation(pi)
         invalidateExact(pi, generation, 'session-stop-aborted')
         cancelOperatorConfirmations(ctx, 'session-stop-aborted')
       },
@@ -285,12 +286,11 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
   })
   pi.on('session_switch', (_event, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
+    invalidateActivation(pi)
     const occupant = currentOccupant(pi)
-    if (occupant?.kind === 'framing') {
-      // Only a written aggregate awaiting the human-observed `/move` survives, in the same session.
-      const view = occupant.controller.view()
-      if (view !== null && view.pendingMove !== null && ctx.sessionManager.getSessionId() === view.sessionId) return
-    }
+    // Only a written aggregate awaiting the human-observed `/move` survives, in the same session.
+    const view = occupant?.kind === 'framing' ? occupant.controller.view() : null
+    if (view !== null && view.pendingMove !== null && ctx.sessionManager.getSessionId() === view.sessionId) return
     if (occupant !== null) invalidateExact(pi, occupant.generation, 'session-switch')
     cancelOperatorConfirmations(ctx, 'session-switch')
   })

@@ -18,6 +18,8 @@ import {
 
 function refusal(proposal: PreparedOperatorProposal, code: string, message: string): readonly UwDiagnostic[] {
   const target = proposal.proposal
+  if (target.format === 'omp-build-tooling-pin-activation/1')
+    return [{ code, message, location: { kind: 'repository', repository: target.scope.targetRepository }, related: [] }]
   if (target.format === 'omp-build-uw-framing/1') {
     const source = target.input.source
     const location =

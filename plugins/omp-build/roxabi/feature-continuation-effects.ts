@@ -37,7 +37,7 @@ export async function coordinateContinuationEffects(
   switch (action) {
     case 'fix':
       return observation.decisions.reviewStep === 'fix-ci'
-        ? continueCiCorrection(authority, observation, selected.reader ?? input.read ?? input.uw)
+        ? continueCiCorrection(authority, observation, selected.reader ?? input.read ?? input.uw, input.pluginPin)
         : continueReviewBoundFix(selected, observation)
     case 'land':
       return coordinateLanding(input, exactMandateRef, authority, observation, continueAtTarget)

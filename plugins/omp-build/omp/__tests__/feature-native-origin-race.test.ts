@@ -82,6 +82,7 @@ it('cannot dispatch an old implementation after session replacement and a move-o
     controller,
     undefined,
     reportA,
+    undefined,
   )
   hostA.git = async () => {
     entered.resolve()
@@ -103,6 +104,7 @@ it('cannot dispatch an old implementation after session replacement and a move-o
     controller,
     undefined,
     reportB,
+    undefined,
   )
   await runInstalledFeatureCommand('#43', hostB)
   expect(controller.featureContinuationInhibited()).toBe(false)

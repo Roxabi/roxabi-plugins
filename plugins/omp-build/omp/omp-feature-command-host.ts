@@ -64,8 +64,9 @@ async function startInstalledFeatureFix(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
   input: FeatureReviewFix,
+  pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<{ terminal: Promise<FeatureFixTerminal> }> {
-  const started = await dispatchDefaultFix(pi, ctx, '', input)
+  const started = await dispatchDefaultFix(pi, ctx, '', input, { pluginPin })
   const owned = ownedFixRunFor(pi)
   return owned === undefined
     ? { terminal: Promise.resolve(unownedFeatureFixTerminal(started)) }
@@ -91,6 +92,7 @@ export function createFeatureCommandHost(
   controller: NativeBatchController,
   uw: FeatureCommandHost['uw'],
   report: FeatureOperationReportGuard,
+  pluginPin: TrustedHostPluginPin | undefined,
 ): FeatureCommandHost {
   const { pi, options, interruptOwnedFeatureWork, framing } = composition
   const { ctx } = binding
@@ -127,19 +129,20 @@ export function createFeatureCommandHost(
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
     markFeatureBatch: (batch) => controller.markFeatureBatch(batch),
     ...(uw === undefined ? {} : { uw }),
-    ...(options.pluginPin === undefined ? {} : { pluginPin: options.pluginPin }),
+    ...(pluginPin === undefined ? {} : { pluginPin }),
     interruptOwnedWork: interruptOwnedFeatureWork,
     startReview: (args, onComplete) =>
       dispatchDefaultReview(pi, ctx, args, {
         onComplete,
         prepareReview: options.prepareReview,
+        pluginPin,
         scopedGuard: () => !controller.featureContinuationInhibited(),
       }),
     prepareEpicRangeReview: (review, onComplete) => prepareInstalledEpicRangeReview(pi, review, onComplete),
     exec: (command, args, executionOptions) => pi.exec(command, args, executionOptions),
-    startFix: options.startFeatureFix ?? ((input) => startInstalledFeatureFix(pi, ctx, input)),
+    startFix: options.startFeatureFix ?? ((input) => startInstalledFeatureFix(pi, ctx, input, pluginPin)),
     startAdmittedCiCorrection: async (input) => {
-      const run = await dispatchAdmittedCiCorrection(pi, ctx, input)
+      const run = await dispatchAdmittedCiCorrection(pi, ctx, input, { pluginPin })
       return { terminal: run.terminal }
     },
   }
