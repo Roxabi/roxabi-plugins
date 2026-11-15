@@ -108,7 +108,7 @@ Interactive `/feature` and `/uw` confirmation capabilities are bound to their ro
 
 A valid command receives an immediate UI acknowledgment before ports and long remote reads, plus persistent phase status. The shortcut explains preparation, a queued or already-open confirmation, a reopened proposal, an action already applying, or the absence of a confirmation here. It does not prepare or confirm again. A stopped capability cannot roll back an action already started: its feedback is replaced with that warning and retained until the action settles, without vetoing a genuine live successor framing owner. Only its own status is removed; cleanup does not reannounce another command. A predecessor's delayed stop signal cannot revoke its successor.
 
-Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.19.2 is a manual source change: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
+Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.20.0 is a manual source change: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
 
 Workflow history reads revalidate each comment page with GitHub (`If-None-Match`). An unchanged page is confirmed by a `304`, which the primary rate limit does not charge, so repeated closure reads in one host process cost quota only for what changed. The retained copy lives in memory only and is returned on that `304` alone, never in place of a failed request. When the observation behind a `/feature` selection, continuation, succession or CI correction is unavailable, the stop keeps `fix-own-uw-unsettled` and its other codes, then names the failed reads. Start publication and PR binding still report the code alone.
 
@@ -415,7 +415,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.4 retain the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3 and 0.20.0 through 0.20.1 retain the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -932,7 +932,7 @@ For built-in task spawns without a `model`: explicit call model, then `task.agen
 | `dev-review` | `/dev-review` and `omp_build_start_review` · native spec → panel → recall → synthesis |
 | `fix` | `/fix` · native correction profiles; the Feature review-bound handoff starts the same path; not an inline walk |
 | `promote` | `/promote` (registered command) · the optional tail |
-| `cleanup` | `/cleanup` · read-only worktree inventory, then explicitly confirmed guarded removal of clean or artifact-only worktrees; branches preserved |
+| `cleanup` | `/cleanup` · read-only inventory, then explicitly selected guarded removal; optional manual `--force` requires local-data discard approval; branches preserved |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
 `dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Findings identify a local accepted criterion/invariant or explicitly declare outside-Spec work; outside-Spec findings may still block. Each cause receives an evidence-backed [cause disposition](GLOSSARY.md): fix in the original UW, propose a sister that blocks the original, propose a sister after the original, or retain a report on the original UW without creating an issue. Missing or contested blocking evidence stays blocking for motivated operator adjudication; it never triggers a blind fix or automatic report. Exclusions cover only explicitly excluded additional work, not introduced regression, security defects or invariant violations. A sister is created only after genuine confirmation of its exact framed proposal, under the same parent and through the existing UW writer. Active or indeterminate parent delivery holds the addition; accepted coverage belongs to the parent capability. No grouped nonblocking issue is created.
@@ -959,14 +959,14 @@ local data (tracked changes, untracked files, ignored data and index-hidden
 files), locks, in-progress Git operations and observable same-user process
 usage. Detected active usage always blocks. Unsupported or incomplete usage
 observations stay explicitly unknown and require an additional human
-confirmation for that path, carried as `--ack-unknown-usage <path>`. All other
-preservation reasons remain blocking; there is no blanket override. Process
-observations do not prove that every agent session is idle. Tokens and CLI
-confirmation flags are selection data, not evidence of human consent. The human
-text inventory omits tokens; `inventory --json` carries them.
+confirmation for that path, carried as `--ack-unknown-usage <path>`. Structural
+preservation reasons remain blocking in every mode; there is no blanket override.
+Process observations do not prove that every agent session is idle. Tokens and
+CLI confirmation flags are selection data, not evidence of human consent. The
+human text inventory omits tokens; `inventory --json` carries them.
 
-Ignored data is classified from the same `git status` pass; only entries Git
-already ignores can qualify, each under the exact path Git reports. A fixed,
+In safe mode, ignored data is classified from the same `git status` pass; only
+entries Git already ignores can qualify, each under the exact path Git reports. A fixed,
 case-sensitive allowlist with no repository override recognizes dependency
 directories (`node_modules`, `.venv`) and caches (`__pycache__`,
 `.pytest_cache`, `.ruff_cache`, `.cache/trufflehog`), including entries Git
@@ -998,16 +998,43 @@ rejected where fresh inspection finds none. The token binds every reported path
 and kind, so an entry that appears or vanishes stales the selection. Ignore
 rules are never edited to unlock a row.
 
-Registered worktrees use `git worktree remove` without force, which deletes
-ignored contents with the worktree; this repository's branches survive, merged
-or not. That removal is not atomic: a failure may leave a partially removed
-directory, reported as observed and never retried with force. The complementary orphan scanner retains configured
-feature, legacy `~/.omp/worktrees/<repo>` and principal `.claude/worktrees` roots.
-Only freshly revalidated empty shells can be removed, using `rmdir`; nonempty
-shells remain diagnostic. `--scope <#N>` filters exact branch issue numbers and
-excludes unattributed shells. `--report-only` stops after inventory; `--yes` is
-rejected. Branch deletion, fetch/prune, GitHub labels and CI cancellation are
-outside this workflow and require separate operator mandates.
+Manual `inventory --force` is still read-only. It assesses registered or detached
+worktrees for explicit abandonment of tracked/staged changes, genuinely
+untracked files and ignored data, including sensitive or unrecognized entries.
+It reports exact `localEntries`, `ignoredEntries`, the `removalMode` and whether
+`requiresDiscardConfirmation` applies. The operator must select exact paths and
+approve the loss of all those data before `remove --force` may carry
+`--ack-discard-local-data <path>`. This replaces the artifact acknowledgement in
+force mode, not the separate unknown-usage confirmation. A broad cleanup request
+or a CLI flag does not constitute approval.
+
+Force walks the entire worktree without following symlinks or reading payloads,
+not just allowlisted ignored roots. All structural and active-usage guards remain
+blocking, including index-hidden files, initialized submodules, retained
+administrative `modules/` data (even without a visible gitlink), nested Git,
+mounts and an unretained detached HEAD. Its token binds the mode, exact status,
+index and a deterministic worktree-metadata fingerprint, including ignored-root
+contents. A changed observation requires a new inventory/selection, and changed
+data to abandon requires renewed human approval. Metadata is not a content hash
+or an atomic lock: stop writers and mount changes before selection. See the
+[manual-mode contract](skills/cleanup/SKILL.md#manual-force-mode).
+Git status disables fsmonitor/untracked-cache shortcuts, and force rechecks
+observable process usage after the tree walk before mutation.
+
+Safe registered worktrees use ordinary `git worktree remove`; an explicitly
+approved manual force row uses exactly one `--force` with that command. Both
+preserve branch/tag refs and their reachable commits, merged or not. Removal is
+not atomic: a failure may leave a partially removed directory, reported as
+observed with no automatic escalation, pre-deletion, raw fallback or additional
+force.
+
+The complementary orphan scanner retains configured feature, legacy
+`~/.omp/worktrees/<repo>` and principal `.claude/worktrees` roots. Only freshly
+revalidated empty shells can be removed, using `rmdir`; nonempty shells remain
+diagnostic and force does not unlock them. `--scope <#N>` filters exact branch
+issue numbers and excludes unattributed shells. `--report-only` stops after
+inventory; `--yes` is rejected. Branch deletion, fetch/prune, GitHub labels and
+CI cancellation are outside this workflow and require separate operator mandates.
 
 **The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
 
