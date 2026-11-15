@@ -13,11 +13,16 @@ const scenarios = [
   { name: 'stale-candidate', displayed: true, admitted: false },
   { name: 'pending-switch', displayed: true, admitted: false },
   { name: 'pending-reload', displayed: true, admitted: false },
-  { name: 'owner-after-validation', displayed: true, admitted: false },
+  { name: 'session-switch-during-validation', displayed: true, admitted: false },
+  { name: 'owner-initial', displayed: false, admitted: false },
+  { name: 'owner-final', displayed: true, admitted: false },
   { name: 'shared-unavailable', displayed: false, admitted: false },
   { name: 'shared-matches', displayed: false, admitted: false },
   { name: 'unreachable', displayed: false, admitted: false },
   { name: 'source-repository', displayed: false, admitted: false },
+  { name: 'credential-origin', displayed: false, admitted: false },
+  { name: 'lookalike-origin', displayed: false, admitted: false },
+  { name: 'case-variant-origin', displayed: true, admitted: true },
   { name: 'child-factory', displayed: true, admitted: true },
   { name: 'linked', displayed: true, admitted: true },
   { name: 'other-clone', displayed: true, admitted: false },
@@ -58,6 +63,8 @@ it.each(scenarios)(
         notices: string[]
         displayed: string[]
         messages: unknown[]
+        artifactsBeforeActivation?: string[]
+        artifactsAfterActivation?: string[]
       }
       if (displayed) expect(result.displayed.join('\n')).toContain(candidate)
       else expect(result.displayed).toEqual([])
@@ -72,6 +79,15 @@ it.each(scenarios)(
       if (name === 'source-repository') expect(result.notices.join('\n')).toContain('tooling-pin-source-repository')
       if (name === 'shared-unavailable') expect(result.notices.join('\n')).toContain('tooling-pin-shared-unavailable')
       if (name === 'shared-matches') expect(result.notices.join('\n')).toContain('tooling-pin-not-needed')
+      if (name === 'credential-origin' || name === 'lookalike-origin') {
+        expect(result.notices.join('\n')).toContain('tooling-pin-target-ambiguous')
+        expect(result.artifactsAfterActivation).toEqual(result.artifactsBeforeActivation)
+        expect(JSON.stringify(result)).not.toContain('fixture-token')
+      }
+      if (name === 'owner-initial' || name === 'owner-final') {
+        expect(result.notices.join('\n')).toContain('tooling-pin-work-active')
+        expect(result.notices.join('\n')).toContain('tooling-pin: ordinary shared pin')
+      }
     } finally {
       rmSync(box.root, { recursive: true, force: true })
     }

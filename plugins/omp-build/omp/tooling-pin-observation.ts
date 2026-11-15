@@ -3,6 +3,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { captureOrigin } from '../roxabi/feature-framing-controller-lease.ts'
 import { ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
 import type { ToolingPinActivationProposal } from '../roxabi/uw-action-contract.ts'
+import { githubRepository } from '../roxabi/uw-git-bytes.ts'
 import { installedPluginIdentity, resolvePluginPin } from '../roxabi/uw-plugin-pin.ts'
 import { composedHostPluginPin } from './host-plugin-pin.ts'
 import { INSTALL_ROOT } from './install-root.ts'
@@ -21,10 +22,6 @@ export function assertNoOwnedWork(pi: OmpBuildExtensionApi): void {
     if (error instanceof Error && error.message === 'tooling-pin-work-active') throw error
     throw new Error('tooling-pin-ownership-unknown')
   }
-}
-
-function originRepository(url: string): string | undefined {
-  return url.match(/github\.com[:/]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/)?.[1]
 }
 
 async function readPinCandidates(cwd: string, gh: Gh, repository: string, targetRepository: string) {
@@ -87,8 +84,10 @@ async function verifyPinCandidates(
 async function observeTargetScope(cwd: string, gh: Gh, sourceRepository: string) {
   const scope = gitScope(cwd)
   if (!scope) throw new Error('tooling-pin-scope-unavailable')
+  const origin = githubRepository(scope.originUrl)
+  if (origin === null) throw new Error('tooling-pin-target-ambiguous')
   const targetRepository = await canonicalRepository(gh, cwd)
-  if (!targetRepository || originRepository(scope.originUrl) !== targetRepository)
+  if (!targetRepository || origin.toLowerCase() !== targetRepository.toLowerCase())
     throw new Error('tooling-pin-target-ambiguous')
   if (targetRepository.toLowerCase() === sourceRepository.toLowerCase())
     throw new Error('tooling-pin-source-repository')

@@ -34,7 +34,6 @@ const FRAMING_STATUS = 'omp-build-framing'
 
 export type FramingRuntimeOptions = {
   uwOperations?: UwOperationsFactory
-  pluginPin?: TrustedHostPluginPin
   /** Trusted host composition and tests only; defaults are the installed GitHub, git and pin readers. */
   framing?: Partial<Pick<FeatureFramingControllerHost, 'gh' | 'git' | 'procedurePorts'>>
 }

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { type FSWatcher, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { type FSWatcher, mkdirSync, readdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ExtensionCommandContext, ExtensionContext, ToolInfo } from '@oh-my-pi/pi-coding-agent'
 import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
@@ -121,8 +121,58 @@ ompBuildExtension(api)
 for (const handler of handlers.get('session_start') ?? []) await handler({ type: 'session_start' }, ctx)
 const activate = commands.get('tooling-pin')
 if (!activate) throw new Error('fixture-tooling-pin-command-missing')
+if (scenario === 'owner-initial' || scenario === 'owner-final') {
+  const feature = commands.get('feature')
+  if (!feature) throw new Error('fixture-feature-command-missing')
+  const gateDir = join(cwd, '.feature-gate')
+  mkdirSync(gateDir)
+  execFileSync('mkfifo', [join(gateDir, 'release')])
+  const featureStarted = Promise.withResolvers<void>()
+  const gateWatch = watch(gateDir, (_event, file) => {
+    if (file === 'ready') featureStarted.resolve()
+  })
+  const holdFeature = () => {
+    process.env.PIN_FEATURE_GATE = gateDir
+    return feature('Build a billing export for operators', ctx)
+  }
+  let pending: Promise<void> | undefined
+  if (scenario === 'owner-initial') {
+    // Start without awaiting: the real intake owns the slot before its first asynchronous read.
+    pending = holdFeature()
+    await featureStarted.promise
+    gateWatch.close()
+    delete process.env.PIN_FEATURE_GATE
+    await activate('activate', ctx)
+  } else {
+    const syncDir = join(cwd, '.validation-sync')
+    mkdirSync(syncDir)
+    execFileSync('mkfifo', [join(syncDir, 'release')])
+    process.env.PIN_SYNC_DIR = syncDir
+    let entered = false
+    const validation = watch(syncDir, (_event, file) => {
+      if (file !== 'ready' || entered) return
+      entered = true
+      void (async () => {
+        // Re-observation passed its initial ownership check before this external read began.
+        pending = holdFeature()
+        await featureStarted.promise
+        gateWatch.close()
+        delete process.env.PIN_FEATURE_GATE
+        writeFileSync(join(syncDir, 'release'), 'continue')
+      })()
+    })
+    await activate('activate', ctx)
+    validation.close()
+  }
+  await activate('status', ctx)
+  writeFileSync(join(gateDir, 'release'), 'continue')
+  await pending
+  const outcome = await terminal.promise
+  process.stdout.write(`${JSON.stringify({ outcome, notices, displayed, messages })}\n`)
+  process.exit(0)
+}
 let validationWatch: FSWatcher | undefined
-if (scenario === 'owner-after-validation') {
+if (scenario === 'session-switch-during-validation') {
   const syncDir = join(cwd, '.validation-sync')
   mkdirSync(syncDir)
   execFileSync('mkfifo', [join(syncDir, 'release')])
@@ -144,11 +194,22 @@ if (scenario === 'source-repository') {
   writeFileSync(controls, JSON.stringify({ target: 'Roxabi/roxabi-plugins' }))
   execFileSync('git', ['config', 'remote.origin.url', 'https://github.com/Roxabi/roxabi-plugins.git'], { cwd })
 }
+const originScenarios: Record<string, string> = {
+  'credential-origin': 'https://fixture-token@github.com/acme/app.git',
+  'lookalike-origin': 'https://notgithub.com/acme/app.git',
+  'case-variant-origin': 'https://github.com/ACME/App.git',
+}
+const remote = originScenarios[scenario]
+if (remote) execFileSync('git', ['config', 'remote.origin.url', remote], { cwd })
+const artifactsBeforeActivation = readdirSync(artifacts)
 const child = {
   ...context,
   agent: { kind: 'sub', id: 'child', name: 'child', depth: 1 },
 } as unknown as ExtensionCommandContext
 await activate('activate', scenario === 'child' ? child : ctx)
+const artifactsAfterActivation = readdirSync(artifacts)
+if (scenario === 'credential-origin' || scenario === 'lookalike-origin')
+  execFileSync('git', ['config', 'remote.origin.url', 'https://github.com/acme/app.git'], { cwd })
 validationWatch?.close()
 if (scenario === 'stale-candidate') writeFileSync(controls, '{}')
 if (scenario === 'shared-unavailable') writeFileSync(controls, '{}')
@@ -233,4 +294,6 @@ if (scenario === 'native-ci') {
 }
 await feature('Build a billing export for operators', ctx)
 const outcome = await terminal.promise
-process.stdout.write(`${JSON.stringify({ outcome, notices, displayed, messages })}\n`)
+process.stdout.write(
+  `${JSON.stringify({ outcome, notices, displayed, messages, artifactsBeforeActivation, artifactsAfterActivation })}\n`,
+)

@@ -23,6 +23,16 @@ const controls = process.env.PIN_CONTROL_FILE
     })
   : {}
 const git = (...argv: string[]) => execFileSync('git', argv, { cwd: repo, encoding: 'utf8' }).trim()
+if (
+  process.env.PIN_FEATURE_GATE &&
+  args[0] === 'variable' &&
+  args[1] === 'get' &&
+  args[2] === 'OMP_BUILD_TOOLING_SHA' &&
+  flag('--repo') === source
+) {
+  writeFileSync(join(process.env.PIN_FEATURE_GATE, 'ready'), 'ready')
+  readFileSync(join(process.env.PIN_FEATURE_GATE, 'release'))
+}
 
 if (args[0] === 'variable' && args[1] === 'get' && args[2] === 'OMP_BUILD_TOOLING_SHA') {
   const repository = flag('--repo')

@@ -61,6 +61,65 @@ it('uses the operator-activated pin for native approved-review freshness and CI 
   })
 })
 
+it('consumes native CI attribution and admits correction with the activated pin', async () => {
+  const { box, cwd } = arrangeReviewFixture()
+  roots.add(box.root)
+  const pin = isolatedPinSandbox(box)
+  const control = path.join(box.root, 'pin-control.json')
+  writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
+  box.env = { ...pin.env, PIN_CONTROL_FILE: control }
+  await seedReviewFixture(box, cwd)
+  appendApprovedReview(box, cwd)
+  setFailedCi(box)
+  writeFileSync(control, '{}')
+  const run = spawnSync(BUN, [path.resolve(import.meta.dirname, '../../testing/isolated-pin-ci-runner.ts'), cwd], {
+    cwd,
+    env: box.env,
+    encoding: 'utf8',
+    timeout: 45_000,
+  })
+  expect(run.status, `${run.stderr}\n${run.stdout}`).toBe(0)
+  const observed = JSON.parse(run.stdout) as {
+    attribution: Array<{ name: string }>
+    messages: string[]
+  }
+  expect(observed.attribution).toHaveLength(1)
+  expect(observed.messages.join('\n')).toContain('tooling-pin: activated for this session')
+  const records = pullHistory(box).operations.flatMap((operation) => (operation.record ? [operation.record] : []))
+  const receipt = records.find(
+    (record) =>
+      record.kind === 'action-receipt' && record.payload.phase === 'result' && record.payload.action === 'attribute-ci',
+  )
+  if (
+    receipt?.kind !== 'action-receipt' ||
+    receipt.payload.phase !== 'result' ||
+    receipt.payload.action !== 'attribute-ci'
+  )
+    throw new Error('ci-attribution-result-missing')
+  expect(receipt.payload.structured).toEqual({ attribution: 'change', evidence: null })
+  expect(receipt.payload.inputs.manifest.plugin.commit).toBe(pin.candidate)
+  const evidence = records.find(
+    (record) => record.kind === 'contribution' && record.payload.host.role === 'ci-correction',
+  )
+  if (evidence?.kind !== 'contribution') throw new Error('ci-correction-evidence-missing')
+  expect(evidence.payload.rawAttempts).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        raw: expect.objectContaining({
+          attributionRecordId: receipt.recordId,
+          candidateGitSHA: box.sha[BRANCH],
+        }),
+      }),
+    ]),
+  )
+  expect(records).toContainEqual(
+    expect.objectContaining({
+      kind: 'fix-request',
+      payload: expect.objectContaining({ requestContributionId: evidence.recordId, landing: false }),
+    }),
+  )
+})
+
 it.each(['native-watch-timeout', 'native-watch-success'] as const)(
   'retains the activated pin through the real watch exit: %s',
   async (scenario) => {
