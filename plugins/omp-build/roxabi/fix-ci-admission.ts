@@ -114,7 +114,6 @@ async function admitBoundCiCorrection(
     target: input.target,
     history,
     linkedIssueHistory: linked.value.history,
-    linkedIssueScopes: [],
     externalHistories: linked.value.externalHistories,
     causal: causal.value,
     branch: linked.value.branch ?? input.branch,
@@ -123,7 +122,7 @@ async function admitBoundCiCorrection(
     evidenceDigest: live.value.evidenceDigest,
   })
   if (!mandate.ok) return correctionMandateFailure(mandate, classified)
-  if (mandate.value.status !== 'applicable' || mandate.value.execution.landing !== false) {
+  if (mandate.value.execution.landing !== false) {
     return failure('ci-correction-mandate-denied')
   }
   const pullScope = { repository: input.target.repository, target: input.target.target }

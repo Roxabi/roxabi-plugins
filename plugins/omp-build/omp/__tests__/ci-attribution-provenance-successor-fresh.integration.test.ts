@@ -8,8 +8,11 @@ import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { accounted } from '../../engine/review-context-authentication.ts'
 import { originalContributionAction } from '../../engine/review-original-action.ts'
+import { reconstructFixCheckpoint } from '../../roxabi/fix-checkpoint-state.ts'
+import type { RecordInputRef } from '../../roxabi/uw-action-contract.ts'
 import { createSuccessorFixture } from '../../testing/ci-attribution-provenance-successor-fixture.ts'
 import { pullHistory } from '../../testing/feature-ci-review-fixture.ts'
+import { readSim } from '../../testing/sandbox/sandbox-repository.ts'
 
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const roots = new Set<string>()
@@ -17,6 +20,47 @@ afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
   roots.clear()
 })
+
+function assertStaleBeforeFresh(fixture: Awaited<ReturnType<typeof createSuccessorFixture>>) {
+  const { box, cwd, old, firstOutput } = fixture
+  const ref: RecordInputRef = {
+    source: 'record',
+    record: {
+      scope: { repository: old.repository, target: old.target },
+      kind: 'action-receipt',
+      recordId: old.recordId,
+    },
+    selector: '/payload',
+    digest: canonicalValueDigest(old.payload),
+  }
+  const before = pullHistory(box)
+  const checkpoint = reconstructFixCheckpoint(before)
+  const nativeBefore = readSim(box)
+  expect(nativeBefore.prs['7']?.comments).toBeDefined()
+  expect(nativeBefore.issues['42']?.comments).toBeDefined()
+  expect(accounted(before, old)).toBe(true)
+  expect(validateRecordGraph(before).ok).toBe(true)
+  const prepare = path.resolve(import.meta.dirname, '../../testing/ci-attribution-provenance-prepare-runner.ts')
+  const stale = spawnSync(BUN, [prepare, cwd, JSON.stringify({ code: firstOutput.attribution.manifest.code, ref })], {
+    cwd,
+    env: box.env,
+    encoding: 'utf8',
+    timeout: 55_000,
+  })
+  expect(stale.status, `${stale.stderr}\n${stale.stdout}`).toBe(0)
+  const refusal = JSON.parse(stale.stdout) as { ok: boolean; diagnostics?: Array<{ code: string }> }
+  expect(refusal.ok).toBe(false)
+  expect(
+    refusal.diagnostics?.map((item) => item.code),
+    JSON.stringify(refusal),
+  ).toEqual(['self-output'])
+  const after = pullHistory(box)
+  const nativeAfter = readSim(box)
+  expect(validateRecordGraph(after).ok).toBe(true)
+  expect(reconstructFixCheckpoint(after)).toEqual(checkpoint)
+  expect(nativeAfter.prs['7']?.comments).toEqual(nativeBefore.prs['7']?.comments)
+  expect(nativeAfter.issues['42']?.comments).toEqual(nativeBefore.issues['42']?.comments)
+}
 
 function assertCompletedIntake(history: DecodedHistory, requestId: string, inputs: ActionInputs) {
   expect(validateRecordGraph(history).ok).toBe(true)
@@ -62,11 +106,13 @@ function assertCompletedIntake(history: DecodedHistory, requestId: string, input
 }
 
 it('reattributes and completes native intake under the successor mandate', async () => {
-  const { box, cwd, pin, control, prefixPath, old } = await createSuccessorFixture(roots)
+  const fixture = await createSuccessorFixture(roots)
+  const { box, cwd, pin, control, prefixPath, old } = fixture
   writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
   const successorPath = path.resolve(import.meta.dirname, '../../testing/ci-attribution-provenance-successor-runner.ts')
   const successor = spawnSync(BUN, [successorPath, cwd], { cwd, env: box.env, encoding: 'utf8', timeout: 55_000 })
   expect(successor.status, `${successor.stderr}\n${successor.stdout}`).toBe(0)
+  assertStaleBeforeFresh(fixture)
   writeFileSync(control, '{}')
   const fresh = spawnSync(BUN, [prefixPath, cwd, 'capture-intake'], {
     cwd,

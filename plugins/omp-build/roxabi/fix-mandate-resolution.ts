@@ -89,7 +89,6 @@ type CorrectionMandateInput = {
   target: FixTarget
   history: DecodedHistory
   linkedIssueHistory: DecodedHistory | null
-  linkedIssueScopes: readonly Scope[]
   externalHistories?: readonly DecodedHistory[]
   causal: WorkflowCausalContext
   branch: string | null
@@ -100,16 +99,14 @@ type CorrectionMandateInput = {
 
 type BoundCorrection = { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
 
-type SelectedCorrectionMandate = FixMandateAssessment | { status: 'missing' }
+type SelectedCorrectionMandate = FixMandateAssessment
 
-type ResolvedCorrectionMandate =
-  | {
-      status: 'applicable'
-      mandate: FixMandateView
-      execution: CorrectionExecutionRights
-      acceptedSpec: AcceptedOwnSpec
-    }
-  | { status: 'missing' }
+type ResolvedCorrectionMandate = {
+  status: 'applicable'
+  mandate: FixMandateView
+  execution: CorrectionExecutionRights
+  acceptedSpec: AcceptedOwnSpec
+}
 
 function selectCorrectionMandate(input: CorrectionMandateInput): FixActionResult<SelectedCorrectionMandate> {
   const assessed: FixMandateAssessment = assessFixMandate({
@@ -154,7 +151,6 @@ function resolveSelectedCorrectionMandate(
   selected: FixActionResult<SelectedCorrectionMandate>,
 ): FixActionResult<ResolvedCorrectionMandate> {
   if (!selected.ok) return failure(...selected.diagnostics)
-  if (selected.value.status === 'missing') return { ok: true, value: { status: 'missing' } }
   if (selected.value.status === 'refused') {
     if (diagnosticCodes(selected.value.evidence).includes('fix-own-uw-required')) return failure('fix-own-uw-required')
     return failure(`fix-mandate-refused:${selected.value.reason}`)

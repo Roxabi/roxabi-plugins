@@ -81,6 +81,8 @@ describe('correction publish binding entry', () => {
       for (const url of [
         'https://fixture-token@github.com/acme/app.git',
         'https://x-access-token:fixture-secret@github.com/acme/app.git',
+        'https://x\\:fixture-secret@github.com/acme/app.git',
+        'x-access-token:fixture-secret@github.com:acme/app.git',
         'fixture-secret@github.com:acme/app.git',
         'https://github.com/acme/app.git?access_token=fixture-secret',
       ]) {
@@ -104,6 +106,22 @@ describe('correction publish binding entry', () => {
         baseGitSHA: head,
       })
       expect(binding.ok).toBe(true)
+    },
+  )
+  it.each(['ordinary', 'ci'] as const)(
+    'refuses Git-rewritten credential-bearing push URLs before %s publication',
+    async (entry) => {
+      for (const rewrite of ['insteadOf', 'pushInsteadOf']) {
+        const s = setup()
+        const effective = 'https://x-access-token:fixture-secret@github.com/acme/app.git'
+        s.git(s.cwd, 'config', `url.${effective}.${rewrite}`, s.remote)
+        expect(s.git(s.cwd, 'remote', 'get-url', '--push', 'origin')).toBe(effective)
+        const result = await s.run(entry)
+        expect(result).toEqual({ ok: false, diagnostics: ['fix-publish-remote-credential-refused'] })
+        expect(JSON.stringify(result)).not.toContain('fixture-secret')
+        expect(s.calls.every((args) => !args.join(' ').includes('fixture-secret'))).toBe(true)
+        expect(s.calls.every((args) => args[0] === 'repo' || args[0] === 'pr')).toBe(true)
+      }
     },
   )
 })

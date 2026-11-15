@@ -25,6 +25,9 @@ It never creates a feature, arms, labels `reviewed`, lands, or enters `/feature`
    selected decision, and rechecks authority before continuation and effects.
    `reason: ci-failed` goes through the admitted CI correction flow, not this
    review consumer. Stopped, stale, incomplete or incompatible authority refuses.
+   On `fix-publish-remote-credential-refused` or `fix-publish-remote-head-mismatch`,
+   report the code without the URL and stop before publication; use the push-binding
+   guidance in [README](../../README.md).
 2. **Request.** Publish the raw operator contribution, then a limited-scope
    `fix-request` with `landing: false`. Existing structured review data is consumed
    by its confirmed record ID; it is not parsed, reclustered, relabelled, or

@@ -7,9 +7,13 @@ describe('credential-free push URLs', () => {
     'git@github-work:Acme/app.git',
     'ssh://git@github.com/Acme/app.git',
     'ssh://git@github.com:22/Acme/app.git',
+    'org-12345@github.com:Acme/app.git',
+    'ssh://org-12345@github.com/Acme/app.git',
     'https://github.com/Acme/app.git',
     '/tmp/x/origin.git',
     '../local/origin.git',
+    'C:\\repos\\origin.git',
+    'C:/repos/origin.git',
   ])('accepts %s', (url) => expect(credentialFreePushUrl(url)).toBe(true))
 
   it.each([
@@ -17,8 +21,13 @@ describe('credential-free push URLs', () => {
     '-github.com/repo',
     'https://fixture-token@github.com/acme/app.git',
     'https://x-access-token:fixture-secret@github.com/acme/app.git',
+    'https://x\\:fixture-secret@github.com/acme/app.git',
+    'x-access-token:fixture-secret@github.com:acme/app.git',
     'https://:fixture-secret@github.com/acme/app.git',
     'ssh://git:fixture-secret@github.com/acme/app.git',
+    'ssh://org-12345:fixture-secret@github.com/acme/app.git',
+    'ssh://org-abc@github.com/acme/app.git',
+    'org-abc@github.com:acme/app.git',
     'ssh://fixture-secret@github.com/acme/app.git',
     'fixture-secret@github.com:acme/app.git',
     'https://github.com/acme/app.git?access_token=fixture-secret',

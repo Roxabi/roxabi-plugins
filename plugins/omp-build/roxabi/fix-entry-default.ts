@@ -50,21 +50,15 @@ export async function bindFixMandate(
     requiredFeatureMandate: input.requiredFeatureMandate,
   })
   if (!authority.ok) return authority
-  if (input.requiredFeatureMandate !== undefined && authority.value.status !== 'reuse')
-    return fail('feature-mandate-required')
-  if (authority.value.status === 'reuse') {
-    const uw = authority.value.uw
-    // Preserve the bound UW even when it shares the correction target's scope.
-    return {
-      ok: true,
-      value: {
-        recordId: authority.value.mandate.recordId,
-        sameScope: authority.value.sameScope,
-        uw,
-      },
-    }
+  return {
+    ok: true,
+    value: {
+      recordId: authority.value.mandate.recordId,
+      sameScope: authority.value.sameScope,
+      // Preserve the bound UW even when it shares the correction target's scope.
+      uw: authority.value.uw,
+    },
   }
-  return fail('fix-own-uw-required')
 }
 
 /** Actual `/fix` ingress: fresh GH target/history binding, then standalone or review-bound correction. */

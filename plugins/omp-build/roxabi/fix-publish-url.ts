@@ -1,10 +1,10 @@
 function credentialFreeScheme(scheme: string | undefined, rest: string): boolean {
+  if (rest.includes('?') || rest.includes('#') || (scheme !== 'file' && rest.includes('\\'))) return false
   const authority = rest.split(/[/?#\\]/, 1)[0] ?? ''
-  if (rest.includes('?') || rest.includes('#')) return false
   if (scheme === 'file') return !authority.includes('@')
   if (authority.length === 0) return false
   if (scheme === 'http' || scheme === 'https' || scheme === 'git') return !authority.includes('@')
-  if (scheme === 'ssh') return !authority.includes('@') || /^git@[^@]+$/.test(authority)
+  if (scheme === 'ssh') return !authority.includes('@') || /^(?:git|org-[0-9]+)@[^@]+$/.test(authority)
   return false
 }
 
@@ -17,5 +17,9 @@ export function credentialFreePushUrl(value: string): boolean {
   const colon = value.indexOf(':')
   const slash = value.indexOf('/')
   if (slash !== -1 && (colon === -1 || slash < colon)) return true
-  return colon > 0 && /^(?:git@)?[A-Za-z0-9.-]+$/.test(value.slice(0, colon))
+  return (
+    colon > 0 &&
+    /^(?:(?:git|org-[0-9]+)@)?[A-Za-z0-9.-]+$/.test(value.slice(0, colon)) &&
+    !/^[^/\\]*@[^/\\]*:/.test(value.slice(colon + 1))
+  )
 }
