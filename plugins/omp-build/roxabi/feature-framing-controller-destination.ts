@@ -99,7 +99,9 @@ async function destinationIntact(
   ticket: PendingFramingHandoff,
 ): Promise<boolean> {
   const destination = ticket.preparation.destination
-  const procedures = await loadFramingProcedures(core.host.procedurePorts({ cwd: destination }))
+  const procedures = await loadFramingProcedures(
+    core.host.procedurePorts({ cwd: destination, pluginPin: ticket.pluginPin }),
+  )
   if (!atDestination(core, lease, ctx, destination)) {
     waitAgain(core, lease, 'feature-framing: the session changed during destination checks; still waiting')
     return false
@@ -137,7 +139,7 @@ async function verifiedContinuation(
 ): Promise<ContinueFeatureInput | null> {
   let verified: { continuation: ContinueFeatureInput } | ContinueFeatureResult
   try {
-    const uw = await core.host.uw({ ctx, operator })
+    const uw = await core.host.uw({ ctx, operator, pluginPin: ticket.pluginPin })
     const read = await uw.readUw(ticket.preparation.root)
     verified = await verifyFramedFeatureDestination({
       ticket: ticket.preparation,
@@ -146,7 +148,7 @@ async function verifiedContinuation(
       git: core.host.git,
       gh: core.host.gh,
       uw,
-      ...(core.host.pluginPin === undefined ? {} : { pluginPin: core.host.pluginPin }),
+      ...(ticket.pluginPin === undefined ? {} : { pluginPin: ticket.pluginPin }),
     })
   } catch (error) {
     operator.cancel()

@@ -6,7 +6,7 @@ import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { createPreparedReviewRunner } from '../roxabi/review-entry'
 import type { PreparedReviewInputs, PrepareReviewInputsOptions } from '../roxabi/review-input-contract.ts'
 import { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
-import type { ReviewRootRef } from '../roxabi/uw-action-contract.ts'
+import type { ReviewRootRef, TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { validatePreparedReviewInput, validateReviewInput } from '../skills/feature/workflow-review-input.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import { hostPluginPin } from './host-plugin-pin.ts'
@@ -48,10 +48,12 @@ type DefaultReviewOptions = {
   expansion?: PrepareReviewInputsOptions['expansion']
   scopedGuard?: () => boolean
   signal?: AbortSignal
+  pluginPin?: TrustedHostPluginPin
 }
 
 type ReplacementDispatchOptions = {
   validateReview?: typeof validateReviewInput
+  pluginPin?: TrustedHostPluginPin
 }
 
 /**
@@ -92,7 +94,7 @@ async function dispatchPreparedReplacementReview(
       input.pr.number,
       input.pr.head,
       input.capture.input,
-      { pluginPin: hostPluginPin(), reviewedRoot },
+      { pluginPin: options.pluginPin, reviewedRoot },
     )
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
     return { ok: true }
@@ -119,6 +121,7 @@ async function dispatchDefaultReview(
   options: DefaultReviewOptions = {},
 ): Promise<void> {
   const { onComplete, prepareReview = prepareReviewInputs, scopedGuard, expansion, signal } = options
+  const pluginPin = 'pluginPin' in options ? options.pluginPin : await hostPluginPin(pi, ctx)
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const supplied = args.trim()
   if (supplied !== '' && !/^[1-9]\d*$/.test(supplied))
@@ -130,14 +133,14 @@ async function dispatchDefaultReview(
     cwd: ctx.cwd,
     pr: supplied === '' ? undefined : Number(supplied),
     contextWindow,
-    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal })),
-    pluginPin: hostPluginPin(),
+    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }), pluginPin),
+    pluginPin,
     expansion,
   })
   if (!prepared.ok)
     throw new Error(`review-input-preparation-refused:${prepared.diagnostics.map((item) => item.code).join(',')}`)
   const input = prepared.value
-  const admission = await nextReviewStep(ctx.cwd, input.pr.number, { reviewing: true })
+  const admission = await nextReviewStep(ctx.cwd, input.pr.number, { reviewing: true, pluginPin })
   if (admission.action !== 'review') throw new Error(`review-not-authorized:${admission.action}`)
   const authorize = async (
     stage: 'initial' | 'recall' | 'synthesis',
@@ -151,10 +154,10 @@ async function dispatchDefaultReview(
     const validation =
       stage === 'initial'
         ? await validatePreparedReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.inputSnapshot, {
-            pluginPin: hostPluginPin(),
+            pluginPin,
           })
         : await validateReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.inputSnapshot.fingerprint, {
-            pluginPin: hostPluginPin(),
+            pluginPin,
             reviewedRoot: root,
           })
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }

@@ -11,6 +11,7 @@ import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Json } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { ActionOperands } from '../engine/workflow-action-operands.ts'
+import type { FramingOrigin } from './feature-framing-controller-lease.ts'
 import type { PreparedReviewChunk } from './review-input-contract.ts'
 
 export type {
@@ -40,7 +41,7 @@ export type PluginPinPort = {
 }
 
 /**
- * Trusted host composition only. Not command JSON, an LLM claim, or a new environment convention.
+ * Trusted host composition or genuine operator-confirmed session activation only.
  * `installedRoot` is the private filesystem root used to byte-compare; it is not `InstalledPluginPin.root`.
  */
 export type TrustedHostPluginPin = {
@@ -48,6 +49,24 @@ export type TrustedHostPluginPin = {
   commit: string
   installedRoot: string
 }
+
+export type ToolingPinActivationProposal = Readonly<{
+  format: 'omp-build-tooling-pin-activation/1'
+  operationId: string
+  plugin: InstalledPluginPin
+  installedRoot: string
+  packageDigest: string
+  scope: Readonly<{ targetRepository: string; gitCommonDir: string; originUrl: string; lifetime: 'session' }>
+  source: Readonly<{
+    repository: string
+    variable: 'OMP_BUILD_TOOLING_SHA'
+    defaultBranch: string
+    defaultHead: string
+  }>
+  shared: Readonly<{ repository: string; commit: string; status: 'mismatch' }>
+  origin: FramingOrigin
+}>
+export type PreparedToolingPinActivation = Readonly<{ proposal: ToolingPinActivationProposal; digest: string }>
 
 export type UwActionRequest = {
   actionId: string

@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import * as hostSdk from '@oh-my-pi/pi-coding-agent'
@@ -10,10 +9,12 @@ import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { NativePort } from '../roxabi/fix-contract.ts'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
 import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
-import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
+import { nativeReviewChild } from './native-review-child.ts'
 import { observeDriverCallbacks } from './native-review-diagnostics.ts'
 import { type BatchWaiter, type ContinuationWaiter, messageText, notifyWaiters } from './native-review-notifications.ts'
+import { captureNativeReviewProof } from './native-review-proof.ts'
 import { provisionNativeRoot } from './native-root-fixture.ts'
+import { operatorDialogUi } from './operator-dialog-ui.ts'
 
 type Handler = (...args: unknown[]) => unknown
 export type NativeData = { findings: unknown[] } | Record<string, unknown>
@@ -99,45 +100,6 @@ type DriverSettlement = {
   proof?: ActionProof
 }
 
-async function captureProof(input: DriverSettlement, task: NativeTask, child: NativeReviewChild): Promise<void> {
-  if (input.proof === undefined) return
-  const toolCallId = `${task.name}-proof`
-  await child.call('bash', toolCallId, { command: input.proof.command })
-  await emit(input.events, 'task:subagent:event', {
-    id: task.name,
-    event: { type: 'tool_execution_start', toolName: 'bash', toolCallId, args: { command: input.proof.command } },
-  })
-  const execution = spawnSync(input.proof.program ?? 'git', input.proof.args, {
-    cwd: input.context.cwd,
-    encoding: 'utf8',
-  })
-  input.proof.restore?.()
-  if (execution.error) throw execution.error
-  if (execution.status === null) throw new Error(`proof terminated by signal: ${execution.signal}`)
-  const exitCode = execution.status
-  const content = [{ type: 'text', text: `${execution.stdout}${execution.stderr}` }]
-  await child.result(
-    'bash',
-    toolCallId,
-    { command: input.proof.command },
-    {
-      content,
-      details: { exitCode },
-      isError: exitCode !== 0,
-    },
-  )
-  await emit(input.events, 'task:subagent:event', {
-    id: task.name,
-    event: {
-      type: 'tool_execution_end',
-      toolName: 'bash',
-      toolCallId,
-      isError: exitCode !== 0,
-      result: { content, details: { exitCode } },
-    },
-  })
-}
-
 async function settleChild(
   input: DriverSettlement,
   task: NativeTask,
@@ -165,7 +127,9 @@ async function settleChild(
     detached: false,
   })
   const child = await nativeReviewChild({ task, sessionFile })
-  await captureProof(input, task, child)
+  await captureNativeReviewProof(input.proof, input.context.cwd, task, child, (event) =>
+    emit(input.events, 'task:subagent:event', event),
+  )
   const data = input.data(task)
   await child.call('yield', `${task.name}-yield`, { data })
   await emit(input.events, 'task:subagent:event', {
@@ -216,6 +180,7 @@ export async function createReviewDriver(
   cwd: string,
   contextWindow = 128_000,
   mode: 'feature' | 'review-only' = 'feature',
+  activatePin = false,
 ): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
   const commands = new Map<string, Handler>()
@@ -238,11 +203,30 @@ export async function createReviewDriver(
     sendMessage: recordMessage,
   })
   const context = rootContext(cwd, contextWindow)
+  if (activatePin) {
+    Object.assign(context, {
+      hasUI: true,
+      mode: 'tui',
+      ui: {
+        ...operatorDialogUi(async () => 'confirm'),
+        notify: recordMessage,
+        setStatus: (key: string, text?: string) => recordMessage(`status ${key}: ${text ?? ''}`),
+      },
+    })
+    Object.assign(context.sessionManager, { getCwd: () => cwd })
+  }
   provisionNativeRoot(context)
   ompBuildExtension(api)
   const controller = reviewControllerFor(api)
   const diagnostics = observeDriverCallbacks(controller)
   await emit(events, 'session_start', { type: 'session_start' }, context)
+  if (activatePin) {
+    const pinCommand = commands.get('tooling-pin')
+    if (pinCommand === undefined) throw new Error('tooling-pin-command-unregistered')
+    await pinCommand('activate', context)
+    if (!messages.some((message) => message.includes('tooling-pin: activated for this session')))
+      throw new Error(`tooling-pin-activation-failed: ${JSON.stringify(messages)}`)
+  }
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
   if (mode === 'review-only') {

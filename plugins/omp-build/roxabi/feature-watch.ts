@@ -3,6 +3,7 @@ import { applyCiWatchExit } from '../skills/feature/workflow-watch.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { defaultGh, isRecord } from './feature-engine.ts'
 import { landingContinuation } from './feature-landing-continuation.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import { createInstalledUwReadPort } from './uw-read-port.ts'
 import { continueFeatureAfterLanding } from './workflow.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -15,6 +16,7 @@ type WatchExitInput = {
   gh?: Gh
   git?: GitRunner
   uw?: Parameters<typeof continueFeatureAfterLanding>[0]['uw']
+  pluginPin?: TrustedHostPluginPin
 }
 
 function reenterFeature(input: WatchExitInput, cause: string): Promise<ContinueFeatureResult> {
@@ -27,6 +29,7 @@ function reenterFeature(input: WatchExitInput, cause: string): Promise<ContinueF
       gh: input.gh,
       git: input.git,
       uw: input.uw,
+      pluginPin: input.pluginPin,
       read: createInstalledUwReadPort({ cwd: input.cwd, gh: input.gh }),
     },
     cause,
@@ -49,6 +52,7 @@ export async function consumeWatchExit(input: WatchExitInput): Promise<ContinueF
   const landed = await applyCiWatchExit(input.cwd, input.pr, input.code, {
     gh: input.gh,
     git: input.git,
+    pluginPin: input.pluginPin,
     stopPublication: 'engine',
   })
   if (landed.status === 'stopped' && !(await pullRequestClosed(input)))

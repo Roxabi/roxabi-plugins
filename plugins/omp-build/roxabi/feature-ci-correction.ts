@@ -18,6 +18,7 @@ import {
   reconcileWithdrawalContexts,
 } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 
@@ -44,6 +45,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
   gh: Gh
   ciFailed: boolean
   selectApplicableMandate: Contracts['selectApplicableMandate']
+  pluginPin?: TrustedHostPluginPin
 }): Promise<ContinueFeatureResult | null | { kind: 'blocked'; reason: string }> {
   if (!input.ciFailed || input.head === null || !/^[0-9a-f]{40}$/.test(input.head)) return null
   const decoded = await readDecodedHistory(input.scope, input.cwd, input.gh)
@@ -83,7 +85,7 @@ export async function tryAdmittedCiCorrectionContinuation(input: {
     attributionRecordId,
     workflow: {
       nextReviewStep: async (cwd: string, pr: number, options: { ciFailed?: boolean; reviewing?: boolean }) => {
-        const step = await nextReviewStep(cwd, pr, { ...options, gh: input.gh })
+        const step = await nextReviewStep(cwd, pr, { ...options, gh: input.gh, pluginPin: input.pluginPin })
         const fresh = await readDecodedHistory(input.scope, input.cwd, input.gh)
         if (!fresh.ok) throw new Error(fresh.reason)
         const read = await input.uw.readUw(admissionContext.observation.root)
@@ -187,6 +189,7 @@ export async function continueCiCorrection(
   authority: FeatureAuthority,
   observation: FeatureObservation,
   uw: UwReadPort | undefined,
+  pluginPin?: TrustedHostPluginPin,
 ): Promise<ContinueFeatureResult> {
   if (uw === undefined) return { kind: 'blocked', reason: 'fix-own-uw-unavailable' }
   const { context } = authority
@@ -206,6 +209,7 @@ export async function continueCiCorrection(
     gh: context.gh,
     ciFailed: observation.facts.failedChecks !== null,
     selectApplicableMandate: context.engine.selectApplicableMandate,
+    pluginPin,
     uw,
   })
   if (admitted !== null) return admitted

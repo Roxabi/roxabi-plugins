@@ -36,6 +36,7 @@ import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessm
 import type {
   ActionInputs,
   ActionSnapshot,
+  PreparedToolingPinActivation,
   PreparedUwAction,
   ReviewActionBatch,
   ReviewActionProjection,
@@ -151,6 +152,7 @@ export type PreparedOperatorProposal =
   | PreparedUwAbandon
   | PreparedInterruptionResolution
   | PreparedFramingProposal
+  | PreparedToolingPinActivation
   | { proposal: CauseAdjudicationProposal; digest: string }
 
 /** Context-bound only: command argv and a native result cannot manufacture this capability. */

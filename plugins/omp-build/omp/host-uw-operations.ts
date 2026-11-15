@@ -3,13 +3,12 @@ import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import type { OperatorPort, UwOperations } from '../roxabi/uw-contract.ts'
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { createInstalledUwOperations, type InstalledUwOperationsOptions } from '../roxabi/uw-installed-operations.ts'
-import { hostPluginPin } from './host-plugin-pin.ts'
 import type { UwOperationsFactory } from './omp-uw-command.ts'
 
 export function installedUwRequest(
   ctx: Pick<ExtensionContext, 'cwd' | 'localProtocolOptions'>,
   operator: OperatorPort,
-  pin: TrustedHostPluginPin | undefined = hostPluginPin(),
+  pin: TrustedHostPluginPin | undefined,
   nativeHost?: UwNativeHost,
 ): InstalledUwOperationsOptions {
   const artifactsDir = ctx.localProtocolOptions?.getArtifactsDir?.() ?? null
@@ -31,12 +30,18 @@ export function createHostUwOperations(
   return Promise.resolve(createInstalledUwOperations(installedUwRequest(ctx, operator, pin, nativeHost)))
 }
 
-export function hostUwFactory(pin?: TrustedHostPluginPin) {
-  return (input: { cwd: string; operator: OperatorPort; artifactsDir: string | null; nativeHost?: UwNativeHost }) =>
+export function hostUwFactory() {
+  return (input: {
+    cwd: string
+    operator: OperatorPort
+    artifactsDir: string | null
+    nativeHost?: UwNativeHost
+    pluginPin?: TrustedHostPluginPin
+  }) =>
     createHostUwOperations(
       { cwd: input.cwd, localProtocolOptions: { getArtifactsDir: () => input.artifactsDir } },
       input.operator,
-      pin,
+      input.pluginPin,
       input.nativeHost,
     )
 }
@@ -52,5 +57,6 @@ export async function resolveFeatureUw(
     cwd: ctx.cwd,
     operator,
     artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
+    ...(pin === undefined ? {} : { pluginPin: pin }),
   })
 }

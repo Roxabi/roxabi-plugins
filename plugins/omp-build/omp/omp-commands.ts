@@ -16,6 +16,7 @@ import { registerSkillCommand } from './omp-skill-command-runtime.ts'
 import { SKILL_COMMANDS } from './omp-skill-commands.ts'
 import { registerUwCommand } from './omp-uw-command.ts'
 import { registerPrepareCheckoutTool } from './prepare-checkout-tool.ts'
+import { registerToolingPinCommand } from './tooling-pin-command.ts'
 
 export type OmpBuildExtensionOptions = FeatureCommandOptions & {
   exists?: (path: string) => boolean
@@ -28,7 +29,7 @@ export function registerOmpCommandsAndTools(
   options: OmpBuildExtensionOptions,
   interruptOwnedFeatureWork: (reason: string) => Promise<void>,
 ): void {
-  bindHostPluginPin(options.pluginPin)
+  bindHostPluginPin(pi, options.pluginPin)
   const installRoot = options.installRoot ?? INSTALL_ROOT
   const skillsDir = join(installRoot, 'skills')
   const exists = options.exists ?? existsSync
@@ -55,7 +56,8 @@ export function registerOmpCommandsAndTools(
   })
   registerOmpReviewRecoveryTools(pi, options)
   registerPrepareCheckoutTool(pi)
-  registerUwCommand(pi, options.uwOperations ?? hostUwFactory(options.pluginPin))
+  registerUwCommand(pi, options.uwOperations ?? hostUwFactory())
+  registerToolingPinCommand(pi)
 
   for (const { name, skill = name, description, requires } of SKILL_COMMANDS) {
     if (name === 'feature') {

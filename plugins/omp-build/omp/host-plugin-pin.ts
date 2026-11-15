@@ -1,17 +1,23 @@
-/** Trusted host composition only. Not argv, env, tool JSON, or a model claim. */
-export type HostPluginPin = {
-  repository: string
-  commit: string
-  installedRoot: string
+import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { defaultGh } from '../roxabi/feature-engine.ts'
+import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
+import { activePin, invalidateActivation } from './tooling-pin-state.ts'
+
+export type HostPluginPin = TrustedHostPluginPin
+const composed = new WeakMap<object, HostPluginPin>()
+
+/** Trusted composition is owned by the extension instance, never the process. */
+export function bindHostPluginPin(owner: object, pin: HostPluginPin | undefined): void {
+  invalidateActivation(owner)
+  if (pin === undefined) composed.delete(owner)
+  else composed.set(owner, Object.freeze({ ...pin }))
 }
 
-let bound: HostPluginPin | undefined
-
-/** Last trusted composition wins for this process. Unset leaves B's ordinary tooling-pin path. */
-export function bindHostPluginPin(pin: HostPluginPin | undefined): void {
-  bound = pin
+export function composedHostPluginPin(owner: object): HostPluginPin | undefined {
+  return composed.get(owner)
 }
 
-export function hostPluginPin(): HostPluginPin | undefined {
-  return bound
+/** Resolve once per root operation; the inactive and composed paths never call GitHub. */
+export async function hostPluginPin(owner: object, ctx: ExtensionContext): Promise<HostPluginPin | undefined> {
+  return composed.get(owner) ?? activePin(owner, ctx, defaultGh())
 }

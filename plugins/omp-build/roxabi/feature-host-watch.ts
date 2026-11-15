@@ -101,6 +101,7 @@ async function deliverWatchExit(
       code,
       reference,
       ...(host.uw === undefined ? {} : { uw: host.uw }),
+      ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
     })
     if (!settleOwnedFeatureWatch(host.key, controller) || ownedFeatureFor(host.key) !== owner) return
     await deliver(next)
