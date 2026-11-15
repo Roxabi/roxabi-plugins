@@ -14661,6 +14661,8 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 19 && (patch === 0 || patch === 1 || patch === 2))
     return "bounded";
+  if (minor === 20 && patch === 0)
+    return "bounded";
   return "unknown";
 }
 function bindingMatchesMandate(mandate, branch, base) {

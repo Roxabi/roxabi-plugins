@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.0 (unreleased)
+
+- Add an opt-in manual `inventory --force` / single-path `remove --force` mode. It requires a fresh mode-bound token, exact path selection and `--ack-discard-local-data` before abandoning tracked/staged edits, untracked files or ignored data. Incomplete usage inspection still needs its separate acknowledgement; safe mode remains unchanged.
+- Inspect the entire force candidate without following symlinks or reading payloads, retaining nested Git repositories, mounts, special files, uncertain paths, active usage and every existing structural/Git guard. Bind force selection to exact status, index and observed worktree metadata, including changes inside ignored directories. Preserve branch/tag refs and retained commits; no automatic escalation, pre-deletion or raw deletion.
+- Keep administrative `modules/` repositories even after a submodule checkout or gitlink disappears: Git's forced removal skips its normal submodule guard. Disable fsmonitor/untracked-cache status shortcuts and refresh observable usage after the full tree walk before force removal.
+- Recognize exactly 0.20.0 under the existing bounded PR-binding writer contract; future versions remain unknown. This source change does not publish or activate tooling, move pins, migrate records or authorize deletion of any existing worktree.
+
 ## 0.19.2 (unreleased)
 
 - Resolve tracker repository defaults only when needed, so feature init can preview and apply the selected checkout's tracker from an installed script outside that checkout. Recognize 0.19.2 under the existing bounded PR-binding policy; unknown versions remain unknown. This does not migrate records or activate tooling.

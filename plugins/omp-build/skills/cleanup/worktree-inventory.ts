@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { applyUsage, identity, inspectRegistered, token } from './worktree-inspection'
+import { applyUsage, type Inspection, identity, inspectRegistered, token } from './worktree-inspection'
 import {
   canonical,
   command,
@@ -9,6 +9,7 @@ import {
   inside,
   message,
   type Options,
+  type RemovalMode,
   type Report,
   type Row,
   scanner,
@@ -42,6 +43,13 @@ function discover(root: string, found: string[], errors: Report['errors']) {
   }
   walk(path)
 }
+function registeredKind(record: Record<string, string>): string {
+  if (record.bare !== undefined) return 'bare'
+  return record.detached !== undefined ? 'detached' : 'registered'
+}
+// Force applies only to registered and detached worktrees, never to bare entries or orphan shells.
+const removalMode = (options: Options, kind: string): RemovalMode =>
+  options.force && (kind === 'registered' || kind === 'detached') ? 'force' : 'safe'
 function collectRegisteredRow(
   report: Report,
   record: Record<string, string>,
@@ -55,14 +63,18 @@ function collectRegisteredRow(
   const path = resolve(record.worktree)
   const branch = record.branch?.replace(/^refs\/heads\//, '') || null
   if (options.scope && (!branch || !new RegExp(`(?:^|[/-])${options.scope}(?:$|[/_-])`).test(branch))) return
+  const kind = registeredKind(record)
   const row: Row = {
     repository: principal,
     commonDir: common,
     path,
     branch,
     head: record.HEAD || null,
-    kind: record.bare !== undefined ? 'bare' : record.detached !== undefined ? 'detached' : 'registered',
+    kind,
+    removalMode: removalMode(options, kind),
     localChanges: null,
+    localEntries: [],
+    requiresDiscardConfirmation: false,
     ignoredEntries: [],
     requiresArtifactConfirmation: false,
     activity: 'unknown',
@@ -73,7 +85,7 @@ function collectRegisteredRow(
     reasons: [],
     token: '',
   }
-  let id: unknown = null
+  let inspected: Inspection = { id: null }
   if (index === 0) row.reasons.push('principal worktree')
   if (record.locked !== undefined) row.reasons.push('locked worktree')
   if (record.prunable !== undefined) row.reasons.push('prunable worktree; inspect manually')
@@ -82,13 +94,13 @@ function collectRegisteredRow(
   if (allPaths.some((other) => other !== path && inside(path, other)))
     row.reasons.push('contains another registered worktree')
   try {
-    id = inspectRegistered(row, record, repo)
+    inspected = inspectRegistered(row, record, repo)
   } catch (e) {
     row.reasons.push(message(e))
     report.errors.push({ path, message: message(e), scope: 'worktree' })
   }
   row.eligible = row.reasons.length === 0
-  row.token = token(row, id)
+  row.token = token(row, inspected.id, inspected.evidence)
   report.worktrees.push(row)
 }
 function collectRegistered(
@@ -100,7 +112,11 @@ function collectRegistered(
   allPaths: string[],
   options: Options,
 ) {
+  // A force removal inspects and fingerprints only its exact target; every registered path still feeds the nesting
+  // checks, and repository errors are still collected.
+  const onlyTarget = options.command === 'remove' && options.force
   for (let index = 0; index < records.length; index++) {
+    if (onlyTarget && resolve(records[index].worktree) !== options.target) continue
     collectRegisteredRow(report, records[index], index, principal, common, repo, allPaths, options)
   }
 }
@@ -115,7 +131,10 @@ function collectOrphan(report: Report, line: string, principal: string, common: 
     branch: null,
     head: null,
     kind,
+    removalMode: 'safe',
     localChanges: null,
+    localEntries: [],
+    requiresDiscardConfirmation: false,
     ignoredEntries: [],
     requiresArtifactConfirmation: false,
     activity: 'unknown',

@@ -117,4 +117,4 @@ function inspectArtifactTrees(row: Row) {
   }
 }
 
-export { inspectArtifactTrees, mountPointsWithin, parseMountPoints }
+export { gitDirectoryMarkers, inspectArtifactTrees, mountPointsWithin, parseMountPoints }
