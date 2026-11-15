@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { writeFileSync, writeSync } from 'node:fs'
 import path from 'node:path'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import { requiredReviewRecords } from '../skills/feature/workflow-records.js'
@@ -15,13 +15,20 @@ import { cleanReviewDecision, reviewDecision } from './feature-review-synthesis-
 import { createReviewDriver } from './native-review-driver.ts'
 import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
+const scenario = process.argv[3] ?? 'ci'
+if (scenario !== 'ci' && scenario !== 'fix-pr' && scenario !== 'fix-issue') throw new Error('fixture-scenario-invalid')
+const started = performance.now()
+const trace = (phase: string) => {
+  if (scenario === 'ci') writeSync(2, `[ci-lifecycle] ${phase} ${Math.round(performance.now() - started)}ms\n`)
+}
+trace('runner-start')
 const cwd = process.argv[2]
 if (!cwd) throw new Error('fixture-cwd-missing')
 await installFixtureSdkSettings(cwd)
 const priorHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
-const scenario = process.argv[3] ?? 'ci'
-if (scenario !== 'ci' && scenario !== 'fix-pr' && scenario !== 'fix-issue') throw new Error('fixture-scenario-invalid')
+trace('fixture-ready')
 const driver = await createReviewDriver(cwd, 128_000, scenario === 'ci' ? 'feature' : scenario, true)
+trace('driver-ready')
 const manifests: Array<{ stage: string; inputs: NativeTask['action']['inputs'] }> = []
 const capture = (stage: string) => (task: NativeTask) => {
   manifests.push({ stage, inputs: task.action.inputs })
@@ -36,6 +43,7 @@ if (scenario === 'ci') {
   })
   await intakeReady
 }
+trace('attribution-ready')
 after = driver.messages.length
 const synthesisReady = driver.nextBatch(after)
 await driver.settle((task) => {
@@ -43,6 +51,7 @@ await driver.settle((task) => {
   return reviewInitialData({ ...task, name: 'panel-ci' })
 })
 await synthesisReady
+trace('intake-ready')
 after = driver.messages.length
 const applyReady = driver.nextBatch(after)
 await driver.settle((task) => {
@@ -52,6 +61,7 @@ await driver.settle((task) => {
   return { ...correction, purpose: 'correction' }
 })
 await applyReady
+trace('synthesis-ready')
 let commit: string | null = null
 const transition = driver.fixTransition(driver.messages.length)
 await driver.settleAction(
@@ -94,6 +104,7 @@ await driver.settleAction(
 )
 if ((await transition) !== 'next-batch' || commit === null || commit === priorHead)
   throw new Error(`correction-apply-refused: ${JSON.stringify(driver.messages)}`)
+trace('apply-ready')
 const { terminal, reviewAfter } = await settleOwnedCorrectionFalsification(
   driver,
   cwd,
@@ -103,18 +114,23 @@ const { terminal, reviewAfter } = await settleOwnedCorrectionFalsification(
   capture('post-apply'),
 )
 if (terminal.status !== 'complete') throw new Error(`correction-terminal-refused: ${JSON.stringify(terminal)}`)
+trace('falsification-complete')
 if (scenario !== 'ci') await driver.continueFeature()
 await driver.nextBatch(reviewAfter)
+trace('follow-on-ready')
 await driver.settle((task) => {
   capture('follow-on-review')(task)
   return task.name === 'spec' ? { findings: [], specRows: [fixtureSpecRow(task.action)] } : { findings: [] }
 })
+trace('follow-on-review-complete')
 await driver.settle((task) => {
   capture('follow-on-synthesis')(task)
   return cleanReviewDecision(task.task)
 })
+trace('follow-on-synthesis-complete')
 const replay = await requiredReviewRecords(cwd, 7)
 if (replay.head !== commit || replay.verdict !== 'Approve (clean)')
   throw new Error(`follow-on-review-refused: ${JSON.stringify(replay)}`)
+trace('replay-complete')
 process.stdout.write(`${JSON.stringify({ priorHead, commit, manifests, replay, messages: driver.messages })}\n`)
 process.exit(0)

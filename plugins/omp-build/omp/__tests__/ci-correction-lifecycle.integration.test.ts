@@ -1,5 +1,6 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, type SpawnSyncReturns, spawnSync } from 'node:child_process'
 import { rmSync, writeFileSync } from 'node:fs'
+import { availableParallelism, cpus } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
@@ -14,6 +15,19 @@ afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
   roots.clear()
 })
+
+function lifecycleFailure(box: Parameters<typeof readSim>[0], run: SpawnSyncReturns<string>): string {
+  if (run.status === 0) return ''
+  let simulatorCalls: number | string = 'unavailable'
+  try {
+    simulatorCalls = readSim(box).calls.length
+  } catch {}
+  return (
+    `status=${run.status} signal=${run.signal} errorCode=${(run.error as NodeJS.ErrnoException | undefined)?.code ?? 'none'} ` +
+    `availableParallelism=${availableParallelism()} cpu=${cpus()[0]?.model ?? 'unknown'} simulatorCalls=${simulatorCalls}\n` +
+    `${run.stderr}\n${run.stdout}`
+  )
+}
 
 it('carries the activated candidate through real CI correction and review of the pushed head', async () => {
   const { box, cwd } = arrangeReviewFixture()
@@ -36,7 +50,7 @@ it('carries the activated candidate through real CI correction and review of the
       timeout: 55_000,
     },
   )
-  expect(run.status, `${run.stderr}\n${run.stdout}`).toBe(0)
+  expect(run.status, lifecycleFailure(box, run)).toBe(0)
   const observed = JSON.parse(run.stdout) as {
     priorHead: string
     commit: string
