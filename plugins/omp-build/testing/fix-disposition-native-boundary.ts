@@ -2,12 +2,14 @@ import { decodeHistory, readGitHubHistory } from '../dist/contracts.js'
 import type { NativePort, RecordPublisher } from '../roxabi/fix-contract.ts'
 import { captureDispositionSource } from '../roxabi/fix-disposition-capture.ts'
 import { createFixDispositionStore } from '../roxabi/fix-disposition-store.ts'
+import { createIssueAliasReadPort } from '../roxabi/fix-entry-issue-alias.ts'
 import { createIdentity } from '../roxabi/fix-entry-lifecycle.ts'
 import { resolvePublishBinding } from '../roxabi/fix-entry-target-binding.ts'
 import { defaultGh } from '../roxabi/fix-entry-target-core.ts'
 import { createResolver } from '../roxabi/fix-entry-target-resolver.ts'
 import { executeDecision, runReviewBoundFixWorkflow } from '../roxabi/fix-execution-runner.ts'
 import { prepareReviewBoundFix } from '../roxabi/fix-preparation.ts'
+import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
 import { createGitHubRecordPublisher } from '../roxabi/github-publisher.ts'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
@@ -42,9 +44,15 @@ export async function exerciseNativeDispositionBoundary(
     item.record?.kind === 'contribution' && item.record.payload.host.phase === 'panel' ? [item.record] : [],
   )
   if (panels.length === 0) throw new Error('Native panel findings are missing')
-  const resolver = createResolver(cwd, defaultGh, REVIEW_SCOPE.repository)
-  const target = await resolver.resolveExplicit('7')
-  if (!target) throw new Error('Native PR target is missing')
+  const resolver = createResolver(
+    cwd,
+    defaultGh,
+    REVIEW_SCOPE.repository,
+    createIssueAliasReadPort(withRoxabiGitHubPolicy({ cwd, gh: defaultGh })),
+  )
+  const resolved = await resolver.resolveExplicit('7')
+  if (!resolved.ok || !resolved.value) throw new Error('Native PR target is missing')
+  const target = resolved.value
   const binding = await resolvePublishBinding(cwd, defaultGh, REVIEW_SCOPE.repository, target)
   if (!binding.ok) throw new Error(`Native publish binding refused: ${binding.diagnostics.join(',')}`)
   const operations = await createInstalledUwOperations({ cwd, operator: noWriteOperator, readAuthor: 'operator' })

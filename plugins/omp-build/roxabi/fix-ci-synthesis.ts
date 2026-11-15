@@ -7,16 +7,17 @@ import {
   type PreservedSynthesis,
   prepareCorrectionSynthesis,
 } from './fix-contributions-synthesis.ts'
-import { persistCapturedCauseDispositions } from './fix-disposition-capture.ts'
 import type { DefaultFixWorkflow } from './fix-execution-policy.ts'
+import { retainFailedOutput } from './fix-execution-support.ts'
 import { actionTask, dispatchNativeBatch } from './fix-native-dispatch.ts'
 import { nativeFixProfileByAction } from './native-review-profiles'
+import type { RecordInputRef } from './uw-action-contract.ts'
 
 export type CiCorrectionProduct = DefaultFixWorkflow & { identity: FixIdentity; publishBinding: PublishBinding }
 export async function synthesizeCiCorrection(
   prepared: PreparedFix,
   product: CiCorrectionProduct,
-  evidence: FixRecord,
+  attribution: RecordInputRef,
   intake: FixIntakePublication,
 ): Promise<FixActionResult<{ decision: FixRecord; capture: PreparedCauseCapture }>> {
   const synthesisTask = actionTask(
@@ -29,9 +30,10 @@ export async function synthesizeCiCorrection(
     prepared,
     product.identity,
     product.publisher,
-    [evidence, ...intake.records],
+    intake.records,
     synthesisTask,
     product.runtime.uw,
+    [attribution],
   )
   if (!synthesis.ok) return synthesis
   const preservedSynthesis = await dispatchNativeBatch<PreservedSynthesis>(
@@ -65,19 +67,13 @@ export async function synthesizeCiCorrection(
     product.runtime.signal,
   )
   if (decision.ok) return { ok: true, value: { decision: decision.value, capture: synthesis.value.capture } }
-  const retained = await persistCapturedCauseDispositions(
-    prepared.causeContext,
-    {
-      kind: 'retained-output',
-      contributions: [evidence, ...intake.records, ...preservedSynthesis.value.contributions].filter(
-        (item): item is Extract<FixRecord, { kind: 'contribution' }> => item.kind === 'contribution',
-      ),
-      diagnostics: decision.diagnostics.map((code) => ({ code, message: code })),
-    },
+  return retainFailedOutput(
+    prepared,
+    [...intake.records, ...preservedSynthesis.value.contributions],
+    decision.diagnostics,
+    product,
     product.identity,
-    product.dispositionStore,
-    product.runtime.uw,
+    decision.diagnostics,
     synthesis.value.capture,
   )
-  return retained.ok ? decision : retained
 }

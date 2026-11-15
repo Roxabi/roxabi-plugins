@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import type { State } from '../skills/feature/testing/gh-simulator/sim-types.ts'
 
 const args = process.argv.slice(2)
@@ -53,7 +52,9 @@ if (create || patch || labels) {
   }
   process.exit(0)
 }
-const delegated = spawnSync(process.execPath, [resolve(import.meta.dirname, 'isolated-pin-gh-fixture.ts'), ...args], {
+const pinGh = process.env.OMP_TEST_PIN_GH_PATH
+if (!pinGh) throw new Error('fixture-pin-gh-missing')
+const delegated = spawnSync(pinGh, args, {
   stdio: 'inherit',
   env: process.env,
 })

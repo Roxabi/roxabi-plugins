@@ -51,7 +51,7 @@ function invalidNativeTasks(tasks: FixRequestInput['nativeTasks']): boolean {
 
 function preparedSubject(input: FixRequestInput, target: FixTarget) {
   const scope = { repository: target.repository, target: target.target }
-  return correctionSubject(scope, input.uw, target.kind === 'pull-request' ? scope : null)
+  return correctionSubject(scope, input.uw, scope)
 }
 
 async function prepareStandaloneInputs(
@@ -78,23 +78,28 @@ async function prepareStandaloneInputs(
   return { ok: true, value: { target, policy, authorityInputs: authorityInputs.value } }
 }
 
+function validateResolvedTarget(target: FixTarget | null): FixActionResult<FixTarget> {
+  if (!target) return failure('fix-target-required')
+  if (target.state !== 'open') return failure('fix-target-closed')
+  if (target.candidateGitSHA === null) return failure('fix-target-head-unknown')
+  return { ok: true, value: target }
+}
+
 /** Refuses targetless, ambiguous, closed, and mismatched context before any durable write. */
 export async function resolveFixTarget(
   input: Pick<FixRequestInput, 'reference' | 'contextTarget'>,
   resolver: TargetResolver,
 ): Promise<FixActionResult<FixTarget>> {
   const explicit = input.reference?.trim()
-  const explicitTarget = explicit ? await resolver.resolveExplicit(explicit) : null
+  const resolvedExplicit = explicit ? await resolver.resolveExplicit(explicit) : null
+  if (resolvedExplicit !== null && !resolvedExplicit.ok) return resolvedExplicit
+  const explicitTarget = resolvedExplicit?.value ?? null
   const contextTarget = input.contextTarget ?? (explicit ? null : await resolver.resolveContext())
   if (!explicitTarget && !contextTarget) return failure('fix-target-required')
   if (explicit && !explicitTarget) return failure('fix-target-not-found')
   if (explicitTarget && contextTarget && !targetMatches(explicitTarget, contextTarget))
     return failure('fix-target-ambiguous')
-  const target = explicitTarget ?? contextTarget
-  if (!target) return failure('fix-target-required')
-  if (target.state !== 'open') return failure('fix-target-closed')
-  if (target.candidateGitSHA === null) return failure('fix-target-head-unknown')
-  return { ok: true, value: target }
+  return validateResolvedTarget(explicitTarget ?? contextTarget)
 }
 
 /** Every PR correction re-reads workflow authority; a stopped or CI-red PR cannot be bypassed by standalone intake. */
@@ -104,7 +109,6 @@ export async function admitReviewFix(
   reviewId: string | undefined,
   workflow: ReviewAuthority | undefined,
 ): Promise<FixActionResult<void>> {
-  if (target.kind !== 'pull-request') return { ok: true, value: undefined }
   if (!workflow) return failure('review-fix-authority-unavailable')
   const next = await workflow.nextReviewStep(cwd, target.number, { reviewing: true })
   if (next.reason === 'ci-failed') return failure('ci-failed-requires-ci-correction')

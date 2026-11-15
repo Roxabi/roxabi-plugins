@@ -14661,7 +14661,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 19 && (patch === 0 || patch === 1 || patch === 2 || patch === 3))
     return "bounded";
-  if (minor === 20 && patch === 0)
+  if (minor === 20 && (patch === 0 || patch === 1))
     return "bounded";
   return "unknown";
 }
@@ -17524,14 +17524,20 @@ function operatorBasis(history, fix) {
     base: pr.baseRefName
   };
 }
+function resolveCorrectionRootBasis(history, fix) {
+  if (!accounted(history, fix))
+    return failure3();
+  const basis = operatorBasis(history, fix);
+  return basis === null ? failure3() : { ok: true, value: basis };
+}
 function resolveCorrectionRequestBasis(history, fix, decision, catalogues) {
   if (!accounted(history, fix) || !accounted(history, decision))
     return failure3();
   const bindings = validateDecisionBindings(decision, history, catalogues);
   if (!bindings.admissible)
     return { ok: false, diagnostics: bindings.diagnostics };
-  const basis = operatorBasis(history, fix);
-  return basis !== null && originalDecisionMatches(history, fix, decision, basis.originalCandidate) ? { ok: true, value: basis } : failure3();
+  const basis = resolveCorrectionRootBasis(history, fix);
+  return basis.ok && originalDecisionMatches(history, fix, decision, basis.value.originalCandidate) ? basis : failure3();
 }
 
 // plugins/omp-build/engine/correction-historical-basis.ts
@@ -31398,6 +31404,7 @@ export {
   resolveCauseActionInputs,
   resolveCauseSisterReceipt,
   resolveCorrectionRequestBasis,
+  resolveCorrectionRootBasis,
   resolveCurrentInheritedOwnSpecRefs,
   resolveNativeScope,
   resolveNativeTarget,

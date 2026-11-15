@@ -171,7 +171,8 @@ async function deliverInWorld(
       request: Parameters<typeof world.operations.prepareAction>[0],
       projectionArg?: Parameters<typeof world.operations.prepareAction>[1],
       review?: Parameters<typeof world.operations.prepareAction>[2],
-    ) => prepareUwAction(request, ports, projectionArg, review),
+      correctionRoot?: Parameters<typeof world.operations.prepareAction>[3],
+    ) => prepareUwAction(request, ports, projectionArg, review, correctionRoot),
     replayActionInputs: (request: Parameters<typeof world.operations.replayActionInputs>[0]) =>
       replayUwActionInputs(request, ports),
   }

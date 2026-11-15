@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.1 (unreleased)
+
+- Prepare and validate CI correction inputs before publishing the canonical root. Authenticate intake against that root and bind synthesis to its complete findings set; CI attribution stays authenticated stage data, not dispatch authority or a decision finding.
+- Resolve `/fix #issue` only through the exact current mandate and uniquely bound open PR; remove PR-less correction targets and retain typed, no-write refusals.
+- Refuse credential-bearing effective push URLs and absent or mismatched remote branch tips before publishing correction roots. Preserve exact repository and push-origin identity checks.
+- Preserve the ordinary correction's own live request and publication ownership checks without widening the existing standalone decision-backed closure gate.
+- Recognize 0.20.1 under the bounded PR-binding policy while preserving 0.20.0. This source change does not migrate mandates, activate tooling or authorize recovery.
+
 ## 0.20.0 (unreleased)
 
 - Add an opt-in manual `inventory --force` / single-path `remove --force` mode. It requires a fresh mode-bound token, exact path selection and `--ack-discard-local-data` before abandoning tracked/staged edits, untracked files or ignored data. Incomplete usage inspection still needs its separate acknowledgement; safe mode remains unchanged.

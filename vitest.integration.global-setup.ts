@@ -7,6 +7,7 @@ import type { TestProject } from 'vitest/node'
 declare module 'vitest' {
   export interface ProvidedContext {
     ompTestGhSimulatorPath: string
+    ompTestPinGhPath: string
     ompTestToolingGhPath: string
   }
 }
@@ -14,6 +15,7 @@ declare module 'vitest' {
 export default function setupSimulator(project: TestProject): () => void {
   const dir = mkdtempSync(path.join(tmpdir(), 'omp-test-gh-simulator-'))
   const binary = path.join(dir, 'gh')
+  const pinGh = path.join(dir, 'pin-gh')
   const toolingReader = path.join(dir, 'tooling-gh')
   const plugin = path.resolve(import.meta.dirname, 'plugins/omp-build')
   try {
@@ -34,6 +36,23 @@ export default function setupSimulator(project: TestProject): () => void {
       ],
       { stdio: 'inherit' },
     )
+    execFileSync(
+      'bun',
+      [
+        'build',
+        path.join(plugin, 'testing/isolated-pin-gh-fixture.ts'),
+        '--compile',
+        '--no-compile-autoload-dotenv',
+        '--no-compile-autoload-bunfig',
+        '--bytecode',
+        '--format=esm',
+        '--define',
+        `OMP_SIM_PHYSICAL_TOOLING_ROOT=${JSON.stringify(plugin)}`,
+        '--outfile',
+        pinGh,
+      ],
+      { stdio: 'inherit' },
+    )
     // Epic fixtures read the physical checkout pin, not the simulator's synthetic tooling tree.
     execFileSync(
       'bun',
@@ -51,6 +70,7 @@ export default function setupSimulator(project: TestProject): () => void {
       { stdio: 'inherit' },
     )
     project.provide('ompTestGhSimulatorPath', binary)
+    project.provide('ompTestPinGhPath', pinGh)
     project.provide('ompTestToolingGhPath', toolingReader)
   } catch (error) {
     rmSync(dir, { recursive: true, force: true })

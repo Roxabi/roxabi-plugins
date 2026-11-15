@@ -176,10 +176,29 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
   if (failures.length === 1) throw failures[0]
   if (failures.length > 1) throw new AggregateError(failures, 'Review driver turn and settlement failed')
 }
+
+async function dispatchInitialCommand(
+  commands: Map<string, Handler>,
+  mode: 'feature' | 'review-only' | 'fix-pr' | 'fix-issue',
+  context: RootContext,
+  feature: Handler,
+): Promise<void> {
+  if (mode === 'review-only') {
+    const review = commands.get('dev-review')
+    if (review === undefined) throw new Error('review-command-unregistered')
+    await review('7', context)
+  } else if (mode === 'fix-pr' || mode === 'fix-issue') {
+    const fix = commands.get('fix')
+    if (fix === undefined) throw new Error('fix-command-unregistered')
+    await fix(`${mode === 'fix-pr' ? '#7' : '#42'} preserve the selected region`, context)
+  } else {
+    await feature('#42', context)
+  }
+}
 export async function createReviewDriver(
   cwd: string,
   contextWindow = 128_000,
-  mode: 'feature' | 'review-only' = 'feature',
+  mode: 'feature' | 'review-only' | 'fix-pr' | 'fix-issue' = 'feature',
   activatePin = false,
 ): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
@@ -229,13 +248,7 @@ export async function createReviewDriver(
   }
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  if (mode === 'review-only') {
-    const review = commands.get('dev-review')
-    if (review === undefined) throw new Error('review-command-unregistered')
-    await review('7', context)
-  } else {
-    await feature('#42', context)
-  }
+  await dispatchInitialCommand(commands, mode, context, feature)
   return {
     controller,
     native: createOmpFixPort(api),

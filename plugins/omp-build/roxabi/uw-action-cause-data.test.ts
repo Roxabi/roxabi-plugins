@@ -248,7 +248,16 @@ describe('cause state as action data', () => {
     ).toBe(true)
     const afterData = must(causeActionData(request, after, outputs, fixtureHostReviewClassCatalogues()))
     expect(withData(inputs, afterData).fingerprint).toBe(withData(inputs, beforeData).fingerprint)
-    expect(assertCurrentOutputClosure(request, after, fixtureHostReviewClassCatalogues(), afterData, root)).toEqual({
+    expect(
+      assertCurrentOutputClosure(
+        request,
+        { subject: request.subject, correctionRoot: null },
+        after,
+        fixtureHostReviewClassCatalogues(),
+        afterData,
+        root,
+      ),
+    ).toEqual({
       ok: true,
       value: true,
     })
@@ -438,7 +447,15 @@ describe('cause state as action data', () => {
         }),
       ),
     ).toEqual([])
-    expect(assertCurrentOutputClosure(next, histories, fixtureHostReviewClassCatalogues(), refs)).toEqual({
+    expect(
+      assertCurrentOutputClosure(
+        next,
+        { subject: next.subject, correctionRoot: null },
+        histories,
+        fixtureHostReviewClassCatalogues(),
+        refs,
+      ),
+    ).toEqual({
       ok: true,
       value: true,
     })

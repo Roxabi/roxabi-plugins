@@ -7,7 +7,7 @@ import { nativeImplementationGit } from './native-implementation-git.ts'
 import { withNativeImplementationWorld } from './native-implementation-world.ts'
 import { nestedDeliveryFactsFixture } from './nested-delivery-facts.ts'
 import { type IntegrationContext, integrateNestedDelivery } from './nested-delivery-integration.ts'
-import { produceNestedLeaf } from './nested-delivery-leaf.ts'
+import { type NestedLeafBeforeMerge, produceNestedLeaf } from './nested-delivery-leaf.ts'
 import { nestedDeliverySpecificationsFixture } from './nested-delivery-specifications.ts'
 
 /** Native issue bodies and reciprocal links are declared independently of the delivery receipts. */
@@ -49,6 +49,7 @@ type Context = {
   leafMerge: string
   use: NestedDeliveryContinuation | undefined
   midpoint: NestedDeliveryMidpoint | undefined
+  beforeMerge: NestedLeafBeforeMerge | undefined
 }
 
 function checkout(branch: string | null, head: string, baseTip: string) {
@@ -254,6 +255,7 @@ async function createContext(
   scenarioName: ScenarioName,
   use: NestedDeliveryContinuation | undefined,
   midpoint: NestedDeliveryMidpoint | undefined,
+  beforeMerge: NestedLeafBeforeMerge | undefined,
 ): Promise<Context> {
   const scenario = nestedDeliveryFacts(git)
   const [leafHead] = git.heads
@@ -261,17 +263,18 @@ async function createContext(
   if (leafHead === undefined || leafMerge === undefined)
     throw new Error('Nested scenario requires a declared child head and merge')
   const parent = await git.parent(scenario.root)
-  return { git, parent, scenario, scenarioName, leafHead, leafMerge, use, midpoint }
+  return { git, parent, scenario, scenarioName, leafHead, leafMerge, use, midpoint, beforeMerge }
 }
 
 export async function runNestedDeliveryScenario(
   scenarioName: ScenarioName,
   use?: NestedDeliveryContinuation,
   midpoint?: NestedDeliveryMidpoint,
+  beforeMerge?: NestedLeafBeforeMerge,
 ) {
   const git = nativeImplementationGit(202)
   try {
-    return await runScenario(await createContext(git, scenarioName, use, midpoint))
+    return await runScenario(await createContext(git, scenarioName, use, midpoint, beforeMerge))
   } finally {
     git.cleanup()
   }

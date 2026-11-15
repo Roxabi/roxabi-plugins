@@ -60,10 +60,7 @@ export function boundCorrection(
   histories: readonly DecodedHistory[],
   currentSpec: AssessSpecExact['proposed'] | null,
   causal: WorkflowCausalContext,
-): FixActionResult<
-  { status: 'standalone' } | { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
-> {
-  if (input.target.kind !== 'pull-request') return { ok: true, value: { status: 'standalone' } }
+): FixActionResult<{ status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }> {
   if (input.branch === null || input.base === null) return failure('fix-own-uw-required')
   const resolved = resolveBoundWork({
     use: 'correction',
@@ -92,7 +89,6 @@ type CorrectionMandateInput = {
   target: FixTarget
   history: DecodedHistory
   linkedIssueHistory: DecodedHistory | null
-  linkedIssueScopes: readonly Scope[]
   externalHistories?: readonly DecodedHistory[]
   causal: WorkflowCausalContext
   branch: string | null
@@ -101,25 +97,18 @@ type CorrectionMandateInput = {
   evidenceDigest?: string | null
 }
 
-type BoundCorrection =
-  | { status: 'standalone' }
-  | { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
+type BoundCorrection = { status: 'applicable'; recordId: string; acceptedSpec: AcceptedOwnSpec }
 
-type SelectedCorrectionMandate = FixMandateAssessment | { status: 'missing' }
+type SelectedCorrectionMandate = FixMandateAssessment
 
-type ResolvedCorrectionMandate =
-  | {
-      status: 'applicable'
-      mandate: FixMandateView
-      execution: CorrectionExecutionRights
-      acceptedSpec: AcceptedOwnSpec
-    }
-  | { status: 'missing' }
+type ResolvedCorrectionMandate = {
+  status: 'applicable'
+  mandate: FixMandateView
+  execution: CorrectionExecutionRights
+  acceptedSpec: AcceptedOwnSpec
+}
 
-function selectCorrectionMandate(
-  input: CorrectionMandateInput,
-  bound: BoundCorrection,
-): FixActionResult<SelectedCorrectionMandate> {
+function selectCorrectionMandate(input: CorrectionMandateInput): FixActionResult<SelectedCorrectionMandate> {
   const assessed: FixMandateAssessment = assessFixMandate({
     target: {
       scope: { repository: input.target.repository, target: input.target.target },
@@ -129,15 +118,13 @@ function selectCorrectionMandate(
     },
     history: input.history,
     linkedIssueHistory: input.linkedIssueHistory,
-    linkedIssueScopes: input.target.kind === 'pull-request' ? [] : input.linkedIssueScopes,
+    linkedIssueScopes: [],
     externalHistories: input.externalHistories ?? [],
     causal: input.causal,
     evidenceDigest: input.evidenceDigest ?? null,
   })
   if (assessed.status === 'refused' && assessed.reason === 'missing' && publishableMissing(input, assessed.evidence)) {
-    return bound.status === 'applicable'
-      ? failure('fix-mandate-refused:ambiguous')
-      : { ok: true, value: { status: 'missing' } }
+    return failure('fix-mandate-refused:ambiguous')
   }
   return { ok: true, value: assessed }
 }
@@ -154,10 +141,7 @@ function boundSpecMatchesAcceptedSpec(
   record: CanonicalRecord,
   acceptedSpec: AcceptedOwnSpec,
 ): boolean {
-  return (
-    bound.status !== 'applicable' ||
-    (bound.recordId === record.recordId && JSON.stringify(bound.acceptedSpec) === JSON.stringify(acceptedSpec))
-  )
+  return bound.recordId === record.recordId && JSON.stringify(bound.acceptedSpec) === JSON.stringify(acceptedSpec)
 }
 
 function resolveSelectedCorrectionMandate(
@@ -167,7 +151,6 @@ function resolveSelectedCorrectionMandate(
   selected: FixActionResult<SelectedCorrectionMandate>,
 ): FixActionResult<ResolvedCorrectionMandate> {
   if (!selected.ok) return failure(...selected.diagnostics)
-  if (selected.value.status === 'missing') return { ok: true, value: { status: 'missing' } }
   if (selected.value.status === 'refused') {
     if (diagnosticCodes(selected.value.evidence).includes('fix-own-uw-required')) return failure('fix-own-uw-required')
     return failure(`fix-mandate-refused:${selected.value.reason}`)
@@ -201,7 +184,7 @@ export async function resolveCorrectionMandate(
   const histories = correctionHistories(input)
   const bound = boundCorrection(input, histories, input.currentSpec, input.causal)
   if (!bound.ok) return failure(...bound.diagnostics)
-  const selected = selectCorrectionMandate(input, bound.value)
+  const selected = selectCorrectionMandate(input)
   return resolveSelectedCorrectionMandate(input, input.causal.histories, bound.value, selected)
 }
 
@@ -209,14 +192,8 @@ export function publishableMissing(
   input: { target: FixTarget; history: DecodedHistory; linkedIssueHistory: DecodedHistory | null },
   evidence: readonly { code: string; message: string }[],
 ): boolean {
-  if (input.target.kind === 'pull-request' && input.linkedIssueHistory !== null) return false
-  if (
-    !input.history.source.complete ||
-    mandateClaim(input.history) ||
-    (input.linkedIssueHistory !== null && mandateClaim(input.linkedIssueHistory))
-  ) {
-    return false
-  }
+  if (input.linkedIssueHistory !== null) return false
+  if (!input.history.source.complete || mandateClaim(input.history)) return false
   return evidence.some((item) => item.code === 'missing' && item.message === 'No mandate record exists')
 }
 

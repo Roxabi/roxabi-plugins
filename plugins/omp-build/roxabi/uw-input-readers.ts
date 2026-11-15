@@ -46,12 +46,13 @@ export function createProductionInputPorts(options: ProductionReaderOptions): Uw
     createdChildAssessment: options.createdChildAssessment,
   }
   return {
-    readCurrentActionFacts: (request, reviewedFingerprint, reviewedRoot) =>
+    readCurrentActionFacts: (request, reviewedFingerprint, reviewedRoot, correctionRoot) =>
       readProductionActionFacts(
         request,
         { ...source, cwd: correctionObservation(request)?.cwd ?? source.cwd },
         reviewedFingerprint,
         reviewedRoot,
+        correctionRoot,
       ),
     readRecord: (ref) => readSelectedRecord(ref, source),
     readRecords: (refs) => readSelectedRecords(refs, source),

@@ -59,6 +59,7 @@ it('walks a schema-valid expanded wrapper citing a current output', () => {
   const history = fixtures.historyFrom([root, output, wrapper])
   const closed = assertCurrentOutputClosure(
     request([ref(wrapper)]),
+    { subject: request().subject, correctionRoot: null },
     [history],
     fixtureHostReviewClassCatalogues(),
     [],
@@ -97,10 +98,19 @@ it('admits an authenticated prior decision across correction head progression', 
     code: { ...request().code, head: TEST_HEAD },
     stageSources: [decision],
   }
-  expect(assertCurrentOutputClosure(correction, [graph.history], fixtureHostReviewClassCatalogues(), []).ok).toBe(true)
+  expect(
+    assertCurrentOutputClosure(
+      correction,
+      { subject: correction.subject, correctionRoot: null },
+      [graph.history],
+      fixtureHostReviewClassCatalogues(),
+      [],
+    ).ok,
+  ).toBe(true)
   expect(
     assertCurrentOutputClosure(
       { ...correction, code: { ...correction.code, head: 'c'.repeat(40) } },
+      { subject: correction.subject, correctionRoot: null },
       [graph.history],
       fixtureHostReviewClassCatalogues(),
       [],
@@ -109,6 +119,7 @@ it('admits an authenticated prior decision across correction head progression', 
   expect(
     assertCurrentOutputClosure(
       { ...correction, stageSources: [{ ...decision, digest: '0'.repeat(64) }] },
+      { subject: correction.subject, correctionRoot: null },
       [graph.history],
       fixtureHostReviewClassCatalogues(),
       [],

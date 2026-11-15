@@ -45,8 +45,8 @@ export function captureConfirmedFixRequest(
   capture: (request: Extract<FixRecord, { kind: 'fix-request' }>) => void,
 ): RecordPublisher {
   return {
-    publish: async (record) => {
-      const saved = await publisher.publish(record)
+    publish: async (record, canPublish) => {
+      const saved = await publisher.publish(record, canPublish)
       if (saved.ok && record.kind === 'fix-request') capture(record)
       return saved
     },
@@ -156,7 +156,6 @@ export async function runReviewBoundDefaultFix(
   github: GitHubOptions,
   mandate: { recordId: string },
 ): Promise<FixActionResult<FixRecord>> {
-  if (target.kind !== 'pull-request') return fail('review-fix-requires-pull-request')
   try {
     const bound = await loadBoundReview(input, target, readHistory, reviewId, github)
     if (!bound.ok) return bound

@@ -52,6 +52,7 @@ export async function settleOwnedCorrectionFalsification(
   head: string,
   priorHead: string,
   restoreContent = restoredSave,
+  observe?: (task: NativeTask) => void,
 ) {
   const snapshots: Array<{
     agent: string
@@ -62,6 +63,7 @@ export async function settleOwnedCorrectionFalsification(
     index: string
   }> = []
   const recordSnapshot = (task: NativeTask) => {
+    observe?.(task)
     const index = task.action.snapshot.indexPath
     const manifest = actionInputManifestSchema.parse(
       JSON.parse(readFileSync(path.join(path.dirname(index), 'manifest.json'), 'utf8')),

@@ -1,5 +1,6 @@
 import { readNativeIssueState } from '../adapters/github-native/issue-state.ts'
 import type { FixTarget, TargetResolver } from './fix-contract.ts'
+import { type IssueAliasReadPort, resolveIssueAlias } from './fix-entry-issue-alias.ts'
 import { execFileAsync, type Gh, object } from './fix-entry-target-core.ts'
 
 export function parseInvocation(
@@ -35,33 +36,7 @@ export function targetFromPr(repository: string, number: number, details: unknow
   }
 }
 
-export async function targetFromIssue(
-  cwd: string,
-  repository: string,
-  number: number,
-  details: unknown,
-): Promise<FixTarget | null> {
-  const item = object(details)
-  if (item === null || item.state !== 'OPEN') return null
-  try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' })
-    const candidateGitSHA = String(stdout).trim()
-    if (!/^[0-9a-f]{40}$/.test(candidateGitSHA)) return null
-    return {
-      repository,
-      target: `${repository}#${number}`,
-      number,
-      kind: 'issue',
-      state: 'open',
-      candidateGitSHA,
-      baseGitSHA: candidateGitSHA,
-    }
-  } catch {
-    return null
-  }
-}
-
-export function createResolver(cwd: string, gh: Gh, repository: string): TargetResolver {
+export function createResolver(cwd: string, gh: Gh, repository: string, readPort: IssueAliasReadPort): TargetResolver {
   const pullTarget = async (number: number, value: unknown): Promise<FixTarget | null> => {
     const details = object(value)
     if (details === null || typeof details.baseRefName !== 'string' || details.baseRefName.length === 0) return null
@@ -74,24 +49,48 @@ export function createResolver(cwd: string, gh: Gh, repository: string): TargetR
     if (!/^[0-9a-f]{40}$/.test(baseGitSHA)) return null
     return targetFromPr(repository, number, { ...details, baseGitSHA })
   }
-  const explicit = async (reference: string): Promise<FixTarget | null> => {
+  const aliasTarget = async (number: number) => {
+    try {
+      const details = JSON.parse(
+        await gh(cwd, ['pr', 'view', String(number), '--json', 'state,headRefOid,baseRefName']),
+      )
+      if (object(details)?.state === 'MERGED') return { ok: false as const, diagnostics: ['fix-issue-alias-merged'] }
+      if (object(details)?.state === 'CLOSED') return { ok: false as const, diagnostics: ['fix-issue-alias-closed'] }
+      const target = await pullTarget(number, details)
+      return target === null
+        ? { ok: false as const, diagnostics: ['fix-issue-alias-no-pr'] }
+        : { ok: true as const, value: target }
+    } catch {
+      return { ok: false as const, diagnostics: ['fix-issue-alias-no-pr'] }
+    }
+  }
+  const issueTarget = async (number: number) => {
+    let issue: unknown
+    try {
+      issue = await readNativeIssueState(cwd, gh, number)
+    } catch {
+      return { ok: true as const, value: null }
+    }
+    if (object(issue)?.state === 'CLOSED') return { ok: false as const, diagnostics: ['fix-issue-alias-closed'] }
+    if (object(issue)?.state !== 'OPEN') return { ok: true as const, value: null }
+    const alias = await resolveIssueAlias(cwd, gh, repository, number, readPort)
+    if (!alias.ok) return alias
+    return aliasTarget(alias.value)
+  }
+  const explicit: TargetResolver['resolveExplicit'] = async (reference) => {
     const trimmed = reference.trim()
     const foreignRepository = /^([^#]+)#/.exec(trimmed)?.[1]
-    if (foreignRepository !== undefined && foreignRepository !== repository) return null
+    if (foreignRepository !== undefined && foreignRepository !== repository) return { ok: true, value: null }
     const match = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#?([1-9][0-9]*)$/.exec(trimmed)
-    if (!match) return null
+    if (!match) return { ok: true, value: null }
     const number = Number(match[1])
     try {
-      return await pullTarget(
-        number,
-        JSON.parse(await gh(cwd, ['pr', 'view', String(number), '--json', 'state,headRefOid,baseRefName'])),
+      const details = JSON.parse(
+        await gh(cwd, ['pr', 'view', String(number), '--json', 'state,headRefOid,baseRefName']),
       )
+      return { ok: true, value: await pullTarget(number, details) }
     } catch {
-      try {
-        return await targetFromIssue(cwd, repository, number, await readNativeIssueState(cwd, gh, number))
-      } catch {
-        return null
-      }
+      return issueTarget(number)
     }
   }
   return {

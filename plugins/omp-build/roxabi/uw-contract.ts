@@ -36,6 +36,7 @@ import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessm
 import type {
   ActionInputs,
   ActionSnapshot,
+  CorrectionRootRef,
   PreparedToolingPinActivation,
   PreparedUwAction,
   ReviewActionBatch,
@@ -242,12 +243,14 @@ export interface UwOperations extends UwReadPort {
     input: UwActionRequest,
     projection?: ReviewActionProjection,
     review?: SelectedReview,
+    correctionRoot?: CorrectionRootRef,
   ): Promise<Result<PreparedUwAction>>
   prepareReviewActions(input: ReviewActionBatch): Promise<Result<readonly PreparedUwAction[]>>
   replayActionInputs(input: {
     reviewed: ActionInputs
     request: UwActionRequest
     reviewedRoot?: SelectedReview['root']
+    correctionRoot?: CorrectionRootRef
   }): Promise<Result<ActionInputs>>
   verifyAction(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>>
   readDelivery(uw: Scope): Promise<UwResult<UwDeliveryRead>>

@@ -19,14 +19,17 @@ import {
   type FixMandateView,
   mandateView,
 } from './fix-mandate-types.ts'
-import { extendObservedUwCausalContext, readFreshUwCausalContext } from './fix-uw-histories.ts'
+import { extendObservedUwCausalContext } from './fix-uw-histories.ts'
 import type { UwReadPort } from './uw-contract.ts'
 import { readEffectiveFixConfig } from './workflow-config.ts'
 
-export type FixAuthorityDecision =
-  | { status: 'reuse'; mandate: FixMandateView; execution: CorrectionExecutionRights; sameScope: boolean; uw: Scope }
-  | { status: 'successor'; antecedent: FixMandateView }
-  | { status: 'missing' }
+export type FixAuthorityDecision = {
+  status: 'reuse'
+  mandate: FixMandateView
+  execution: CorrectionExecutionRights
+  sameScope: boolean
+  uw: Scope
+}
 export function matchesRequiredFeatureMandate(
   required: ScopedRecordRef & { kind: 'mandate' },
   mandate: FixMandateView,
@@ -62,20 +65,17 @@ function checkFixCheckpoint(
 }
 
 function decideSelectedAuthority(
-  selected:
-    | { status: 'missing' }
-    | {
-        status: 'applicable'
-        mandate: FixMandateView
-        execution: CorrectionExecutionRights
-        acceptedSpec: AcceptedOwnSpec
-      },
+  selected: {
+    status: 'applicable'
+    mandate: FixMandateView
+    execution: CorrectionExecutionRights
+    acceptedSpec: AcceptedOwnSpec
+  },
   input: {
     target: FixTarget
     requiredFeatureMandate?: ScopedRecordRef & { kind: 'mandate' }
   },
 ): FixActionResult<FixAuthorityDecision> {
-  if (selected.status === 'missing') return { ok: true, value: { status: 'missing' } }
   if (selected.execution.landing !== false) return failure('fix-mandate-execution-denied')
   const mandate = selected.mandate
   if (
@@ -115,15 +115,8 @@ export async function decideFixAuthority(input: {
     ...(linked.value.history === null ? [] : [linked.value.history]),
     ...linked.value.externalHistories,
   ]
-  if (linked.value.currentSpec === null && input.target.kind === 'pull-request') return failure('fix-own-uw-required')
-  const causal =
-    linked.value.currentSpec === null
-      ? await readFreshUwCausalContext(
-          { repository: input.target.repository, target: input.target.target },
-          selectedHistories,
-          input.options,
-        )
-      : await extendObservedUwCausalContext(linked.value.currentSpec.causal, selectedHistories, input.options)
+  if (linked.value.currentSpec === null) return failure('fix-own-uw-required')
+  const causal = await extendObservedUwCausalContext(linked.value.currentSpec.causal, selectedHistories, input.options)
   if (!causal.ok) return causal
   const checkpoint = checkFixCheckpoint(history, input.trustedLiveRequest, causal.value.histories)
   if (!checkpoint.ok) return checkpoint
@@ -131,7 +124,6 @@ export async function decideFixAuthority(input: {
     target: input.target,
     history,
     linkedIssueHistory: linked.value.history,
-    linkedIssueScopes: [],
     externalHistories: linked.value.externalHistories,
     causal: causal.value,
     branch: linked.value.branch ?? input.branch,
@@ -155,7 +147,7 @@ export async function confirmFixContinuation(input: {
 }): Promise<FixActionResult<void>> {
   const again = await decideFixAuthority(input)
   if (!again.ok) return again
-  if (again.value.status !== 'reuse' || again.value.mandate.recordId !== input.boundRecordId) {
+  if (again.value.mandate.recordId !== input.boundRecordId) {
     return failure('fix-mandate-changed')
   }
   if (again.value.execution.landing !== false) return failure('fix-mandate-execution-denied')

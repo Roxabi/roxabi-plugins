@@ -126,7 +126,7 @@ export async function authorizeFixAction(
   uw: UwRead,
 ): Promise<FixActionResult<readonly string[]>> {
   if (input.target.state !== 'open') return failure('fix-target-closed')
-  if (input.target.kind === 'pull-request' && (input.base === null || input.target.candidateGitSHA === null)) {
+  if (input.base === null || input.target.candidateGitSHA === null) {
     return failure('fix-workflow-refused:unknown-binding')
   }
   const commit = input.target.candidateGitSHA
@@ -234,11 +234,11 @@ async function reconstructAuthorizedFix(
     return failure('fix-product-version-unreadable')
   }
   const issue = linked ?? history
-  const pullRequest = linked !== null && input.target.kind === 'pull-request' ? history : null
+  const pullRequest = linked !== null ? history : null
   const composed = composeChantier({ issue, pullRequest, parents, causal: currentFacts.causal })
   if (!composed.ok) return failure('fix-history-incomplete', ...diagnosticCodes(composed.diagnostics))
   const pullRequestFacts =
-    input.target.kind === 'pull-request' && input.base !== null
+    input.base !== null
       ? {
           scope: { repository: input.target.repository, target: input.target.target },
           head: commit,

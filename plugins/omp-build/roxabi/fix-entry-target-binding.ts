@@ -1,6 +1,7 @@
 import type { Json } from '../dist/contracts.js'
 import type { FixActionResult, FixTarget, PublishBinding } from './fix-contract.ts'
 import { fail, type Gh, git, object, sha } from './fix-entry-target-core.ts'
+import { credentialFreePushUrl } from './fix-publish-url.ts'
 
 type RepositoryDefault = { repository: string; defaultBranch: string }
 
@@ -42,13 +43,9 @@ async function readPullRequestBinding(
   cwd: string,
   gh: Gh,
   target: FixTarget,
-  repository: string,
   localRef: string,
   localHead: string,
 ): Promise<FixActionResult<{ repository: string; destinationRef: string; facts: Json }>> {
-  if (target.kind !== 'pull-request') {
-    return { ok: true, value: { repository, destinationRef: localRef, facts: null } }
-  }
   const pr = object(
     JSON.parse(
       await gh(cwd, [
@@ -108,15 +105,17 @@ export async function resolvePublishBinding(
     const localHead = sha(await git(cwd, ['rev-parse', '--verify', 'HEAD']))
     if (localHead === null || localHead !== target.candidateGitSHA) return fail('fix-publish-local-head-mismatch')
     const pushUrl = await git(cwd, ['remote', 'get-url', '--push', 'origin'])
+    if (!credentialFreePushUrl(pushUrl)) return fail('fix-publish-remote-credential-refused')
     const remote = await readRepositoryDefault(cwd, gh, pushUrl, null, 'fix-publish-remote-repository-mismatch')
     if (!remote.ok) return remote
-    const pullRequest = await readPullRequestBinding(cwd, gh, target, repository, branch.value.ref, localHead)
+    const pullRequest = await readPullRequestBinding(cwd, gh, target, branch.value.ref, localHead)
     if (!pullRequest.ok) return pullRequest
     if (remote.value.repository !== pullRequest.value.repository) return fail('fix-publish-remote-repository-mismatch')
     if (branch.value.branch === remote.value.defaultBranch) return fail('fix-publish-default-branch-refused')
     const remoteLine = await git(cwd, ['ls-remote', '--refs', pushUrl, pullRequest.value.destinationRef])
     const expectedSHA = expectedRemoteSha(remoteLine, pullRequest.value.destinationRef)
     if (!expectedSHA.ok) return expectedSHA
+    if (expectedSHA.value !== localHead) return fail('fix-publish-remote-head-mismatch')
     return {
       ok: true,
       value: {

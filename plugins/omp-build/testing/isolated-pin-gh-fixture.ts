@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { executeSimCommand } from '../skills/feature/testing/gh-simulator/sim-execution.ts'
 
 const args = process.argv.slice(2)
 const source = 'Roxabi/roxabi-plugins'
-const { GH_SIM_STATE, PIN_CANDIDATE, PIN_DEFAULT_HEAD, PIN_SHARED, PIN_GH_SIMULATOR } = process.env
-if (!GH_SIM_STATE || !PIN_CANDIDATE || !PIN_DEFAULT_HEAD || !PIN_SHARED || !PIN_GH_SIMULATOR)
+const { GH_SIM_STATE, PIN_CANDIDATE, PIN_DEFAULT_HEAD, PIN_SHARED } = process.env
+if (!GH_SIM_STATE || !PIN_CANDIDATE || !PIN_DEFAULT_HEAD || !PIN_SHARED)
   throw new Error('isolated-pin-gh-fixture-environment-missing')
 const repo = join(GH_SIM_STATE.replace(/\/[^/]+$/, ''), 'omp-tooling.git')
 const candidate = PIN_CANDIDATE
@@ -23,6 +24,8 @@ const controls = process.env.PIN_CONTROL_FILE
     })
   : {}
 const git = (...argv: string[]) => execFileSync('git', argv, { cwd: repo, encoding: 'utf8' }).trim()
+const simulate = (readStdin = () => readFileSync(0, 'utf8')) =>
+  executeSimCommand(args, { cwd: process.cwd(), readStdin })
 if (
   process.env.PIN_FEATURE_GATE &&
   args[0] === 'variable' &&
@@ -73,10 +76,10 @@ if (
   } catch {}
   writeFileSync(countPath, String(++count))
   if (count === 2) {
-    const response = spawnSync(PIN_GH_SIMULATOR, args, { encoding: 'utf8', env: process.env })
+    const response = simulate(() => '')
     if (response.status !== 0) {
       process.stderr.write(response.stderr)
-      process.exit(response.status ?? 1)
+      process.exit(response.status)
     }
     writeFileSync(join(process.env.PIN_SYNC_DIR, 'ready'), 'ready')
     readFileSync(join(process.env.PIN_SYNC_DIR, 'release'))
@@ -112,5 +115,7 @@ if (args[0] === 'api' && args[1] === `repos/${source}/compare/${candidate}...${d
   )
   process.exit(0)
 }
-const result = spawnSync(PIN_GH_SIMULATOR, args, { stdio: 'inherit', env: process.env })
-process.exit(result.status ?? 1)
+const result = simulate()
+process.stdout.write(result.stdout)
+process.stderr.write(result.stderr)
+if (result.status !== 0) process.exit(result.status)
