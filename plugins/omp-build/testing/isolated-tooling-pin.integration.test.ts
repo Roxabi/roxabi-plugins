@@ -9,6 +9,8 @@ it('lets an operator activate the target proposal and frame with the installed c
   try {
     const simulator = process.env.OMP_TEST_GH_SIMULATOR_PATH
     if (!simulator) throw new Error('fixture-gh-simulator-missing')
+    const pinGh = process.env.OMP_TEST_PIN_GH_PATH
+    if (!pinGh) throw new Error('fixture-pin-gh-missing')
     // The canonical simulator materializes a real tooling repository containing the installed bytes.
     execFileSync(simulator, ['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'], {
       cwd: box.principal,
@@ -43,13 +45,12 @@ it('lets an operator activate the target proposal and frame with the installed c
     // The adapter only supplies the two variables, old package blob lookup and source ancestry.
     const bin = join(box.root, 'pin-bin')
     execFileSync('mkdir', ['-p', bin])
-    symlinkSync(resolve(import.meta.dirname, 'isolated-pin-gh-fixture.ts'), join(bin, 'gh'))
+    symlinkSync(pinGh, join(bin, 'gh'))
     const run = spawnSync('bun', [resolve(import.meta.dirname, 'isolated-pin-consumer-runner.ts'), box.principal], {
       cwd: box.principal,
       env: {
         ...box.env,
         PATH: `${bin}:${box.env.PATH}`,
-        PIN_GH_SIMULATOR: simulator,
         PIN_SHARED: shared,
         PIN_CANDIDATE: candidate,
         PIN_DEFAULT_HEAD: defaultHead,

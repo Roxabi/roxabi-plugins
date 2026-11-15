@@ -30,8 +30,9 @@ export async function prepareCorrectionSynthesis(
     sourceContributionIds.length === 0 ||
     sourceContributionIds.some((id) => !isRecordId(id)) ||
     new Set(sourceContributionIds).size !== sourceContributionIds.length ||
-    sourceContributions.some(
-      (record) => record.kind !== 'contribution' || record.payload.inventoryId !== prepared.inventoryId,
+    !sourceContributions.every(
+      (record): record is Extract<FixRecord, { kind: 'contribution' }> =>
+        record.kind === 'contribution' && record.payload.inventoryId === prepared.inventoryId,
     )
   ) {
     return failure('correction-synthesis-sources-invalid')
@@ -49,10 +50,6 @@ export async function prepareCorrectionSynthesis(
   if (head === null || prepared.target.baseGitSHA === null) return failure('prepare-action-unavailable')
   const pinned = codePin(prepared.target.repository, prepared.target.baseGitSHA, head, head)
   if (!pinned.ok) return failure('code-unobserved')
-  const stageRecords = sourceContributions.flatMap((record) =>
-    record.kind === 'contribution' || record.kind === 'decision' ? [record] : [],
-  )
-  if (stageRecords.length !== sourceContributions.length) return failure('correction-synthesis-sources-invalid')
   const preparedAction = await confirmPreparedAction(
     operations,
     actionRequest({
@@ -60,7 +57,7 @@ export async function prepareCorrectionSynthesis(
       purpose: 'correction',
       subject: prepared.subject,
       code: pinned.code,
-      stageSources: [...priorStage, ...stageRecords.map(recordStageRef)],
+      stageSources: [...priorStage, ...sourceContributions.map(recordStageRef)],
     }),
     undefined,
     undefined,

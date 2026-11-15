@@ -167,7 +167,6 @@ export async function continueReviewBoundFix(
       reason: bound.diagnostics[0] ?? 'review-fix-binding-unreadable',
       diagnostics: bound.diagnostics.slice(1).map((message) => ({ code: message, message })),
     }
-  if (bound.value.status !== 'applicable') return { kind: 'blocked', reason: 'review-fix-binding-missing' }
   const correctionScope = bound.value.acceptedSpec.snapshot.raw.body
   if (
     bound.value.recordId !== selected.mandateRef.recordId ||

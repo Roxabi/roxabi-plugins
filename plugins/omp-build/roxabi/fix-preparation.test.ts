@@ -16,6 +16,41 @@ function openTarget(): FixTarget {
 }
 
 describe('standalone fix preparation', () => {
+  it.each([
+    { pushUrl: 'https://user:secret@github.com/Acme/app.git', expectedRemoteSHA: 'a'.repeat(40) },
+    { pushUrl: 'https://github.com/Acme/app.git', expectedRemoteSHA: null },
+    { pushUrl: 'https://github.com/Acme/app.git', expectedRemoteSHA: 'c'.repeat(40) },
+  ])('refuses unsafe publication binding before any write: $pushUrl', async ({ pushUrl, expectedRemoteSHA }) => {
+    const result = await prepareStandaloneFix(
+      {
+        cwd: '/worktree',
+        reference: '#42',
+        rawOperatorRequest: { request: 'fix it' },
+        scope: 'src/auth only',
+        identity: { runId: 'run-1', operationId: 'operation-1', nextRecordId: (kind) => `${kind}-1` },
+        publishBinding: {
+          pushUrl,
+          publicationRepository: 'Acme/app',
+          localBranch: 'fix/auth',
+          destinationRef: 'refs/heads/fix/auth',
+          localHead: 'a'.repeat(40),
+          expectedRemoteSHA,
+          defaultBranch: 'main',
+          observed: {},
+        },
+        nativeTasks: [{ name: 'slot-1', agent: 'R-adversarial', task: 'inspect', solutionSpace: 'correction' }],
+        operations: confirmingUwOperations(),
+      },
+      { resolveExplicit: async () => ({ ok: true, value: openTarget() }), resolveContext: async () => null },
+      {
+        publish: async () => {
+          throw new Error('unexpected publication')
+        },
+      },
+    )
+    expect(result).toEqual({ ok: false, diagnostics: ['fix-publish-binding-invalid'] })
+  })
+
   it('refuses a closed target before publishing an operator contribution', async () => {
     const records: FixRecord[] = []
     const result = await prepareStandaloneFix(

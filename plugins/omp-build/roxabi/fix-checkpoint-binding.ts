@@ -47,9 +47,6 @@ export async function linkedIssueBinding(
       | null
   }>
 > {
-  if (target.kind !== 'pull-request') {
-    return { ok: true, value: { history: null, externalHistories: [], branch: null, base: null, currentSpec: null } }
-  }
   const raw = await readWorkflowBinding({ repository: target.repository, target: target.target }, options)
   if (!raw.ok) {
     if (raw.status !== 'absent') {
@@ -213,6 +210,7 @@ export function sameScope(left: Scope, right: Scope): boolean {
 
 export function confirmedWorkflowBinding(value: unknown): {
   mandateScope: Scope
+  mandateRecordId: string
   history: DecodedHistory
   histories: DecodedHistory[]
   branch: string
@@ -237,7 +235,14 @@ export function confirmedWorkflowBinding(value: unknown): {
   const histories = (Array.isArray(envelope.histories) ? envelope.histories : [history])
     .map((item) => decodedHistory(item))
     .filter((item): item is DecodedHistory => item !== null)
-  return { mandateScope: mandate.scope, history, histories, branch: payload.branch, base: payload.base }
+  return {
+    mandateScope: mandate.scope,
+    mandateRecordId: mandate.recordId,
+    history,
+    histories,
+    branch: payload.branch,
+    base: payload.base,
+  }
 }
 
 export function decodedHistory(value: unknown): DecodedHistory | null {

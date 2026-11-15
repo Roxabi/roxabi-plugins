@@ -2,6 +2,7 @@ import type { CanonicalRecord, CauseContext, Json, Scope, Submission } from '../
 import type { NativeBatch, NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { FixPolicy } from './fix-domain'
+import { credentialFreePushUrl } from './fix-publish-url.ts'
 import type { ActionSubject } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
 /** `reasons` names why an observation was unavailable, for the operator only: it is never a published code. */
@@ -13,7 +14,7 @@ export type FixScope = Scope
 
 export type FixTarget = FixScope & {
   number: number
-  kind: 'issue' | 'pull-request'
+  kind: 'pull-request'
   state: 'open' | 'closed'
   candidateGitSHA: string | null
   baseGitSHA: string | null
@@ -130,8 +131,9 @@ export function validPublishBinding(binding: PublishBinding, target: FixTarget):
     /^refs\/heads\/.+/.test(binding.destinationRef) &&
     binding.destinationRef === `refs/heads/${binding.localBranch}` &&
     binding.localBranch !== binding.defaultBranch &&
-    binding.pushUrl.trim().length > 0 &&
-    (binding.expectedRemoteSHA === null || /^[0-9a-f]{40}$/.test(binding.expectedRemoteSHA))
+    credentialFreePushUrl(binding.pushUrl) &&
+    binding.expectedRemoteSHA === target.candidateGitSHA &&
+    /^[0-9a-f]{40}$/.test(binding.expectedRemoteSHA)
   )
 }
 

@@ -24,7 +24,7 @@ export function createIssueAliasReadPort(options: GitHubOptions): IssueAliasRead
 async function aliasMandate(
   scope: Scope,
   port: IssueAliasReadPort,
-): Promise<FixActionResult<{ branch: string; base: string }>> {
+): Promise<FixActionResult<{ branch: string; base: string; recordId: string }>> {
   let history: DecodedHistory
   try {
     history = await port.readHistory(scope)
@@ -41,7 +41,7 @@ async function aliasMandate(
     )
   const { branch, base } = mandate.value.payload
   if (!branch || !base) return fail('fix-issue-alias-no-branch')
-  return { ok: true, value: { branch, base } }
+  return { ok: true, value: { branch, base, recordId: mandate.value.recordId } }
 }
 
 async function aliasCandidate(
@@ -87,13 +87,19 @@ async function aliasBranch(cwd: string, gh: Gh, number: number, branch: string):
   return { ok: true, value: undefined }
 }
 
-async function aliasBinding(scope: Scope, pull: Scope, port: IssueAliasReadPort): Promise<FixActionResult<void>> {
+async function aliasBinding(
+  scope: Scope,
+  mandateId: string,
+  pull: Scope,
+  port: IssueAliasReadPort,
+): Promise<FixActionResult<void>> {
   try {
     const binding = await port.readBinding(pull)
     if (binding === null) return fail('fix-issue-alias-binding-missing')
     const confirmed = confirmedWorkflowBinding(binding)
     if (confirmed === null || !confirmed.history.source.complete) return fail('fix-issue-alias-binding-missing')
-    if (!sameScope(confirmed.mandateScope, scope)) return fail('fix-issue-alias-binding-mismatch')
+    if (!sameScope(confirmed.mandateScope, scope) || confirmed.mandateRecordId !== mandateId)
+      return fail('fix-issue-alias-binding-mismatch')
   } catch {
     return fail('fix-issue-alias-binding-missing')
   }
@@ -114,7 +120,7 @@ export async function resolveIssueAlias(
   if (!candidate.ok) return candidate
   const branch = await aliasBranch(cwd, gh, candidate.value, mandate.value.branch)
   if (!branch.ok) return branch
-  const binding = await aliasBinding(scope, githubScope(repository, candidate.value), port)
+  const binding = await aliasBinding(scope, mandate.value.recordId, githubScope(repository, candidate.value), port)
   if (!binding.ok) return binding
   return candidate
 }

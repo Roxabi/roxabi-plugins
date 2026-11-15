@@ -156,7 +156,6 @@ export async function runReviewBoundDefaultFix(
   github: GitHubOptions,
   mandate: { recordId: string },
 ): Promise<FixActionResult<FixRecord>> {
-  if (target.kind !== 'pull-request') return fail('review-fix-requires-pull-request')
   try {
     const bound = await loadBoundReview(input, target, readHistory, reviewId, github)
     if (!bound.ok) return bound

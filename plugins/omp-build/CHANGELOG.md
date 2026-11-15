@@ -2,8 +2,10 @@
 
 ## 0.20.1 (unreleased)
 
-- Authenticate correction intake against the canonical root and bind synthesis to the expected root and complete findings set. Keep CI attribution as authenticated stage data, not dispatch authority or a decision finding.
-- Resolve `/fix #issue` only through its authenticated current mandate and uniquely bound open PR; retain typed, no-write refusals when the association is unavailable.
+- Prepare and validate CI correction inputs before publishing the canonical root. Authenticate intake against that root and bind synthesis to its complete findings set; CI attribution stays authenticated stage data, not dispatch authority or a decision finding.
+- Resolve `/fix #issue` only through the exact current mandate and uniquely bound open PR; remove PR-less correction targets and retain typed, no-write refusals.
+- Refuse credential-bearing effective push URLs and absent or mismatched remote branch tips before publishing correction roots. Preserve exact repository and push-origin identity checks.
+- Preserve the ordinary correction's own live request and publication ownership checks without widening the existing standalone decision-backed closure gate.
 - Recognize 0.20.1 under the bounded PR-binding policy while preserving 0.20.0. This source change does not migrate mandates, activate tooling or authorize recovery.
 
 ## 0.20.0 (unreleased)

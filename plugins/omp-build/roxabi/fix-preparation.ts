@@ -51,7 +51,7 @@ function invalidNativeTasks(tasks: FixRequestInput['nativeTasks']): boolean {
 
 function preparedSubject(input: FixRequestInput, target: FixTarget) {
   const scope = { repository: target.repository, target: target.target }
-  return correctionSubject(scope, input.uw, target.kind === 'pull-request' ? scope : null)
+  return correctionSubject(scope, input.uw, scope)
 }
 
 async function prepareStandaloneInputs(
@@ -109,7 +109,6 @@ export async function admitReviewFix(
   reviewId: string | undefined,
   workflow: ReviewAuthority | undefined,
 ): Promise<FixActionResult<void>> {
-  if (target.kind !== 'pull-request') return { ok: true, value: undefined }
   if (!workflow) return failure('review-fix-authority-unavailable')
   const next = await workflow.nextReviewStep(cwd, target.number, { reviewing: true })
   if (next.reason === 'ci-failed') return failure('ci-failed-requires-ci-correction')

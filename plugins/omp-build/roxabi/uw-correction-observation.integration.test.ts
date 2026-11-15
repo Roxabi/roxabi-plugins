@@ -253,6 +253,20 @@ describe('private correction code observation', () => {
     const snapshot = path.dirname(prepared.value.snapshot.indexPath)
     expect(readFileSync(path.join(snapshot, 'diff.patch'), 'utf8')).toContain('+corrected content')
     expect(readFileSync(path.join(snapshot, 'repo', 'AGENTS.md'), 'utf8')).toBe('corrected content\n')
+    expect(request.stageSources.map((ref) => ref.record.kind)).toEqual(['decision'])
+    const otherArtifacts = mkdtempSync(path.join(tmpdir(), 'omp-correction-decision-root-'))
+    roots.push(otherArtifacts)
+    const withRoot = {
+      ...createProductionActionPorts({ ...source, artifactsDir: otherArtifacts }),
+      plugin: ports.plugin,
+    }
+    const decisionBacked = await withCorrectionObservation(request, basis, () =>
+      prepareUwAction(request, withRoot, undefined, undefined, {
+        inventory: { scope: TEST_SCOPE, kind: 'review-attempt', recordId: 'unrelated-inventory' },
+        requestId: 'unrelated-request',
+      }),
+    )
+    expect(decisionBacked.ok, JSON.stringify(decisionBacked)).toBe(true)
   })
 
   it('refuses a moved remote head, branch, or base', async () => {

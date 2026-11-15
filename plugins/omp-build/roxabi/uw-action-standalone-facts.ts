@@ -91,8 +91,7 @@ export async function standaloneFacts(
   if (
     root !== undefined ||
     reviewedRoot !== undefined ||
-    correctionRoot !== undefined ||
-    request.stageSources.length > 0
+    (correctionRoot !== undefined && !request.stageSources.some((ref) => ref.record.kind === 'decision'))
   ) {
     const closed = await confirmStandaloneOutputClosure(
       request,

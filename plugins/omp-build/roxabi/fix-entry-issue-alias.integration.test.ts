@@ -80,6 +80,30 @@ describe('issue alias resolution', () => {
     })
   })
 
+  it('requires the binding to name the current mandate, not merely its UW', async () => {
+    const s = setup()
+    const current = fixtures.featureMandate(scope, { recordId: 'mandate-current', operationId: 'op-current' })
+    const history = fixtures.historyFrom([current])
+    const stale = { ...s.port, readHistory: async () => history }
+    const resolver = createResolver(s.cwd, s.gh, scope.repository, stale)
+    expect(await resolver.resolveExplicit('#42')).toEqual({
+      ok: false,
+      diagnostics: ['fix-issue-alias-binding-mismatch'],
+    })
+    const binding = fixtures.workflowBinding(
+      { repository: scope.repository, target: 'acme/app#7' },
+      current,
+      'feat/42-save',
+      'main',
+    )
+    const matching = createResolver(s.cwd, s.gh, scope.repository, {
+      ...stale,
+      readBinding: async () => ({ binding, history, histories: [history] }),
+    })
+    const result = await matching.resolveExplicit('#42')
+    expect(result.ok && result.value?.number).toBe(7)
+  })
+
   it('refuses absent, ambiguous, incomplete, closed, merged and fork-only candidates', async () => {
     const s = setup()
     const resolver = createResolver(s.cwd, s.gh, scope.repository, s.port)

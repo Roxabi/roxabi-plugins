@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { git } from './sandbox/sandbox-repository.ts'
 import type { Box } from './sandbox/sandbox-types.ts'
 
@@ -8,6 +8,8 @@ import type { Box } from './sandbox/sandbox-types.ts'
 export function isolatedPinSandbox(box: Box): { candidate: string; shared: string; env: NodeJS.ProcessEnv } {
   const simulator = process.env.OMP_TEST_GH_SIMULATOR_PATH
   if (!simulator) throw new Error('fixture-gh-simulator-missing')
+  const pinGh = process.env.OMP_TEST_PIN_GH_PATH
+  if (!pinGh) throw new Error('fixture-pin-gh-missing')
   execFileSync(simulator, ['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'], {
     cwd: box.principal,
     env: box.env,
@@ -37,14 +39,13 @@ export function isolatedPinSandbox(box: Box): { candidate: string; shared: strin
   git(box, tooling, ['update-ref', 'refs/remotes/fixture/main', defaultHead])
   const bin = join(box.root, 'pin-bin')
   mkdirSync(bin)
-  symlinkSync(resolve(import.meta.dirname, 'isolated-pin-gh-fixture.ts'), join(bin, 'gh'))
+  symlinkSync(pinGh, join(bin, 'gh'))
   return {
     candidate,
     shared,
     env: {
       ...box.env,
       PATH: `${bin}:${box.env.PATH}`,
-      PIN_GH_SIMULATOR: simulator,
       PIN_SHARED: shared,
       PIN_CANDIDATE: candidate,
       PIN_DEFAULT_HEAD: defaultHead,

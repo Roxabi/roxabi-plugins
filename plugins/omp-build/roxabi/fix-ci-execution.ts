@@ -64,9 +64,7 @@ async function prepareCiCorrection(
     return failure('fix-publish-binding-invalid')
   const pinned = codePin(input.target.repository, input.target.baseGitSHA, head, head)
   if (!pinned.ok) return failure('code-unobserved')
-  const pullRequest =
-    input.target.kind === 'pull-request' ? { repository: input.target.repository, target: input.target.target } : null
-  if (pullRequest === null) return failure('ci-correction-not-pull-request')
+  const pullRequest = { repository: input.target.repository, target: input.target.target }
   const attribution: RecordInputRef = {
     source: 'record',
     record: { scope: pullRequest, kind: 'action-receipt', recordId: admitted.attributionRecordId },
