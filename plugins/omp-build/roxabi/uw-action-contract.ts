@@ -24,6 +24,7 @@ export type {
   RecordInputRef,
 } from '../engine/action-input-schema.ts'
 export type ReviewRootRef = ExternalRecordRef & { kind: 'review-attempt' }
+export type CorrectionRootRef = Readonly<{ inventory: ReviewRootRef; requestId: string }>
 export type SelectedReview = { root: ReviewRootRef; fingerprint: string }
 
 export type InstalledPluginPin = {
@@ -109,6 +110,7 @@ export type UwInputReadPorts = {
     request: UwActionRequest,
     reviewedFingerprint?: string,
     reviewedRoot?: ReviewRootRef,
+    correctionRoot?: CorrectionRootRef,
   ): Promise<Result<CurrentActionFacts>>
   readCurrentActionFactsBatch?(
     requests: readonly UwActionRequest[],

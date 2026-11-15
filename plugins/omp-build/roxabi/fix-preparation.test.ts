@@ -51,7 +51,7 @@ describe('standalone fix preparation', () => {
         operations: confirmingUwOperations(),
       },
       {
-        resolveExplicit: async () => ({ ...openTarget(), state: 'closed' }),
+        resolveExplicit: async () => ({ ok: true, value: { ...openTarget(), state: 'closed' } }),
         resolveContext: async () => null,
       },
       {
@@ -72,9 +72,9 @@ describe('standalone fix preparation', () => {
     const operations = confirmingUwOperations()
     const prepareAction = operations.prepareAction
     let observedCode: unknown
-    operations.prepareAction = async (request) => {
+    operations.prepareAction = async (request, projection, review, correctionRoot) => {
       observedCode = request.code
-      return prepareAction(request)
+      return prepareAction(request, projection, review, correctionRoot)
     }
     const result = await prepareStandaloneFix(
       {
@@ -108,7 +108,7 @@ describe('standalone fix preparation', () => {
         operations,
       },
       {
-        resolveExplicit: async () => openTarget(),
+        resolveExplicit: async () => ({ ok: true, value: openTarget() }),
         resolveContext: async () => null,
       },
       {
@@ -162,7 +162,7 @@ describe('standalone fix preparation', () => {
         operations: confirmingUwOperations(),
       },
       {
-        resolveExplicit: async () => openTarget(),
+        resolveExplicit: async () => ({ ok: true, value: openTarget() }),
         resolveContext: async () => null,
       },
       {

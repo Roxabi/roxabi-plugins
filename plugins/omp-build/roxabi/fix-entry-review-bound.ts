@@ -45,8 +45,8 @@ export function captureConfirmedFixRequest(
   capture: (request: Extract<FixRecord, { kind: 'fix-request' }>) => void,
 ): RecordPublisher {
   return {
-    publish: async (record) => {
-      const saved = await publisher.publish(record)
+    publish: async (record, canPublish) => {
+      const saved = await publisher.publish(record, canPublish)
       if (saved.ok && record.kind === 'fix-request') capture(record)
       return saved
     },

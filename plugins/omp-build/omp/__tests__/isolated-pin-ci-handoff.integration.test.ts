@@ -98,16 +98,22 @@ it('consumes native CI attribution and admits correction with the activated pin'
     throw new Error('ci-attribution-result-missing')
   expect(receipt.payload.structured).toEqual({ attribution: 'change', evidence: null })
   expect(receipt.payload.inputs.manifest.plugin.commit).toBe(pin.candidate)
-  const evidence = records.find(
-    (record) => record.kind === 'contribution' && record.payload.host.role === 'ci-correction',
-  )
-  if (evidence?.kind !== 'contribution') throw new Error('ci-correction-evidence-missing')
+  const evidence = records.find((record) => record.kind === 'contribution' && record.payload.host.role === 'operator')
+  if (evidence?.kind !== 'contribution') throw new Error('ci-correction-operator-request-missing')
+  expect(evidence.payload.content).toBe('operator-request')
+  expect(evidence.payload.inventoryId).toBeNull()
   expect(evidence.payload.rawAttempts).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         raw: expect.objectContaining({
-          attributionRecordId: receipt.recordId,
+          operatorRequest: expect.objectContaining({
+            ciCorrection: expect.objectContaining({
+              attributionRecordId: receipt.recordId,
+              candidateGitSHA: box.sha[BRANCH],
+            }),
+          }),
           candidateGitSHA: box.sha[BRANCH],
+          publishBinding: expect.any(Object),
         }),
       }),
     ]),

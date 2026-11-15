@@ -17,8 +17,9 @@ export function synthesisSources(task: string): unknown[] {
   if (!files.has('stage/annex.json')) throw new Error('synthesis-annex-unlisted')
   const annex: unknown = JSON.parse(readFileSync(path.join(directory, 'stage/annex.json'), 'utf8'))
   if (!Array.isArray(annex)) throw new Error('synthesis-annex-invalid')
-  return annex.map((item) => {
+  return annex.flatMap((item) => {
     const ref = recordInputRefSchema.parse(item)
+    if (ref.record.kind === 'action-receipt') return []
     if (ref.record.kind !== 'contribution' || ref.selector !== '/payload') throw new Error('synthesis-source-invalid')
     const source = [
       'stage',
@@ -31,7 +32,7 @@ export function synthesisSources(task: string): unknown[] {
     if (!files.has(source)) throw new Error('synthesis-source-unlisted')
     const payload: unknown = JSON.parse(readFileSync(path.join(directory, source), 'utf8'))
     if (canonicalValueDigest(payload) !== ref.digest) throw new Error('synthesis-source-digest-mismatch')
-    return { contributionId: ref.record.recordId, payload, ref }
+    return [{ contributionId: ref.record.recordId, payload, ref }]
   })
 }
 type SynthesisSources = {

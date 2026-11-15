@@ -42,7 +42,11 @@ test.each([
   { version: '0.19.3', branch: 'other', base: 'main', expected: 'conflicting' },
   { version: '0.19.3', branch: null, base: 'main', expected: 'conflicting' },
   { version: '0.19.3', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
-  { version: '0.19.4', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: '0.19.4', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.19.4', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.19.4', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.19.4', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.19.5', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
   { version: 'unknown', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
 ])(
   'binding policy $version refuses only unsupported or non-landable new associations',

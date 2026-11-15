@@ -21,6 +21,7 @@ type LeafArgs = {
   leafHead: string
   leafMerge: string
   post: (scope: Scenario['root'], comments: readonly { body: string }[]) => Promise<void>
+  beforeMerge?: NestedLeafBeforeMerge
 }
 type Before = Awaited<ReturnType<World['operations']['readUw']>>
 
@@ -59,6 +60,15 @@ async function implementLeaf(args: LeafArgs, before: Before, parents: ReturnType
 type Produced = Awaited<ReturnType<typeof implementLeaf>>
 
 type Binding = ReturnType<Scenario['workflow']['workflowBinding']>
+export type NestedLeafBeforeMerge = (context: {
+  world: World
+  scenario: Scenario
+  git: Git
+  parent: Awaited<ReturnType<Git['parent']>>
+  produced: Produced
+  parents: ReturnType<typeof ancestors>
+  binding: Binding
+}) => Promise<void>
 
 function observeLeaf({ scenario, git, leafHead, leafMerge, world }: LeafArgs) {
   world.observePullRequest({
@@ -82,6 +92,7 @@ async function publishLeaf(
   const { scenario, git, parent, leafMerge, post } = args
   const history = scenario.workflow.historyFrom([binding], 'operator', 'operator', [produced.history, ...parents])
   await post(scenario.pullRequest, history.source.comments)
+  await args.beforeMerge?.({ world: args.world, scenario, git, parent, produced, parents, binding })
   git.publishBase(leafMerge)
   parent.checkout(leafMerge)
   observeLeaf(args)

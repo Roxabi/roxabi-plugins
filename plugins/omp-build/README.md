@@ -415,7 +415,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3 retain the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.4 retain the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -553,6 +553,8 @@ Implementation command claims contain only `toolCallId`, `command` and `exitCode
 Native `/dev-review` runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` uses `R-review-fix-intake` and `R-review-fix-synthesis` for a standalone request; a review-bound request instead consumes the already-confirmed decision unchanged, without new intake or synthesis. Correction uses `R-review-fix-apply` and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
 
 Correction mandates use the same strict own-UW contract. A bound PR reuses its real accepted UW snapshot, tier and durable identity references, with correction permission but no landing permission. A PR without an authenticated UW binding refuses `fix-own-uw-required` before publication or dispatch; neither its prose nor a correction-scope string becomes an invented `C1`.
+
+CI correction pins the authenticated attribution result as pre-decision evidence and binds synthesis to the complete initial intake of the same correction root. The evidence does not grant dispatch or landing authority. An issue reference to `/fix` aliases its unique current authenticated bound open PR; the issue must be open and its PR branch checked out. Issues without such a PR are refused before writes; correction without a PR is unsupported.
 
 Existing worktrees are entered with `/move <path>`, not recreated, and not with `/wt`. The command prints that move only when the session cwd is not the intended worktree.
 

@@ -3,22 +3,27 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { CorrectionStageContext } from './uw-action-closure.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { pinAcceptedSources } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
 import type { UwRead } from './uw-contract.ts'
+import { priorCiAttribution } from './uw-correction-stage-attribution.ts'
 import { priorCorrectionContribution } from './uw-correction-stage-contribution.ts'
 import { priorCorrectionDecision } from './uw-correction-stage-decision.ts'
 
 function priorCorrectionStage(
   ref: RecordInputRef,
   request: UwActionRequest,
+  stage: CorrectionStageContext,
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
 ): Result<boolean> {
   const decision = priorCorrectionDecision(ref, request, histories, catalogues)
   if (!decision.ok || decision.value) return decision
-  return priorCorrectionContribution(ref, request, histories, catalogues)
+  const attribution = priorCiAttribution(ref, request, stage.subject, histories)
+  if (!attribution.ok || attribution.value) return attribution
+  return priorCorrectionContribution(ref, request, stage, histories, catalogues)
 }
 
 export type IntegrationStageObservation = {
@@ -123,6 +128,7 @@ function refuseIntegrationStage(
 
 export function refuseOutsideStage(
   request: UwActionRequest,
+  stage: CorrectionStageContext,
   outputs: ReadonlySet<string>,
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
@@ -138,7 +144,7 @@ export function refuseOutsideStage(
       continue
     }
     if (owned) return actionFailure('self-output', 'Correction stage source is not an authenticated prior input')
-    const prior = priorCorrectionStage(ref, request, histories, catalogues)
+    const prior = priorCorrectionStage(ref, request, stage, histories, catalogues)
     if (!prior.ok) return prior
     if (!prior.value) return actionFailure('self-output', 'Correction stage source is not an authenticated prior input')
   }

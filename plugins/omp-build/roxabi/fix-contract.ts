@@ -30,7 +30,7 @@ export type PublishBinding = {
 }
 
 export type TargetResolver = {
-  resolveExplicit(reference: string): Promise<FixTarget | null>
+  resolveExplicit(reference: string): Promise<FixActionResult<FixTarget | null>>
   resolveContext(): Promise<FixTarget | null>
 }
 

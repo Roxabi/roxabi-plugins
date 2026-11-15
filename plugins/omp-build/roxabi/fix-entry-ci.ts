@@ -10,6 +10,7 @@ import type {
   ReviewAuthority,
 } from './fix-contract.ts'
 import { createFixDispositionStore } from './fix-disposition-store.ts'
+import { createIssueAliasReadPort } from './fix-entry-issue-alias.ts'
 import { createIdentity, type FixRun, type FixStart } from './fix-entry-lifecycle.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
 import { defaultGh, fail, type Gh, gitResult, object } from './fix-entry-target-core.ts'
@@ -51,12 +52,17 @@ export async function runAdmittedCiCorrectionEntry(
   } catch (error) {
     return fail(`fix-repository-unreadable:${error instanceof Error ? error.message : String(error)}`)
   }
-  const resolver = createResolver(input.cwd, gh, canonicalRepository)
-  const target = await resolver.resolveExplicit(input.reference)
+  const github = withRoxabiGitHubPolicy(input.github ?? { cwd: input.cwd, gh })
+  const resolver = createResolver(input.cwd, gh, canonicalRepository, createIssueAliasReadPort(github))
+  const resolved = await resolver.resolveExplicit(input.reference)
+  if (!resolved.ok) return resolved
+  const target = resolved.value
   if (target === null) return fail('fix-target-required')
+  const requested = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#?([1-9][0-9]*)$/.exec(input.reference.trim())
+  if (target.kind !== 'pull-request' || requested === null || target.number !== Number(requested[1]))
+    return fail('ci-correction-target-mismatch')
   const publishBinding = await resolvePublishBinding(input.cwd, gh, target.repository, target)
   if (!publishBinding.ok) return publishBinding
-  const github = withRoxabiGitHubPolicy(input.github ?? { cwd: input.cwd, gh })
   const scope = githubScope(target.repository, target.number)
   const rawPublisher = createGitHubRecordPublisher(scope, github, null)
   const publisher: RecordPublisher = {

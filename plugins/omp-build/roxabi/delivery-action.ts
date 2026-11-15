@@ -8,6 +8,7 @@ import type {
   ActionInputs,
   ActionPurpose,
   ActionSubject,
+  CorrectionRootRef,
   PinnedFileRef,
   PreparedUwAction,
   RecordInputRef,
@@ -117,8 +118,9 @@ export async function prepareDeliveryAction(
   request: UwActionRequest,
   projection?: ReviewActionProjection,
   review?: SelectedReview,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<PreparedUwAction, Diagnostic>> {
-  return operations.prepareAction(request, projection, review)
+  return operations.prepareAction(request, projection, review, correctionRoot)
 }
 
 export function prepareRefusal(diagnostics: readonly Diagnostic[]): string {
@@ -221,13 +223,15 @@ export async function confirmPreparedAction(
   request: UwActionRequest,
   projection?: ReviewActionProjection,
   review?: SelectedReview,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<PreparedUwAction, Diagnostic>> {
-  const prepared = await prepareDeliveryAction(operations, request, projection, review)
+  const prepared = await prepareDeliveryAction(operations, request, projection, review, correctionRoot)
   if (!prepared.ok) return prepared
   const replay = await operations.replayActionInputs({
     reviewed: prepared.value.inputs,
     request,
     reviewedRoot: review?.root,
+    correctionRoot,
   })
   if (!replay.ok) return replay
   if (

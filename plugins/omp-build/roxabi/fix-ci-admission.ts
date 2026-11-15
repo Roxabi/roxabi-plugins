@@ -1,4 +1,5 @@
 import type { AcceptedOwnSpec, AssessSpecExact, DecodedHistory, Scope } from '../dist/contracts.js'
+import { canonicalValueDigest } from '../dist/contracts.js'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
 import { authorizeFixAction, evidenceDigestOf, readLiveCiEvidence, receiptFailures } from './fix-ci-evidence.ts'
 import type { FixActionResult, ReviewStepResult } from './fix-contract.ts'
@@ -20,7 +21,7 @@ export function confirmedChangeAttribution(
   head: string,
   scope: Scope,
   evidenceDigest: string,
-): FixActionResult<{ evidenceDigest: string }> {
+): FixActionResult<{ evidenceDigest: string; attributionDigest: string }> {
   const record = completeRecord(history, recordId)
   if (record === null) return failure('ci-attribution-unconfirmed')
   const kind: string = record.kind
@@ -47,7 +48,7 @@ export function confirmedChangeAttribution(
   const recomputed = evidenceDigestOf(head, scope, failures)
   if (!recomputed.ok) return recomputed
   if (recomputed.value !== evidenceDigest) return failure('ci-attribution-stale')
-  return { ok: true, value: { evidenceDigest } }
+  return { ok: true, value: { evidenceDigest, attributionDigest: canonicalValueDigest(record.payload) } }
 }
 
 type CiReviewStep = FixActionResult<ReviewStepResult> | { headUnapproved: true }
@@ -153,6 +154,7 @@ async function admitBoundCiCorrection(
       reviews: classified.reviews,
       remaining: classified.remaining,
       attributionRecordId: input.attributionRecordId,
+      attributionDigest: attribution.value.attributionDigest,
       candidateGitSHA: input.target.candidateGitSHA,
       uw: currentUw.value,
       mandateRecordId: mandate.value.mandate.recordId,

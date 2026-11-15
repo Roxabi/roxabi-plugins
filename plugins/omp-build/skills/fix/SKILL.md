@@ -10,10 +10,11 @@ version: 0.5.0
 # Fix
 
 `/fix` is a correction-purpose workflow, not a general feature workflow. It resolves
-one explicit existing issue/PR, or an unambiguous current GitHub context, before it
-stores anything. Targetless, ambiguous, closed, stopped, stale or bound-incompatible
-input stops and asks for the missing reference. It never creates a feature, arms,
-labels `reviewed`, lands, or enters `/feature`.
+one explicit existing PR or open issue reference, or an unambiguous current GitHub context, before it
+stores anything. An issue reference aliases its unique current authenticated bound open PR; check out
+that PR's branch first. An issue without such a PR is refused before writes; correction without a PR
+is unsupported. Targetless, ambiguous, closed, stopped, stale or incompatible input stops.
+It never creates a feature, arms, labels `reviewed`, lands, or enters `/feature`.
 
 ## Record-native pipeline
 
@@ -53,7 +54,7 @@ labels `reviewed`, lands, or enters `/feature`.
 6. **Falsify and close.** Falsification has at most two rounds, independent of
    apply retries. Before any native effect, bind the checked-out named non-default
    branch, candidate SHA, explicit destination ref, effective push URL, and its
-   GitHub identity (the PR head repository, including a fork, or the issue target)
+   GitHub identity (the PR head repository, including a fork)
    with the observed remote ref; reject detached/default/mismatched state. Push that
    explicit SHA/ref with no tag following, verify the remote SHA,
    then publish correction, falsification and final fix-result records through

@@ -10,7 +10,8 @@ import type {
 } from './fix-contract.ts'
 import { createFixDispositionStore } from './fix-disposition-store.ts'
 import type { DefaultFixEntry } from './fix-entry-input.ts'
-import { runReviewBoundDefaultFix } from './fix-entry-review-bound.ts'
+import { createIssueAliasReadPort } from './fix-entry-issue-alias.ts'
+import { captureConfirmedFixRequest, runReviewBoundDefaultFix } from './fix-entry-review-bound.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
 import { defaultGh, fail, type Gh, object } from './fix-entry-target-core.ts'
 import { createResolver, parseInvocation } from './fix-entry-target-resolver.ts'
@@ -103,15 +104,17 @@ export async function runDefaultFix(
   const gh = input.gh ?? defaultGh
   const repository = await readRepository(input.cwd, gh)
   if (!repository.ok) return repository
-  const resolver = createResolver(input.cwd, gh, repository.value)
-  const target =
+  const github = withRoxabiGitHubPolicy(input.github ?? { cwd: input.cwd, gh })
+  const resolver = createResolver(input.cwd, gh, repository.value, createIssueAliasReadPort(github))
+  const resolved =
     invocation.reference === undefined
-      ? await resolver.resolveContext()
+      ? { ok: true as const, value: await resolver.resolveContext() }
       : await resolver.resolveExplicit(invocation.reference)
+  if (!resolved.ok) return resolved
+  const target = resolved.value
   if (target === null) return fail('fix-target-required')
   const publishBinding = await resolvePublishBinding(input.cwd, gh, repository.value, target)
   if (!publishBinding.ok) return publishBinding
-  const github = withRoxabiGitHubPolicy(input.github ?? { cwd: input.cwd, gh })
   const scope = githubScope(repository.value, target.number)
   const rawPublisher = createGitHubRecordPublisher(scope, github, null)
   let originalScope: Scope | null = null
@@ -132,6 +135,10 @@ export async function runDefaultFix(
   originalScope = mandate.value.uw
   const request = defaultFixRequest(input, id, invocation, correctionScope, target, publishBinding.value, mandate.value)
   if (input.reviewId === undefined) {
+    let trustedLiveRequest: Extract<FixRecord, { kind: 'fix-request' }> | undefined
+    const capturingPublisher = captureConfirmedFixRequest(publisher, (record) => {
+      trustedLiveRequest = record
+    })
     runtime.bindContinuation?.(() =>
       confirmFixContinuation({
         target,
@@ -141,12 +148,13 @@ export async function runDefaultFix(
         base: publishBinding.value.defaultBranch,
         uw: input.uw,
         boundRecordId: mandate.value.recordId,
+        trustedLiveRequest,
       }),
     )
     return runDefaultFixWorkflow(
       {
         resolver,
-        publisher,
+        publisher: capturingPublisher,
         dispositionStore: createFixDispositionStore(mandate.value.uw, github),
         readHistory,
         github,

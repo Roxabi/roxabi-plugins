@@ -192,6 +192,7 @@ export async function runDefaultFixWorkflow(
     intake.records,
     defaultSynthesisTask(),
     product.runtime.uw,
+    [],
   )
   if (!synthesis.ok) return synthesis
   const preservedSynthesis = await dispatchNativeBatch<PreservedSynthesis>(

@@ -43,7 +43,7 @@ export {
 } from './engine/action-input-schema.ts'
 export { type CodeRange, codeRangeSchema } from './engine/code-range-schema.ts'
 export { resolveAdmittedCorrectionCriterionSource } from './engine/correction-criterion-source.ts'
-export { resolveCorrectionRequestBasis } from './engine/correction-request-basis.ts'
+export { resolveCorrectionRequestBasis, resolveCorrectionRootBasis } from './engine/correction-request-basis.ts'
 export {
   assessCriterionDeclarations,
   assessCriterionReview,
