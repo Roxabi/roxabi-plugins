@@ -63,7 +63,8 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const parsed = ompBuildRecoveryPrParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-grant-review-replacement-parameters')
-      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }))
+      const pluginPin = await hostPluginPin(pi, ctx)
+      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }), pluginPin)
       const published = await ghGrantInterruptedReviewReplacement({
         cwd: ctx.cwd,
         pr: parsed.data.pr,
@@ -73,7 +74,7 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
           (options.prepareReview ?? prepareReviewInputs)({
             ...request,
             operations,
-            pluginPin: hostPluginPin(),
+            pluginPin,
           }),
       })
       if (!published.ok) throw publicationError(published)
@@ -92,7 +93,8 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const parsed = ompBuildRecoveryReplaceParametersSchema.safeParse(params)
       if (!parsed.success) throw new Error('invalid-omp-build-replace-interrupted-review-parameters')
-      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }))
+      const pluginPin = await hostPluginPin(pi, ctx)
+      const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }), pluginPin)
       const published = await ghReplaceInterruptedReview({
         cwd: ctx.cwd,
         pr: parsed.data.pr,
@@ -102,7 +104,7 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
           (options.prepareReview ?? prepareReviewInputs)({
             ...request,
             operations,
-            pluginPin: hostPluginPin(),
+            pluginPin,
           }),
       })
       if (!published.ok) throw publicationError(published)
@@ -112,6 +114,7 @@ export function registerOmpReviewRecoveryTools(pi: OmpBuildExtensionApi, options
         published.value.input,
         published.value.inventory,
         published.value.grantId,
+        { pluginPin },
       )
       return {
         content: [

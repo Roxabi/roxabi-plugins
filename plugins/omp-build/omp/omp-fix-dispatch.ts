@@ -4,6 +4,7 @@ import type { FeatureReviewFix } from '../roxabi/feature-contract.ts'
 import { startAdmittedCiCorrection } from '../roxabi/fix-entry-ci.ts'
 import { type FixRun, type FixStart, startDefaultFix } from '../roxabi/fix-entry-lifecycle.ts'
 import type { CiCorrectionAdmission } from '../roxabi/fix-mandate-types.ts'
+import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import { hostPluginPin } from './host-plugin-pin.ts'
@@ -24,10 +25,12 @@ async function dispatchDefaultFix(
   ctx: ExtensionContext,
   args: string,
   options: Partial<FeatureReviewFix> = {},
+  captured?: { pluginPin: TrustedHostPluginPin | undefined },
 ): Promise<FixStart> {
+  const pluginPin = captured === undefined ? await hostPluginPin(pi, ctx) : captured.pluginPin
   const automationLogin = await viewer({ cwd: ctx.cwd })
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
-  const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx))
+  const operations = await createHostUwOperations(ctx, createOperatorConfirmation(ctx), pluginPin)
   const run = startDefaultFix({
     cwd: ctx.cwd,
     args,
@@ -37,10 +40,10 @@ async function dispatchDefaultFix(
     requiredFeatureMandate: options.requiredFeatureMandate,
     contextWindow: typeof ctx.model?.contextWindow === 'number' ? ctx.model.contextWindow : undefined,
     native: createOmpFixPort(pi),
-    workflow: { nextReviewStep },
+    workflow: { nextReviewStep: (cwd, pr, opts) => nextReviewStep(cwd, pr, { ...opts, pluginPin }) },
     uw: createInstalledUwReadPort({ cwd: ctx.cwd, readAuthor: automationLogin }),
     operations,
-    pluginPin: hostPluginPin(),
+    pluginPin,
   })
   const notify = async (text: string): Promise<void> => {
     if (ownedFixRunFor(pi)?.run === run && ownedFixRunFor(pi)?.tearingDown) {
@@ -79,7 +82,9 @@ async function dispatchAdmittedCiCorrection(
   pi: FixHost,
   ctx: ExtensionContext,
   input: { reference: string; attributionRecordId: string; uw: CiCorrectionAdmission['uw'] },
+  captured?: { pluginPin: TrustedHostPluginPin | undefined },
 ): Promise<FixRun> {
+  const pluginPin = captured === undefined ? await hostPluginPin(pi, ctx) : captured.pluginPin
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const automationLogin = await viewer({ cwd: ctx.cwd })
   const run = startAdmittedCiCorrection({
@@ -88,9 +93,9 @@ async function dispatchAdmittedCiCorrection(
     attributionRecordId: input.attributionRecordId,
     expectedUw: input.uw,
     native: createOmpFixPort(pi),
-    workflow: { nextReviewStep },
+    workflow: { nextReviewStep: (cwd, pr, opts) => nextReviewStep(cwd, pr, { ...opts, pluginPin }) },
     uw: createInstalledUwReadPort({ cwd: ctx.cwd, readAuthor: automationLogin }),
-    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx)),
+    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx), pluginPin),
   })
   const notify = async (text: string): Promise<void> => {
     if (ownedFixRunFor(pi)?.run === run && ownedFixRunFor(pi)?.tearingDown) {

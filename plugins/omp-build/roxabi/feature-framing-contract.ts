@@ -53,6 +53,7 @@ export type PendingFramingHandoff = Readonly<{
   sourceSession: Readonly<{ sessionId: string; agentId: string; cwd: string }>
   detailRefs: readonly Readonly<{ reference: string; digest: string }>[]
   procedures: FramingProcedureManifest
+  pluginPin?: TrustedHostPluginPin
 }>
 
 /** Readonly policy snapshot for Root gates and lifecycle. It is never model or JSON authority. */
@@ -71,7 +72,7 @@ export type FramingControllerView = Readonly<{
 
 export type FramingController = Readonly<{
   /** Synchronous: claims the owner slot and arms the read-only loading gate before any await. */
-  begin(source: FramingSourceRequest, ctx: ExtensionContext): FramingLease
+  begin(source: FramingSourceRequest, ctx: ExtensionContext, pluginPin?: TrustedHostPluginPin): FramingLease
   start(lease: FramingLease): Promise<void>
   project(event: ContextEvent, ctx: ExtensionContext): Promise<ContextEventResult | undefined>
   /** Read-only and strictly parsed: may stage a proposal, never opens UI, writes, checks out, moves or delivers. */
@@ -123,14 +124,15 @@ export type FeatureFramingControllerHost = Readonly<{
   sendUserMessage: ExtensionAPI['sendUserMessage']
   status(message: string): void
   /** Fresh cwd-bound installed pin and pinned-byte readers (`createProductionInputPorts`). */
-  procedurePorts(location: Readonly<{ cwd: string }>): FramingProcedurePorts
+  procedurePorts(location: Readonly<{ cwd: string; pluginPin?: TrustedHostPluginPin }>): FramingProcedurePorts
   /** Fresh per-context confirmation capability; only `act` ever requests it. */
   operator(ctx: ExtensionContext): FramingOperator
   /** Actual installed UW factory bound to the receiving context and the given operator. */
-  uw(input: Readonly<{ ctx: ExtensionContext; operator: OperatorPort }>): Promise<UwOperations>
+  uw(
+    input: Readonly<{ ctx: ExtensionContext; operator: OperatorPort; pluginPin?: TrustedHostPluginPin }>,
+  ): Promise<UwOperations>
   gh: Gh
   git: GitRunner
-  pluginPin?: TrustedHostPluginPin
   /** Root's fresh ordinary same-UW continuation and delivery; called once per consumed ticket. */
   continueFeature(
     input: Readonly<{ ctx: ExtensionContext; continuation: ContinueFeatureInput; operator: FramingOperator }>,

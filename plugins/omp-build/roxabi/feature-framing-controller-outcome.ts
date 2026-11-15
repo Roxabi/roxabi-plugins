@@ -109,6 +109,7 @@ async function stageHandoff(
     sourceSession: { sessionId: lease.origin.sessionId, agentId: lease.origin.agentId, cwd: lease.origin.cwd },
     detailRefs: [...lease.details],
     procedures: structuredClone(procedures.manifest),
+    pluginPin: lease.pluginPin,
   })
   lease.ticket = ticket
   lease.token = null

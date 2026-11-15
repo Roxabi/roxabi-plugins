@@ -9,10 +9,12 @@ import {
   uwCreateInputSchema,
   uwProposalInputSchema,
 } from '../dist/contracts.js'
+import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
 import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
+import { hostPluginPin } from './host-plugin-pin.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import {
   beginFeatureUwOperation,
@@ -30,6 +32,7 @@ export type UwOperationsFactory = (input: {
   operator: OperatorPort
   artifactsDir: string | null
   nativeHost?: UwNativeHost
+  pluginPin?: TrustedHostPluginPin
 }) => Promise<UwOperations> | UwOperations
 
 export function parseUwCommand(args: string): ParsedUwCommand {
@@ -186,6 +189,7 @@ async function runOrdinaryCommand(
   factory: UwOperationsFactory,
   privateOperator: CommandOperatorPort,
   ownsRootCapability: boolean,
+  pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<void> {
   const cwd = ctx.cwd
   let sessionId: string | undefined
@@ -207,6 +211,7 @@ async function runOrdinaryCommand(
           cwd: ctx.cwd,
           operator,
           artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
+          ...(pluginPin === undefined ? {} : { pluginPin }),
         }),
       )
       if (isCurrent()) reportOutcome(pi, ctx, outcome)
@@ -243,6 +248,7 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
         'repository' in parsed ? ` ${parsed.repository}${'number' in parsed ? `#${parsed.number}` : ''}` : ''
       privateOperator.progress(`/uw ${parsed.kind}${target}`)
       const ownsRootCapability = rootContext(ctx)
+      const pluginPin = await hostPluginPin(pi, ctx)
       if (ownsRootCapability && (parsed.kind === 'sister' || parsed.kind === 'promote-report')) {
         await runNativeUwOperation(pi, ctx, privateOperator, async (operator, nativeHost, isCurrent) => {
           const operations = await factory({
@@ -250,13 +256,14 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
             operator,
             artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
             nativeHost,
+            ...(pluginPin === undefined ? {} : { pluginPin }),
           })
           const outcome = await executeUwCommand(parsed, operations)
           if (!nativeHost.signal.aborted && isCurrent()) reportOutcome(pi, ctx, outcome)
         })
         return
       }
-      await runOrdinaryCommand(pi, ctx, parsed, factory, privateOperator, ownsRootCapability)
+      await runOrdinaryCommand(pi, ctx, parsed, factory, privateOperator, ownsRootCapability, pluginPin)
     },
   })
 }

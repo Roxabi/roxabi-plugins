@@ -154,6 +154,7 @@ export type FeatureWorkflow = {
     gh?: Gh
     git?: GitRunner
     uw?: UwOperations
+    pluginPin?: TrustedHostPluginPin
   }): Promise<ContinueFeatureResult>
   publishFeatureNativeResult(input: {
     cwd: string

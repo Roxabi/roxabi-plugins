@@ -17,7 +17,7 @@ export type GitByteRequest = {
   gh: Gh
 }
 
-function githubRepository(url: string): string | null {
+export function githubRepository(url: string): string | null {
   const match = url
     .trim()
     .match(

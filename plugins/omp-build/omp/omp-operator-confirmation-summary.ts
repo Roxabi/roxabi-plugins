@@ -258,6 +258,16 @@ function fallbackLines(proposal: Proposal): string[] {
 export function proposalSummary(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
   const candidate: unknown = proposal
+  if (proposal.format === 'omp-build-tooling-pin-activation/1')
+    return [
+      'Activer le pin de tooling pour cette session',
+      `Source : ${proposal.plugin.repository}@${proposal.plugin.commit}`,
+      `Installation : ${proposal.plugin.version} ${proposal.installedRoot}`,
+      `Empreinte du package : ${proposal.packageDigest}`,
+      `Dépôt cible : ${proposal.scope.targetRepository}`,
+      `Clone : ${proposal.scope.gitCommonDir}`,
+      `Pin partagé incompatible : ${proposal.shared.repository}@${proposal.shared.commit}`,
+    ]
   if (isRecord(candidate) && candidate.format === 'omp-build-interruption-resolution/2')
     return interruptionLines(candidate)
   if (proposal.format === 'omp-build-uw-framing/1') return framingSummary(proposal)
