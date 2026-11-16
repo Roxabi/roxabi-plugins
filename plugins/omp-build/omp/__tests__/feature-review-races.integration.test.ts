@@ -45,6 +45,8 @@ function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
     seeded?: { precondition: { complete: boolean; action: string; requests: number } }
     before?: Array<{ kind: string; recordId: string }>
     after?: Array<{ kind: string; recordId: string }>
+    issueBefore?: Array<{ kind: string; recordId: string }>
+    issueAfter?: Array<{ kind: string; recordId: string }>
     messages: string[]
     precondition: { complete: true; requests: number; action?: string }
     pause?: { postRefused: boolean; operatorControls: number; ghAvailable: boolean; joinedBeforeRelease: boolean }
@@ -120,6 +122,10 @@ describe('review continuation races', () => {
         ['fix-request', 'contribution', 'correction-result', 'fix-result', 'operator-control'].includes(record.kind),
       )
     expect(correction(observed.after)).toEqual(correction(observed.before))
+    const controlsBefore = observed.issueBefore?.filter((record) => record.kind === 'operator-control')
+    const controlsAfter = observed.issueAfter?.filter((record) => record.kind === 'operator-control')
+    expect(controlsBefore).toEqual([])
+    expect(controlsAfter).toEqual(controlsBefore)
     expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(0)
   }, 120_000)
 })

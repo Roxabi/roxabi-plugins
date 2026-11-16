@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
-import { reviewRecords } from '../skills/feature/workflow-records.js'
+import { readReviewHistory, reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
 import { gh } from '../skills/feature/workflow-runtime.js'
 import { reviewInitialData } from './feature-review-lifecycle.ts'
@@ -62,6 +62,8 @@ async function seedCompletedReview(cwd: string) {
 export async function invokeClassifiedIngressRace(cwd: string) {
   const { precondition, records: before } = await seedCompletedReview(cwd)
   const seeded = { precondition }
+  const issueBefore = await readReviewHistory(cwd, 42)
+  if (!issueBefore.source.complete) throw new Error('issue-history-incomplete-before-ingress')
   const driver = await createReviewDriver(cwd, 128_000, 'feature', false, true)
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
@@ -119,7 +121,18 @@ export async function invokeClassifiedIngressRace(cwd: string) {
     if (driver.hasFixIngress() || driver.fixRun() !== undefined || driver.controller.active() !== null)
       throw new Error('ingress-activated-owner-after-pause')
     const after = (await history(cwd)).operations.flatMap((item) => (item.record ? [item.record] : []))
-    return { seeded, hold, before, after, messages: driver.messages, ownerReleased: true }
+    const issueAfter = await readReviewHistory(cwd, 42)
+    if (!issueAfter.source.complete) throw new Error('issue-history-incomplete-after-ingress')
+    return {
+      seeded,
+      hold,
+      before,
+      after,
+      issueBefore: issueBefore.operations.flatMap((item) => (item.record ? [item.record] : [])),
+      issueAfter: issueAfter.operations.flatMap((item) => (item.record ? [item.record] : [])),
+      messages: driver.messages,
+      ownerReleased: true,
+    }
   } finally {
     writeFileSync(release, 'release\n')
     if (beginning !== undefined) await beginning.catch(() => {})
