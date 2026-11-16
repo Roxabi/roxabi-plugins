@@ -229,12 +229,18 @@ describe('worktree cleanup CLI', () => {
       git(repo, home, 'worktree', 'remove', target)
       git(repo, home, 'worktree', 'add', '-q', target, 'feat/stale')
       expect(statSync(target).ino).not.toBe(originalInode)
-      expect(git(target, home, 'rev-parse', 'HEAD').trim()).toBe(git(repo, home, 'rev-parse', 'feat/stale').trim())
-      expect(remove(target, updated).status).not.toBe(0)
-      expect(existsSync(path.join(target, 'README.md'))).toBe(true)
     } finally {
       closeSync(originalDirectory)
     }
+    expect(git(target, home, 'rev-parse', 'HEAD').trim()).toBe(git(repo, home, 'rev-parse', 'feat/stale').trim())
+    const replacement = row(target)
+    expect(replacement.eligible).toBe(true)
+    expect(replacement.token).not.toBe(updated.token)
+    expect(remove(target, updated).status).not.toBe(0)
+    expect(existsSync(path.join(target, 'README.md'))).toBe(true)
+    const result = remove(target, replacement)
+    expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(target)).toBe(false)
   })
 
   it('removes only empty orphans and refuses an orphan that gains content after inventory', () => {
