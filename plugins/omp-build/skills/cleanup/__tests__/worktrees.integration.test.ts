@@ -1,6 +1,16 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -212,14 +222,19 @@ describe('worktree cleanup CLI', () => {
     git(target, home, 'commit', '-q', '--allow-empty', '-m', 'changed')
     expect(remove(target, original).status).not.toBe(0)
     const updated = row(target)
-    const originalInode = statSync(target).ino
-    git(repo, home, 'worktree', 'remove', target)
-    mkdirSync(path.join(root, 'inode-guard'))
-    git(repo, home, 'worktree', 'add', '-q', target, 'feat/stale')
-    expect(statSync(target).ino).not.toBe(originalInode)
-    expect(git(target, home, 'rev-parse', 'HEAD').trim()).toBe(git(repo, home, 'rev-parse', 'feat/stale').trim())
-    expect(remove(target, updated).status).not.toBe(0)
-    expect(existsSync(path.join(target, 'README.md'))).toBe(true)
+    // Keep the unlinked directory alive so its inode cannot be reused for the replacement.
+    const originalDirectory = openSync(target, 'r')
+    try {
+      const originalInode = statSync(target).ino
+      git(repo, home, 'worktree', 'remove', target)
+      git(repo, home, 'worktree', 'add', '-q', target, 'feat/stale')
+      expect(statSync(target).ino).not.toBe(originalInode)
+      expect(git(target, home, 'rev-parse', 'HEAD').trim()).toBe(git(repo, home, 'rev-parse', 'feat/stale').trim())
+      expect(remove(target, updated).status).not.toBe(0)
+      expect(existsSync(path.join(target, 'README.md'))).toBe(true)
+    } finally {
+      closeSync(originalDirectory)
+    }
   })
 
   it('removes only empty orphans and refuses an orphan that gains content after inventory', () => {
