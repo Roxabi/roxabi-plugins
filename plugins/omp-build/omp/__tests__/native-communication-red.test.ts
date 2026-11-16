@@ -98,7 +98,7 @@ describe('native communication red probes', () => {
     })
     const stopping = harness.controller.stopOwned(prepared, 'owner-stop')
     await vi.waitFor(() => expect(entered).toBe(true))
-    harness.controller.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
+    harness.controller.activate(batch(['slot-b']), { onComplete: async () => undefined, onStop: async () => undefined })
     gate.resolve()
     await stopping
     expect(setStatus.mock.lastCall?.[1]).toMatch(/\bqueued\b/i)

@@ -1,5 +1,10 @@
-import { bindExternalRef, type GitHubOptions, githubScope, readWorkflowBinding } from '../dist/contracts.js'
-import { discoverSelectedRecoveryOwner } from '../engine/fix-recovery-discovery.ts'
+import {
+  bindExternalRef,
+  discoverSelectedRecoveryOwner,
+  type GitHubOptions,
+  githubScope,
+  readWorkflowBinding,
+} from '../dist/contracts.js'
 import { failure } from './fix-contract.ts'
 import { createIssueAliasReadPort } from './fix-entry-issue-alias.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'

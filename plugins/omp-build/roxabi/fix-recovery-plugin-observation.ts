@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { Gh } from '../adapters/github/types.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { canonicalValueDigest } from '../dist/contracts.js'
 import type { FixOwnerOpenedPayload } from '../engine/fix-recovery-schema.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure, recoveryDiagnosticStrings } from './fix-contract.ts'

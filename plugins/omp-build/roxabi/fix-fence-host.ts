@@ -18,6 +18,20 @@ export abstract class FixFenceHost extends FixFenceOperations {
   #settlement: Promise<PreparationCohortResult> | null = null
   #activeSettlements = 0
   #stop: 'none' | 'pending' | 'joined' | 'failed' = 'none'
+  #knownWritersQuiet: (() => boolean) | null = null
+
+  bindKnownWriters(observe: () => boolean): void {
+    if (this.#knownWritersQuiet !== null) throw new Error('fix-known-writers-already-bound')
+    this.#knownWritersQuiet = observe
+  }
+
+  protected knownWritersQuiet(): boolean {
+    try {
+      return this.#knownWritersQuiet?.() === true
+    } catch {
+      return false
+    }
+  }
 
   protected abstract hostDriverRunning(): boolean
   protected abstract hostHasIdentity(): boolean

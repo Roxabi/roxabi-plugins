@@ -15,6 +15,7 @@ function appendHistories(
   histories: Map<string, DecodedHistory>,
   observed: readonly DecodedHistory[],
   pending?: Map<string, Scope>,
+  allowMissing = false,
 ): HistoryFailure | null {
   for (const history of observed) {
     const id = key(history.source.scope)
@@ -28,7 +29,7 @@ function appendHistories(
       }
     histories.set(id, history)
   }
-  if (pending !== undefined && pending.size > 0)
+  if (!allowMissing && pending !== undefined && pending.size > 0)
     return {
       ok: false,
       reason: 'incomplete',
@@ -80,22 +81,40 @@ async function readPending(
   read: (scopes: readonly Scope[]) => Promise<ComposedWorkflowHistory>,
 ): Promise<{ observed: ComposedWorkflowHistory; failure: HistoryFailure | null }> {
   const observed = await read([...pending.values()])
-  return { observed, failure: appendHistories(histories, observed.histories, pending) }
+  return { observed, failure: appendHistories(histories, observed.histories, pending, !observed.ok) }
 }
 
 function closureStep(
   seed: ClosureSeed,
   histories: Map<string, DecodedHistory>,
   readFailure: HistoryFailure | null,
+  attempted: ReadonlySet<string>,
 ): { pending: Map<string, Scope> } | { result: ComposedWorkflowHistory } {
   const current = [...histories.values()]
   const { strictHistories, primaryRecords } = closureInputs(seed, current)
   // Bootstrap recovery/PR scopes from complete raw anchors before ordinary incomplete siblings refuse.
   const bootstrapRecords = [...primaryRecords, ...completeTrustedRecords(strictHistories)]
   const bootstrapPending = missingScopes(bootstrapRecords, histories)
+  for (const id of attempted) bootstrapPending.delete(id)
   if (bootstrapPending.size > 0) return { pending: bootstrapPending }
   const validated = validateComposedWorkflowHistories(strictHistories, current)
-  if (!validated.ok) return { result: { ...validated, histories: current } }
+  if (!validated.ok) {
+    if (readFailure !== null && validated.reason !== 'ambiguous')
+      return {
+        result: {
+          ...readFailure,
+          diagnostics: [...readFailure.diagnostics, ...validated.diagnostics],
+          histories: current,
+        },
+      }
+    return {
+      result: {
+        ...validated,
+        diagnostics: [...(readFailure?.diagnostics ?? []), ...validated.diagnostics],
+        histories: current,
+      },
+    }
+  }
   if (readFailure !== null) return { result: { ...readFailure, histories: current } }
   const pending = missingScopes([...primaryRecords, ...validated.records], histories)
   if (pending.size > 0) return { pending }
@@ -109,6 +128,17 @@ function closureStep(
   }
 }
 
+function mergeReadFailure(previous: HistoryFailure | null, observed: HistoryFailure): HistoryFailure {
+  if (previous === null) return observed
+  const reason =
+    previous.reason === 'ambiguous' || observed.reason === 'ambiguous'
+      ? 'ambiguous'
+      : previous.reason === 'unreadable' || observed.reason === 'unreadable'
+        ? 'unreadable'
+        : 'incomplete'
+  return { ...previous, reason, diagnostics: [...previous.diagnostics, ...observed.diagnostics] }
+}
+
 async function expandCauseHistoryClosure(
   seed: ClosureSeed,
   read: (scopes: readonly Scope[]) => Promise<ComposedWorkflowHistory>,
@@ -118,12 +148,18 @@ async function expandCauseHistoryClosure(
   const initialFailure = appendHistories(histories, initial)
   if (initialFailure !== null) return initialFailure
   let readFailure: HistoryFailure | null = null
+  const attempted = new Set<string>()
   while (true) {
-    const step = closureStep(seed, histories, readFailure)
+    const step = closureStep(seed, histories, readFailure, attempted)
     if ('result' in step) return step.result
+    for (const id of step.pending.keys()) attempted.add(id)
     const { observed, failure } = await readPending(histories, step.pending, read)
-    if (!observed.ok && readFailure === null) readFailure = observed
-    if (failure !== null) return failure
+    if (!observed.ok) readFailure = mergeReadFailure(readFailure, observed)
+    if (failure !== null)
+      return {
+        ...failure,
+        diagnostics: [...(readFailure?.diagnostics ?? []), ...failure.diagnostics],
+      }
   }
 }
 

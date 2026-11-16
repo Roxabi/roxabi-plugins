@@ -56,6 +56,9 @@ export function arrangeReviewFixture(branch = REVIEW_BRANCH): { box: Box; cwd: s
     issues: [{ number: 42, title: 'feat: preserve region', labels: [`size:${REVIEW_TIER}`] }],
     prs: [{ number: 7, branch, title: 'feat: preserve region', body: 'Closes #42', closes: [42] }],
   })
+  writeSim(box, (state) => {
+    state.repositoryAuthority = `${path.basename(box.root)}.fixture.invalid`
+  })
   git(box, box.root, ['--git-dir', box.origin, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
   git(box, box.principal, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
   const cwd = path.join(box.root, 'feature')

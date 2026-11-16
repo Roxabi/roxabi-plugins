@@ -1,8 +1,6 @@
 import type { DecodedHistory, Scope } from '../dist/contracts.js'
-import { bindExternalRef, canonicalValueDigest } from '../dist/contracts.js'
-import { matchesCompletePin } from '../engine/fix-recovery-discovery-records.ts'
+import { bindExternalRef, canonicalValueDigest, commentAsPartPin, matchesCompletePin } from '../dist/contracts.js'
 import type { PartPin, RecordPin } from '../engine/fix-recovery-identities.ts'
-import { commentAsPartPin } from '../engine/fix-recovery-part-pins.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 

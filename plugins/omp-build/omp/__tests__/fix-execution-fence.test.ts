@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { admitFixBatch, FixExecutionFence } from '../../roxabi/fix-execution-fence.ts'
+import { FixExecutionFence } from '../../roxabi/fix-execution-fence.ts'
 import { executeDecision } from '../../roxabi/fix-execution-runner.ts'
+import { admitFixBatch } from '../../roxabi/fix-fence-batches.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { batch, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'

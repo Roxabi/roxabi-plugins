@@ -1,7 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
 import type { CanonicalRecord, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
-import { bindExternalRef, canonicalValueDigest } from '../dist/contracts.js'
-import { discoverSelectedRecoveryOwner } from '../engine/fix-recovery-discovery.ts'
+import { bindExternalRef, canonicalValueDigest, discoverSelectedRecoveryOwner } from '../dist/contracts.js'
 import type { FixRecoveryCurrentFacts } from '../engine/fix-recovery-observation.ts'
 import type {
   Destination,

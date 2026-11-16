@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { canonicalValueDigest } from '../../engine/action-input.ts'
@@ -21,6 +21,14 @@ it('refuses stale attribution before publishing a correction root', async () => 
   const { box, cwd, pin, control, firstOutput, old } = await createSuccessorFixture(roots)
   writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
   const racePath = path.resolve(import.meta.dirname, '../../testing/ci-attribution-provenance-race-runner.ts')
+  const bin = path.join(box.root, 'race-bin')
+  const ghConfig = path.join(box.root, 'race-gh-config')
+  mkdirSync(bin)
+  mkdirSync(ghConfig)
+  symlinkSync(path.resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts'), path.join(bin, 'gh'))
+  const env: NodeJS.ProcessEnv = { ...box.env, PATH: `${bin}:${box.env.PATH}`, HOME: box.root, GH_CONFIG_DIR: ghConfig }
+  for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST'])
+    delete env[key]
   const race = spawnSync(
     BUN,
     [
@@ -32,7 +40,7 @@ it('refuses stale attribution before publishing a correction root', async () => 
         base: firstOutput.attribution.manifest.code.base,
       }),
     ],
-    { cwd, env: box.env, encoding: 'utf8', timeout: 55_000 },
+    { cwd, env, encoding: 'utf8', timeout: 55_000 },
   )
   expect(race.status, `${race.stderr}\n${race.stdout}`).toBe(0)
   const raced = JSON.parse(race.stdout) as {

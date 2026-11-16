@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
 import { canonicalValueDigest } from '../dist/contracts.js'
+import type { LatchNamespace, ProcessLifetime } from '../engine/fix-recovery-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
 import { capturedSubmission } from '../roxabi/fix-contract.ts'
 import { readFixRecoveryPrefixBootstrap } from './fix-recovery-prefix-bootstrap.ts'
 import { frameFixRecoveryFixture } from './fix-recovery-prefix-framing.ts'
 import { publishFixRecoveryFixture } from './fix-recovery-prefix-publish.ts'
+import { writeSim } from './sandbox/sandbox-repository.ts'
 import type { Box } from './sandbox/sandbox-types.ts'
 
 // Structural external history only, not genuine originating host authority or native approval.
@@ -13,7 +15,13 @@ export async function seedFixRecoveryPrefix(
   box: Box,
   cwd: string,
   mode: 'torn-source' | 'torn-request' = 'torn-source',
+  options: { authority?: string; host?: { process: ProcessLifetime; namespace: LatchNamespace } } = {},
 ) {
+  if (options.authority !== undefined) {
+    writeSim(box, (state) => {
+      state.repositoryAuthority = options.authority
+    })
+  }
   const { baseline, mandate, binding, receipt, head, spec } = readFixRecoveryPrefixBootstrap(box, cwd)
   const uw = { repository: 'acme/app', target: 'acme/app#42' }
   const pullRequest = { repository: 'acme/app', target: 'acme/app#7' }
@@ -45,7 +53,7 @@ export async function seedFixRecoveryPrefix(
     payload,
   })
   const destination = {
-    authority: 'github.com',
+    authority: options.authority ?? 'github.com',
     publicationRepository: 'acme/app',
     destinationRef: 'refs/heads/feat/42-save',
   }
@@ -62,9 +70,12 @@ export async function seedFixRecoveryPrefix(
           destination.publicationRepository,
           destination.destinationRef,
         ]),
-        namespace: { kind: 'linux-abstract', networkNamespace: 'network-fixture' },
+        namespace: {
+          kind: 'linux-abstract',
+          networkNamespace: options.host?.namespace.networkNamespace ?? 'network-fixture',
+        },
       },
-      process: {
+      process: options.host?.process ?? {
         bootId: 'boot-fixture',
         userNamespace: 'user-fixture',
         pidNamespace: 'pid-fixture',
@@ -72,7 +83,7 @@ export async function seedFixRecoveryPrefix(
         pid: 1234,
         processStartTicks: '12345',
       },
-      namespace: {
+      namespace: options.host?.namespace ?? {
         protocol: 'omp-build-execution/v1',
         bootId: 'boot-fixture',
         effectiveUid: 1000,

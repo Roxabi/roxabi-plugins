@@ -2,8 +2,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { FileLock } from '@oh-my-pi/pi-natives'
-import { canonicalValueDigest } from '../../engine/canonical-value.ts'
-import { type AdmissionDescriptor, type Destination, destinationSchema } from '../../engine/fix-recovery-schema.ts'
+import { canonicalValueDigest, destinationSchema } from '../../dist/contracts.js'
+import type { AdmissionDescriptor, Destination } from '../../engine/fix-recovery-schema.ts'
 
 const protocol = 'omp-build-destination-mutex/1' as const
 export type AdmissionLeaseFailure = Readonly<{

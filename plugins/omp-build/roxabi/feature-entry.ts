@@ -105,6 +105,7 @@ export async function deliverFeatureResult(
   reference: string,
   result: ContinueFeatureResult,
   host: FeatureCommandHost,
+  current?: () => boolean,
 ): Promise<void> {
   if (result.kind === 'framing') {
     await host.startFraming(result.source, result.source.kind === 'free-text' ? result.source.acceptedArgs : reference)
@@ -125,8 +126,8 @@ export async function deliverFeatureResult(
   }
   switch (result.kind) {
     case 'action':
-      await announceFeatureBatch(reference, result.followUp, result.start, host, async (next) =>
-        deliverFeatureResult(reference, next, host),
+      await announceFeatureBatch(reference, result.followUp, result.start, host, async (next, originCurrent) =>
+        deliverFeatureResult(reference, next, host, originCurrent),
       )
       return
     case 'watch':
@@ -134,9 +135,9 @@ export async function deliverFeatureResult(
     case 'review':
       return deliverFeatureReview(reference, result, host)
     case 'fix':
-      return continueAfterFix(reference, result, host)
+      return continueAfterFix(reference, result, host, current)
     case 'admitted-ci-correction':
-      return continueAfterAdmittedCiCorrection(reference, result, host)
+      return continueAfterAdmittedCiCorrection(reference, result, host, current)
     case 'epic-final-review':
       return deliverEpicFinalReview(result, host, continueAfterReview)
     default:
@@ -216,12 +217,13 @@ async function continueAfterFix(
   reference: string,
   fix: Extract<ContinueFeatureResult, { kind: 'fix' }>,
   host: FeatureCommandHost,
+  current?: () => boolean,
 ): Promise<void> {
   if (host.startFix === undefined) {
     await host.send('feature-stopped: fix-unavailable')
     return
   }
-  const run = await host.startFix(fix)
+  const run = await host.startFix(fix, current)
   observeFeatureTerminal(reference, host, run.terminal)
 }
 
@@ -229,15 +231,19 @@ async function continueAfterAdmittedCiCorrection(
   reference: string,
   result: Extract<ContinueFeatureResult, { kind: 'admitted-ci-correction' }>,
   host: FeatureCommandHost,
+  current?: () => boolean,
 ): Promise<void> {
   if (host.startAdmittedCiCorrection === undefined) {
     await host.send('feature-stopped: ci-correction-unavailable')
     return
   }
-  const run = await host.startAdmittedCiCorrection({
-    reference: result.reference,
-    attributionRecordId: result.attributionRecordId,
-    uw: result.uw,
-  })
+  const run = await host.startAdmittedCiCorrection(
+    {
+      reference: result.reference,
+      attributionRecordId: result.attributionRecordId,
+      uw: result.uw,
+    },
+    current,
+  )
   observeFeatureTerminal(reference, host, run.terminal)
 }

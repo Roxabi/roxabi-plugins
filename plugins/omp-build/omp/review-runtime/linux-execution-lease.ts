@@ -1,11 +1,6 @@
 import * as fs from 'node:fs'
-import { canonicalValueDigest } from '../../engine/canonical-value.ts'
-import {
-  type LatchNamespace,
-  latchNamespaceSchema,
-  type ProcessLifetime,
-  processLifetimeSchema,
-} from '../../engine/fix-recovery-schema.ts'
+import { canonicalValueDigest, latchNamespaceSchema, processLifetimeSchema } from '../../dist/contracts.js'
+import type { LatchNamespace, ProcessLifetime } from '../../engine/fix-recovery-schema.ts'
 import { failure, type LeaseFailure, parseStat, reject, required, self } from './linux-process-identity.ts'
 
 export type { LeaseFailure } from './linux-process-identity.ts'

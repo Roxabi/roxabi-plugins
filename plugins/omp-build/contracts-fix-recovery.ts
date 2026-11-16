@@ -11,15 +11,18 @@ export {
 export * from './engine/fix-recovery-control-schema.ts'
 export {
   discoverFixRecovery,
+  discoverSelectedRecoveryOwner,
   type FixRecoveryDiscoveryInput,
   type FixRecoveryRead,
   fixRecoveryDiscoveryScopes,
 } from './engine/fix-recovery-discovery.ts'
+export { matchesCompletePin } from './engine/fix-recovery-discovery-records.ts'
 export { deriveFixOwnerSettlementFacts } from './engine/fix-recovery-discovery-settlement.ts'
 export { selectFixRecoveryDispositionPlan } from './engine/fix-recovery-disposition-plan.ts'
 export * from './engine/fix-recovery-identities.ts'
 export * from './engine/fix-recovery-observation.ts'
 export { assessFixOwnerAdmission } from './engine/fix-recovery-owner-admission.ts'
+export { commentAsPartPin } from './engine/fix-recovery-part-pins.ts'
 export * from './engine/fix-recovery-phase-schema.ts'
 export { recoveryClosedRequests } from './engine/fix-recovery-projection.ts'
 export * from './engine/fix-recovery-proposal.ts'

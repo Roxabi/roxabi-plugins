@@ -2,7 +2,13 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { nativeBatchStatus } from '../action-communication.ts'
 import { flushPendingYields } from './capture'
 import { groundCapturedChildren } from './child-capture.ts'
-import type { NativeBatch, NativeBatchResult, NativeExecutionObservation, NativeStop } from './contracts'
+import type {
+  NativeBatch,
+  NativeBatchResult,
+  NativeExecutionObservation,
+  NativeStop,
+  NativeSuccessor,
+} from './contracts'
 import { rootCurrent } from './executed-child-lifecycle.ts'
 import { blocked, integrityFailure, publishRaw } from './settlement-evidence'
 import { preparedReceived, stopAfterPublication, stopBeforePublication, stopIfLate } from './settlement-received'
@@ -42,26 +48,32 @@ export async function settleReceivedBatch(
   event: NativeExecutionObservation,
   detach: (active: ActiveBatch) => void,
   ownsPresentation: (batch: NativeBatch) => boolean = () => true,
-): Promise<void> {
+): Promise<NativeSuccessor | undefined> {
+  const executionDone = active.executionDone
   flushPendingYields(active)
   const resolved = resolveTaskResult(active, event)
   let status: 'completed' | 'stopped' = 'stopped'
   let failed = false
   try {
     const prepared = await preparedReceived(active, event, resolved)
-    if (await stopBeforePublication(active, prepared.result, detach)) return
+    if (await stopBeforePublication(active, prepared.result, detach)) return undefined
     const publicationErrors = await publishRaw(active.callbacks, prepared.children, () => rootCurrent(active))
     detach(active)
-    if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return
+    if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return undefined
     const canContinue = (): boolean =>
       active.continuationClosed === null && active.retentionFailed === null && rootCurrent(active)
-    if (await stopIfLate(active, prepared.result, resolved, event)) return
+    if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
     status = 'completed'
     await active.callbacks.onComplete(prepared.result, canContinue)
-    if (await stopIfLate(active, prepared.result, resolved, event)) return
-    await active.callbacks.onSettled?.(prepared.result, canContinue)
-    if (await stopIfLate(active, prepared.result, resolved, event)) return
-    status = 'completed'
+    if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
+    const observed = await active.callbacks.onSettled?.(prepared.result, canContinue)
+    const successor = typeof observed === 'function' ? observed : undefined
+    if (successor !== undefined) {
+      active.handoffPending = true
+      if (executionDone !== null) await executionDone
+    }
+    if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
+    return successor
   } catch (error) {
     failed = true
     throw error
@@ -75,7 +87,7 @@ export function isolatedReceivedSettlement(
   event: NativeExecutionObservation,
   detach: (active: ActiveBatch) => void,
   ownsPresentation: (batch: NativeBatch) => boolean,
-): Promise<void> {
+): Promise<NativeSuccessor | undefined> {
   let isolated: NativeExecutionObservation
   try {
     isolated = structuredClone(event)
@@ -94,12 +106,13 @@ export function isolatedReceivedSettlement(
       } finally {
         presentTerminal(active, ownsPresentation, 'stopped')
       }
+      return undefined
     })
   }
   active.settling = true
   return settleReceivedBatch(active, isolated, detach, ownsPresentation)
     .then(
-      () => undefined,
+      (successor) => successor,
       async (error) => {
         if (active.continuationClosed === 'action-context-missing') {
           presentTerminal(active, ownsPresentation, 'stopped')

@@ -1,10 +1,13 @@
 import type { CanonicalRecord, DecodedHistory, GitHubOptions } from '../dist/contracts.js'
-import { canonicalValueDigest, projectRecoveryHistories } from '../dist/contracts.js'
+import {
+  assessFixOwnerAdmission,
+  canonicalValueDigest,
+  projectRecoveryHistories,
+  replayFixRecoveryControl,
+} from '../dist/contracts.js'
 import type { FixRecoveryNativePreparation } from '../engine/fix-recovery-control-schema.ts'
 import type { ReservedRecordIdentity } from '../engine/fix-recovery-identities.ts'
 import type { FixRecoveryCurrentFacts } from '../engine/fix-recovery-observation.ts'
-import { assessFixOwnerAdmission } from '../engine/fix-recovery-owner-admission.ts'
-import { replayFixRecoveryControl } from '../engine/fix-recovery-replay.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { FixActionResult, FixIdentity, PreparedFix } from './fix-contract.ts'
 import { failure, recoveryDiagnosticStrings } from './fix-contract.ts'

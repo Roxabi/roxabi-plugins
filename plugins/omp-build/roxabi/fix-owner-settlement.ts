@@ -1,7 +1,5 @@
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
-import { canonicalValueDigest } from '../dist/contracts.js'
-import { deriveFixOwnerSettlementFacts } from '../engine/fix-recovery-discovery-settlement.ts'
-import { outboundOperationSchema } from '../engine/fix-recovery-phase-schema.ts'
+import { canonicalValueDigest, deriveFixOwnerSettlementFacts, outboundOperationSchema } from '../dist/contracts.js'
 import type { FixOwnerOpenedPayload, FixOwnerSettledPayload } from '../engine/fix-recovery-schema.ts'
 import type { PreparationCohortResult } from '../host/preparation-cohort.ts'
 import type { FixActionResult, PreparedFix } from './fix-contract.ts'

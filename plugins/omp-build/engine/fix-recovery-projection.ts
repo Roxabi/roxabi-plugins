@@ -83,7 +83,8 @@ function validOperation(current: Operation, member: RetiredMember): boolean {
     current.recordId !== identity.recordId ||
     current.kind !== identity.kind ||
     (current.status !== 'incomplete' && current.status !== 'complete') ||
-    !observedPartsMatch(member.observedParts, current, false)
+    !observedPartsMatch(member.observedParts, current, false) ||
+    recordIntegrity(current.parts, identity) !== null
   )
     return false
   return (
@@ -92,8 +93,7 @@ function validOperation(current: Operation, member: RetiredMember): boolean {
       current.record.kind === identity.kind &&
       current.record.runId === identity.runId &&
       current.record.operationId === identity.operationId &&
-      current.record.recordId === identity.recordId &&
-      recordIntegrity(current.parts, current.record) === null)
+      current.record.recordId === identity.recordId)
   )
 }
 

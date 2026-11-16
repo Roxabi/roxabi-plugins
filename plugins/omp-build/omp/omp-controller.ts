@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
 import { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
+import { belongsToFixFence } from '../roxabi/fix-fence-batches.ts'
 import type { ReviewPublisher } from '../roxabi/review-contract.ts'
 import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { installNativeBatchBridge } from './review-runtime/bridge.ts'
@@ -46,12 +47,17 @@ export type OwnedFixRun = {
 const reviewControllers = new WeakMap<object, NativeBatchController>()
 const ownedFixRuns = new WeakMap<object, OwnedFixRun>()
 const fixIngress = new WeakSet<object>()
+const fixFences = new WeakMap<object, FixExecutionFence>()
 
 /** Serialize the outer async ingress as well as the subsequently owned driver. */
 export function claimFixIngress(pi: NativeExtension): () => void {
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
+  if (reviewControllers.get(pi)?.hasLiveBatchExcept(() => false)) throw new Error('fix-known-native-writer-active')
   fixIngress.add(pi)
-  return () => fixIngress.delete(pi)
+  return () => {
+    fixIngress.delete(pi)
+    if (!ownedFixRuns.has(pi)) fixFences.delete(pi)
+  }
 }
 
 /** Operator-visible terminal/control status: never starts or steers a model turn. */
@@ -72,7 +78,10 @@ export function ownFixRun(pi: NativeExtension, owned: OwnedFixRun): void {
 }
 
 export function releaseOwnedFixRun(pi: NativeExtension, run: FixRun): void {
-  if (ownedFixRuns.get(pi)?.run === run) ownedFixRuns.delete(pi)
+  if (ownedFixRuns.get(pi)?.run === run) {
+    ownedFixRuns.delete(pi)
+    fixFences.delete(pi)
+  }
 }
 
 export function interruptOwnedFixRun(pi: NativeExtension, reason: string): void {
@@ -95,7 +104,11 @@ export function interruptExactOwnedFixRun(pi: NativeExtension, owned: OwnedFixRu
 export function reviewControllerFor(pi: NativeExtension): NativeBatchController {
   const existing = reviewControllers.get(pi)
   if (existing) return existing
-  const controller = new NativeBatchController()
+  const controller = new NativeBatchController((batch) => {
+    if (!hasOwnedFixRun(pi)) return true
+    const fence = fixFences.get(pi)
+    return fence !== undefined && belongsToFixFence(batch, fence)
+  })
   installNativeBatchBridge(pi, controller)
   reviewControllers.set(pi, controller)
   return controller
@@ -114,12 +127,17 @@ export function createOmpReviewProduct(pi: NativeExtension, publisher: ReviewPub
 /** Correction batches share the same guarded native bridge and native continuation. */
 export function createOmpFixPort(
   pi: NativeExtension,
-  executionFence = new FixExecutionFence(),
+  suppliedFence?: FixExecutionFence,
 ): Pick<NativeBatchController, 'active' | 'activate' | 'stopOwned'> & {
   announce(batch: NativeBatch): Promise<void>
   executionFence: FixExecutionFence
 } {
+  const executionFence = suppliedFence ?? new FixExecutionFence()
   const controller = reviewControllerFor(pi)
+  if (suppliedFence !== undefined && fixIngress.has(pi)) fixFences.set(pi, suppliedFence)
+  executionFence.bindKnownWriters(
+    () => !controller.hasLiveBatchExcept((batch) => belongsToFixFence(batch, executionFence)),
+  )
   return {
     active: controller.active.bind(controller),
     executionFence,
@@ -140,7 +158,10 @@ export function createOmpFixPort(
           ? {}
           : {
               onSettled: (result: NativeBatchResult, canContinue: () => boolean) =>
-                executionFence.trackCallback('onSettled', () => onSettled(result, canContinue)),
+                executionFence.trackCallback('onSettled', async () => {
+                  const successor = await onSettled(result, canContinue)
+                  return typeof successor === 'function' ? successor : undefined
+                }),
             }),
         onStop: (reason, result, stop) =>
           executionFence.trackCallback('onStop', () => callbacks.onStop(reason, result, stop)),

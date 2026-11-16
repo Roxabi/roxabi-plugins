@@ -1,5 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import { admitFixBatch } from '../../roxabi/fix-execution-fence.ts'
+import { admitFixBatch } from '../../roxabi/fix-fence-batches.ts'
 import type { NativeBatch, NativeExecutionObservation, NativeExtension } from './contracts'
 import type { NativeBatchController } from './controller'
 import { captureNativeRoot, executeNativeBatch } from './native-sdk-adapter.ts'

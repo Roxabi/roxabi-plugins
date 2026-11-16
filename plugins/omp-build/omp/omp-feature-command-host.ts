@@ -65,8 +65,9 @@ async function startInstalledFeatureFix(
   ctx: ExtensionContext,
   input: FeatureReviewFix,
   pluginPin: TrustedHostPluginPin | undefined,
+  current?: () => boolean,
 ): Promise<{ terminal: Promise<FeatureFixTerminal> }> {
-  const started = await dispatchDefaultFix(pi, ctx, '', input, { pluginPin })
+  const started = await dispatchDefaultFix(pi, ctx, '', input, { pluginPin, continuationCurrent: current })
   const owned = ownedFixRunFor(pi)
   return owned === undefined
     ? { terminal: Promise.resolve(unownedFeatureFixTerminal(started)) }
@@ -140,9 +141,10 @@ export function createFeatureCommandHost(
       }),
     prepareEpicRangeReview: (review, onComplete) => prepareInstalledEpicRangeReview(pi, review, onComplete),
     exec: (command, args, executionOptions) => pi.exec(command, args, executionOptions),
-    startFix: options.startFeatureFix ?? ((input) => startInstalledFeatureFix(pi, ctx, input, pluginPin)),
-    startAdmittedCiCorrection: async (input) => {
-      const run = await dispatchAdmittedCiCorrection(pi, ctx, input, { pluginPin })
+    startFix:
+      options.startFeatureFix ?? ((input, current) => startInstalledFeatureFix(pi, ctx, input, pluginPin, current)),
+    startAdmittedCiCorrection: async (input, current) => {
+      const run = await dispatchAdmittedCiCorrection(pi, ctx, input, { pluginPin, continuationCurrent: current })
       return { terminal: run.terminal }
     },
   }

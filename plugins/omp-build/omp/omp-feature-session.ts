@@ -28,7 +28,10 @@ export function featureWorkInterrupter(pi: NativeExtension): (reason: string) =>
     controller.inhibitFeatureContinuation()
     interruptOwnedFixRun(pi, reason)
     const active = controller.active()
-    if (active) await controller.stopOwned(active, reason)
+    await Promise.all([
+      controller.stopDeferredHandoffs(reason),
+      ...(active === null ? [] : [controller.stopOwned(active, reason)]),
+    ])
   }
 }
 async function loadFeatureWorkflowForSessionEnd(

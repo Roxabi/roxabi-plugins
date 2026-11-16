@@ -2,15 +2,15 @@ import { randomUUID } from 'node:crypto'
 import type { CanonicalRecord, DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
 import {
   bindExternalRef,
+  buildRecord,
   canonicalValueDigest,
   decodeHistory,
   publishGitHubRecord,
   readGitHubHistory,
+  validateOriginatingFixSettlement,
 } from '../dist/contracts.js'
-import { validateOriginatingFixSettlement } from '../engine/fix-originating-settlement.ts'
 import type { ReservedRecordIdentity } from '../engine/fix-recovery-identities.ts'
 import type { FixOwnerOpenedPayload, FixOwnerPayload, FixOwnerSettledPayload } from '../engine/fix-recovery-schema.ts'
-import { buildRecord } from '../engine/record-construction.ts'
 import type { FixActionResult, PreparedFix } from './fix-contract.ts'
 import { failure, recoveryDiagnosticStrings } from './fix-contract.ts'
 import type { FixExecutionFence } from './fix-execution-fence.ts'

@@ -22624,6 +22624,51 @@ function authenticateSpec(input, common, mandate, histories) {
     return refuse("Historical effective Spec does not match the recorded observation");
   return null;
 }
+function pauseHomeProblem(current, histories) {
+  const home = histories.find((history) => equalScope(history.source.scope, current));
+  if (home === undefined || !home.source.complete || workflowOperationProblem(home) !== null)
+    return refuse("Mandate pause authority history is missing or incomplete");
+  for (const operation of home.operations) {
+    if (operation.authority === "foreign" || operation.record?.kind !== "operator-control")
+      continue;
+    if (!bindExternalRef({ kind: "operator-control", scope: home.source.scope, recordId: operation.record.recordId }, home).ok)
+      return refuse("Mandate pause control source is not authenticated");
+  }
+  return unliftedPause(home, current) !== null ? diagnostic2("paused", `Mandate ${current.recordId} is paused`) : null;
+}
+function pauseParent(parent, histories) {
+  const parentHome = histories.find((history) => equalScope(history.source.scope, parent.scope));
+  if (parentHome === undefined || !parentHome.source.complete || workflowOperationProblem(parentHome) !== null)
+    return { problem: refuse("Parent mandate pause authority history is missing or incomplete") };
+  const bound = bindExternalRef(parent, parentHome);
+  const selected = selectedMandate(parentHome);
+  if (!bound.ok || bound.value.kind !== "mandate" || "status" in selected || selected.recordId !== parent.recordId || canonicalValueDigest(bound.value) !== canonicalValueDigest(selected))
+    return { problem: refuse("Parent mandate pause authority is not authenticated") };
+  return { mandate: selected };
+}
+function authenticatePauseAuthority(mandate, histories) {
+  const outstanding = outstandingPauseInAuthority(mandate, histories);
+  if (outstanding !== null)
+    return outstanding;
+  const seen = new Set;
+  let current = mandate;
+  while (true) {
+    const key = `${current.repository}\x00${current.target}\x00${current.recordId}`;
+    if (seen.has(key))
+      return refuse("Mandate parent chain cycles");
+    seen.add(key);
+    const problem = pauseHomeProblem(current, histories);
+    if (problem !== null)
+      return problem;
+    const parent = current.payload.parent;
+    if (parent === null)
+      return null;
+    const result = pauseParent(parent, histories);
+    if ("problem" in result)
+      return result.problem;
+    current = result.mandate;
+  }
+}
 function authenticateSourceBasis(input, pair, histories) {
   const common = pair.opened.payload.common;
   if (common.host.admission.destinationDigest !== canonicalValueDigest([
@@ -22656,7 +22701,10 @@ function authenticateSourceBasis(input, pair, histories) {
   const bindingProblem = authenticateBinding(common, pr, histories);
   if (bindingProblem !== null)
     return bindingProblem;
-  return authenticateSpec(input, common, mandate, histories);
+  const specProblem = authenticateSpec(input, common, mandate, histories);
+  if (specProblem !== null)
+    return specProblem;
+  return authenticatePauseAuthority(mandate, histories);
 }
 
 // plugins/omp-build/engine/fix-recovery-discovery-decision-phase.ts
@@ -24218,9 +24266,9 @@ function collectProposals(histories, prospective) {
 }
 function validOperation(current, member) {
   const identity = member.identity;
-  if (current.authority === "foreign" || current.operationId !== identity.operationId || current.recordId !== identity.recordId || current.kind !== identity.kind || current.status !== "incomplete" && current.status !== "complete" || !observedPartsMatch(member.observedParts, current, false))
+  if (current.authority === "foreign" || current.operationId !== identity.operationId || current.recordId !== identity.recordId || current.kind !== identity.kind || current.status !== "incomplete" && current.status !== "complete" || !observedPartsMatch(member.observedParts, current, false) || recordIntegrity(current.parts, identity) !== null)
     return false;
-  return current.record === null || equalScope(current.record, identity.scope) && current.record.kind === identity.kind && current.record.runId === identity.runId && current.record.operationId === identity.operationId && current.record.recordId === identity.recordId && recordIntegrity(current.parts, current.record) === null;
+  return current.record === null || equalScope(current.record, identity.scope) && current.record.kind === identity.kind && current.record.runId === identity.runId && current.record.operationId === identity.operationId && current.record.recordId === identity.recordId;
 }
 function retireMember(home, cut, member, retired) {
   const identity = member.identity;
@@ -26615,6 +26663,7 @@ function collectRecords(histories) {
     if (!history.source.complete) {
       collection.diagnostics.push(diagnostic6("incomplete", `History for ${history.source.scope.target} is not a complete native read`));
     }
+    collection.diagnostics.push(...history.source.diagnostics);
     collectCompleteHistoryOperations(history, collection);
     collection.diagnostics.push(...history.diagnostics);
   }
@@ -27889,7 +27938,7 @@ async function publishConfirmedWorkflowRecord(record, options, resolveContext, e
 }
 // plugins/omp-build/adapters/github-workflow/cause-history-closure.ts
 var key2 = (scope) => `${scope.repository}\x00${scope.target}`;
-function appendHistories(histories, observed, pending) {
+function appendHistories(histories, observed, pending, allowMissing = false) {
   for (const history of observed) {
     const id = key2(history.source.scope);
     const requested = pending === undefined || pending.delete(id);
@@ -27902,7 +27951,7 @@ function appendHistories(histories, observed, pending) {
       };
     histories.set(id, history);
   }
-  if (pending !== undefined && pending.size > 0)
+  if (!allowMissing && pending !== undefined && pending.size > 0)
     return {
       ok: false,
       reason: "incomplete",
@@ -27937,18 +27986,35 @@ function closureInputs(seed, current) {
 }
 async function readPending(histories, pending, read) {
   const observed = await read([...pending.values()]);
-  return { observed, failure: appendHistories(histories, observed.histories, pending) };
+  return { observed, failure: appendHistories(histories, observed.histories, pending, !observed.ok) };
 }
-function closureStep(seed, histories, readFailure) {
+function closureStep(seed, histories, readFailure, attempted) {
   const current = [...histories.values()];
   const { strictHistories, primaryRecords } = closureInputs(seed, current);
   const bootstrapRecords = [...primaryRecords, ...completeTrustedRecords2(strictHistories)];
   const bootstrapPending = missingScopes(bootstrapRecords, histories);
+  for (const id of attempted)
+    bootstrapPending.delete(id);
   if (bootstrapPending.size > 0)
     return { pending: bootstrapPending };
   const validated = validateComposedWorkflowHistories(strictHistories, current);
-  if (!validated.ok)
-    return { result: { ...validated, histories: current } };
+  if (!validated.ok) {
+    if (readFailure !== null && validated.reason !== "ambiguous")
+      return {
+        result: {
+          ...readFailure,
+          diagnostics: [...readFailure.diagnostics, ...validated.diagnostics],
+          histories: current
+        }
+      };
+    return {
+      result: {
+        ...validated,
+        diagnostics: [...readFailure?.diagnostics ?? [], ...validated.diagnostics],
+        histories: current
+      }
+    };
+  }
   if (readFailure !== null)
     return { result: { ...readFailure, histories: current } };
   const pending = missingScopes([...primaryRecords, ...validated.records], histories);
@@ -27963,6 +28029,12 @@ function closureStep(seed, histories, readFailure) {
     }
   };
 }
+function mergeReadFailure(previous, observed) {
+  if (previous === null)
+    return observed;
+  const reason = previous.reason === "ambiguous" || observed.reason === "ambiguous" ? "ambiguous" : previous.reason === "unreadable" || observed.reason === "unreadable" ? "unreadable" : "incomplete";
+  return { ...previous, reason, diagnostics: [...previous.diagnostics, ...observed.diagnostics] };
+}
 async function expandCauseHistoryClosure(seed, read) {
   const initial = seed.kind === "strict" ? seed.histories : [seed.primary, ...seed.external];
   const histories = new Map;
@@ -27970,15 +28042,21 @@ async function expandCauseHistoryClosure(seed, read) {
   if (initialFailure !== null)
     return initialFailure;
   let readFailure = null;
+  const attempted = new Set;
   while (true) {
-    const step = closureStep(seed, histories, readFailure);
+    const step = closureStep(seed, histories, readFailure, attempted);
     if ("result" in step)
       return step.result;
+    for (const id of step.pending.keys())
+      attempted.add(id);
     const { observed, failure } = await readPending(histories, step.pending, read);
-    if (!observed.ok && readFailure === null)
-      readFailure = observed;
+    if (!observed.ok)
+      readFailure = mergeReadFailure(readFailure, observed);
     if (failure !== null)
-      return failure;
+      return {
+        ...failure,
+        diagnostics: [...readFailure?.diagnostics ?? [], ...failure.diagnostics]
+      };
   }
 }
 function readCauseHistoryClosure(initial, read) {
@@ -29157,6 +29235,11 @@ function validateTrustedHistory(history, settlement, retired) {
     const previouslyRetired = operation.parts.length > 0 && operation.parts.every((part) => part.nativeId !== null && retired.get(scopeKeyForSettlement(history.source.scope))?.has(part.nativeId));
     if (operation.status !== "incomplete" || !enrolled && !previouslyRetired || operation.operationId === null)
       return fail10("Originating settlement contains an unrelated or ambiguous trusted operation");
+    if (recordIntegrity(operation.parts, {
+      kind: operation.kind ?? "unknown",
+      recordId: operation.recordId ?? "unknown"
+    }) !== null)
+      return fail10("Originating settlement contains an edited or unreadable trusted operation");
     allowed.add(operation.operationId);
   }
   if (history.diagnostics.some((entry) => entry.code !== "incomplete" || entry.operationId === undefined || !allowed.has(entry.operationId)))
@@ -35037,6 +35120,7 @@ export {
   commandOutputSchema,
   commandResultSchema,
   commandRunSchema,
+  commentAsPartPin,
   completeCriterionDeclarations,
   composeChantier,
   composedParentConsentSchema,
@@ -35074,6 +35158,7 @@ export {
   diagnosticSchema,
   directReviewContextSuccessors,
   discoverFixRecovery,
+  discoverSelectedRecoveryOwner,
   dispositionSchema,
   effectiveMandateRole,
   effectiveRejectedFindingIds,
@@ -35194,6 +35279,7 @@ export {
   makeFixRecoveryObservation,
   mandatePayloadSchema,
   mandateScope,
+  matchesCompletePin,
   materialAcceptanceDigest,
   mechanicalSpecDelta,
   missingContextItemSchema,

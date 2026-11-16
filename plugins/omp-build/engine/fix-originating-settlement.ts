@@ -4,6 +4,7 @@ import { recoveryRetiredParts } from './fix-recovery-projection.ts'
 import { frameFrom } from './history-framing.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { recordIntegrity } from './record-integrity.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Scope } from './record-values.ts'
 import type { Result } from './result.ts'
@@ -93,6 +94,13 @@ function validateTrustedHistory(
       )
     if (operation.status !== 'incomplete' || (!enrolled && !previouslyRetired) || operation.operationId === null)
       return fail('Originating settlement contains an unrelated or ambiguous trusted operation')
+    if (
+      recordIntegrity(operation.parts, {
+        kind: operation.kind ?? 'unknown',
+        recordId: operation.recordId ?? 'unknown',
+      }) !== null
+    )
+      return fail('Originating settlement contains an edited or unreadable trusted operation')
     allowed.add(operation.operationId)
   }
   if (

@@ -1,9 +1,14 @@
 import type { CanonicalRecord, DecodedHistory, GitHubOptions } from '../dist/contracts.js'
-import { bindExternalRef, canonicalValueDigest } from '../dist/contracts.js'
-import { buildConfirmedFixRecoveryClose, prepareFixRecoveryClose } from '../engine/fix-recovery-close.ts'
+import {
+  bindExternalRef,
+  buildConfirmedFixRecoveryClose,
+  canonicalValueDigest,
+  makeFixRecoveryObservation,
+  prepareFixRecoveryClose,
+  replayFixRecoveryClose,
+} from '../dist/contracts.js'
 import type { ReservedRecordIdentity } from '../engine/fix-recovery-identities.ts'
-import { type FixRecoveryCurrentFacts, makeFixRecoveryObservation } from '../engine/fix-recovery-observation.ts'
-import { replayFixRecoveryClose } from '../engine/fix-recovery-replay.ts'
+import type { FixRecoveryCurrentFacts } from '../engine/fix-recovery-observation.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import {
   type DestinationAdmissionLease,

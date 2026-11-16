@@ -5,7 +5,7 @@ import { admitNativeBatch } from './batch-admission.ts'
 import { validateNativeBatch } from './batch-validation.ts'
 import { captureSubagentEvent } from './capture'
 import type { NativeBatch, NativeBatchCallbacks, NativeExecutionObservation, NativeTaskWireInput } from './contracts'
-import { stopBatches, stopOwnedBatch } from './controller-stop'
+import { stopBatches, stopDeferredHandoffs, stopOwnedBatch } from './controller-stop'
 import { rootCurrent, unindexAdmittedChildBatch } from './executed-child-lifecycle.ts'
 import { type HostGitObserver, observeHostGit } from './host-git-observation.ts'
 import {
@@ -15,6 +15,7 @@ import {
   unusableOwnedReplacement,
 } from './result-replacement.ts'
 import { isolatedReceivedSettlement, ownsBatchPresentation, settleStoppedBatch } from './settlement'
+import { handoffReceivedSettlement } from './settlement-handoff.ts'
 import { nativeSpawnRefusal } from './spawn-guard.ts'
 import {
   type ActiveBatch,
@@ -24,7 +25,6 @@ import {
   watchBatchSettleAbort,
 } from './state'
 import { releaseTaskMask } from './task-mask-lease'
-/** Short-lived authority for one sealed, plugin-owned native batch. */
 export class NativeBatchController {
   #active: ActiveBatch | null = null
   #lastActivated: ActiveBatch | null = null
@@ -32,11 +32,20 @@ export class NativeBatchController {
   #observeHostGit: HostGitObserver = observeHostGit
   #terminalByBatch = new WeakMap<NativeBatch, Promise<void>>()
   #live = new Set<ActiveBatch>()
+  #retiredWriters = new WeakSet<ActiveBatch>()
   #ownedActive = new Map<string, ActiveBatch>()
   #rootContext: ExtensionContext | null = null
   #artifactsDir: string | null = null
   #communication: ActionCommunication | null = null
   #announcements = new NativeAnnouncements()
+  constructor(private readonly canActivate: (batch: NativeBatch) => boolean = () => true) {}
+
+  /** Includes detached batches until their actual terminal callbacks have settled. */
+  hasLiveBatchExcept(allowed: (batch: NativeBatch) => boolean): boolean {
+    for (const active of this.#live) if (!this.#retiredWriters.has(active) && !allowed(active.batch)) return true
+    return false
+  }
+
   rootContext(): ExtensionContext | null {
     return this.#rootContext
   }
@@ -62,7 +71,9 @@ export class NativeBatchController {
     this.#observeHostGit = observer
   }
   activate(batch: NativeBatch, callbacks: NativeBatchCallbacks): void {
+    if (!this.canActivate(batch)) throw new Error('fix-run-already-active')
     validateNativeBatch(batch)
+    if (this.#terminalByBatch.has(batch)) throw new Error('native batch already settled')
     if (this.#active) throw new Error('a native batch is already active')
     const sessionId = this.#rootContext?.sessionManager.getSessionId() ?? null
     this.#active = createActiveBatch(
@@ -212,17 +223,14 @@ export class NativeBatchController {
     const active = this.#active
     if (!active || active.admittedToolCallId !== event.toolCallId) return
     if (this.#terminalByBatch.has(active.batch) || active.settling) return
-    rememberBatchTerminal(
-      this.#terminalByBatch,
-      this.#live,
-      active.batch,
-      isolatedReceivedSettlement(
-        active,
-        event,
-        (current) => this.#detach(current),
-        () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
-      ),
+    const predecessor = isolatedReceivedSettlement(
+      active,
+      event,
+      (current) => this.#detach(current),
+      () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
     )
+    const terminal = handoffReceivedSettlement(active, predecessor, this.#retiredWriters)
+    rememberBatchTerminal(this.#terminalByBatch, this.#live, active.batch, terminal)
   }
   async receiveResult(event: NativeExecutionObservation): Promise<void> {
     this.queueOwnedSettlement(event)
@@ -231,10 +239,14 @@ export class NativeBatchController {
   async stop(reason: string): Promise<void> {
     await stopBatches(this.#stopContext(), reason)
   }
+  async stopDeferredHandoffs(reason: string): Promise<void> {
+    await stopDeferredHandoffs(this.#stopContext(), reason)
+  }
   #stopContext() {
     return {
       live: this.#live,
       active: () => this.#active,
+      retired: (active: ActiveBatch) => this.#retiredWriters.has(active),
       terminal: (batch: NativeBatch) => this.#terminalByBatch.get(batch),
       present: (active: ActiveBatch, phase: string) => this.#present(active, phase),
       releaseMask: (batch?: NativeBatch) =>

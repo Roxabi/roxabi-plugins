@@ -1,6 +1,5 @@
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
-import { decodeHistory, specDigest } from '../dist/contracts.js'
-import { recoveryClosedRequests } from '../engine/fix-recovery-projection.ts'
+import { decodeHistory, recoveryClosedRequests, specDigest } from '../dist/contracts.js'
 import type { FixRecord } from './fix-contract.ts'
 import { FIX_OPERATION_KIND, type FixCheckpoint, objectValue } from './fix-mandate-types.ts'
 

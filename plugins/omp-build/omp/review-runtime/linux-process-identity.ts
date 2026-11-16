@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
-import { type ProcessLifetime, processLifetimeSchema } from '../../engine/fix-recovery-schema.ts'
+import { processLifetimeSchema } from '../../dist/contracts.js'
+import type { ProcessLifetime } from '../../engine/fix-recovery-schema.ts'
 
 export type LeaseFailure = {
   code:

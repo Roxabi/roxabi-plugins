@@ -85,7 +85,7 @@ async function dispatchDefaultFix(
   ctx: ExtensionContext,
   args: string,
   options: Partial<FeatureReviewFix> = {},
-  captured?: { pluginPin: TrustedHostPluginPin | undefined },
+  captured?: { pluginPin: TrustedHostPluginPin | undefined; continuationCurrent?: (() => boolean) | undefined },
 ): Promise<FixStart> {
   const releaseIngress = claimFixIngress(pi)
   const cohort = createPreparationCohort()
@@ -96,7 +96,7 @@ async function dispatchDefaultFix(
     return await cohort.run(async () => {
       const root = await executionFence.trackIngress(() => captureNativeRootLifetime(ctx))
       if (root === null) throw new Error('fix-root-unavailable')
-      executionFence.bindRoot(root.current, root.lifetime)
+      executionFence.bindRoot(() => root.current() && (captured?.continuationCurrent?.() ?? true), root.lifetime)
       const pluginPin =
         captured === undefined ? await executionFence.trackIngress(() => hostPluginPin(pi, ctx)) : captured.pluginPin
       const automationLogin = await executionFence.trackIngress(() => viewer({ cwd: ctx.cwd }))
@@ -149,7 +149,7 @@ async function dispatchAdmittedCiCorrection(
   pi: FixHost,
   ctx: ExtensionContext,
   input: { reference: string; attributionRecordId: string; uw: CiCorrectionAdmission['uw'] },
-  captured?: { pluginPin: TrustedHostPluginPin | undefined },
+  captured?: { pluginPin: TrustedHostPluginPin | undefined; continuationCurrent?: (() => boolean) | undefined },
 ): Promise<FixRun> {
   const releaseIngress = claimFixIngress(pi)
   const cohort = createPreparationCohort()
@@ -160,7 +160,7 @@ async function dispatchAdmittedCiCorrection(
     return await cohort.run(async () => {
       const root = await executionFence.trackIngress(() => captureNativeRootLifetime(ctx))
       if (root === null) throw new Error('fix-root-unavailable')
-      executionFence.bindRoot(root.current, root.lifetime)
+      executionFence.bindRoot(() => root.current() && (captured?.continuationCurrent?.() ?? true), root.lifetime)
       const pluginPin =
         captured === undefined ? await executionFence.trackIngress(() => hostPluginPin(pi, ctx)) : captured.pluginPin
       const automationLogin = await executionFence.trackIngress(() => viewer({ cwd: ctx.cwd }))

@@ -7,6 +7,7 @@ import {
   recheckDestinationAdmissionLease,
   releaseDestinationAdmissionLease,
 } from '../omp/review-runtime/destination-admission-lease.ts'
+import { belongsToFixFence, bindFixBatch } from './fix-fence-batches.ts'
 import type { FixSealedNoEntry } from './fix-fence-host.ts'
 import { FixFenceHost } from './fix-fence-host.ts'
 import type { FixFenceSnapshot } from './fix-fence-operations.ts'
@@ -25,7 +26,6 @@ type DestinationLeaseFacts = {
   host: QualifiedHost | null
 }
 
-const owners = new WeakMap<NativeBatch, FixExecutionFence>()
 /** In-memory facts of one originating Fix driver, not a recovery witness. */
 export class FixExecutionFence extends FixFenceHost {
   #sealed = false
@@ -186,6 +186,7 @@ export class FixExecutionFence extends FixFenceHost {
       this.#nativeEntered ||
       this.#nativeUnknown ||
       this.#planEntered ||
+      !this.knownWritersQuiet() ||
       !this.#rootIsCurrent()
     )
       return { status: 'held', diagnostics: ['fix-owner-no-entry-unavailable'] }
@@ -195,6 +196,7 @@ export class FixExecutionFence extends FixFenceHost {
       host.status !== 'joined' ||
       this.callbackObservations().some((item) => item.outcome !== 'returned') ||
       this.publicationObservations().some((item) => item.outcome === 'pending') ||
+      !this.knownWritersQuiet() ||
       !this.#rootIsCurrent()
     )
       return { status: 'held', diagnostics: ['fix-owner-host-join-unconfirmed'] }
@@ -237,12 +239,11 @@ export class FixExecutionFence extends FixFenceHost {
   }
 
   bind(batch: NativeBatch): void {
-    if (this.#sealed || owners.has(batch)) throw new Error('fix-native-admission-unavailable')
-    owners.set(batch, this)
+    if (this.#sealed || !bindFixBatch(batch, this)) throw new Error('fix-native-admission-unavailable')
   }
 
   admit(batch: NativeBatch, admitNative: () => boolean): boolean {
-    if (owners.get(batch) !== this || this.#sealed || !this.#rootIsCurrent()) return false
+    if (!belongsToFixFence(batch, this) || this.#sealed || !this.#rootIsCurrent()) return false
     try {
       if (!admitNative()) return false
       this.#nativeEntered = true
@@ -289,10 +290,4 @@ export class FixExecutionFence extends FixFenceHost {
       callbacks: this.callbackObservations().map((item) => ({ ...item })),
     }
   }
-}
-
-/** Non-Fix batches continue through their own existing admission policy. */
-export function admitFixBatch(batch: NativeBatch, admitNative: () => boolean): boolean {
-  const owner = owners.get(batch)
-  return owner === undefined ? admitNative() : owner.admit(batch, admitNative)
 }

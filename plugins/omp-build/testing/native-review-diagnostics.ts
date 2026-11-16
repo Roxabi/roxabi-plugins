@@ -39,7 +39,10 @@ export function observeDriverCallbacks(controller: NativeBatchController): Diagn
         ? {}
         : {
             onSettled: async (result: NativeBatchResult, canContinue: () => boolean) => {
-              await observed('onSettled', () => callbacks.onSettled?.(result, canContinue))
+              return observed('onSettled', async () => {
+                const successor = await callbacks.onSettled?.(result, canContinue)
+                return typeof successor === 'function' ? successor : undefined
+              })
             },
           }),
     }

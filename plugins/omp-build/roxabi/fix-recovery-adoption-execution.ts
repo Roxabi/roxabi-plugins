@@ -1,11 +1,17 @@
 import type { CanonicalRecord, DecodedHistory, GitHubOptions } from '../dist/contracts.js'
-import { bindExternalRef, canonicalValueDigest, projectRecoveryHistories } from '../dist/contracts.js'
-import { buildConfirmedFixRecoveryAdoption, prepareFixRecoveryAdoption } from '../engine/fix-recovery-close.ts'
+import {
+  assessFixOwnerAdmission,
+  bindExternalRef,
+  buildConfirmedFixRecoveryAdoption,
+  canonicalValueDigest,
+  makeFixRecoveryObservation,
+  prepareFixRecoveryAdoption,
+  projectRecoveryHistories,
+  replayFixRecoveryControl,
+} from '../dist/contracts.js'
 import type { FixRecoveryNativePreparation } from '../engine/fix-recovery-control-schema.ts'
 import type { ReservedRecordIdentity } from '../engine/fix-recovery-identities.ts'
-import { type FixRecoveryCurrentFacts, makeFixRecoveryObservation } from '../engine/fix-recovery-observation.ts'
-import { assessFixOwnerAdmission } from '../engine/fix-recovery-owner-admission.ts'
-import { replayFixRecoveryControl } from '../engine/fix-recovery-replay.ts'
+import type { FixRecoveryCurrentFacts } from '../engine/fix-recovery-observation.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import {
   type DestinationAdmissionLease,

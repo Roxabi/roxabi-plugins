@@ -10,10 +10,10 @@ import {
   readCauseDispositionHeads,
   readCauseHistoryClosure,
   type Scope,
+  selectFixRecoveryDispositionPlan,
   type UwGraphObservation,
   validateCauseDispositionRecords,
 } from '../dist/contracts.js'
-import { selectFixRecoveryDispositionPlan } from '../engine/fix-recovery-disposition-plan.ts'
 import type { FixActionResult, FixIdentity, PreparedFix } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
 import { dispositionSourceScopes, saveDisposition } from './fix-disposition-persistence.ts'

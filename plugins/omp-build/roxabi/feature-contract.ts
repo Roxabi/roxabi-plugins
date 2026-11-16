@@ -192,16 +192,19 @@ export type FeatureCommandHost = {
   featureContinuationInhibited: () => boolean
   markFeatureBatch: (batch: NativeBatch) => void
   startReview?: (args: string, onComplete: () => Promise<void>) => Promise<void>
-  startFix?: (input: FeatureReviewFix) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
+  startFix?: (input: FeatureReviewFix, current?: () => boolean) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
   /** Command-context UW capability: absent only when the installed UW composition is unavailable. */
   uw?: UwOperations
   /** Trusted host composition only. Omit for the ordinary published pin. */
   pluginPin?: TrustedHostPluginPin
-  startAdmittedCiCorrection?: (input: {
-    reference: string
-    attributionRecordId: string
-    uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
-  }) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
+  startAdmittedCiCorrection?: (
+    input: {
+      reference: string
+      attributionRecordId: string
+      uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
+    },
+    current?: () => boolean,
+  ) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
   prepareEpicRangeReview?: (review: PreparedEpicReview, onComplete: () => Promise<void>) => Promise<void>
   git?: FeatureGit
   interruptOwnedWork?: (reason: string) => Promise<void>

@@ -67,6 +67,7 @@ function collectRecords(histories: readonly DecodedHistory[]): {
         diagnostic('incomplete', `History for ${history.source.scope.target} is not a complete native read`),
       )
     }
+    collection.diagnostics.push(...history.source.diagnostics)
     collectCompleteHistoryOperations(history, collection)
     collection.diagnostics.push(...history.diagnostics)
   }

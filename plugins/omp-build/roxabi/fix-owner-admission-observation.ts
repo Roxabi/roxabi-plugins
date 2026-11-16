@@ -1,7 +1,11 @@
 import type { DecodedHistory, GitHubOptions, Scope } from '../dist/contracts.js'
-import { decodeHistory, projectRecoveryHistories, readGitHubHistory } from '../dist/contracts.js'
-import { fixRecoveryDiscoveryScopes } from '../engine/fix-recovery-discovery.ts'
-import { assessFixOwnerAdmission } from '../engine/fix-recovery-owner-admission.ts'
+import {
+  assessFixOwnerAdmission,
+  decodeHistory,
+  fixRecoveryDiscoveryScopes,
+  projectRecoveryHistories,
+  readGitHubHistory,
+} from '../dist/contracts.js'
 import type { Destination } from '../engine/fix-recovery-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { FixActionResult } from './fix-contract.ts'
