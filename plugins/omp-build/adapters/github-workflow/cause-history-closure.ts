@@ -1,4 +1,5 @@
 import { causeHistoryReferences } from '../../engine/cause-disposition.ts'
+import { fixRecoveryDiscoveryScopes } from '../../engine/fix-recovery-discovery.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
@@ -37,21 +38,76 @@ function appendHistories(
   return null
 }
 
+function completeTrustedRecords(histories: readonly DecodedHistory[]): CanonicalRecord[] {
+  return histories.flatMap((history) =>
+    history.operations.flatMap((operation) =>
+      operation.authority !== 'foreign' && operation.status === 'complete' && operation.record !== null
+        ? [operation.record]
+        : [],
+    ),
+  )
+}
+
 function missingScopes(
   records: readonly CanonicalRecord[],
   histories: Map<string, DecodedHistory>,
 ): Map<string, Scope> {
   const pending = new Map<string, Scope>()
-  for (const ref of causeHistoryReferences(records)) {
-    const id = key(ref.scope)
-    if (!histories.has(id)) pending.set(id, ref.scope)
+  const add = (scope: Scope) => {
+    const id = key(scope)
+    if (!histories.has(id)) pending.set(id, scope)
   }
+  for (const ref of causeHistoryReferences(records)) add(ref.scope)
+  for (const scope of fixRecoveryDiscoveryScopes(records)) add(scope)
   return pending
 }
 
 type ClosureSeed =
   | { kind: 'strict'; histories: readonly DecodedHistory[] }
   | { kind: 'primary-observation'; primary: DecodedHistory; external: readonly DecodedHistory[] }
+
+function closureInputs(seed: ClosureSeed, current: DecodedHistory[]) {
+  if (seed.kind === 'strict') return { strictHistories: current, primaryRecords: [] }
+  return {
+    strictHistories: current.filter((history) => history !== seed.primary),
+    primaryRecords: completeTrustedRecords([seed.primary]),
+  }
+}
+
+async function readPending(
+  histories: Map<string, DecodedHistory>,
+  pending: Map<string, Scope>,
+  read: (scopes: readonly Scope[]) => Promise<ComposedWorkflowHistory>,
+): Promise<{ observed: ComposedWorkflowHistory; failure: HistoryFailure | null }> {
+  const observed = await read([...pending.values()])
+  return { observed, failure: appendHistories(histories, observed.histories, pending) }
+}
+
+function closureStep(
+  seed: ClosureSeed,
+  histories: Map<string, DecodedHistory>,
+  readFailure: HistoryFailure | null,
+): { pending: Map<string, Scope> } | { result: ComposedWorkflowHistory } {
+  const current = [...histories.values()]
+  const { strictHistories, primaryRecords } = closureInputs(seed, current)
+  // Bootstrap recovery/PR scopes from complete raw anchors before ordinary incomplete siblings refuse.
+  const bootstrapRecords = [...primaryRecords, ...completeTrustedRecords(strictHistories)]
+  const bootstrapPending = missingScopes(bootstrapRecords, histories)
+  if (bootstrapPending.size > 0) return { pending: bootstrapPending }
+  const validated = validateComposedWorkflowHistories(strictHistories, current)
+  if (!validated.ok) return { result: { ...validated, histories: current } }
+  if (readFailure !== null) return { result: { ...readFailure, histories: current } }
+  const pending = missingScopes([...primaryRecords, ...validated.records], histories)
+  if (pending.size > 0) return { pending }
+  return {
+    result: {
+      ok: true,
+      scopes: current.map((history) => history.source.scope),
+      histories: current,
+      records: validated.records,
+    },
+  }
+}
 
 async function expandCauseHistoryClosure(
   seed: ClosureSeed,
@@ -61,30 +117,12 @@ async function expandCauseHistoryClosure(
   const histories = new Map<string, DecodedHistory>()
   const initialFailure = appendHistories(histories, initial)
   if (initialFailure !== null) return initialFailure
+  let readFailure: HistoryFailure | null = null
   while (true) {
-    const current = [...histories.values()]
-    const strictHistories = seed.kind === 'strict' ? current : current.filter((history) => history !== seed.primary)
-    const validated = validateComposedWorkflowHistories(strictHistories)
-    if (!validated.ok) return { ...validated, histories: current }
-    const primaryRecords =
-      seed.kind === 'strict'
-        ? []
-        : seed.primary.operations.flatMap((operation) =>
-            operation.status === 'complete' && operation.authority !== 'foreign' && operation.record !== null
-              ? [operation.record]
-              : [],
-          )
-    const pending = missingScopes([...primaryRecords, ...validated.records], histories)
-    if (pending.size === 0)
-      return {
-        ok: true,
-        scopes: current.map((history) => history.source.scope),
-        histories: current,
-        records: validated.records,
-      }
-    const observed = await read([...pending.values()])
-    if (!observed.ok) return { ...observed, histories: [...current, ...observed.histories] }
-    const failure = appendHistories(histories, observed.histories, pending)
+    const step = closureStep(seed, histories, readFailure)
+    if ('result' in step) return step.result
+    const { observed, failure } = await readPending(histories, step.pending, read)
+    if (!observed.ok && readFailure === null) readFailure = observed
     if (failure !== null) return failure
   }
 }

@@ -1,7 +1,7 @@
-import type { History, OperationAuthority } from '../../engine/history-schema.ts'
-import { stopBotMayAuthor, WORKFLOW_RECORD_KINDS } from '../../engine/record-references.ts'
-import type { ClaimedOperation, LooseHeaderClue, UnclaimedOperation } from './types.ts'
-import { decodeHeaderIdentifier } from './types.ts'
+import type { History, OperationAuthority } from './history-schema.ts'
+import type { ClaimedOperation, LooseHeaderClue, UnclaimedOperation } from './history-wire-types.ts'
+import { decodeHeaderIdentifier } from './history-wire-types.ts'
+import { stopBotMayAuthor, WORKFLOW_RECORD_KINDS } from './record-references.ts'
 
 const KNOWN_KINDS: Record<string, true> = {
   'review-attempt': true,

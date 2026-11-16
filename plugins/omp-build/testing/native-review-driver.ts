@@ -218,7 +218,9 @@ export async function createReviewDriver(
       return () => undefined
     }),
     registerCommand: (name, command) => commands.set(name, command.handler as Handler),
-    sendUserMessage: recordMessage,
+    sendUserMessage: async (message) => {
+      recordMessage(message)
+    },
     sendMessage: recordMessage,
   })
   const context = rootContext(cwd, contextWindow)

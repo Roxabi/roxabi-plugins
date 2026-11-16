@@ -5,6 +5,7 @@ import {
   publishGitHubRecord,
   type Scope,
 } from '../dist/contracts.js'
+import { recoveryDiagnosticStrings } from './fix-contract.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createPublicationContextResolver } from './publication-context.ts'
 
@@ -26,7 +27,7 @@ async function publishChecked(
   )
   if (canPublish?.() === false) return { ok: false, diagnostics: ['publication-ownership-revoked'] }
   if (result.status === 'confirmed') return { ok: true }
-  return { ok: false, diagnostics: result.diagnostics.map((diagnostic) => diagnostic.code) }
+  return { ok: false, diagnostics: recoveryDiagnosticStrings(result.diagnostics) }
 }
 
 /**

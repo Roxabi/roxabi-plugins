@@ -1,6 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import { AgentRegistry } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
+import { AgentRegistry, type AgentRegistryApi } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
 import type { AgentSession } from '@oh-my-pi/pi-coding-agent/session/agent-session'
+import { isLocalAgentSession } from '@oh-my-pi/pi-coding-agent/session/agent-session-handle'
 import type { NativeBatch } from './contracts'
 import type { NativeBatchController } from './controller'
 
@@ -9,7 +10,7 @@ type Request = { batch: NativeBatch; revoked: boolean }
 type CapturedRoot = {
   root: AgentSession
   current: (allowTransition: boolean) => boolean
-  registry: AgentRegistry
+  registry: AgentRegistryApi
 }
 type Lease = {
   batch: NativeBatch
@@ -53,7 +54,7 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot> {
   const registry = AgentRegistry.global()
   const ref = registry.get(ctx.agent.id)
   const root = ref?.session
-  if (!ref || !root || ref.kind !== 'main' || root.modelRegistry !== ctx.modelRegistry)
+  if (!ref || !root || ref.kind !== 'main' || !isLocalAgentSession(root) || root.modelRegistry !== ctx.modelRegistry)
     throw new Error('native task mask root unavailable')
   const modelRegistry = ctx.modelRegistry
   const registrySessionFile = ref.sessionFile
@@ -82,7 +83,7 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot> {
   return { root, current, registry }
 }
 
-function watchLease(controller: NativeBatchController, lease: Lease, registry: AgentRegistry): void {
+function watchLease(controller: NativeBatchController, lease: Lease, registry: AgentRegistryApi): void {
   const revoke = () => {
     if (leases.get(controller) !== lease) return
     lease.drifted = true

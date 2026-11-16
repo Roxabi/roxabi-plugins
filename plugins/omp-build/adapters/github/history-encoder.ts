@@ -1,7 +1,8 @@
+import { base64url, canonicalUtf8, utf8, utf8Bytes } from '../../engine/history-wire-types.ts'
+import { diagnostic } from '../../engine/record-diagnostics.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic } from '../../engine/record-values.ts'
 import type { Result } from '../../engine/result.ts'
-import { base64url, canonicalUtf8, diagnostic, utf8, utf8Bytes } from './types.ts'
 
 function failure<T>(diagnostics: Diagnostic[]): Result<T> {
   return { ok: false, diagnostics }

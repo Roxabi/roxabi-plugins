@@ -1,7 +1,9 @@
+import { canonicalValueDigest } from '../../engine/action-input.ts'
+import { fixRecoveryDiscoveryScopes } from '../../engine/fix-recovery-discovery.ts'
 import type { DecodedHistory, History } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
-import { decodeHistory } from '../github/history-codec.ts'
+import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
 import type { ComposedWorkflowHistory } from './types.ts'
@@ -73,10 +75,28 @@ function collectRecords(histories: readonly DecodedHistory[]): {
 
 export function validateComposedWorkflowHistories(
   histories: readonly DecodedHistory[],
+  recoverySources: readonly DecodedHistory[] = histories,
 ):
   | { ok: true; records: CanonicalRecord[] }
   | { ok: false; reason: 'incomplete' | 'ambiguous'; diagnostics: Diagnostic[] } {
-  const collected = collectRecords(histories)
+  const projected = projectRecoveryHistories(recoverySources)
+  if (!projected.ok) return { ok: false, reason: 'ambiguous', diagnostics: projected.diagnostics }
+  const strict: DecodedHistory[] = []
+  for (const history of histories) {
+    const matches = projected.value.filter(
+      (item) =>
+        item.source.scope.repository === history.source.scope.repository &&
+        item.source.scope.target === history.source.scope.target,
+    )
+    if (matches.length !== 1 || matches[0] === undefined)
+      return {
+        ok: false,
+        reason: 'ambiguous',
+        diagnostics: [diagnostic('ambiguous', 'Recovery evidence does not uniquely include a strict history scope')],
+      }
+    strict.push(matches[0])
+  }
+  const collected = collectRecords(strict)
   const blocking = collected.diagnostics.filter(
     (entry) => entry.code === 'incomplete' || entry.code === 'ambiguous' || entry.code === 'conflicting-duplicate',
   )
@@ -131,6 +151,50 @@ function collectReadOutcomes(
   return { histories, failures, unreadable }
 }
 
+async function expandRecoverySources(
+  scopes: readonly Scope[],
+  options: GitHubOptions,
+  result: { histories: DecodedHistory[]; failures: Diagnostic[]; unreadable: boolean },
+): Promise<void> {
+  const attempted = new Set(scopes.map((scope) => `${scope.repository}\0${scope.target}`))
+  for (const history of result.histories) {
+    const records = history.operations.flatMap((operation) =>
+      operation.authority !== 'foreign' && operation.status === 'complete' && operation.record?.kind === 'fix-recovery'
+        ? [operation.record]
+        : [],
+    )
+    const pending = fixRecoveryDiscoveryScopes(records).filter((scope) => {
+      const key = `${scope.repository}\0${scope.target}`
+      if (attempted.has(key)) return false
+      attempted.add(key)
+      return true
+    })
+    if (pending.length === 0) continue
+    const next = collectReadOutcomes(pending, await readSources(pending, options))
+    result.histories.push(...next.histories)
+    result.failures.push(...next.failures)
+    result.unreadable ||= next.unreadable
+  }
+}
+
+function changedRecoverySource(
+  histories: readonly DecodedHistory[],
+  knownHistories: readonly DecodedHistory[],
+): boolean {
+  for (const observed of histories) {
+    const known = knownHistories.filter(
+      (entry) =>
+        entry.source.scope.repository === observed.source.scope.repository &&
+        entry.source.scope.target === observed.source.scope.target,
+    )
+    if (known.length > 1) return true
+    const previous = known[0]
+    if (previous !== undefined && canonicalValueDigest(previous.source) !== canonicalValueDigest(observed.source))
+      return true
+  }
+  return false
+}
+
 /**
  * Compose only the linked scopes actually required. Scopes stay opaque outside
  * this adapter; callers pass Scope values from githubScope / native association.
@@ -138,6 +202,7 @@ function collectReadOutcomes(
 export async function readComposedWorkflowHistory(
   scopes: readonly Scope[],
   options: GitHubOptions,
+  knownHistories: readonly DecodedHistory[] = [],
 ): Promise<ComposedWorkflowHistory> {
   if (scopes.length === 0) {
     return {
@@ -155,16 +220,35 @@ export async function readComposedWorkflowHistory(
       histories: [],
     }
   }
-  const { histories, failures, unreadable } = collectReadOutcomes(scopes, await readSources(scopes, options))
-  const validated = validateComposedWorkflowHistories(histories)
+  const first = collectReadOutcomes(scopes, await readSources(scopes, options))
+  const requestedHistories = [...first.histories]
+  await expandRecoverySources(scopes, options, first)
+  const { histories, failures, unreadable } = first
+  if (changedRecoverySource(histories, knownHistories))
+    return {
+      ok: false,
+      reason: 'ambiguous',
+      diagnostics: [diagnostic('ambiguous', 'Recovery source changed between native observations')],
+      histories: requestedHistories,
+    }
+  const validated = validateComposedWorkflowHistories(requestedHistories, histories)
   if (failures.length > 0)
     return {
       ok: false,
       reason:
         !validated.ok && validated.reason === 'ambiguous' ? 'ambiguous' : unreadable ? 'unreadable' : 'incomplete',
       diagnostics: [...failures, ...(!validated.ok ? validated.diagnostics : [])],
-      histories,
+      histories: requestedHistories,
     }
-  if (!validated.ok) return { ok: false, reason: validated.reason, diagnostics: validated.diagnostics, histories }
-  return { ok: true, scopes: [...scopes], histories, records: validated.records }
+  if (!validated.ok)
+    return { ok: false, reason: validated.reason, diagnostics: validated.diagnostics, histories: requestedHistories }
+  const projected = projectRecoveryHistories(histories)
+  if (!projected.ok)
+    return { ok: false, reason: 'ambiguous', diagnostics: projected.diagnostics, histories: requestedHistories }
+  return {
+    ok: true,
+    scopes: [...scopes],
+    histories: projected.value.slice(0, requestedHistories.length),
+    records: validated.records,
+  }
 }

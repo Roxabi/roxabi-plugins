@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs'
 
 import type { ActionResult } from '../dist/contracts.js'
-import type { NativeChildResult } from '../omp/review-runtime/contracts.js'
+import type { NativeChildResult, NativeTask } from '../omp/review-runtime/contracts.js'
 import {
   actionOutput,
   actionTask,
@@ -20,6 +20,7 @@ import type {
   CorrectionApplyResult,
   CorrectionEffectResult,
   CorrectionRevalidationResult,
+  ManifestedStageRecord,
   NativeDispatchResult,
 } from './correction-execution-contract'
 import type { CorrectionNativeRuntime } from './correction-native-runtime'
@@ -116,11 +117,19 @@ async function acceptAppliedCommit(
   }
 }
 
-export async function applyCorrectionAction(
+export type CorrectionApplyPreparation = {
+  head: string
+  paths: string[]
+  stageRecords: ManifestedStageRecord[]
+  task: NativeTask
+}
+
+/** The real, replayed action preparation, without dispatching or consuming an attempt. */
+export async function prepareCorrectionApplyAction(
   runtime: CorrectionNativeRuntime,
   cause: CorrectionCause,
   attempt: 1 | 2 | 3,
-): Promise<CorrectionEffectResult<CorrectionApplyResult>> {
+): Promise<CorrectionEffectResult<CorrectionApplyPreparation>> {
   const expectedHead = runtime.expectedHead()
   if (expectedHead === null) return failed('terminal', 'publish-head-unavailable')
   const publish = await runtime.git.validatePublishBinding(expectedHead)
@@ -148,17 +157,28 @@ export async function applyCorrectionAction(
     runtime,
   )
   if (!registered.ok) return registered
+  return { ok: true, value: { head: state.value.head, paths, stageRecords, task: registered.value } }
+}
+
+export async function applyCorrectionAction(
+  runtime: CorrectionNativeRuntime,
+  cause: CorrectionCause,
+  attempt: 1 | 2 | 3,
+): Promise<CorrectionEffectResult<CorrectionApplyResult>> {
+  const prepared = await prepareCorrectionApplyAction(runtime, cause, attempt)
+  if (!prepared.ok) return prepared
+  const { head, paths, stageRecords, task } = prepared.value
   const result = await runtime.dispatch({
     phase: 'apply',
     causeId: cause.id,
-    task: registered.value,
+    task,
     contextRefs: stageRecords.map((record) => record.recordId),
     context: { recordIds: stageRecords.map((record) => record.recordId), attempt },
   })
   if (!result.ok) return result
   const interpreted = actionOutput(result.value)
   if (!interpreted.ok) return interpreted
-  return acceptAppliedCommit(runtime, cause, result.value, interpreted.value, state.value.head, paths)
+  return acceptAppliedCommit(runtime, cause, result.value, interpreted.value, head, paths)
 }
 
 async function revalidateCause(

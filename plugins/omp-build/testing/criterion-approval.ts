@@ -80,7 +80,7 @@ export function encodeCriterionRecords(
 /** Independently judge the exactly selected implementation evidence. */
 export function criterionSatisfiedRow(options: {
   mandate: MandateRecord
-  inputs: ActionInputs
+  inputs: Pick<ActionInputs, 'manifest'>
   head: string
   issueRecords: readonly CanonicalRecord[]
 }) {

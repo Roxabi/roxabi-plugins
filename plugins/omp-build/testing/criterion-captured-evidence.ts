@@ -6,7 +6,7 @@ import type { MandateRecord } from '../engine/workflow-control.ts'
 
 export function capturedCriterionEvidence(options: {
   mandate: MandateRecord
-  inputs: ActionInputs
+  inputs: Pick<ActionInputs, 'manifest'>
   head: string
   issueRecords: readonly CanonicalRecord[]
 }) {

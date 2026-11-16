@@ -1,6 +1,6 @@
 import { nativeComment } from '../../adapters/__tests__/github-workflow-support.ts'
-import { looseHeaderClue } from '../../adapters/github/history-authority.ts'
 import { type Gh, parseComment } from '../../adapters/github/types.ts'
+import { looseHeaderClue } from '../../engine/history-authority.ts'
 import { nativeGitHub } from '../../testing/framing-native-github.ts'
 
 type Pull = {

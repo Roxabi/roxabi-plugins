@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.0 (unreleased)
+
+- Add bounded interrupted-correction recovery for authenticated originating owners that sealed admission, joined known trusted host work and witnessed no native/startup or correction-plan entry. Predecision publication can close neutrally before a new ordinary attempt; an unstarted existing-review decision can continue the same request and decision only with genuinely unspent execution coordinates.
+- Hold entered, spent, ambiguous or unproven attempts for separate reconciliation; do not infer cessation of arbitrary helpers or automatically reconcile local effects. Positive host qualification is Linux-only and remains separate from this source change.
+- Merge a late streamed yield observation into its uniquely matching executed yield only when the tool-call ID and complete arguments agree; unmatched or differing observations do not acquire execution authority.
+- Recognize exactly 0.21.0 under the existing bounded PR-binding contract; unknown versions remain unknown. This source change does not activate tooling, move pins, upgrade installed caches, migrate records or qualify native delivery.
+
 ## 0.20.1 (unreleased)
 
 - Prepare and validate CI correction inputs before publishing the canonical root. Authenticate intake against that root and bind synthesis to its complete findings set; CI attribution stays authenticated stage data, not dispatch authority or a decision finding.

@@ -83,7 +83,7 @@ function freshRoot(sessionId: string) {
     sendMessage(message) {
       messages.push(typeof message === 'string' ? message : String(message.content))
     },
-    sendUserMessage(content, options) {
+    async sendUserMessage(content, options) {
       userMessages.push({ content, options })
     },
   })

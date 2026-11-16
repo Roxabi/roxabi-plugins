@@ -2,9 +2,16 @@ import type { DecodedHistory } from './history-schema.ts'
 import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
-import { projectNativeUwChildren } from './uw-child-admission.ts'
+import { projectNativeUwChildren, projectSemanticUwChildren } from './uw-child-admission.ts'
 import type { UwResult } from './uw-diagnostics.ts'
-import { isWayfinder, type UwGraphObservation, unknownWayfinderLabels, validateUwGraph } from './uw-graph.ts'
+import {
+  isWayfinder,
+  type UwGraphObservation,
+  type UwSemanticGraph,
+  unknownWayfinderLabels,
+  validateUwGraph,
+  validateUwGraphContents,
+} from './uw-graph.ts'
 import { currentOwnSpecProblem } from './uw-spec-currentness.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
@@ -14,7 +21,11 @@ import { selectedMandate } from './workflow-mandate-admission.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
 import { terminalMandate } from './workflow-terminal-mandate.ts'
 
-type CurrentEngagement = { own: OwnSpecRef; graph: UwGraphObservation; histories: readonly DecodedHistory[] }
+type CurrentEngagement = {
+  own: OwnSpecRef
+  graph: UwGraphObservation | UwSemanticGraph
+  histories: readonly DecodedHistory[]
+}
 type EngagementRefusal = Extract<UwResult<never>, { ok: false }>
 export type TerminalChildSuccession = Readonly<{ child: Scope; tip: ExternalRecordRef & { kind: 'mandate' } }>
 
@@ -118,6 +129,14 @@ function childEngagementProblem(
   return null
 }
 
+function matchesAcceptedParent(
+  node: CurrentEngagement['graph']['nodes'][number],
+  parent: AcceptedOwnSpec | undefined,
+): boolean {
+  if (parent === undefined) return node.parent === null
+  return node.parent !== null && equalScope(node.parent, parent.ref.uw)
+}
+
 function stateEngagementProblem(
   state: AcceptedOwnSpec,
   parent: AcceptedOwnSpec | undefined,
@@ -125,10 +144,7 @@ function stateEngagementProblem(
   succession: TerminalChildSuccession | null,
 ): UwResult<never> | null {
   const node = input.graph.nodes.find((entry) => equalScope(entry.uw, state.ref.uw))
-  if (
-    !node ||
-    (parent === undefined ? node.parent !== null : node.parent === null || !equalScope(node.parent, parent.ref.uw))
-  )
+  if (!node || !matchesAcceptedParent(node, parent))
     return refusal(
       input,
       'effective-native-ancestry-mismatch',
@@ -147,11 +163,14 @@ function stateEngagementProblem(
       currentProblem,
       `Accepted UW ${state.ref.uw.repository} ${state.ref.uw.target} current native Spec or tier differs from its accepted state`,
     )
-  const projected = projectNativeUwChildren({
-    uw: state.ref.uw,
-    graph: input.graph,
-    accepted: { status: 'accepted', value: state },
-  })
+  const projected =
+    input.graph.status === 'semantic'
+      ? projectSemanticUwChildren(state.ref.uw, input.graph.nodes, state.children)
+      : projectNativeUwChildren({
+          uw: state.ref.uw,
+          graph: input.graph,
+          accepted: { status: 'accepted', value: state },
+        })
   if (!projected.ok) return { ok: false, diagnostics: [...projected.diagnostics] }
   for (const child of state.children) {
     const problem = childEngagementProblem(child, input, state, succession)
@@ -199,7 +218,10 @@ export function currentEffectiveEngagementProblem(
   controlAuthority: boolean,
   succession: TerminalChildSuccession | null,
 ): UwResult<never> | null {
-  const checked = validateUwGraph(input.graph)
+  const checked =
+    input.graph.status === 'semantic'
+      ? validateUwGraphContents(input.graph.root, input.graph.nodes)
+      : validateUwGraph(input.graph)
   if (!checked.ok) {
     const diagnostics = controlAuthority
       ? checked.diagnostics.filter((item) => item.code !== 'graph-cycle')

@@ -1,5 +1,6 @@
 import { actionInputDigest, decodeHistory, readGitHubHistory, validateActionInputs } from '../../dist/contracts.js'
 import type { ActionInputManifest, ActionInputs } from '../../engine/action-input-schema.ts'
+import { PR_BODY_QUERY } from '../../host/preparation-graphql.cjs'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
 import type { ReviewRootRef, TrustedHostPluginPin, UwActionRequest } from '../../roxabi/uw-action-contract.ts'
@@ -7,12 +8,6 @@ import { currentActionFingerprint, storedReviewExpansion } from '../../roxabi/uw
 import { createProductionActionPorts } from '../../roxabi/uw-input-readers.ts'
 import { selectedReviewRoot } from '../../roxabi/uw-selected-review.ts'
 import { type Gh, isMap, jsonField, type Refusal, refuse, repositoryOf } from './review-base.ts'
-
-const PR_BODY = `query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) { body lastEditedAt }
-  }
-}`
 
 export type ReviewPrBody = { body: string; lastEditedAt: string | null }
 export type ReviewTarget = {
@@ -44,7 +39,7 @@ export async function readPrBody(cwd: string, pr: number, gh: Gh, repository: st
     'api',
     'graphql',
     '-f',
-    `query=${PR_BODY}`,
+    `query=${PR_BODY_QUERY}`,
     '-f',
     `owner=${owner}`,
     '-f',

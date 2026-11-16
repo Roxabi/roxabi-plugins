@@ -1,5 +1,6 @@
 import type { CanonicalRecord, DecodedHistory } from '../dist/contracts.js'
-import { specDigest } from '../dist/contracts.js'
+import { decodeHistory, specDigest } from '../dist/contracts.js'
+import { recoveryClosedRequests } from '../engine/fix-recovery-projection.ts'
 import type { FixRecord } from './fix-contract.ts'
 import { FIX_OPERATION_KIND, type FixCheckpoint, objectValue } from './fix-mandate-types.ts'
 
@@ -32,7 +33,15 @@ export function reconstructFixCheckpoint(
   if (pending !== null) return pending
   const records = completedRecords(history)
   if (!(records instanceof Map)) return records
-  return checkpointFromRecords(history, records, trustedLiveRequest, externalHistories)
+  const closed = recoveryClosedRequests([history, ...externalHistories].map((item) => decodeHistory(item.source)))
+  if (!closed.ok)
+    return {
+      status: 'blocked',
+      reason: 'incomplete-history',
+      diagnostics: closed.diagnostics.flatMap((item) => [item.code, `${item.code}:${item.message}`]),
+      startedRequestIds: [],
+    }
+  return checkpointFromRecords(history, records, trustedLiveRequest, externalHistories, closed.value)
 }
 
 function pendingOperationCheckpoint(history: DecodedHistory): FixCheckpoint | null {
@@ -83,8 +92,19 @@ function checkpointFromRecords(
   byId: Map<string, CanonicalRecord>,
   trustedLiveRequest: Extract<FixRecord, { kind: 'fix-request' }> | undefined,
   externalHistories: DecodedHistory[],
+  closed: readonly { scope: { repository: string; target: string }; recordId: string }[],
 ): FixCheckpoint {
-  const requests = [...byId.values()].filter((record) => record.kind === 'fix-request')
+  const requests = [...byId.values()]
+    .filter((record) => record.kind === 'fix-request')
+    .filter(
+      (record) =>
+        !closed.some(
+          (ref) =>
+            ref.scope.repository === record.repository &&
+            ref.scope.target === record.target &&
+            ref.recordId === record.recordId,
+        ),
+    )
   const results = [...byId.values()].filter((record) => record.kind === 'fix-result')
   const open = requests.filter(
     (request) =>

@@ -5,7 +5,7 @@ import { currentEffectiveEngagementProblem, type TerminalChildSuccession } from 
 import { type SpecEffective, specEffectiveSchema } from './spec-effective-schema.ts'
 import type { SpecVersionVector } from './uw-completion-types.ts'
 import type { UwResult } from './uw-diagnostics.ts'
-import { scopeKey, type UwGraphObservation } from './uw-graph.ts'
+import { scopeKey, type UwGraphObservation, type UwSemanticGraph } from './uw-graph.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecAt } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
@@ -116,6 +116,7 @@ function resolveEffective(
   input: SpecEffectiveRequest,
   controlAuthority: boolean,
   succession: TerminalChildSuccession | null,
+  historicalGraph?: UwSemanticGraph,
 ): UwResult<SpecEffective> {
   const own = acceptedAt(input.own, input)
   if (own === null)
@@ -136,12 +137,23 @@ function resolveEffective(
   if (input.mode === 'current') {
     const problem = currentEffectiveEngagementProblem(input, states.value, controlAuthority, succession)
     if (problem !== null) return problem
+  } else if (historicalGraph !== undefined) {
+    const problem = currentEffectiveEngagementProblem({ ...input, graph: historicalGraph }, states.value, false, null)
+    if (problem !== null) return problem
   }
   return effectiveValue(own, states.value, vector, input.own)
 }
 
 export function resolveSpecEffective(input: SpecEffectiveRequest): UwResult<SpecEffective> {
   return resolveEffective(input, false, null)
+}
+
+/** Replay accepted Spec against the actual immutable semantic graph captured at the cut. */
+export function resolveSpecEffectiveAtGraph(
+  input: Extract<SpecEffectiveRequest, { mode: 'historical' }>,
+  graph: UwSemanticGraph,
+): UwResult<SpecEffective> {
+  return resolveEffective(input, false, null, graph)
 }
 
 /** Current authority for a control that must separately validate its proposed wait edges. */

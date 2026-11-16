@@ -13,7 +13,7 @@ import type {
 } from '../roxabi/fix-contract.ts'
 import { publishNativeContributions, taskSlot } from '../roxabi/fix-contributions-native.ts'
 import { resolveFixOrigin } from '../roxabi/fix-origin.ts'
-import { publishOperatorRequest, record } from '../roxabi/fix-records.ts'
+import { publishOperatorRequest, record, reserveOperatorRequest } from '../roxabi/fix-records.ts'
 import type { UwActionPorts } from '../roxabi/uw-action-contract.ts'
 import { prepareUwAction, replayUwActionInputs } from '../roxabi/uw-action-inputs.ts'
 import { verifyActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
@@ -39,14 +39,20 @@ export async function multiSlotCorrectionRoot(input: {
   const publishBinding = raw.publishBinding as unknown as PublishBinding
   const operatorRequest = raw.operatorRequest
   if (operatorRequest === undefined || !publishBinding) throw new Error('operator-binding-missing')
-  const published = await publishOperatorRequest(input.publisher, input.identity, input.target, {
-    rawOperatorRequest: operatorRequest,
-    publishBinding,
-    scope: input.oldRequest.payload.scope,
-    existingReviewId: null,
-    contextInputs: [],
-    originalSpec: input.oldRequest.payload.originalSpec,
-  })
+  const published = await publishOperatorRequest(
+    input.publisher,
+    input.identity,
+    input.target,
+    {
+      rawOperatorRequest: operatorRequest,
+      publishBinding,
+      scope: input.oldRequest.payload.scope,
+      existingReviewId: null,
+      contextInputs: [],
+      originalSpec: input.oldRequest.payload.originalSpec,
+    },
+    reserveOperatorRequest(input.identity, input.target),
+  )
   if (!published.ok) throw new Error(`operator-root-refused: ${published.diagnostics.join(',')}`)
   const inventoryId = input.identity.nextRecordId('review-attempt')
   const request = {

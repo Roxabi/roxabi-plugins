@@ -6,6 +6,7 @@ import { producerImplementationOutputSchema } from '../../engine/workflow-output
 import { hostCompletedStructured } from '../../roxabi/feature-implementation-receipt.ts'
 import { implementNativeOutcome } from '../../roxabi/feature-native-outcome.ts'
 import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import type { NativeReviewChild } from '../../testing/native-review-child.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { batch, bridgeHarness, cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -48,6 +49,19 @@ function claim(provenance?: unknown) {
   }
 }
 
+async function captureLateCalls(child: NativeReviewChild, calls: Array<{ id: string; arguments: unknown }>) {
+  for (const [contentIndex, call] of calls.entries()) {
+    await child.message({
+      type: 'message_update',
+      assistantMessageEvent: {
+        type: 'toolcall_end',
+        contentIndex,
+        toolCall: { id: call.id, name: 'yield', arguments: call.arguments },
+      },
+    })
+  }
+}
+
 async function capture(options: {
   data: unknown
   yielded?: unknown
@@ -56,6 +70,8 @@ async function capture(options: {
   register?: boolean
   corruptSnapshot?: boolean
   pendingYieldOnly?: boolean
+  lateCalls?: Array<{ id: string; arguments: unknown }>
+  secondExecution?: boolean
 }) {
   const harness = bridgeHarness()
   const prepared = batch(['observation-action'])
@@ -94,6 +110,10 @@ async function capture(options: {
     if (options.yieldChild === undefined) {
       await child.call('yield', 'yield-actual', { data: yielded })
       await child.result('yield', 'yield-actual', { data: yielded }, { content: [], details: {}, isError: false })
+      if (options.secondExecution) {
+        await child.call('yield', 'yield-second', { data: yielded })
+        await child.result('yield', 'yield-second', { data: yielded }, { content: [], details: {}, isError: false })
+      }
     } else {
       harness.emitRaw({
         id: options.yieldChild,
@@ -101,6 +121,7 @@ async function capture(options: {
       })
     }
   }
+  await captureLateCalls(child, options.lateCalls ?? [])
   if (options.register === false) {
     task.action = fixtureAction('observation-action', 'R-workflow-implement', action.inputs, false)
   }
@@ -157,6 +178,71 @@ describe('native non-test observation capture and normalization', () => {
       },
     })
     expect(implementNativeOutcome(child, true, new Set()).bashCalls).toBeUndefined()
+  })
+
+  it('reconciles a delayed matching toolcall with the guarded actual yield', async () => {
+    const data = claim()
+    const { child, complete } = await capture({
+      data,
+      lateCalls: [{ id: 'yield-actual', arguments: { data } }],
+    })
+    expect(complete).toBe(true)
+    expect(child.submissions).toHaveLength(1)
+    expect(child.submissions[0]).toMatchObject({
+      attemptIndex: 0,
+      data,
+      raw: { toolCallId: 'yield-actual', executionArguments: { data }, toolCallArguments: { data } },
+    })
+    expect(child.observationProvenance).toMatchObject({ submissionIndex: 0 })
+    expect(implementNativeOutcome(child, true, new Set()).observation?.submission).toEqual(child.submissions[0])
+  })
+
+  it.each([
+    ['different arguments on the same ID', 'yield-actual', { data: { unexpected: true } }, { unexpected: true }],
+    ['malformed arguments on the same ID', 'yield-actual', 'not-an-object', null],
+    ['matching arguments on a new ID', 'yield-pending', { data: claim() }, claim()],
+  ])('retains %s without granting observation provenance', async (_label, id, args, pendingData) => {
+    const data = claim()
+    const { child } = await capture({ data, lateCalls: [{ id, arguments: args }] })
+    expect(child.submissions).toHaveLength(2)
+    expect(child.submissions[0]).toMatchObject({
+      attemptIndex: 0,
+      data,
+      raw: { toolCallId: 'yield-actual', executionArguments: { data } },
+    })
+    expect(child.submissions[1]).toMatchObject({
+      attemptIndex: 1,
+      data: pendingData,
+      raw: { toolCallId: id, toolCallArguments: args, executionArguments: null },
+    })
+    expect(child.observationProvenance).toBeUndefined()
+    expect(implementNativeOutcome(child, child.usable, new Set()).observation).toBeUndefined()
+  })
+
+  it('keeps multiple guarded executions as separate actual-backed attempts with delayed toolcalls', async () => {
+    const data = claim()
+    const { child } = await capture({
+      data,
+      secondExecution: true,
+      lateCalls: [
+        { id: 'yield-actual', arguments: { data } },
+        { id: 'yield-second', arguments: { data } },
+      ],
+    })
+    expect(child.submissions).toHaveLength(2)
+    expect(child.submissions).toMatchObject([
+      {
+        attemptIndex: 0,
+        data,
+        raw: { toolCallId: 'yield-actual', executionArguments: { data }, toolCallArguments: { data } },
+      },
+      {
+        attemptIndex: 1,
+        data,
+        raw: { toolCallId: 'yield-second', executionArguments: { data }, toolCallArguments: { data } },
+      },
+    ])
+    expect(child.observationProvenance).toMatchObject({ submissionIndex: 1 })
   })
 
   it('rejects producer-forged native provenance rather than treating it as captured evidence', async () => {

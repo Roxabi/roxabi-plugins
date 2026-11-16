@@ -1,9 +1,16 @@
 import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
+import { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
 import type { ReviewPublisher } from '../roxabi/review-contract.ts'
 import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { installNativeBatchBridge } from './review-runtime/bridge.ts'
-import type { NativeBatch, NativeExtension } from './review-runtime/contracts.ts'
+import type {
+  NativeBatch,
+  NativeBatchCallbacks,
+  NativeBatchResult,
+  NativeChildResult,
+  NativeExtension,
+} from './review-runtime/contracts.ts'
 import { NativeBatchController } from './review-runtime/controller.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
@@ -38,6 +45,14 @@ export type OwnedFixRun = {
 
 const reviewControllers = new WeakMap<object, NativeBatchController>()
 const ownedFixRuns = new WeakMap<object, OwnedFixRun>()
+const fixIngress = new WeakSet<object>()
+
+/** Serialize the outer async ingress as well as the subsequently owned driver. */
+export function claimFixIngress(pi: NativeExtension): () => void {
+  if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
+  fixIngress.add(pi)
+  return () => fixIngress.delete(pi)
+}
 
 /** Operator-visible terminal/control status: never starts or steers a model turn. */
 export function reportFeatureTerminalStatus(pi: TerminalStatusHost, text: string): void {
@@ -49,7 +64,7 @@ export function ownedFixRunFor(pi: NativeExtension): OwnedFixRun | undefined {
 }
 
 export function hasOwnedFixRun(pi: NativeExtension): boolean {
-  return ownedFixRuns.has(pi)
+  return fixIngress.has(pi) || ownedFixRuns.has(pi)
 }
 
 export function ownFixRun(pi: NativeExtension, owned: OwnedFixRun): void {
@@ -99,11 +114,39 @@ export function createOmpReviewProduct(pi: NativeExtension, publisher: ReviewPub
 /** Correction batches share the same guarded native bridge and native continuation. */
 export function createOmpFixPort(
   pi: NativeExtension,
-): Pick<NativeBatchController, 'active' | 'activate' | 'stopOwned'> & { announce(batch: NativeBatch): Promise<void> } {
+  executionFence = new FixExecutionFence(),
+): Pick<NativeBatchController, 'active' | 'activate' | 'stopOwned'> & {
+  announce(batch: NativeBatch): Promise<void>
+  executionFence: FixExecutionFence
+} {
   const controller = reviewControllerFor(pi)
   return {
     active: controller.active.bind(controller),
-    activate: controller.activate.bind(controller),
+    executionFence,
+    activate(batch, callbacks) {
+      executionFence.bind(batch)
+      const onChildResult = callbacks.onChildResult
+      const onSettled = callbacks.onSettled
+      const tracked: NativeBatchCallbacks = {
+        ...(onChildResult === undefined
+          ? {}
+          : {
+              onChildResult: (child: NativeChildResult) =>
+                executionFence.trackCallback('onChildResult', () => onChildResult(child)),
+            }),
+        onComplete: (result, canContinue) =>
+          executionFence.trackCallback('onComplete', () => callbacks.onComplete(result, canContinue)),
+        ...(onSettled === undefined
+          ? {}
+          : {
+              onSettled: (result: NativeBatchResult, canContinue: () => boolean) =>
+                executionFence.trackCallback('onSettled', () => onSettled(result, canContinue)),
+            }),
+        onStop: (reason, result, stop) =>
+          executionFence.trackCallback('onStop', () => callbacks.onStop(reason, result, stop)),
+      }
+      controller.activate(batch, tracked)
+    },
     stopOwned: controller.stopOwned.bind(controller),
     announce: createNativeReviewPort(pi, controller).announce,
   }

@@ -112,7 +112,7 @@ const api = createExtensionApiStub({
     )
       watchDone.resolve()
   },
-  sendUserMessage(content) {
+  async sendUserMessage(content) {
     messages.push(content)
   },
   ...(scenario.startsWith('native-watch') ? { exec: () => watchExit.promise } : {}),

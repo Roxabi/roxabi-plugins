@@ -113,6 +113,15 @@ function fixture(idle: boolean, taskMounted = false) {
 }
 
 describe('scoped native dispatch tool mask', () => {
+  it('refuses a non-local root without changing its tool presentation', async () => {
+    const f = fixture(true)
+    await f.start()
+    sdk.get.mockReturnValue({ kind: 'main', session: { instanceKey: 'remote-fixture:1' } })
+    await expect(f.port.announce(f.prepared)).rejects.toThrow('native task mask root unavailable')
+    expect(f.sends).toEqual([])
+    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
+  })
+
   it.each(['idle', 'agent-end', 'late'] as const)(
     'masks task before the %s control send and restores the unchanged partition',
     async (path) => {

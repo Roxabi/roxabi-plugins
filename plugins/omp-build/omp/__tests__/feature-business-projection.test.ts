@@ -96,7 +96,7 @@ function installedSessions(options: OmpBuildExtensionOptions, exec: () => Promis
     registerCommand: (name, command) => {
       commands.set(name, command as { handler: (args: string, ctx: typeof root) => Promise<void> })
     },
-    sendUserMessage: (content) => {
+    sendUserMessage: async (content) => {
       sent.push(String(content))
     },
     sendMessage: (message) => {

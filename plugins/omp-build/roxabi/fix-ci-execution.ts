@@ -1,3 +1,4 @@
+import type { ActionInputManifest } from '../engine/action-input-schema.ts'
 import type { NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 import { actionRequest, codePin, confirmPreparedAction, deliveryTask, uwSubject } from './delivery-action.ts'
 import { type ExpectedAttributedCiCorrectionInput, reAdmitAttributedCiCorrection } from './fix-ci-admission.ts'
@@ -15,7 +16,13 @@ import type { AttributedCiCorrectionInput, CiCorrectionBound } from './fix-manda
 import { actionTask, dispatchNativeBatch } from './fix-native-dispatch.ts'
 import { resolveFixOrigin } from './fix-origin.ts'
 import { validateCorrectionOrigin } from './fix-origin-validation.ts'
-import { publish, publishOperatorRequest, record } from './fix-records.ts'
+import {
+  type OperatorRequestReservation,
+  publish,
+  publishOperatorRequest,
+  record,
+  reserveOperatorRequest,
+} from './fix-records.ts'
 import { nativeFixProfileByAction } from './native-review-profiles'
 import type { RecordInputRef } from './uw-action-contract.ts'
 
@@ -40,6 +47,23 @@ async function validateSynthesisHistory(
   } catch (error) {
     return failure(`correction-synthesis-history-unreadable:${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+async function reserveCiOwner(
+  input: AttributedCiCorrectionInput,
+  product: CiCorrectionProduct,
+  manifest: ActionInputManifest,
+): Promise<FixActionResult<OperatorRequestReservation>> {
+  const reservation = reserveOperatorRequest(product.identity, input.target)
+  product.runtime.executionFence?.enrollPublicationReservation(reservation.source)
+  product.runtime.executionFence?.enrollPublicationReservation(reservation.request)
+  if (product.runtime.executionFence !== undefined && product.runtime.openOwner === undefined)
+    return failure('fix-owner-admission-unavailable')
+  if (product.runtime.openOwner !== undefined) {
+    const opened = await product.runtime.openOwner({ target: input.target, manifest, reservation })
+    if (!opened.ok) return opened
+  }
+  return { ok: true, value: reservation }
 }
 
 async function prepareCiCorrection(
@@ -84,6 +108,9 @@ async function prepareCiCorrection(
   if (!preparedAction.ok) return failure('prepare-action-unavailable')
   const originCheck = validateCorrectionOrigin(preparedAction.value.inputs.manifest, causeContext)
   if (!originCheck.ok) return originCheck
+  const reserved = await reserveCiOwner(input, product, preparedAction.value.inputs.manifest)
+  if (!reserved.ok) return reserved
+  const reservation = reserved.value
   const published = await publishOperatorRequest(
     product.publisher,
     product.identity,
@@ -102,6 +129,7 @@ async function prepareCiCorrection(
       contextInputs: [],
       originalSpec: causeContext.effective.own,
     },
+    reservation,
     product.runtime.signal,
   )
   if (!published.ok) return published
@@ -152,6 +180,13 @@ async function prepareCiCorrection(
     [request.recordId],
     prepared.inventoryId,
   )
+  product.runtime.executionFence?.enrollPublicationReservation({
+    scope: { repository: inventory.repository, target: inventory.target },
+    kind: inventory.kind,
+    runId: inventory.runId,
+    operationId: inventory.operationId,
+    recordId: inventory.recordId,
+  })
   const savedInventory = await publish(product.publisher, inventory)
   if (!savedInventory.ok) return savedInventory
   if (isFixRequest(request)) {

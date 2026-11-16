@@ -43,33 +43,38 @@ const REVIEW_SPEC = nativeFeatureSpec(REVIEW_SCOPE, 'preserves the region')
 export const REVIEW_BODY = REVIEW_SPEC.body
 const { featureMandate, framedBodies, historyFrom, workflowBinding } = roxabiWorkflowFixtures()
 
-export function arrangeReviewFixture(): { box: Box; cwd: string } {
+export function arrangeReviewFixture(branch = REVIEW_BRANCH): { box: Box; cwd: string } {
   const box = sandbox({
     base: { '.dev/stack.yml': 'package_manager: bun\nrelease:\n  model: trunk\n', 'README.md': 'base\n' },
     branches: [
       {
-        name: REVIEW_BRANCH,
+        name: branch,
         from: 'main',
         commits: [{ message: 'feat: preserve region (#42)', files: { 'src/save.ts': 'export const save = true\n' } }],
       },
     ],
     issues: [{ number: 42, title: 'feat: preserve region', labels: [`size:${REVIEW_TIER}`] }],
-    prs: [{ number: 7, branch: REVIEW_BRANCH, title: 'feat: preserve region', body: 'Closes #42', closes: [42] }],
+    prs: [{ number: 7, branch, title: 'feat: preserve region', body: 'Closes #42', closes: [42] }],
   })
   git(box, box.root, ['--git-dir', box.origin, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
   git(box, box.principal, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
   const cwd = path.join(box.root, 'feature')
-  git(box, box.principal, ['worktree', 'add', '-q', cwd, REVIEW_BRANCH])
+  git(box, box.principal, ['worktree', 'add', '-q', cwd, branch])
   return { box, cwd }
 }
 
-export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
-  const head = box.sha[REVIEW_BRANCH]
+export async function seedReviewFixture(
+  box: Box,
+  cwd: string,
+  branch = REVIEW_BRANCH,
+  command = 'bun test region.test.ts',
+): Promise<void> {
+  const head = box.sha[branch]
   if (head === undefined) throw new Error('review-fixture-head-missing')
   const startHead = box.sha.main
   if (startHead === undefined) throw new Error('review-fixture-base-missing')
   const mandate = featureMandate(REVIEW_SCOPE, {
-    branch: REVIEW_BRANCH,
+    branch,
     body: REVIEW_BODY,
     ownSpec: REVIEW_SPEC.ownSpec,
     lineageHead: startHead,
@@ -166,8 +171,8 @@ export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
       mandate,
       startHead,
       head,
-      branch: REVIEW_BRANCH,
-      command: 'bun test region.test.ts',
+      branch,
+      command,
       output: 'PASS region',
       author: 'operator',
       authorization: { repositoryId: 1, operatorId: 101, appId: 200, botUserId: 201 },
@@ -178,7 +183,7 @@ export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
       pullRequestsBefore: [
         {
           scope: pullScope,
-          branch: REVIEW_BRANCH,
+          branch,
           base: 'main',
           head: startHead,
           baseTip: startHead,
@@ -191,7 +196,7 @@ export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
       pullRequestsAfter: [
         {
           scope: pullScope,
-          branch: REVIEW_BRANCH,
+          branch,
           base: 'main',
           head,
           baseTip: startHead,
@@ -206,7 +211,7 @@ export async function seedReviewFixture(box: Box, cwd: string): Promise<void> {
       ],
     })
   ).records
-  const binding = workflowBinding({ repository: 'acme/app', target: 'acme/app#7' }, mandate, REVIEW_BRANCH, 'main')
+  const binding = workflowBinding({ repository: 'acme/app', target: 'acme/app#7' }, mandate, branch, 'main')
   writeSim(box, (state) => {
     const issue = state.issues['42']
     const pull = state.prs['7']

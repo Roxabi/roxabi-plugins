@@ -149,7 +149,7 @@ function onAuthorizedChain(
   return null
 }
 
-function resolveBindingChain(
+export function resolveBindingChain(
   bindings: WorkflowBindingRecord[],
   histories: readonly DecodedHistory[],
 ): BindingCandidate {

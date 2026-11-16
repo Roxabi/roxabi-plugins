@@ -108,7 +108,7 @@ Interactive `/feature` and `/uw` confirmation capabilities are bound to their ro
 
 A valid command receives an immediate UI acknowledgment before ports and long remote reads, plus persistent phase status. The shortcut explains preparation, a queued or already-open confirmation, a reopened proposal, an action already applying, or the absence of a confirmation here. It does not prepare or confirm again. A stopped capability cannot roll back an action already started: its feedback is replaced with that warning and retained until the action settles, without vetoing a genuine live successor framing owner. Only its own status is removed; cleanup does not reannounce another command. A predecessor's delayed stop signal cannot revoke its successor.
 
-Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.20.1 is a manual source change: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
+Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.21.0 is a manual source change: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
 
 Workflow history reads revalidate each comment page with GitHub (`If-None-Match`). An unchanged page is confirmed by a `304`, which the primary rate limit does not charge, so repeated closure reads in one host process cost quota only for what changed. The retained copy lives in memory only and is returned on that `304` alone, never in place of a failed request. When the observation behind a `/feature` selection, continuation, succession or CI correction is unavailable, the stop keeps `fix-own-uw-unsettled` and its other codes, then names the failed reads. Start publication and PR binding still report the code alone.
 
@@ -415,7 +415,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3 and 0.20.0 through 0.20.1 retain the bounded semantics of 0.18.8 through 0.18.11; future versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and exactly 0.21.0 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -506,6 +506,7 @@ Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds th
 | `/dev-review` | `registerCommand('dev-review')`. Dispatches the host-authorized native review. Not a skill dump. |
 | `/fix` | `registerCommand('fix')`. Dispatches the host-authorized native correction. Not a skill dump. |
 | `omp_build_start_review` | `registerTool`. Same review dispatch, model lane. Not execution authority. |
+| `omp_build_recover_interrupted_fix` | `registerTool`. Inspect one PR's interrupted correction and offer an exact-state root-operator confirmation. Accepts only `{ pr }`; host write approval and current authority are required. Neutral closure or unstarted existing-review adoption only; never landing authority. |
 | `omp_build_prepare_checkout` | `registerTool`. Canonical checkout for one unambiguous issue reference. A pull-request number checks out that request's existing head instead of minting an issue branch. Returns `ready`, `move`, or `blocked` with the path. Host write approval. Does not publish authority, bootstrap, resume, move the session, or simulate `/feature`. |
 | `omp_build_execute_native_batch` | Restricted owned execution tool. Accepts only `{ batchId }` for an announced, sealed batch; it does not authorize or publish work. |
 
@@ -518,7 +519,7 @@ The owned execution tool declares the SDK's `essential` load mode for direct top
 During an owned dispatch turn, a root- and batch-scoped lease temporarily removes the built-in `task` tool while retaining the other enabled tools. The owned tool must already be enabled. Restoration is limited to the same root identity and an unchanged observed tool presentation; if that presentation drifts, omp-build leaves it untouched and stops the owned continuation. This is not a compare-and-swap or an ABA/zero-race guarantee.
 Both native root capture and the tool-mask lease bind journal, file and cwd to the live session and command context. A fresh capture after `/move` may observe an older registry `sessionFile` locator; it captures that metadata separately instead of treating it as the live file. Subsequent registry-ref, session, journal, live-file, cwd or provider drift still invalidates the capture; registry locator drift also refuses. Both paths retain the captured model-registry and cost-gate identities; ordinary changes within the same cost gate do not replace that identity. No SDK registry metadata is rewritten, and this does not permit a move during an active lease or relax tool-presentation restoration.
 
-The declared minimum public SDK API level is OMP CLI 18.13.3; type compatibility with that locked SDK is checked separately from runtime UI behavior. The root-capture and tool-mask paths were smoke-tested before and after a real `/move` on unmodified official OMP CLI 18.14.0, without starting a model turn or native workflow. The common confirmation UI has runtime proof only on official OMP CLI 18.18.5, as detailed below; no equivalent 18.13.3 UI run is claimed. Standard CLI credential and model-pool composition is assumed. A custom embedding can present compatible APIs while using opaque credential or pool provenance; that provenance cannot be automatically detected or attested here. Offline and adapter evidence is not real native acceptance: a separate native acceptance run is still required.
+The qualified SDK baseline is OMP CLI 18.20.2, also pinned for development; this is not a claim that it is the earliest compatible version or that later versions are compatible. Catalogue installation does not install the declared host peers: the running OMP host must provide the matching SDK packages. The root-capture and tool-mask paths were smoke-tested before and after a real `/move` on unmodified official OMP CLI 18.14.0, without starting a model turn or native workflow; those historical observations do not qualify the current recovery path on that version. The common confirmation UI has runtime proof only on official OMP CLI 18.18.5, as detailed below. Standard CLI credential and model-pool composition is assumed. A custom embedding can present compatible APIs while using opaque credential or pool provenance; that provenance cannot be automatically detected or attested here. Offline and adapter evidence is not real native acceptance: a separate native cold-restart recovery acceptance run is still required.
 
 The earlier framing confirmation path was exercised on unmodified official OMP CLI 18.18.3 at 80×18, 40×12 and 40×8, including defer/reopen, explicit choices, scrolling and resizing. Diagnostic parent coverage, foundations and escaped supplied text were also observed. External native writes were denied in those probes: they qualify that UI/controller path, not the later generic confirmation surface, native delivery or hosted landing.
 
@@ -558,7 +559,7 @@ Pre-decision correction synthesis binds to the complete initial intake of the sa
 
 Before publishing a correction root, the effective push remote must be credential-free and its branch tip must equal the candidate head. Missing or different remote heads refuse rather than creating an unusable request. Credential-bearing URLs refuse without echoing the URL; use SSH or credential-free HTTPS with a credential helper instead. These checks do not replace repository identity, current authority or publication ownership checks.
 
-This change does not close or repair previously stranded correction roots, including legacy synthetic CI roots. Do not clear their history or create replacement roots to bypass a refusal; interrupted-correction recovery is a separate change.
+Pre-release stranded roots, including legacy synthetic CI roots, are not migrated or repaired. New authenticated owners use the [bounded correction recovery](#bounded-correction-recovery) path; a refusal never permits clearing history or replacing an entered attempt.
 
 Existing worktrees are entered with `/move <path>`, not recreated, and not with `/wt`. The command prints that move only when the session cwd is not the intended worktree.
 
@@ -574,7 +575,7 @@ missing or longer scopes stop instead of being truncated. The handoff reuses the
 a missing, different or successor mandate is refused rather than minted. It is not a new operator approval
 and does not manufacture operator text.
 
-A persisted `fix-request` proves that a request was recorded, not that its execution completed. Only the exact request confirmed by the current live invocation can be trusted for that invocation's continuation; an unresolved cold request remains a refusal. This ownership is ephemeral host state, not a new local workflow journal.
+A persisted `fix-request` proves recording, not completed execution. Ordinary continuation remains bound to its live invocation. Durable `fix-owner` records additionally prevent another ordinary, review-bound or CI start from bypassing active or interrupted ownership, including an opening with no complete request. A cold request can continue only through the explicit bounded recovery protocol below; local artifacts are not a replacement workflow journal.
 
 Each native correction continuation re-reads the current history and validates the originally confirmed review against it
 before confirming the mandate and live request from that same snapshot. A newer review or an exhausted review bound
@@ -872,6 +873,29 @@ omp plugin upgrade omp-build@roxabi-marketplace
 The separately authorized T5 capability check passed in [run 40180871966](https://github.com/Roxabi/roxabi-plugins/actions/runs/40180871966). The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`; job `issues: write` does not apply to that App token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). With the App token narrowed by W3, the run exercised reading issue bodies and comments, including the explicit parent scope [#720](https://github.com/Roxabi/roxabi-plugins/issues/720), PR coordinates and rollup, and the trusted gate's selected-base Git fetch through its process-local credential helper. The real reader ran and refused a PR without a record with `reviewed-head-mismatch`; the token then armed native auto-merge. The credential helper does not persist credentials. This historical capability run is not admission evidence for another PR and does not prove access to private repositories. Local transport smoke coverage likewise does not prove that access.
 
 This is not a new tamper control.
+
+## Bounded correction recovery
+
+In the active OMP root, `/uw` or a refused correction start can expose an inspection hint for `omp_build_recover_interrupted_fix({ pr })`. The hint is factual, not eligibility. The tool rechecks the release/pin, accepted Spec, mandate, UW/PR binding, current head, controls, history and owner before presenting a proposal, and again before effects. Its root-operator confirmation authorizes the displayed recovery only.
+
+| Observed retiring correction | Confirmable transition |
+|---|---|
+| Authenticated opening, torn C0 or R, no native/startup or correction-plan entry | Neutral closure; a subsequent ordinary `/fix` creates a fresh canonical attempt on the same UW/PR. |
+| Complete R before native intake/decision | The same neutral closure; old predecision findings do not transfer. |
+| Existing-review-bound R/D, genuinely unspent correction execution | A new confirmed owner executes the same R and D with the original logical run and unchanged bounds. Pending or infeasible obligations still hold. |
+| Native/startup or plan entered; witness missing; ambiguous effects or authority | Reconciliation hold. No generic cursor restoration, post-push completion, or automatic local cleanup. |
+
+The originating host seals admission and joins the real tracked driver, Git/source publications, streams and callbacks before preparing its no-entry witness. Preparation trusts the maintained host operations; it does not certify every custom helper or establish generic descendant cessation. The final witness publication is a bounded immutable self-write, not permission to resume source work. A live origin additionally requires its retained in-memory attestation; a cold origin requires compatible, positively observed process-lifetime evidence. A clean tree, completed task or free mutex is insufficient.
+
+One protocol-checked process context connects source, bundled and reloaded host operations. Cohorts, fences, reservations and receipts remain owned by their originating run; sharing context does not create shared workflow authority. Incompatible context protocols refuse operation rather than silently splitting observation, and finishing one run never resets another run's context.
+
+Every start holds the same publication-destination OS mutex through its tracked driver. It is independent of checkout, OMP profile and recovery qualification. Linux uses its native network-namespace lock domain; Windows uses the native global mutex; Darwin uses a protected persistent sidecar under the OS-account home, not an environment-selected HOME. Darwin sidecars are never unlinked or treated as stale workflow state. Kernel release, explicit release and normal termination are logical exclusion facts, not no-entry witnesses or durable-owner resolution. Physical-host exclusion across isolated Linux network namespaces is not claimed.
+
+Positive recovery requires Linux-qualified host observations, including compatible boot, UID, process and namespace identities and the protected runtime-root observations. Missing qualification leaves ordinary corrections available under the real mutex, but their interrupted owners remain held. An unavailable Linux network-namespace observation never qualifies recovery or changes the mutex key. Darwin/Windows runtime qualification of this new host path is not claimed.
+
+The engine owns owner/claim admission and confirmed `fix-recovery` replay. Owner/claim records live on the UW; C0, R, D and recovery controls live on its bound PR. GitHub adapters retain raw records and fragments; ordinary UW, correction and review consumers use the same authenticated effective projection. Late retired fragments cannot reopen a closed attempt; unrelated corruption remains blocking. Embedded pinned catalogue bytes make historical replay independent of current catalogue availability, while new execution still requires current ordinary preflight. Neither recovery nor owner termination relaxes final-head proof, review, pause or landing gates.
+
+Qualification distinguishes native scenarios from the complete-C0/torn-R protocol case. No valid current public producer input yielding a multipart R at the fixed 65,536-byte limit has been established. That case uses an explicit reduced test framing limit and structural origin fixture at the engine/adapter boundary; it is not native origin/witness or default-limit reachability proof. Production framing is unchanged, and this exception does not replace the other native recovery requirements.
 
 ## Guards
 

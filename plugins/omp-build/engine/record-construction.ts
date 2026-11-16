@@ -26,7 +26,13 @@ export type RecordDraft = {
 
 function reviewAttemptInputs(draft: Extract<RecordDraft, { kind: 'review-attempt' }>): string[] {
   if (draft.payload.stage !== 'initial') return [draft.payload.rootAttemptId]
-  if (draft.payload.purpose === 'correction') return [draft.payload.requestId]
+  if (draft.payload.purpose === 'correction')
+    return [
+      draft.payload.requestId,
+      ...scopedRefsOf(draft)
+        .filter((ref) => equalScope(ref.scope, draft))
+        .map((ref) => ref.recordId),
+    ]
   if (isInitialPullRequestReviewInventory(draft.payload) && draft.payload.replacement !== undefined)
     return [
       draft.payload.replacement.rootAttemptId,
@@ -114,6 +120,8 @@ function derivedInputs(draft: RecordDraft): string[] {
     case 'cause-disposition':
     case 'cause-operation':
     case 'report-promotion':
+    case 'fix-owner':
+    case 'fix-recovery':
       return scopedRefsOf(draft)
         .filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target }))
         .map((ref) => ref.recordId)

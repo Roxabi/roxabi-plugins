@@ -1,3 +1,4 @@
+import type { ActionInputManifest } from '../engine/action-input-schema.ts'
 import {
   actionRequest,
   codePin,
@@ -26,7 +27,13 @@ import {
 import type { FixPolicy } from './fix-domain'
 import { resolveFixOrigin } from './fix-origin.ts'
 import { validateCorrectionOrigin } from './fix-origin-validation.ts'
-import { publish, publishOperatorRequest, record } from './fix-records.ts'
+import {
+  type OperatorRequestReservation,
+  publish,
+  publishOperatorRequest,
+  record,
+  reserveOperatorRequest,
+} from './fix-records.ts'
 
 type StandalonePreparation = {
   target: FixTarget
@@ -48,8 +55,13 @@ function invalidNativeTasks(tasks: FixRequestInput['nativeTasks']): boolean {
     )
   })
 }
+function validateNativeTasks(tasks: FixRequestInput['nativeTasks']): FixActionResult<void> {
+  if (tasks.length === 0) return failure('fix-intake-tasks-required')
+  if (invalidNativeTasks(tasks)) return failure('fix-intake-tasks-invalid')
+  return { ok: true, value: undefined }
+}
 
-function preparedSubject(input: FixRequestInput, target: FixTarget) {
+export function preparedSubject(input: FixRequestInput, target: FixTarget) {
   const scope = { repository: target.repository, target: target.target }
   return correctionSubject(scope, input.uw, scope)
 }
@@ -117,7 +129,24 @@ export async function admitReviewFix(
   return { ok: true, value: undefined }
 }
 
-/** Writes the operator contribution, landing:false request, and correction inventory before native dispatch. */
+async function reserveStandaloneOwner(
+  input: FixRequestInput,
+  target: FixTarget,
+  manifest: ActionInputManifest,
+): Promise<FixActionResult<OperatorRequestReservation>> {
+  const reservation = reserveOperatorRequest(input.identity, target)
+  input.executionFence?.enrollPublicationReservation(reservation.source)
+  input.executionFence?.enrollPublicationReservation(reservation.request)
+  if (input.executionFence !== undefined && input.openOwner === undefined)
+    return failure('fix-owner-admission-unavailable')
+  if (input.openOwner !== undefined) {
+    const opened = await input.openOwner({ target, manifest, reservation })
+    if (!opened.ok) return opened
+  }
+  return { ok: true, value: reservation }
+}
+
+/** Prepares native intake and validates its origin before publishing the source, request, and inventory. */
 export async function prepareStandaloneFix(
   input: FixRequestInput,
   resolver: TargetResolver,
@@ -129,28 +158,10 @@ export async function prepareStandaloneFix(
   if (!base.ok) return base
   if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
   const { target, policy, authorityInputs } = base.value
-  if (input.nativeTasks.length === 0) return failure('fix-intake-tasks-required')
-  if (invalidNativeTasks(input.nativeTasks)) return failure('fix-intake-tasks-invalid')
+  const validTasks = validateNativeTasks(input.nativeTasks)
+  if (!validTasks.ok) return validTasks
   const origin = await resolveFixOrigin(input.uw, input.operations)
   if (!origin.ok) return origin
-
-  const published = await publishOperatorRequest(
-    publisher,
-    input.identity,
-    target,
-    {
-      rawOperatorRequest: input.rawOperatorRequest,
-      publishBinding: input.publishBinding,
-      scope: input.scope,
-      existingReviewId: input.reviewId ?? null,
-      contextInputs: authorityInputs,
-      originalSpec: origin.value.effective.own,
-    },
-    signal,
-  )
-  if (!published.ok) return published
-  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const { source, request } = published.value
 
   const inventoryId = input.identity.nextRecordId('review-attempt')
   const head = target.candidateGitSHA
@@ -171,6 +182,28 @@ export async function prepareStandaloneFix(
   if (!preparedAction.ok) return failure(prepareRefusal(preparedAction.diagnostics))
   const validOrigin = validateCorrectionOrigin(preparedAction.value.inputs.manifest, origin.value)
   if (!validOrigin.ok) return validOrigin
+  const reserved = await reserveStandaloneOwner(input, target, preparedAction.value.inputs.manifest)
+  if (!reserved.ok) return reserved
+  const reservation = reserved.value
+  const published = await publishOperatorRequest(
+    publisher,
+    input.identity,
+    target,
+    {
+      rawOperatorRequest: input.rawOperatorRequest,
+      publishBinding: input.publishBinding,
+      scope: input.scope,
+      existingReviewId: input.reviewId ?? null,
+      contextInputs: authorityInputs,
+      originalSpec: origin.value.effective.own,
+    },
+    reservation,
+    signal,
+  )
+  if (!published.ok) return published
+  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
+  const { source, request } = published.value
+
   const fingerprint = preparedAction.value.inputs.fingerprint
   const tasks = input.nativeTasks.map((task) =>
     deliveryTask({
@@ -211,6 +244,13 @@ export async function prepareStandaloneFix(
     [request.recordId],
     inventoryId,
   )
+  input.executionFence?.enrollPublicationReservation({
+    scope: { repository: inventory.repository, target: inventory.target },
+    kind: inventory.kind,
+    runId: inventory.runId,
+    operationId: inventory.operationId,
+    recordId: inventory.recordId,
+  })
   const savedInventory = await publish(publisher, inventory)
   if (!savedInventory.ok) return savedInventory
 
@@ -233,65 +273,6 @@ export async function prepareStandaloneFix(
             'omp-build correction action. Follow the procedure and role profile; use the indexed snapshot for UW data and normative references.',
           tasks,
         },
-      },
-    },
-  }
-}
-
-/** Review-driven fixes consume the already-confirmed decision unchanged: no intake or synthesis. */
-export async function prepareReviewBoundFix(
-  input: FixRequestInput & { reviewId: string },
-  resolver: TargetResolver,
-  publisher: RecordPublisher,
-  workflow: ReviewAuthority,
-  signal?: AbortSignal,
-): Promise<FixActionResult<PreparedFix>> {
-  const linkedAuthority = sameScopeAuthorityInputs(input)
-  if (!linkedAuthority.ok) return linkedAuthority
-  if (!validScope(input.scope) || !isRecordId(input.reviewId)) return failure('review-fix-input-invalid')
-  if (signal?.aborted) return failure('fix-run-interrupted-cleanup-unproven')
-  const resolved = await resolveFixTarget(input, resolver)
-  if (!resolved.ok) return resolved
-  const target = resolved.value
-  if (input.candidateGitSHA && input.candidateGitSHA !== target.candidateGitSHA) return failure('fix-head-mismatch')
-  if (!validPublishBinding(input.publishBinding, target)) return failure('fix-publish-binding-invalid')
-  const authority = await admitReviewFix(target, input.cwd, input.reviewId, workflow)
-  if (!authority.ok) return authority
-  const origin = await resolveFixOrigin(input.uw, input.operations)
-  if (!origin.ok) return origin
-  const published = await publishOperatorRequest(
-    publisher,
-    input.identity,
-    target,
-    {
-      rawOperatorRequest: input.rawOperatorRequest,
-      publishBinding: input.publishBinding,
-      scope: input.scope,
-      existingReviewId: input.reviewId,
-      contextInputs: [input.reviewId, ...linkedAuthority.value],
-      originalSpec: origin.value.effective.own,
-    },
-    signal,
-  )
-  if (!published.ok) return published
-  const { source, request } = published.value
-  const subject = preparedSubject(input, target)
-  if (subject === null) return failure('prepare-action-unavailable')
-  return {
-    ok: true,
-    value: {
-      causeContext: origin.value,
-      target,
-      requestId: request.recordId,
-      inventoryId: input.reviewId,
-      sourceContributionId: source.recordId,
-      policy: input.policy ?? { version: 'baseline' },
-      cwd: input.cwd,
-      publishBinding: input.publishBinding,
-      subject,
-      batch: {
-        operationId: input.identity.operationId,
-        tasks: { context: 'review-bound correction has no intake batch', tasks: [] },
       },
     },
   }
