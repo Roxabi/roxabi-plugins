@@ -39,6 +39,7 @@ function invoke<T>(box: Box, cwd: string, home: string, operation: string, paylo
     cwd,
     env: { ...box.env, HOME: home },
     encoding: 'utf8',
+    timeout: 55_000,
   })
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout) as T
