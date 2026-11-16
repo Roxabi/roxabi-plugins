@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 
 import { reviewRecords } from '../skills/feature/workflow-records.js'
@@ -13,6 +14,11 @@ import { reviewDecision } from './feature-review-synthesis-sources.ts'
 import { createReviewDriver } from './native-review-driver.ts'
 
 type Mode = 'latest' | 'pause'
+
+function errorMessages(error: unknown): string[] {
+  if (error instanceof AggregateError) return error.errors.flatMap(errorMessages)
+  return [error instanceof Error ? error.message : String(error)]
+}
 
 function waitFor(file: string, timeout = 10_000): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>()
@@ -79,24 +85,28 @@ function failNextPost() {
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
   const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-gh-'))
+  const premature = path.join(root, 'operator-control-post-before-checkout-release')
   const failed = path.join(root, 'operator-control-post-refused')
   const real = execFileSync('which', ['gh'], { encoding: 'utf8' }).trim()
   const script =
-    '#!/bin/sh\nif [ "$1" = api ]; then case " $* " in *" --method POST "*"kind=operator-control "*) : > "$OMP_RACE_POST_REFUSED"; echo gh-race-post-refused >&2; exit 1;; esac; fi\nexec "$OMP_RACE_REAL_GH" "$@"\n'
+    '#!/bin/sh\nif [ "$1" = api ]; then case " $* " in *" --method POST "*"kind=operator-control "*) [ -f "$OMP_RACE_GIT_RELEASE" ] || : > "$OMP_RACE_POST_PREMATURE"; : > "$OMP_RACE_POST_REFUSED"; echo gh-race-post-refused >&2; exit 1;; esac; fi\nexec "$OMP_RACE_REAL_GH" "$@"\n'
   writeFileSync(path.join(root, 'gh'), script)
   chmodSync(path.join(root, 'gh'), 0o755)
   const before = process.env.PATH
   process.env.PATH = `${root}:${before}`
   process.env.OMP_RACE_REAL_GH = real
   process.env.OMP_RACE_POST_REFUSED = failed
+  process.env.OMP_RACE_POST_PREMATURE = premature
   return {
     failed: () => existsSync(failed),
+    premature: () => existsSync(premature),
     refused: waitFor(failed),
     close: () => {
       if (before === undefined) delete process.env.PATH
       else process.env.PATH = before
       delete process.env.OMP_RACE_REAL_GH
       delete process.env.OMP_RACE_POST_REFUSED
+      delete process.env.OMP_RACE_POST_PREMATURE
       rmSync(root, { recursive: true, force: true })
     },
   }
@@ -191,7 +201,7 @@ async function latest(cwd: string) {
 async function pause(cwd: string) {
   const driver = await createReviewDriver(cwd)
   let barrier: GitBarrier | null = null
-  let closePost: { failed(): boolean; refused: Promise<void>; close(): void } | null = null
+  let closePost: { failed(): boolean; premature(): boolean; refused: Promise<void>; close(): void } | null = null
   let settling: Promise<void> | null = null
   return completeRace(
     async () => {
@@ -203,9 +213,16 @@ async function pause(cwd: string) {
       const precondition = await continuationPrerequisites(cwd, 'checkout')
       if (driver.fixRun() !== undefined) throw new Error('fix-run-started-before-pause')
       closePost = failNextPost()
-      const pausing = driver.pause()
+      let pauseFinished = false
+      const pausing = driver.pause().finally(() => {
+        pauseFinished = true
+      })
+      const outcomes = Promise.allSettled([pausing, settling])
+      await nextTurn()
+      if (pauseFinished || closePost.failed()) throw new Error('pause-did-not-join-checkout-settlement')
+      armed.release()
       await closePost.refused
-      if (!closePost.failed()) throw new Error('pause-post-was-not-refused')
+      if (!closePost.failed() || closePost.premature()) throw new Error('pause-post-order-invalid')
       const pausedRecords = (await history(cwd)).operations.flatMap((operation) =>
         operation.record ? [operation.record] : [],
       )
@@ -214,12 +231,16 @@ async function pause(cwd: string) {
       closePost.close()
       closePost = null
       execFileSync('gh', ['repo', 'view', 'acme/app', '--json', 'nameWithOwner'], { cwd, encoding: 'utf8' })
-      armed.release()
-      await Promise.all([pausing, settling])
+      const [paused, settled] = await outcomes
+      settling = null
+      if (paused.status === 'rejected') throw paused.reason
+      if (settled.status !== 'rejected') throw new Error('review-settlement-rejection-missing')
+      const settlementErrors = errorMessages(settled.reason)
       const finalHistory = await history(cwd)
       return {
         precondition,
-        pause: { postRefused: true, operatorControls: controls.length, ghAvailable: true },
+        pause: { postRefused: true, operatorControls: controls.length, ghAvailable: true, joinedBeforeRelease: true },
+        settlementErrors,
         active: driver.controller.active(),
         fixRun: driver.fixRun(),
         messages: driver.messages,

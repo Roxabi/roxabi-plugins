@@ -14,6 +14,7 @@ import {
   reviewControllerFor,
 } from './omp-controller'
 import type { NativeExtension } from './review-runtime/contracts.ts'
+import { type JoinedNativeStop, throwJoinedStopFailures } from './review-runtime/controller-stop.ts'
 
 export type FeatureSessionOptions = { featureWorkflow?: FeatureWorkflow; installRoot?: string }
 
@@ -21,17 +22,13 @@ export function rootContext(ctx: ExtensionContext): boolean {
   return ctx.agent.kind === 'main' && ctx.agent.depth === 0
 }
 
-export function featureWorkInterrupter(pi: NativeExtension): (reason: string) => Promise<void> {
-  return async (reason: string): Promise<void> => {
+export function featureWorkInterrupter(pi: NativeExtension): (reason: string) => Promise<JoinedNativeStop> {
+  return async (reason: string): Promise<JoinedNativeStop> => {
     abortOwnedFeatureWatch(pi)
     const controller = reviewControllerFor(pi)
     controller.inhibitFeatureContinuation()
     interruptOwnedFixRun(pi, reason)
-    const active = controller.active()
-    await Promise.all([
-      controller.stopDeferredHandoffs(reason),
-      ...(active === null ? [] : [controller.stopOwned(active, reason)]),
-    ])
+    return controller.stopJoined(reason)
   }
 }
 async function loadFeatureWorkflowForSessionEnd(
@@ -59,7 +56,7 @@ export function installFeatureSessionLifecycle(
   interruptOwnedFeatureWork = featureWorkInterrupter(pi),
 ): void {
   const pauseFeatureOnSessionEnd = (reason: FeatureSessionReason): Promise<void> => {
-    const local = interruptOwnedFeatureWork(reason)
+    const local = interruptOwnedFeatureWork(reason).then(throwJoinedStopFailures)
     return (async () => {
       const workflow = await loadFeatureWorkflowForSessionEnd(pi, options)
       if (workflow === null) {

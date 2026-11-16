@@ -3,6 +3,8 @@ import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapte
 import { canonicalSpec } from '../../engine/uw-spec.ts'
 import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts'
+import type { FeatureAuthority } from '../../roxabi/feature-continuation-admission.ts'
+import { applyFeatureControl } from '../../roxabi/feature-continuation-controls.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
 import { cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
@@ -301,12 +303,63 @@ describe('principal refusal stays one message', () => {
       'session-cwd /principal\nfeature-stopped: principal-dispatch-refused: feature-result-invalid',
     ])
   })
+  it.each(['joined', 'prejoin'] as const)(
+    'attempts the normal pause after a %s interruption outcome only when the join completed',
+    async (phase) => {
+      const failure = new Error(`${phase}-interruption-failed`)
+      const calls: string[] = []
+      const scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
+      const mandate = { kind: 'mandate', recordId: `mandate-${phase}`, payload: { role: 'leaf', branch: 'work' } }
+      const authority = {
+        context: {
+          cwd: '/principal',
+          gh: async () => {
+            throw new Error('unexpected GitHub operation')
+          },
+          engine: {
+            resolveAcceptedSpec: () => ({ ok: true, spec: {} }),
+            effectiveMandateRole: () => 'leaf',
+            readComposedWorkflowHistory: async () => {
+              calls.push('pause-engine-read')
+              return { ok: false }
+            },
+          },
+        },
+        history: { source: { scope } },
+        scope,
+        selection: { status: 'applicable', mandate },
+        target: null,
+        parentHistories: [],
+        causal: { histories: [] },
+      } as unknown as FeatureAuthority
+      const fixture = principal(async (input) => {
+        expect(input.control).toBe('pause')
+        calls.push('continue-pause')
+        return applyFeatureControl('pause', authority)
+      })
+      fixture.value.interruptOwnedWork = async (reason) => {
+        expect(reason).toBe('pause')
+        calls.push('interrupt')
+        if (phase === 'prejoin') throw failure
+        return { failures: [failure] }
+      }
+
+      await expect(runInstalledFeatureCommand('pause #42', fixture.value)).rejects.toBe(failure)
+      if (phase === 'joined') {
+        expect(calls).toEqual(['interrupt', 'continue-pause', 'pause-engine-read'])
+        expect(fixture.sent).toEqual(['pause-unconfirmed: pause-uncertain'])
+      } else {
+        expect(calls).toEqual(['interrupt'])
+        expect(fixture.sent).toEqual([])
+      }
+    },
+  )
 })
 
 describe('prepared epic final review delivery', () => {
   function host(
     continueFeature: FeatureWorkflow['continueFeature'],
-    prepareEpicRangeReview: (preparedReview: PreparedEpicReview, onComplete: () => Promise<void>) => Promise<void>,
+    prepareEpicRangeReview: NonNullable<FeatureCommandHost['prepareEpicRangeReview']>,
     inhibited = () => false,
   ) {
     const sent: string[] = []
@@ -450,7 +503,10 @@ describe('prepared epic final review delivery', () => {
     const fixture = host(
       async (input) =>
         input.control === 'select' ? { kind: 'epic-final-review', review } : { kind: 'terminal', reason: 'complete' },
-      async (_review, onComplete) => onComplete(),
+      async (_review, onComplete) => {
+        const deliver = await onComplete(() => true)
+        await deliver?.()
+      },
     )
     await runInstalledFeatureCommand('#12', fixture.value)
     expect(fixture.sent).toEqual(['feature-stopped: complete'])
@@ -467,7 +523,8 @@ describe('prepared epic final review delivery', () => {
       },
       async (_review, onComplete) => {
         inhibited = true
-        await onComplete()
+        const deliver = await onComplete(() => true)
+        await deliver?.()
       },
       () => inhibited,
     )

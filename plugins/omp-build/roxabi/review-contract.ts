@@ -1,5 +1,10 @@
 import type { CanonicalRecord, Json, Policy } from '../dist/contracts.js'
-import type { NativeBatch, NativeBatchResult, NativeChildResult } from '../omp/review-runtime/contracts'
+import type {
+  NativeBatch,
+  NativeBatchResult,
+  NativeChildResult,
+  NativeSuccessor,
+} from '../omp/review-runtime/contracts'
 import type { NativeBatchController } from '../omp/review-runtime/controller'
 import type { AllocateReviewInput } from '../skills/dev-review/roster-contract'
 import type { ReviewConfig } from './review-assets'
@@ -67,6 +72,7 @@ export type ReviewPublisher = {
     contributions: readonly PublishedContribution[],
     canContinue?: () => boolean,
   ): Promise<PreparedReviewBatch | null>
+  afterComplete?(canContinue: () => boolean): Promise<NativeSuccessor | undefined>
   publishRequiredStop(
     context: ReviewContext,
     stop: Json,

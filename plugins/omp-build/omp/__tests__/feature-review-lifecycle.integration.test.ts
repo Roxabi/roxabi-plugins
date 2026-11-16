@@ -61,6 +61,7 @@ async function invoke(
     comments: unknown[]
     barrier: boolean
     beforeRelease?: number
+    publicationErrors?: string[]
     commit?: string
     priorHead?: string
     applyTasks?: Array<{ agent: string; proof?: { purpose: string; causeId: string; occurrence: string } }>
@@ -546,6 +547,10 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     const observed = await invoke(task, box, cwd, 'resume')
     expect(observed.barrier).toBe(true)
     expect(observed.beforeRelease).toBe(2)
+    expect(observed.publicationErrors).toEqual([
+      'review-unconfirmed:publication-ownership-revoked',
+      'review-stopped:settlement-failed:review-unconfirmed:publication-ownership-revoked',
+    ])
     expect(announcedBatchIds(observed.messages)).toHaveLength(2)
     expect(observed.active).toBeNull()
     assertPauseConfirmed(box, observed.messages)

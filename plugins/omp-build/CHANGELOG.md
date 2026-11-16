@@ -7,6 +7,8 @@
 - Merge a late streamed yield observation into its uniquely matching executed yield only when the tool-call ID and complete arguments agree; unmatched or differing observations do not acquire execution authority.
 - Keep edited or invalid incomplete fragments blocking, refuse neutral closure under paused mandates, and hold Fix preparation, confirmation and no-entry settlement when known foreign native batches are active.
 - Restore bundled contract runtime imports for clean installation, preserve normal Parent observation identity and retain GitHub read diagnostics.
+- Defer ordinary and Epic review-to-Fix delivery until the predecessor's execution and settlement join; external stops fence and join detached publication, selection and delivery callbacks while preserving their failures.
+- Keep explicit pause on the normal engine path after a fully joined interruption, preserve stop and pause failures, and refuse advancement when joining is unproven.
 - Recognize exactly 0.21.0 under the existing bounded PR-binding contract; unknown versions remain unknown. This source change does not activate tooling, move pins, upgrade installed caches, migrate records or qualify native delivery.
 
 ## 0.20.1 (unreleased)

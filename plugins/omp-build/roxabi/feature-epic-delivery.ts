@@ -1,7 +1,12 @@
+import type { NativeSuccessor } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'
-import { releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
+import { ownedFeatureFor, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
 
-type ContinueAfterReview = (reference: string, host: FeatureCommandHost) => Promise<void>
+type ContinueAfterReview = (
+  reference: string,
+  host: FeatureCommandHost,
+  canContinue: () => boolean,
+) => Promise<NativeSuccessor | undefined>
 
 export async function deliverEpicFinalReview(
   result: Extract<ContinueFeatureResult, { kind: 'epic-final-review' }>,
@@ -13,9 +18,12 @@ export async function deliverEpicFinalReview(
     return
   }
   const target = `#${result.review.context.number}`
-  rememberFeatureOwner(host.key, { reference: target, cwd: host.cwd, pausable: true })
+  const owner = { reference: target, cwd: host.cwd, pausable: true }
+  rememberFeatureOwner(host.key, owner)
   try {
-    await host.prepareEpicRangeReview(result.review, () => continueAfterReview(target, host))
+    await host.prepareEpicRangeReview(result.review, (canContinue) =>
+      continueAfterReview(target, host, () => canContinue() && ownedFeatureFor(host.key) === owner),
+    )
   } catch (error) {
     releaseFeatureOwner(host.key)
     await host.send(`feature-stopped: ${error instanceof Error ? error.message : 'epic-final-review-unprepared'}`)

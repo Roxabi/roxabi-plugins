@@ -40,7 +40,8 @@ function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
     fixRun?: unknown
     messages: string[]
     precondition: { complete: true; requests: number; action?: string }
-    pause?: { postRefused: boolean; operatorControls: number; ghAvailable: boolean }
+    pause?: { postRefused: boolean; operatorControls: number; ghAvailable: boolean; joinedBeforeRelease: boolean }
+    settlementErrors?: string[]
     summary?: { complete: boolean; reviews: number; action: string; reason: string }
     records: Array<{ kind: string; recordId: string }>
   }
@@ -63,7 +64,16 @@ describe('review continuation races', () => {
     await seed(box, cwd)
     const observed = invoke(box, cwd, 'omp-review-race-pause')
     expect(observed.precondition).toEqual({ complete: true, action: 'fix', requests: 0 })
-    expect(observed.pause).toEqual({ postRefused: true, operatorControls: 0, ghAvailable: true })
+    expect(observed.pause).toEqual({
+      postRefused: true,
+      operatorControls: 0,
+      ghAvailable: true,
+      joinedBeforeRelease: true,
+    })
+    expect(observed.settlementErrors).toEqual([
+      'review-stopped:session-stop',
+      'review-stopped:settlement-failed:review-stopped:session-stop',
+    ])
     expect(observed.active).toBeNull()
     expect(observed.fixRun).toBeUndefined()
     expect(observed.records.some((record) => record.kind === 'fix-request')).toBe(false)

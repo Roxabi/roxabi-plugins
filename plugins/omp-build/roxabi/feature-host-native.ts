@@ -117,7 +117,7 @@ function continueOwnedFeature(
     cwd: host.cwd,
     reference,
     control: 'continue',
-    owned: () => canContinue() && owns(),
+    owned: () => canContinue() && owns() && !host.featureContinuationInhibited(),
     principal: false,
     ...(host.uw === undefined ? {} : { uw: host.uw, read: host.uw }),
     ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
@@ -164,7 +164,7 @@ async function selectFeatureSuccessor(
   deliver: (result: ContinueFeatureResult, current?: () => boolean) => Promise<void>,
 ) {
   const next = await continueOwnedFeature(host, reference, canContinue, owns)
-  if (!canContinue() || !owns()) {
+  if (!canContinue() || !owns() || host.featureContinuationInhibited()) {
     if (next.kind === 'action') recordStartNotActivated(next.start)
     return
   }

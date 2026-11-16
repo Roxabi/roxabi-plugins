@@ -34,7 +34,7 @@ export type FeatureCommandOptions = {
 export type FeatureCommandComposition = Readonly<{
   pi: OmpBuildExtensionApi
   options: FeatureCommandOptions
-  interruptOwnedFeatureWork: (reason: string) => Promise<void>
+  interruptOwnedFeatureWork: NonNullable<FeatureCommandHost['interruptOwnedWork']>
   framing: FeatureFramingRuntime
 }>
 

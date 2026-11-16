@@ -28,7 +28,7 @@ export type OmpBuildExtensionOptions = FeatureCommandOptions & {
 export function registerOmpCommandsAndTools(
   pi: OmpBuildExtensionApi,
   options: OmpBuildExtensionOptions,
-  interruptOwnedFeatureWork: (reason: string) => Promise<void>,
+  interruptOwnedFeatureWork: FeatureCommandComposition['interruptOwnedFeatureWork'],
 ): void {
   bindHostPluginPin(pi, options.pluginPin)
   const installRoot = options.installRoot ?? INSTALL_ROOT

@@ -5,7 +5,7 @@ import { admitNativeBatch } from './batch-admission.ts'
 import { validateNativeBatch } from './batch-validation.ts'
 import { captureSubagentEvent } from './capture'
 import type { NativeBatch, NativeBatchCallbacks, NativeExecutionObservation, NativeTaskWireInput } from './contracts'
-import { stopBatches, stopDeferredHandoffs, stopOwnedBatch } from './controller-stop'
+import { type JoinedNativeStop, stopBatches, stopOwnedBatch, throwJoinedStopFailures } from './controller-stop'
 import { rootCurrent, unindexAdmittedChildBatch } from './executed-child-lifecycle.ts'
 import { type HostGitObserver, observeHostGit } from './host-git-observation.ts'
 import {
@@ -237,16 +237,15 @@ export class NativeBatchController {
     await this.ownedSettlement()
   }
   async stop(reason: string): Promise<void> {
-    await stopBatches(this.#stopContext(), reason)
+    throwJoinedStopFailures(await this.stopJoined(reason))
   }
-  async stopDeferredHandoffs(reason: string): Promise<void> {
-    await stopDeferredHandoffs(this.#stopContext(), reason)
+  async stopJoined(reason: string): Promise<JoinedNativeStop> {
+    return stopBatches(this.#stopContext(), reason)
   }
   #stopContext() {
     return {
       live: this.#live,
       active: () => this.#active,
-      retired: (active: ActiveBatch) => this.#retiredWriters.has(active),
       terminal: (batch: NativeBatch) => this.#terminalByBatch.get(batch),
       present: (active: ActiveBatch, phase: string) => this.#present(active, phase),
       releaseMask: (batch?: NativeBatch) =>
@@ -271,7 +270,7 @@ export class NativeBatchController {
     // SDK stop hook. Joining it here can deadlock its callbacks.
     if (active === null || active.settling) return
     if (active?.announced && !active.announcementDispatched && active.admittedToolCallId === null) return
-    await this.stop('native-task-diverged-before-dispatch')
+    await this.stopOwned(active.batch, 'native-task-diverged-before-dispatch')
   }
   watchSettleAbort(signal: AbortSignal): void {
     for (const active of this.#live) {
