@@ -8,7 +8,8 @@
 - Keep edited or invalid incomplete fragments blocking, refuse neutral closure under paused mandates, and hold Fix preparation, confirmation and no-entry settlement when known foreign native batches are active.
 - Restore bundled contract runtime imports for clean installation, preserve normal Parent observation identity and retain GitHub read diagnostics.
 - Defer ordinary and Epic review-to-Fix delivery until the predecessor's execution and settlement join; external stops fence and join detached publication, selection and delivery callbacks while preserving their failures.
-- Keep explicit pause on the normal engine path after a fully joined interruption, preserve stop and pause failures, and refuse advancement when joining is unproven.
+- Join the exact owned Fix driver, host release and native work before explicit pause; preserve stop, pause and notification failures, and hold pre-owner ingress without a completion handle.
+- Carry the originating Feature ownership guard through Fix/CI completion and continuation; command replacement cannot revive an old continuation after pause/resume.
 - Recognize exactly 0.21.0 under the existing bounded PR-binding contract; unknown versions remain unknown. This source change does not activate tooling, move pins, upgrade installed caches, migrate records or qualify native delivery.
 
 ## 0.20.1 (unreleased)

@@ -109,7 +109,10 @@ async function scenario(next: Extract<ContinueFeatureResult, { kind: 'fix' | 'ad
     const release = claimFixIngress(harness.native)
     delivered.push(kind)
     release()
-    return { terminal: Promise.resolve({ status: 'stopped' as const, diagnostics: [] }) }
+    return {
+      terminal: Promise.resolve({ status: 'stopped' as const, diagnostics: [] }),
+      current: () => current?.() ?? true,
+    }
   }
   const host: FeatureCommandHost = {
     key: harness.native,

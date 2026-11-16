@@ -17,9 +17,9 @@ import {
   type FixHost,
   ownedFixRunFor,
   ownFixRun,
-  releaseOwnedFixRun,
   reportFeatureTerminalStatus,
 } from './omp-controller'
+import { finishOwnedFixRun, observeFixRelease } from './omp-fix-release.ts'
 import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import { captureNativeRootLifetime } from './review-runtime/native-sdk-adapter.ts'
 
@@ -42,41 +42,10 @@ function terminalNotifier(pi: FixHost, run: FixRun, kind: FixDispatchKind) {
   }
 }
 
-async function releaseFixRun(pi: FixHost, run: FixRun, kind: FixDispatchKind): Promise<void> {
-  const owned = ownedFixRunFor(pi)
-  if (owned?.run !== run) return
-  await run.driverTerminated
-  if (owned.stopping !== undefined) {
-    try {
-      await owned.stopping
-    } catch {
-      run.executionFence.markHostUnknown('fix-stop-unconfirmed')
-    }
-  }
-  await run.executionFence.closeHostOperations()
-  const owner = kind === 'fix' ? 'fix' : 'ci'
-  try {
-    const settled = await run.executionFence.settleInterruptedOwner()
-    if (!settled.ok)
-      console.error(`omp-build: interrupted ${owner} owner remains held: ${settled.diagnostics.join(', ')}`)
-  } catch (error) {
-    console.error(
-      `omp-build: interrupted ${owner} owner remains held: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-  if (run.executionFence.destinationLeaseFacts() !== null) {
-    const released = await run.executionFence.releaseDestinationLease()
-    if (released.status !== 'released')
-      console.error(
-        `omp-build: ${kind} destination lease retained: ${released.diagnostics.map((item) => item.code).join(', ')}`,
-      )
-  }
-  releaseOwnedFixRun(pi, run)
-}
-
 function ownReportingFixRun(pi: FixHost, run: FixRun, reporting: Promise<void>, kind: FixDispatchKind): void {
-  const releaseOwned = () => releaseFixRun(pi, run, kind)
+  const releaseOwned = () => finishOwnedFixRun(pi, run, run.executionFence, kind === 'fix' ? 'fix' : 'ci')
   const release = reporting.then(releaseOwned, releaseOwned)
+  observeFixRelease(release)
   ownFixRun(pi, { run, reporting, release })
 }
 

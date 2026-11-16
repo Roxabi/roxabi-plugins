@@ -62,8 +62,7 @@ async function continueFeatureCommand(
   try {
     result = await host.workflow.continueFeature(commandInput)
   } catch (error) {
-    const stop = featureErrorMessage(error)
-    await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
+    await reportFeatureFailure(host, principalDispatch, error)
     if (preserveFailure) throw error
     return
   }
@@ -87,6 +86,15 @@ async function continueFeatureCommand(
     return
   }
   await deliverFeatureResult(commandInput.reference, result, host)
+}
+
+async function reportFeatureFailure(host: FeatureCommandHost, principal: boolean, error: unknown): Promise<void> {
+  const stop = featureErrorMessage(error)
+  try {
+    await host.send(principal ? principalRefusalMessage(host.cwd, stop) : stop)
+  } catch (notification) {
+    throw new AggregateError([error, notification], 'Feature failure and notification failed', { cause: error })
+  }
 }
 
 async function deliverInterruptionResult(
@@ -212,22 +220,29 @@ function observeFeatureTerminal(
   reference: string,
   host: FeatureCommandHost,
   terminal: Promise<FeatureFixTerminal>,
+  current: () => boolean,
 ): void {
+  const owns = () => current() && !host.featureContinuationInhibited()
   void terminal
     .then(async (result) => {
-      if (result.status !== 'complete' || host.featureContinuationInhibited()) return
+      if (result.status !== 'complete' || !owns()) return
       const next = await host.workflow.continueFeature({
         cwd: host.cwd,
         reference,
         control: 'continue',
         principal: false,
+        owned: owns,
         ...(host.uw === undefined ? {} : { read: host.uw, uw: host.uw }),
         ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
       })
-      await deliverFeatureResult(reference, next, host)
+      if (!owns()) {
+        if (next.kind === 'action') recordStartNotActivated(next.start)
+        return
+      }
+      await deliverFeatureResult(reference, next, host, owns)
     })
     .catch(async (error: unknown) => {
-      await host.send(featureErrorMessage(error))
+      if (owns()) await host.send(featureErrorMessage(error))
     })
 }
 
@@ -242,7 +257,7 @@ async function continueAfterFix(
     return
   }
   const run = await host.startFix(fix, current)
-  observeFeatureTerminal(reference, host, run.terminal)
+  observeFeatureTerminal(reference, host, run.terminal, run.current)
 }
 
 async function continueAfterAdmittedCiCorrection(
@@ -263,5 +278,5 @@ async function continueAfterAdmittedCiCorrection(
     },
     current,
   )
-  observeFeatureTerminal(reference, host, run.terminal)
+  observeFeatureTerminal(reference, host, run.terminal, run.current)
 }

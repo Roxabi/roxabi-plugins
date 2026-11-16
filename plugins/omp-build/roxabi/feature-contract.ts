@@ -197,7 +197,10 @@ export type FeatureCommandHost = {
     args: string,
     onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
   ) => Promise<void>
-  startFix?: (input: FeatureReviewFix, current?: () => boolean) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
+  startFix?: (
+    input: FeatureReviewFix,
+    current?: () => boolean,
+  ) => Promise<{ terminal: Promise<FeatureFixTerminal>; current: () => boolean }>
   /** Command-context UW capability: absent only when the installed UW composition is unavailable. */
   uw?: UwOperations
   /** Trusted host composition only. Omit for the ordinary published pin. */
@@ -209,7 +212,7 @@ export type FeatureCommandHost = {
       uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
     },
     current?: () => boolean,
-  ) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
+  ) => Promise<{ terminal: Promise<FeatureFixTerminal>; current: () => boolean }>
   prepareEpicRangeReview?: (
     review: PreparedEpicReview,
     onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,

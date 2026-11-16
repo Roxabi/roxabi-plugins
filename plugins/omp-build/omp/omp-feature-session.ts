@@ -7,12 +7,14 @@ import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
 import {
   type FixHost,
+  hasOwnedFixRun,
   interruptExactOwnedFixRun,
   interruptOwnedFixRun,
   ownedFixRunFor,
   reportFeatureTerminalStatus,
   reviewControllerFor,
 } from './omp-controller'
+import { joinFeatureInterruption } from './omp-feature-interruption-join.ts'
 import type { NativeExtension } from './review-runtime/contracts.ts'
 import { type JoinedNativeStop, throwJoinedStopFailures } from './review-runtime/controller-stop.ts'
 
@@ -27,8 +29,15 @@ export function featureWorkInterrupter(pi: NativeExtension): (reason: string) =>
     abortOwnedFeatureWatch(pi)
     const controller = reviewControllerFor(pi)
     controller.inhibitFeatureContinuation()
-    interruptOwnedFixRun(pi, reason)
-    return controller.stopJoined(reason)
+    const owned = ownedFixRunFor(pi)
+    const ingressUnknown = owned === undefined && hasOwnedFixRun(pi)
+    const stopping = interruptOwnedFixRun(pi, reason)
+    const native = controller.stopJoined(reason)
+    return joinFeatureInterruption(
+      native,
+      owned !== undefined && stopping !== undefined ? { stop: stopping, release: owned.release } : undefined,
+      ingressUnknown || (owned !== undefined && stopping === undefined),
+    )
   }
 }
 async function loadFeatureWorkflowForSessionEnd(
@@ -84,7 +93,7 @@ export function installFeatureSessionLifecycle(
     // Ordinary idle settle only: native bridge settle/watchSettleAbort handles batches.
     // Do not product-pause or abort CI watch here (D2-B). Do not treat signal aborts as §85.
     if (event.signal.aborted) {
-      interruptOwnedFixRun(pi, 'session-settle-aborted')
+      void interruptOwnedFixRun(pi, 'session-settle-aborted')
       return
     }
     const owned = ownedFixRunFor(pi)
@@ -115,12 +124,12 @@ export function installFeatureSessionLifecycle(
     if (!rootContext(ctx)) return
     // The status channel persists across sessions; clear it before any asynchronous pause.
     ctx.ui?.setStatus?.('omp-build-watch', undefined)
-    interruptOwnedFixRun(pi, 'session-switched')
+    void interruptOwnedFixRun(pi, 'session-switched')
     return pauseFeatureOnSessionEnd('session-switch')
   })
   pi.on('session_shutdown', (_event, ctx) => {
     if (!rootContext(ctx)) return
-    interruptOwnedFixRun(pi, 'session-shutdown')
+    void interruptOwnedFixRun(pi, 'session-shutdown')
     return pauseFeatureOnSessionEnd('session-shutdown')
   })
 }

@@ -84,20 +84,27 @@ export function releaseOwnedFixRun(pi: NativeExtension, run: FixRun): void {
   }
 }
 
-export function interruptOwnedFixRun(pi: NativeExtension, reason: string): void {
+export function interruptOwnedFixRun(pi: NativeExtension, reason: string): Promise<void> | undefined {
   const owned = ownedFixRuns.get(pi)
-  if (!owned || owned.stopping !== undefined) return
+  if (!owned) return undefined
+  if (owned.stopping !== undefined) return owned.stopping
   owned.tearingDown = true
-  owned.stopping = owned.run.stop(reason).catch((error) => {
+  try {
+    owned.stopping = owned.run.stop(reason)
+  } catch (error) {
+    owned.stopping = Promise.reject(error)
+  }
+  void owned.stopping.catch((error) => {
     console.error(
       `omp-build: fix run ${owned.run.runId} stop failed: ${error instanceof Error ? error.message : String(error)}`,
     )
   })
+  return owned.stopping
 }
 
 export function interruptExactOwnedFixRun(pi: NativeExtension, owned: OwnedFixRun, reason: string): void {
   if (ownedFixRuns.get(pi) !== owned) return
-  interruptOwnedFixRun(pi, reason)
+  void interruptOwnedFixRun(pi, reason)
 }
 
 /** One controller and one native bridge for the lifetime of each extension instance. */

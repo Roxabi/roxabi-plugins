@@ -5,13 +5,8 @@ import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
 import type { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
 import { readFixOwnerHistories } from '../roxabi/fix-owner-admission-observation.ts'
 import { createGitHubRecordPublisher } from '../roxabi/github-publisher.ts'
-import {
-  type OmpBuildExtensionApi,
-  ownedFixRunFor,
-  ownFixRun,
-  releaseOwnedFixRun,
-  reportFeatureTerminalStatus,
-} from './omp-controller.ts'
+import { type OmpBuildExtensionApi, ownFixRun, reportFeatureTerminalStatus } from './omp-controller.ts'
+import { finishOwnedFixRun, observeFixRelease } from './omp-fix-release.ts'
 import {
   acquireDestinationAdmissionLease,
   type DestinationAdmissionLease,
@@ -81,35 +76,6 @@ export async function withRecoveryLease<T>(
   return outcome.value
 }
 
-async function finishRecoveryRun(pi: OmpBuildExtensionApi, run: FixRun, fence: FixExecutionFence): Promise<void> {
-  await run.driverTerminated
-  const owned = ownedFixRunFor(pi)
-  if (owned?.run === run && owned.stopping !== undefined) {
-    try {
-      await owned.stopping
-    } catch {
-      fence.markHostUnknown('fix-stop-unconfirmed')
-    }
-  }
-  await fence.closeHostOperations()
-  try {
-    const settled = await fence.settleInterruptedOwner()
-    if (!settled.ok) console.error(`omp-build: interrupted fix owner remains held: ${settled.diagnostics.join(', ')}`)
-  } catch (error) {
-    console.error(
-      `omp-build: interrupted fix owner remains held: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-  if (fence.destinationLeaseFacts() !== null) {
-    const released = await fence.releaseDestinationLease()
-    if (released.status !== 'released')
-      console.error(
-        `omp-build: fix destination lease retained: ${released.diagnostics.map((item) => item.code).join(', ')}`,
-      )
-  }
-  releaseOwnedFixRun(pi, run)
-}
-
 export async function reportRecoveryRun(
   pi: OmpBuildExtensionApi,
   run: FixRun,
@@ -124,8 +90,9 @@ export async function reportRecoveryRun(
         : `/fix ${run.runId} stopped: ${result.diagnostics.join(', ')}`,
     )
   })
-  const finish = () => finishRecoveryRun(pi, run, fence)
+  const finish = () => finishOwnedFixRun(pi, run, fence, 'fix')
   const release = reporting.then(finish, finish)
+  observeFixRelease(release)
   ownFixRun(pi, { run, reporting, release })
   const started = await run.started
   if (started.status === 'terminal') {
