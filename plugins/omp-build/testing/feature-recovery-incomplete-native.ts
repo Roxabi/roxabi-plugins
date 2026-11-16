@@ -32,7 +32,7 @@ export async function invokeOmpIncompleteNative(
     registerCommand(name, command) {
       commands.set(name, command.handler as Handler)
     },
-    sendUserMessage: (message) => {
+    sendUserMessage: async (message) => {
       if (typeof message !== 'string') throw new Error('native-announcement-not-text')
       messages.push(message)
     },

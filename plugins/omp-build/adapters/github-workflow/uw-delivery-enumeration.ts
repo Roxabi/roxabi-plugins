@@ -1,5 +1,6 @@
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
 import type { Result } from '../../engine/result.ts'
+import { PULLS_QUERY } from '../../host/preparation-graphql.cjs'
 import { githubScope } from '../github/transport.ts'
 import type { GitHubOptions } from '../github/types.ts'
 import { graphqlVariables } from './client.ts'
@@ -15,7 +16,6 @@ function actionFailure(code: string, message: string): Result<never> {
  * filtered branches locate candidates and do not establish their binding.
  * An unresolved claim or unreadable required history refuses the read.
  */
-const PULLS = `query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}`
 
 export type Candidate = { scope: Scope; branch: string; base: string }
 type Page = { nodes: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }
@@ -57,7 +57,7 @@ async function readPullPage(
 ): Promise<Result<Page>> {
   let data: unknown
   try {
-    data = await graphqlVariables(options, PULLS, { owner, name, cursor, branch })
+    data = await graphqlVariables(options, PULLS_QUERY, { owner, name, cursor, branch })
   } catch (error) {
     return actionFailure(
       'record-unreadable',

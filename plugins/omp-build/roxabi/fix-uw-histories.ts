@@ -7,6 +7,12 @@ import { observationReasons, reasonLine } from './causal-refusal.ts'
 import { defaultGh } from './feature-engine.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
+import {
+  type HistoryDifference,
+  type HistoryEntry,
+  observationDrift,
+  reconcileProjectedDifferences,
+} from './fix-uw-history-drift.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwRead } from './uw-contract.ts'
@@ -75,48 +81,23 @@ export function reconcileWithdrawalHistories(
     return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
   return { ok: true, value: after }
 }
-
-function firstDifferentField(left: unknown, right: unknown, path = '$'): string | null {
-  if (JSON.stringify(left) === JSON.stringify(right)) return null
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return path
-  const entries = new Map(Object.entries(right))
-  for (const [key, value] of Object.entries(left)) {
-    if (!entries.has(key)) return `${path}.${key}`
-    const different = firstDifferentField(value, entries.get(key), `${path}.${key}`)
-    if (different !== null) return different
-    entries.delete(key)
-  }
-  return entries.size > 0 ? `${path}.${entries.keys().next().value}` : `${path} (serialization order)`
-}
-
-function historyObservationDetail(history: DecodedHistory, cohort: string): string {
-  const source = history.source
-  return `${cohort}:complete=${source.complete};stopAuthor=${source.stopAuthor ?? 'null'};sourceDiagnostics=${source.diagnostics.map((item) => item.code).join(',')};historyDiagnostics=${history.diagnostics.map((item) => item.code).join(',')}`
-}
-
-function observationDrift(
+function mergeObservedHistory(
   history: DecodedHistory,
   cohort: string,
-  previous: { history: DecodedHistory; cohort: string } | undefined,
-): FixActionResult<never> | null {
-  if (
-    history.source.complete &&
-    (previous === undefined || JSON.stringify(previous.history) === JSON.stringify(history))
-  )
-    return null
+  histories: Map<string, HistoryEntry>,
+  different: HistoryDifference[],
+): FixActionResult<true> {
   const scope = history.source.scope
-  return failure(
-    'fix-own-uw-unsettled',
-    'fix-history-observation-drift',
-    `scope=${scope.repository}:${scope.target}`,
-    historyObservationDetail(history, cohort),
-    ...(previous === undefined
-      ? []
-      : [
-          historyObservationDetail(previous.history, previous.cohort),
-          `different=${firstDifferentField(previous.history, history) ?? 'none'}`,
-        ]),
+  const key = `${scope.repository}\0${scope.target}`
+  const previous = histories.get(key)
+  if (
+    !history.source.complete ||
+    (previous !== undefined && JSON.stringify(previous.history.source) !== JSON.stringify(history.source))
   )
+    return observationDrift(history, cohort, previous)
+  if (previous === undefined) histories.set(key, { history, cohort })
+  else if (JSON.stringify(previous.history) !== JSON.stringify(history)) different.push({ history, cohort, previous })
+  return { ok: true, value: true }
 }
 
 /** Combine observations only when every shared scope denotes the same complete history. */
@@ -124,19 +105,20 @@ export function mergeFixUwHistories(
   observed: readonly DecodedHistory[],
   current: readonly DecodedHistory[],
 ): FixActionResult<readonly DecodedHistory[]> {
-  const histories = new Map<string, { history: DecodedHistory; cohort: string }>()
+  const histories = new Map<string, HistoryEntry>()
+  const different: HistoryDifference[] = []
   for (const cohort of [
     { name: 'observed', histories: observed },
     { name: 'current', histories: current },
   ]) {
     for (const history of cohort.histories) {
-      const scope = history.source.scope
-      const key = `${scope.repository}\0${scope.target}`
-      const previous = histories.get(key)
-      const drift = observationDrift(history, cohort.name, previous)
-      if (drift !== null) return drift
-      if (previous === undefined) histories.set(key, { history, cohort: cohort.name })
+      const merged = mergeObservedHistory(history, cohort.name, histories, different)
+      if (!merged.ok) return merged
     }
+  }
+  if (different.length > 0) {
+    const reconciled = reconcileProjectedDifferences(histories, different)
+    if (!reconciled.ok) return reconciled
   }
   return { ok: true, value: [...histories.values()].map((entry) => entry.history) }
 }

@@ -4,6 +4,7 @@ import {
   actionInputDigest,
   canonicalActionInput,
   citesCurrentRootOutput,
+  samePluginPin,
   validateActionInputs,
 } from '../action-input.ts'
 import {
@@ -20,6 +21,29 @@ import { SCOPE } from './workflow-test-support.ts'
 const SHA = 'a'.repeat(64)
 const GIT = 'b'.repeat(40)
 const UW = { repository: 'acme/app', target: 'acme/app#42' }
+test('compares complete plugin pins independently of file order and rejects changes or duplicate identities', () => {
+  const file = {
+    source: 'git-file' as const,
+    repository: 'Roxabi/roxabi-plugins',
+    commit: GIT,
+    path: 'a.ts',
+    digest: SHA,
+  }
+  const other = { ...file, path: 'b.ts' }
+  const pin: ActionInputManifest['plugin'] = {
+    name: 'omp-build',
+    version: '0.21.0',
+    repository: file.repository,
+    commit: GIT,
+    root: 'plugins/omp-build',
+    files: [file, other],
+  }
+  expect(samePluginPin(pin, { ...pin, files: [other, file] })).toBe(true)
+  expect(samePluginPin(pin, { ...pin, files: [other, { ...file, digest: 'c'.repeat(64) }] })).toBe(false)
+  expect(samePluginPin(pin, { ...pin, version: '0.21.1' })).toBe(false)
+  expect(samePluginPin(pin, { ...pin, files: [file, other, { ...file, digest: 'c'.repeat(64) }] })).toBe(false)
+  expect(samePluginPin({ ...pin, files: [file, file] }, { ...pin, files: [file, file] })).toBe(false)
+})
 
 const parser: UnframedParser = {
   status: 'malformed',

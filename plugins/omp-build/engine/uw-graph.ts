@@ -20,6 +20,11 @@ export type UwNativeNode = {
   blockers: readonly Scope[]
   native: { state: 'OPEN' | 'CLOSED'; stateReason: string | null }
 }
+export type UwSemanticNode = Omit<UwNativeNode, 'updatedAt' | 'raw'> & {
+  raw: Pick<SpecRawSource, 'reference' | 'body' | 'bodySha256'>
+}
+export type UwSemanticGraph = { status: 'semantic'; root: Scope; nodes: readonly UwSemanticNode[] }
+type UwRelationNode = Pick<UwNativeNode, 'uw' | 'labels' | 'wayfinderLabels' | 'parent' | 'children' | 'blockers'>
 export type UwGraphObservation =
   | { status: 'complete'; root: Scope; nodes: readonly UwNativeNode[]; observedAt: string }
   | {
@@ -36,15 +41,15 @@ export function scopeKey(value: Scope): string {
 export function sameScope(left: Scope, right: Scope): boolean {
   return left.repository === right.repository && left.target === right.target
 }
-export function knownWayfinderLabels(node: UwNativeNode): readonly string[] {
+export function knownWayfinderLabels(node: Pick<UwNativeNode, 'labels'>): readonly string[] {
   return node.labels.filter((label) => (WAYFINDER_LABELS as readonly string[]).includes(label))
 }
-export function unknownWayfinderLabels(node: UwNativeNode): readonly string[] {
+export function unknownWayfinderLabels(node: Pick<UwNativeNode, 'labels'>): readonly string[] {
   return node.labels.filter(
     (label) => label.startsWith('wayfinder:') && !(WAYFINDER_LABELS as readonly string[]).includes(label),
   )
 }
-export function isWayfinder(node: UwNativeNode): boolean {
+export function isWayfinder(node: Pick<UwNativeNode, 'labels'>): boolean {
   return knownWayfinderLabels(node).length > 0
 }
 function diag(
@@ -69,8 +74,8 @@ function incompleteGraph(graph: Extract<UwGraphObservation, { status: 'incomplet
 }
 
 function appendChildren(
-  node: UwNativeNode,
-  nodes: ReadonlyMap<string, UwNativeNode>,
+  node: UwRelationNode,
+  nodes: ReadonlyMap<string, UwRelationNode>,
   outgoing: string[],
   diagnostics: UwDiagnostic[],
 ): void {
@@ -94,8 +99,8 @@ function appendChildren(
 }
 
 function appendBlockers(
-  node: UwNativeNode,
-  nodes: ReadonlyMap<string, UwNativeNode>,
+  node: UwRelationNode,
+  nodes: ReadonlyMap<string, UwRelationNode>,
   outgoing: string[],
   diagnostics: UwDiagnostic[],
 ): void {
@@ -106,7 +111,7 @@ function appendBlockers(
   }
 }
 
-function relationEdges(nodes: ReadonlyMap<string, UwNativeNode>, diagnostics: UwDiagnostic[]): Map<string, string[]> {
+function relationEdges(nodes: ReadonlyMap<string, UwRelationNode>, diagnostics: UwDiagnostic[]): Map<string, string[]> {
   const edges = new Map<string, string[]>()
   for (const node of nodes.values()) {
     const key = scopeKey(node.uw)
@@ -154,7 +159,7 @@ export function cycleKeys(edges: ReadonlyMap<string, readonly string[]>): readon
 }
 
 function appendCycles(
-  nodes: ReadonlyMap<string, UwNativeNode>,
+  nodes: ReadonlyMap<string, UwRelationNode>,
   edges: ReadonlyMap<string, readonly string[]>,
   diagnostics: UwDiagnostic[],
 ): void {
@@ -164,10 +169,7 @@ function appendCycles(
   }
 }
 
-function appendParentClaimDiagnostics(
-  graph: Extract<UwGraphObservation, { status: 'complete' }>,
-  diagnostics: UwDiagnostic[],
-): void {
+function appendParentClaimDiagnostics(graph: { nodes: readonly UwRelationNode[] }, diagnostics: UwDiagnostic[]): void {
   const parents = new Map<string, Scope[]>()
   for (const node of graph.nodes) {
     for (const child of node.children) {
@@ -189,11 +191,11 @@ function appendParentClaimDiagnostics(
   }
 }
 
-function collectObservedNodes(
-  observed: readonly UwNativeNode[],
+function collectObservedNodes<T extends UwRelationNode>(
+  observed: readonly T[],
   diagnostics: UwDiagnostic[],
-): Map<string, UwNativeNode> {
-  const nodes = new Map<string, UwNativeNode>()
+): Map<string, T> {
+  const nodes = new Map<string, T>()
   for (const node of observed) {
     const key = scopeKey(node.uw)
     const previous = nodes.get(key)
@@ -215,14 +217,17 @@ export function relationGraph(observed: readonly UwNativeNode[]): {
   return { edges: relationEdges(nodes, diagnostics), diagnostics }
 }
 
-export function validateUwGraph(graph: UwGraphObservation): UwCheck {
-  if (graph.status === 'incomplete') return incompleteGraph(graph)
+export function validateUwGraphContents(root: Scope, observed: readonly UwRelationNode[]): UwCheck {
   const diagnostics: UwDiagnostic[] = []
-  appendParentClaimDiagnostics(graph, diagnostics)
-  const nodes = collectObservedNodes(graph.nodes, diagnostics)
-  if (!nodes.has(scopeKey(graph.root)))
-    diagnostics.push(diag(graph.root, 'graph-incomplete', 'Root was not read', 'state'))
+  appendParentClaimDiagnostics({ nodes: observed }, diagnostics)
+  const nodes = collectObservedNodes(observed, diagnostics)
+  if (!nodes.has(scopeKey(root))) diagnostics.push(diag(root, 'graph-incomplete', 'Root was not read', 'state'))
   const edges = relationEdges(nodes, diagnostics)
   appendCycles(nodes, edges, diagnostics)
   return { ok: diagnostics.length === 0, diagnostics }
+}
+
+export function validateUwGraph(graph: UwGraphObservation): UwCheck {
+  if (graph.status === 'incomplete') return incompleteGraph(graph)
+  return validateUwGraphContents(graph.root, graph.nodes)
 }

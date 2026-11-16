@@ -171,5 +171,6 @@ export function readFixtureUw(state: State): UwRead {
     graph,
     observation,
     completion,
+    fixRecovery: { status: 'none' },
   }
 }

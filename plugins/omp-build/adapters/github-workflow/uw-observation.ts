@@ -1,13 +1,17 @@
 import { causeHistoryReferences } from '../../engine/cause-disposition.ts'
+import { fixRecoveryDiscoveryScopes } from '../../engine/fix-recovery-discovery.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { ReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
 import type { UwCompletionObservation } from '../../engine/uw-completion-types.ts'
+import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { projectUwWaits } from '../../engine/uw-waits.ts'
+import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
+import { readGitHubHistory } from '../github/transport.ts'
 import type { GitHubOptions } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph-reader.ts'
-import { readComposedWorkflowHistory } from './history.ts'
+import { validateComposedWorkflowHistories } from './history.ts'
 import { createUwDeliveryFactReader } from './uw-delivery-facts.ts'
 import { UwObservationCut } from './uw-observation-cut.ts'
 
@@ -56,6 +60,7 @@ class UwObservationCollector {
   private readonly pendingGraph: Map<string, Scope>
   private readonly evaluationRoots: Scope[]
   private readonly factReader: ReturnType<typeof createUwDeliveryFactReader>
+  private historyDiagnostics: UwDiagnostic[] = []
 
   constructor(
     root: Scope,
@@ -76,6 +81,8 @@ class UwObservationCollector {
     while (true) {
       await this.readGraphs()
       let progressed = await this.readHistories()
+      if (progressed) continue
+      this.validateHistoryClosure()
       if (!(await this.refreshCatalogues())) break
       const waits = projectUwWaits({
         graph: this.cut.graph(),
@@ -89,6 +96,7 @@ class UwObservationCollector {
       progressed = await this.readDeliveries(waits.deliveryScopes)
       if (this.pendingGraph.size === 0 && !progressed) break
     }
+    this.cut.diagnostics.push(...this.historyDiagnostics)
     await this.cut.readAncestry(this.factReader, this.deliveryFailed)
     return this.cut.finish(this.additionalHistories)
   }
@@ -119,6 +127,7 @@ class UwObservationCollector {
       ),
     )
     for (const ref of causeHistoryReferences(records)) wanted.set(scopeKey(ref.scope), ref.scope)
+    for (const scope of fixRecoveryDiscoveryScopes(records)) wanted.set(scopeKey(scope), scope)
     return wanted
   }
 
@@ -134,15 +143,25 @@ class UwObservationCollector {
   }
 
   private async readHistory(scope: Scope): Promise<void> {
-    const observed = await readComposedWorkflowHistory([scope], this.options)
-    for (const history of observed.histories) this.cut.addHistory(history)
-    // Framing can bind disconnected members: canonical references establish which
-    // native issues must be observed, but never manufacture relations between them.
-    for (const history of observed.histories) this.requireGraphs(framingMemberScopes(history))
-    if (!observed.ok)
-      this.cut.diagnostics.push(
-        ...observed.diagnostics.map((entry) => this.cut.issue(scope, entry.code, entry.message)),
-      )
+    try {
+      const source = await readGitHubHistory(scope, this.options)
+      const history = decodeHistory(source)
+      this.cut.addHistory(history)
+      this.requireGraphs(framingMemberScopes(history))
+    } catch (error) {
+      this.cut.diagnostics.push(this.cut.issue(scope, 'history-unreadable', `Cannot read history: ${String(error)}`))
+    }
+  }
+
+  private validateHistoryClosure(): void {
+    const raw = [...this.cut.histories.values()]
+    const projected = projectRecoveryHistories(raw)
+    const checked = projected.ok ? validateComposedWorkflowHistories(projected.value) : projected
+    this.historyDiagnostics = checked.ok
+      ? []
+      : checked.diagnostics.map((entry) => this.cut.issue(this.cut.root, entry.code, entry.message))
+    if (projected.ok)
+      for (const history of projected.value) this.cut.histories.set(scopeKey(history.source.scope), history)
   }
 
   private async refreshCatalogues(): Promise<boolean> {

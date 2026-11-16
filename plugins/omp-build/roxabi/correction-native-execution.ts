@@ -107,14 +107,14 @@ async function pushCurrentHead(
   return failed('terminal', `git-push-failed:${JSON.stringify(attempts)}`)
 }
 
-/** Executes fixed Git observations/effects; native tasks perform repository proofs and perturbation. */
-export function createNativeCorrectionExecution(options: NativeCorrectionExecutionOptions): CorrectionExecution {
+/** Creates the same fresh, unspent runtime used by correction execution. */
+export function createCorrectionNativeRuntime(options: NativeCorrectionExecutionOptions): CorrectionNativeRuntime {
   let expectedHead = options.prepared.target.candidateGitSHA
   const appliedByCause = new Map<string, AppliedCauseContext>()
   const ownedCommits: string[] = []
   const records = new Map([[options.decision.recordId, options.decision]])
   const git = createCorrectionGitState(options, () => expectedHead)
-  const runtime: CorrectionNativeRuntime = {
+  return {
     options,
     git,
     expectedHead: () => expectedHead,
@@ -133,13 +133,18 @@ export function createNativeCorrectionExecution(options: NativeCorrectionExecuti
       return result
     },
   }
+}
+
+/** Executes fixed Git observations/effects; native tasks perform repository proofs and perturbation. */
+export function createNativeCorrectionExecution(options: NativeCorrectionExecutionOptions): CorrectionExecution {
+  const runtime = createCorrectionNativeRuntime(options)
   return {
     apply: (cause, attempt) => applyCorrectionAction(runtime, cause, attempt),
     revalidateRequiredPaths: (causes) => revalidateRequiredCorrectionPaths(runtime, causes),
     falsify: (cause, commits) => falsifyCorrectionAction(runtime, cause, commits),
     revert: (commitSHAs) => revertOwnedCorrection(runtime, commitSHAs),
     async head() {
-      const state = await git.expectedCleanHead()
+      const state = await runtime.git.expectedCleanHead()
       return state.ok ? { ok: true, value: state.value.head } : state
     },
     push: () => pushCurrentHead(runtime),

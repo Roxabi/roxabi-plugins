@@ -1,15 +1,18 @@
+import { recoveryRetiredParts } from '../../engine/fix-recovery-projection.ts'
+import { looseHeaderClue, operationAuthority, withClaimedKinds } from '../../engine/history-authority.ts'
+import { decodeParts, frameFrom, legacyKind, withOperationId } from '../../engine/history-framing.ts'
 import type { DecodedHistory, History } from '../../engine/history-schema.ts'
+import type { ClaimedOperation, Frame, FrameFailure, UnclaimedOperation } from '../../engine/history-wire-types.ts'
+import { WIRE_PREFIX } from '../../engine/history-wire-types.ts'
 import { parseRecord } from '../../engine/record-construction.ts'
 import { recordIntegrity } from '../../engine/record-integrity.ts'
 import { projectRecord } from '../../engine/record-projection.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic } from '../../engine/record-values.ts'
 import type { RecordProjectionConfig, Result } from '../../engine/result.ts'
-import { looseHeaderClue, operationAuthority, withClaimedKinds } from './history-authority.ts'
+import { scopeKey } from '../../engine/uw-graph.ts'
 import { encodeParts } from './history-encoder.ts'
-import { decodeParts, frameFrom, legacyKind, withOperationId } from './history-framing.ts'
-import type { ClaimedOperation, Frame, FrameFailure, UnclaimedOperation } from './types.ts'
-import { diagnostic, WIRE_PREFIX } from './types.ts'
+import { diagnostic } from './types.ts'
 
 type FrameGroups = {
   framed: Map<string, Frame[]>
@@ -174,6 +177,44 @@ export function decodeHistory(history: History): DecodedHistory {
   }
 }
 
+/** Replay confirmed controls before decoding effective membership; retain the untouched native source. */
+export function projectRecoveryHistories(histories: readonly DecodedHistory[]): Result<DecodedHistory[]> {
+  return projectRecoveryHistoriesForWrite(histories)
+}
+
+function projectRecoveryHistoriesForWrite(
+  histories: readonly DecodedHistory[],
+  prospective?: Extract<CanonicalRecord, { kind: 'fix-recovery' }>,
+): Result<DecodedHistory[]> {
+  if (
+    prospective === undefined &&
+    !histories.some((history) =>
+      history.operations.some(
+        (operation) =>
+          operation.authority !== 'foreign' &&
+          operation.status === 'complete' &&
+          operation.record?.kind === 'fix-recovery',
+      ),
+    )
+  )
+    return { ok: true, value: [...histories] }
+  const raw = histories.map((history) => decodeHistory(history.source))
+  const retired = recoveryRetiredParts(raw, prospective)
+  if (!retired.ok) return retired
+  return {
+    ok: true,
+    value: raw.map((history) => {
+      const ids = retired.value.get(scopeKey(history.source.scope))
+      if (ids === undefined || ids.size === 0) return history
+      const effective = decodeHistory({
+        ...history.source,
+        comments: history.source.comments.filter((comment) => comment.nativeId === null || !ids.has(comment.nativeId)),
+      })
+      return { ...effective, source: history.source }
+    }),
+  }
+}
+
 /** Frame the full canonical record and its core-owned projection into UTF-8-safe comments. */
 export function encodeRecord(
   record: CanonicalRecord,
@@ -185,6 +226,29 @@ export function encodeRecord(
   const parsed = parseRecord(record)
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics }
 
-  const projection = projectRecord(parsed.value, decodeHistory(history), config, externalHistories)
+  const home = decodeHistory(history)
+  const scopes = new Map<string, DecodedHistory>([[scopeKey(history.scope), home]])
+  for (const entry of externalHistories) {
+    const key = scopeKey(entry.source.scope)
+    // The fresh home read is authoritative; callers may also carry its pre-reconciliation copy.
+    if (key === scopeKey(history.scope)) continue
+    const previous = scopes.get(key)
+    if (previous !== undefined && JSON.stringify(previous.source) !== JSON.stringify(entry.source))
+      return {
+        ok: false,
+        diagnostics: [diagnostic('ambiguous', 'Publication history has conflicting observations for one scope')],
+      }
+    if (previous === undefined) scopes.set(key, entry)
+  }
+  const all = [...scopes.values()]
+  const effective = projectRecoveryHistoriesForWrite(
+    all,
+    parsed.value.kind === 'fix-recovery' ? parsed.value : undefined,
+  )
+  if (!effective.ok) return effective
+  const current = effective.value[0]
+  if (current === undefined)
+    return { ok: false, diagnostics: [diagnostic('incomplete', 'Publication history is unavailable')] }
+  const projection = projectRecord(parsed.value, current, config, effective.value.slice(1))
   return projection.ok ? encodeParts(parsed.value, projection.value, maxCommentBytes) : projection
 }

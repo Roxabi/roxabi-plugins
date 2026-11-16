@@ -36,6 +36,8 @@ export async function executeDecision(
   capture: PreparedCauseCapture | 'authenticate-source',
 ): Promise<FixActionResult<FixRecord>> {
   if (product.runtime.signal.aborted) return failure('fix-run-interrupted-cleanup-unproven')
+  if (product.runtime.executionFence && !product.runtime.executionFence.enterPlan())
+    return failure('fix-run-interrupted-cleanup-unproven')
   const disposition = await persistCapturedCauseDispositions(
     prepared.causeContext,
     { kind: 'decision', decision },
@@ -143,7 +145,7 @@ export async function runDefaultFixWorkflow(
   input: DefaultFixRequest,
 ): Promise<FixActionResult<FixRecord>> {
   const prepared = await prepareStandaloneFix(
-    { ...input, nativeTasks: [defaultIntakeTask(input)] },
+    { ...input, nativeTasks: [defaultIntakeTask(input)], executionFence: product.runtime.executionFence },
     product.resolver,
     product.publisher,
     product.workflow,
@@ -269,6 +271,8 @@ export async function runReviewBoundFixWorkflow(
   product: Pick<DefaultFixWorkflow, 'native' | 'publisher' | 'runtime' | 'readHistory' | 'dispositionStore' | 'github'>,
   identity: FixIdentity,
 ): Promise<FixActionResult<FixRecord>> {
+  if (product.runtime.executionFence && !product.runtime.executionFence.enterPlan())
+    return failure('fix-run-interrupted-cleanup-unproven')
   const retainedDecision = await persistCapturedCauseDispositions(
     prepared.causeContext,
     { kind: 'decision', decision },

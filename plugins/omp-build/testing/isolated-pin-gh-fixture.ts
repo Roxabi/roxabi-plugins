@@ -92,7 +92,9 @@ if (args[0] === 'api' && args[1] === `repos/${source}`) {
   process.exit(0)
 }
 if (args[0] === 'repo' && args[1] === 'view' && args.includes(source)) {
-  console.log(JSON.stringify({ nameWithOwner: source, defaultBranchRef: { name: 'main' } }))
+  console.log(
+    JSON.stringify({ nameWithOwner: source, defaultBranchRef: { name: 'main' }, url: `https://github.com/${source}` }),
+  )
   process.exit(0)
 }
 if (args[0] === 'api' && args[1] === `repos/${source}/commits/main`) {

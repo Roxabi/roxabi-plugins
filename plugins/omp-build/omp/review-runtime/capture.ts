@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { SubagentEventPayload } from '@oh-my-pi/pi-coding-agent'
 import { bashInput, effectiveBashCwd, rememberBashCall } from './bash-call.ts'
 import type { Json, NativeProofDirective } from './contracts'
@@ -114,6 +115,44 @@ function taskForChild(active: ActiveBatch, childId: string) {
 function proofDirective(active: ActiveBatch, childId: string): NativeProofDirective | null {
   return taskForChild(active, childId)?.proofEvidence ?? null
 }
+/** Attach a late stream observation only to one matching, actually executed yield. */
+function mergeLateYield(capture: ChildCapture, streamed: YieldRaw): boolean {
+  if (capture.pendingCalls.has(streamed.toolCallId) || streamed.toolCallArguments === null) return false
+  const executed = capture.submissions.filter(
+    (submission) =>
+      object(submission.raw) &&
+      submission.raw.toolCallId === streamed.toolCallId &&
+      submission.raw.executionArguments !== null &&
+      submission.raw.executionArguments !== undefined,
+  )
+  const submission = executed[0]
+  if (executed.length !== 1 || submission === undefined || !object(submission.raw)) return false
+  const raw = submission.raw
+  if (
+    !isDeepStrictEqual(raw.executionArguments, streamed.toolCallArguments) ||
+    (raw.toolCallArguments != null && !isDeepStrictEqual(raw.toolCallArguments, streamed.toolCallArguments))
+  )
+    return false
+  submission.raw = {
+    ...raw,
+    contentIndex: streamed.contentIndex,
+    argumentDeltas: streamed.argumentDeltas,
+    argumentText: streamed.argumentText,
+    rawBlock: streamed.rawBlock,
+    toolCallArguments: streamed.toolCallArguments,
+  }
+  return true
+}
+
+function retainPendingYield(capture: ChildCapture, raw: YieldRaw): void {
+  capture.submissions.push({
+    attemptIndex: capture.submissions.length,
+    data: yieldedData(raw.toolCallArguments),
+    raw,
+    partialText: capture.partialText,
+  })
+}
+
 function captureMessageUpdate(
   capture: ChildCapture,
   assistant: Extract<SubagentEventPayload['event'], { type: 'message_update' }>['assistantMessageEvent'],
@@ -132,10 +171,11 @@ function captureMessageUpdate(
   }
   if (assistant.type !== 'toolcall_end' || assistant.toolCall.name !== 'yield') return
   const { contentIndex, toolCall } = assistant
-  capture.pendingCalls.set(
-    toolCall.id,
-    rawYieldCall(toolCall.id, contentIndex, capture.deltasByContentIndex.get(contentIndex) ?? [], toolCall),
-  )
+  const raw = rawYieldCall(toolCall.id, contentIndex, capture.deltasByContentIndex.get(contentIndex) ?? [], toolCall)
+  if (mergeLateYield(capture, raw)) return
+  const previous = capture.pendingCalls.get(toolCall.id)
+  if (previous !== undefined) retainPendingYield(capture, previous)
+  capture.pendingCalls.set(toolCall.id, raw)
 }
 function captureYieldExecution(capture: ChildCapture, event: ToolExecutionStart): void {
   const pending = capture.pendingCalls.get(event.toolCallId)
@@ -241,12 +281,7 @@ export function captureSubagentEvent(active: ActiveBatch, payload: SubagentEvent
 export function flushPendingYields(active: ActiveBatch): void {
   for (const capture of active.captures.values()) {
     for (const raw of capture.pendingCalls.values()) {
-      capture.submissions.push({
-        attemptIndex: capture.submissions.length,
-        data: yieldedData(object(raw) && 'toolCallArguments' in raw ? raw.toolCallArguments : undefined),
-        raw,
-        partialText: capture.partialText,
-      })
+      retainPendingYield(capture, raw)
     }
     capture.pendingCalls.clear()
     capture.pendingProofCalls.clear()

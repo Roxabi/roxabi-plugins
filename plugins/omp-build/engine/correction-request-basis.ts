@@ -15,7 +15,7 @@ const failure = (): Result<never> => ({
 })
 const object = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
-function originalDecisionMatches(
+export function originalDecisionMatches(
   history: DecodedHistory,
   fix: FixRequest,
   decision: Decision,

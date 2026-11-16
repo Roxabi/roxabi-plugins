@@ -8,7 +8,9 @@ import type {
   NativeBatchCallbacks,
   NativeBatchResult,
   NativeStop,
+  NativeSuccessor,
 } from '../omp/review-runtime/contracts.ts'
+import type { JoinedNativeStop } from '../omp/review-runtime/controller-stop.ts'
 import type { FeatureLandReentry } from '../skills/feature/workflow-outcome.js'
 import type { PreparedEpicReview } from './epic-range-finalization.ts'
 import type { FramingSourceRequest } from './feature-framing-contract.ts'
@@ -191,20 +193,32 @@ export type FeatureCommandHost = {
   releaseFeatureContinuation: () => void
   featureContinuationInhibited: () => boolean
   markFeatureBatch: (batch: NativeBatch) => void
-  startReview?: (args: string, onComplete: () => Promise<void>) => Promise<void>
-  startFix?: (input: FeatureReviewFix) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
+  startReview?: (
+    args: string,
+    onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
+  ) => Promise<void>
+  startFix?: (
+    input: FeatureReviewFix,
+    current?: () => boolean,
+  ) => Promise<{ terminal: Promise<FeatureFixTerminal>; current: () => boolean }>
   /** Command-context UW capability: absent only when the installed UW composition is unavailable. */
   uw?: UwOperations
   /** Trusted host composition only. Omit for the ordinary published pin. */
   pluginPin?: TrustedHostPluginPin
-  startAdmittedCiCorrection?: (input: {
-    reference: string
-    attributionRecordId: string
-    uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
-  }) => Promise<{ terminal: Promise<FeatureFixTerminal> }>
-  prepareEpicRangeReview?: (review: PreparedEpicReview, onComplete: () => Promise<void>) => Promise<void>
+  startAdmittedCiCorrection?: (
+    input: {
+      reference: string
+      attributionRecordId: string
+      uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
+    },
+    current?: () => boolean,
+  ) => Promise<{ terminal: Promise<FeatureFixTerminal>; current: () => boolean }>
+  prepareEpicRangeReview?: (
+    review: PreparedEpicReview,
+    onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
+  ) => Promise<void>
   git?: FeatureGit
-  interruptOwnedWork?: (reason: string) => Promise<void>
+  interruptOwnedWork?: (reason: string) => Promise<void> | Promise<JoinedNativeStop>
   exec: (
     command: string,
     args: string[],

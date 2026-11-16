@@ -74,7 +74,7 @@ export function sectionContentBlocks(byHeading: ReadonlyMap<string, readonly Par
 
 export function preservePreamble(
   uw: SpecParseSubject,
-  raw: SpecRawSource,
+  raw: Pick<SpecRawSource, 'body'>,
   sections: readonly ParsedSection[],
   preserved: PreservedSourceContent[],
 ): UwDiagnostic[] {
@@ -102,7 +102,7 @@ export function preservePreamble(
 
 export function preserveUnclassifiableBody(
   uw: SpecParseSubject,
-  raw: SpecRawSource,
+  raw: Pick<SpecRawSource, 'body'>,
   sections: readonly ParsedSection[],
   preserved: PreservedSourceContent[],
 ): UwDiagnostic[] {

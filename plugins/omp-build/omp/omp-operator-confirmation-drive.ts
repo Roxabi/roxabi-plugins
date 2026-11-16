@@ -20,6 +20,8 @@ function refusal(proposal: PreparedOperatorProposal, code: string, message: stri
   const target = proposal.proposal
   if (target.format === 'omp-build-tooling-pin-activation/1')
     return [{ code, message, location: { kind: 'repository', repository: target.scope.targetRepository }, related: [] }]
+  if (target.format === 'omp-build-fix-recovery-proposal/1')
+    return [{ code, message, location: { kind: 'native', uw: target.uw, connection: 'state' }, related: [] }]
   if (target.format === 'omp-build-uw-framing/1') {
     const source = target.input.source
     const location =

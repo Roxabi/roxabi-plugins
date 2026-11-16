@@ -19,7 +19,7 @@ afterEach(() => {
   roots.clear()
 })
 
-it('retains captured implementation evidence with a host authority-withdrawal code after a real pause', () => {
+it('retains captured implementation evidence when disarm is unconfirmed during a real pause', () => {
   const box = sandbox({
     base: { '.dev/stack.yml': 'package_manager: bun\nrelease:\n  model: trunk\n', 'README.md': 'base\n' },
     branches: [{ name: branch, from: 'main', commits: [] }],
@@ -53,14 +53,22 @@ it('retains captured implementation evidence with a host authority-withdrawal co
     cwd: checkout,
     env: { ...box.env, HOME: home },
     encoding: 'utf8',
+    timeout: 55_000,
   })
   if (run.status !== 0) throw new Error(`${run.stderr}\n${run.stdout}`)
   const observed = JSON.parse(run.stdout) as {
     operationId: string
     pushAttempted: boolean
     completionError: string | null
+    messages: string[]
+    captures: { red: { toolCallId: string; exitCode: number }; green: { toolCallId: string; exitCode: number } }
   }
   expect(observed.completionError).toBeNull()
+  expect(observed.messages).toContain('pause-confirmed: pause-confirmed')
+  expect(observed.captures).toEqual({
+    red: { toolCallId: 'implementation-proof-red', exitCode: 1 },
+    green: { toolCallId: 'implementation-proof-green', exitCode: 0 },
+  })
   expect(observed.pushAttempted).toBe(false)
   expect(git(box, box.root, ['--git-dir', box.origin, 'rev-parse', `refs/heads/${branch}`])).toBe(remoteBefore)
   const history = decodeHistory({
@@ -94,6 +102,6 @@ it('retains captured implementation evidence with a host authority-withdrawal co
         expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0 }),
       ]),
     },
-    admission: { admitted: false, published: false, reason: 'implementation-local-inhibition' },
+    admission: { admitted: false, published: false, reason: 'implementation-disarm-unconfirmed' },
   })
 })

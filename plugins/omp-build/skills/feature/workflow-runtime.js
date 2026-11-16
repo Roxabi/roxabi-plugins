@@ -1,5 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { trackPreparationGhOperation, trackPreparationOperation } from '../../host/preparation-cohort.ts'
 
 const GIT_HOOK_VARS = [
   'GIT_DIR',
@@ -25,16 +26,27 @@ export function stripGitHookEnv(env = process.env) {
   return out
 }
 
+async function readProcess(proc) {
+  const results = await Promise.allSettled([
+    Promise.resolve().then(() => new Response(proc.stdout).text()),
+    Promise.resolve().then(() => new Response(proc.stderr).text()),
+    proc.exited,
+  ])
+  const failure = results.find((result) => result.status === 'rejected')
+  if (failure) throw failure.reason
+  return { stdout: results[0].value, stderr: results[1].value, code: results[2].value }
+}
+
 export async function gitResult(cwd, args) {
-  const proc = Bun.spawn(['git', '-C', cwd, ...args], {
-    cwd,
-    env: stripGitHookEnv(),
-    stdout: 'pipe',
-    stderr: 'pipe',
+  return trackPreparationOperation('git', () => {
+    const proc = Bun.spawn(['git', '-C', cwd, ...args], {
+      cwd,
+      env: stripGitHookEnv(),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    return readProcess(proc)
   })
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  return { code: await proc.exited, stdout, stderr }
 }
 
 export async function git(cwd, args) {
@@ -44,15 +56,15 @@ export async function git(cwd, args) {
 }
 
 export async function gh(cwd, args) {
-  const proc = Bun.spawn(['gh', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const code = await proc.exited
-  if (code !== 0) {
-    const error = new Error(`gh ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
-    throw Object.assign(error, { exitCode: code, stderr, stdout })
-  }
-  return stdout.trim()
+  return trackPreparationGhOperation(args, async () => {
+    const proc = Bun.spawn(['gh', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
+    const { stdout, stderr, code } = await readProcess(proc)
+    if (code !== 0) {
+      const error = new Error(`gh ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
+      throw Object.assign(error, { exitCode: code, stderr, stdout })
+    }
+    return stdout.trim()
+  })
 }
 
 export function preview(raw) {

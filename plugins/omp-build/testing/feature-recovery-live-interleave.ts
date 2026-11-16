@@ -82,7 +82,7 @@ export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterlea
     registerCommand(name, command) {
       commands.set(name, command.handler as Handler)
     },
-    sendUserMessage(message) {
+    async sendUserMessage(message) {
       if (typeof message !== 'string') throw new Error('native-announcement-not-text')
       messages.push(message)
     },
@@ -116,7 +116,10 @@ export async function invokeOmpLiveInterleave(cwd: string): Promise<LiveInterlea
 if [ "$1" = push ]; then : > "$OMP_BUILD_PUSHED"; fi
 if [ "$1" = ls-remote ] && [ "$2" = origin ]; then
   : > "$OMP_BUILD_AUTHORIZE_READY"
-  while [ ! -f "$OMP_BUILD_AUTHORIZE_RELEASE" ]; do sleep 0.01; done
+  while [ ! -f "$OMP_BUILD_AUTHORIZE_RELEASE" ]; do
+    kill -0 "$PPID" 2>/dev/null || exit 1
+    sleep 0.01
+  done
 fi
 exec "$OMP_BUILD_REAL_GIT" "$@"
 `,
@@ -131,6 +134,7 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
     OMP_BUILD_REAL_GIT: realGit,
   })
   let completing: Promise<void> | null = null
+  let pausing: Promise<unknown> | null = null
   try {
     ompBuildExtension(api, { principalCwd: () => false })
     await emit(events, 'session_start', { type: 'session_start' }, context)
@@ -231,8 +235,20 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
     controller.finishExecution(active)
     completing = controller.ownedSettlement().then(() => undefined)
     await waitForBarrier(() => existsSync(ready), completing)
-    await feature('pause #42', context)
+    pausing = Promise.resolve(feature('pause #42', context))
+    let pauseSettled = false
+    void pausing.then(
+      () => {
+        pauseSettled = true
+      },
+      () => {
+        pauseSettled = true
+      },
+    )
+    await waitForBarrier(() => controller.featureContinuationInhibited(), pausing)
+    if (pauseSettled) throw new Error('pause-not-pending-at-barrier')
     writeFileSync(release, '')
+    await pausing
     let completionError: string | null = null
     try {
       await completing
@@ -249,7 +265,8 @@ exec "$OMP_BUILD_REAL_GIT" "$@"
       captures: { red, green },
     }
   } finally {
-    rmSync(artifacts, { recursive: true, force: true })
     await releaseLiveInterleaveBarrier(release, completing, originalPath, gate)
+    if (pausing !== null) await pausing.catch(() => undefined)
+    rmSync(artifacts, { recursive: true, force: true })
   }
 }

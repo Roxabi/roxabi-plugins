@@ -86,6 +86,7 @@ export class ReviewProduct {
     if (!(await this.#admitInventory(context, prepared, canContinue))) return
 
     const contributions: PublishedContribution[] = []
+    let completed = false
     const callbacks: NativeBatchCallbacks = {
       onChildResult: async (child) => {
         contributions.push(await this.publisher.publishRawContribution(prepared, child))
@@ -97,8 +98,16 @@ export class ReviewProduct {
           return
         }
         const next = await this.publisher.completeStage(prepared, result, contributions, canContinue)
-        if (!canContinue() || next === null) return
+        if (!canContinue()) return
+        if (next === null) {
+          completed = true
+          return
+        }
         await this.#dispatch(context, next, canContinue)
+      },
+      onSettled: async (_result, canContinue) => {
+        if (!completed || !canContinue()) return
+        return this.publisher.afterComplete?.(canContinue)
       },
       onStop: async (reason, result) => {
         await this.publisher.stop(context, reason, result)

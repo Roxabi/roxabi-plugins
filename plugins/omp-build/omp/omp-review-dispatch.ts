@@ -13,28 +13,23 @@ import { hostPluginPin } from './host-plugin-pin.ts'
 import { createHostUwOperations } from './host-uw-operations.ts'
 import { createOmpReviewProduct, hasOwnedFixRun, reviewControllerFor } from './omp-controller'
 import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
-import type { NativeExtension } from './review-runtime/contracts.ts'
+import type { NativeExtension, NativeSuccessor } from './review-runtime/contracts.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
 async function prepareInstalledEpicRangeReview(
   pi: NativeExtension,
   review: PreparedEpicReview,
-  onComplete: () => Promise<void>,
+  onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
 ): Promise<void> {
-  let completionInvoked = false
   const publisher: ReviewPublisher = {
     authorize: (context, stage) => review.publisher.authorize(context, stage),
     publishInventory: (prepared, canContinue) => review.publisher.publishInventory(prepared, canContinue),
     publishRawContribution: (prepared, child) => review.publisher.publishRawContribution(prepared, child),
-    completeStage: async (prepared, result, contributions, canContinue) => {
-      if (canContinue === undefined) throw new Error('review-continuation-unfenced')
-      const next = await review.publisher.completeStage(prepared, result, contributions, canContinue)
-      if (!canContinue()) return null
-      if (next === null && !completionInvoked) {
-        completionInvoked = true
-        await onComplete()
-      }
-      return next
+    completeStage: (prepared, result, contributions, canContinue) =>
+      review.publisher.completeStage(prepared, result, contributions, canContinue),
+    afterComplete: async (canContinue) => {
+      const successor = await onComplete(canContinue)
+      return typeof successor === 'function' ? successor : undefined
     },
     publishRequiredStop: (context, stop, options) => review.publisher.publishRequiredStop(context, stop, options),
     stop: (context, reason, result) => review.publisher.stop(context, reason, result),
@@ -43,7 +38,7 @@ async function prepareInstalledEpicRangeReview(
 }
 
 type DefaultReviewOptions = {
-  onComplete?: () => Promise<void>
+  onComplete?: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>
   prepareReview?: typeof prepareReviewInputs
   expansion?: PrepareReviewInputsOptions['expansion']
   scopedGuard?: () => boolean
@@ -168,7 +163,6 @@ async function dispatchDefaultReview(
     { cwd: ctx.cwd, readAuthor: input.automationLogin, writeAuthor: input.automationLogin },
     authorize,
   )
-  let completionInvoked = false
   const publisher: ReviewPublisher =
     onComplete === undefined
       ? runner
@@ -176,15 +170,11 @@ async function dispatchDefaultReview(
           authorize: (context, stage) => runner.authorize(context, stage),
           publishInventory: (prepared, canContinue) => runner.publishInventory(prepared, canContinue),
           publishRawContribution: (prepared, child) => runner.publishRawContribution(prepared, child),
-          completeStage: async (prepared, result, contributions, canContinue) => {
-            if (canContinue === undefined) throw new Error('review-continuation-unfenced')
-            const next = await runner.completeStage(prepared, result, contributions, canContinue)
-            if (!canContinue()) return null
-            if (next === null && !completionInvoked) {
-              completionInvoked = true
-              await onComplete()
-            }
-            return next
+          completeStage: (prepared, result, contributions, canContinue) =>
+            runner.completeStage(prepared, result, contributions, canContinue),
+          afterComplete: async (canContinue) => {
+            const successor = await onComplete(canContinue)
+            return typeof successor === 'function' ? successor : undefined
           },
           publishRequiredStop: () => runner.publishRequiredStop(),
           stop: (context, reason) => runner.stop(context, reason),

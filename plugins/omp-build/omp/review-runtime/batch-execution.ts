@@ -1,4 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { admitFixBatch } from '../../roxabi/fix-fence-batches.ts'
 import type { NativeBatch, NativeExecutionObservation, NativeExtension } from './contracts'
 import type { NativeBatchController } from './controller'
 import { captureNativeRoot, executeNativeBatch } from './native-sdk-adapter.ts'
@@ -80,7 +81,7 @@ export async function executeOwnedBatch(
     throw new Error('native task mask is unavailable or drifted')
   }
   const rootOwner = await captureNativeRoot(ctx)
-  if (!rootOwner || !controller.admit(batch, toolCallId, ctx, rootOwner.current)) {
+  if (!rootOwner || !admitFixBatch(batch, () => controller.admit(batch, toolCallId, ctx, rootOwner.current))) {
     await controller.stopOwned(batch, 'native-root-or-action-unavailable')
     throw new Error('native root or action unavailable')
   }

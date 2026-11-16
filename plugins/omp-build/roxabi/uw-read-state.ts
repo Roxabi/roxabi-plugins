@@ -11,6 +11,8 @@ import type { InstalledUwReadOptions } from './uw-read-port.ts'
 type InstalledUwContracts = Pick<
   typeof import('../dist/contracts.js'),
   | 'assessUwAdmission'
+  | 'discoverFixRecovery'
+  | 'projectRecoveryHistories'
   | 'readFramingMembership'
   | 'parseIssueSpecBody'
   | 'assessUwCompletion'
@@ -206,6 +208,7 @@ function assembleUwRead(
       proposed,
       accepted: { status: 'refused', diagnostics },
       identity: { ok: false, diagnostics },
+      fixRecovery: contracts.discoverFixRecovery({ uw, histories: history.histories, graph }),
       admission: admissionUnavailable(
         diagnostics,
         contracts.readFramingMembership({
@@ -242,6 +245,7 @@ function assembleUwRead(
       causalObservation: input.causalObservation,
       accepted,
       identity: { ok: false, diagnostics },
+      fixRecovery: contracts.discoverFixRecovery({ uw, histories: history.histories, graph }),
       admission: admissionUnavailable(
         diagnostics,
         contracts.readFramingMembership({ uw, graph, histories: history.histories, accepted }),
@@ -267,6 +271,7 @@ function assembleUwRead(
     proposed,
     accepted,
     identity,
+    fixRecovery: contracts.discoverFixRecovery({ uw, histories: history.histories, graph }),
     ...(input.observedReader === undefined ? {} : { observedReader: input.observedReader }),
     admission: identity.ok
       ? contracts.assessUwAdmission({

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { Result } from '../engine/result.ts'
+import { trackPreparationOperation } from '../host/preparation-cohort.ts'
 import { INSTALL_ROOT } from '../omp/install-root.ts'
 import type { InstalledPluginPin, PluginPinPort, TrustedHostPluginPin } from './uw-action-contract.ts'
 import { actionFailure, isGitSha, sha256Bytes } from './uw-action-result.ts'
@@ -168,10 +169,12 @@ export function installedPluginRoot(): string {
 
 export async function variableLooksLikeCommit(cwd: string, repository: string): Promise<boolean> {
   try {
-    const raw = await execFileAsync('gh', ['variable', 'get', VARIABLE, '--repo', repository], {
-      cwd,
-      encoding: 'utf8',
-    })
+    const raw = await trackPreparationOperation('gh-read', () =>
+      execFileAsync('gh', ['variable', 'get', VARIABLE, '--repo', repository], {
+        cwd,
+        encoding: 'utf8',
+      }),
+    )
     return isGitSha(raw.stdout.trim())
   } catch {
     return false

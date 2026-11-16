@@ -48,7 +48,9 @@ function installed(options: InstallRootOptions) {
         for (const listener of listeners) await listener(session, ctx)
       })
     },
-    sendUserMessage: (message) => sent.push(String(message)),
+    sendUserMessage: async (message) => {
+      sent.push(String(message))
+    },
     sendMessage: (message) => sent.push(typeof message === 'string' ? message : String(message?.content ?? message)),
   })
   ompBuildExtension(pi, options)

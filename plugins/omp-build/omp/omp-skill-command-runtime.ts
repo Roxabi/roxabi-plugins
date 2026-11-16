@@ -10,22 +10,22 @@ function stripFrontmatter(markdown: string): string {
   return markdown.slice(end + 5)
 }
 
-function readSkillBody(
+async function readSkillBody(
   pi: OmpBuildExtensionApi,
   name: string,
   skillPath: string,
   installRoot: string,
   exists: (path: string) => boolean,
-): string | undefined {
+): Promise<string | undefined> {
   const install = installRootStatus(installRoot, exists)
   if (!install.present) {
-    pi.sendUserMessage(`/${name}: ${replacedInstallRootMessage(install.root, install.version)}`)
+    await pi.sendUserMessage(`/${name}: ${replacedInstallRootMessage(install.root, install.version)}`)
     return undefined
   }
   try {
     return readFileSync(skillPath, 'utf8')
   } catch (error) {
-    pi.sendUserMessage(
+    await pi.sendUserMessage(
       `/${name}: cannot read its own body at ${skillPath} — ${error instanceof Error ? error.message : String(error)}. Reinstall omp-build.`,
     )
     return undefined
@@ -46,7 +46,7 @@ export function registerSkillCommand(
   pi.registerCommand(name, {
     description,
     handler: async (args) => {
-      const raw = readSkillBody(pi, name, join(skillDir, 'SKILL.md'), installRoot, exists)
+      const raw = await readSkillBody(pi, name, join(skillDir, 'SKILL.md'), installRoot, exists)
       if (raw === undefined) return
       const missing = requires.filter((requiredSkill) => !exists(join(skillsDir, requiredSkill, 'SKILL.md')))
       const banner = missing.length
@@ -54,7 +54,7 @@ export function registerSkillCommand(
         : ''
       const body = stripFrontmatter(raw).trim()
       const trimmedArgs = args.trim()
-      pi.sendUserMessage(
+      await pi.sendUserMessage(
         [banner, body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
       )
     },

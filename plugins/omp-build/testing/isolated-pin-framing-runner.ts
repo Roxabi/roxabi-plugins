@@ -107,7 +107,7 @@ const api = createExtensionApiStub({
     if (typeof message !== 'string' && message.customType === 'omp-build-native-batch') announcement.resolve()
     if (text.startsWith('feature-stopped:')) failure.resolve()
   },
-  sendUserMessage() {},
+  async sendUserMessage() {},
 })
 ompBuildExtension(api)
 for (const handler of handlers.get('session_start') ?? []) await handler({ type: 'session_start' }, ctx)

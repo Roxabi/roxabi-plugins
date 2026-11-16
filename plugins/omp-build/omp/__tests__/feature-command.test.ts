@@ -111,7 +111,7 @@ function installed(
     registerTool: (tool) => {
       tools.add(tool.name)
     },
-    sendUserMessage: (content) => {
+    sendUserMessage: async (content) => {
       sent.push(String(content))
     },
     sendMessage: (message) => {

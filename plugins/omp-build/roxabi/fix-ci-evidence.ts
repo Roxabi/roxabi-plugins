@@ -9,6 +9,7 @@ import {
   reconstructWorkflow,
   shippedProductVersion,
 } from '../dist/contracts.js'
+import { trackPreparationGhOperation } from '../host/preparation-cohort.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
@@ -24,8 +25,11 @@ import { SUPPORTED_CONFIG_VERSIONS } from './workflow-graph.ts'
 const execFileAsync = promisify(execFile)
 
 export async function githubText(options: GitHubOptions, cwd: string, args: string[]): Promise<string> {
-  if (options.gh) return options.gh(cwd, args)
-  const out = await execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+  const supplied = options.gh
+  if (supplied) return trackPreparationGhOperation(args, () => supplied(cwd, args))
+  const out = await trackPreparationGhOperation(args, () =>
+    execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
+  )
   return String(out.stdout).trim()
 }
 

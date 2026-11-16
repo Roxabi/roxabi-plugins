@@ -1,6 +1,6 @@
 {
   "name": "omp-build",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "private": true,
   "type": "module",
   "description": "OMP-only feature cycle \u2014 frame, GitHub issue, worktree, implement, bounded review/fix, land.",
@@ -8,6 +8,12 @@
     "type": "git",
     "url": "https://github.com/Roxabi/roxabi-plugins.git",
     "directory": "plugins/omp-build"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-ai": "18.20.2",
+    "@oh-my-pi/pi-coding-agent": "18.20.2",
+    "@oh-my-pi/pi-natives": "18.20.2",
+    "@oh-my-pi/pi-tui": "18.20.2"
   },
   "omp": {
     "extensions": [

@@ -1,312 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
-import { canonicalSpec } from '../../engine/uw-spec.ts'
-import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
-import type { PreparedEpicReview } from '../../roxabi/epic-range-finalization.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureWorkflow } from '../../roxabi/feature-contract'
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../../roxabi/feature-entry'
+import { startDispatch } from '../../roxabi/feature-start-executions.ts'
 import { cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { batch, root } from './feature-command-lifecycle-fixture.ts'
+import { root } from './feature-command-lifecycle-fixture.ts'
+import { handedWork, review, workflow } from './feature-command-lifecycle-shared-fixture.ts'
 
 afterEach(() => {
   cleanupFixtureActions()
 })
 
-function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow {
-  return {
-    continueFeature: async () => ({ kind: 'blocked', reason: 'unconfigured' }),
-    consumeWatchExit: async () => ({ kind: 'blocked', reason: 'watch-unconfigured' }),
-    publishFeatureNativeResult: async () => {
-      throw new Error('unexpected-native-publication')
-    },
-    requestFeatureSessionPause: async () => ({ kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }),
-    ...impl,
-  }
-}
-
-const review: PreparedEpicReview = {
-  context: {
-    repository: 'acme/widgets',
-    target: 'acme/widgets#12',
-    number: 12,
-    candidateGitSHA: 'b'.repeat(40),
-    input: null,
-    runId: 'review-run',
-    operationId: 'final-review',
-    subject: { kind: 'epic-range', range: `${'a'.repeat(40)}..${'b'.repeat(40)}` },
-  },
-  prepared: {
-    stage: 'synthesis',
-    rootAttemptId: 'root-attempt',
-    inventory: {},
-    batch: batch('final-review'),
-  },
-  publisher: {
-    authorize: async () => ({ ok: true }),
-    publishInventory: async () => ({ ok: true }),
-    publishRawContribution: async (_prepared, child) => ({ id: 'contribution', child }),
-    completeStage: async () => null,
-    publishRequiredStop: async () => ({ ok: true }),
-    stop: async () => undefined,
-  },
-}
-
-function admittedCiCorrection(): Extract<ContinueFeatureResult, { kind: 'admitted-ci-correction' }> {
-  const scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
-  const canonical = canonicalSpec({
-    format: 'omp-build-spec-content/1',
-    criteria: [{ id: 'C1', statement: 'Preserve the confirmed CI correction scope.' }],
-    invariants: [],
-    exclusions: [],
-    openQuestions: [],
-    sections: { origin: '', context: '', change: '' },
-  })
-  if (!canonical.ok) throw new Error('expected canonical correction Spec')
-  const body = renderIssueSpecBody(canonical.value)
-  const parsed = parseIssueSpecBody({ uw: scope, raw: rawSource(scope.target, body, null) })
-  if (parsed.status !== 'conformant') throw new Error('expected native correction Spec')
-  const fixtures = roxabiWorkflowFixtures()
-  const mandate = fixtures.featureMandate(scope, {
-    recordId: 'feature-mandate-42',
-    body,
-    ownSpec: fixtures.ownSpecFromSnapshot(scope, parsed.snapshot),
-  })
-  const resolved = resolveAcceptedSpec(mandate, [fixtures.historyFrom([mandate])])
-  if (!resolved.ok) throw new Error(`unconfirmed correction Spec: ${JSON.stringify(resolved.evidence)}`)
-  const ownSpec = resolved.spec
-  return {
-    kind: 'admitted-ci-correction',
-    reference: '#42',
-    attributionRecordId: 'ci-attribution-42',
-    uw: { ownSpec, children: [] },
-  }
-}
-
-/** Every result kind that hands work on, one each. */
-function handedWork(scenario: 'principal' | 'inhibited' | 'active'): ContinueFeatureResult[] {
-  return [
-    {
-      kind: 'action',
-      node: 'implement',
-      followUp: batch('matrix-action'),
-      start: {
-        scope: { repository: 'acme/widgets', target: 'acme/widgets#42' },
-        recordId: `matrix-start-${scenario}`,
-        kind: 'action-receipt',
-      },
-    },
-    {
-      kind: 'watch',
-      command: "bash '/repo/plugins/omp-build/skills/ci-watch/ci-watch.sh' '12' --merge-mode native --base 'main'",
-    },
-    { kind: 'review', pr: 7 },
-    {
-      kind: 'fix',
-      reference: '#7',
-      reviewId: 'review-7',
-      scope: 'preserve the approved region',
-      requiredFeatureMandate: {
-        scope: { repository: 'acme/widgets', target: 'acme/widgets#42' },
-        recordId: 'feature-mandate',
-        kind: 'mandate',
-      },
-    },
-    admittedCiCorrection(),
-    { kind: 'epic-final-review', review },
-  ]
-}
-
-describe('principal refusal stays one message', () => {
-  function principal(continueFeature: FeatureWorkflow['continueFeature']) {
-    const sent: string[] = []
-    const starts: string[] = []
-    const value: FeatureCommandHost = {
-      key: {},
-      cwd: '/principal',
-      principal: true,
-      workflow: workflow({ continueFeature }),
-      native: {
-        activate() {
-          starts.push('activate')
-        },
-        inactive() {},
-        async stopOwned() {},
-        async announce() {
-          starts.push('announce')
-        },
-      },
-      send: async (message) => {
-        sent.push(message)
-      },
-      status: async () => undefined,
-      startFraming: async () => {
-        starts.push('framing')
-      },
-      inhibitFeatureContinuation() {},
-      releaseFeatureContinuation() {},
-      featureContinuationInhibited: () => false,
-      markFeatureBatch() {
-        starts.push('batch')
-      },
-      startReview: async () => {
-        starts.push('review')
-      },
-      startFix: async () => {
-        starts.push('fix')
-        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
-      },
-      startAdmittedCiCorrection: async () => {
-        starts.push('admitted-ci-correction')
-        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
-      },
-      prepareEpicRangeReview: async () => {
-        starts.push('epic-final-review')
-      },
-      exec: async () => {
-        starts.push('watch')
-        return { code: 0, killed: false }
-      },
-    }
-    return { sent, starts, value }
-  }
-  it('passes the operator-selected coverage into a fresh continuation and does not invent assignments', async () => {
-    const scope = { repository: 'acme/app', target: 'acme/app#42' }
-    const child = { repository: 'acme/app', target: 'acme/app#43' }
-    const ancestor = { repository: 'acme/app', target: 'acme/app#40' }
-    const request = {
-      parent: { uw: scope, version: 'a'.repeat(64) },
-      accepted: null,
-      inheritedOwnSpecRefs: [
-        {
-          uw: ancestor,
-          version: 'c'.repeat(64),
-          sourceAccepted: { scope: ancestor, kind: 'mandate' as const, recordId: 'ancestor-mandate' },
-        },
-      ],
-      criteria: [{ id: 'C1', statement: 'Deliver' }],
-      children: [
-        {
-          scope: child,
-          specVersion: 'b'.repeat(64),
-          tier: 'S' as const,
-          criteria: [{ id: 'C1', statement: 'Implement' }],
-        },
-      ],
-    }
-    const coverage = {
-      parent: request.parent,
-      assignments: [{ criterion: 'C1' as const, children: [child] as [typeof child] }],
-    }
-    const received: unknown[] = []
-    const fixture = principal(async (input) => {
-      received.push({ coverage: input.parentCoverage, basis: input.parentCoverageBasis })
-      return input.parentCoverage === undefined
-        ? { kind: 'blocked', reason: 'parent-coverage-intent-required', coverageRequest: request }
-        : { kind: 'terminal', reason: 'complete' }
-    })
-    fixture.value.principal = false
-    fixture.value.requestParentCoverage = async (shown) => {
-      expect(shown).toEqual(request)
-      return { kind: 'proposed', coverage }
-    }
-    await runInstalledFeatureCommand('#42', fixture.value)
-    expect(received).toEqual([
-      { coverage: undefined, basis: undefined },
-      { coverage, basis: request },
-    ])
-  })
-
-  it('distinguishes explicit removal of final-child coverage from cancellation', async () => {
-    const scope = { repository: 'acme/app', target: 'acme/app#42' }
-    const source = { scope, kind: 'mandate' as const, recordId: 'parent-mandate' }
-    const request = {
-      parent: { uw: scope, version: 'a'.repeat(64) },
-      accepted: { own: { uw: scope, version: 'a'.repeat(64), sourceAccepted: source }, metadata: source },
-      inheritedOwnSpecRefs: [],
-      criteria: [{ id: 'C1', statement: 'Deliver' }],
-      children: [],
-    }
-    for (const answer of [{ kind: 'proposed' as const, coverage: null }, { kind: 'cancelled' as const }]) {
-      const received: unknown[] = []
-      const fixture = principal(async (input) => {
-        received.push(input.parentCoverage)
-        return input.parentCoverage === undefined
-          ? { kind: 'blocked', reason: 'parent-coverage-intent-required', coverageRequest: request }
-          : { kind: 'terminal', reason: 'complete' }
-      })
-      fixture.value.principal = false
-      fixture.value.requestParentCoverage = async () => answer
-      await runInstalledFeatureCommand('#42', fixture.value)
-      expect(received).toEqual(answer.kind === 'proposed' ? [undefined, null] : [undefined])
-    }
-  })
-
-  it('sends the move instruction once when the workflow returns it', async () => {
-    const fixture = principal(async (input) => ({
-      kind: 'session-cwd',
-      path: input.cwd,
-      instruction: `/move ${input.cwd}`,
-    }))
-    await runInstalledFeatureCommand('#4', fixture.value)
-    expect(fixture.sent).toHaveLength(1)
-    expect(fixture.sent[0]).toContain('/move /principal')
-  })
-
-  it('names the operator decision that stopped the workflow on the one refusal line', async () => {
-    const fixture = principal(async () => ({ kind: 'operator-decision', reason: 'needs-scope' }))
-    await runInstalledFeatureCommand('#895', fixture.value)
-    expect(fixture.sent).toEqual([
-      'session-cwd /principal\nfeature-stopped: principal-dispatch-refused: operator-decision:needs-scope',
-    ])
-  })
-
-  it('names a block reason and its diagnostics', async () => {
-    const fixture = principal(async () => ({
-      kind: 'blocked',
-      reason: 'base-not-current',
-      diagnostics: [{ code: 'base', message: 'origin/main is unreachable' }],
-    }))
-    await runInstalledFeatureCommand('#4', fixture.value)
-    expect(fixture.sent).toHaveLength(1)
-    expect(fixture.sent[0]).toContain('principal-dispatch-refused')
-    expect(fixture.sent[0]).toContain('base-not-current')
-    expect(fixture.sent[0]).toContain('origin/main is unreachable')
-  })
-
-  it('names the error a failing workflow raised', async () => {
-    const fixture = principal(async () => {
-      throw new Error('issue-unreadable')
-    })
-    await runInstalledFeatureCommand('#4', fixture.value)
-    expect(fixture.sent).toHaveLength(1)
-    expect(fixture.sent[0]).toContain('principal-dispatch-refused')
-    expect(fixture.sent[0]).toContain('issue-unreadable')
-  })
-
-  it('starts no work the workflow hands back and names what it refused', async () => {
-    for (const result of handedWork('principal')) {
-      const fixture = principal(async () => result)
-      await runInstalledFeatureCommand('#42', fixture.value)
-      expect(fixture.starts).toEqual([])
-      expect(fixture.sent).toHaveLength(1)
-      expect(fixture.sent[0]).toContain(`principal-dispatch-refused: workflow-result: ${result.kind}`)
-    }
-  })
-
-  it('refuses an unknown result as invalid rather than as work', async () => {
-    const fixture = principal(async () => ({ kind: 'bogus' }) as unknown as ContinueFeatureResult)
-    await runInstalledFeatureCommand('#42', fixture.value)
-    expect(fixture.sent).toEqual([
-      'session-cwd /principal\nfeature-stopped: principal-dispatch-refused: feature-result-invalid',
-    ])
-  })
-})
-
 describe('prepared epic final review delivery', () => {
   function host(
     continueFeature: FeatureWorkflow['continueFeature'],
-    prepareEpicRangeReview: (preparedReview: PreparedEpicReview, onComplete: () => Promise<void>) => Promise<void>,
+    prepareEpicRangeReview: NonNullable<FeatureCommandHost['prepareEpicRangeReview']>,
     inhibited = () => false,
   ) {
     const sent: string[] = []
@@ -368,12 +75,12 @@ describe('prepared epic final review delivery', () => {
       },
       startFix: async () => {
         starts.push('fix')
-        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
+        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }), current: () => true }
       },
       startAdmittedCiCorrection: async (input) => {
         corrections.push(input)
         starts.push('admitted-ci-correction')
-        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }) }
+        return { terminal: Promise.resolve({ status: 'stopped', diagnostics: [] }), current: () => true }
       },
       prepareEpicRangeReview: async () => {
         starts.push('epic-final-review')
@@ -405,6 +112,56 @@ describe('prepared epic final review delivery', () => {
     for (const result of handedWork('active')) await deliverFeatureResult('#42', result, fixture.value)
     expect(fixture.starts).toEqual(['action', 'watch', 'review', 'fix', 'admitted-ci-correction', 'epic-final-review'])
     expect(fixture.corrections).toMatchObject([{ reference: '#42', attributionRecordId: 'ci-attribution-42' }])
+  })
+
+  it.each(['fix', 'admitted-ci-correction'] as const)('discards stale selection after %s completes', async (kind) => {
+    for (const selectedKind of ['fix', 'action'] as const) {
+      const fixture = resultHost(false)
+      const selected = Promise.withResolvers<void>()
+      const releaseSelection = Promise.withResolvers<void>()
+      let runCurrent = true
+      let starts = 0
+      const initial = handedWork('active').find((result) => result.kind === kind)
+      const selectedResult = handedWork('active').find((result) => result.kind === selectedKind)
+      if (!initial || !selectedResult) throw new Error('missing feature result fixture')
+      const next =
+        selectedResult.kind === 'action'
+          ? { ...selectedResult, start: { ...selectedResult.start, recordId: `stale-${kind}-action` } }
+          : selectedResult
+      fixture.value.workflow = workflow({
+        continueFeature: async (input) => {
+          expect(input.owned?.()).toBe(true)
+          selected.resolve()
+          await releaseSelection.promise
+          expect(input.owned?.()).toBe(false)
+          return next
+        },
+      })
+      const start = async (_input: unknown, current?: () => boolean) => {
+        starts++
+        return {
+          terminal: Promise.resolve({
+            status: 'complete' as const,
+            recordId: 'fix-result',
+            kind: 'fix-result' as const,
+          }),
+          current: () => runCurrent && (current?.() ?? true),
+        }
+      }
+      fixture.value.startFix = start
+      fixture.value.startAdmittedCiCorrection = start
+      await deliverFeatureResult('#42', initial, fixture.value, () => true)
+      await selected.promise
+      runCurrent = false
+      releaseSelection.resolve()
+      const turn = Promise.withResolvers<void>()
+      setImmediate(turn.resolve)
+      await turn.promise
+      expect(starts).toBe(1)
+      expect(fixture.starts).toEqual([])
+      expect(fixture.corrections).toEqual([])
+      if (next.kind === 'action') expect(startDispatch(next.start)).toEqual({ kind: 'not-activated' })
+    }
   })
 
   it('still reports passive feature results while continuation is inhibited', async () => {
@@ -450,7 +207,10 @@ describe('prepared epic final review delivery', () => {
     const fixture = host(
       async (input) =>
         input.control === 'select' ? { kind: 'epic-final-review', review } : { kind: 'terminal', reason: 'complete' },
-      async (_review, onComplete) => onComplete(),
+      async (_review, onComplete) => {
+        const deliver = await onComplete(() => true)
+        await deliver?.()
+      },
     )
     await runInstalledFeatureCommand('#12', fixture.value)
     expect(fixture.sent).toEqual(['feature-stopped: complete'])
@@ -467,7 +227,8 @@ describe('prepared epic final review delivery', () => {
       },
       async (_review, onComplete) => {
         inhibited = true
-        await onComplete()
+        const deliver = await onComplete(() => true)
+        await deliver?.()
       },
       () => inhibited,
     )

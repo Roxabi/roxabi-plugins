@@ -1,107 +1,22 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
 
-import { reviewRecords } from '../skills/feature/workflow-records.js'
+import { readReviewHistory, reviewRecords } from '../skills/feature/workflow-records.js'
 import { reviewStep } from '../skills/feature/workflow-review-state.js'
 import { gh } from '../skills/feature/workflow-runtime.js'
 import { reviewInitialData } from './feature-review-lifecycle.ts'
+import { failNextPost, type GitBarrier, gitBarrier } from './feature-review-race-barriers.ts'
 import { citedHistory, history } from './feature-review-race-history.ts'
 import { nextReviewRecords } from './feature-review-race-reviews.ts'
 import { reviewDecision } from './feature-review-synthesis-sources.ts'
 import { createReviewDriver } from './native-review-driver.ts'
 
-type Mode = 'latest' | 'pause'
-
-function waitFor(file: string, timeout = 10_000): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>()
-  let settled = false
-  let watcher!: ReturnType<typeof watch>
-  let timer!: ReturnType<typeof setTimeout>
-  const done = (error?: Error) => {
-    if (settled) return
-    settled = true
-    clearTimeout(timer)
-    watcher.close()
-    if (error === undefined) resolve()
-    else reject(error)
-  }
-  watcher = watch(path.dirname(file), (_event, name) => {
-    if (name === path.basename(file) && existsSync(file)) done()
-  })
-  timer = setTimeout(() => done(new Error(`git barrier timeout: ${file}`)), timeout)
-  if (existsSync(file)) done()
-  return promise
+type Mode = 'latest' | 'pause' | 'owned-pause'
+function errorMessages(error: unknown): string[] {
+  if (error instanceof AggregateError) return error.errors.flatMap(errorMessages)
+  return [error instanceof Error ? error.message : String(error)]
 }
-type GitBarrier = { started: Promise<void>; release(): void; close(): void }
-
-function gitBarrier(kind: 'preflight' | 'checkout', markerTimeout = 10_000): GitBarrier {
-  const state = process.env.GH_SIM_STATE
-  if (state === undefined) throw new Error('gh-state-missing')
-  const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-git-'))
-  const started = path.join(root, 'started')
-  const release = path.join(root, 'release')
-  const once = path.join(root, 'once')
-  const real = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
-  const condition =
-    kind === 'preflight'
-      ? '[ "$1" = ls-remote ] && [ "$2" = --refs ]'
-      : '[ "$1" = worktree ] && [ "$2" = list ] && [ "$3" = --porcelain ]'
-  const record = kind === 'preflight' ? 'fix-request' : 'review'
-  const script = `#!/bin/sh\nif ${condition} && grep -q "kind=${record} " "$GH_SIM_STATE" && mkdir "$OMP_RACE_GIT_ONCE" 2>/dev/null; then : > "$OMP_RACE_GIT_STARTED"; deadline=$(( $(date +%s) + 20 )); while [ ! -f "$OMP_RACE_GIT_RELEASE" ]; do [ "$(date +%s)" -lt "$deadline" ] || exit 124; sleep 0.01; done; fi\nexec "$OMP_RACE_REAL_GIT" "$@"\n`
-  writeFileSync(path.join(root, 'git'), script)
-  chmodSync(path.join(root, 'git'), 0o755)
-  const before = process.env.PATH
-  Object.assign(process.env, {
-    PATH: `${root}:${before}`,
-    OMP_RACE_GIT_STARTED: started,
-    OMP_RACE_GIT_RELEASE: release,
-    OMP_RACE_GIT_ONCE: once,
-    OMP_RACE_REAL_GIT: real,
-  })
-  return {
-    started: waitFor(started, markerTimeout),
-    release: () => writeFileSync(release, 'release\n'),
-    close: () => {
-      if (before === undefined) delete process.env.PATH
-      else process.env.PATH = before
-      delete process.env.OMP_RACE_GIT_STARTED
-      delete process.env.OMP_RACE_GIT_RELEASE
-      delete process.env.OMP_RACE_GIT_ONCE
-      delete process.env.OMP_RACE_REAL_GIT
-      rmSync(root, { recursive: true, force: true })
-    },
-  }
-}
-
-function failNextPost() {
-  const state = process.env.GH_SIM_STATE
-  if (state === undefined) throw new Error('gh-state-missing')
-  const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-gh-'))
-  const failed = path.join(root, 'operator-control-post-refused')
-  const real = execFileSync('which', ['gh'], { encoding: 'utf8' }).trim()
-  const script =
-    '#!/bin/sh\nif [ "$1" = api ]; then case " $* " in *" --method POST "*"kind=operator-control "*) : > "$OMP_RACE_POST_REFUSED"; echo gh-race-post-refused >&2; exit 1;; esac; fi\nexec "$OMP_RACE_REAL_GH" "$@"\n'
-  writeFileSync(path.join(root, 'gh'), script)
-  chmodSync(path.join(root, 'gh'), 0o755)
-  const before = process.env.PATH
-  process.env.PATH = `${root}:${before}`
-  process.env.OMP_RACE_REAL_GH = real
-  process.env.OMP_RACE_POST_REFUSED = failed
-  return {
-    failed: () => existsSync(failed),
-    refused: waitFor(failed),
-    close: () => {
-      if (before === undefined) delete process.env.PATH
-      else process.env.PATH = before
-      delete process.env.OMP_RACE_REAL_GH
-      delete process.env.OMP_RACE_POST_REFUSED
-      rmSync(root, { recursive: true, force: true })
-    },
-  }
-}
-
 async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'checkout') {
   const source = await history(cwd)
   const records = source.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
@@ -191,7 +106,7 @@ async function latest(cwd: string) {
 async function pause(cwd: string) {
   const driver = await createReviewDriver(cwd)
   let barrier: GitBarrier | null = null
-  let closePost: { failed(): boolean; refused: Promise<void>; close(): void } | null = null
+  let closePost: { failed(): boolean; premature(): boolean; refused: Promise<void>; close(): void } | null = null
   let settling: Promise<void> | null = null
   return completeRace(
     async () => {
@@ -203,9 +118,16 @@ async function pause(cwd: string) {
       const precondition = await continuationPrerequisites(cwd, 'checkout')
       if (driver.fixRun() !== undefined) throw new Error('fix-run-started-before-pause')
       closePost = failNextPost()
-      const pausing = driver.pause()
+      let pauseFinished = false
+      const pausing = driver.pause().finally(() => {
+        pauseFinished = true
+      })
+      const outcomes = Promise.allSettled([pausing, settling])
+      await nextTurn()
+      if (pauseFinished || closePost.failed()) throw new Error('pause-did-not-join-checkout-settlement')
+      armed.release()
       await closePost.refused
-      if (!closePost.failed()) throw new Error('pause-post-was-not-refused')
+      if (!closePost.failed() || closePost.premature()) throw new Error('pause-post-order-invalid')
       const pausedRecords = (await history(cwd)).operations.flatMap((operation) =>
         operation.record ? [operation.record] : [],
       )
@@ -214,12 +136,16 @@ async function pause(cwd: string) {
       closePost.close()
       closePost = null
       execFileSync('gh', ['repo', 'view', 'acme/app', '--json', 'nameWithOwner'], { cwd, encoding: 'utf8' })
-      armed.release()
-      await Promise.all([pausing, settling])
+      const [paused, settled] = await outcomes
+      settling = null
+      if (paused.status === 'rejected') throw paused.reason
+      if (settled.status !== 'rejected') throw new Error('review-settlement-rejection-missing')
+      const settlementErrors = errorMessages(settled.reason)
       const finalHistory = await history(cwd)
       return {
         precondition,
-        pause: { postRefused: true, operatorControls: controls.length, ghAvailable: true },
+        pause: { postRefused: true, operatorControls: controls.length, ghAvailable: true, joinedBeforeRelease: true },
+        settlementErrors,
         active: driver.controller.active(),
         fixRun: driver.fixRun(),
         messages: driver.messages,
@@ -240,6 +166,79 @@ async function pause(cwd: string) {
   )
 }
 
+async function assertIssuePauseNotPersisted(cwd: string) {
+  const before = await readReviewHistory(cwd, 42)
+  if (!before.source.complete) throw new Error('issue-history-incomplete-before-pause')
+  if (before.operations.some((operation) => operation.record?.kind === 'operator-control'))
+    throw new Error('pause-persisted-before-driver-release')
+}
+
+async function ownedPause(cwd: string) {
+  const driver = await createReviewDriver(cwd)
+  let barrier: GitBarrier | null = null
+  let post: { failed(): boolean; premature(): boolean; refused: Promise<void>; release(): void; close(): void } | null =
+    null
+  let settling: Promise<void> | null = null
+  return completeRace(
+    async () => {
+      await driver.settle(reviewInitialData)
+      barrier = gitBarrier('preflight', 30_000)
+      settling = driver.settle((task) => reviewDecision(task.task))
+      await barrier.started
+      const precondition = await continuationPrerequisites(cwd, 'preflight')
+      const run = driver.fixRun()
+      if (run === undefined) throw new Error('owned-fix-run-missing')
+      let terminated = false
+      void run.driverTerminated.then(() => {
+        terminated = true
+      })
+      post = failNextPost(true)
+      let pauseFinished = false
+      const pausing = driver.pauseFeature().finally(() => {
+        pauseFinished = true
+      })
+      const outcomes = Promise.allSettled([pausing, settling])
+      await nextTurn()
+      if (terminated || pauseFinished || post.failed() || driver.fixRun() !== run)
+        throw new Error('owned-pause-did-not-join-driver')
+      await assertIssuePauseNotPersisted(cwd)
+      barrier.release()
+      await post.refused
+      if (!terminated || driver.fixRun() !== undefined || post.premature())
+        throw new Error('pause-post-before-owner-release')
+      post.release()
+      const [paused] = await outcomes
+      settling = null
+      if (paused.status === 'rejected') throw paused.reason
+      const records = (await history(cwd)).operations.flatMap((operation) =>
+        operation.record ? [operation.record] : [],
+      )
+      const issueHistory = await readReviewHistory(cwd, 42)
+      if (!issueHistory.source.complete) throw new Error('issue-history-incomplete-after-pause')
+      return {
+        precondition,
+        ownerReleasedBeforePost: true,
+        driverPendingBeforeRelease: true,
+        messages: driver.messages,
+        records,
+        issueRecords: issueHistory.operations.flatMap((operation) => (operation.record ? [operation.record] : [])),
+      }
+    },
+    () =>
+      cleanupRace([
+        () => barrier?.release(),
+        () => post?.release(),
+        async () => {
+          if (settling !== null) await settling.catch(() => {})
+        },
+        () => post?.close(),
+        () => driver.controller.stop('race-cleanup'),
+        () => barrier?.close(),
+      ]),
+    'owned pause race cleanup failed',
+  )
+}
+
 export async function invokeReviewRace(cwd: string, mode: Mode): Promise<object> {
-  return mode === 'latest' ? latest(cwd) : pause(cwd)
+  return mode === 'latest' ? latest(cwd) : mode === 'owned-pause' ? ownedPause(cwd) : pause(cwd)
 }

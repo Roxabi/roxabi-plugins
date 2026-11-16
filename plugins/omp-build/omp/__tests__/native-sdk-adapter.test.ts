@@ -151,6 +151,15 @@ async function fixture() {
 }
 
 describe('native SDK adapter policy and authorization', () => {
+  it('refuses a non-local root before reading local session fields', async () => {
+    const f = await fixture()
+    sdk.registry.get.mockReturnValue({ kind: 'main', session: { instanceKey: 'remote-fixture:1' } })
+    expect(await captureNativeRoot(f.options.ctx)).toBeNull()
+    const result = await executeNativeBatch(f.options)
+    expect(result.results).toEqual([])
+    expect(sdk.run).not.toHaveBeenCalled()
+  })
+
   it('creates the root artifact directory before dispatch', async () => {
     const f = await fixture()
     await executeNativeBatch(f.options)

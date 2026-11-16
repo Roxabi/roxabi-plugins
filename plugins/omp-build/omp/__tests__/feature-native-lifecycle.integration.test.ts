@@ -39,6 +39,7 @@ function invoke<T>(box: Box, cwd: string, home: string, operation: string, paylo
     cwd,
     env: { ...box.env, HOME: home },
     encoding: 'utf8',
+    timeout: 55_000,
   })
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout) as T
@@ -151,7 +152,7 @@ describe('feature native lifecycle through the installed OMP extension', () => {
           expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0, effectiveCwd: checkout }),
         ]),
       },
-      admission: { admitted: false, published: false, reason: 'implementation-local-inhibition' },
+      admission: { admitted: false, published: false, reason: 'implementation-disarm-unconfirmed' },
     })
   })
 

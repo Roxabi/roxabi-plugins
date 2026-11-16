@@ -35,7 +35,7 @@ export class UwObservationCut {
   addHistory(entry: DecodedHistory): void {
     const key = scopeKey(entry.source.scope)
     const previous = this.histories.get(key)
-    if (previous && previous !== entry && JSON.stringify(previous) !== JSON.stringify(entry))
+    if (previous && previous !== entry && JSON.stringify(previous.source) !== JSON.stringify(entry.source))
       this.diagnostics.push(
         this.issue(
           entry.source.scope,
@@ -143,9 +143,10 @@ export class UwObservationCut {
   finish(additionalHistories: readonly DecodedHistory[]): UwCompletionObservation {
     this.verifySelectedHistories(additionalHistories)
     const root = this.root
+    const histories = [...this.histories.values()]
     const facts = {
       root,
-      histories: [...this.histories.values()],
+      histories,
       catalogues: this.catalogues,
       delivery: [...this.delivery.values()],
     }
@@ -169,7 +170,11 @@ export class UwObservationCut {
   private verifySelectedHistories(additionalHistories: readonly DecodedHistory[]): void {
     for (const expected of additionalHistories) {
       const observed = this.histories.get(scopeKey(expected.source.scope))
-      if (!expected.source.complete || observed === undefined || JSON.stringify(expected) !== JSON.stringify(observed))
+      if (
+        !expected.source.complete ||
+        observed === undefined ||
+        JSON.stringify(expected.source) !== JSON.stringify(observed.source)
+      )
         this.diagnostics.push(
           this.issue(expected.source.scope, 'conflicting-history', 'Selected history changed during joint observation'),
         )

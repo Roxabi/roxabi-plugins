@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import { requiredReviewRecords } from '../skills/feature/workflow-records.js'
@@ -10,6 +10,7 @@ import {
   settleOwnedCorrectionFalsification,
 } from './feature-review-falsification.ts'
 import { mixedReviewDecision, mixedReviewInitialData } from './feature-review-mixed-fixture.ts'
+import { pauseDuringPublication, readComments } from './feature-review-publication-pause.ts'
 import { fixtureSpecRow } from './feature-review-spec-row.ts'
 import { cleanReviewDecision, reviewDecision } from './feature-review-synthesis-sources.ts'
 import { finishFixtureDiagnostic } from './native-review-diagnostics.ts'
@@ -45,32 +46,6 @@ export function reviewInitialData(task: NativeTask): Data {
   }
 }
 
-function waitFor(pathname: string, completion: Promise<unknown>): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>()
-  let settled = false
-  const finish = (error?: Error): void => {
-    if (settled) return
-    settled = true
-    clearTimeout(timer)
-    watcher.close()
-    if (error === undefined) resolve()
-    else reject(error)
-  }
-  const timer = setTimeout(() => finish(new Error('final-review-publication-barrier-timeout')), 10_000)
-  const watcher = watch(path.dirname(pathname), (_event, filename) => {
-    if (filename === path.basename(pathname) && existsSync(pathname)) finish()
-  })
-  void completion.then(
-    () => finish(new Error('final-review-publication-settled-before-barrier')),
-    (error) => finish(error instanceof Error ? error : new Error(String(error))),
-  )
-  return promise
-}
-
-function readComments(stateFile: string): unknown[] {
-  return JSON.parse(readFileSync(stateFile, 'utf8')).issues['42'].comments
-}
-
 async function freshPause(driver: ReviewDriver): Promise<object> {
   await driver.pause()
   const stateFile = process.env.GH_SIM_STATE
@@ -100,37 +75,6 @@ async function finishFix(driver: ReviewDriver): Promise<object> {
     }
   } finally {
     await driver.controller.stop('test-cleanup')
-  }
-}
-
-async function pauseDuringPublication(driver: ReviewDriver): Promise<object> {
-  const root = process.env.GH_SIM_STATE
-  if (root === undefined) throw new Error('gh-state-missing')
-  const started = `${root}.final-review-started`
-  const release = `${root}.final-review-release`
-  Object.assign(process.env, {
-    GH_SIM_COMMENT_BARRIER_MATCH: 'kind=review ',
-    GH_SIM_COMMENT_BARRIER_STARTED: started,
-    GH_SIM_COMMENT_BARRIER_RELEASE: release,
-  })
-  const publication = driver.settle((task) => reviewDecision(task.task))
-  let pendingPause: Promise<unknown> | null = null
-  let beforeRelease = 0
-  try {
-    await waitFor(started, publication)
-    pendingPause = driver.pause()
-    beforeRelease = driver.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH')).length
-  } finally {
-    if (!existsSync(release)) writeFileSync(release, 'release\n')
-    if (pendingPause === null) await publication
-    else await Promise.all([publication, pendingPause])
-  }
-  return {
-    messages: driver.messages,
-    active: driver.controller.active(),
-    beforeRelease,
-    comments: readComments(root),
-    barrier: true,
   }
 }
 

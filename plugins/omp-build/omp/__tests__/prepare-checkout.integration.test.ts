@@ -94,7 +94,7 @@ function registeredTool(messages: string[]): CheckoutTool {
           },
         })
       },
-      sendUserMessage: (message) => {
+      sendUserMessage: async (message) => {
         messages.push(String(message))
       },
       sendMessage: (message) => {

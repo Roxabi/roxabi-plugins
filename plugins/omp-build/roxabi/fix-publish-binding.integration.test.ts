@@ -32,7 +32,11 @@ function setup() {
   const gh = async (_cwd: string, args: string[]) => {
     calls.push(args)
     if (args[0] === 'repo' && args[1] === 'view')
-      return JSON.stringify({ nameWithOwner: 'acme/app', defaultBranchRef: { name: 'main' } })
+      return JSON.stringify({
+        nameWithOwner: 'acme/app',
+        defaultBranchRef: { name: 'main' },
+        url: 'https://github.com/acme/app',
+      })
     if (args[0] === 'pr' && args[1] === 'view')
       return JSON.stringify({
         state: 'OPEN',

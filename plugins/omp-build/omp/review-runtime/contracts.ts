@@ -110,13 +110,19 @@ export type NativeStop =
         | 'execution-errors'
     }
 
+/** Host-only successor delivery after the preceding writer has joined. */
+export type NativeSuccessor = () => void | Promise<void>
+
 export type NativeBatchCallbacks = {
   /** Called once for each terminal or missing native child result before product interpretation. */
   onChildResult?: (child: NativeChildResult) => void | Promise<void>
   /** Called only after every required child reaches a strict valid terminal result. */
   onComplete: (result: NativeBatchResult, canContinue: () => boolean) => void | Promise<void>
   /** Called once after onComplete resolves. agent_end does not invoke this. */
-  onSettled?: (result: NativeBatchResult, canContinue: () => boolean) => void | Promise<void>
+  onSettled?: (
+    result: NativeBatchResult,
+    canContinue: () => boolean,
+  ) => void | NativeSuccessor | Promise<void> | Promise<NativeSuccessor | undefined>
   onStop: (reason: string, result: NativeBatchResult | null, stop: NativeStop) => void | Promise<void>
 }
 
