@@ -117,7 +117,16 @@
       "upstream_branch": "main",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "active",
-      "notes": "Roxabi-owned. Tree-layout forge engine for forge.roxabi.dev + multi-host plugin (Claude, Codex, Grok, OMP): 1 plugin (roxabi-forge) with 2 skills (roxabi-forge-publish, roxabi-forge-setup). History replaced 2026-09-23; the 0.x engine and its `forge` plugin live on as Roxabi/roxabi-forge-legacy (archived)."
+      "notes": "Roxabi-owned legacy marketplace with roxabi-forge-publish and roxabi-forge-setup. Keep explicitly isolated and pinned until authorized retirement; it is not a fallback for the canonical MCP publisher. History replaced 2026-09-23; the 0.x engine and its `forge` plugin live on as Roxabi/roxabi-forge-legacy (archived)."
+    },
+    {
+      "name": "unkillable-forge",
+      "source": "https://github.com/go-silex/unkillable-forge",
+      "added": "2026-11-16",
+      "last_checked_commit": "4db8a1f0d28515c67875ff2bd0d662d730c7156b",
+      "criteria_met": ["marketplace_json", "install_mechanism", "quality_content"],
+      "status": "active",
+      "notes": "Canonical local MCP publisher for explicitly configured Forge instances. Claude Code, Codex and OMP; direct upstream installation, with packaged runtime and native payloads. The reviewed commit is not an automatic installation pin; installation does not migrate Roxabi or retire its isolated legacy publisher."
     },
     {
       "name": "roxabi-video-engine",

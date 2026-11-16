@@ -40,7 +40,12 @@
     {
       "name": "roxabi-forge",
       "source": "https://github.com/Roxabi/roxabi-forge",
-      "description": "Forge — team HTML artifact host (forge.roxabi.dev): tree-layout engine, per-page ACL, share links, OG previews. Plugin roxabi-forge (publish + setup)."
+      "description": "Roxabi Forge legacy marketplace (publish + setup); keep isolated and pinned until authorized retirement, never an automatic fallback."
+    },
+    {
+      "name": "unkillable-forge",
+      "source": "https://github.com/go-silex/unkillable-forge",
+      "description": "Canonical local MCP publisher for explicitly configured Forge instances; Claude Code, Codex and OMP."
     },
     {
       "name": "roxabi-video-engine",
