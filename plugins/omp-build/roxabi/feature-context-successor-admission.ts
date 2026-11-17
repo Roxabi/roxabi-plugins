@@ -1,8 +1,11 @@
+import {
+  admitContextSuccession,
+  contextHandoffPrefixDigest,
+  controlsOf,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import { sameRef } from '../engine/record-diagnostics.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import { contextHandoffPrefixDigest } from '../engine/workflow-context-handoff-history.ts'
-import { admitContextSuccession } from '../engine/workflow-context-succession.ts'
-import { controlsOf, workflowOperationProblem } from '../engine/workflow-control.ts'
 import type { observeCurrentContextSuccession } from './feature-context-successor-observation.ts'
 
 export function findSuccessionAdmission(

@@ -198,6 +198,7 @@ export {
   recheckComposedAssessmentDelta,
   recheckComposedParentAcceptance,
 } from './engine/workflow-composed-material-preparation.ts'
+export { currentContextSuccession } from './engine/workflow-context-succession-current.ts'
 export {
   contextSuccessionInspectionStarts,
   createHistoricalAcceptedSpecContext,

@@ -1,8 +1,12 @@
-import { prepareContextSuccessionInspection } from '../dist/contracts.js'
+import {
+  controlsOf,
+  currentContextSuccession,
+  mandateScope,
+  prepareContextSuccessionInspection,
+} from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { currentContextSuccession } from '../engine/workflow-context-succession-current.ts'
 import type { ContextSuccessionInspection } from '../engine/workflow-context-succession-inspection.ts'
-import { controlsOf, type MandateRecord, mandateScope } from '../engine/workflow-control.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import { observeCurrentContextSuccession } from './feature-context-handoff-observation.ts'
 import { resolveFeatureAuthority } from './feature-continuation-admission.ts'

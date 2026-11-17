@@ -1,5 +1,6 @@
+import { operatorConfirmationEvidenceSchema } from '../dist/contracts.js'
 import { canonicalValueDigest } from '../engine/canonical-value.ts'
-import { type OperatorConfirmationEvidence, operatorConfirmationEvidenceSchema } from '../engine/uw-identity-schema.ts'
+import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import type { ContextSuccessionProposal } from '../engine/workflow-context-disposition-schema.ts'
 import type { OperatorPort, UwOperations } from './uw-contract.ts'
 

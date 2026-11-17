@@ -15841,6 +15841,16 @@ function inspectContextNegativeReceipt(input) {
 }
 
 // plugins/omp-build/engine/workflow-context-handoff-history.ts
+function contextHandoffHistoryCut(histories) {
+  return histories.map((history) => {
+    const last = history.operations.at(-1);
+    return {
+      scope: history.source.scope,
+      count: history.operations.length,
+      last: last === undefined ? null : { operationId: last.operationId, recordId: last.recordId, kind: last.kind }
+    };
+  });
+}
 function contextHandoffPrefixHistories(histories, cuts) {
   const prefix = [];
   for (const cut of cuts) {
@@ -15858,6 +15868,10 @@ function contextHandoffPrefixHistories(histories, cuts) {
   if (new Set(cuts.map((cut) => `${cut.scope.repository}\x00${cut.scope.target}`)).size !== cuts.length)
     return null;
   return prefix;
+}
+function contextHandoffPrefixDigest(histories, cuts) {
+  const prefix = contextHandoffPrefixHistories(histories, cuts);
+  return prefix === null ? null : contextHandoffHistoryDigest(prefix);
 }
 function contextHandoffHistoryDigest(histories, excluded = []) {
   const projection = histories.map((history) => ({
@@ -17928,6 +17942,19 @@ function authenticateSelectionClaims(home, control, predecessor) {
 // plugins/omp-build/engine/workflow-context-succession.ts
 var refuse5 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
 var same5 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
+function validateContextSuccessionProposal(proposal, successorPayload, histories) {
+  const home = historyFor(proposal.predecessor.scope, histories);
+  if (home === null)
+    return refuse5("Context succession predecessor history is missing");
+  const bound = bindExternalRef(proposal.predecessor, home);
+  if (!bound.ok || bound.value.kind !== "mandate")
+    return refuse5("Context succession predecessor is unavailable");
+  return prepareContextSuccession(proposal, bound.value, {
+    ...proposal.successor.scope,
+    recordId: proposal.successor.recordId,
+    payload: successorPayload
+  }, histories);
+}
 function prepareContextSuccession(proposal, predecessor, successor, histories, historical) {
   const authority = authenticateSuccessionAuthority(proposal, predecessor, successor, histories);
   if (!authority.ok)
@@ -37080,6 +37107,7 @@ export {
   actionSpecInputSchema,
   actionSubjectSchema,
   admissionDescriptorSchema,
+  admitContextSuccession,
   admitInterruptionResolution,
   admitReviewInterruption,
   admitReviewReplacementGrant,
@@ -37100,9 +37128,11 @@ export {
   assessUwAdmission,
   assessUwCompletion,
   assessmentProposalOriginSchema,
+  authenticateActionReplayStart,
   authenticateCauseCapture,
   authenticateIntegrationPin,
   authenticateInterruptedReceiptPair,
+  authenticateWorkflowReceiptPair,
   authenticatedAssessResult,
   authorizeReviewContextSuccessor,
   bindExternalRef,
@@ -37162,9 +37192,14 @@ export {
   composedParentConsentSchema,
   confirmHistoricalReviewInputMatch,
   confirmedAccountedMandate,
+  contextHandoffAbsentBindingDigest,
+  contextHandoffHistoryCut,
+  contextHandoffHistoryDigest,
+  contextHandoffPrefixDigest,
   contextNegativeBindingSchema,
   contextSuccessionInspectionStarts,
   contributionSchema,
+  controlsOf,
   correctionResultSchema,
   createGhIssueWritePorts,
   createHistoricalAcceptedSpecContext,
@@ -37178,6 +37213,7 @@ export {
   criterionTargetSchema,
   criterionVerdictRefSchema,
   criterionVerdictSchema,
+  currentContextSuccession,
   cycleKeys,
   debtReceiptSchema,
   decidedPhaseSchema,
@@ -37284,10 +37320,12 @@ export {
   implementationAdmissionCommandSchema,
   implementationCommandSchema,
   implementationOutputSchema,
+  implementationReceiptEligible,
   inspectCapturedWorkForAssessment,
   inspectFinding,
   inspectNativeTerminal,
   integrationOutputSchema,
+  integrationReceiptEligible,
   interruptedPhaseSchema,
   interruptedResult,
   interruptiblePullRequestRoot,
@@ -37553,6 +37591,7 @@ export {
   validateCauseDispositionRecords,
   validateCausePublication,
   validateComposedMaterialAuthorization,
+  validateContextSuccessionProposal,
   validateDecision2 as validateDecision,
   validateDecisionBindings,
   validateFramingAuthorization,
@@ -37572,6 +37611,7 @@ export {
   workflowBindingPayloadSchema,
   workflowConditionSchema,
   workflowContextDirectSuccessor,
+  workflowContextNegative,
   workflowContextResolution,
   workflowContextTerminal,
   workflowGraphActionSchema,

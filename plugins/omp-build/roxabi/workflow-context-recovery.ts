@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { actionEnvelopeSchema, canonicalValueDigest, recordsOf } from '../dist/contracts.js'
+import { actionEnvelopeSchema, canonicalValueDigest, recordsOf, workflowContextNegative } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import { workflowContextNegative } from '../engine/workflow-context-output.ts'
 import type { ContextSuccessionInspection } from '../engine/workflow-context-succession-inspection.ts'
 import type { WorkflowDecision } from '../engine/workflow-reconstruction-types.ts'
 import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'

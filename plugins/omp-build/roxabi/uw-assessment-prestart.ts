@@ -1,6 +1,5 @@
-import { actionInputDigest } from '../engine/action-input.ts'
+import { actionInputDigest, externalRecordRefSchema } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import { externalRecordRefSchema } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
 import type { ContextSuccessionInspection } from '../engine/workflow-context-succession-inspection.ts'
 import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'

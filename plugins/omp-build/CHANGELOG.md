@@ -4,6 +4,7 @@
 
 - Add explicit same-authority expanded-context recovery and confirmed same-UW context-negative succession. Preserve the historical non-success, exact authority and fresh plan/review gates; incomplete, incompatible or unresolved effects remain blocking.
 - Keep lazy Feature and UW imports in OMP's active module graph so historical contexts, action snapshots and framing proposals retain the same runtime owner.
+- Route host recovery and succession engine imports through the bundled contracts so clean installations do not depend on checkout packages or create a second historical proof owner.
 - Reuse authenticated immutable histories across read and causal observations, completion and wait projection, while keeping outward native-witness histories detached and catalogue instances intact.
 - Extend pre-delivery context-negative succession to eligible leaf planning, plan-review and implementation and leaf or pre-child-mandate parent Spec assessment, with engine-owned authentication, reconciliation and successor gates. Preserve separate review/fix protocols and block admitted delivery or unresolved effects.
 - Distinguish the synthetic copied-current-code version handoff fixture from real 0.21 implementation evidence; it does not establish historical 0.21 assessment abandonment or live-pilot compatibility.

@@ -99,6 +99,10 @@ export {
   exclusionClaimSchema,
 } from './engine/criterion-verdict-schema.ts'
 export {
+  implementationReceiptEligible,
+  integrationReceiptEligible,
+} from './engine/delivery-observation-authentication.ts'
+export {
   type CriterionTarget,
   criterionTargetSchema,
   FINDING_TARGET_FORMAT,
@@ -143,12 +147,22 @@ export {
   type CiExact,
 } from './engine/workflow-action-operands.ts'
 export {
+  contextHandoffAbsentBindingDigest,
+  contextHandoffHistoryCut,
+  contextHandoffHistoryDigest,
+  contextHandoffPrefixDigest,
+} from './engine/workflow-context-handoff-history.ts'
+export { workflowContextNegative } from './engine/workflow-context-output.ts'
+export { admitContextSuccession, validateContextSuccessionProposal } from './engine/workflow-context-succession.ts'
+export {
+  authenticateWorkflowReceiptPair,
   workflowContextDirectSuccessor,
   workflowContextResolution,
   workflowContextTerminal,
 } from './engine/workflow-context-terminal.ts'
 export {
   abandoned,
+  controlsOf,
   historyFor,
   mandateScope,
   recordsOf,
@@ -212,3 +226,4 @@ export {
   type WorkflowReceiptAction,
   workflowReceiptActionSchema,
 } from './engine/workflow-receipt-schema.ts'
+export { authenticateActionReplayStart } from './engine/workflow-replay-start.ts'

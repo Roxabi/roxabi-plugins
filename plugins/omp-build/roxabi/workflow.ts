@@ -1,5 +1,5 @@
+import { currentContextSuccession } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import { currentContextSuccession } from '../engine/workflow-context-succession-current.ts'
 import type { WorkflowDecision } from '../engine/workflow-reconstruction-types.ts'
 import { prepareRefusal } from './delivery-action.ts'
 import { observeCurrentContextSuccession } from './feature-context-handoff-observation.ts'

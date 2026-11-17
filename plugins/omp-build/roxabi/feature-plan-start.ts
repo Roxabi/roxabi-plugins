@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalValueDigest } from '../dist/contracts.js'
-import { currentContextSuccession } from '../engine/workflow-context-succession-current.ts'
+import { canonicalValueDigest, currentContextSuccession } from '../dist/contracts.js'
 import type { PlanMacro } from '../engine/workflow-plan.ts'
 import type { WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import {

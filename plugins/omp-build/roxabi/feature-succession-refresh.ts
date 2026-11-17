@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { bindExternalRef, canonicalValueDigest, sameScope, workflowOperationProblem } from '../dist/contracts.js'
+import {
+  bindExternalRef,
+  canonicalValueDigest,
+  contextHandoffHistoryDigest,
+  sameScope,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
-import { contextHandoffHistoryDigest } from '../engine/workflow-context-handoff-history.ts'
 import { type Contracts, type History, type HistoryRecord, publishRecord, type Scope } from './feature-engine.ts'
 import type { Gh } from './feature-succession-binding.ts'
 

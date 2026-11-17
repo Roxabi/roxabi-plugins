@@ -1,16 +1,20 @@
-import { historicalAcceptedSpecPriorStarts, qualifyContextNegative } from '../dist/contracts.js'
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import { classifyAttempts, interruptionGate } from '../engine/workflow-action-interruption.ts'
-import type { ContextDisposition } from '../engine/workflow-context-disposition-schema.ts'
 import {
+  canonicalValueDigest,
+  classifyAttempts,
   contextHandoffAbsentBindingDigest,
   contextHandoffHistoryCut,
   contextHandoffHistoryDigest,
-} from '../engine/workflow-context-handoff-history.ts'
-import { workflowContextNegative } from '../engine/workflow-context-output.ts'
-import { workflowContextTerminal } from '../engine/workflow-context-terminal.ts'
-import { excludedReceipt, recordsOf, workflowOperationProblem } from '../engine/workflow-control.ts'
-import { INTERRUPTION_ACTIONS } from '../engine/workflow-interruption-proof.ts'
+  excludedReceipt,
+  historicalAcceptedSpecPriorStarts,
+  INTERRUPTION_ACTIONS,
+  interruptionGate,
+  qualifyContextNegative,
+  recordsOf,
+  workflowContextNegative,
+  workflowContextTerminal,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
+import type { ContextDisposition } from '../engine/workflow-context-disposition-schema.ts'
 import { contextHandoffDeliveryClear, observeContextHandoffCandidate } from './feature-context-handoff-candidate.ts'
 import { canonicalContextWorktree } from './feature-context-handoff-worktree.ts'
 import { observeParentSuccessorBaseline } from './feature-context-parent-successor.ts'

@@ -1,11 +1,14 @@
-import { readUwCompletionObservation, toDiagnostics } from '../dist/contracts.js'
+import {
+  authenticateActionReplayStart,
+  externalRecordRefSchema,
+  readUwCompletionObservation,
+  toDiagnostics,
+} from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import { equalScope } from '../engine/record-diagnostics.ts'
-import { externalRecordRefSchema } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
 import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { ReceiptRecord } from '../engine/workflow-control.ts'
-import { authenticateActionReplayStart } from '../engine/workflow-spec-authentication.ts'
 import { plannerSuccessionInspection, plannerSuccessionStarts } from './feature-planner-succession.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'

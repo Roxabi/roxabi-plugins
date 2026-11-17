@@ -1,15 +1,20 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:638-705,2009-2156
 
 import { randomUUID } from 'node:crypto'
-import { resolveAcceptedSpec, sameScope, terminalMandate } from '../dist/contracts.js'
+import {
+  admitContextSuccession,
+  resolveAcceptedSpec,
+  resolveAcceptedSpecForAbandonment,
+  sameScope,
+  terminalMandate,
+  validateContextSuccessionProposal,
+} from '../dist/contracts.js'
 import { canonicalValueDigest } from '../engine/canonical-value.ts'
 import type { Result } from '../engine/result.ts'
 import type { NativeDeliveryPullRequest } from '../engine/uw-completion-types.ts'
 import type { UwTier } from '../engine/uw-spec.ts'
-import { resolveAcceptedSpecForAbandonment } from '../engine/workflow-accepted-spec-control.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { ContextSuccessionProposal } from '../engine/workflow-context-disposition-schema.ts'
-import { admitContextSuccession, validateContextSuccessionProposal } from '../engine/workflow-context-succession.ts'
 import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import type { TerminalMandate } from '../engine/workflow-terminal-mandate.ts'
 import type { ContextHandoffObservation } from './feature-context-handoff-observation.ts'

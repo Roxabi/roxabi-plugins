@@ -1,11 +1,12 @@
 import {
+  authenticateWorkflowReceiptPair,
   implementationReceiptEligible,
   integrationReceiptEligible,
-} from '../engine/delivery-observation-authentication.ts'
+  recordsOf,
+} from '../dist/contracts.js'
 import { sameRef } from '../engine/record-diagnostics.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import { authenticateWorkflowReceiptPair } from '../engine/workflow-context-terminal.ts'
-import { type MandateRecord, recordsOf } from '../engine/workflow-control.ts'
+import type { MandateRecord } from '../engine/workflow-control.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 
 export function successorReceiptResults(

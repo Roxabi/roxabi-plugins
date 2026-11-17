@@ -1,13 +1,14 @@
 import {
   assessCauseHolds,
   assessUwAdmission,
+  bindExternalRef,
   canonicalValueDigest,
+  historyFor,
   sameScope,
   terminalParentChildrenProblem,
 } from '../dist/contracts.js'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
-import { bindExternalRef, historyFor } from '../engine/workflow-control.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
