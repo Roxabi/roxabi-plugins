@@ -7,6 +7,7 @@ import {
 } from '../dist/contracts.js'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import { bindExternalRef, historyFor } from '../engine/workflow-control.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
@@ -62,6 +63,7 @@ export async function freshSuccessorOwnSpec(
   historical: AcceptedOwnSpec,
   suppliedCoverage?: ParentCoverage | null,
   suppliedBasis?: ParentCoverageRequest,
+  contextHandoff = false,
 ): Promise<
   | Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'>
   | ContinueFeatureResult
@@ -81,37 +83,70 @@ export async function freshSuccessorOwnSpec(
   if (engagement !== null)
     return { kind: 'blocked', reason: 'successor-child-engagement-unconfirmed', diagnostics: engagement.diagnostics }
   const { currentSpec, identityAllocations } = facts
+  if (!sameSuccessorCommitments(scope, currentSpec, historical))
+    return { kind: 'blocked', reason: 'successor-commitments-changed' }
+  const acceptedAllocations = contextHandoff ? acceptedHandoffAllocations(historical, read) : identityAllocations
+  if (acceptedAllocations === null) return { kind: 'blocked', reason: 'successor-accepted-identities-unconfirmed' }
+  const snapshot = contextHandoff ? historical.snapshot : currentSpec.snapshot
+  const ownSpec = {
+    uw: scope,
+    version: snapshot.spec.version,
+    snapshot,
+    identityAllocations: acceptedAllocations,
+  }
+  const selectedCoverage = contextHandoff
+    ? { coverage: historical.coverage }
+    : selectSuccessorCoverage(scope, currentSpec, historical, suppliedCoverage, suppliedBasis)
+  if ('kind' in selectedCoverage) return selectedCoverage
+  return {
+    ownSpec,
+    tier: contextHandoff ? historical.tier : currentSpec.tier,
+    children: historical.children,
+    inheritedOwnSpecRefs: historical.inheritedOwnSpecRefs,
+    coverage: selectedCoverage.coverage,
+  }
+}
+
+function sameSuccessorCommitments(
+  scope: FeatureAuthority['scope'],
+  currentSpec: FreshFramingFacts['currentSpec'],
+  historical: AcceptedOwnSpec,
+): boolean {
   if (
     !sameScope(historical.ref.uw, scope) ||
     canonicalValueDigest(currentSpec.inheritedOwnSpecRefs) !== canonicalValueDigest(historical.inheritedOwnSpecRefs) ||
     currentSpec.children.length !== historical.children.length
   )
-    return { kind: 'blocked', reason: 'successor-commitments-changed' }
-  for (const retained of historical.children) {
+    return false
+  return historical.children.every((retained) => {
     const current = currentSpec.children.find((child) => sameScope(child.scope, retained.scope))
-    if (
-      current === undefined ||
-      current.specVersion !== retained.specVersion ||
-      current.tier !== retained.tier ||
-      canonicalValueDigest(current.snapshot.spec) !== canonicalValueDigest(retained.snapshot.spec)
+    return (
+      current !== undefined &&
+      current.specVersion === retained.specVersion &&
+      current.tier === retained.tier &&
+      canonicalValueDigest(current.snapshot.spec) === canonicalValueDigest(retained.snapshot.spec)
     )
-      return { kind: 'blocked', reason: 'successor-commitments-changed' }
-  }
-  const ownSpec = {
-    uw: scope,
-    version: currentSpec.snapshot.spec.version,
-    snapshot: currentSpec.snapshot,
-    identityAllocations,
-  }
-  const selectedCoverage = selectSuccessorCoverage(scope, currentSpec, historical, suppliedCoverage, suppliedBasis)
-  if ('kind' in selectedCoverage) return selectedCoverage
-  return {
-    ownSpec,
-    tier: currentSpec.tier,
-    children: historical.children,
-    inheritedOwnSpecRefs: historical.inheritedOwnSpecRefs,
-    coverage: selectedCoverage.coverage,
-  }
+  })
+}
+
+function acceptedHandoffAllocations(
+  historical: AcceptedOwnSpec,
+  read: UwRead,
+): FreshFramingFacts['identityAllocations'] | null {
+  const step = historical.chain[historical.chain.length - 1]
+  const source = step?.kind === 'accept-material' ? step.assessment : step?.source
+  const home = source === undefined ? null : historyFor(source.scope, read.histories)
+  const bound = source === undefined || home === null ? null : bindExternalRef(source, home)
+  if (step === undefined || bound === null || !bound.ok) return null
+  if (step.kind === 'mandate' && bound.value.kind === 'mandate') return bound.value.payload.ownSpec.identityAllocations
+  if (
+    step.kind !== 'mandate' &&
+    bound.value.kind === 'action-receipt' &&
+    bound.value.payload.action === 'assess-spec' &&
+    bound.value.payload.phase === 'result'
+  )
+    return bound.value.payload.exactInputs.identityAllocations
+  return null
 }
 
 async function freshFraming(

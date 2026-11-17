@@ -45,7 +45,15 @@ export async function firstMandateParent(
   if (!ancestry.ok) return { kind: 'blocked', reason: ancestry.reason }
   const causal = await composeObservedUwCausalContext(uwRead, [history, ...ancestry.parents], options)
   if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
-  const selected = context.engine.resolveOwnSpecAuthority(history, ancestry.parents, causal.value)
+  const selected = context.engine.resolveOwnSpecAuthority(
+    history,
+    ancestry.parents,
+    causal.value,
+    new Set(),
+    undefined,
+    undefined,
+    causal.value.historical,
+  )
   if (!selected.ok) return { kind: 'blocked', reason: 'parent-mandate-unconfirmed', diagnostics: selected.diagnostics }
   const commitment = selected.value.accepted.children.find(
     (child) => child.scope.repository === scope.repository && child.scope.target === scope.target,

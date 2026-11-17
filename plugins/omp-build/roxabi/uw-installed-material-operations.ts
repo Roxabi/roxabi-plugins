@@ -13,8 +13,8 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { OwnSpecAuthority } from '../engine/workflow-mandate-admission.ts'
-import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
+import type { FixUwCausalContext } from './fix-uw-histories.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
 import { createInstalledMaterialAcceptance } from './material-acceptance-service.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
@@ -52,7 +52,7 @@ function materialAuthority(
   uw: Scope,
   histories: readonly DecodedHistory[],
   currentSpec: CurrentOwnSpecFacts['currentSpec'],
-  causal: WorkflowCausalContext,
+  causal: FixUwCausalContext,
 ): { ok: true; value: OwnSpecAuthority } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
   const home = histories.find((history) => sameScope(history.source.scope, uw))
   if (home === undefined)
@@ -61,6 +61,10 @@ function materialAuthority(
     home,
     histories.filter((history) => history !== home),
     causal,
+    new Set(),
+    undefined,
+    undefined,
+    causal.historical,
   )
   if (!authority.ok) return { ok: false, diagnostics: diagnostics(uw, authority.diagnostics) }
   const parent = authority.value.mandate.payload.parent
@@ -75,6 +79,10 @@ function materialAuthority(
     parentHistory,
     histories.filter((history) => history !== parentHistory),
     causal,
+    new Set(),
+    undefined,
+    undefined,
+    causal.historical,
   )
   if (!parentAuthority.ok) return { ok: false, diagnostics: diagnostics(uw, parentAuthority.diagnostics) }
   const commitment = parentAuthority.value.accepted.children.find((entry) => sameScope(entry.scope, uw))

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { canonicalValueDigest } from '../engine/action-input.ts'
+import { actionEnvelopeSchema } from '../engine/uw-action-command-schema.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import type { UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
 import { acceptCurrentManifest } from './uw-action-expanded.ts'
@@ -36,6 +37,16 @@ const request = (expandedContext: UwActionRequest['expandedContext']): UwActionR
 })
 
 describe('expanded context preparation boundary', () => {
+  test('requires an explicit replay intent and exact persisted START in command envelopes', () => {
+    const body = { request: request([]), reviewed }
+    expect(actionEnvelopeSchema.safeParse(body).success).toBe(false)
+    expect(actionEnvelopeSchema.safeParse({ ...body, intent: { kind: 'persisted' } }).success).toBe(false)
+    expect(actionEnvelopeSchema.safeParse({ ...body, intent: { kind: 'prepublication' } }).success).toBe(true)
+    expect(
+      actionEnvelopeSchema.safeParse({ ...body, intent: { kind: 'persisted', start: record.record } }).success,
+    ).toBe(true)
+  })
+
   test('requires an accounted record reader and validates the selected payload', async () => {
     const withoutAccounting = {
       readRecord: async () => ({ ok: true as const, value: recordValue }),
@@ -61,7 +72,10 @@ describe('expanded context preparation boundary', () => {
   })
 
   test('reviewed replay cannot add new context', async () => {
-    const result = await replayUwActionInputs({ reviewed, request: request([file]) }, {} as UwActionPorts)
+    const result = await replayUwActionInputs(
+      { reviewed, request: request([file]), intent: { kind: 'prepublication' } },
+      {} as UwActionPorts,
+    )
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.diagnostics[0]?.code).toBe('review-input-changed')
   })

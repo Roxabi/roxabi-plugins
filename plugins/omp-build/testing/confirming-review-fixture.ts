@@ -12,7 +12,11 @@ async function confirmDistinctReviewAction(
   if (!existing.ok) return existing
   const distinct = fixturePreparedAction(item.request.actionId)
   if (distinct.inputs.fingerprint !== existing.value.inputs.fingerprint) return { ok: false, diagnostics: [] }
-  const replay = await operations.replayActionInputs({ reviewed: distinct.inputs, request: item.request })
+  const replay = await operations.replayActionInputs({
+    reviewed: distinct.inputs,
+    request: item.request,
+    intent: { kind: 'prepublication' },
+  })
   if (!replay.ok || replay.value.fingerprint !== distinct.inputs.fingerprint) return { ok: false, diagnostics: [] }
   const verified = await operations.verifyAction(distinct.snapshot)
   if (!verified.ok) return verified

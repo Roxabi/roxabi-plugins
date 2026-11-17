@@ -13,7 +13,13 @@ import { buildObservedCommitIndex } from './uw-delivery-lineage.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
 import { sameScope, scopeKey, validateUwGraph } from './uw-graph.ts'
 import { projectUwWaits } from './uw-waits.ts'
+import {
+  createHistoricalAcceptedSpecContext,
+  type HistoricalAcceptedSpecContext,
+  historicalAcceptedSpecOwnedHistories,
+} from './workflow-context-succession-inspection.ts'
 import { mandatesOf } from './workflow-control.ts'
+import type { AcceptedSpecInspection } from './workflow-spec-authentication.ts'
 
 function issue(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
@@ -87,8 +93,21 @@ function refusalRecorder(
   }
 }
 
-export function assessUwCompletion(observation: UwCompletionObservation): UwCompletionAssessment {
-  const waits = projectUwWaits(observation)
+export function assessUwCompletion(
+  observation: UwCompletionObservation,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
+): UwCompletionAssessment {
+  const prepared =
+    historical === undefined && observation.status === 'complete'
+      ? createHistoricalAcceptedSpecContext(observation.histories)
+      : null
+  const context = historical ?? (prepared?.ok ? prepared.value : undefined)
+  if (context !== undefined) {
+    const owned = historicalAcceptedSpecOwnedHistories(context, observation.histories)
+    if (owned.ok) observation = { ...observation, histories: owned.value }
+  }
+  const waits = projectUwWaits({ ...observation, inspection, historical: context })
   const graphProblems = validateUwGraph(observation.graph).diagnostics
   const diagnostics: UwDiagnostic[] = [...graphProblems, ...waits.diagnostics]
   const commitIndex = buildObservedCommitIndex(observation)
@@ -98,6 +117,7 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
   const completions = new Map<string, UwCompletion>()
   const deliveryAuthorities = new Map<string, readonly ExternalRecordRef[]>()
   const visiting = new Set<string>()
+  let witnessHistories: UwCompletionObservation['histories'] | undefined
   const assess = (uw: Scope): DependencyResolution => {
     const key = scopeKey(uw)
     const existing = dependencies.get(key)
@@ -126,7 +146,8 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
         'history-unconfirmed',
         'Incomplete expected-author claims, or foreign claims on an unmanaged UW, prevent a completion witness',
       )
-    if (!latest)
+    if (!latest) {
+      const currentObservation = observation
       return assessNativeOnly({
         uw,
         history,
@@ -139,7 +160,15 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
         issue,
         refuse,
         unresolved,
+        witness: () => {
+          witnessHistories ??= structuredClone(currentObservation.histories)
+          const histories = witnessHistories
+          const copiedHistory = histories[currentObservation.histories.indexOf(history)]
+          if (copiedHistory === undefined) throw new Error('Native witness history is unavailable')
+          return { uw, history: copiedHistory, observation: { ...currentObservation, histories } }
+        },
       })
+    }
     return assessManagedCompletion({
       uw,
       key,
@@ -147,6 +176,8 @@ export function assessUwCompletion(observation: UwCompletionObservation): UwComp
       node,
       latest,
       observation,
+      inspection,
+      historical: context,
       waits,
       dependencies,
       completions,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.0 (unreleased)
+
+- Add explicit same-authority expanded-context recovery and confirmed same-UW context-negative succession. Preserve the historical non-success, exact authority and fresh plan/review gates; incomplete, incompatible or unresolved effects remain blocking.
+- Keep lazy Feature and UW imports in OMP's active module graph so historical contexts, action snapshots and framing proposals retain the same runtime owner.
+- Reuse authenticated immutable histories across read and causal observations, completion and wait projection, while keeping outward native-witness histories detached and catalogue instances intact.
+- Extend pre-delivery context-negative succession to eligible leaf planning, plan-review and implementation and leaf or pre-child-mandate parent Spec assessment, with engine-owned authentication, reconciliation and successor gates. Preserve separate review/fix protocols and block admitted delivery or unresolved effects.
+- Distinguish the synthetic copied-current-code version handoff fixture from real 0.21 implementation evidence; it does not establish historical 0.21 assessment abandonment or live-pilot compatibility.
+- Document same-invocation `PI_TOOL_CALL_ID` capture with exact Bash command and exit provenance. Source fixtures exercise supported boundaries; they do not qualify an installed runtime or a live pilot. No tooling pin or installation is activated.
+- Recognize exactly 0.22.0 under the existing bounded PR-binding writer contract; unknown versions remain unknown. This source change does not migrate records or activate tooling.
+
 ## 0.21.0 (unreleased)
 
 - Add bounded interrupted-correction recovery for authenticated originating owners that sealed admission, joined known trusted host work and witnessed no native/startup or correction-plan entry. Predecision publication can close neutrally before a new ordinary attempt; an unstarted existing-review decision can continue the same request and decision only with genuinely unspent execution coordinates.

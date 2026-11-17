@@ -2,7 +2,9 @@ import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
   assessUwCompletion,
+  createHistoricalAcceptedSpecContext,
   discoverFixRecovery,
+  historicalAcceptedSpecOwnedHistories,
   parseIssueSpecBody,
   projectRecoveryHistories,
   readComposedWorkflowHistory,
@@ -18,10 +20,13 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import { defaultGh } from './feature-engine.ts'
+import { type ConfirmedContextAppend, projectConfirmedContextAppend } from './feature-succession-refresh.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { CreatedUwRead, UwRead, UwReadPort } from './uw-contract.ts'
+import { prepareUwReadObservation } from './uw-read-observation.ts'
 import { assembleUwRead, type HistoryObservation, type InstalledUwContracts, refused } from './uw-read-state.ts'
 import { withTransitionAdmission } from './uw-read-transition.ts'
 
@@ -30,7 +35,9 @@ export type InstalledUwReadOptions = {
   gh?: Gh
   /** Observed authenticated viewer identity, resolved by host composition and used for history attribution. */
   readAuthor?: string
-  assessmentReplay?: { uw: Scope; actionId: string; fingerprint: string }
+  assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
+  prospectiveContextAppend?: ConfirmedContextAppend
 }
 
 export class UwGraphUnavailableError extends Error {
@@ -52,8 +59,14 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
   const github = readOptions(options)
   return {
     async readUw(uw): Promise<UwRead> {
-      const observation = await contracts.readUwCompletionObservation(uw, github, (histories) =>
-        loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() }),
+      const prospective = options.prospectiveContextAppend
+      const observation = await contracts.readUwCompletionObservation(
+        uw,
+        github,
+        (histories) => loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() }),
+        [],
+        [],
+        prospective === undefined ? undefined : (histories) => projectConfirmedContextAppend(histories, prospective),
       )
       const root = observation.graph.nodes.find(
         (node) => node.uw.repository === uw.repository && node.uw.target === uw.target,
@@ -65,28 +78,15 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
             : refused(uw, 'graph-root-missing', `UW graph root ${uw.target} is absent`)
         throw new UwGraphUnavailableError(diagnostics)
       }
-      const reader = createObservedUwReadPort(contracts, { observation, assessmentReplay: options.assessmentReplay })
+      const reader = createObservedUwReadPort(contracts, {
+        observation,
+        assessmentReplay: options.assessmentReplay,
+        assessmentInspection: options.assessmentInspection,
+      })
       const read = await reader.readUw(uw)
-      return withTransitionAdmission(contracts, read)
+      return withTransitionAdmission(contracts, read, options.assessmentReplay, options.assessmentInspection)
     },
   }
-}
-
-function projectObservation(
-  contracts: InstalledUwContracts,
-  observation: UwCompletionObservation,
-): UwCompletionObservation {
-  const projected = contracts.projectRecoveryHistories(observation.histories)
-  if (projected.ok) return { ...observation, histories: projected.value }
-  const refusal: UwDiagnostic = {
-    code: 'recovery-projection-refused',
-    message: projected.diagnostics.map((entry) => entry.message).join('; '),
-    location: { kind: 'native', uw: observation.root, connection: 'state' },
-    related: [],
-  }
-  const diagnostics: [UwDiagnostic, ...UwDiagnostic[]] = [refusal]
-  if (observation.status === 'incomplete') diagnostics.unshift(...observation.diagnostics)
-  return { ...observation, status: 'incomplete', diagnostics }
 }
 
 function projectHistory(
@@ -122,10 +122,11 @@ export function createObservedUwReadPort(
     observation: UwCompletionObservation
     history?: HistoryObservation
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
+    assessmentInspection?: InstalledUwReadOptions['assessmentInspection']
   },
 ): UwReadPort {
-  const observation = projectObservation(contracts, input.observation)
-  const completion = contracts.assessUwCompletion(observation)
+  const { observation, historical } = prepareUwReadObservation(contracts, input.observation)
+  const completion = contracts.assessUwCompletion(observation, input.assessmentInspection, historical)
   const history = projectHistory(contracts, input.observation, observation, input.history)
   const causalObservation: UwRead['causalObservation'] =
     observation.status === 'complete' && history.ok && history.histories === observation.histories
@@ -144,6 +145,8 @@ export function createObservedUwReadPort(
         completion,
         observedReader: reader,
         assessmentReplay: input.assessmentReplay,
+        assessmentInspection: input.assessmentInspection,
+        historical,
       })
     },
   }
@@ -152,6 +155,8 @@ export function createObservedUwReadPort(
 
 const installedUwContracts: InstalledUwContracts = {
   assessUwAdmission,
+  createHistoricalAcceptedSpecContext,
+  historicalAcceptedSpecOwnedHistories,
   discoverFixRecovery,
   projectRecoveryHistories,
   readFramingMembership,
@@ -254,6 +259,7 @@ export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions):
 export function createInstalledObservedUwReadPort(input: {
   observation: UwCompletionObservation
   assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
+  assessmentInspection?: InstalledUwReadOptions['assessmentInspection']
 }): UwReadPort {
   return createObservedUwReadPort(installedUwContracts, input)
 }

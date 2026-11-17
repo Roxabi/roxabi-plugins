@@ -32,11 +32,13 @@ import type { NormalizationDecision } from '../engine/uw-normalization-schema.ts
 import type { SpecDraft, SpecRawSource, UwTier } from '../engine/uw-spec.ts'
 import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
 import type { ResolutionCandidate } from '../engine/workflow-action-interruption.ts'
+import type { ContextSuccessionProposal } from '../engine/workflow-context-disposition-schema.ts'
 import type { ResolutionProposal } from '../engine/workflow-interruption-proof.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
 import type {
   ActionInputs,
+  ActionReplayIntent,
   ActionSnapshot,
   CorrectionRootRef,
   PreparedToolingPinActivation,
@@ -153,6 +155,7 @@ export type PreparedOperatorProposal =
   | PreparedCauseDependencyAdjustment
   | PreparedUwReopen
   | PreparedUwAbandon
+  | { proposal: ContextSuccessionProposal; digest: string }
   | PreparedInterruptionResolution
   | PreparedFramingProposal
   | PreparedToolingPinActivation
@@ -184,6 +187,8 @@ export type UwRead = {
     | { status: 'unavailable' }
   graph: UwGraphObservation
   observation: UwCompletionObservation
+  /** Observation-bound historical metadata context; never execution authority. */
+  historical?: import('../engine/workflow-context-succession-inspection.ts').HistoricalAcceptedSpecContext
   completion: UwCompletionAssessment
   /** Authenticated interrupted fix ownership, or none when no settled owner applies. */
   fixRecovery: FixRecoveryRead
@@ -254,6 +259,7 @@ export interface UwOperations extends UwReadPort {
   replayActionInputs(input: {
     reviewed: ActionInputs
     request: UwActionRequest
+    intent: ActionReplayIntent
     reviewedRoot?: SelectedReview['root']
     correctionRoot?: CorrectionRootRef
   }): Promise<Result<ActionInputs>>

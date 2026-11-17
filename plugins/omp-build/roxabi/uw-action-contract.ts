@@ -26,6 +26,7 @@ export type {
 export type ReviewRootRef = ExternalRecordRef & { kind: 'review-attempt' }
 export type CorrectionRootRef = Readonly<{ inventory: ReviewRootRef; requestId: string }>
 export type SelectedReview = { root: ReviewRootRef; fingerprint: string }
+export type ActionReplayIntent = { kind: 'prepublication' } | { kind: 'persisted'; start: ExternalRecordRef }
 
 export type InstalledPluginPin = {
   name: 'omp-build'
@@ -108,9 +109,10 @@ export type CurrentActionFacts = {
 export type UwInputReadPorts = {
   readCurrentActionFacts(
     request: UwActionRequest,
-    reviewedFingerprint?: string,
-    reviewedRoot?: ReviewRootRef,
-    correctionRoot?: CorrectionRootRef,
+    reviewedFingerprint: string | undefined,
+    reviewedRoot: ReviewRootRef | undefined,
+    correctionRoot: CorrectionRootRef | undefined,
+    intent: ActionReplayIntent,
   ): Promise<Result<CurrentActionFacts>>
   readCurrentActionFactsBatch?(
     requests: readonly UwActionRequest[],

@@ -84,6 +84,7 @@ describe('captured parent integration during material assessment', () => {
               parentCheckout.cwd,
               world.parent,
               world.operations,
+              new Set(),
             )
             expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'integrate' })
             const pending = await world.operations.readUw(world.parentScope)

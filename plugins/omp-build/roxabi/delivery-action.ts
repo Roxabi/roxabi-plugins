@@ -230,6 +230,7 @@ export async function confirmPreparedAction(
   const replay = await operations.replayActionInputs({
     reviewed: prepared.value.inputs,
     request,
+    intent: { kind: 'prepublication' },
     reviewedRoot: review?.root,
     correctionRoot,
   })

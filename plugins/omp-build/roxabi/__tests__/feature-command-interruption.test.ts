@@ -37,3 +37,28 @@ describe('explicit interruption resolution command', () => {
     expect(parseFeatureCommand('abandon #42')).toEqual({ ok: true, control: 'abandon', reference: '42' })
   })
 })
+
+describe('explicit context recovery controls', () => {
+  it('selects an action request file without executing preparation', () => {
+    expect(parseFeatureCommand('#42 --action /tmp/action.json')).toEqual({
+      ok: true,
+      control: 'recover-context',
+      reference: '42',
+      actionFile: '/tmp/action.json',
+    })
+  })
+
+  it('selects a retained negative for a same-UW handoff', () => {
+    expect(parseFeatureCommand('new #42 --context-handoff negative-1')).toEqual({
+      ok: true,
+      control: 'new',
+      reference: '42',
+      contextHandoff: { negativeRecordId: 'negative-1' },
+    })
+  })
+
+  it.each(['#42 --action', '#42 --action relative.json', 'new #42 --context-handoff'])(
+    'refuses malformed explicit control %j',
+    (args) => expect(parseFeatureCommand(args).ok).toBe(false),
+  )
+})

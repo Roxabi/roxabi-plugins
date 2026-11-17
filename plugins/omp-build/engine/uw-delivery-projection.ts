@@ -15,6 +15,7 @@ import { toDiagnostics, type UwResult } from './uw-diagnostics.ts'
 import { scopeKey } from './uw-graph.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import { historyFor, recordsOf } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
 
@@ -29,12 +30,16 @@ function selectedValue(record: CanonicalRecord, selector: string): unknown {
   return value
 }
 
-function currentAccepted(observation: UwCompletionObservation, uw: Scope): UwResult<AcceptedOwnSpec> {
+function currentAccepted(
+  observation: UwCompletionObservation,
+  uw: Scope,
+  historical?: HistoricalAcceptedSpecContext,
+): UwResult<AcceptedOwnSpec> {
   const history = historyFor(uw, observation.histories)
   if (history === null) return deliveryFailure(uw, 'delivery-history-incomplete', 'UW history is absent')
   const mandate = selectedMandate(history)
   if (!('kind' in mandate)) return deliveryFailure(uw, mandate.reason, 'No current authenticated delivery mandate')
-  const accepted = resolveAcceptedSpec(mandate, observation.histories)
+  const accepted = resolveAcceptedSpec(mandate, observation.histories, undefined, undefined, historical)
   return accepted.ok
     ? { ok: true, value: accepted.spec }
     : deliveryFailure(uw, accepted.reason, accepted.evidence.map((item) => item.message).join('; '))
@@ -118,6 +123,7 @@ function verdictRows(selected: SelectedDeliveryReview): UwDeliveryVerdict[] {
 function effectiveResult(
   observation: UwCompletionObservation,
   accepted: UwResult<AcceptedOwnSpec>,
+  historical?: HistoricalAcceptedSpecContext,
 ): UwResult<SpecEffective> {
   return accepted.ok
     ? resolveSpecEffective({
@@ -125,6 +131,7 @@ function effectiveResult(
         own: accepted.value.ref,
         histories: observation.histories,
         graph: observation.graph,
+        historical,
       })
     : accepted
 }
@@ -133,10 +140,11 @@ export function projectUwDelivery(
   observation: UwCompletionObservation,
   assessment: UwCompletionAssessment,
   uw: Scope,
+  historical?: HistoricalAcceptedSpecContext,
 ): UwResult<UwDeliveryRead> {
   if (observation.status === 'incomplete') return { ok: false, diagnostics: [...observation.diagnostics] }
-  const accepted = currentAccepted(observation, uw)
-  const effective = effectiveResult(observation, accepted)
+  const accepted = currentAccepted(observation, uw, historical)
+  const effective = effectiveResult(observation, accepted, historical)
   const diagnostics: Diagnostic[] = []
   const completion = assessment.completions.get(scopeKey(uw))
   if (completion !== undefined && completion.state !== 'complete')

@@ -14,6 +14,10 @@ export async function acceptOwnMaterialDecision(
     authority.history,
     authority.parentHistories,
     authority.causal,
+    new Set(),
+    undefined,
+    undefined,
+    authority.causal.historical,
   )
   if (!own.ok)
     return { kind: 'blocked', reason: 'material-decision-authority-unconfirmed', diagnostics: own.diagnostics }

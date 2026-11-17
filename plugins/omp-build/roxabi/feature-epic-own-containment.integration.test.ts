@@ -2,260 +2,278 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { effectiveMandateRole, resolveAcceptedSpec } from '../contracts.ts'
+import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { resolveAcceptedSpec } from '../contracts.ts'
 import {
-  acceptedMaterialState,
   acceptMaterialFixture,
   assessFixture,
   mandateAssessmentState,
   proposedAssessmentState,
 } from '../engine/__tests__/workflow-spec-assessment-support.ts'
-import type { DecodedHistory } from '../engine/history-schema.ts'
+import { actionInputDigest, validateActionInputs } from '../engine/action-input.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
+import { authenticateCapturedWorkFrame } from '../engine/workflow-captured-frame.ts'
+import { inspectContextNegativeReceipt } from '../engine/workflow-context-negative-inspection.ts'
+import { recordsOf } from '../engine/workflow-control.ts'
 import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
-import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
-import { git, readSim, sandbox, writeSim } from '../testing/sandbox/sandbox-repository.ts'
-import type { Box } from '../testing/sandbox/sandbox-types.ts'
-import { legacyFixtures } from './__tests__/uw-successor-selection-support.ts'
+import { git, readSim, writeSim } from '../testing/sandbox/sandbox-repository.ts'
+import { evolveChildHistory } from './feature-containment-child-evolution-fixture.ts'
+import { control, fixture, roots } from './feature-epic-own-containment-fixture.ts'
+import { createInstalledUwReadPort } from './uw-read-port.ts'
 
-const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
+const ASSESSMENT = path.resolve(import.meta.dirname, '../testing/feature-context-assessment-runner.ts')
 const ABANDON = path.resolve(import.meta.dirname, './feature-containment-abandon-fixture.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const ROOT = { repository: 'acme/app', target: 'acme/app#42' }
 const CHILD = { repository: 'acme/app', target: 'acme/app#43' }
-const FOREIGN = { repository: 'acme/app', target: 'acme/app#44' }
-const PR = { repository: 'acme/app', target: 'acme/app#7' }
 const BRANCH = 'feat/44-foreign'
-const roots = new Set<string>()
-const fixtures = roxabiWorkflowFixtures()
 
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
   roots.clear()
 })
 
-function abandonFixtureChild(
-  box: Box,
-  cwd: string,
-  rootBody: string,
-  childBody: string,
-  rootRecords: CanonicalRecord[],
-  child: CanonicalRecord,
-  initialRootHistory: DecodedHistory,
-  childHistory: DecodedHistory,
-): DecodedHistory {
-  writeSim(box, (state) => {
-    const rootIssue = state.issues['42']
-    const childIssue = state.issues['43']
-    if (!rootIssue || !childIssue) throw new Error('missing native fixture')
-    rootIssue.body = rootBody
-    rootIssue.subIssues = [43]
-    rootIssue.comments.push(
-      ...fixtures.framedBodies(rootRecords, 'operator', [childHistory]).map((body) => ({ author: 'operator', body })),
-    )
-    childIssue.body = childBody
-    childIssue.comments.push(
-      ...fixtures.framedBodies([child], 'operator', [initialRootHistory]).map((body) => ({ author: 'operator', body })),
-    )
-  })
-  const artifacts = path.join(box.root, 'abandon-artifacts')
-  mkdirSync(artifacts, { recursive: true })
-  const run = spawnSync(BUN, [ABANDON, cwd, artifacts], {
-    cwd,
-    env: box.env,
-    encoding: 'utf8',
-  })
-  if (run.status !== 0) throw new Error(`Child abandonment failed: ${run.stderr}\n${run.stdout}`)
-  return JSON.parse(run.stdout) as DecodedHistory
-}
-
-function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy = false): { box: Box; cwd: string } {
-  const rootSpec = nativeFeatureSpec(ROOT, 'deliver the epic')
-  const childSpec = nativeFeatureSpec(CHILD, 'deliver the child')
-  const foreignSpec = nativeFeatureSpec(FOREIGN, 'deliver unrelated work')
-  const box = sandbox({
-    base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
-    branches: [{ name: BRANCH, from: 'main', commits: [] }],
-    issues: [42, 43, 44].map((number) => ({ number, title: `work ${number}`, labels: ['size:S'] })),
-    prs: [{ number: 7, branch: BRANCH, title: 'work', body: 'Closes #42', closes: [42] }],
-  })
-  roots.add(box.root)
-  const cwd = path.join(box.root, 'worktree')
-  git(box, box.principal, ['worktree', 'add', '-q', cwd, BRANCH])
-  const base = box.sha.main
-  const head = box.sha[BRANCH]
-  if (!base || !head) throw new Error('missing fixture Git commits')
-  const codeRange = { repository: ROOT.repository, base, head, referenceCommit: head }
-  const rootOptions = {
-    body: rootSpec.body,
-    ownSpec: rootSpec.ownSpec,
-    branch: BRANCH,
-    base: 'main',
-    recordId: 'root-mandate',
-    operationId: 'root-operation',
-    runId: 'run00001',
-    run: 'run00001',
-  }
-  const children = [
-    { scope: CHILD, snapshot: childSpec.ownSpec.snapshot, specVersion: childSpec.ownSpec.version, tier: 'S' as const },
-  ]
-  const parentTemplate = fixtures.epicMandate(ROOT, children, rootOptions)
-  const root = legacy
-    ? legacyFixtures.epicMandate(ROOT, children, rootOptions)
-    : fixtures.featureMandate(ROOT, rootOptions)
-  const child = fixtures.featureMandate(CHILD, {
-    body: childSpec.body,
-    ownSpec: childSpec.ownSpec,
-    recordId: 'child-mandate',
-    parent: fixtures.mandateRef(root),
-    inheritedOwnSpecRefs: [
-      { uw: ROOT, version: root.payload.ownSpec.version, sourceAccepted: fixtures.mandateRef(root) },
-    ],
-  })
-  const rootRecords: CanonicalRecord[] = [root]
-  let initialRootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator')
-  let childHistory = fixtures.historyFrom([child], 'operator', 'operator', [initialRootHistory])
-  let parentState = mandateAssessmentState(root)
-  if (!legacy) {
-    if (parentTemplate.payload.coverage === null) throw new Error('missing parent coverage')
-    const proposed = {
-      ...proposedAssessmentState(parentState, { body: rootSpec.body, children }),
-      snapshot: parentState.snapshot,
-      coverage: parentTemplate.payload.coverage,
-    }
-    const assessment = assessFixture(
-      root,
-      'root-accept-parent',
-      parentState,
-      proposed,
-      'material',
-      [initialRootHistory, childHistory],
-      undefined,
-      undefined,
-      codeRange,
-    )
-    const control = acceptMaterialFixture(root, 'accept-root-parent', assessment)
-    rootRecords.push(assessment.start, assessment.result, control)
-    parentState = acceptedMaterialState(assessment, control)
-    initialRootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator', [childHistory])
-    const accepted = resolveAcceptedSpec(root, [initialRootHistory, childHistory])
-    if (!accepted.ok) throw new Error(`parent acceptance refused: ${accepted.reason}`)
-    expect(root.payload.role).toBe('feature')
-    expect(effectiveMandateRole(root.payload.role, accepted.spec)).toBe('epic')
-    childHistory = fixtures.historyFrom([child], 'operator', 'operator', [initialRootHistory])
-  }
-  if (historicalEpic)
-    childHistory = abandonFixtureChild(
-      box,
-      cwd,
-      rootSpec.body,
-      childSpec.body,
-      rootRecords,
-      child,
-      initialRootHistory,
-      childHistory,
-    )
-  if (historicalEpic) {
-    const initial = parentState
-    const proposed = proposedAssessmentState(initial, { body: rootSpec.body, children: [] })
-    const assessment = assessFixture(
-      root,
-      'root-accept-leaf',
-      initial,
-      proposed,
-      'material',
-      [initialRootHistory, childHistory],
-      undefined,
-      undefined,
-      codeRange,
-    )
-    rootRecords.push(
-      assessment.start,
-      assessment.result,
-      acceptMaterialFixture(root, 'accept-root-leaf', assessment, {
-        scope: ROOT,
-        kind: 'operator-control',
-        recordId: 'accept-root-parent',
-      }),
-    )
-    const rootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator', [childHistory])
-    const accepted = resolveAcceptedSpec(root, [rootHistory, childHistory])
-    if (!accepted.ok) throw new Error(`historical root acceptance refused: ${JSON.stringify(accepted)}`)
-    expect(root.payload.role).toBe('feature')
-    expect(effectiveMandateRole(root.payload.role, accepted.spec)).toBe('feature')
-  }
-  const foreign = fixtures.featureMandate(FOREIGN, {
-    body: foreignSpec.body,
-    ownSpec: foreignSpec.ownSpec,
-    branch: BRANCH,
-    recordId: 'foreign-mandate',
-    operationId: 'foreign-operation',
-    runId: 'run00002',
-    run: 'run00002',
-  })
-  const bound = owner === 'selected' ? root : foreign
-  const ownerHistory =
-    owner === 'selected'
-      ? fixtures.historyFrom(rootRecords, 'operator', 'operator', [childHistory])
-      : fixtures.historyFrom([bound], 'operator', 'operator')
-  const binding = fixtures.workflowBinding(PR, bound, BRANCH, 'main')
-  const prHistory = fixtures.historyFrom([binding], 'operator', 'operator', [ownerHistory])
-  expect(
-    selectWorkflowBinding({
-      pullRequest: PR,
-      histories: [prHistory, ownerHistory],
-      native: { branch: BRANCH, base: 'main' },
-    }),
-  ).toMatchObject({ status: 'bound', mandate: fixtures.mandateRef(bound) })
-  writeSim(box, (state) => {
-    const rootIssue = state.issues['42']
-    const childIssue = state.issues['43']
-    const foreignIssue = state.issues['44']
-    const pr = state.prs['7']
-    if (!rootIssue || !childIssue || !foreignIssue || !pr) throw new Error('missing native fixture')
-    rootIssue.body = rootSpec.body
-    rootIssue.subIssues = historicalEpic ? [] : [43]
-    rootIssue.comments = fixtures
-      .framedBodies(rootRecords, 'operator', [childHistory])
-      .map((body) => ({ author: 'operator', body }))
-    childIssue.body = childSpec.body
-    if (!historicalEpic) {
-      childIssue.comments.push(
-        ...fixtures
-          .framedBodies([child], 'operator', [initialRootHistory])
-          .map((body) => ({ author: 'operator', body })),
-      )
-    }
-    foreignIssue.body = foreignSpec.body
-    foreignIssue.comments.push(
-      ...fixtures.framedBodies([foreign], 'operator').map((body) => ({ author: 'operator', body })),
-    )
-    pr.labels = ['reviewed']
-    pr.autoMerge = { enabledAt: '2026-01-01T00:00:00Z' }
-    pr.comments.push(
-      ...fixtures.framedBodies([binding], 'operator', [ownerHistory]).map((body) => ({ author: 'operator', body })),
-    )
-  })
-  return { box, cwd }
-}
-
-function control(box: Box, cwd: string, action: 'pause' | 'abandon', confirmedAbandon = false) {
-  const home = path.join(box.root, `home-${action}`)
-  mkdirSync(home, { recursive: true })
-  const args = confirmedAbandon
-    ? [ABANDON, cwd, home, 'root']
-    : [RUNNER, 'continue', cwd, JSON.stringify({ reference: '#42', control: action })]
-  const run = spawnSync(BUN, args, {
-    cwd,
-    env: { ...box.env, HOME: home },
-    encoding: 'utf8',
-  })
-  if (run.status !== 0) throw new Error(`${run.stderr}\n${run.stdout}`)
-  return JSON.parse(run.stdout)
-}
-
 describe('Epic own-lane containment through public controls', () => {
+  it.each(['intact', 'incomplete', 'foreign'] as const)(
+    'abandons an assessment-negative Epic only after accounting for its %s child PR ownership',
+    async (ownership) => {
+      const { box, cwd: originalCwd } = fixture('child')
+      const worktreeRoot = path.join(box.root, 'context-worktrees')
+      const cwd = path.join(worktreeRoot, 'app', 'parents', 'acme-42')
+      mkdirSync(path.dirname(cwd), { recursive: true })
+      git(box, box.principal, ['worktree', 'move', originalCwd, cwd])
+      git(box, cwd, ['checkout', '--detach', '-q'])
+      const gh = async (directory: string, args: string[]) =>
+        execFileSync('gh', args, {
+          cwd: directory,
+          env: box.env,
+          encoding: 'utf8',
+          maxBuffer: 16 * 1024 * 1024,
+        })
+      const reader = createInstalledUwReadPort({ cwd, gh, readAuthor: 'operator' })
+      const before = ownership === 'intact' ? await reader.readUw(CHILD) : null
+      const beforeChild = before?.histories.find((entry) => entry.source.scope.target === CHILD.target)
+      const childMandate =
+        beforeChild &&
+        recordsOf(beforeChild).find((record) => record.kind === 'mandate' && record.recordId === 'child-mandate')
+      let laterChildRecords: CanonicalRecord[] | undefined
+      let laterChildVersion: string | undefined
+      function prepareLaterChild() {
+        if (before !== null) {
+          if (childMandate?.kind !== 'mandate') throw new Error('Original child mandate unavailable')
+          const original = mandateAssessmentState(childMandate)
+          const laterSpec = nativeFeatureSpec(CHILD, 'deliver the child and preserve locale')
+          const { format: _format, version: _version, ...content } = laterSpec.ownSpec.snapshot.spec
+          const proposed = proposedAssessmentState(original, { body: laterSpec.body, content })
+          const base = git(box, cwd, ['rev-parse', 'main']).trim()
+          const head = git(box, cwd, ['rev-parse', 'HEAD']).trim()
+          const assessed = assessFixture(
+            childMandate,
+            'child-later-material',
+            original,
+            proposed,
+            'material',
+            before.histories,
+            undefined,
+            undefined,
+            { repository: ROOT.repository, base, head, referenceCommit: head },
+          )
+          const accepted = acceptMaterialFixture(childMandate, 'accept-child-later-material', assessed)
+          laterChildRecords = [assessed.start, assessed.result, accepted]
+          laterChildVersion = proposed.snapshot.spec.version
+        }
+      }
+      prepareLaterChild()
+      box.env.OMP_WORKTREE_DIR = worktreeRoot
+      writeSim(box, (state) => {
+        const issue = state.issues['42']
+        if (!issue) throw new Error('Missing root issue')
+        issue.body = nativeFeatureSpec(ROOT, 'deliver the epic and preserve its timezone').body
+      })
+      const assessment = spawnSync(BUN, [ASSESSMENT, cwd, '', '#42'], { cwd, env: box.env, encoding: 'utf8' })
+      if (assessment.status !== 0)
+        throw new Error(`Native assessment failed: ${assessment.stderr}\n${assessment.stdout}`)
+      const assessmentResult = JSON.parse(assessment.stdout)
+      expect(assessmentResult, JSON.stringify(assessmentResult)).toMatchObject({
+        admitted: true,
+        activeAfterSettlement: false,
+        coverageEdits: 1,
+      })
+      const rootHistory = () =>
+        decodeHistory({
+          scope: ROOT,
+          expectedAuthor: 'operator',
+          stopAuthor: null,
+          complete: true,
+          diagnostics: [],
+          comments: (readSim(box).issues['42']?.comments ?? []).map((comment, index) => ({
+            locator: `${ROOT.target}:${index + 1}`,
+            nativeId: String(index + 1),
+            body: comment.body,
+            author: comment.author,
+            createdAt: comment.createdAt ?? null,
+            updatedAt: comment.updatedAt ?? null,
+          })),
+        })
+      const negative = rootHistory().operations.find(
+        ({ record }) =>
+          record?.kind === 'action-receipt' &&
+          record.payload.action === 'assess-spec' &&
+          record.payload.phase === 'result' &&
+          record.payload.structured !== null &&
+          'outcome' in record.payload.structured &&
+          record.payload.structured.outcome === 'missing-context',
+      )?.record
+      if (!negative) throw new Error('Native assessment negative unavailable')
+      const negativeRecordId = negative.recordId
+      async function assertIntactFrame() {
+        if (ownership !== 'intact') return
+        const read = await reader.readUw(ROOT)
+        expect(read.observation.status).toBe('complete')
+        const histories = read.observation.histories
+        const home = histories.find((entry) => entry.source.scope.target === ROOT.target)
+        const child = histories.find((entry) => entry.source.scope.target === CHILD.target)
+        const mandate =
+          home && recordsOf(home).find((record) => record.kind === 'mandate' && record.recordId === 'root-mandate')
+        const nativeNegative = home && recordsOf(home).find((record) => record.recordId === negativeRecordId)
+        if (
+          mandate?.kind !== 'mandate' ||
+          nativeNegative?.kind !== 'action-receipt' ||
+          nativeNegative.payload.action !== 'assess-spec' ||
+          nativeNegative.payload.phase !== 'result' ||
+          !child
+        )
+          throw new Error('Observed assessment frame unavailable')
+        function inspectMandate(verifiedMandate: Extract<CanonicalRecord, { kind: 'mandate' }>) {
+          const inspected = inspectContextNegativeReceipt({ mandate: verifiedMandate, histories })
+          if (!inspected.ok) throw new Error(`Native negative inspection refused: ${JSON.stringify(inspected)}`)
+          return inspected.value.inspection
+        }
+        const inspection = inspectMandate(mandate)
+        const inputs = nativeNegative.payload.inputs
+        function findChildPin() {
+          const pin = inputs.manifest.acceptedSources.find(
+            (source) =>
+              source.record.scope.target === CHILD.target &&
+              source.record.scope.repository === CHILD.repository &&
+              source.record.kind === 'mandate',
+          )
+          if (!pin) throw new Error('Managed child source pin unavailable')
+          return pin
+        }
+        const pin = findChildPin()
+        const frame = authenticateCapturedWorkFrame(inputs, inspection.mandate, histories, undefined, inspection)
+        expect(frame, JSON.stringify(frame.ok ? { ok: true } : frame)).toMatchObject({ ok: true })
+        function assertEvolvedChild(childHistory: NonNullable<typeof child>) {
+          if (!laterChildRecords || !laterChildVersion || childMandate?.kind !== 'mandate')
+            throw new Error('Later child material fixture unavailable')
+          const evolvedHistories = evolveChildHistory(childHistory, histories, laterChildRecords)
+          const evolvedAccepted = resolveAcceptedSpec(childMandate, evolvedHistories, undefined, inspection)
+          expect(evolvedAccepted, JSON.stringify(evolvedAccepted)).toMatchObject({
+            ok: true,
+            spec: { ref: { version: laterChildVersion } },
+          })
+          expect(laterChildVersion).not.toBe(childMandate.payload.ownSpec.version)
+          const operands = inputs.manifest.operands
+          if (operands?.action !== 'assess-spec') throw new Error('Captured assessment operands unavailable')
+          expect(
+            operands.exactInputs.childOwnSources.find((source) => source.uw.target === CHILD.target)?.own?.version,
+          ).toBe(childMandate.payload.ownSpec.version)
+          const historicalFrame = authenticateCapturedWorkFrame(
+            inputs,
+            inspection.mandate,
+            evolvedHistories,
+            undefined,
+            inspection,
+          )
+          expect(historicalFrame, JSON.stringify(historicalFrame.ok ? { ok: true } : historicalFrame)).toMatchObject({
+            ok: true,
+          })
+        }
+        assertEvolvedChild(child)
+        function assertMissingAndForeignPins(
+          childHistory: NonNullable<typeof child>,
+          acceptedPin: NonNullable<typeof pin>,
+        ) {
+          const manifest = {
+            ...inputs.manifest,
+            acceptedSources: inputs.manifest.acceptedSources.filter((source) => source !== acceptedPin),
+          }
+          const missing = { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+          expect(validateActionInputs(missing).ok).toBe(true)
+          expect(
+            authenticateCapturedWorkFrame(missing, inspection.mandate, histories, undefined, inspection),
+          ).toMatchObject({
+            ok: false,
+            diagnostics: expect.arrayContaining([
+              expect.objectContaining({ message: 'Captured accepted metadata prefix is absent or ambiguous' }),
+            ]),
+          })
+          const childOperation = childHistory.operations.find(
+            (operation) =>
+              operation.recordId === acceptedPin.record.recordId && operation.kind === acceptedPin.record.kind,
+          )
+          if (!childOperation || childOperation.parts.length === 0)
+            throw new Error('Pinned child operation unavailable')
+          const childPartIds = new Set(childOperation.parts.map((part) => part.nativeId))
+          const foreignChild = decodeHistory({
+            ...childHistory.source,
+            comments: childHistory.source.comments.map((comment) =>
+              childPartIds.has(comment.nativeId) ? { ...comment, author: 'intruder' } : comment,
+            ),
+          })
+          expect(
+            foreignChild.operations.find((operation) => operation.recordId === acceptedPin.record.recordId)?.authority,
+          ).toBe('foreign')
+          const foreignHistories = histories.map((entry) => (entry === childHistory ? foreignChild : entry))
+          expect(
+            authenticateCapturedWorkFrame(inputs, inspection.mandate, foreignHistories, undefined, inspection),
+          ).toMatchObject({ ok: false })
+        }
+        assertMissingAndForeignPins(child, pin)
+      }
+      await assertIntactFrame()
+      const retained = JSON.stringify(negative)
+      if (ownership !== 'intact')
+        writeSim(box, (state) => {
+          const binding = state.prs['7']?.comments.find((comment) => comment.body.includes('kind=workflow-binding '))
+          if (!binding) throw new Error('Child PR binding unavailable')
+          if (ownership === 'foreign') binding.author = 'intruder'
+          else binding.body = binding.body.replace(/part=1\/[0-9]+/, 'part=1/999')
+        })
+      if (ownership === 'intact') {
+        const result = control(box, cwd, 'abandon', true)
+        expect(result, JSON.stringify(result)).toMatchObject({ kind: 'abandoned', confirmed: true })
+        expect(readSim(box).prs['7']).toMatchObject({ labels: [], autoMerge: null })
+      } else {
+        const home = path.join(box.root, 'home-refused-abandon')
+        mkdirSync(home, { recursive: true })
+        const refused = spawnSync(BUN, [ABANDON, cwd, home, 'root'], {
+          cwd,
+          env: { ...box.env, HOME: home },
+          encoding: 'utf8',
+        })
+        expect(refused.status).not.toBe(0)
+        expect(readSim(box).prs['7']).toMatchObject({
+          labels: ['reviewed'],
+          autoMerge: { enabledAt: '2026-01-01T00:00:00Z' },
+        })
+        expect(
+          rootHistory().operations.some(
+            ({ record }) =>
+              record?.kind === 'operator-control' &&
+              record.payload.control === 'abandon' &&
+              record.payload.mandate.recordId === 'root-mandate',
+          ),
+        ).toBe(false)
+      }
+      expect(
+        JSON.stringify(rootHistory().operations.find(({ record }) => record?.recordId === negative.recordId)?.record),
+      ).toBe(retained)
+    },
+    120_000,
+  )
+
   it.each<'pause' | 'abandon'>(['pause', 'abandon'])(
     '%s does not disarm a foreign bound PR merely linked to the Epic',
     (action) => {

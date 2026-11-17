@@ -1,9 +1,13 @@
 import { expect, test } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { assessmentRecoveryReplay } from '../../roxabi/uw-assessment-prestart.ts'
 import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
 import { resolveSpecEffective, type SpecEffectiveRequest } from '../spec-effective.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecAt, resolveAcceptedSpecPrefixes } from '../workflow-accepted-spec.ts'
+import { resolveAcceptedSpecForAbandonment } from '../workflow-accepted-spec-control.ts'
+import type { ContextSuccessionInspection } from '../workflow-context-succession-inspection.ts'
 import { observeAssessmentContextReplay, workflowContextTerminal } from '../workflow-context-terminal.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { resolveOwnSpecAuthority } from '../workflow-mandate-admission.ts'
@@ -71,8 +75,110 @@ test('observes only a linked authenticated pending expanded-context assessment',
   )
   if (start.kind !== 'action-receipt' || start.payload.action !== 'assess-spec' || start.payload.phase !== 'start')
     throw new Error('expected expanded assessment start')
-  const replay = { uw: SCOPE, actionId: 'expanded-action', fingerprint: inputs.fingerprint }
+  const replay = {
+    uw: SCOPE,
+    actionId: 'expanded-action',
+    fingerprint: inputs.fingerprint,
+    start: { scope: SCOPE, kind: 'action-receipt' as const, recordId: start.recordId },
+  }
+  const persistedIntent = { kind: 'persisted' as const, start: replay.start }
   const issue = history([mandated, prior.start, negative, start])
+  const request = {
+    actionId: replay.actionId,
+    purpose: manifest.purpose,
+    subject: manifest.subject,
+    code: manifest.code,
+    stageSources: inputs.stageSources,
+    expandedContext: manifest.expandedContext,
+    ...(manifest.operands === undefined ? {} : { operands: manifest.operands }),
+  }
+  const prestartIssue = history([mandated, prior.start, negative])
+  // A syntactically negative receipt with an unconserved native result cannot open
+  // the accepted-prefix inspection, even when its payload pin is exact.
+  const inspection = {
+    kind: 'context-negative-inspection' as const,
+    mandate: { scope: SCOPE, kind: 'mandate' as const, recordId: mandated.recordId },
+    negative: { ...lineage, selector: '/payload' as const },
+  }
+  expect(resolveAcceptedSpec(mandated, [prestartIssue])).toMatchObject({ ok: false })
+  expect(resolveAcceptedSpec(mandated, [prestartIssue], undefined, inspection)).toMatchObject({ ok: false })
+  expect(resolveAcceptedSpecForAbandonment(mandated, [prestartIssue])).toMatchObject({ ok: false })
+  expect(
+    resolveAcceptedSpec(mandated, [prestartIssue], undefined, {
+      ...inspection,
+      negative: { ...inspection.negative, digest: '0'.repeat(64) },
+    }),
+  ).toMatchObject({ ok: false })
+  expect(
+    resolveAcceptedSpec(mandated, [prestartIssue], undefined, {
+      ...inspection,
+      mandate: { ...inspection.mandate, recordId: 'other-mandate' },
+    }),
+  ).toMatchObject({ ok: false })
+  const competingNegative = must(
+    buildRecord({
+      ...negative,
+      recordId: 'competing-negative',
+      operationId: 'competing-negative-op',
+    }),
+  )
+  const competingIssue = history([mandated, prior.start, negative, competingNegative])
+  expect(resolveAcceptedSpecForAbandonment(mandated, [competingIssue])).toMatchObject({ ok: false })
+  expect(resolveAcceptedSpec(mandated, [competingIssue], undefined, inspection)).toMatchObject({ ok: false })
+  const prestart = assessmentRecoveryReplay(request, [prestartIssue], { kind: 'prepublication' }, inputs.fingerprint)
+  expect(prestart).toMatchObject({
+    ok: true,
+    value: {
+      uw: SCOPE,
+      actionId: replay.actionId,
+      fingerprint: inputs.fingerprint,
+      prestart: { negative: lineage.record, inputs },
+    },
+  })
+  if (!prestart.ok || prestart.value === undefined) throw new Error('Expected prepublication recovery context')
+  expect(resolveAcceptedSpec(mandated, [prestartIssue], prestart.value)).toMatchObject({ ok: true })
+  expect(
+    resolveAcceptedSpec(mandated, [prestartIssue], prestart.value, {
+      kind: 'selected-succession',
+      succession: {} as ContextSuccessionInspection,
+    }),
+  ).toMatchObject({ ok: false })
+  const deletedStartReplay = assessmentRecoveryReplay(request, [prestartIssue], persistedIntent, inputs.fingerprint)
+  if (!deletedStartReplay.ok || deletedStartReplay.value === undefined)
+    throw new Error('Expected persisted replay candidate')
+  expect(resolveAcceptedSpec(mandated, [prestartIssue], deletedStartReplay.value)).toMatchObject({ ok: false })
+  expect(assessmentRecoveryReplay(request, [prestartIssue], { kind: 'prepublication' }, '0'.repeat(64))).toMatchObject({
+    ok: false,
+  })
+  const persisted = assessmentRecoveryReplay(request, [issue], persistedIntent, inputs.fingerprint)
+  expect(persisted).toEqual({ ok: true, value: replay })
+
+  const duplicate = must(
+    buildRecord({
+      ...start,
+      recordId: 'duplicate-expanded-start',
+      operationId: 'duplicate-expanded-op',
+    }),
+  )
+  const duplicateIssue = history([mandated, prior.start, negative, start, duplicate])
+  const duplicateReplay = assessmentRecoveryReplay(request, [duplicateIssue], persistedIntent, inputs.fingerprint)
+  expect(duplicateReplay).toEqual({ ok: true, value: replay })
+  if (!duplicateReplay.ok) throw new Error('Expected persisted replay candidate')
+  expect(resolveAcceptedSpec(mandated, [duplicateIssue], duplicateReplay.value)).toMatchObject({ ok: false })
+
+  const startParts = new Set(
+    issue.operations.find((operation) => operation.recordId === start.recordId)?.parts.map((part) => part.nativeId),
+  )
+  const foreignIssue = decodeHistory({
+    ...issue.source,
+    comments: issue.source.comments.map((comment) =>
+      startParts.has(comment.nativeId) ? { ...comment, author: 'foreign' } : comment,
+    ),
+  })
+  const foreignReplay = assessmentRecoveryReplay(request, [foreignIssue], persistedIntent, inputs.fingerprint)
+  expect(foreignReplay).toEqual({ ok: true, value: replay })
+  if (!foreignReplay.ok) throw new Error('Expected persisted replay candidate')
+  expect(resolveAcceptedSpec(mandated, [foreignIssue], foreignReplay.value)).toMatchObject({ ok: false })
   const readBack = recordsOf(issue).find((record) => record.recordId === start.recordId)
   if (
     readBack?.kind !== 'action-receipt' ||
@@ -107,7 +213,11 @@ test('observes only a linked authenticated pending expanded-context assessment',
     pause.resumed,
     successor,
   ])
-  const pendingReplay = { ...replay, actionId: 'replacement-expanded-action' }
+  const pendingReplay = {
+    ...replay,
+    actionId: 'replacement-expanded-action',
+    start: { ...replay.start, recordId: successor.recordId },
+  }
   const original = resolveAcceptedSpec(mandated, [history([mandated])])
   expect(original.ok).toBe(true)
   expect(resolveAcceptedSpec(mandated, [pending], pendingReplay)).toEqual(original)

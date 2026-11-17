@@ -7,17 +7,18 @@ import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { mandatesInHistory } from './feature-context.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
-import { bindsOwnPause, inhibition } from './feature-control.ts'
+import { bindsOwnPause } from './feature-control.ts'
 import { assembleChantier, sameDeliveryCoordinates } from './feature-delivery-facts.ts'
 import { isRecord } from './feature-engine.ts'
+import { buildObservationBase } from './feature-observation-base.ts'
 import type { FeatureObservation, FreshUwDeliveryAdmission } from './feature-observation-contract.ts'
+import { plannerSuccessionInspection } from './feature-planner-succession.ts'
 import { readObservationDecisions } from './feature-review-observation.ts'
 import { reconcileWithdrawalContexts } from './fix-uw-histories.ts'
 import type { UwRead } from './uw-contract.ts'
 import { readAssessmentSpecFacts, readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 import { createInstalledObservedUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
-import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
-import { SUPPORTED_CONFIG_VERSIONS, WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
+import { effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { additionalRequirementsOf } from './workflow-overrides.ts'
 
 type ObservationBase = Omit<FeatureObservation, 'decisions' | 'reviewId'> & { merged: boolean }
@@ -46,10 +47,17 @@ async function currentSpecFacts(
       ? await readAssessmentSpecFacts({
           uw: selected.authority.scope,
           read,
+          assessmentReplay: selected.assessmentReplay,
+          assessmentInspection: selected.assessmentInspection,
           coverage: intent.parentCoverage,
           basis: intent.parentCoverageBasis,
         })
-      : await readCurrentOwnSpecFacts({ uw: selected.authority.scope, read })
+      : await readCurrentOwnSpecFacts({
+          uw: selected.authority.scope,
+          read,
+          assessmentReplay: selected.assessmentReplay,
+          assessmentInspection: selected.assessmentInspection,
+        })
   if (!facts.ok && 'coverageRequest' in facts)
     return { kind: 'blocked', reason: facts.reason, coverageRequest: facts.coverageRequest }
   const currentChildren: CurrentChildrenProjection = facts.ok
@@ -135,7 +143,11 @@ async function observedCurrentRead(
   observation: Parameters<typeof createInstalledObservedUwReadPort>[0]['observation'],
 ): Promise<{ read: UwRead | null } | ContinueFeatureResult> {
   if (uwRead === null) return { read: null }
-  const read = await createInstalledObservedUwReadPort({ observation }).readUw(selected.authority.scope)
+  const read = await createInstalledObservedUwReadPort({
+    observation,
+    ...(selected.assessmentReplay === undefined ? {} : { assessmentReplay: selected.assessmentReplay }),
+    ...(selected.assessmentInspection === undefined ? {} : { assessmentInspection: selected.assessmentInspection }),
+  }).readUw(selected.authority.scope)
   const aggregate = read.admission.aggregate
   if (aggregate.status === 'held')
     return { kind: 'blocked', reason: aggregate.code, diagnostics: aggregate.diagnostics }
@@ -157,52 +169,55 @@ async function assembleObservationBase(
   })
   if (!assembled.ok) return { kind: 'blocked', reason: assembled.reason, diagnostics: assembled.diagnostics }
   const { evidence, delivery } = assembled
+  let currentSelected = selected
+  if (selected.assessmentInspection?.succession !== undefined && mandate !== null) {
+    const refreshed = await refreshSuccessionInspection(
+      selected,
+      mandate,
+      selected.assessmentInspection,
+      evidence.causal,
+    )
+    if ('kind' in refreshed) return refreshed
+    currentSelected = refreshed
+  }
   const head = delivery?.head ?? null
   const requirements = observationRequirements(selected)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
-  const current = await observedCurrentRead(selected, uwRead, evidence.causal.observation)
+  const current = await observedCurrentRead(currentSelected, uwRead, evidence.causal.observation)
   if ('kind' in current) return current
   const currentRead = current.read
   const completedDelivery = merged && commonCompletion(currentRead, selected.authority.scope)
-  const sessionCwd = identity.ok ? identity.sessionTop : null
-  const currentFacts = await currentSpecFacts(selected, currentRead, evidence.causal, intent)
+  const sessionCwd = onPrincipal || !identity.ok ? null : identity.sessionTop
+  const currentFacts = await currentSpecFacts(currentSelected, currentRead, evidence.causal, intent)
   if ('kind' in currentFacts) return currentFacts
-  return {
+  return buildObservationBase({
     evidence,
     delivery,
     merged,
-    deliveryAdmission: currentFacts.deliveryAdmission,
-    facts: {
-      currentSpec: currentFacts.currentSpec,
-      identityAllocations: currentFacts.identityAllocations,
-      base: delivery?.base ?? null,
-      candidateGitSHA: head,
-      lineageHead: head,
-      pullRequest:
-        delivery === null
-          ? null
-          : {
-              scope: delivery.scope,
-              head: delivery.branch,
-              base: delivery.base,
-              associatedIssue: delivery.issueScope,
-            },
-      merged,
-      sessionCwd: onPrincipal ? null : sessionCwd,
-      preparedWorktree: onPrincipal ? null : sessionCwd,
-      productVersion: context.engine.shippedProductVersion(),
-      configVersion: WORKFLOW_CONFIG_VERSION,
-      configDigest: configPinDigest(effectiveConfig),
-      supportedConfigVersions: SUPPORTED_CONFIG_VERSIONS,
-      explicitSelection: control === 'select' || control === 'new',
-      explicitResume: control === 'resume',
-      successorAntecedent: null,
-      endObligationsMet: completedDelivery,
-      localInhibit: inhibition(scope) ?? null,
-      failedChecks: null,
-      evidenceDigest: null,
-    },
+    currentFacts,
+    head,
+    sessionCwd,
+    completedDelivery,
+    control,
+    scope,
+    productVersion: context.engine.shippedProductVersion(),
+    effectiveConfig,
+  })
+}
+
+async function refreshSuccessionInspection(
+  selected: SelectedFeature,
+  mandate: NonNullable<SelectedFeature['mandate']>,
+  inspection: NonNullable<SelectedFeature['assessmentInspection']>,
+  causal: WorkflowCausalContext,
+): Promise<SelectedFeature | ContinueFeatureResult> {
+  const proof = await plannerSuccessionInspection(mandate, causal)
+  if (!proof.ok) return { kind: 'blocked', reason: 'context-succession-unavailable', diagnostics: proof.diagnostics }
+  if (proof.value === undefined) return { kind: 'blocked', reason: 'context-succession-unavailable' }
+  return {
+    ...selected,
+    assessmentInspection: { ...inspection, succession: proof.value },
   }
 }
 function observationRequirements(selected: SelectedFeature): string[] {

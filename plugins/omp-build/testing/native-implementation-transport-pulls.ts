@@ -76,11 +76,57 @@ function graphPullResponse(args: readonly string[], repository: string, pulls: M
   })
 }
 
+function linkedPullResponse(
+  args: readonly string[],
+  repository: string,
+  pulls: Map<string, Pull>,
+  linkedPullRequests?: NativeWorldFacts['linkedPullRequests'],
+): string | undefined {
+  if (
+    args.length === 12 &&
+    args[0] === 'pr' &&
+    args[1] === 'list' &&
+    args[2] === '--repo' &&
+    args[3] === repository &&
+    args[4] === '--state' &&
+    args[5] === 'all' &&
+    args[6] === '--search' &&
+    args[8] === '--limit' &&
+    args[9] === '1000' &&
+    args[10] === '--json' &&
+    args[11] === 'number,state'
+  ) {
+    const match = /^linked:issue:([1-9]\d*)$/.exec(args[7] ?? '')
+    if (match === null) throw new Error('Undeclared linked pull request enumeration')
+    const declarations =
+      linkedPullRequests?.filter(
+        (item) => item.issue.repository === repository && item.issue.target === `${repository}#${match[1]}`,
+      ) ?? []
+    const declaration = declarations[0]
+    if (declarations.length !== 1 || !declaration) throw new Error('Linked pull request enumeration was not declared')
+    const scopes = declaration.pulls
+    if (new Set(scopes.map((scope) => scope.target)).size !== scopes.length || scopes.length >= 1000)
+      throw new Error('Linked pull request enumeration is ambiguous')
+    return JSON.stringify(
+      scopes.map((scope) => {
+        const pull = pulls.get(scope.target)
+        if (scope.repository !== repository || !pull || pull.scope.repository !== repository)
+          throw new Error('Linked pull request was not declared')
+        return { number: nativeNumber(scope), state: pull.state }
+      }),
+    )
+  }
+  return undefined
+}
+
 export function nativePullResponse(
   args: readonly string[],
   repository: string,
   pulls: Map<string, Pull>,
+  linkedPullRequests?: NativeWorldFacts['linkedPullRequests'],
 ): string | undefined {
+  const linked = linkedPullResponse(args, repository, pulls, linkedPullRequests)
+  if (linked !== undefined) return linked
   const branch = branchPullResponse(args, repository, pulls)
   if (branch !== undefined) return branch
   if (

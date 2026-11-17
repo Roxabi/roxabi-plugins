@@ -6,6 +6,35 @@ import { base, dispose, openState, pull, run, saved } from './sim-transport-fixt
 import { GITHUB_COMMENT_LIMIT } from './sim-types.ts'
 
 describe('simulator transport protocol', () => {
+  it('lists branch pull requests with REST state, head filtering and pagination', () => {
+    const box = openState(
+      base({
+        prs: {
+          10: pull(10, 'feat/a', 'a'.repeat(40)),
+          11: pull(11, 'feat/a', 'b'.repeat(40), { state: 'CLOSED' }),
+          12: pull(12, 'feat/a', 'c'.repeat(40), { state: 'MERGED', mergedAt: '2026-01-01T00:00:00Z' }),
+          13: pull(13, 'feat/b', 'd'.repeat(40)),
+          14: pull(14, 'feat/a', 'e'.repeat(40), { isCrossRepository: true }),
+        },
+      }),
+    )
+    try {
+      const endpoint = 'repos/acme/app/pulls?state=all&head=acme%3Afeat%2Fa&per_page=2'
+      const page1 = run(box.file, ['api', `${endpoint}&page=1`], box.root)
+      const page2 = run(box.file, ['api', `${endpoint}&page=2`], box.root)
+      expect(page1.status).toBe(0)
+      expect(page2.status).toBe(0)
+      expect(JSON.parse(page1.stdout)).toEqual([
+        { number: 10, state: 'open', merged_at: null },
+        { number: 11, state: 'closed', merged_at: null },
+      ])
+      expect(JSON.parse(page2.stdout)).toEqual([{ number: 12, state: 'closed', merged_at: '2026-01-01T00:00:00Z' }])
+      expect(run(box.file, ['api', 'repos/acme/app/pulls?state=all&head=other%3Afeat%2Fa'], box.root).status).toBe(1)
+    } finally {
+      dispose(box.root)
+    }
+  })
+
   it('stores a stdin comment with its exact newlines and rejects an overlong body without publishing', () => {
     const box = openState(base({ prs: { 10: pull(10, 'feat/a', 'a'.repeat(40)) } }))
     try {

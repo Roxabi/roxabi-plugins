@@ -128,3 +128,12 @@ export {
   uwTierSchema,
 } from './engine/uw-spec-schema.ts'
 export { projectUwWaits } from './engine/uw-waits.ts'
+export {
+  isAssessResult,
+  materialAcceptanceDigest,
+  mechanicalSpecDelta,
+  sameAssessedState,
+  sameCurrentAssessedState,
+} from './engine/workflow-spec-assessment.ts'
+export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
+export { authenticatedAssessResult } from './engine/workflow-spec-authentication-chain.ts'

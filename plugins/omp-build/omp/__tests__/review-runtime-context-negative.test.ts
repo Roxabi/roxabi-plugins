@@ -479,6 +479,72 @@ describe('native runtime missing-context settlement', () => {
     expect(freshSettled).not.toHaveBeenCalled()
   })
 
+  it('retains a repeated plan-review negative against the selected native contributor only', async () => {
+    const harness = bridgeHarness()
+    const prepared = batch(['architect', 'adversarial'])
+    prepared.operationId = 'review-recovery'
+    const [architect, adversarial] = prepared.tasks.tasks
+    if (architect === undefined || adversarial === undefined) throw new Error('expected review slots')
+    architect.agent = 'R-workflow-plan-architect'
+    adversarial.agent = 'R-workflow-plan-adversarial'
+    architect.action = fixtureAction('architect-fresh', architect.agent)
+    adversarial.action = fixtureAction('adversarial-recovered', adversarial.agent)
+    const { host, published } = featureHost(harness)
+    const ref = start('review-recovery-start')
+    await announceFeatureBatch('42', prepared, ref, host, noDelivery)
+    await admit(harness, prepared, 'review-recovery-call')
+    const clear = { outcome: 'clear', blockers: [] }
+    await harness.admitChild(prepared, 'architect', 'architect-child', {
+      toolCallId: 'review-recovery-call',
+      root,
+      skipRootCall: true,
+    })
+    await harness.yieldChild('architect-child', clear)
+    await capture(harness, prepared, 'adversarial', 'adversarial-child', 'review-recovery-call')
+    const observation = {
+      toolCallId: 'review-recovery-call',
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'architect-child',
+          agent: architect.agent,
+          exitCode: 0,
+          structuredOutput: { status: 'valid' as const, data: clear },
+        },
+        {
+          index: 1,
+          id: 'adversarial-child',
+          agent: adversarial.agent,
+          exitCode: 0,
+          structuredOutput: { status: 'valid' as const, data: negative },
+        },
+      ],
+    }
+    await harness.settleBatch(observation)
+    await harness.settleBatch(observation)
+    expect(startDispatch(ref)).toEqual({ kind: 'activated', operationId: 'review-recovery' })
+    expect(published).toHaveLength(1)
+    expect(published[0]).toMatchObject({
+      stop: { kind: 'context-negative' },
+      result: {
+        children: [
+          { expectedId: 'architect', id: 'architect-child', structured: clear, usable: true },
+          {
+            expectedId: 'adversarial',
+            contextBlock: {
+              action: { actionId: 'adversarial-recovered', inputs: adversarial.action.inputs },
+            },
+          },
+        ],
+      },
+    })
+    const result = published[0]?.result
+    if (typeof result !== 'object' || result === null || !('children' in result) || !Array.isArray(result.children))
+      throw new Error('expected published native children')
+    expect(result.children[0]).not.toHaveProperty('contextBlock')
+  })
+
   it('prioritizes mutated snapshot integrity failure over a matched negative', async () => {
     const harness = bridgeHarness()
     const prepared = preparedBatch('mutated-action')

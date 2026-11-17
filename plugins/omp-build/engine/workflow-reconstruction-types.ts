@@ -1,5 +1,9 @@
+import type { RecordInputRef } from './action-input-refs.ts'
+import type { ActionInputs } from './action-input-schema.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
+import type { UwDeliveryFacts } from './uw-completion-types.ts'
+import type { ContextSuccessionProposal } from './workflow-context-disposition-schema.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
 import type { PauseBinding } from './workflow-pause.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
@@ -53,6 +57,32 @@ export type WorkflowDecision =
       evidence: Diagnostic[]
     }
 
+export type ContextSuccessionObservation =
+  | { control: ExternalRecordRef; reconciliation: ContextSuccessionProposal['reconciliation'] }
+  | {
+      kind: 'parent-child-advance'
+      control: ExternalRecordRef
+      candidate: { kind: 'parent'; repository: string; head: string; clean: true; remoteBase: string }
+      delivery: UwDeliveryFacts
+    }
+  | {
+      kind: 'admitted-successor-delivery'
+      control: ExternalRecordRef
+      receipt: RecordInputRef
+      candidate:
+        | {
+            repository: string
+            branch: string
+            head: string
+            clean: true
+            remoteBranch: string | null
+            remoteBase: string
+          }
+        | { kind: 'parent'; repository: string; head: string; clean: true; remoteBase: string }
+      delivery: UwDeliveryFacts
+      binding: { kind: 'absent' } | { kind: 'pull-request'; scope: Scope; record: ExternalRecordRef }
+    }
+
 export type WorkflowFacts = {
   currentSpec: AssessSpecExact['proposed'] | null
   identityAllocations: AssessSpecExact['identityAllocations'] | null
@@ -71,6 +101,10 @@ export type WorkflowFacts = {
   successorAntecedent: ExternalRecordRef | null
   endObligationsMet: boolean
   localInhibit: 'pause' | 'abandon' | null
+  /** Explicit, freshly prepared invocation; never durable authority by itself. */
+  contextRecovery?: { negative: ExternalRecordRef; actionId: string; inputs: ActionInputs }
+  /** Fresh host-observed delivery baseline for one authenticated succession control. */
+  contextSuccessionObservation?: ContextSuccessionObservation
   /** Display names only. Omitted or empty is not current CI evidence. */
   failedChecks?: readonly string[] | null
   /** Digest from failedCheckEvidenceDigest of the current native failures. Omitted or null cannot authorize fix. */

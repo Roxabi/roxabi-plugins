@@ -7,8 +7,15 @@ import type {
 } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureResult, FeatureCommandHost, FeatureNativePublication } from './feature-contract.ts'
 import { correctionSuccessor } from './feature-correction-successor.ts'
-import { type OwnedFeature, ownedFeatureFor, rememberFeatureOwner } from './feature-host-ownership.ts'
+import {
+  type FeatureCurrent,
+  featureCurrent,
+  type OwnedFeature,
+  ownedFeatureFor,
+  rememberFeatureOwner,
+} from './feature-host-ownership.ts'
 import { readImplementationStart } from './feature-implementation-start.ts'
+import { announceOwnedFeature } from './feature-native-announcement.ts'
 import {
   claimStartActivation,
   recordStartActivationFailed,
@@ -161,18 +168,19 @@ async function selectFeatureSuccessor(
   reference: string,
   canContinue: () => boolean,
   owns: () => boolean,
-  deliver: (result: ContinueFeatureResult, current?: () => boolean) => Promise<void>,
+  owner: OwnedFeature,
+  deliver: (result: ContinueFeatureResult, current?: FeatureCurrent) => Promise<void>,
 ) {
+  const current = featureCurrent(host.key, owner, () => canContinue() && !host.featureContinuationInhibited())
   const next = await continueOwnedFeature(host, reference, canContinue, owns)
-  if (!canContinue() || !owns() || host.featureContinuationInhibited()) {
+  if (!current()) {
     if (next.kind === 'action') recordStartNotActivated(next.start)
     return
   }
   if (next.kind === 'admitted-ci-correction' || next.kind === 'fix') {
-    const current = () => canContinue() && owns() && !host.featureContinuationInhibited()
     return correctionSuccessor(next, host, current, deliver)
   }
-  await deliver(next)
+  await deliver(next, current)
 }
 
 export async function announceFeatureBatch(
@@ -180,16 +188,13 @@ export async function announceFeatureBatch(
   followUp: NativeBatch,
   actionStart: ScopedRecordRef,
   host: FeatureCommandHost,
-  deliver: (result: ContinueFeatureResult, current?: () => boolean) => Promise<void>,
+  deliver: (result: ContinueFeatureResult, current?: FeatureCurrent) => Promise<void>,
+  current?: FeatureCurrent,
 ): Promise<void> {
-  if (!isNativeBatch(followUp)) {
+  const stop = featureBatchStop(followUp, host, current)
+  if (stop !== null) {
     recordStartNotActivated(actionStart)
-    await host.send('feature-stopped: action-undeliverable')
-    return
-  }
-  if (host.featureContinuationInhibited() || host.principal) {
-    recordStartNotActivated(actionStart)
-    await host.send('feature-stopped: continuation-inhibited')
+    if (stop !== 'owner-revoked') await host.send(`feature-stopped: ${stop}`)
     return
   }
   const previousOwner = ownedFeatureFor(host.key)
@@ -202,6 +207,10 @@ export async function announceFeatureBatch(
       return
     }
     startHead = start.head
+  }
+  if (current?.() === false || ownedFeatureFor(host.key) !== previousOwner || host.featureContinuationInhibited()) {
+    recordStartNotActivated(actionStart)
+    return
   }
   let admittedBatch: NativeBatch | null = null
   let completionPublished = false
@@ -219,7 +228,7 @@ export async function announceFeatureBatch(
       if (admittedBatch !== followUp) return
       admittedBatch = null
       if (host.featureContinuationInhibited()) return
-      return selectFeatureSuccessor(host, reference, canContinue, owns, deliver)
+      return selectFeatureSuccessor(host, reference, canContinue, owns, owner, deliver)
     },
     onStop: async (_reason, result, stop) => {
       if (result === null || completionPublished) return
@@ -244,14 +253,19 @@ export async function announceFeatureBatch(
   actionStarts.set(followUp, actionStart)
   if (startHead !== null) implementationStarts.set(followUp, startHead)
   rememberFeatureOwner(host.key, owner)
-  try {
-    host.markFeatureBatch(followUp)
-    await host.native.announce(followUp)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    await host.native.stopOwned(followUp, reason)
-    await host.send(`feature-stopped: ${reason}`)
-  }
+  current?.transfer?.(owner)
+  await announceOwnedFeature(host, followUp, owns, current)
+}
+
+function featureBatchStop(
+  followUp: NativeBatch,
+  host: FeatureCommandHost,
+  current?: FeatureCurrent,
+): 'action-undeliverable' | 'continuation-inhibited' | 'owner-revoked' | null {
+  if (!isNativeBatch(followUp)) return 'action-undeliverable'
+  if (current?.() === false) return 'owner-revoked'
+  if (host.featureContinuationInhibited() || host.principal) return 'continuation-inhibited'
+  return null
 }
 
 function isNativeBatch(value: NativeBatch): boolean {

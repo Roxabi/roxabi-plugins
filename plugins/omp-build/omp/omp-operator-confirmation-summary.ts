@@ -179,6 +179,27 @@ function fallbackLines(proposal: Proposal): string[] {
 export function proposalSummary(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
   const candidate: unknown = proposal
+  if (proposal.format === 'omp-build-context-succession/1')
+    return [
+      asked('Sélectionner une nouvelle autorité pour ', scopeText(proposal.uw)),
+      summaryField('Mandat précédent : ', proposal.predecessor.recordId),
+      summaryField('Nouveau mandat : ', proposal.successor.recordId),
+      summaryField(
+        'Ancien produit/configuration : ',
+        `${proposal.predecessorConfig.productVersion} / ${proposal.predecessorConfig.version} / ${proposal.predecessorConfig.digest}`,
+      ),
+      summaryField(
+        'Nouveau produit/configuration : ',
+        `${proposal.successorConfig.productVersion} / ${proposal.successorConfig.version} / ${proposal.successorConfig.digest}`,
+      ),
+      summaryField('Spec acceptée : ', proposal.replacementAccepted.version),
+      summaryField('Résultat négatif conservé : ', proposal.negative.record.recordId),
+      summaryField('Code observé : ', proposal.reconciliation.code.head),
+      'Le résultat précédent reste négatif et ne constitue pas une livraison.',
+      'La réconciliation porte uniquement sur l’état de livraison géré actuel, pas sur tous les effets historiques.',
+      'Une nouvelle planification et ses revues restent nécessaires.',
+      PARTIAL,
+    ]
   if (proposal.format === 'omp-build-fix-recovery-proposal/1') return recoveryLines(proposal)
   if (proposal.format === 'omp-build-tooling-pin-activation/1')
     return [

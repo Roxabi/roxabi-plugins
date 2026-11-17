@@ -46,6 +46,7 @@ export type ActiveBatch = {
   artifactsDir: string | null
   admittedToolCallId: string | null
   executionAbort: AbortController | null
+  sdkSignal: AbortSignal | null
   executionDone: Promise<void> | null
   finishExecution: (() => void) | null
   spawnedIndexes: Set<number>
@@ -98,6 +99,7 @@ export function createActiveBatch(
     artifactsDir,
     admittedToolCallId: null,
     executionAbort: null,
+    sdkSignal: null,
     executionDone: null,
     finishExecution: null,
     models: [],

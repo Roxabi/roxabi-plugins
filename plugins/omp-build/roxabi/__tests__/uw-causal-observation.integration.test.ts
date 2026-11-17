@@ -12,7 +12,7 @@ import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxa
 import { causalRefusal } from '../causal-refusal.ts'
 import { featureStopMessage } from '../feature-presentation.ts'
 import { composeObservedUwCausalContext } from '../fix-uw-histories.ts'
-import { createInstalledUwReadPort } from '../uw-read-port.ts'
+import { createInstalledUwReadPort, createObservedUwReadPort } from '../uw-read-port.ts'
 
 const scope = { repository: 'acme/app', target: 'acme/app#42' }
 
@@ -125,6 +125,39 @@ it('refuses detached completion proofs and retained-root unavailable projections
       diagnostics: expect.arrayContaining(['fix-causal-observation-unavailable']),
     })
   }
+})
+
+it('refuses a causal context captured from different histories without replacing its authority', async () => {
+  const { read, options, inputs } = await observed(true)
+  const { read: before } = await observed(true, false)
+  if (before.historical === undefined) throw new Error('independent historical capture unavailable')
+  const noIo = {
+    ...options,
+    gh: async () => {
+      throw new Error('historical mismatch attempted a replacement read')
+    },
+  }
+  expect(await composeObservedUwCausalContext({ ...read, historical: before.historical }, [], noIo)).toMatchObject({
+    ok: false,
+    diagnostics: expect.arrayContaining(['fix-causal-observation-unavailable']),
+  })
+  const matching = await composeObservedUwCausalContext(read, [], noIo)
+  if (!matching.ok) throw new Error('matching historical context refused')
+  expect(catalogueForAction(inputs, matching.value.catalogues).ok).toBe(true)
+})
+
+it('does not promote a separately supplied equal history into a complete causal observation', async () => {
+  const { read, options } = await observed(true)
+  const contracts = await import('../../dist/contracts.js')
+  const reader = createObservedUwReadPort(contracts, {
+    observation: read.observation,
+    history: { ok: true, histories: [...read.histories] },
+  })
+  const separate = await reader.readUw(scope)
+  expect(await composeObservedUwCausalContext(separate, [], options)).toMatchObject({
+    ok: false,
+    diagnostics: expect.arrayContaining(['fix-causal-observation-unavailable']),
+  })
 })
 
 it('tells the operator which GitHub read failed when the observation is unavailable', async () => {

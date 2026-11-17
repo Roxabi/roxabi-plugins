@@ -60,6 +60,11 @@ export function assessNativeOnly(input: {
   issue: (uw: Scope, code: string, message: string) => UwDiagnostic
   refuse: Refuse
   unresolved: (code: string, message: string) => DependencyResolution
+  witness: () => {
+    uw: Scope
+    history: DecodedHistory
+    observation: Extract<UwCompletionObservation, { status: 'complete' }>
+  }
 }): DependencyResolution {
   const { uw, history, node, observation, waits, relevant, key, dependencies, issue, refuse, unresolved } = input
   const allocations: ExternalRecordRef[] = recordsOf(history)
@@ -85,7 +90,7 @@ export function assessNativeOnly(input: {
     )
   }
   if (relevant.length) return unresolved('history-unresolved', 'Workflow records prevent proving native-only absence')
-  const basis: DependencyBasis = { kind: 'native-only', witness: { uw, history, observation } }
+  const basis: DependencyBasis = { kind: 'native-only', witness: input.witness() }
   if (
     isWayfinder(node) ||
     unknownWayfinderLabels(node).length ||

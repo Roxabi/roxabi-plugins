@@ -103,15 +103,6 @@ function looseObject(oid: string, type: string): Buffer {
   return body
 }
 
-function looseHead(): string {
-  const gitDir = join(toolingRepo(), '.git')
-  const head = readFileSync(join(gitDir, 'HEAD'), 'utf8').trim()
-  const value =
-    head === 'ref: refs/heads/main' ? readFileSync(join(gitDir, 'refs', 'heads', 'main'), 'utf8').trim() : head
-  if (!SHA.test(value)) throw new Error('invalid fixture HEAD')
-  return value
-}
-
 function looseTreeEntry(tree: string, part: string): { mode: string; oid: string } {
   const bytes = looseObject(tree, 'tree')
   let offset = 0
@@ -197,12 +188,11 @@ function toolingObject(expression: string): { oid: string } | null {
   try {
     const commit = expression.slice(0, 40)
     try {
-      if (looseHead() !== commit) return null
       return { oid: loosePath(commit, expression.slice(41)) }
     } catch {
       // Packed objects and nonstandard fixture repositories retain Git's exact semantics.
-      const [head, oid] = git(toolingRepo(), ['rev-parse', 'HEAD', expression], 'utf8').trim().split('\n')
-      if (head !== commit || oid === undefined || !SHA.test(oid)) return null
+      const oid = git(toolingRepo(), ['rev-parse', expression], 'utf8').trim()
+      if (!SHA.test(oid)) return null
       return { oid }
     }
   } catch {

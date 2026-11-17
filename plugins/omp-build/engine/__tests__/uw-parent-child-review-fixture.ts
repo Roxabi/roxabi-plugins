@@ -40,7 +40,7 @@ export async function childReview(input: ChildReviewInput) {
   if (i > 0 && (!previousBase || !previousHead)) throw new Error(`Missing prior child facts ${i}`)
   const baseParents = previousBase && previousHead ? [previousBase, previousHead] : []
   const pullRequest = { repository, target: `${repository}#${301 + i}` }
-  const branch = `feature/child-${i}`
+  const branch = `feature/${201 + i}-child`
   const binding = workflow.workflowBinding(pullRequest, mandate, branch, 'main')
   const accepted = resolveAcceptedSpec(mandate, context)
   if (!accepted.ok) throw new Error('Child mandate is not accepted')

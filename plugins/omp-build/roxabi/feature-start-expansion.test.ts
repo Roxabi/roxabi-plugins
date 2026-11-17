@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { rawSource } from '../adapters/github-native/uw-spec.ts'
 import { actionInputDigest, buildRecord, canonicalValueDigest } from '../dist/contracts.js'
+import { receiptStartKey } from '../engine/workflow-control.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../testing/uw-completion-observation.ts'
@@ -153,5 +154,71 @@ test('allows expansion from an authenticated strict implementation missing-conte
   expect(expanded, JSON.stringify(expanded)).toMatchObject({
     ok: true,
     value: { slot: { action: 'implement', exact: start.payload.exactInputs }, previous: start.payload.inputs },
+  })
+  const oldStart = buildRecord({
+    ...start,
+    recordId: 'disposed-start',
+    operationId: 'disposed-start-op',
+    payload: { ...start.payload, actionId: 'disposed-implementation' },
+  })
+  if (!oldStart.ok) throw new Error(JSON.stringify(oldStart.diagnostics))
+  if (
+    negative.value.kind !== 'action-receipt' ||
+    negative.value.payload.action !== 'implement' ||
+    negative.value.payload.phase !== 'result'
+  )
+    throw new Error('expected implementation negative')
+  const oldResult = buildRecord({
+    ...negative.value,
+    recordId: 'disposed-result',
+    operationId: 'disposed-result-op',
+    payload: {
+      ...negative.value.payload,
+      actionId: 'disposed-implementation',
+      start: { scope: history.source.scope, kind: 'action-receipt', recordId: oldStart.value.recordId },
+    },
+  })
+  if (!oldResult.ok || oldResult.value.kind !== 'action-receipt') throw new Error('expected disposed negative')
+  const combined = fixtures.historyFrom([mandate, oldStart.value, oldResult.value, start, negative.value])
+  expect(nonPlanExpansion(request, [combined]).ok).toBe(false)
+  expect(nonPlanExpansion(request, [combined], new Set([receiptStartKey(oldResult.value)]))).toMatchObject({
+    ok: true,
+    value: { negative: { recordId: negative.value.recordId } },
+  })
+  expect(nonPlanExpansion(request, [combined], new Set(['unrelated-start']))).toMatchObject({ ok: false })
+  const [planStart, planResult] = fixtures.planDraftRecords(mandate)
+  if (
+    planStart?.kind !== 'action-receipt' ||
+    planStart.payload.action !== 'plan' ||
+    planStart.payload.phase !== 'start' ||
+    planResult?.kind !== 'action-receipt' ||
+    planResult.payload.action !== 'plan' ||
+    planResult.payload.phase !== 'result'
+  )
+    throw new Error('expected independent plan pair')
+  const planNegative = buildRecord({
+    ...planResult,
+    payload: {
+      ...planResult.payload,
+      structured: {
+        outcome: 'missing-context',
+        missing: [
+          { locator: { kind: 'information-request', description: 'Other hold' }, reason: 'needed', targets: [] },
+        ],
+      },
+    },
+  })
+  if (!planNegative.ok) throw new Error(JSON.stringify(planNegative.diagnostics))
+  const independent = fixtures.historyFrom([
+    mandate,
+    oldStart.value,
+    oldResult.value,
+    start,
+    negative.value,
+    planStart,
+    planNegative.value,
+  ])
+  expect(nonPlanExpansion(request, [independent], new Set([receiptStartKey(oldResult.value)]))).toMatchObject({
+    ok: false,
   })
 })

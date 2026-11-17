@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { pinnedFileRefSchema, recordInputRefSchema } from './action-input-refs.ts'
 import { actionInputsSchema, actionPurposeSchema, actionSubjectSchema } from './action-input-schema.ts'
-import { gitObjectIdSchema } from './record-references.ts'
+import { externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
 import { actionOperandsSchema, refineActionOperands } from './workflow-action-operands.ts'
 
 export const actionRequestSchema = z
@@ -20,7 +20,14 @@ export const actionRequestSchema = z
     expandedContext: z.array(z.union([recordInputRefSchema, pinnedFileRefSchema])),
   })
   .superRefine(refineActionOperands)
-export const actionEnvelopeSchema = z.strictObject({
-  request: actionRequestSchema,
-  reviewed: actionInputsSchema.optional(),
-})
+export const actionEnvelopeSchema = z.union([
+  z.strictObject({ request: actionRequestSchema }),
+  z.strictObject({
+    request: actionRequestSchema,
+    reviewed: actionInputsSchema,
+    intent: z.discriminatedUnion('kind', [
+      z.strictObject({ kind: z.literal('prepublication') }),
+      z.strictObject({ kind: z.literal('persisted'), start: externalRecordRefSchema }),
+    ]),
+  }),
+])

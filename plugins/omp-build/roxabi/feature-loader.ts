@@ -8,10 +8,7 @@ import type {
 
 // Keep the Feature-only installed modules behind this boundary so unrelated
 // extension commands remain available when the Feature distribution is unavailable.
-const WORKFLOW_SPECIFIER = new URL('../roxabi/workflow.ts', import.meta.url).href
-const RESULT_SPECIFIER = new URL('../roxabi/feature-result.ts', import.meta.url).href
-const WATCH_SPECIFIER = new URL('../roxabi/feature-watch.ts', import.meta.url).href
-
+// Literal imports keep these lazy modules in OMP's current module graph; computed URLs split owners.
 function isCallable<T>(value: unknown): value is T {
   return typeof value === 'function'
 }
@@ -19,9 +16,9 @@ function isCallable<T>(value: unknown): value is T {
 export async function loadFeatureWorkflow(): Promise<FeatureWorkflow> {
   try {
     const [workflowModule, resultModule, watchModule] = await Promise.all([
-      import(WORKFLOW_SPECIFIER),
-      import(RESULT_SPECIFIER),
-      import(WATCH_SPECIFIER),
+      import('./workflow.ts'),
+      import('./feature-result.ts'),
+      import('./feature-watch.ts'),
     ])
     const { continueFeature, requestFeatureSessionPause } = workflowModule
     const { publishFeatureNativeResult } = resultModule

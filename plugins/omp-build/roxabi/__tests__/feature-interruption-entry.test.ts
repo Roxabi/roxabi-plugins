@@ -73,6 +73,19 @@ function commandHost(result: ContinueFeatureResult) {
   }
   return { host, inputs, sent, counters }
 }
+describe('/feature explicit context recovery entry', () => {
+  it('passes the selected file to the workflow without starting work on a refusal', async () => {
+    const { host, inputs, counters } = commandHost({ kind: 'blocked', reason: 'action-context-missing' })
+    await runInstalledFeatureCommand('#42 --action /tmp/action.json', host)
+    expect(inputs).toHaveLength(1)
+    expect(inputs[0]).toMatchObject({
+      reference: '42',
+      control: 'recover-context',
+      contextRecovery: { actionFile: '/tmp/action.json' },
+    })
+    expect(counters.activations).toBe(0)
+  })
+})
 
 describe('/feature resolve-interruption entry', () => {
   it('passes the explicit START, interrupts nothing, and never resumes', async () => {

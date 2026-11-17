@@ -1,11 +1,12 @@
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import type { WorkflowDecision } from '../engine/workflow-reconstruction-types.ts'
+import type { WorkflowDecision, WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import { startImplement, startModelReceiptAction } from './feature-action-start.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import type { FeatureObservation } from './feature-observation-contract.ts'
 import { planAction } from './feature-plan-start.ts'
 import { openPullRequestAfterRemoteProof, reviewAfterBinding } from './feature-publication-review.ts'
+import type { PreparedUwAction, UwActionRequest } from './uw-action-contract.ts'
 
 export async function coordinatePlanAndReceiptAction(
   input: ContinueFeatureInput,
@@ -14,8 +15,11 @@ export async function coordinatePlanAndReceiptAction(
   observation: FeatureObservation,
   action: Extract<WorkflowDecision, { status: 'action' }>['action'],
   continueAt: (input: ContinueFeatureInput, exactMandateRef?: ScopedRecordRef) => Promise<ContinueFeatureResult>,
+  disposedStarts: ReadonlySet<string>,
+  recovery?: { request: UwActionRequest; prepared: PreparedUwAction },
+  facts?: WorkflowFacts,
 ): Promise<ContinueFeatureResult | null> {
-  const { authority, number, issue, mandate } = selected
+  const { authority, issue, mandate } = selected
   const { context, scope, target } = authority
   const history = observation.evidence.issue
   switch (action) {
@@ -32,6 +36,8 @@ export async function coordinatePlanAndReceiptAction(
             mandate,
             input.uw,
             context.git,
+            recovery,
+            facts,
           )
     case 'implement':
       return mandate === null
@@ -47,6 +53,8 @@ export async function coordinatePlanAndReceiptAction(
             context.cwd,
             mandate,
             input.uw,
+            disposedStarts,
+            recovery,
           )
     case 'assess-spec':
       return mandate === null
@@ -65,6 +73,7 @@ export async function coordinatePlanAndReceiptAction(
             cwd: context.cwd,
             uw: input.uw,
             git: context.git,
+            ...(recovery === undefined ? {} : { recovery }),
           })
     case 'attribute-ci': {
       if (observation.delivery === null || mandate === null)
@@ -89,37 +98,13 @@ export async function coordinatePlanAndReceiptAction(
         cwd: context.cwd,
         uw: input.uw,
         git: context.git,
+        ...(recovery === undefined ? {} : { recovery }),
       })
     }
     case 'frame':
       return { kind: 'operator-decision', reason: 'needs-scope' }
-    case 'publish': {
-      if (mandate === null) return missingMandate()
-      const published = await openPullRequestAfterRemoteProof(
-        history,
-        issue,
-        number,
-        context.git,
-        context.gh,
-        context.cwd,
-        mandate,
-      )
-      return (
-        published ??
-        continueAt(
-          {
-            cwd: context.cwd,
-            reference: input.reference,
-            control: 'continue',
-            principal: false,
-            git: context.git,
-            gh: context.gh,
-            ...(selected.reader === null ? {} : { read: selected.reader }),
-          },
-          exactMandateRef,
-        )
-      )
-    }
+    case 'publish':
+      return publishAndContinue(input, exactMandateRef, selected, observation, continueAt)
     case 'review':
       return reviewAfterBinding(
         context.engine,
@@ -134,6 +119,42 @@ export async function coordinatePlanAndReceiptAction(
     default:
       return null
   }
+}
+
+async function publishAndContinue(
+  input: ContinueFeatureInput,
+  exactMandateRef: ScopedRecordRef | undefined,
+  selected: SelectedFeature,
+  observation: FeatureObservation,
+  continueAt: (input: ContinueFeatureInput, exactMandateRef?: ScopedRecordRef) => Promise<ContinueFeatureResult>,
+): Promise<ContinueFeatureResult> {
+  const { authority, issue, number, mandate } = selected
+  const { context } = authority
+  if (mandate === null) return missingMandate()
+  const published = await openPullRequestAfterRemoteProof(
+    observation.evidence.issue,
+    issue,
+    number,
+    context.git,
+    context.gh,
+    context.cwd,
+    mandate,
+  )
+  return (
+    published ??
+    continueAt(
+      {
+        cwd: context.cwd,
+        reference: input.reference,
+        control: 'continue',
+        principal: false,
+        git: context.git,
+        gh: context.gh,
+        ...(selected.reader === null ? {} : { read: selected.reader }),
+      },
+      exactMandateRef,
+    )
+  )
 }
 
 function missingMandate(): ContinueFeatureResult {

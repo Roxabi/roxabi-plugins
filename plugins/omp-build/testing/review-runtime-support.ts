@@ -42,7 +42,7 @@ export type BridgeHarness = {
 
 export const root = { agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 } }
 
-export function bridgeHarness(): BridgeHarness {
+export function bridgeHarness(install = true): BridgeHarness {
   const handlers = new Map<string, RegisteredHandler[]>()
   const children = new Map<string, NativeReviewChild>()
   let admittedCall: string | null = null
@@ -81,7 +81,7 @@ export function bridgeHarness(): BridgeHarness {
   const controller = new NativeBatchController()
   // Control-only. No git identity is claimed; the integration probe owns the real observer.
   controller.bindHostGit(() => null)
-  installNativeBatchBridge(native, controller)
+  if (install) installNativeBatchBridge(native, controller)
   function prepareRoot(context: Record<string, unknown>): void {
     const model = { id: 'fixture-model', provider: 'fixture-provider' }
     context.cwd ??= '/fixture-root'

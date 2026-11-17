@@ -151,11 +151,21 @@ it('cold replays the owned expanded assessment after an authenticated missing-co
   rmSync(path.dirname(action.snapshot.indexPath), { recursive: true, force: true })
   const replay = () => {
     const before = structuredClone(readSim(box).issues['42']?.comments ?? [])
-    const child = spawnSync(BUN, [REPLAY, cwd, JSON.stringify(expanded), 'expanded-assessment-action'], {
-      cwd,
-      env: box.env,
-      encoding: 'utf8',
-    })
+    const child = spawnSync(
+      BUN,
+      [
+        REPLAY,
+        cwd,
+        JSON.stringify(expanded),
+        'expanded-assessment-action',
+        JSON.stringify({ scope: REVIEW_SCOPE, recordId: successor.value.recordId, kind: 'action-receipt' }),
+      ],
+      {
+        cwd,
+        env: box.env,
+        encoding: 'utf8',
+      },
+    )
     if (child.status !== 0) throw new Error(`replay failed: ${child.stderr}\n${child.stdout}`)
     expect(readSim(box).issues['42']?.comments).toEqual(before)
     return JSON.parse(child.stdout) as { ok: boolean }

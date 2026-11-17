@@ -1,16 +1,24 @@
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
-import type { AcceptedOwnSpecResult, ProposedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
+import type { AcceptedOwnSpecResult, UwAdmission } from '../engine/uw-admission.ts'
 import type { UwCompletionAssessment, UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
+import type { HistoricalAcceptedSpecContext } from '../engine/workflow-context-succession-inspection.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
+import { diagnostic, observedSpecProjection, refused } from './uw-observed-spec.ts'
 import type { InstalledUwReadOptions } from './uw-read-port.ts'
+
+export type { ObservedOwnSpecFacts } from './uw-observed-spec.ts'
+export { projectObservedOwnSpecFacts } from './uw-observed-spec.ts'
 
 type InstalledUwContracts = Pick<
   typeof import('../dist/contracts.js'),
   | 'assessUwAdmission'
+  | 'createHistoricalAcceptedSpecContext'
+  | 'historicalAcceptedSpecOwnedHistories'
   | 'discoverFixRecovery'
   | 'projectRecoveryHistories'
   | 'readFramingMembership'
@@ -34,98 +42,6 @@ type HistoryObservation =
       diagnostics?: readonly { code: string; message: string }[]
     }
 
-export type ObservedOwnSpecFacts = {
-  node: UwRead['graph']['nodes'][number]
-  parsed: UwRead['parsed']
-  proposed: ProposedOwnSpecResult
-  identity: UwRead['identity']
-}
-
-type FactualReadContracts = Pick<InstalledUwContracts, 'parseIssueSpecBody' | 'resolveSpecIdentityLedger'>
-
-function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function refused(uw: Scope, code: string, message: string): UwDiagnostic[] {
-  return [diagnostic(uw, code, message)]
-}
-
-function observedSpecProjection(
-  contracts: Pick<FactualReadContracts, 'parseIssueSpecBody'>,
-  uw: Scope,
-  node: ObservedOwnSpecFacts['node'],
-): Pick<ObservedOwnSpecFacts, 'parsed' | 'proposed'> {
-  const parsed = contracts.parseIssueSpecBody({ uw, raw: node.raw })
-  const proposed: ProposedOwnSpecResult =
-    parsed.status === 'conformant'
-      ? { ok: true, snapshot: parsed.snapshot }
-      : { ok: false, diagnostics: [...parsed.diagnostics] }
-  return { parsed, proposed }
-}
-
-function currentHistory(
-  uw: Scope,
-  histories: readonly DecodedHistory[],
-): { ok: true; value: DecodedHistory } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
-  let own: DecodedHistory | undefined
-  for (const candidate of histories) {
-    if (candidate.source.scope.repository !== uw.repository || candidate.source.scope.target !== uw.target) continue
-    if (own !== undefined)
-      return {
-        ok: false,
-        diagnostics: refused(uw, 'history-ambiguous', 'Current UW has conflicting history observations'),
-      }
-    own = candidate
-  }
-  if (own === undefined || !own.source.complete || own.source.diagnostics.length || own.diagnostics.length)
-    return {
-      ok: false,
-      diagnostics: refused(uw, 'history-incomplete', 'Current framing requires a unique complete UW identity history'),
-    }
-  return { ok: true, value: own }
-}
-
-/** Project framing and identity facts from one complete world, without delivery authority or I/O. */
-export function projectObservedOwnSpecFacts(
-  contracts: FactualReadContracts,
-  input: {
-    uw: Scope
-    observation: UwCompletionObservation
-    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
-  },
-): { ok: true; value: ObservedOwnSpecFacts } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
-  const { uw, observation } = input
-  if (observation === undefined)
-    return {
-      ok: false,
-      diagnostics: refused(uw, 'observation-missing', 'Current framing requires a complete joint observation'),
-    }
-  if (observation.status !== 'complete') return { ok: false, diagnostics: observation.diagnostics }
-  let node: ObservedOwnSpecFacts['node'] | undefined
-  for (const candidate of observation.graph.nodes) {
-    if (candidate.uw.repository !== uw.repository || candidate.uw.target !== uw.target) continue
-    if (node !== undefined)
-      return {
-        ok: false,
-        diagnostics: refused(uw, 'graph-node-ambiguous', 'Current UW has conflicting native node observations'),
-      }
-    node = candidate
-  }
-  if (node === undefined)
-    return { ok: false, diagnostics: refused(uw, 'graph-node-missing', 'Current UW native node is absent') }
-  const own = currentHistory(uw, observation.histories)
-  if (!own.ok) return own
-  const identity = contracts.resolveSpecIdentityLedger({
-    uw,
-    history: own.value,
-    histories: observation.histories,
-    accepted: null,
-    ...(input.assessmentReplay === undefined ? {} : { assessmentReplay: input.assessmentReplay }),
-  })
-  return { ok: true, value: { node, ...observedSpecProjection(contracts, uw, node), identity } }
-}
-
 function admissionUnavailable(diagnostics: readonly UwDiagnostic[], aggregate: UwAdmission['aggregate']): UwAdmission {
   const all = aggregate.status === 'held' ? [...diagnostics, ...aggregate.diagnostics] : diagnostics
   return {
@@ -142,7 +58,9 @@ function coldAccepted(
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
   observation: UwCompletionObservation,
-  assessmentReplay?: { uw: Scope; actionId: string; fingerprint: string },
+  assessmentReplay?: AssessmentReplayContext,
+  assessmentInspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): AcceptedOwnSpecResult {
   if (observation.status !== 'complete') return { status: 'refused', diagnostics: observation.diagnostics }
   const own = histories.find(
@@ -156,6 +74,8 @@ function coldAccepted(
     { histories, catalogues, observation },
     undefined,
     assessmentReplay,
+    assessmentInspection,
+    historical,
   )
   if (!resolved.ok) {
     const hasOwnMandateClaim = own.operations.some(
@@ -185,6 +105,8 @@ function assembleUwRead(
     completion: UwCompletionAssessment
     observedReader?: UwReadPort
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
+    assessmentInspection?: InstalledUwReadOptions['assessmentInspection']
+    historical?: HistoricalAcceptedSpecContext
   },
 ): UwRead {
   const { uw, graph, history } = input
@@ -227,6 +149,8 @@ function assembleUwRead(
     input.catalogues,
     input.observation,
     input.assessmentReplay,
+    input.assessmentInspection,
+    input.historical,
   )
   const own = history.histories.find(
     (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
@@ -258,11 +182,14 @@ function assembleUwRead(
     histories: history.histories,
     accepted: accepted.status === 'accepted' ? accepted.value : null,
     ...(input.assessmentReplay === undefined ? {} : { assessmentReplay: input.assessmentReplay }),
+    ...(input.assessmentInspection === undefined ? {} : { inspection: input.assessmentInspection }),
+    historical: input.historical,
   })
   const result: UwRead = {
     uw,
     parsed,
     observation: input.observation,
+    ...(input.historical === undefined ? {} : { historical: input.historical }),
     completion: input.completion,
     graph,
     histories: history.histories,

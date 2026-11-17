@@ -9,13 +9,20 @@ import type { UwDiagnostic } from './uw-diagnostics.ts'
 import { isWayfinder, sameScope, scopeKey, type UwGraphObservation } from './uw-graph.ts'
 import { waitCycleDiagnostics } from './uw-wait-cycles.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import {
+  type HistoricalAcceptedSpecContext,
+  historicalAcceptedSpecOwnedHistories,
+} from './workflow-context-succession-inspection.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
+import type { AcceptedSpecInspection } from './workflow-spec-authentication.ts'
 
 type WaitInput = {
   graph: UwGraphObservation
   histories: readonly DecodedHistory[]
   catalogues: ReviewClassCatalogues
   evaluationRoots?: readonly Scope[]
+  inspection?: AcceptedSpecInspection
+  historical?: HistoricalAcceptedSpecContext
 }
 
 function outgoingWaits(requirements: readonly WaitRequirement[]): Map<string, WaitRequirement[]> {
@@ -91,6 +98,10 @@ function addCauseDisposition(
 }
 
 export function projectUwWaits(input: WaitInput): UwWaitProjection {
+  if (input.historical !== undefined) {
+    const owned = historicalAcceptedSpecOwnedHistories(input.historical, input.histories)
+    if (owned.ok) input = { ...input, histories: owned.value }
+  }
   const requirements: WaitRequirement[] = []
   const causeWaits: CauseWaitResolution[] = []
   const diagnostics: UwDiagnostic[] = []
@@ -132,7 +143,7 @@ export function projectUwWaits(input: WaitInput): UwWaitProjection {
     const selected = selectedMandate(history)
     if ('kind' in selected && selected.kind === 'mandate') {
       delivery.set(scopeKey(uw), uw)
-      const accepted = resolveAcceptedSpec(selected, input.histories)
+      const accepted = resolveAcceptedSpec(selected, input.histories, undefined, input.inspection, input.historical)
       if (!accepted.ok) diagnostics.push(...accepted.evidence.map((d) => problem(uw, d.code, d.message)))
       else {
         for (const inherited of accepted.spec.inheritedOwnSpecRefs) addScope(inherited.uw)

@@ -60,7 +60,20 @@ function operatorControlRefs(payload: OperatorControlPayload): ExternalRecordRef
     if (payload.authorization.kind === 'cause-creation')
       refs.push(payload.authorization.operation, payload.authorization.binding.identity)
   }
-  if (payload.control === 'select-successor') refs.push(payload.successor)
+  if (payload.control === 'select-successor') {
+    refs.push(payload.successor)
+    if (payload.contextDisposition) {
+      refs.push(
+        payload.contextDisposition.negative.record,
+        payload.contextDisposition.replacementAccepted.sourceAccepted,
+      )
+      refs.push(
+        ...payload.contextDisposition.reconciliation.delivery.integrations.map(
+          (integration) => integration.source.record,
+        ),
+      )
+    }
+  }
   if (payload.control === 'resolve-interruption') refs.push(payload.start, payload.result)
   if (payload.control === 'adjust-cause-dependency') {
     for (const reference of payload.proposal.references) if (reference.source === 'record') refs.push(reference.record)

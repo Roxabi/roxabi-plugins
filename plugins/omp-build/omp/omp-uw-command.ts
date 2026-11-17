@@ -13,7 +13,6 @@ import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
 import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
-import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import { hostPluginPin } from './host-plugin-pin.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import {
@@ -25,7 +24,9 @@ import { rootContext } from './omp-feature-session.ts'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
 import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
 import { type ParsedUwCommand, parseCreateCommand, parseIssueCommand, parseProposalCommand } from './omp-uw-parse.ts'
+import { executeRead } from './omp-uw-read-error.ts'
 import { reportResult, reportStopped } from './omp-uw-result.ts'
+
 /** The operator is confirmation-only; cancelling it belongs to the owner-slot composition. */
 export type UwOperationsFactory = (input: {
   cwd: string
@@ -96,33 +97,6 @@ async function executeMutation(command: ParsedMutation, operations: UwOperations
   if (input === null) return { kind: 'stopped', reason: 'uw-proposal-invalid' }
   const value = command.kind === 'propose' ? await operations.prepare(input) : await operations.write(input)
   return { kind: 'result', value }
-}
-
-async function executeRead(repository: string, number: number, operations: UwOperations): Promise<CommandOutcome> {
-  try {
-    const current = await operations.readUw(githubScope(repository, number))
-    if (current.fixRecovery.status !== 'interrupted') return { kind: 'result', value: current }
-    const request = current.fixRecovery.phase.request
-    const requestScope = 'reservation' in request ? request.reservation.scope : request.identity.scope
-    const match = /#([1-9]\d*)$/.exec(requestScope.target)
-    const pr = match === null ? NaN : Number(match[1])
-    if (!Number.isSafeInteger(pr) || pr <= 0) return { kind: 'result', value: current }
-    return {
-      kind: 'result',
-      value: {
-        ...current,
-        fixRecoveryHint: {
-          tool: 'omp_build_recover_interrupted_fix',
-          parameters: { pr },
-          note: 'Interrupted ownership observed; recovery eligibility and current authority must still be verified.',
-        },
-      },
-    }
-  } catch (error) {
-    if (error instanceof UwGraphUnavailableError)
-      return { kind: 'result', value: { status: 'refused', diagnostics: error.diagnostics } }
-    throw error
-  }
 }
 
 async function executeUwCommand(

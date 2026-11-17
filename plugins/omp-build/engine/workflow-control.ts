@@ -81,6 +81,15 @@ export function workflowOperationProblem(
   return null
 }
 
+function duplicateBodiesAgree(matches: readonly DecodedHistory['operations'][number][]): boolean {
+  if (matches.length <= 1) return true
+  const body = JSON.stringify(matches[0]?.record)
+  for (let index = 1; index < matches.length; index++) {
+    if (JSON.stringify(matches[index]?.record) !== body) return false
+  }
+  return true
+}
+
 export function bindExternalRef(ref: ExternalRecordRef, foreignHistory: DecodedHistory): Result<CanonicalRecord> {
   if (!equalScope(ref.scope, foreignHistory.source.scope))
     return fail([
@@ -101,8 +110,7 @@ export function bindExternalRef(ref: ExternalRecordRef, foreignHistory: DecodedH
     return fail([diagnostic('conflict', `Record ${ref.recordId} has conflicting parts`)])
   if (matches.some((operation) => operation.status !== 'complete' || operation.record === null))
     return fail([diagnostic('unconfirmed', `Record ${ref.recordId} is not a complete authenticated record`)])
-  const bodies = matches.map((operation) => JSON.stringify(operation.record))
-  if (new Set(bodies).size !== 1)
+  if (!duplicateBodiesAgree(matches))
     return fail([diagnostic('ambiguous', `Record ${ref.recordId} has incompatible duplicates`)])
   const record = matches[0]?.record
   if (record === null || record === undefined)

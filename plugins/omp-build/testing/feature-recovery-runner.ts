@@ -1,36 +1,34 @@
+import { parentCoverageSchema } from '../dist/contracts.js'
+import type { ParentCoverageRequest } from '../roxabi/feature-contract.ts'
+import { continueWithParentCoverage } from '../roxabi/feature-coverage-continuation.ts'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
-import { createConcurrentPausePull, makePauseDisarmUnreadable } from './feature-recovery-pause-fixture.ts'
 import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
 await installFixtureSdkSettings(process.argv[3] ?? '')
-const { default: ompBuildExtension } = await import('../omp/index.ts')
 const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
 const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
 const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
-const { createExtensionApiStub } = await import('./extension-api-stub.ts')
-// Load the SDK registry only after the fixture's SDK settings are installed.
-const { provisionNativeRoot } = await import('./native-root-fixture.ts')
-const { invokeOmpIncompleteNative } = await import('./feature-recovery-incomplete-native.ts')
-const { invokeOmpLiveInterleave } = await import('./feature-recovery-live-interleave.ts')
 const { observedIncompleteNativeResult } = await import('./feature-recovery-observed-native.ts')
-const { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } = await import('./feature-review-lifecycle.ts')
-const { invokeDispositionBoundary, invokeDispositionPartition } = await import('./fix-disposition-lifecycle.ts')
-const { invokeReviewRace } = await import('./feature-review-races.ts')
-const { invokeClassifiedIngressRace } = await import('./feature-classified-ingress-race.ts')
-const { invokeSuccessiveReviewLineage } = await import('./feature-review-lineage.ts')
-const { invokeRecallFixContinuation } = await import('./feature-review-recall.ts')
-const { invokeReplacementDispatch } = await import('./feature-review-replacement.ts')
-// This fixture imports the SDK only after its settings have been installed above.
-const { invokeOmpLifetime } = await import('./feature-recovery-lifetime.ts')
+// The material driver also loads the SDK after the fixture settings are installed.
+const { acceptContextMaterial } = await import('./feature-context-material-driver.ts')
+// Plan capture also requires the installed SDK fixture settings.
+const { finishContextPlan } = await import('./feature-context-plan-driver.ts')
+const { invokeConfirmedSuccessor } = await import('./feature-recovery-successor-runner.ts')
+const { invokeSdkDriver } = await import('./feature-recovery-sdk-dispatch.ts')
+const { invokeOmpBridge } = await import('./feature-recovery-bridge-runner.ts')
 
 type Payload = {
   reference: string
   control: 'continue' | 'resume' | 'pause' | 'abandon'
   pr: number
   code: number
+  actionFile: string
+  negativeRecordId: string
 }
 
-type Handler = (...args: unknown[]) => unknown
+function numericValue(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : fallback
+}
 
 function payloadFrom(raw: unknown): Payload {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('payload-invalid')
@@ -45,8 +43,10 @@ function payloadFrom(raw: unknown): Payload {
   return {
     reference: typeof reference === 'string' ? reference : '',
     control: resolvedControl,
-    pr: typeof pr === 'number' && Number.isSafeInteger(pr) ? pr : 0,
-    code: typeof code === 'number' && Number.isSafeInteger(code) ? code : 1,
+    pr: numericValue(pr, 0),
+    code: numericValue(code, 1),
+    actionFile: 'actionFile' in raw && typeof raw.actionFile === 'string' ? raw.actionFile : '',
+    negativeRecordId: 'negativeRecordId' in raw && typeof raw.negativeRecordId === 'string' ? raw.negativeRecordId : '',
   }
 }
 
@@ -72,6 +72,20 @@ const noWriteOperator: OperatorPort = {
   },
 }
 
+const confirmedOperator: OperatorPort = {
+  async executeConfirmed(prepared, action) {
+    return {
+      status: 'confirmed',
+      value: await action({
+        route: 'omp-native-command',
+        operationId: prepared.proposal.operationId,
+        proposalDigest: prepared.digest,
+        confirmedAt: '2026-10-22T12:00:00.000Z',
+      }),
+    }
+  },
+}
+
 async function continueWithCommandUw() {
   const sessionCwd = cwd ?? ''
   return workflow.continueFeature({
@@ -83,10 +97,63 @@ async function continueWithCommandUw() {
   })
 }
 
-async function invokeWorkflowOperation(operationName: string): Promise<unknown | null> {
+async function acceptParentChildMaterial() {
+  const sessionCwd = cwd ?? ''
+  const input = {
+    cwd: sessionCwd,
+    reference: payload.reference,
+    control: payload.control,
+    principal: false,
+    read: createInstalledUwReadPort({ cwd: sessionCwd }),
+    uw: await createInstalledUwOperations({ cwd: sessionCwd, operator: noWriteOperator }),
+  }
+  const first = await workflow.continueFeature(input)
+  let coverageRequests = 0
+  const selected = await continueWithParentCoverage(
+    {
+      workflow,
+      async send(message: string) {
+        throw new Error(message)
+      },
+      async requestParentCoverage(request: ParentCoverageRequest) {
+        if (request.parent.uw.target !== 'acme/app#200' || request.children.length !== 3)
+          throw new Error('Unexpected parent child coverage request')
+        coverageRequests++
+        const coverage = parentCoverageSchema.safeParse({
+          parent: request.parent,
+          assignments: request.criteria.map((criterion) => ({
+            criterion: criterion.id,
+            children: request.children.map((child) => child.scope),
+          })),
+        })
+        if (!coverage.success) throw new Error(`Invalid parent child coverage: ${coverage.error.message}`)
+        return { kind: 'proposed', coverage: coverage.data }
+      },
+    },
+    input,
+    first,
+    false,
+  )
+  if (selected === undefined) throw new Error('Parent child material continuation failed')
+  const material = await acceptContextMaterial(sessionCwd, confirmedOperator, {
+    started: selected,
+    scope: { repository: 'acme/app', target: 'acme/app#200' },
+    reference: '#200',
+  })
+  return { selected, material, coverageRequests }
+}
+
+async function invokeWorkflowContinuation(operationName: string): Promise<unknown | null> {
   switch (operationName) {
-    case 'continue':
-      return continueFeature()
+    case 'recover-context':
+      return workflow.continueFeature({
+        cwd: cwd ?? '',
+        reference: payload.reference,
+        control: 'recover-context',
+        principal: false,
+        contextRecovery: { actionFile: payload.actionFile },
+        uw: await createInstalledUwOperations({ cwd: cwd ?? '', operator: noWriteOperator }),
+      })
     case 'cold-publish-uw':
       return continueWithCommandUw()
     case 'watch':
@@ -130,122 +197,55 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
   }
 }
 
-async function invokeSdkDriver(operationName: string): Promise<unknown> {
-  const directory = cwd ?? ''
+async function invokeWorkflowOperation(operationName: string): Promise<unknown | null> {
   switch (operationName) {
-    case 'omp-feature':
-      return invokeOmpBridge(false, false)
-    case 'omp-pause':
-      return invokeOmpBridge()
-    case 'omp-unconfirmed-pause':
-      return invokeOmpBridge(true)
-    case 'omp-lifetime':
-      return invokeOmpLifetime(directory)
-    case 'omp-incomplete-native':
-    case 'omp-invalid-native':
-      return invokeOmpIncompleteNative(directory, operationName === 'omp-incomplete-native')
-    case 'omp-live-interleave':
-      return invokeOmpLiveInterleave(directory)
-    case 'omp-review-apply-falsify':
-      return invokeOmpReviewApplyFalsify(directory)
-    case 'omp-review-mixed-dispositions':
-      return invokeOmpReviewApplyFalsify(directory, true)
-    case 'omp-disposition-partition-valid':
-      return invokeDispositionPartition(directory, false)
-    case 'omp-disposition-partition-broken':
-      return invokeDispositionPartition(directory, true)
-    case 'omp-disposition-original-unavailable':
-      return invokeDispositionBoundary(directory, 'original-history')
-    case 'omp-disposition-foreign-synthesis':
-      return invokeDispositionBoundary(directory, 'foreign-synthesis')
-    default:
-      return invokeReviewDriver(operationName, directory)
-  }
-}
-
-async function invokeReviewDriver(operationName: string, directory: string): Promise<unknown> {
-  switch (operationName) {
-    case 'omp-review-lifecycle':
-      return invokeOmpReviewLifecycle(
-        directory,
-        payload.control === 'pause' ? 'fresh-pause' : payload.control === 'resume' ? 'publication-pause' : 'fix',
+    case 'confirmed-parent-context-owner-race': {
+      // The installed host loads the SDK only after this subprocess's fixture settings.
+      const { contextOwnerCoverageRace } = await import('./feature-context-owner-race.ts')
+      return contextOwnerCoverageRace(cwd ?? '', payload.negativeRecordId, workflow, confirmedOperator)
+    }
+    case 'continue':
+      return continueFeature()
+    case 'prepare-context-plan':
+    case 'prepare-parent-context-plan': {
+      const sessionCwd = cwd ?? ''
+      const selected = await continueFeature()
+      return finishContextPlan(
+        sessionCwd,
+        confirmedOperator,
+        selected,
+        operationName === 'prepare-parent-context-plan' ? { reference: '#200', path: 'fixture.txt' } : {},
       )
-    case 'omp-review-lineage':
-      return invokeSuccessiveReviewLineage(directory)
-    case 'omp-review-recall-fix':
-      return invokeRecallFixContinuation(directory)
-    case 'omp-review-replacement-real':
-      return invokeReplacementDispatch(directory)
-    case 'omp-review-race-latest':
-    case 'omp-review-race-pause':
-    case 'omp-review-race-owned-pause':
-      return invokeReviewRace(
-        directory,
-        operationName === 'omp-review-race-latest'
-          ? 'latest'
-          : operationName === 'omp-review-race-owned-pause'
-            ? 'owned-pause'
-            : 'pause',
-      )
-    case 'omp-classified-ingress-race':
-      return invokeClassifiedIngressRace(directory)
+    }
+    case 'accept-context-material':
+      return acceptContextMaterial(cwd ?? '', confirmedOperator)
+    case 'accept-existing-parent-material': {
+      const uw = await createInstalledUwOperations({ cwd: cwd ?? '', operator: confirmedOperator })
+      const result = await uw.acceptMaterial({ repository: 'acme/app', target: 'acme/app#200' })
+      return result.status === 'accepted' ? { status: result.status } : result
+    }
+    case 'accept-parent-child-material':
+      return acceptParentChildMaterial()
+    case 'confirmed-abandon':
+    case 'confirmed-context-successor':
+    case 'confirmed-context-successor-material':
+    case 'confirmed-parent-context-successor-material':
+    case 'confirmed-parent-context-successor-stale-coverage':
+    case 'confirmed-context-successor-plan':
+      return invokeConfirmedSuccessor(operationName, cwd ?? '', payload, workflow, confirmedOperator)
     default:
-      throw new Error(`unknown operation ${operationName}`)
+      return invokeWorkflowContinuation(operationName)
   }
 }
 
 async function invoke(operationName: string): Promise<unknown> {
   const workflowResult = await invokeWorkflowOperation(operationName)
-  return workflowResult ?? invokeSdkDriver(operationName)
-}
-
-async function invokeOmpBridge(
-  injectUnconfirmedPause = false,
-  interrupt = true,
-): Promise<{ messages: string[]; pausePr: number | null }> {
-  const commands = new Map<string, Handler>()
-  const events = new Map<string, Handler[]>()
-  const messages: string[] = []
-  const api = createExtensionApiStub({
-    on(name, handler) {
-      const registered = events.get(name) ?? []
-      registered.push(handler as Handler)
-      events.set(name, registered)
-    },
-    registerCommand(name, command) {
-      commands.set(name, command.handler as Handler)
-    },
-    async sendUserMessage(message) {
-      if (typeof message !== 'string') throw new Error('native-announcement-not-text')
-      messages.push(message)
-    },
-    sendMessage(message) {
-      messages.push(typeof message === 'string' ? message : String(message?.content ?? message))
-    },
-    async exec(): Promise<never> {
-      throw new Error('unexpected-omp-exec')
-    },
-  })
-  const context = {
-    cwd: cwd ?? '',
-    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
-    model: { contextWindow: 128_000 },
-    sessionManager: { getSessionId: () => 'recovery-bridge-root' },
-    isIdle: () => true,
-  }
-  provisionNativeRoot(context)
-  ompBuildExtension(api, { principalCwd: () => false })
-  for (const handler of events.get('session_start') ?? []) await handler({ type: 'session_start' }, context)
-  const feature = commands.get('feature')
-  if (feature === undefined) throw new Error('feature-command-unregistered')
-  await feature('#42', context)
-  if (!interrupt) return { messages, pausePr: null }
-  const pausePr = injectUnconfirmedPause ? createConcurrentPausePull(cwd ?? '') : null
-  if (pausePr !== null) makePauseDisarmUnreadable(pausePr)
-  for (const handler of events.get('message_end') ?? []) {
-    await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
-  }
-  return { messages, pausePr }
+  return (
+    workflowResult ??
+    invokeSdkDriver(operationName, cwd ?? '', payload, (pause, interrupt) =>
+      invokeOmpBridge(cwd ?? '', pause, interrupt),
+    )
+  )
 }
 
 process.stdout.write(`${JSON.stringify(await invoke(operation ?? ''))}\n`)

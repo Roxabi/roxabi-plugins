@@ -136,7 +136,10 @@ async function confirmBatch(
     const request = requests[i]
     if (action === undefined || request === undefined)
       return actionFailure('record-unreadable', 'Initial review batch is incomplete')
-    const replay = await replayUwActionInputs({ reviewed: action.inputs, request }, confirmation)
+    const replay = await replayUwActionInputs(
+      { reviewed: action.inputs, request, intent: { kind: 'prepublication' } },
+      confirmation,
+    )
     if (!replay.ok) return replay
     if (canonicalValueDigest(replay.value) !== canonicalValueDigest(action.inputs))
       return actionFailure('review-input-changed', 'Confirmed review action inputs diverged')

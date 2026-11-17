@@ -14,7 +14,7 @@ import { batch, bridgeHarness, fixtureAction } from '../../testing/review-runtim
 import type { ContinueFeatureResult } from '../feature-contract.ts'
 import { deliverFeatureResult } from '../feature-entry.ts'
 import { announceFeatureBatch } from '../feature-host-native.ts'
-import { ownedFeatureFor, rememberFeatureOwner } from '../feature-host-ownership.ts'
+import { featureCurrent, ownedFeatureFor, rememberFeatureOwner } from '../feature-host-ownership.ts'
 import { startDispatch } from '../feature-start-executions.ts'
 
 afterEach(cleanup)
@@ -177,6 +177,83 @@ describe('Feature native stale continuation ownership', () => {
     expect(harness.controller.active()).toBeNull()
     expect(startDispatch(ref)).toEqual({ kind: 'not-activated' })
   })
+
+  it('does not activate an implementation when its predecessor aborts during baseline observation', async () => {
+    const harness = bridgeHarness()
+    const entered = Promise.withResolvers<void>()
+    const gate = Promise.withResolvers<{ stdout: string; exitCode: number }>()
+    const { host } = fixture(harness, {
+      git: async () => {
+        entered.resolve()
+        return gate.promise
+      },
+    })
+    const ref = start('baseline-aborted-start')
+    let current = true
+    const delivery = deliverFeatureResult(
+      '42',
+      {
+        kind: 'action',
+        node: 'implement',
+        followUp: implementationBatch(),
+        start: ref,
+      },
+      host,
+      () => current,
+    )
+    await entered.promise
+    current = false
+    gate.resolve({ stdout: 'a'.repeat(40), exitCode: 0 })
+    await delivery
+    expect(harness.controller.active()).toBeNull()
+    expect(startDispatch(ref)).toEqual({ kind: 'not-activated' })
+  })
+
+  it('keeps the predecessor guard live while review preparation is pending', async () => {
+    const harness = bridgeHarness()
+    const { host } = fixture(harness)
+    const entered = Promise.withResolvers<void>()
+    const gate = Promise.withResolvers<void>()
+    let launched = false
+    let current = true
+    host.startReview = async (_reference, _onComplete, guard) => {
+      entered.resolve()
+      await gate.promise
+      if (guard?.()) launched = true
+    }
+    const previous = { reference: '42', cwd: host.cwd, pausable: true }
+    rememberFeatureOwner(host.key, previous)
+    const delivery = deliverFeatureResult('42', { kind: 'review', pr: 7 }, host, () => current)
+    await entered.promise
+    current = false
+    gate.resolve()
+    await delivery
+    expect(launched).toBe(false)
+    expect(ownedFeatureFor(host.key)).toBe(previous)
+  })
+
+  it.each(['current', 'aborted', 'replaced'] as const)(
+    'keeps deferred successor authority bound to its new owner (%s)',
+    async (state) => {
+      const harness = bridgeHarness()
+      const { host } = fixture(harness)
+      const predecessor = { reference: '42', cwd: host.cwd, pausable: true }
+      rememberFeatureOwner(host.key, predecessor)
+      let live = true
+      const current = featureCurrent(host.key, predecessor, () => live)
+      let announcementGuard: (() => boolean) | undefined
+      host.native.announce = async (_batch, guard) => {
+        announcementGuard = guard
+      }
+      const successor = batch(['deferred-successor'])
+      await announceFeatureBatch('42', successor, start(`deferred-${state}`), host, noDelivery, current)
+      expect(ownedFeatureFor(host.key)).not.toBe(predecessor)
+      if (state === 'aborted') live = false
+      if (state === 'replaced') rememberFeatureOwner(host.key, { reference: '43', cwd: host.cwd, pausable: true })
+      expect(announcementGuard?.()).toBe(state === 'current')
+      await harness.controller.stopOwned(successor, 'test-cleanup')
+    },
+  )
 
   it('does not deliver an old missing-context stop after its publication outlives a successor', async () => {
     const harness = bridgeHarness()

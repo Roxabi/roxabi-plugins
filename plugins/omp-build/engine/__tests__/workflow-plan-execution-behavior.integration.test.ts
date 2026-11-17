@@ -17,6 +17,7 @@ import { planMacro } from '../workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import type { SpecializedDecisions } from '../workflow-reconstruction-types.ts'
 import { implementationStart } from './workflow-implementation-support.ts'
+import { receiptOf, withPayload } from './workflow-interruption-support.ts'
 import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
 import { binding, facts, history, must, SCOPE } from './workflow-test-support.ts'
 
@@ -418,6 +419,69 @@ describe('workflow plan execution behavior', () => {
       phase: 'needs-draft',
       draftActionId: null,
     })
+    const oldNegative = withPayload(receiptOf(oldResult), {
+      structured: {
+        outcome: 'missing-context',
+        missing: [
+          {
+            locator: { kind: 'information-request', description: 'Deployment region' },
+            reason: 'The deployment region is required to plan this change',
+            targets: [],
+          },
+        ],
+      },
+    })
+    const ordinarySuccession = reconstructWorkflow({
+      evidence: await planEvidence(
+        history([mandated, oldStart, oldNegative, abandoned, successor, selectedSuccessor]),
+        null,
+        originalBody,
+        [],
+      ),
+      facts: facts({
+        productVersion: successor.payload.config.productVersion,
+        configVersion: successor.payload.config.version,
+        configDigest: successor.payload.config.digest,
+        supportedConfigVersions: [successor.payload.config.version],
+      }),
+      decisions: workflowDecisions,
+    })
+    expect(ordinarySuccession).toMatchObject({ status: 'blocked' })
+    expect(ordinarySuccession.evidence.some((item) => item.code === 'action-context-missing')).toBe(true)
+
+    // A successor mandate alone is not an operator selection or a disposition.
+    // Reconstruct from the persisted prefix as a cold reader would after a partial publication.
+    const partialHistory = history([mandated, oldStart, oldNegative, abandoned, successor])
+    await expect(planEvidence(partialHistory, null, originalBody, [])).rejects.toThrow(
+      'UW home has multiple or missing mandate lineage tips',
+    )
+    expect(partialHistory.operations.some((operation) => operation.recordId === oldNegative.recordId)).toBe(true)
+
+    // A later record must not erase the retained negative from a cold reconstruction.
+    const [laterStart, laterResult] = workflow.planDraftRecords(successor, 'act-plan-later', originalVersion)
+    const laterHistory = history([
+      mandated,
+      oldStart,
+      oldNegative,
+      abandoned,
+      successor,
+      selectedSuccessor,
+      laterStart,
+      laterResult,
+    ])
+    const later = reconstructWorkflow({
+      evidence: await planEvidence(laterHistory, null, originalBody, []),
+      facts: facts({
+        productVersion: successor.payload.config.productVersion,
+        configVersion: successor.payload.config.version,
+        configDigest: successor.payload.config.digest,
+        supportedConfigVersions: [successor.payload.config.version],
+      }),
+      decisions: workflowDecisions,
+    })
+    expect(later).toMatchObject({ status: 'blocked' })
+    expect(later.evidence.some((item) => item.code === 'action-context-missing')).toBe(true)
+
     const [antecedentOpenPlanStart] = workflow.planDraftRecords(mandated, 'act-plan-open', originalVersion)
     const antecedentUncertain = reconstructWorkflow({
       evidence: await planEvidence(

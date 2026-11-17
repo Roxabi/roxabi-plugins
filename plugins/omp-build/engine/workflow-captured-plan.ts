@@ -133,7 +133,7 @@ function inspectReview(
   const plan = planOutputSchema.safeParse(draft.payload.structured)
   if (!plan.success || planDigest(plan.data) !== payload.exactInputs.planDigest)
     return fail('Captured review plan digest differs from its draft')
-  const specialists = inspectPlanSpecialists(item, payload, draft, histories, replay)
+  const specialists = inspectPlanSpecialists(item, payload, draft, histories, replay, undefined, item.historical)
   if (!specialists.ok) return specialists
   if (workflowContextNegative(item.result)) return { ok: true, value: undefined }
   if (payload.contributions.length !== payload.slots.length)

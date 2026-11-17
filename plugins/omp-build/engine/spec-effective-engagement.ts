@@ -16,15 +16,19 @@ import { currentOwnSpecProblem } from './uw-spec-currentness.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import { historyFor, type MandateRecord, mandatesOf, workflowOperationProblem } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
+import type { AcceptedSpecInspection } from './workflow-spec-authentication.ts'
 import { terminalMandate } from './workflow-terminal-mandate.ts'
 
 type CurrentEngagement = {
   own: OwnSpecRef
   graph: UwGraphObservation | UwSemanticGraph
   histories: readonly DecodedHistory[]
+  historical?: HistoricalAcceptedSpecContext
+  inspection?: AcceptedSpecInspection
 }
 type EngagementRefusal = Extract<UwResult<never>, { ok: false }>
 export type TerminalChildSuccession = Readonly<{ child: Scope; tip: ExternalRecordRef & { kind: 'mandate' } }>
@@ -114,7 +118,7 @@ function childEngagementProblem(
         ? `Accepted child ${child.scope.repository} ${child.scope.target} has no unique active mandate`
         : `Accepted child ${child.scope.repository} ${child.scope.target} has no authenticated terminal engagement with this Parent`,
     )
-  const current = resolveAcceptedSpec(selected, input.histories)
+  const current = resolveAcceptedSpec(selected, input.histories, undefined, input.inspection, input.historical)
   if (
     !current.ok ||
     current.spec.ref.version !== child.specVersion ||

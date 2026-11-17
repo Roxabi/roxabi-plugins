@@ -13,15 +13,10 @@ import {
   prepareRefusal,
   uwSubject,
 } from './delivery-action.ts'
-import {
-  type Gh,
-  type ModelReceiptActionInput,
-  receiptStartContext,
-  sealReceipt,
-  startAssessmentReceipt,
-  startCiAttributionReceipt,
-} from './feature-action-receipt.ts'
+import { type Gh, type ModelReceiptActionInput, receiptStartContext, sealReceipt } from './feature-action-receipt.ts'
 import { approvedMandateContext, finalEligiblePlanActionId } from './feature-approved-context.ts'
+import { startAssessmentReceipt } from './feature-assessment-receipt.ts'
+import { startCiAttributionReceipt } from './feature-ci-receipt.ts'
 import { explicitParentHistories } from './feature-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { cwdInhibition, inhibition } from './feature-control.ts'
@@ -29,7 +24,7 @@ import type { Contracts, History, WorkflowEvidence } from './feature-engine.ts'
 import { proveAuthorizedPublishedBase } from './feature-publication.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import type { PreparedUwAction, RecordInputRef } from './uw-action-contract.ts'
+import type { PreparedUwAction, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { integrationProofInputs } from './uw-action-stage-closure.ts'
 import type { UwOperations } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -146,19 +141,16 @@ export async function startImplement(
   cwd: string,
   mandate: NonNullable<History['operations'][number]['record']>,
   uw: UwOperations | undefined,
+  disposedStarts: ReadonlySet<string>,
+  recovery?: { request: UwActionRequest; prepared: PreparedUwAction },
 ): Promise<ContinueFeatureResult> {
   void issue
   const composed = evidence.parents
-  const approved = approvedMandateContext(loaded, mandate, evidence.causal?.histories ?? [history, ...composed])
-  if (approved.status === 'invalid') {
-    return { kind: 'blocked', reason: `mandate-spec-${approved.reason}`, diagnostics: approved.diagnostics }
-  }
-  if (approved.status !== 'ready') return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  const macro = loaded.planMacro(evidence, approved.mandate)
-  const planAction = finalEligiblePlanActionId(macro)
-  if (planAction === null) return { kind: 'blocked', reason: 'plan-unconfirmed' }
+  const plan = resolveImplementationPlan(loaded, evidence, history, mandate, disposedStarts)
+  if ('kind' in plan) return plan
+  const { approved, planAction } = plan
   const action = approved.accepted.children.length > 0 ? 'integrate' : 'implement'
-  const operationId = randomUUID()
+  const operationId = recovery?.request.actionId ?? randomUUID()
   const code = await observeHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
   if (uw === undefined) return blocks('prepare-action-unavailable')
@@ -176,17 +168,17 @@ export async function startImplement(
     code.code.base = projected.base
     stageSources.push(...projected.sources)
   }
-  const prepared = await (action === 'integrate' ? confirmPreparedAction : prepareDeliveryAction)(
-    uw,
-    actionRequest({
-      actionId: operationId,
-      purpose: action,
-      subject: uwSubject(scope, null),
-      code: code.code,
-      ...integrationStartOperands(action, approved.mandate.recordId, planAction),
-      stageSources,
-    }),
-  )
+  const request = actionRequest({
+    actionId: operationId,
+    purpose: action,
+    subject: uwSubject(scope, null),
+    code: code.code,
+    ...integrationStartOperands(action, approved.mandate.recordId, planAction),
+    stageSources,
+    expandedContext: recovery?.request.expandedContext,
+  })
+  const prepared = await prepareImplementationAction(uw, action, request, recovery)
+  if (prepared === null) return blocks('context-recovery-input-changed')
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
   if (action === 'integrate') {
     const published = await preflightIntegrationStart({
@@ -215,4 +207,39 @@ export async function startImplement(
     exactInputs: { mandateId: approved.mandate.recordId, planActionId: planAction },
     prepared: prepared.value,
   })
+}
+
+function resolveImplementationPlan(
+  loaded: Contracts,
+  evidence: WorkflowEvidence,
+  history: History,
+  mandate: NonNullable<History['operations'][number]['record']>,
+  disposedStarts: ReadonlySet<string>,
+):
+  | ContinueFeatureResult
+  | {
+      approved: Extract<ReturnType<typeof approvedMandateContext>, { status: 'ready' }>
+      planAction: string
+    } {
+  const approved = approvedMandateContext(loaded, mandate, evidence.causal?.histories ?? [history, ...evidence.parents])
+  if (approved.status === 'invalid')
+    return { kind: 'blocked' as const, reason: `mandate-spec-${approved.reason}`, diagnostics: approved.diagnostics }
+  if (approved.status !== 'ready') return { kind: 'blocked' as const, reason: 'mandate-spec-missing' }
+  const macro = loaded.planMacro(evidence, approved.mandate, { excludedStarts: disposedStarts })
+  const planAction = finalEligiblePlanActionId(macro)
+  if (planAction === null) return { kind: 'blocked' as const, reason: 'plan-unconfirmed' }
+  return { approved, planAction }
+}
+
+async function prepareImplementationAction(
+  uw: UwOperations,
+  action: 'integrate' | 'implement',
+  request: UwActionRequest,
+  recovery?: { request: UwActionRequest; prepared: PreparedUwAction },
+) {
+  if (recovery === undefined)
+    return (action === 'integrate' ? confirmPreparedAction : prepareDeliveryAction)(uw, request)
+  if (canonicalValueDigest(recovery.request) !== canonicalValueDigest(request)) return null
+  if (!(await uw.verifyAction(recovery.prepared.snapshot)).ok) return null
+  return { ok: true as const, value: recovery.prepared }
 }

@@ -2,7 +2,7 @@ import type { ContinueFeatureInput, ContinueFeatureResult, FeatureCommandHost } 
 import { featureErrorMessage } from './feature-presentation.ts'
 
 export async function continueWithParentCoverage(
-  host: FeatureCommandHost,
+  host: Pick<FeatureCommandHost, 'workflow' | 'requestParentCoverage' | 'send'>,
   input: ContinueFeatureInput,
   result: ContinueFeatureResult,
   principalDispatch: boolean,
@@ -17,6 +17,7 @@ export async function continueWithParentCoverage(
   const parentCoverage = await host.requestParentCoverage(result.coverageRequest)
   if (parentCoverage.kind !== 'proposed') return result
   try {
+    if (result.continueCoverage !== undefined) return await result.continueCoverage(parentCoverage.coverage)
     return await host.workflow.continueFeature({
       ...input,
       parentCoverage: parentCoverage.coverage,

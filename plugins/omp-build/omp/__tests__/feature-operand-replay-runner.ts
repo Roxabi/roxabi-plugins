@@ -1,7 +1,8 @@
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
+import type { ExternalRecordRef } from '../../engine/record-references.ts'
 import { installFixtureSdkSettings } from '../../testing/native-sdk-settings-fixture.ts'
 
-const [cwd = '', raw = '{}', actionId = ''] = process.argv.slice(2)
+const [cwd = '', raw = '{}', actionId = '', rawStart = ''] = process.argv.slice(2)
 await installFixtureSdkSettings(cwd)
 // SDK settings must exist before the installed runtime loads its registry.
 const { createInstalledUwOperations } = await import('../../roxabi/uw-installed-operations.ts')
@@ -17,6 +18,7 @@ const operations = await createInstalledUwOperations({
 })
 const result = await operations.replayActionInputs({
   reviewed,
+  intent: { kind: 'persisted', start: JSON.parse(rawStart) as ExternalRecordRef },
   request: {
     actionId,
     purpose: manifest.purpose,

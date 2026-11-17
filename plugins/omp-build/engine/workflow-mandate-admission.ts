@@ -4,57 +4,32 @@ import type { Result } from './result.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import {
-  abandoned,
   bindExternalRef,
   type ControlRecord,
   historyFor,
   type MandateRecord,
   mandateScope,
-  mandatesOf,
   refused,
-  successorOf,
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { historyRefusal } from './workflow-mandate-history.ts'
+import { selectedMandate } from './workflow-mandate-selection.ts'
+
+export { selectedMandate } from './workflow-mandate-selection.ts'
+
 import { epicParentProblem } from './workflow-parent.ts'
 import { unliftedPause } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 type MandateRefusalSelection = Extract<MandateSelection, { status: 'refused' }>
 
 function cycleRefusal(history: DecodedHistory, seen: ReadonlySet<string>): MandateRefusalSelection | null {
   const scopeKey = `${history.source.scope.repository}\0${history.source.scope.target}`
   return seen.has(scopeKey) ? refused('ambiguous', [diagnostic('ambiguous', 'Mandate parent chain cycles')]) : null
-}
-
-function noMandateRefusal(history: DecodedHistory): MandateRefusalSelection {
-  const claimed = history.operations.some(
-    (operation) => operation.kind === 'mandate' || operation.claimedKinds.includes('mandate'),
-  )
-  return claimed
-    ? refused('unconfirmed', [diagnostic('unconfirmed', 'A mandate was claimed but not confirmed')])
-    : refused('missing', [diagnostic('missing', 'No mandate record exists')])
-}
-
-export function selectedMandate(history: DecodedHistory): MandateRecord | MandateRefusalSelection {
-  const mandates = mandatesOf(history)
-  if (mandates.length === 0) return noMandateRefusal(history)
-  const active = mandates.filter((mandate) => !abandoned(history, mandate) && successorOf(history, mandate) === null)
-  if (active.length === 0) {
-    const last = mandates[mandates.length - 1]
-    if (last !== undefined && abandoned(history, last))
-      return refused('abandoned', [diagnostic('abandoned', `Mandate ${last.recordId} is abandoned`)])
-    return refused('revoked', [diagnostic('revoked', 'The mandate was superseded')])
-  }
-  if (active.length > 1) return refused('ambiguous', [diagnostic('ambiguous', 'More than one mandate is active')])
-  const mandate = active[0]
-  if (mandate === undefined) return refused('missing', [diagnostic('missing', 'No mandate record exists')])
-  if (abandoned(history, mandate))
-    return refused('abandoned', [diagnostic('abandoned', `Mandate ${mandate.recordId} is abandoned`)])
-  return mandate
 }
 
 function pauseRefusal(mandate: MandateRecord, pause: ControlRecord): MandateRefusalSelection {
@@ -115,12 +90,14 @@ function parentPolicyRefusal(
   mandate: MandateRecord,
   parent: MandateRecord,
   causal: WorkflowCausalContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): MandateSelection | null {
   const permissions = permissionRefusal(mandate, parent)
   if (permissions !== null) return permissions
-  const parentAccepted = resolveAcceptedSpec(parent, causal.histories)
+  const parentAccepted = resolveAcceptedSpec(parent, causal.histories, undefined, inspection, historical)
   if (!parentAccepted.ok) return acceptedRefusal(parentAccepted)
-  const childAccepted = resolveAcceptedSpec(mandate, causal.histories)
+  const childAccepted = resolveAcceptedSpec(mandate, causal.histories, undefined, inspection, historical)
   if (!childAccepted.ok) return acceptedRefusal(childAccepted)
   return childCommitmentRefusal(mandate, parentAccepted.spec, childAccepted.spec)
 }
@@ -130,6 +107,8 @@ function parentAdmission(
   externalHistories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string>,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): MandateSelection | null {
   if (mandate.payload.parent === null) return null
   const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories)
@@ -149,9 +128,16 @@ function parentAdmission(
   ) {
     return refused('revoked', [diagnostic('revoked', 'Child parent reference does not name the active parent mandate')])
   }
-  const parentSelection = selectApplicableMandate(parentHistory, externalHistories, causal, seen)
+  const parentSelection = selectApplicableMandate(
+    parentHistory,
+    externalHistories,
+    causal,
+    seen,
+    inspection,
+    historical,
+  )
   if (parentSelection.status === 'refused') return parentSelection
-  const policy = parentPolicyRefusal(mandate, parentSelection.mandate, causal)
+  const policy = parentPolicyRefusal(mandate, parentSelection.mandate, causal, inspection, historical)
   return policy
 }
 
@@ -161,14 +147,16 @@ function mandateAdmission(
   externalHistories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string>,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): MandateSelection {
   const pause = unliftedPause(history, mandate)
   if (pause !== null) return pauseRefusal(mandate, pause)
   const graph = executableGraph(mandate)
   if (!graph.ok) return refused('unsupported', graph.diagnostics)
-  const omission = epicParentProblem(mandate, [history, ...externalHistories], causal)
+  const omission = epicParentProblem(mandate, [history, ...externalHistories], causal, inspection, historical)
   if (omission !== null) return refused(omission.reason, omission.evidence)
-  const parent = parentAdmission(mandate, externalHistories, causal, seen)
+  const parent = parentAdmission(mandate, externalHistories, causal, seen, inspection, historical)
   return parent ?? { status: 'applicable', mandate }
 }
 
@@ -177,6 +165,8 @@ export function selectApplicableMandate(
   externalHistories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string> = new Set(),
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): MandateSelection {
   const cycle = cycleRefusal(history, seen)
   if (cycle !== null) return cycle
@@ -188,7 +178,7 @@ export function selectApplicableMandate(
   if ('status' in selected) return selected
   const nextSeen = new Set(seen)
   nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
-  return mandateAdmission(selected, history, externalHistories, causal, nextSeen)
+  return mandateAdmission(selected, history, externalHistories, causal, nextSeen, inspection, historical)
 }
 
 export type OwnSpecAuthority = {
@@ -202,6 +192,8 @@ function controlParentAuthority(
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string>,
   replayContext?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<void> {
   if (mandate.payload.parent === null) return { ok: true, value: undefined }
   const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories)
@@ -209,7 +201,15 @@ function controlParentAuthority(
   const bound = bindExternalRef(mandate.payload.parent, parentHistory)
   if (!bound.ok) return bound
   if (bound.value.kind !== 'mandate') return fail([diagnostic('kind-mismatch', 'Parent reference is not a mandate')])
-  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, causal, seen, replayContext)
+  const parent = resolveOwnSpecAuthority(
+    parentHistory,
+    externalHistories,
+    causal,
+    seen,
+    replayContext,
+    inspection,
+    historical,
+  )
   if (!parent.ok) return parent
   if (
     !sameRef(
@@ -236,6 +236,8 @@ export function resolveOwnSpecAuthority(
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string> = new Set(),
   replayContext?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<OwnSpecAuthority> {
   const cycle = cycleRefusal(history, seen)
   if (cycle !== null) return fail(cycle.evidence)
@@ -251,9 +253,17 @@ export function resolveOwnSpecAuthority(
   if (!graph.ok) return fail(graph.diagnostics)
   const nextSeen = new Set(seen)
   nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
-  const parent = controlParentAuthority(selected, externalHistories, causal, nextSeen, replayContext)
+  const parent = controlParentAuthority(
+    selected,
+    externalHistories,
+    causal,
+    nextSeen,
+    replayContext,
+    inspection,
+    historical,
+  )
   if (!parent.ok) return parent
-  const accepted = resolveAcceptedSpec(selected, causal.histories, replayContext)
+  const accepted = resolveAcceptedSpec(selected, causal.histories, replayContext, inspection, historical)
   if (!accepted.ok) return fail(accepted.evidence)
   return { ok: true, value: { mandate: selected, accepted: accepted.spec } }
 }

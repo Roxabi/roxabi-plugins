@@ -3,6 +3,14 @@ import type { NativeBatchController } from './controller'
 import { acquireTaskMask, releaseTaskMask, taskMaskCurrent } from './task-mask-lease'
 
 const endedTurns = new WeakSet<NativeBatchController>()
+const announcementGuards = new WeakMap<NativeBatch, () => boolean>()
+export function nativeAnnouncementCurrent(batch: NativeBatch): boolean {
+  return announcementGuards.get(batch)?.() !== false
+}
+
+export function consumeNativeAnnouncementGuard(batch: NativeBatch): void {
+  announcementGuards.delete(batch)
+}
 
 export function resetNativeTurn(controller: NativeBatchController): void {
   endedTurns.delete(controller)
@@ -37,13 +45,18 @@ export function createNativeReviewPort(
   pi: NativeExtension,
   controller: NativeBatchController,
 ): Pick<NativeBatchController, 'activate' | 'inactive' | 'stopOwned'> & {
-  announce(batch: NativeBatch): Promise<void>
+  announce(batch: NativeBatch, current?: () => boolean): Promise<void>
 } {
   return {
     activate: controller.activate.bind(controller),
     inactive: controller.inactive.bind(controller),
     stopOwned: controller.stopOwned.bind(controller),
-    async announce(batch): Promise<void> {
+    async announce(batch, current): Promise<void> {
+      if (current) announcementGuards.set(batch, current)
+      if (current?.() === false) {
+        await controller.stopOwned(batch, 'native-announcement-cancelled')
+        return
+      }
       if (!controller.announce(batch)) {
         throw new Error('native batch is not the active batch ready for announcement')
       }
@@ -73,6 +86,11 @@ export async function sendNativeAnnouncement(
     await acquireTaskMask(controller, batch)
     if (controller.active() !== batch || !(await taskMaskCurrent(controller, batch)))
       throw new Error('native batch or task mask changed before announcement')
+    if (!nativeAnnouncementCurrent(batch)) {
+      await releaseTaskMask(controller, false, batch)
+      await controller.stopOwned(batch, 'native-announcement-cancelled')
+      return
+    }
     await pi.sendMessage(message, nextTurn ? { triggerTurn: true, deliverAs: 'nextTurn' } : { triggerTurn: true })
   } catch (error) {
     try {

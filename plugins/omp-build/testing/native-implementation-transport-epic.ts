@@ -11,6 +11,7 @@ export type NativeEpicFacts = {
     timeline: readonly NativeEpicPullRequest[]
   }[]
   checks: readonly { sha: string; nodes: readonly CheckNode[] }[]
+  branches?: readonly { head: string; pulls: readonly NativeEpicPullRequest[] }[]
 }
 
 type EpicWorld = {
@@ -56,23 +57,44 @@ function childFacts(world: EpicWorld, scope: Scope, closedLimit: number, timelin
   return entry
 }
 
-function branchResponse(world: EpicWorld, args: readonly string[]): string {
-  const head = args[9]?.startsWith('head=') ? args[9].slice(5) : ''
-  if (args[8] !== '-f' || !head) throw new Error('Invalid containment branch')
-  const nodes = new Map<number, NativeEpicPullRequest>()
+function childBranchPulls(world: EpicWorld, head: string, nodes: Map<number, NativeEpicPullRequest>) {
   for (const declared of world.facts.children) {
     const entry = childFacts(world, declared.scope, 100, 100)
     for (const item of [...entry.closedBy, ...entry.timeline])
       if (item.headRefName === head) nodes.set(item.number, item)
   }
+}
+
+function branchInventory(world: EpicWorld, head: string) {
+  const declarations = world.facts.branches?.filter((entry) => entry.head === head) ?? []
+  if (declarations.length > 1) throw new Error('Containment branch inventory is ambiguous')
+  const nodes = new Map<number, NativeEpicPullRequest>()
+  const declaration = declarations[0]
+  if (declaration) {
+    for (const item of declaration.pulls) {
+      validatePull(item, world)
+      if (item.headRefName !== head || nodes.has(item.number))
+        throw new Error('Containment branch inventory is inconsistent')
+      nodes.set(item.number, item)
+    }
+  } else {
+    childBranchPulls(world, head, nodes)
+  }
+  return { declarations, nodes }
+}
+
+function branchResponse(world: EpicWorld, args: readonly string[]): string {
+  const head = args[9]?.startsWith('head=') ? args[9].slice(5) : ''
+  if (args[8] !== '-f' || !head) throw new Error('Invalid containment branch')
+  const { declarations, nodes } = branchInventory(world, head)
   const actual = [...world.pulls.values()].filter((pull) => pull.branch === head)
   if (
-    actual.length === 0 ||
+    (actual.length === 0 && declarations.length !== 1) ||
     actual.length !== nodes.size ||
     actual.some((pull) => !nodes.has(nativeNumber(pull.scope))) ||
     nodes.size > 100
   )
-    throw new Error('Containment branch inventory was not declared completely')
+    throw new Error(`Containment branch inventory was not declared completely: ${head}`)
   return JSON.stringify({
     data: { repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: [...nodes.values()] } } },
   })

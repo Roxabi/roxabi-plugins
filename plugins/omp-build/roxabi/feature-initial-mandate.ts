@@ -222,7 +222,14 @@ async function confirmFirstMandateSelection(
   const read = await reader.readUw(scope)
   const causal = await composeObservedUwCausalContext(read, [history, ...parents.parents], options)
   if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
-  const selected = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
+  const selected = context.engine.selectApplicableMandate(
+    history,
+    parents.parents,
+    causal.value,
+    new Set(),
+    undefined,
+    causal.value.historical,
+  )
   if (selected.status !== 'applicable' || selected.mandate === null)
     return { kind: 'blocked', reason: 'first-mandate-unconfirmed' }
   if (

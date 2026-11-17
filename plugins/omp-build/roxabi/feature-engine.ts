@@ -37,7 +37,8 @@ const requiredContractNames = [
 
 type RequiredContractName = (typeof requiredContractNames)[number]
 
-export type Contracts = Pick<typeof import('../contracts.ts'), RequiredContractName>
+export type Contracts = Pick<typeof import('../contracts.ts'), RequiredContractName> &
+  Partial<Pick<typeof import('../contracts.ts'), 'resolveAcceptedSpecForAbandonment'>>
 export type History = DecodedHistory
 export type HistoryRecord = NonNullable<History['operations'][number]['record']>
 export type { WorkflowEvidence } from '../engine/workflow-plan.ts'

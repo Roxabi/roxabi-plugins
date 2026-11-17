@@ -232,7 +232,14 @@ async function selectHistoryAuthority(
   if (!parents.ok) return disarmParents(input, native, context, parents.reason)
   const causal = await readFreshUwCausalContext(native.scope, [history, ...parents.parents], options)
   if (!causal.ok) return disarmParents(input, native, context, causalRefusal(causal))
-  const selection = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
+  const selection = context.engine.selectApplicableMandate(
+    history,
+    parents.parents,
+    causal.value,
+    new Set(),
+    undefined,
+    causal.value.historical,
+  )
   if (
     exactMandateRef === undefined &&
     input.control === 'pause' &&

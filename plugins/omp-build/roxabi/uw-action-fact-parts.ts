@@ -1,142 +1,36 @@
-import { canonicalValueDigest, readUwCompletionObservation, toDiagnostics } from '../dist/contracts.js'
+import { readUwCompletionObservation, toDiagnostics } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
+import { equalScope } from '../engine/record-diagnostics.ts'
+import { externalRecordRefSchema } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
-import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
+import type { ReceiptRecord } from '../engine/workflow-control.ts'
+import { authenticateActionReplayStart } from '../engine/workflow-spec-authentication.ts'
+import { plannerSuccessionInspection, plannerSuccessionStarts } from './feature-planner-succession.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
-import { acceptedChain, bindSubject } from './uw-action-accepted-state.ts'
-import {
-  type EvidenceObservation,
-  type ObserveCausalFacts,
-  resolveEvidenceBasis,
-  seedEvidenceObservation,
-} from './uw-action-basis.ts'
-import { causeActionData } from './uw-action-cause-data.ts'
+import { acceptedChain } from './uw-action-accepted-state.ts'
+import { type ObserveCausalFacts, seedEvidenceObservation } from './uw-action-basis.ts'
 import type {
   ActionInputManifest,
+  ActionReplayIntent,
   ActionSubject,
   CorrectionRootRef,
   CurrentActionFacts,
-  RecordInputRef,
   ReviewRootRef,
   UwActionRequest,
 } from './uw-action-contract.ts'
-import { expansionOrigin } from './uw-action-expansion-origin.ts'
-import { type ActionFactSource, authenticate, configuration, observeCode, readHistories } from './uw-action-observe.ts'
+import { bindAuthenticatedSubject, finishFacts } from './uw-action-fact-finish.ts'
+import { type ActionFactSource, configuration, observeCode, readHistories } from './uw-action-observe.ts'
 import { observeActionOperands } from './uw-action-operands.ts'
 import { proposedSpec } from './uw-action-proposed-spec.ts'
 import { actionFailure } from './uw-action-result.ts'
-import { authenticateReviewRoot } from './uw-action-review-root.ts'
-import { assertCurrentOutputClosure, currentRootOutputRefs, selectDeliveryData } from './uw-action-selection.ts'
-import type { IntegrationStageObservation } from './uw-action-stage-closure.ts'
+import { currentAccountedMandate } from './uw-action-selection.ts'
 import { standaloneFacts } from './uw-action-standalone-facts.ts'
-import { validateExpandedWorkflowLive } from './uw-context-negative-live.ts'
+import { assessmentRecoveryReplay, assessmentSuccessionInspection } from './uw-assessment-prestart.ts'
 import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
 
 export type { ActionFactSource }
-
-function integrationOperands(
-  request: UwActionRequest,
-  mandate: Result<MandateRecord>,
-  planActionId: string | null,
-  operands: CurrentActionFacts['operands'],
-): Result<CurrentActionFacts['operands']> {
-  if (request.purpose === 'integrate' && (!mandate.ok || planActionId === null))
-    return actionFailure('action-input-missing', 'Integration requires the current mandate and eligible plan')
-  const selected =
-    request.purpose === 'integrate' && mandate.ok && planActionId !== null
-      ? { action: 'integrate' as const, exactInputs: { mandateId: mandate.value.recordId, planActionId } }
-      : operands
-  if (
-    request.purpose === 'integrate' &&
-    (selected === undefined ||
-      request.operands === undefined ||
-      canonicalValueDigest(selected) !== canonicalValueDigest(request.operands))
-  )
-    return actionFailure(
-      'review-input-changed',
-      'Integration operands differ from the same-cut eligible mandate and plan',
-    )
-  return { ok: true, value: selected }
-}
-
-async function finishFacts(
-  request: UwActionRequest,
-  source: ActionFactSource,
-  histories: readonly DecodedHistory[],
-  catalogues: ReviewClassCatalogues,
-  subject: ActionSubject,
-  spec: ActionInputManifest['spec'],
-  acceptedSources: RecordInputRef[],
-  mandate: Result<MandateRecord>,
-  operands: CurrentActionFacts['operands'],
-  config: ActionInputManifest['configuration'],
-  completionObservation: Extract<UwCompletionObservation, { status: 'complete' }>,
-  integration: IntegrationStageObservation | undefined,
-  reviewedFingerprint?: string,
-  observation?: EvidenceObservation,
-  reviewedRoot?: ReviewRootRef,
-  correctionRoot?: CorrectionRootRef,
-): Promise<Result<CurrentActionFacts>> {
-  const authenticated = authenticateReviewRoot(request, histories, reviewedFingerprint, reviewedRoot, subject)
-  if (!authenticated.ok) return authenticated
-  const expansion = expansionOrigin(request, histories, reviewedFingerprint)
-  if (!expansion.ok) return expansion
-  if (expansion.value?.workflow !== undefined) {
-    const live = await validateExpandedWorkflowLive(source, request, expansion.value.workflow)
-    if (!live.ok) return live
-  }
-  const delivery = mandate.ok
-    ? selectDeliveryData(
-        request,
-        mandate.value,
-        histories,
-        catalogues,
-        completionObservation,
-        (record) => authenticate(record, histories),
-        expansion.value?.planner,
-        spec,
-        reviewedFingerprint,
-      )
-    : { ok: true as const, value: { refs: [], plannedPaths: [], planActionId: null } }
-  if (!delivery.ok) return delivery
-  const selected = integrationOperands(request, mandate, delivery.value.planActionId, operands)
-  if (!selected.ok) return selected
-  const selectedOperands = selected.value
-  const currentOutputs = currentRootOutputRefs(request, histories, reviewedRoot, expansion.value?.root)
-  const causes = causeActionData(request, histories, currentOutputs, catalogues)
-  if (!causes.ok) return causes
-  const deliveryData = [...delivery.value.refs, ...causes.value]
-  const basis = await resolveEvidenceBasis(deliveryData, source, observation)
-  if (!basis.ok) return basis
-  const closed = assertCurrentOutputClosure(
-    request,
-    { subject, correctionRoot: correctionRoot ?? null },
-    histories,
-    catalogues,
-    [...acceptedSources, ...deliveryData],
-    reviewedRoot,
-    expansion.value?.root,
-    integration,
-  )
-  if (!closed.ok) return closed
-  return {
-    ok: true,
-    value: {
-      spec,
-      subject,
-      acceptedSources,
-      deliveryData,
-      plannedPaths: delivery.value.plannedPaths,
-      ...(selectedOperands === undefined ? {} : { operands: selectedOperands }),
-      currentOutputs,
-      configuration: config,
-      ...(expansion.value?.previous === undefined ? {} : { expansionPrevious: expansion.value.previous }),
-    },
-  }
-}
 
 async function observeJointCompletion(
   subject: Extract<ActionSubject, { kind: 'uw' }>,
@@ -179,25 +73,39 @@ export async function uwFacts(
   observeCausal?: ObserveCausalFacts,
   reviewedRoot?: ReviewRootRef,
   correctionRoot?: CorrectionRootRef,
+  intent?: ActionReplayIntent,
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'uw') return actionFailure('action-input-missing', 'UW subject is absent')
   const subject = request.subject
   const joint = await observeJointCompletion(subject, source, histories, observeCausal)
   if (!joint.ok) return joint
   const rawObservation = joint.value
-  const replay =
-    request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
-      ? { uw: subject.uw, actionId: request.actionId, fingerprint: reviewedFingerprint }
-      : undefined
+  const persisted = persistedActionStart(request, subject, rawObservation.histories, intent, reviewedFingerprint)
+  if (!persisted.ok) return persisted
+  const persistedStart = persisted.value
+  if (request.purpose === 'assess-spec' && intent === undefined)
+    return actionFailure('action-input-missing', 'Assessment action facts require explicit replay intent')
+  const assessment = await observeAssessmentReplay(
+    request,
+    subject,
+    source,
+    rawObservation,
+    intent,
+    reviewedFingerprint,
+  )
+  if (!assessment.ok) return assessment
+  const { replay, inspection } = assessment.value
   const uwRead = await createInstalledObservedUwReadPort({
     observation: rawObservation,
     ...(replay === undefined ? {} : { assessmentReplay: replay }),
+    ...(inspection === undefined ? {} : { assessmentInspection: inspection }),
   }).readUw(subject.uw)
   const observation = uwRead.observation
   if (observation.status !== 'complete') return { ok: false, diagnostics: toDiagnostics(observation.diagnostics) }
   const sameCutHistories = observation.histories
-  const bound = bindSubject(request, subject, sameCutHistories, observed)
+  const bound = bindAuthenticatedSubject(request, subject, sameCutHistories, observed, persistedStart)
   if (!bound.ok) return bound
+  const currentInspection = inspection
   const accepted = acceptedChain(
     request,
     sameCutHistories,
@@ -205,6 +113,8 @@ export async function uwFacts(
     config,
     uwRead.observation.graph,
     replay,
+    currentInspection,
+    uwRead.historical,
   )
   if (!accepted.ok) return accepted
   const spec = await proposedSpec(request, subject, source, accepted.value.spec)
@@ -241,7 +151,88 @@ export async function uwFacts(
     seedEvidenceObservation(completeHistories),
     reviewedRoot,
     correctionRoot,
+    replay,
+    intent,
+    currentInspection,
+    uwRead.historical,
   )
+}
+
+async function observeAssessmentReplay(
+  request: UwActionRequest,
+  subject: Extract<ActionSubject, { kind: 'uw' }>,
+  source: ActionFactSource,
+  rawObservation: Extract<UwCompletionObservation, { status: 'complete' }>,
+  intent: ActionReplayIntent | undefined,
+  reviewedFingerprint: string | undefined,
+) {
+  const home = rawObservation.histories.find((history) => equalScope(history.source.scope, subject.uw))
+  const current = home === undefined ? null : currentAccountedMandate(home)
+  const proof = current?.ok
+    ? await plannerSuccessionInspection(current.value, {
+        histories: rawObservation.histories,
+        catalogues: rawObservation.catalogues,
+        observation: rawObservation,
+      })
+    : { ok: true as const, value: undefined }
+  if (!proof.ok) return proof
+  const disposition =
+    current?.ok && intent !== undefined
+      ? await plannerSuccessionStarts(
+          current.value,
+          {
+            histories: rawObservation.histories,
+            catalogues: rawObservation.catalogues,
+            observation: rawObservation,
+          },
+          source,
+        )
+      : { ok: true as const, value: new Set<string>() }
+  if (!disposition.ok) return disposition
+  const recovered =
+    intent === undefined
+      ? { ok: true as const, value: undefined }
+      : assessmentRecoveryReplay(request, rawObservation.histories, intent, reviewedFingerprint, disposition.value)
+  if (!recovered.ok) return recovered
+  return {
+    ok: true as const,
+    value: { replay: recovered.value, inspection: assessmentSuccessionInspection(proof.value) },
+  }
+}
+
+function persistedActionStart(
+  request: UwActionRequest,
+  subject: Extract<ActionSubject, { kind: 'uw' }>,
+  histories: readonly DecodedHistory[],
+  intent: ActionReplayIntent | undefined,
+  reviewedFingerprint: string | undefined,
+): Result<ReceiptRecord | null> {
+  if (intent?.kind !== 'persisted') return { ok: true, value: null }
+  if (request.purpose === 'review' || request.purpose === 'correction')
+    return actionFailure('action-input-missing', 'Review and correction replay require their own root authority')
+  const startRef = intent.start
+  const home = request.purpose === 'attribute-ci' ? subject.pullRequest : subject.uw
+  if (
+    reviewedFingerprint === undefined ||
+    !externalRecordRefSchema.safeParse(startRef).success ||
+    startRef.kind !== 'action-receipt' ||
+    home === null ||
+    !equalScope(startRef.scope, home)
+  )
+    return actionFailure('action-input-missing', 'Persisted action replay lacks its scoped START reference')
+  const matches = histories.filter((history) => equalScope(history.source.scope, startRef.scope))
+  if (matches.length !== 1 || matches[0] === undefined)
+    return actionFailure('action-input-missing', 'Persisted action replay history is unavailable or ambiguous')
+  const start = authenticateActionReplayStart(
+    matches[0],
+    startRef,
+    request.purpose,
+    request.actionId,
+    reviewedFingerprint,
+  )
+  return start === null
+    ? actionFailure('action-input-missing', 'Persisted action START is not authenticated')
+    : { ok: true, value: start }
 }
 
 export async function readProductionActionFacts(
@@ -250,6 +241,7 @@ export async function readProductionActionFacts(
   reviewedFingerprint?: string,
   reviewedRoot?: ReviewRootRef,
   correctionRoot?: CorrectionRootRef,
+  intent?: ActionReplayIntent,
 ): Promise<Result<CurrentActionFacts>> {
   const observed = await observeCode(request, source).catch((error: unknown) =>
     actionFailure('action-code-moved', error instanceof Error ? error.message : 'code observation failed'),
@@ -257,6 +249,8 @@ export async function readProductionActionFacts(
   if (!observed.ok) return observed
   const config = await configuration(source.cwd, request.code.referenceCommit, source.git)
   if (!config.ok) return config
+  if (request.subject.kind === 'standalone-pr' && intent?.kind === 'persisted')
+    return actionFailure('action-input-missing', 'Standalone review replay requires its own root authority')
   if (request.subject.kind === 'standalone-pr')
     return standaloneFacts(
       request,
@@ -279,5 +273,6 @@ export async function readProductionActionFacts(
     undefined,
     reviewedRoot,
     correctionRoot,
+    intent,
   )
 }

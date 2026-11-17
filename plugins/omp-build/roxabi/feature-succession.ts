@@ -2,51 +2,62 @@
 
 import { randomUUID } from 'node:crypto'
 import { resolveAcceptedSpec, sameScope, terminalMandate } from '../dist/contracts.js'
+import { canonicalValueDigest } from '../engine/canonical-value.ts'
 import type { Result } from '../engine/result.ts'
 import type { NativeDeliveryPullRequest } from '../engine/uw-completion-types.ts'
 import type { UwTier } from '../engine/uw-spec.ts'
+import { resolveAcceptedSpecForAbandonment } from '../engine/workflow-accepted-spec-control.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
+import type { ContextSuccessionProposal } from '../engine/workflow-context-disposition-schema.ts'
+import { admitContextSuccession, validateContextSuccessionProposal } from '../engine/workflow-context-succession.ts'
 import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import type { TerminalMandate } from '../engine/workflow-terminal-mandate.ts'
-import { type Contracts, type History, type HistoryRecord, publishRecord, type Scope } from './feature-engine.ts'
+import type { ContextHandoffObservation } from './feature-context-handoff-observation.ts'
+import { type Contracts, type History, publishRecord, type Scope } from './feature-engine.ts'
 import {
   prepareSuccessorBinding,
   preserveSuccessorBinding,
   recheckSuccessorBinding,
 } from './feature-succession-binding.ts'
 import { publishAndRefreshSuccessor } from './feature-succession-refresh.ts'
+import { executeHostContextSuccession } from './uw-context-succession-operation.ts'
+import type { UwOperations } from './uw-contract.ts'
 
 export type { Gh } from './feature-succession-binding.ts'
 
 import type { Gh } from './feature-succession-binding.ts'
+import {
+  handoffStages,
+  readPublishedSuccessorHistory,
+  sameHandoffObservation,
+  successorControlRecord,
+  successorRolePayload,
+  successorShared,
+} from './feature-succession-records.ts'
 import type { FeatureCheckoutTarget, GitRunner } from './workflow-checkout.ts'
-import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
-import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
-import { parseWorkflowOverride } from './workflow-overrides.ts'
-
-type MandateRecord = Extract<HistoryRecord, { kind: 'mandate' }>
-type SuccessorShared = Pick<
-  MandateRecord['payload'],
-  | 'format'
-  | 'branch'
-  | 'base'
-  | 'lineageHead'
-  | 'config'
-  | 'parent'
-  | 'antecedent'
-  | 'ownSpec'
-  | 'tier'
-  | 'children'
-  | 'inheritedOwnSpecRefs'
-  | 'coverage'
->
 
 export type SuccessionBasis = Readonly<{ terminal: TerminalMandate; historical: AcceptedOwnSpec }>
 
-export function readSuccessionBasis(history: History, histories: readonly History[]): Result<SuccessionBasis> {
+export type ContextHandoffPublication = {
+  operations: UwOperations
+  observed: ContextHandoffObservation
+  observe(prospective?: {
+    ref: SuccessorAntecedent
+    payloadDigest: string
+    before: History
+  }): Promise<{ ok: true; value: ContextHandoffObservation } | { ok: false; reason: string }>
+}
+
+export function readSuccessionBasis(
+  history: History,
+  histories: readonly History[],
+  contextHandoff = false,
+): Result<SuccessionBasis> {
   const terminal = terminalMandate(history)
   if (!terminal.ok) return terminal
-  const historical = resolveAcceptedSpec(terminal.value.mandate, histories)
+  const historical = contextHandoff
+    ? resolveAcceptedSpecForAbandonment(terminal.value.mandate, histories)
+    : resolveAcceptedSpec(terminal.value.mandate, histories)
   return historical.ok
     ? { ok: true, value: { terminal: terminal.value, historical: historical.spec } }
     : { ok: false, diagnostics: historical.evidence }
@@ -90,6 +101,7 @@ export async function publishSuccessorMandate(input: {
   parents: readonly History[]
   target: FeatureCheckoutTarget
   observedPullRequests: readonly NativeDeliveryPullRequest[]
+  contextHandoff?: ContextHandoffPublication
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const antecedent = confirmSuccessorAntecedent(input.history, input.scope, input.basis.terminal.ref)
   if (!antecedent.ok) return antecedent
@@ -119,6 +131,17 @@ export async function publishSuccessorMandate(input: {
   if (!preparedBinding.ok) return preparedBinding
   const successorId = randomUUID()
   const controlId = randomUUID()
+  if (input.contextHandoff !== undefined) {
+    return publishContextSuccessor(
+      input,
+      antecedent.value.ref,
+      prior,
+      rolePayload,
+      baseAndBranch,
+      successorId,
+      controlId,
+    )
+  }
   const refreshed = await publishAndRefreshSuccessor(input, successorId, rolePayload)
   if (!refreshed.ok) return refreshed
   const beforeControl = await recheckSuccessorBinding(bindingContext, preparedBinding.plan)
@@ -143,94 +166,121 @@ export async function publishSuccessorMandate(input: {
   return { ok: true }
 }
 
-async function successorShared(
-  input: {
-    loaded: Contracts
-    scope: Scope
-    ownSpec: MandatePayload['ownSpec']
-    tier: UwTier
-    children: AcceptedChildCommitment[]
-    inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
-    coverage: MandatePayload['coverage']
-    git: GitRunner
-    cwd: string
-  },
+async function publishContextSuccessor(
+  input: Parameters<typeof publishSuccessorMandate>[0],
   antecedent: SuccessorAntecedent,
-  prior: MandateRecord['payload'],
+  prior: MandatePayload,
+  payload: MandatePayload,
   baseAndBranch: { base: string; branch: string | null },
-  productVersion: string,
-): Promise<{ ok: true; shared: SuccessorShared } | { ok: false; reason: string }> {
-  const head = await input.git(input.cwd, ['rev-parse', 'HEAD'])
-  if (head.code !== 0 || !/^[0-9a-f]{40}$/.test(head.stdout.trim()))
-    return { ok: false, reason: 'successor-head-unreadable' }
-  const override = await input.git(input.cwd, ['show', `refs/remotes/origin/${baseAndBranch.base}:.dev/stack.yml`])
-  const parsed = parseWorkflowOverride(override.code === 0 ? override.stdout : null)
-  if (!parsed.ok) return { ok: false as const, reason: parsed.reason }
-  const effective = effectiveWorkflowConfig(productVersion, parsed.additionalRequirements)
-  return {
-    ok: true as const,
-    shared: {
-      format: 'omp-build-mandate/4',
-      branch: baseAndBranch.branch,
-      base: baseAndBranch.base,
-      lineageHead: head.stdout.trim(),
-      config: { productVersion, version: WORKFLOW_CONFIG_VERSION, digest: configPinDigest(effective), effective },
-      parent: prior.parent,
-      antecedent,
-      ownSpec: input.ownSpec,
-      tier: input.tier,
-      children: input.children,
-      inheritedOwnSpecRefs: input.inheritedOwnSpecRefs,
-      coverage: input.coverage,
-    },
-  }
-}
-
-function successorRolePayload(prior: MandateRecord['payload'], shared: SuccessorShared): MandateRecord['payload'] {
-  if (prior.role === 'epic') {
-    return {
-      role: 'epic',
-      ...shared,
-      run: prior.run,
-      permissions: prior.permissions,
-    }
-  }
-  if (prior.role === 'fix-only') {
-    return {
-      role: 'fix-only',
-      ...shared,
-      run: null,
-      permissions: { landing: false, correct: true },
-    }
-  }
-  return {
-    role: 'feature',
-    ...shared,
-    run: prior.run,
-    permissions: prior.permissions,
-  }
-}
-
-function successorControlRecord(
-  scope: Scope,
-  antecedent: SuccessorAntecedent,
   successorId: string,
   controlId: string,
-): Omit<Extract<HistoryRecord, { kind: 'operator-control' }>, 'inputs'> {
-  return {
-    repository: scope.repository,
-    target: scope.target,
-    version: 1,
-    recordId: randomUUID(),
-    runId: randomUUID(),
-    operationId: randomUUID(),
-    kind: 'operator-control',
-    payload: {
-      control: 'select-successor',
-      controlId,
-      predecessor: antecedent,
-      successor: { scope, recordId: successorId, kind: 'mandate' },
-      mandate: antecedent,
-    },
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const handoff = input.contextHandoff
+  if (handoff === undefined) return { ok: false, reason: 'context-handoff-reconciliation-unavailable' }
+  const successor = { scope: input.scope, recordId: successorId, kind: 'mandate' as const }
+  const operationId = randomUUID()
+  const proposal: ContextSuccessionProposal = {
+    format: 'omp-build-context-succession/1',
+    uw: input.scope,
+    operationId,
+    controlId,
+    predecessor: antecedent,
+    successor,
+    successorPayloadDigest: canonicalValueDigest(payload),
+    predecessorConfig: prior.config,
+    successorConfig: payload.config,
+    negative: handoff.observed.negative,
+    replacementAccepted: handoff.observed.replacementAccepted,
+    reconciliation: handoff.observed.reconciliation,
   }
+  try {
+    if (!validateContextSuccessionProposal(proposal, payload, handoff.observed.histories).ok)
+      return { ok: false, reason: 'context-handoff-admission-refused' }
+  } catch {
+    return { ok: false, reason: 'context-handoff-admission-unavailable' }
+  }
+  let publishedHistory: History | undefined
+  let failureStage = 'confirmation'
+  const fresh = async (afterPublication: boolean) => {
+    const stages = afterPublication ? handoffStages.preselection : handoffStages.premandate
+    failureStage = stages.observation
+    const observed = await handoff.observe(
+      afterPublication
+        ? { ref: successor, payloadDigest: proposal.successorPayloadDigest, before: input.history }
+        : undefined,
+    )
+    if (!observed.ok) return false
+    failureStage = stages.reconciliation
+    if (!sameHandoffObservation(observed.value, proposal)) return false
+    failureStage = stages.admission
+    const admission = validateContextSuccessionProposal(proposal, payload, observed.value.histories)
+    if (!admission.ok) {
+      failureStage +=
+        '-' + (admission.diagnostics[0]?.message ?? 'unconfirmed').replace(/[^a-z0-9,-]/gi, '-').slice(0, 80)
+      return false
+    }
+    failureStage = stages.config
+    const shared = await successorShared(input, antecedent, prior, baseAndBranch, input.loaded.shippedProductVersion())
+    return (
+      shared.ok && canonicalValueDigest(successorRolePayload(prior, shared.shared)) === proposal.successorPayloadDigest
+    )
+  }
+  const result = await executeHostContextSuccession(handoff.operations, proposal, {
+    validateBeforeMandate: () => fresh(false),
+    validateBeforeSelection: () => fresh(true),
+    publishMandate: async () => {
+      failureStage = 'mandate-publication'
+      const published = await publishAndRefreshSuccessor(input, successorId, payload)
+      if (!published.ok) {
+        failureStage = 'mandate-publication-' + published.reason.replace(/[^a-z0-9,-]/gi, '-').slice(0, 80)
+        return false
+      }
+      publishedHistory = published.history
+      return true
+    },
+    publishSelection: async (_proposal, evidence) => {
+      failureStage = 'selection-preparation'
+      if (publishedHistory === undefined) return false
+      const control = successorControlRecord(input.scope, antecedent, successorId, controlId)
+      if (control.payload.control !== 'select-successor') return false
+      const record = {
+        ...control,
+        operationId,
+        payload: {
+          ...control.payload,
+          contextDisposition: {
+            kind: 'superseded-not-delivered' as const,
+            negative: proposal.negative,
+            replacementAccepted: proposal.replacementAccepted,
+            reconciliation: proposal.reconciliation,
+            proposalDigest: canonicalValueDigest(proposal),
+            confirmation: evidence,
+          },
+        },
+      }
+      failureStage = 'selection-publication'
+      const published = await publishRecord(input.loaded, publishedHistory, record, input.gh, input.cwd, input.parents)
+      if (!published.ok) {
+        failureStage = 'selection-publication-' + published.reason.replace(/[^a-z0-9,-]/gi, '-').slice(0, 80)
+        return false
+      }
+      failureStage = 'selection-readback'
+      const home = await readPublishedSuccessorHistory(input)
+      if (home === null) return false
+      const observedControl = home.operations.find((entry) => entry.recordId === record.recordId)?.record
+      if (observedControl?.kind !== 'operator-control') return false
+      failureStage = 'selection-admission'
+      const histories = handoff.observed.histories.map((history) =>
+        sameScope(history.source.scope, input.scope) ? home : history,
+      )
+      const admission = admitContextSuccession(observedControl, histories)
+      if (!admission.ok)
+        failureStage +=
+          '-' + (admission.diagnostics[0]?.message ?? 'unconfirmed').replace(/[^a-z0-9,-]/gi, '-').slice(0, 80)
+      return admission.ok
+    },
+  })
+  return result.status === 'published'
+    ? { ok: true }
+    : { ok: false, reason: `context-handoff-${result.status}:${failureStage}` }
 }

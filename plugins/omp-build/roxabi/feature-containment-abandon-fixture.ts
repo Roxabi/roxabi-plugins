@@ -4,10 +4,13 @@ import { loadExtensions } from '@oh-my-pi/pi-coding-agent/extensibility/extensio
 import { ExtensionRunner } from '@oh-my-pi/pi-coding-agent/extensibility/extensions/runner'
 import { AuthStorage, SqliteAuthCredentialStore } from '@oh-my-pi/pi-coding-agent/session/auth-storage'
 import { SessionManager } from '@oh-my-pi/pi-coding-agent/session/session-manager'
+import { qualifyContextNegative } from '../engine/workflow-context-succession-negative.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { operatorDialogUi } from '../testing/operator-dialog-ui.ts'
+import { resolveFeatureAuthority } from './feature-continuation-admission.ts'
 import { loadFeatureWorkflow } from './feature-loader.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
+import { defaultGit } from './workflow-checkout.ts'
 
 const cwd = process.argv[2]
 const artifacts = process.argv[3]
@@ -67,6 +70,36 @@ const operator = createOperatorConfirmation(runner.createContext())
 const operations = await createInstalledUwOperations({ cwd, operator })
 if (root) {
   const workflow = await loadFeatureWorkflow()
+  const authority = await resolveFeatureAuthority({
+    cwd,
+    reference: '#42',
+    control: 'abandon',
+    principal: false,
+    read: operations,
+    git: defaultGit(),
+  })
+  const guard =
+    'kind' in authority
+      ? authority
+      : (() => {
+          const selection = authority.selection
+          if (selection.status !== 'applicable') return { selection }
+          const ordinary = authority.context.engine.resolveAcceptedSpec(selection.mandate, authority.causal.histories)
+          const abandonment = authority.context.engine.resolveAcceptedSpecForAbandonment?.(
+            selection.mandate,
+            authority.causal.histories,
+          )
+          const qualification = qualifyContextNegative({
+            mandate: selection.mandate,
+            histories: authority.causal.histories,
+          })
+          return {
+            selection: { status: selection.status, mandate: selection.mandate.recordId },
+            ordinary,
+            abandonment,
+            qualification: qualification.ok ? { ok: true } : { ok: false, diagnostics: qualification.diagnostics },
+          }
+        })()
   const result = await workflow.continueFeature({
     cwd,
     reference: '#42',
@@ -89,7 +122,9 @@ if (root) {
         entry.status === 'complete',
     )
   )
-    throw new Error('Root abandonment control not confirmed on readback')
+    throw new Error(
+      `Root abandonment control not confirmed on readback: ${JSON.stringify({ result, guard, history: history?.diagnostics })}`,
+    )
   console.log(JSON.stringify(result))
 } else {
   const result = await operations.abandon(target, { scope: target, recordId: mandateId, kind: 'mandate' })

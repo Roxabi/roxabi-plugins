@@ -8,11 +8,16 @@ import { toDiagnostics } from './uw-diagnostics.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import { selectedContextRecovery } from './workflow-context-recovery.ts'
+import { currentContextSuccession } from './workflow-context-succession-current.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
+import { plannerRecoveryCompletion } from './workflow-planner-recovery.ts'
+import type { WorkflowFacts } from './workflow-reconstruction-types.ts'
 
 type ImplementationReceipt = ReceiptRecord & {
   payload: Extract<ReceiptRecord['payload'], { action: 'implement' | 'integrate' }>
@@ -60,8 +65,12 @@ function implementationForPlan(
   )
 }
 
-function macroBlocked(evidence: WorkflowEvidence, mandate: MandateRecord | null): ActionCompletion | null {
-  const macro = planMacro(evidence, mandate)
+function macroBlocked(
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+  excludedStarts: ReadonlySet<string>,
+): ActionCompletion | null {
+  const macro = planMacro(evidence, mandate, { excludedStarts })
   if (macro.phase === 'blocked') return { status: 'blocked', evidence: macro.evidence }
   if (macro.phase === 'uncertain') return { status: 'uncertain', evidence: macro.evidence }
   if (macro.phase !== 'eligible') return { status: 'not-started', evidence: [] }
@@ -128,6 +137,7 @@ function mandatedCompletion(
   evidence: WorkflowEvidence,
   mandate: MandateRecord,
   receipts: readonly ImplementationReceipt[],
+  excludedStarts: ReadonlySet<string>,
 ): ActionCompletion {
   const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (!accepted.ok) return { status: 'blocked', evidence: accepted.evidence }
@@ -138,31 +148,119 @@ function mandatedCompletion(
     graph: evidence.causal.observation.graph,
   })
   if (!effective.ok) return { status: 'blocked', evidence: toDiagnostics(effective.diagnostics) }
-  const blocked = macroBlocked(evidence, mandate)
+  const blocked = macroBlocked(evidence, mandate, excludedStarts)
   if (blocked !== null) {
     if (blocked.status === 'not-started' && hasRejectedResult(receipts)) {
       return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
     }
     return blocked
   }
-  const macro = planMacro(evidence, mandate)
+  const macro = planMacro(evidence, mandate, { excludedStarts })
   const planActionId = macro.amendmentActionId ?? macro.draftActionId
   if (planActionId === null) return { status: 'not-started', evidence: [] }
   return admittedResult(mandate, receipts, planActionId, effective.value, evidence.issue)
 }
 
-export function implementationCompletion(evidence: WorkflowEvidence, mandate: MandateRecord | null): ActionCompletion {
+function selectedRecovery(
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord,
+  receipts: readonly ImplementationReceipt[],
+  excluded: ReadonlySet<string>,
+  recovery: NonNullable<WorkflowFacts['contextRecovery']>,
+  excludedStarts: ReadonlySet<string>,
+): boolean {
+  const action = receipts[0]?.payload.action
+  if (action === undefined) return false
+  const negative = selectedContextRecovery(evidence, mandate, action, excluded, recovery)
+  if (negative === null || (negative.payload.action !== 'implement' && negative.payload.action !== 'integrate'))
+    return false
+  if (receipts.some((record) => record.payload.phase === 'result' && !workflowContextNegative(record))) return false
+  const macro = planMacro(evidence, mandate, { excludedStarts })
+  return (
+    macro.phase === 'eligible' &&
+    negative.payload.exactInputs.mandateId === mandate.recordId &&
+    negative.payload.exactInputs.planActionId === (macro.amendmentActionId ?? macro.draftActionId)
+  )
+}
+
+export function implementationCompletion(
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+  facts: WorkflowFacts | null = null,
+): ActionCompletion {
   const accepted = mandate === null ? null : resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (accepted !== null && !accepted.ok) return { status: 'blocked', evidence: accepted.evidence }
   const action = accepted?.ok && accepted.spec.children.length > 0 ? 'integrate' : 'implement'
   const histories = [evidence.issue, ...evidence.causal.histories]
-  const classified = classifyAttempts({ histories, scan: [evidence.issue], actions: [action] })
+  const classified = classifyAttempts({ histories, scan: [evidence.issue], actions: ['implement', 'integrate'] })
   if (!classified.ok) return { status: 'blocked', evidence: classified.diagnostics }
-  const excluded = classified.value.excluded
+  const disposition =
+    mandate === null
+      ? { ok: true as const, value: new Set<string>() }
+      : currentContextSuccession(evidence, mandate, facts)
+  if (!disposition.ok) return { status: 'blocked', evidence: disposition.diagnostics }
+  const excluded = new Set([...classified.value.excluded, ...disposition.value])
   const receipts = implementationReceipts(evidence.issue, action).filter((record) => !excludedReceipt(record, excluded))
   const gate = interruptionGate(classified)
   if (gate.kind === 'stop') return gate.completion
+  const context = deliveryContextCompletion(evidence, mandate, facts, action, receipts, excluded, disposition.value)
+  if (context !== null) return context
+  if (unpairedStart(receipts)) {
+    return { status: 'uncertain', evidence: [diagnostic('action-uncertain', 'implement start has no result')] }
+  }
+  const plannerRecovery = deliveryPlannerRecovery(evidence, mandate, facts, disposition.value, receipts)
+  if (plannerRecovery !== null) return plannerRecovery
+  if (mandate === null)
+    return macroBlocked(evidence, mandate, disposition.value) ?? { status: 'not-started', evidence: [] }
+  return mandatedCompletion(evidence, mandate, receipts, disposition.value)
+}
+
+function deliveryPlannerRecovery(
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+  facts: WorkflowFacts | null,
+  disposition: ReadonlySet<string>,
+  receipts: readonly ImplementationReceipt[],
+): ActionCompletion | null {
+  const recovery = plannerRecoveryCompletion(evidence, mandate, facts, disposition)
+  if (recovery === null || recovery.status !== 'not-started') return null
+  if (receipts.some((record) => record.payload.phase === 'result'))
+    return {
+      status: 'blocked',
+      evidence: [diagnostic('unconfirmed', 'Existing delivery result prevents planner recovery')],
+    }
+  return recovery
+}
+
+function deliveryContextCompletion(
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+  facts: WorkflowFacts | null,
+  action: 'implement' | 'integrate',
+  receipts: readonly ImplementationReceipt[],
+  excluded: ReadonlySet<string>,
+  disposition: ReadonlySet<string>,
+): ActionCompletion | null {
+  const otherAction = action === 'implement' ? 'integrate' : 'implement'
+  const otherTerminal = workflowContextTerminal(evidence.issue, otherAction, undefined, excluded)
+  if (otherTerminal !== 'clear')
+    return {
+      status: otherTerminal === 'uncertain' ? 'uncertain' : 'blocked',
+      evidence: [
+        diagnostic(
+          otherTerminal === 'missing' ? 'action-context-missing' : 'unconfirmed',
+          'Other delivery context remains unresolved',
+        ),
+      ],
+    }
   const terminal = workflowContextTerminal(evidence.issue, action, undefined, excluded)
+  if (
+    terminal === 'missing' &&
+    mandate !== null &&
+    facts?.contextRecovery !== undefined &&
+    selectedRecovery(evidence, mandate, receipts, excluded, facts.contextRecovery, disposition)
+  )
+    return { status: 'not-started', evidence: [] }
   if (terminal === 'missing')
     return {
       status: 'blocked',
@@ -178,9 +276,5 @@ export function implementationCompletion(evidence: WorkflowEvidence, mandate: Ma
       status: 'blocked',
       evidence: [diagnostic('ambiguous', 'implement context result has competing successors')],
     }
-  if (unpairedStart(receipts)) {
-    return { status: 'uncertain', evidence: [diagnostic('action-uncertain', 'implement start has no result')] }
-  }
-  if (mandate === null) return macroBlocked(evidence, mandate) ?? { status: 'not-started', evidence: [] }
-  return mandatedCompletion(evidence, mandate, receipts)
+  return null
 }

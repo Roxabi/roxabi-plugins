@@ -1,5 +1,4 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic } from './uw-diagnostics.ts'
@@ -8,30 +7,35 @@ import { nextCriterionId, nextInvariantId, nextSpecItemId } from './uw-identity-
 import { type SpecIdentityPayload, specIdentityPayloadSchema } from './uw-identity-schema.ts'
 import type { SpecItemId } from './uw-spec.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+import {
+  type AcceptedSpecInspection,
+  type AssessmentReplayContext,
+  authenticatedAssessmentPrestart,
+  authenticatedReplayStart,
+} from './workflow-spec-authentication.ts'
 
 export function replayForMandate(
   history: DecodedHistory,
   mandate: MandateRecord,
   assessmentReplay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  histories: readonly DecodedHistory[] = [history],
 ): boolean {
-  return (
-    assessmentReplay !== undefined &&
-    equalScope(assessmentReplay.uw, history.source.scope) &&
-    equalScope(assessmentReplay.uw, { repository: mandate.repository, target: mandate.target }) &&
-    recordsOf(history).some(
-      (record) =>
-        record.kind === 'action-receipt' &&
-        record.payload.action === 'assess-spec' &&
-        record.payload.phase === 'start' &&
-        record.payload.actionId === assessmentReplay.actionId &&
-        sameRef(record.payload.mandate, {
-          scope: { repository: mandate.repository, target: mandate.target },
-          recordId: mandate.recordId,
-          kind: 'mandate',
-        }),
-    )
-  )
+  if (assessmentReplay?.prestart !== undefined) {
+    const ref: ExternalRecordRef = {
+      scope: { repository: mandate.repository, target: mandate.target },
+      recordId: mandate.recordId,
+      kind: 'mandate',
+    }
+    return authenticatedAssessmentPrestart(history, histories, ref, new Set(), assessmentReplay, inspection) !== null
+  }
+  if (assessmentReplay === undefined) return false
+  const ref: ExternalRecordRef = {
+    scope: { repository: mandate.repository, target: mandate.target },
+    recordId: mandate.recordId,
+    kind: 'mandate',
+  }
+  return recordsOf(history).some((record) => authenticatedReplayStart(record, history, ref, assessmentReplay))
 }
 
 export type SpecIdentityReplay = {

@@ -8,7 +8,8 @@ import {
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
+import type { HistoricalAcceptedSpecContext } from '../engine/workflow-context-succession-inspection.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { ActionInputManifest, ActionSubject, RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { pinAcceptedSources, sourceRef } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
@@ -70,6 +71,8 @@ function acceptedChain(
   config: ActionInputManifest['configuration'],
   graph: UwGraphObservation,
   replay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<{
   spec: ActionInputManifest['spec']
   acceptedSources: RecordInputRef[]
@@ -82,7 +85,7 @@ function acceptedChain(
     return request.purpose === 'assess-spec'
       ? actionFailure('action-input-missing', 'Assessment requires the current accounted mandate')
       : { ok: true, value: { spec, acceptedSources, configuration: config, acceptedSpec: null } }
-  const accepted = resolveAcceptedSpec(mandate.value, histories, replay)
+  const accepted = resolveAcceptedSpec(mandate.value, histories, replay, inspection, historical)
   if (!accepted.ok) return { ok: false, diagnostics: accepted.evidence }
   const effective =
     request.purpose === 'assess-spec'
@@ -92,8 +95,10 @@ function acceptedChain(
           versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
           histories,
           assessmentReplay: replay,
+          inspection,
+          historical,
         })
-      : resolveSpecEffective({ mode: 'current', own: accepted.spec.ref, histories, graph })
+      : resolveSpecEffective({ mode: 'current', own: accepted.spec.ref, histories, graph, inspection, historical })
   if (!effective.ok) return { ok: false, diagnostics: effective.diagnostics }
   const pinned = pinAcceptedSources(histories, [
     ...accepted.spec.sourceRefs,

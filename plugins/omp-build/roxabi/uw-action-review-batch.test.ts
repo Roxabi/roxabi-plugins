@@ -232,8 +232,18 @@ test('the next gate rereads current facts and refuses drift after the batch', as
   const first = prepared.value[0]
   const request = input.actions[0]?.request
   if (first === undefined || request === undefined) throw new Error('batch fixture requires a first action')
+  const deliberate = await operations.replayActionInputs({
+    reviewed: first.inputs,
+    request,
+    intent: { kind: 'prepublication' },
+  })
+  expect(deliberate.ok).toBe(true)
   drift()
-  const replay = await operations.replayActionInputs({ reviewed: first.inputs, request })
+  const replay = await operations.replayActionInputs({
+    reviewed: first.inputs,
+    request,
+    intent: { kind: 'prepublication' },
+  })
   expect(replay.ok).toBe(false)
   if (!replay.ok) expect(replay.diagnostics.some((diagnostic) => diagnostic.code === 'review-input-changed')).toBe(true)
 })

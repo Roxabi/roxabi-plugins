@@ -55,6 +55,7 @@ export function prepareReview(
   accepted: SpecEffective,
   empty: EmptyMacro,
   contextLeaf?: ReceiptRecord,
+  excludedStarts?: ReadonlySet<string>,
 ): ReviewContext | { macro: PlanMacro } {
   const history = evidence.issue
   const gate = interruptionGate(
@@ -66,7 +67,7 @@ export function prepareReview(
   )
   if (gate.kind === 'stop')
     return { macro: empty(gate.completion.status === 'uncertain' ? 'uncertain' : 'blocked', gate.completion.evidence) }
-  const excluded = gate.excluded
+  const excluded = new Set([...gate.excluded, ...(excludedStarts ?? [])])
   const problem = reviewContextProblem(history, empty, excluded, contextLeaf)
   if (problem !== null) return { macro: problem }
   const starts = receiptsFor(history, 'plan', 'start', excluded)

@@ -98,6 +98,7 @@ export function createFeatureCommandHost(
 ): FeatureCommandHost {
   const { pi, options, interruptOwnedFeatureWork, framing } = composition
   const { ctx } = binding
+  const operationGeneration = featureOperationGeneration(pi)
   const fixCurrent = (current?: () => boolean) => {
     const owner = ownedFeatureFor(pi)
     const generation = featureOperationGeneration(pi)
@@ -113,19 +114,33 @@ export function createFeatureCommandHost(
     key: pi,
     cwd: ctx.cwd,
     principal: options.principalCwd?.(ctx.cwd) ?? isInstalledPrincipal(ctx.cwd),
-    workflow,
+    workflow: {
+      ...workflow,
+      continueFeature(input) {
+        const owner = ownedFeatureFor(pi)
+        const inherited = input.owned
+        return workflow.continueFeature({
+          ...input,
+          owned: () =>
+            report.isCurrent() &&
+            featureOperationGeneration(pi) === operationGeneration &&
+            ownedFeatureFor(pi) === owner &&
+            (inherited?.() ?? true),
+        })
+      },
+    },
     native: {
       ...native,
       activate(batch, callbacks) {
         if (!report.isCurrent()) throw new Error('feature operation origin is no longer current')
         native.activate(batch, callbacks)
       },
-      async announce(batch) {
+      async announce(batch, current) {
         if (!report.isCurrent()) {
           await native.stopOwned(batch, 'feature-operation-origin-changed')
           throw new Error('feature operation origin is no longer current')
         }
-        await native.announce(batch)
+        await native.announce(batch, () => report.isCurrent() && (current?.() ?? true))
       },
     },
     send: async (message) => {
@@ -143,12 +158,12 @@ export function createFeatureCommandHost(
     ...(uw === undefined ? {} : { uw }),
     ...(pluginPin === undefined ? {} : { pluginPin }),
     interruptOwnedWork: interruptOwnedFeatureWork,
-    startReview: (args, onComplete) =>
+    startReview: (args, onComplete, current) =>
       dispatchDefaultReview(pi, ctx, args, {
         onComplete,
         prepareReview: options.prepareReview,
         pluginPin,
-        scopedGuard: () => !controller.featureContinuationInhibited(),
+        scopedGuard: () => !controller.featureContinuationInhibited() && (current?.() ?? true),
       }),
     prepareEpicRangeReview: (review, onComplete) => prepareInstalledEpicRangeReview(pi, review, onComplete),
     exec: (command, args, executionOptions) => pi.exec(command, args, executionOptions),

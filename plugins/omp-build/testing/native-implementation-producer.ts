@@ -3,7 +3,7 @@ import { criterionTargetSchema } from '../engine/finding-target-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Json, Scope } from '../engine/record-values.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
+import { controlsOf, recordsOf } from '../engine/workflow-control.ts'
 import { startImplement } from '../roxabi/feature-action-start.ts'
 import { loadContracts } from '../roxabi/feature-engine.ts'
 import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
@@ -90,7 +90,15 @@ export async function produceNativeImplementation(input: {
   advance(): { head: string; tree: string } | Promise<{ head: string; tree: string }>
 }) {
   if (input.read.observation.status !== 'complete' || input.read.accepted.status !== 'accepted')
-    throw new Error('Implementation world lacks complete accepted UW observation')
+    throw new Error(
+      `Implementation world lacks complete accepted UW observation: ${JSON.stringify({
+        accepted: input.read.accepted.status === 'accepted' ? { status: 'accepted' } : input.read.accepted,
+        observation:
+          input.read.observation.status === 'complete'
+            ? { status: 'complete' }
+            : { status: 'incomplete', diagnostics: input.read.observation.diagnostics },
+      })}`,
+    )
   const history = input.read.histories.find(
     (entry) =>
       entry.source.scope.repository === input.scope.repository && entry.source.scope.target === input.scope.target,
@@ -99,6 +107,15 @@ export async function produceNativeImplementation(input: {
     (node) => node.uw.repository === input.scope.repository && node.uw.target === input.scope.target,
   )
   if (!history || !native) throw new Error('Implementation world lacks its native UW or history')
+  if (
+    controlsOf(history).some(
+      (control) =>
+        control.payload.control === 'select-successor' &&
+        control.payload.successor.recordId === input.mandate.recordId &&
+        control.payload.contextDisposition !== undefined,
+    )
+  )
+    throw new Error('Successor implementation requires authenticated current context succession')
   const loaded = await loadContracts()
   if ('missing' in loaded) throw new Error(`Missing engine ${loaded.missing}`)
   const opened = await startImplement(
@@ -121,6 +138,7 @@ export async function produceNativeImplementation(input: {
     input.cwd,
     input.mandate,
     input.operations,
+    new Set(),
   )
   if (opened.kind !== 'action' || opened.node !== 'implement')
     throw new Error(`Implementation action refused: ${JSON.stringify(opened)}`)

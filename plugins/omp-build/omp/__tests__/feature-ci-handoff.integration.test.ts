@@ -12,6 +12,7 @@ import {
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import { failedCheckEvidenceDigest } from '../../engine/record-digests.ts'
+import type { ExternalRecordRef } from '../../engine/record-references.ts'
 import {
   appendApprovedReview,
   captureReviewInput,
@@ -53,8 +54,14 @@ function continueFeature(box: Box, cwd: string): unknown {
   return JSON.parse(run.stdout) as unknown
 }
 
-function replayInputs(box: Box, cwd: string, inputs: ActionInputs, actionId: string): { ok: boolean } {
-  const run = spawnSync(BUN, [REPLAY_RUNNER, cwd, JSON.stringify(inputs), actionId], {
+function replayInputs(
+  box: Box,
+  cwd: string,
+  inputs: ActionInputs,
+  actionId: string,
+  start: ExternalRecordRef,
+): { ok: boolean } {
+  const run = spawnSync(BUN, [REPLAY_RUNNER, cwd, JSON.stringify(inputs), actionId, JSON.stringify(start)], {
     cwd,
     env: box.env,
     encoding: 'utf8',
@@ -183,7 +190,8 @@ it('delivers accepted and edited proposed Spec operands before any plan exists',
   expect(start.payload.exactInputs).toEqual(exact)
   rmSync(directory, { recursive: true, force: true })
   const commentsBeforeReplay = structuredClone(readSim(box).issues['42']?.comments ?? [])
-  const coldReplay = replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId)
+  const startRef = { scope: SCOPE, recordId: start.recordId, kind: 'action-receipt' as const }
+  const coldReplay = replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, startRef)
   expect(coldReplay, `cold assessment replay: ${JSON.stringify(coldReplay)}`).toMatchObject({ ok: true })
   expect(readSim(box).issues['42']?.comments, 'cold replay publishes no start or result').toEqual(commentsBeforeReplay)
   const startOperation = featureMandate(box).history.operations.find(
@@ -203,7 +211,7 @@ it('delivers accepted and edited proposed Spec operands before any plan exists',
     actionId = task.action.snapshot.actionId,
   ) => {
     const before = structuredClone(readSim(box).issues['42']?.comments ?? [])
-    expect(replayInputs(box, cwd, inputs, actionId), label).toMatchObject({ ok: false })
+    expect(replayInputs(box, cwd, inputs, actionId, startRef), label).toMatchObject({ ok: false })
     expect(readSim(box).issues['42']?.comments, `${label}: no start or result published`).toEqual(before)
   }
   const restoreComments = () => {
@@ -218,6 +226,13 @@ it('delivers accepted and edited proposed Spec operands before any plan exists',
     ...task.action.inputs,
     fingerprint: '0'.repeat(64),
   })
+  writeSim(box, (state) => {
+    const issue = state.issues['42']
+    if (issue === undefined) throw new Error('feature-issue-missing')
+    issue.comments = issue.comments.filter((_comment, index) => !startIndexes.includes(index))
+  })
+  assertRefusedWithoutPublication('deleted START')
+  restoreComments()
   writeSim(box, (state) => {
     const issue = state.issues['42']
     if (issue === undefined) throw new Error('feature-issue-missing')
@@ -257,7 +272,10 @@ it('delivers accepted and edited proposed Spec operands before any plan exists',
     if (issue === undefined) throw new Error('feature-issue-missing')
     issue.updatedAt = '2026-10-23T12:00:00Z'
   })
-  expect(replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId), 'date-only drift').toMatchObject({
+  expect(
+    replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, startRef),
+    'date-only drift',
+  ).toMatchObject({
     ok: true,
   })
   expect(readSim(box).issues['42']?.comments, 'date-only replay publishes no start or result').toEqual(originalComments)
@@ -266,7 +284,10 @@ it('delivers accepted and edited proposed Spec operands before any plan exists',
     if (issue === undefined) throw new Error('feature-issue-missing')
     issue.body = nativeFeatureSpec(SCOPE, 'preserves a different region').body
   })
-  expect(replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId), 'changed proposal').toMatchObject({
+  expect(
+    replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, startRef),
+    'changed proposal',
+  ).toMatchObject({
     ok: false,
   })
   expect(readSim(box).issues['42']?.comments, 'changed proposal publishes no start or result').toEqual(originalComments)
@@ -450,15 +471,38 @@ it('preserves the installed readonly UW reader through public continuation to at
     throw new Error('CI start missing')
   expect(start.payload.exactInputs).toEqual(exact)
   rmSync(directory, { recursive: true, force: true })
-  expect(replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId), 'cold replay').toMatchObject({
+  const startRef = { scope: PULL_SCOPE, recordId: start.recordId, kind: 'action-receipt' as const }
+  expect(
+    replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, startRef),
+    'cold replay',
+  ).toMatchObject({
     ok: true,
   })
+  const beforeReplay = structuredClone(readSim(box).prs['7']?.comments ?? [])
+  expect(
+    replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, {
+      ...startRef,
+      recordId: 'missing-ci-start',
+    }),
+    'missing CI START',
+  ).toMatchObject({ ok: false })
+  expect(
+    replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, {
+      ...startRef,
+      scope: SCOPE,
+    }),
+    'foreign-scope CI START',
+  ).toMatchObject({ ok: false })
+  expect(readSim(box).prs['7']?.comments).toEqual(beforeReplay)
   writeSim(box, (state) => {
     const head = box.sha[BRANCH]
     if (head === undefined) throw new Error('feature-head-missing')
     Object.assign(state.checks[head][0], { id: 'check-run-rerun' })
   })
-  expect(replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId), 'rerun at same SHA').toMatchObject({
+  expect(
+    replayInputs(box, cwd, task.action.inputs, task.action.snapshot.actionId, startRef),
+    'rerun at same SHA',
+  ).toMatchObject({
     ok: false,
   })
   setFailedCi(box)

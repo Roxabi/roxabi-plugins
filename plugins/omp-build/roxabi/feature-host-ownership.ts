@@ -19,6 +19,18 @@ export function ownedFeatureFor(key: object): OwnedFeature | undefined {
   return ownedFeatures.get(key)
 }
 
+export type FeatureCurrent = (() => boolean) & { transfer?: (owner: OwnedFeature) => void }
+
+/** Bind continuation authority to exactly one owner, moving it only at a successful handoff. */
+export function featureCurrent(key: object, owner: OwnedFeature, canContinue: () => boolean): FeatureCurrent {
+  let expected = owner
+  const current: FeatureCurrent = () => canContinue() && ownedFeatureFor(key) === expected
+  current.transfer = (successor) => {
+    expected = successor
+  }
+  return current
+}
+
 export function startOwnedFeatureWatch(key: object): AbortController {
   abortOwnedFeatureWatch(key)
   const controller = new AbortController()

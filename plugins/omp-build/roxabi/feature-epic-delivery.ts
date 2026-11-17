@@ -1,6 +1,6 @@
 import type { NativeSuccessor } from '../omp/review-runtime/contracts.ts'
 import type { ContinueFeatureResult, FeatureCommandHost } from './feature-contract.ts'
-import { ownedFeatureFor, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
+import { featureCurrent, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
 
 type ContinueAfterReview = (
   reference: string,
@@ -22,7 +22,11 @@ export async function deliverEpicFinalReview(
   rememberFeatureOwner(host.key, owner)
   try {
     await host.prepareEpicRangeReview(result.review, (canContinue) =>
-      continueAfterReview(target, host, () => canContinue() && ownedFeatureFor(host.key) === owner),
+      continueAfterReview(
+        target,
+        host,
+        featureCurrent(host.key, owner, () => canContinue() && !host.featureContinuationInhibited()),
+      ),
     )
   } catch (error) {
     releaseFeatureOwner(host.key)

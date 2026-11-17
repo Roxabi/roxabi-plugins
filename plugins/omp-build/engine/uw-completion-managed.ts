@@ -18,8 +18,10 @@ import type { UwDiagnostic, UwResult } from './uw-diagnostics.ts'
 import { isWayfinder, sameScope, scopeKey, type UwNativeNode } from './uw-graph.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import type { MandateRecord } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
+import type { AcceptedSpecInspection } from './workflow-spec-authentication.ts'
 
 type Refuse = (
   basis: DependencyBasis,
@@ -34,6 +36,8 @@ type Context = {
   node: UwNativeNode
   latest: MandateRecord
   observation: Extract<UwCompletionObservation, { status: 'complete' }>
+  inspection?: AcceptedSpecInspection
+  historical?: HistoricalAcceptedSpecContext
   waits: UwWaitProjection
   dependencies: Map<string, DependencyResolution>
   completions: Map<string, UwCompletion>
@@ -195,7 +199,13 @@ export function assessManagedCompletion(context: Context): DependencyResolution 
       issue(uw, selected.reason, 'No uniquely active authenticated mandate'),
       true,
     )
-  const accepted = resolveAcceptedSpec(mandate, observation.histories)
+  const accepted = resolveAcceptedSpec(
+    mandate,
+    observation.histories,
+    undefined,
+    context.inspection,
+    context.historical,
+  )
   if (!accepted.ok)
     return refuse(
       basis,
@@ -210,6 +220,8 @@ export function assessManagedCompletion(context: Context): DependencyResolution 
     own: accepted.spec.ref,
     histories: observation.histories,
     graph: observation.graph,
+    inspection: context.inspection,
+    historical: context.historical,
   })
   if (!effective.ok)
     return refuse(

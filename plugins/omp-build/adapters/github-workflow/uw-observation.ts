@@ -7,6 +7,7 @@ import type { UwCompletionObservation } from '../../engine/uw-completion-types.t
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { projectUwWaits } from '../../engine/uw-waits.ts'
+import { createHistoricalAcceptedSpecContext } from '../../engine/workflow-context-succession-inspection.ts'
 import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import type { GitHubOptions } from '../github/types.ts'
@@ -46,8 +47,16 @@ export async function readUwCompletionObservation(
   loadCatalogues: (histories: readonly DecodedHistory[]) => Promise<ReviewClassCatalogues>,
   additionalScopes: readonly Scope[] = [],
   additionalHistories: readonly DecodedHistory[] = [],
+  deliveryHistories?: (histories: readonly DecodedHistory[]) => readonly DecodedHistory[] | null,
 ): Promise<UwCompletionObservation> {
-  const collector = new UwObservationCollector(root, options, loadCatalogues, additionalScopes, additionalHistories)
+  const collector = new UwObservationCollector(
+    root,
+    options,
+    loadCatalogues,
+    additionalScopes,
+    additionalHistories,
+    deliveryHistories,
+  )
   return collector.read()
 }
 
@@ -68,6 +77,7 @@ class UwObservationCollector {
     private readonly loadCatalogues: (histories: readonly DecodedHistory[]) => Promise<ReviewClassCatalogues>,
     additionalScopes: readonly Scope[],
     private readonly additionalHistories: readonly DecodedHistory[],
+    private readonly deliveryHistories?: (histories: readonly DecodedHistory[]) => readonly DecodedHistory[] | null,
   ) {
     this.cut = new UwObservationCut(root)
     this.factReader = createUwDeliveryFactReader(options)
@@ -80,25 +90,39 @@ class UwObservationCollector {
   async read(): Promise<UwCompletionObservation> {
     while (true) {
       await this.readGraphs()
-      let progressed = await this.readHistories()
+      const progressed = await this.readHistories()
       if (progressed) continue
       this.validateHistoryClosure()
       if (!(await this.refreshCatalogues())) break
-      const waits = projectUwWaits({
-        graph: this.cut.graph(),
-        histories: [...this.cut.histories.values()],
-        catalogues: this.cut.catalogues,
-        evaluationRoots: this.evaluationRoots,
-      })
-      this.requireGraphs(waits.requiredScopes)
-      // Finish native and typed-history closure before requesting any completion dossier.
-      if (this.pendingGraph.size > 0 || progressed) continue
-      progressed = await this.readDeliveries(waits.deliveryScopes)
-      if (this.pendingGraph.size === 0 && !progressed) break
+      if (!(await this.readRequiredDeliveries())) break
     }
     this.cut.diagnostics.push(...this.historyDiagnostics)
     await this.cut.readAncestry(this.factReader, this.deliveryFailed)
     return this.cut.finish(this.additionalHistories)
+  }
+
+  private async readRequiredDeliveries(): Promise<boolean> {
+    const histories = [...this.cut.histories.values()]
+    const evaluation = this.deliveryHistories === undefined ? histories : this.deliveryHistories(histories)
+    if (evaluation === null) {
+      this.cut.diagnostics.push(
+        this.cut.issue(this.cut.root, 'delivery-history-unconfirmed', 'Confirmed successor append changed'),
+      )
+      return false
+    }
+    const historical = createHistoricalAcceptedSpecContext(evaluation)
+    const waits = projectUwWaits({
+      graph: this.cut.graph(),
+      histories: evaluation,
+      catalogues: this.cut.catalogues,
+      evaluationRoots: this.evaluationRoots,
+      historical: historical.ok ? historical.value : undefined,
+    })
+    this.requireGraphs(waits.requiredScopes)
+    // Finish native and typed-history closure before requesting any completion dossier.
+    if (this.pendingGraph.size > 0) return true
+    const progressed = await this.readDeliveries(waits.deliveryScopes)
+    return this.pendingGraph.size > 0 || progressed
   }
 
   private async readGraphs(): Promise<void> {
@@ -200,7 +224,16 @@ class UwObservationCollector {
 
   private async readDelivery(scope: Scope, key: string): Promise<void> {
     try {
-      const observed = await this.factReader.read(scope, [...this.cut.histories.values()])
+      const histories = [...this.cut.histories.values()]
+      const deliveryHistories = this.deliveryHistories === undefined ? histories : this.deliveryHistories(histories)
+      if (deliveryHistories === null) {
+        this.deliveryFailed.add(key)
+        this.cut.diagnostics.push(
+          this.cut.issue(scope, 'delivery-history-unconfirmed', 'Confirmed successor append changed'),
+        )
+        return
+      }
+      const observed = await this.factReader.read(scope, deliveryHistories)
       if (!observed.ok) {
         this.deliveryFailed.add(key)
         this.cut.diagnostics.push(

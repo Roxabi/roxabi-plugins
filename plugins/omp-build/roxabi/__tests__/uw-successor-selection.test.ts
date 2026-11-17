@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import { resolveSpecEffective } from '../../dist/contracts.js'
+import { canonicalValueDigest } from '../../engine/canonical-value.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
+import { projectConfirmedContextAppend } from '../feature-succession-refresh.ts'
 import {
   abandonedNestedLeaf,
   abandonedNestedParent,
@@ -72,6 +74,48 @@ test('explicit new publishes an authenticated successor without renewing its aba
   expect(subject.engine.selectApplicableMandate(subject.authority.history, [], subject.authority.causal)).toMatchObject(
     { status: 'refused', reason: 'abandoned' },
   )
+})
+
+test('preselection projection authenticates only the exact appended successor and keeps the full observation', async () => {
+  const subject = await abandonedLeaf()
+  const before = subject.before.histories.find((history) => history.source.scope.target === scope.target)
+  if (before === undefined) throw new Error('missing predecessor history')
+  const successor = roxabiWorkflowFixtures().featureMandate(scope, {
+    recordId: 'prospective-successor',
+    operationId: 'prospective-operation',
+    ownSpec: fixtureOwnSpec(subject.original.payload.ownSpec),
+    branch,
+    antecedent: { scope, kind: 'mandate', recordId: subject.original.recordId },
+  })
+  subject.seed(successor)
+  const full = (await subject.reader.readUw(scope)).histories
+  const input = {
+    before,
+    ref: { scope, kind: 'mandate' as const, recordId: successor.recordId },
+    payloadDigest: canonicalValueDigest(successor.payload),
+  }
+  const projected = projectConfirmedContextAppend(full, input)
+  expect(projected).not.toBeNull()
+  expect(
+    full
+      .find((history) => history.source.scope.target === scope.target)
+      ?.operations.some((operation) => operation.recordId === successor.recordId),
+  ).toBe(true)
+  expect(
+    projected
+      ?.find((history) => history.source.scope.target === scope.target)
+      ?.operations.some((operation) => operation.recordId === successor.recordId),
+  ).toBe(false)
+  expect(projectConfirmedContextAppend(full, { ...input, payloadDigest: '0'.repeat(64) })).toBeNull()
+  const other = roxabiWorkflowFixtures().featureMandate(scope, {
+    recordId: 'unexpected-mandate',
+    operationId: 'unexpected-operation',
+    ownSpec: fixtureOwnSpec(subject.original.payload.ownSpec),
+    branch,
+  })
+  subject.seed(other)
+  const changed = (await subject.reader.readUw(scope)).histories
+  expect(projectConfirmedContextAppend(changed, input)).toBeNull()
 })
 
 test('explicit new accepts a fresh own proposal rather than pinning the entire historical proposal', async () => {

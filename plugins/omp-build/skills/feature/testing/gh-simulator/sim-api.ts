@@ -1,5 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs'
 
+import { apiIssueGet } from './sim-api-issue.ts'
 import { apiVariables } from './sim-authorization-variables.ts'
 import type { Context, Route } from './sim-command-context.ts'
 import { apiDeliveryGit } from './sim-commit-metadata.ts'
@@ -63,10 +64,41 @@ function apiAuthorizationPull(context: Context, path: string): boolean {
   return true
 }
 
+function apiBranchPulls(context: Context, path: string, repo: string): boolean {
+  if (!path.startsWith(`${repo}/pulls?`)) return false
+  const query = new URLSearchParams(path.slice(`${repo}/pulls?`.length))
+  const state = query.get('state') ?? 'open'
+  const head = query.get('head')
+  const perPage = Number(query.get('per_page') ?? '30')
+  const page = Number(query.get('page') ?? '1')
+  if (
+    !['open', 'closed', 'all'].includes(state) ||
+    !Number.isSafeInteger(perPage) ||
+    perPage < 1 ||
+    perPage > 100 ||
+    !Number.isSafeInteger(page) ||
+    page < 1 ||
+    [...query.keys()].some((key) => !['state', 'head', 'per_page', 'page'].includes(key)) ||
+    ['state', 'head', 'per_page', 'page'].some((key) => query.getAll(key).length > 1)
+  )
+    fail('gh: unsupported pull request listing query')
+  const prefix = `${context.state.owner}:`
+  if (head !== null && (!head.startsWith(prefix) || head.length === prefix.length))
+    fail('gh: unsupported pull request head owner')
+  const branch = head === null ? null : head.slice(prefix.length)
+  const rows = Object.values(context.state.prs)
+    .filter((pr) => branch === null || (!pr.isCrossRepository && pr.headRefName === branch))
+    .filter((pr) => state === 'all' || (state === 'open' ? pr.state === 'OPEN' : pr.state !== 'OPEN'))
+    .map((pr) => ({ number: pr.number, state: pr.state === 'OPEN' ? 'open' : 'closed', merged_at: pr.mergedAt }))
+  emit(rows.slice((page - 1) * perPage, page * perPage), context.expression)
+  return true
+}
+
 function apiAuthorizationScope(context: Context): boolean {
   const path = context.sub ?? ''
   const repo = `repos/${context.state.owner}/${context.state.name}`
   if (one(context.flag, '--method') !== undefined) return false
+  if (apiBranchPulls(context, path, repo)) return true
   if (path.startsWith(`${repo}/actions/variables?`)) return apiVariables(context, path, repo)
   if (path === repo) {
     emit(
@@ -138,41 +170,6 @@ function apiCreatePull(context: Context): boolean {
   recordedBase(context.state, pr)
   emit({ number, html_url: `https://example.test/${fullName(context.state)}/pull/${number}` }, context.expression)
   return true
-}
-
-function apiIssueGet(context: Context): boolean {
-  const issueGet = context.sub?.match(/^repos\/[^/]+\/[^/]+\/issues\/(\d+)$/)
-  if (!issueGet || one(context.flag, '--method') !== undefined) return false
-  const number = issueGet[1] ?? ''
-  const pr = context.state.prs[number]
-  if (pr) {
-    emit(
-      {
-        number: pr.number,
-        state: pr.state === 'OPEN' ? 'open' : 'closed',
-        body: pr.body,
-        user: { login: context.state.viewer },
-        title: pr.title,
-      },
-      context.expression,
-    )
-    return true
-  }
-  const issue = context.state.issues[number]
-  if (issue) {
-    emit(
-      {
-        number: issue.number,
-        state: issue.state.toLowerCase(),
-        body: issue.body,
-        user: { login: issue.author },
-        title: issue.title,
-      },
-      context.expression,
-    )
-    return true
-  }
-  fail(`gh: issue #${number} not found`)
 }
 
 function commentPath(context: Context): RegExpMatchArray | undefined {

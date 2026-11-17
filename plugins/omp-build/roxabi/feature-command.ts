@@ -1,13 +1,13 @@
 import { execFile } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { FeatureCommandHost, FeatureControl, ParsedFeatureCommand } from './feature-contract.ts'
 
 type FeatureInitHost = Pick<FeatureCommandHost, 'cwd' | 'send' | 'exec' | 'git'>
 
-const CONTROL_BY_WORD: Record<string, Exclude<FeatureControl, 'resolve-interruption'>> = {
+const CONTROL_BY_WORD: Record<string, Exclude<FeatureControl, 'resolve-interruption' | 'recover-context'>> = {
   pause: 'pause',
   abandon: 'abandon',
   new: 'new',
@@ -43,10 +43,21 @@ function parseInterruptionResolution(tokens: string[]): ParsedFeatureCommand {
 }
 
 function parseControlCommand(
-  control: Exclude<FeatureControl, 'resolve-interruption'>,
+  control: Exclude<FeatureControl, 'resolve-interruption' | 'recover-context'>,
   tokens: string[],
 ): ParsedFeatureCommand {
   const reference = normalizeReference(tokens[1])
+  if (control === 'new' && tokens.length === 4 && tokens[2] === '--context-handoff') {
+    const negativeRecordId = tokens[3]
+    if (
+      reference !== null &&
+      negativeRecordId !== undefined &&
+      negativeRecordId.length > 0 &&
+      !negativeRecordId.startsWith('-')
+    )
+      return { ok: true, control, reference, contextHandoff: { negativeRecordId } }
+    return { ok: false, reason: 'feature-context-handoff-invalid' }
+  }
   if (reference === null || tokens.length !== 2) return { ok: false, reason: 'feature-reference-missing' }
   return { ok: true, control, reference }
 }
@@ -57,6 +68,13 @@ function parseFeatureReference(args: string, tokens: string[]): ParsedFeatureCom
   if (head === 'material-decision') return parseMaterialDecision(tokens)
   if (head === 'resolve-interruption') return parseInterruptionResolution(tokens)
   const control = CONTROL_BY_WORD[head]
+  if (tokens[1] === '--action') {
+    const reference = normalizeReference(head)
+    const actionFile = tokens[2]
+    return reference !== null && tokens.length === 3 && actionFile !== undefined && isAbsolute(actionFile)
+      ? { ok: true, control: 'recover-context', reference, actionFile }
+      : { ok: false, reason: 'feature-context-recovery-invalid' }
+  }
   if (control !== undefined) return parseControlCommand(control, tokens)
   if (tokens.length !== 1) return { ok: true, control: 'select', reference: args.trim() }
   const reference = normalizeReference(head)
@@ -79,7 +97,12 @@ export function parseFeatureCommand(args: string): ParsedFeatureCommand {
 function normalizeReference(token: string | undefined): string | null {
   if (token === undefined || token.length === 0) return null
   const stripped = token.startsWith('#') ? token.slice(1) : token
-  if (stripped.length === 0 || stripped === 'resolve-interruption' || CONTROL_BY_WORD[stripped] !== undefined)
+  if (
+    stripped.length === 0 ||
+    stripped === 'resolve-interruption' ||
+    stripped === 'recover-context' ||
+    CONTROL_BY_WORD[stripped] !== undefined
+  )
     return null
   return stripped
 }

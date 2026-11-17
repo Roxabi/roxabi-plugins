@@ -1,4 +1,10 @@
-import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
+import {
+  type DecodedHistory,
+  githubScope,
+  resolveAcceptedSpec,
+  resolveAcceptedSpecForAbandonment,
+  selectApplicableMandate,
+} from '../../dist/contracts.js'
 import type { RecordInputRef } from '../../engine/action-input-schema.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
@@ -99,7 +105,9 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
   const causal = await readFreshUwCausalContext(history.source.scope, [history, ...external], adapterOptions(repo))
   if (!causal.ok) throw new Refused(`epic causal history unavailable: ${causal.diagnostics.join(',')}`)
   const target = selectedControlTarget(history, external, causal.value, epic)
-  const accepted = resolveAcceptedSpec(target.mandate, causal.value.histories)
+  let accepted = resolveAcceptedSpec(target.mandate, causal.value.histories)
+  if (!accepted.ok && target.control === 'abandoned')
+    accepted = resolveAcceptedSpecForAbandonment(target.mandate, causal.value.histories)
   if (!accepted.ok) {
     throw new Refused(`epic parent accepted Spec ${accepted.reason}: ${evidenceText(accepted.evidence)}`)
   }

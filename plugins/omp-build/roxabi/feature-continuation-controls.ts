@@ -14,18 +14,15 @@ export async function applyFeatureControl(
   authority: FeatureAuthority,
   uw?: UwOperations,
 ): Promise<ContinueFeatureResult> {
-  const { context, history, scope, selection, target, parentHistories } = authority
-  const pausedOwnMandateId = ownPausedMandateId(control, authority)
-  const pausedOwnMandate =
-    pausedOwnMandateId === null
-      ? null
-      : (mandatesInHistory(history).find((candidate) => candidate.recordId === pausedOwnMandateId) ?? null)
-  const mandate = selection.status === 'applicable' ? selection.mandate : pausedOwnMandate
+  const { context, history, scope, target, parentHistories } = authority
+  const mandate = controlMandate(control, authority)
   if (mandate === null) {
     await disarmKnownTarget(context.gh, context.cwd, target, null)
     return { kind: 'blocked', reason: control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
   }
-  const accepted = context.engine.resolveAcceptedSpec(mandate, authority.causal.histories)
+  let accepted = context.engine.resolveAcceptedSpec(mandate, authority.causal.histories)
+  if (!accepted.ok && control === 'abandon' && context.engine.resolveAcceptedSpecForAbandonment !== undefined)
+    accepted = context.engine.resolveAcceptedSpecForAbandonment(mandate, authority.causal.histories)
   if (!accepted.ok) {
     await disarmKnownTarget(context.gh, context.cwd, target, null)
     return { kind: 'blocked', reason: control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
@@ -70,6 +67,16 @@ export async function applyFeatureControl(
   return disarmed.clean
     ? { kind: 'abandoned', confirmed: true }
     : { kind: 'abandoned', confirmed: false, failure: { phase: 'disarm', evidence: disarmed.evidence } }
+}
+
+function controlMandate(control: 'pause' | 'abandon', authority: FeatureAuthority) {
+  const { history, selection } = authority
+  const pausedOwnMandateId = ownPausedMandateId(control, authority)
+  const pausedOwnMandate =
+    pausedOwnMandateId === null
+      ? null
+      : (mandatesInHistory(history).find((candidate) => candidate.recordId === pausedOwnMandateId) ?? null)
+  return selection.status === 'applicable' ? selection.mandate : pausedOwnMandate
 }
 
 function ownPausedMandateId(control: 'pause' | 'abandon', authority: FeatureAuthority): string | null {

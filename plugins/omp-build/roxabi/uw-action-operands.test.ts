@@ -85,6 +85,7 @@ test('sealing refuses changed or missing manifest operands before publication', 
     const input = {
       action: 'attribute-ci',
       exactInputs: operands.exactInputs,
+      native: { branch: 'feature/test', base: 'main' },
       prepared: { inputs: { ...inputs, manifest: { ...inputs.manifest, operands: manifestOperands } } },
     } as Parameters<typeof sealReceipt>[0]
     expect(await sealReceipt(input)).toMatchObject({ kind: 'blocked', reason: 'action-input-changed' })

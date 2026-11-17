@@ -54,7 +54,7 @@ export function recoveryAuthorization(box: Box, cwd: string, prNumber: number) {
 }
 
 function createFeatureFixture(
-  records: 'plan' | 'start' | 'confirmed-implementation',
+  records: 'mandate' | 'plan' | 'start' | 'confirmed-implementation',
   options: { malformedDisarmPr?: boolean } = {},
 ): { box: Box; checkout: string } {
   const box = sandbox({
@@ -88,12 +88,21 @@ function createFeatureFixture(
   const accepted =
     records === 'plan' || records === 'confirmed-implementation'
       ? eligiblePlan(mandate, [roxabiWorkflowFixtures().historyFrom([mandate])])
-      : [mandate, implementStart(mandate)]
+      : records === 'mandate'
+        ? [mandate]
+        : [mandate, implementStart(mandate)]
   writeSim(box, (state) => {
     const issue = state.issues['42']
     if (!issue) throw new Error('missing feature issue')
     issue.body = BODY
-    issue.comments.push(...framedBodies(accepted, 'operator').map((body) => ({ author: 'operator', body })))
+    issue.comments.push(
+      ...framedBodies(accepted, 'operator').map((body) => ({
+        author: 'operator',
+        body,
+        createdAt: '2026-10-21T12:00:00Z',
+        updatedAt: '2026-10-21T12:00:00Z',
+      })),
+    )
   })
   if (options.malformedDisarmPr) {
     writeSim(box, (state) => {
@@ -105,7 +114,7 @@ function createFeatureFixture(
   return { box, checkout }
 }
 
-export function featureFixture(records: 'plan' | 'start', options: { malformedDisarmPr?: boolean } = {}) {
+export function featureFixture(records: 'mandate' | 'plan' | 'start', options: { malformedDisarmPr?: boolean } = {}) {
   return createFeatureFixture(records, options)
 }
 

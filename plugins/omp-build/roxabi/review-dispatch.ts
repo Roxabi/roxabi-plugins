@@ -118,7 +118,10 @@ export class ReviewProduct {
     this.native.activate(prepared.batch, callbacks)
     if (canContinue !== null && !canContinue()) return
     try {
-      await this.native.announce(prepared.batch)
+      await this.native.announce(
+        prepared.batch,
+        () => (canContinue?.() ?? true) && (this.options.canDispatch?.() ?? true),
+      )
     } catch (error) {
       this.native.inactive()
       await this.publisher.stop(context, error instanceof Error ? error.message : String(error), null)

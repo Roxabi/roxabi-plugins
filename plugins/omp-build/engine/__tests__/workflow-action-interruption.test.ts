@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { SCOPE } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { decide, implementationWorld, observe, planWorld } from '../../testing/workflow-interruption-world.ts'
+import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
+import { buildRecord } from '../record-construction.ts'
 import { startResolution } from '../workflow-action-interruption.ts'
 import {
   evidenceCodes,
@@ -98,6 +100,161 @@ describe('completed results stay on their own paths', () => {
     expect(decision).toMatchObject({ status: 'blocked' })
     expect(evidenceCodes(decision)).toContain('action-context-missing')
     expect(evidenceCodes(decision)).not.toContain('action-interrupted')
+  })
+
+  it('admits only the explicitly selected implementation negative with newly pinned context', async () => {
+    const world = implementationWorld()
+    const negative = withPayload(rejectedImplementResult(world.mandate), {
+      structured: MISSING_CONTEXT,
+      admission: null,
+    })
+    if (negative.payload.phase !== 'result') throw new Error('expected implementation result')
+    const old = negative.payload.inputs
+    const manifest = {
+      ...old.manifest,
+      expandedContext: [
+        ...old.manifest.expandedContext,
+        {
+          source: 'record' as const,
+          record: { scope: SCOPE, kind: 'action-receipt' as const, recordId: negative.recordId },
+          selector: '/payload' as const,
+          digest: canonicalValueDigest(negative.payload),
+        },
+        {
+          source: 'git-file' as const,
+          repository: SCOPE.repository,
+          commit: old.manifest.code.head,
+          path: 'src/region.ts',
+          digest: 'a'.repeat(64),
+        },
+      ],
+    }
+    const recovery = {
+      negative: { scope: SCOPE, kind: 'action-receipt' as const, recordId: negative.recordId },
+      actionId: 'recovery-action',
+      inputs: { ...old, manifest, fingerprint: actionInputDigest(manifest) },
+    }
+    const issue = world.issue([world.start, negative])
+    expect(await decide(issue, world.mandate)).toMatchObject({ status: 'blocked' })
+    expect(await decide(issue, world.mandate, { contextRecovery: recovery })).toMatchObject({
+      status: 'action',
+      action: 'implement',
+    })
+    expect(await decide(issue, world.mandate, { contextRecovery: recovery, productVersion: '0.0.0' })).toMatchObject({
+      status: 'blocked',
+      reason: 'config-drift',
+    })
+    expect(
+      await decide(issue, world.mandate, {
+        contextRecovery: recovery,
+        configVersion: 'recovery-drift',
+        supportedConfigVersions: [world.mandate.payload.config.version, 'recovery-drift'],
+        configDigest: '0'.repeat(64),
+      }),
+    ).toMatchObject({ status: 'blocked', reason: 'config-drift' })
+    expect(
+      await decide(issue, world.mandate, {
+        contextRecovery: recovery,
+        configDigest: world.mandate.payload.config.digest === '0'.repeat(64) ? '1'.repeat(64) : '0'.repeat(64),
+      }),
+    ).toMatchObject({ status: 'blocked', reason: 'config-drift' })
+    expect(
+      await decide(issue, world.mandate, {
+        contextRecovery: { ...recovery, negative: { ...recovery.negative, recordId: 'foreign' } },
+      }),
+    ).toMatchObject({ status: 'blocked' })
+    const lineageOnly = { ...manifest, expandedContext: manifest.expandedContext.slice(0, -1) }
+    expect(
+      await decide(issue, world.mandate, {
+        contextRecovery: {
+          ...recovery,
+          inputs: { ...old, manifest: lineageOnly, fingerprint: actionInputDigest(lineageOnly) },
+        },
+      }),
+    ).toMatchObject({ status: 'blocked' })
+    const movedCode = { ...manifest, code: { ...manifest.code, head: 'f'.repeat(40) } }
+    expect(
+      await decide(issue, world.mandate, {
+        contextRecovery: {
+          ...recovery,
+          inputs: { ...old, manifest: movedCode, fingerprint: actionInputDigest(movedCode) },
+        },
+      }),
+    ).toMatchObject({ status: 'blocked' })
+    const incomplete = withPayload(negative, { native: { completion: 'completed', strict: 'invalid', raw: null } })
+    const incompleteManifest = {
+      ...manifest,
+      expandedContext: manifest.expandedContext.map((ref) =>
+        ref.source === 'record' && ref.record.recordId === negative.recordId
+          ? { ...ref, digest: canonicalValueDigest(incomplete.payload) }
+          : ref,
+      ),
+    }
+    expect(
+      await decide(world.issue([world.start, incomplete]), world.mandate, {
+        contextRecovery: {
+          ...recovery,
+          inputs: { ...old, manifest: incompleteManifest, fingerprint: actionInputDigest(incompleteManifest) },
+        },
+      }),
+    ).toMatchObject({ status: 'blocked' })
+    const otherStart = roxabiWorkflowFixtures().implementStart(world.mandate, 'other-implementation')
+    const otherResult = rejectedImplementResult(world.mandate, 'other-implementation')
+    expect(
+      await decide(world.issue([world.start, negative, otherStart, otherResult]), world.mandate, {
+        contextRecovery: recovery,
+      }),
+    ).toMatchObject({ status: 'blocked' })
+    const retryStart = withPayload(world.start, { actionId: recovery.actionId, inputs: recovery.inputs }, 'retry-start')
+    const retryBuilt = buildRecord({
+      version: 1,
+      repository: negative.repository,
+      target: negative.target,
+      recordId: 'retry-negative',
+      runId: negative.runId,
+      operationId: 'op-retry-negative',
+      kind: 'action-receipt',
+      payload: {
+        ...negative.payload,
+        actionId: recovery.actionId,
+        inputs: recovery.inputs,
+        start: { scope: SCOPE, kind: 'action-receipt', recordId: retryStart.recordId },
+      },
+    })
+    if (!retryBuilt.ok || retryBuilt.value.kind !== 'action-receipt')
+      throw new Error('retry result construction failed')
+    const retryNegative = retryBuilt.value
+    const repeated = world.issue([world.start, negative, retryStart, retryNegative])
+    expect(await decide(repeated, world.mandate, { contextRecovery: recovery })).toMatchObject({ status: 'blocked' })
+    expect(evidenceCodes(await decide(repeated, world.mandate))).toContain('action-context-missing')
+    const nextManifest = {
+      ...recovery.inputs.manifest,
+      expandedContext: [
+        ...recovery.inputs.manifest.expandedContext,
+        {
+          source: 'record' as const,
+          record: { scope: SCOPE, kind: 'action-receipt' as const, recordId: retryNegative.recordId },
+          selector: '/payload' as const,
+          digest: canonicalValueDigest(retryNegative.payload),
+        },
+        {
+          source: 'git-file' as const,
+          repository: SCOPE.repository,
+          commit: old.manifest.code.head,
+          path: 'src/timezone.ts',
+          digest: 'b'.repeat(64),
+        },
+      ],
+    }
+    const nextRecovery = {
+      negative: { scope: SCOPE, kind: 'action-receipt' as const, recordId: retryNegative.recordId },
+      actionId: 'second-recovery-action',
+      inputs: { ...old, manifest: nextManifest, fingerprint: actionInputDigest(nextManifest) },
+    }
+    expect(await decide(repeated, world.mandate, { contextRecovery: nextRecovery })).toMatchObject({
+      status: 'action',
+      action: 'implement',
+    })
   })
 
   it('keeps a completed invalid plan output uncertain rather than interrupted', async () => {

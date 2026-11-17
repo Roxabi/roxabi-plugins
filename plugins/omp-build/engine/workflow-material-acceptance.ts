@@ -10,7 +10,11 @@ import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { classifyAttempts } from './workflow-action-interruption.ts'
 import { workflowContextNegative } from './workflow-context-output.ts'
-import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import {
+  createHistoricalAcceptedSpecContext,
+  type HistoricalAcceptedSpecContext,
+} from './workflow-context-succession-inspection.ts'
+import { workflowContextResolution } from './workflow-context-terminal.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
 import { evaluateCandidate } from './workflow-material-assessment.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
@@ -80,6 +84,7 @@ function matchingAssessments(
   accepted: AcceptedOwnSpec,
   excluded: ReadonlySet<string>,
   requiredAssessment?: ExternalRecordRef,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<{
   candidates: Array<{ record: AssessResultRecord; classification: AssessmentClassification }>
   stale: boolean
@@ -90,7 +95,7 @@ function matchingAssessments(
     if (!isCurrentCandidate(record, input, mandate, requiredAssessment)) continue
     if (excludedReceipt(record, excluded)) continue
     if (supersededContext(record, input, excluded, requiredAssessment)) continue
-    const outcome = evaluateCandidate(record, input.histories, mandate, accepted)
+    const outcome = evaluateCandidate(record, input.histories, mandate, accepted, historical)
     if (!outcome.ok) return outcome
     if (outcome.value.status === 'stale') stale = true
     if (outcome.value.status === 'candidate') candidates.push(outcome.value)
@@ -108,7 +113,7 @@ function supersededContext(
   const home = input.histories.find(
     (history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target,
   )
-  return home !== undefined && workflowContextTerminal(home, 'assess-spec', undefined, excluded) === 'clear'
+  return home !== undefined && workflowContextResolution(home, record, excluded) === 'clear'
 }
 
 function selectMaterialAcceptance(
@@ -117,7 +122,9 @@ function selectMaterialAcceptance(
 ): Result<Selection> {
   if (!identifierSchema.safeParse(input.operationId).success)
     return materialFailure('material-operation-invalid', 'Material acceptance operation ID is invalid')
-  const accepted = resolveAcceptedSpec(input.mandate, input.histories)
+  const historical = createHistoricalAcceptedSpecContext(input.histories)
+  if (!historical.ok) return historical
+  const accepted = resolveAcceptedSpec(input.mandate, input.histories, undefined, undefined, historical.value)
   if (!accepted.ok) return fail(accepted.evidence)
   if (!equalScope(input.uw, accepted.spec.ref.uw))
     return materialFailure('material-uw-mismatch', 'Material acceptance UW does not match the accepted own Spec')
@@ -141,6 +148,7 @@ function selectMaterialAcceptance(
     accepted.spec,
     attempts.value.excluded,
     requiredAssessment,
+    historical.value,
   )
   if (!matches.ok) return matches
   const { candidates, stale } = matches.value
