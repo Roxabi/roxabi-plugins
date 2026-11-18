@@ -24,10 +24,16 @@ type Payload = {
   code: number
   actionFile: string
   negativeRecordId: string
+  effectsMode?: 'prepared' | 'intentional-unqualified-negative'
 }
 
 function numericValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : fallback
+}
+
+function effectsMode(value: unknown): Payload['effectsMode'] {
+  if (value === 'prepared' || value === 'intentional-unqualified-negative') return value
+  return undefined
 }
 
 function payloadFrom(raw: unknown): Payload {
@@ -40,6 +46,7 @@ function payloadFrom(raw: unknown): Payload {
     control === 'continue' || control === 'resume' || control === 'pause' || control === 'abandon'
       ? control
       : 'continue'
+  const resolvedEffectsMode = effectsMode('effectsMode' in raw ? raw.effectsMode : undefined)
   return {
     reference: typeof reference === 'string' ? reference : '',
     control: resolvedControl,
@@ -47,6 +54,7 @@ function payloadFrom(raw: unknown): Payload {
     code: numericValue(code, 1),
     actionFile: 'actionFile' in raw && typeof raw.actionFile === 'string' ? raw.actionFile : '',
     negativeRecordId: 'negativeRecordId' in raw && typeof raw.negativeRecordId === 'string' ? raw.negativeRecordId : '',
+    ...(resolvedEffectsMode === undefined ? {} : { effectsMode: resolvedEffectsMode }),
   }
 }
 

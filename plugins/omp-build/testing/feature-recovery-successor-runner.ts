@@ -7,6 +7,13 @@ import { continueWithParentCoverage } from '../roxabi/feature-coverage-continuat
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
+import {
+  createFixtureContextEffectObserverFactory,
+  fixtureScopeFromReference,
+  prepareFictionalNoneIdentifiedHandoffEffects,
+  prepareIntentionalUnqualifiedHandoffEffects,
+  writePlaceholderNoneIdentifiedEffectsFile,
+} from './context-effect-review-fixture.ts'
 import { acceptContextMaterial } from './feature-context-material-driver.ts'
 import { finishContextPlan } from './feature-context-plan-driver.ts'
 import { nativeFeatureSpec } from './feature-review-fixture.ts'
@@ -27,22 +34,60 @@ function changeParentVersion(): string {
   return changed.ownSpec.version
 }
 
+export type SuccessorEffectsMode = 'prepared' | 'intentional-unqualified-negative'
+
+async function handoffEffects(
+  cwd: string,
+  reference: string,
+  negativeRecordId: string,
+  effectsMode: SuccessorEffectsMode = 'prepared',
+) {
+  const scope = fixtureScopeFromReference(reference)
+  if (effectsMode === 'intentional-unqualified-negative') {
+    return prepareIntentionalUnqualifiedHandoffEffects({ cwd, scope, negativeRecordId })
+  }
+  try {
+    return await prepareFictionalNoneIdentifiedHandoffEffects({ cwd, scope, negativeRecordId })
+  } catch (error) {
+    // Intentional foreign/absent-negative control only. Never swallow mandate/source/prep failures.
+    if (error instanceof Error && error.message === 'context-effect-fixture-negative-unavailable') {
+      return writePlaceholderNoneIdentifiedEffectsFile({
+        scope,
+        negativeRecordId,
+        reason:
+          'Explicit fixture intent: foreign or absent conserved negative; not absence-of-effects proof and not a prepare-error fallback.',
+      })
+    }
+    throw error
+  }
+}
+
 export async function invokeConfirmedSuccessor(
   operationName: string,
   cwd: string,
-  payload: { reference: string; negativeRecordId: string },
+  payload: { reference: string; negativeRecordId: string; effectsMode?: SuccessorEffectsMode },
   workflow: FeatureWorkflow,
   confirmedOperator: OperatorPort,
 ) {
   const sessionCwd = cwd ?? ''
+  const handoff =
+    operationName === 'confirmed-abandon'
+      ? undefined
+      : await handoffEffects(sessionCwd, payload.reference, payload.negativeRecordId, payload.effectsMode ?? 'prepared')
   const input: ContinueFeatureInput = {
     cwd: sessionCwd,
     reference: payload.reference,
     control: operationName === 'confirmed-abandon' ? 'abandon' : 'new',
     principal: false,
-    ...(operationName !== 'confirmed-abandon'
-      ? { contextHandoff: { negativeRecordId: payload.negativeRecordId } }
-      : {}),
+    ...(handoff === undefined
+      ? {}
+      : {
+          contextHandoff: {
+            negativeRecordId: payload.negativeRecordId,
+            effectsFile: handoff.effectsFile,
+          },
+          contextEffectObserverFactory: createFixtureContextEffectObserverFactory(),
+        }),
     uw: await createInstalledUwOperations({ cwd: sessionCwd, operator: confirmedOperator }),
   }
   let selected = await workflow.continueFeature(input)

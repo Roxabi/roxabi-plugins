@@ -1,11 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
+import {
+  fixtureScopeFromReference,
+  prepareFictionalNoneIdentifiedHandoffEffects,
+} from './context-effect-review-fixture.ts'
 import { assessmentConstraints } from './feature-assessment-constraints.ts'
 import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 import { operatorDialogUi } from './operator-dialog-ui.ts'
 
-const [cwd = '', actionFile = '', reference = '#42', handoff = ''] = process.argv.slice(2)
+const [cwd = '', actionFile = '', reference = '#42', handoff = '', effectsFileArg = ''] = process.argv.slice(2)
 await installFixtureSdkSettings(cwd)
 // SDK-dependent modules must load after installing this subprocess's fixture settings.
 const { default: ompBuildExtension } = await import('../omp/index.ts')
@@ -95,14 +99,29 @@ try {
   await emit('session_start', { type: 'session_start' }, context)
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  await feature(
-    handoff
-      ? `new ${reference} --context-handoff ${handoff}`
-      : actionFile
-        ? `${reference} --action ${actionFile}`
-        : reference,
-    context,
-  )
+  let featureArgs: string
+  if (handoff) {
+    const effectsFile =
+      effectsFileArg.length > 0
+        ? (() => {
+            if (!isAbsolute(effectsFileArg)) throw new Error('context-effect-intent-path-must-be-absolute')
+            return effectsFileArg
+          })()
+        : (
+            await prepareFictionalNoneIdentifiedHandoffEffects({
+              cwd,
+              scope: fixtureScopeFromReference(reference),
+              negativeRecordId: handoff,
+              directory: artifacts,
+            })
+          ).effectsFile
+    featureArgs = `new ${reference} --context-handoff ${handoff} --context-effects ${effectsFile}`
+  } else if (actionFile) {
+    featureArgs = `${reference} --action ${actionFile}`
+  } else {
+    featureArgs = reference
+  }
+  await feature(featureArgs, context)
   const controller = reviewControllerFor(api)
   const active = controller.active()
   if (active === null) {

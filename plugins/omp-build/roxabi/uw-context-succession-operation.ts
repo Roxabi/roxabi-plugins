@@ -1,12 +1,15 @@
 import { operatorConfirmationEvidenceSchema } from '../dist/contracts.js'
 import { canonicalValueDigest } from '../engine/canonical-value.ts'
+import type { ContextEffectReportView } from '../engine/context-effect-sources.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import type { ContextSuccessionProposal } from '../engine/workflow-context-disposition-schema.ts'
+import { matchingContextEffectReports } from './context-effect-report-views.ts'
 import type { OperatorPort, UwOperations } from './uw-contract.ts'
 
 /** Host-owned dependencies; none are supplied by command arguments or native results. */
 type SuccessionPorts = {
   operator: OperatorPort
+  effectReports: readonly ContextEffectReportView[]
   validateBeforeMandate(proposal: ContextSuccessionProposal): Promise<boolean>
   validateBeforeSelection(proposal: ContextSuccessionProposal): Promise<boolean>
   publishMandate(proposal: ContextSuccessionProposal): Promise<boolean>
@@ -39,8 +42,10 @@ export async function executeContextSuccession(
   ports: SuccessionPorts,
 ): Promise<Outcome> {
   const pinned = structuredClone(proposal)
+  const effectReports = structuredClone(ports.effectReports)
+  if (!matchingContextEffectReports(pinned, effectReports)) return { status: 'refused' }
   const digest = canonicalValueDigest(pinned)
-  const confirmed = await ports.operator.executeConfirmed({ proposal: pinned, digest }, (evidence) =>
+  const confirmed = await ports.operator.executeConfirmed({ proposal: pinned, digest, effectReports }, (evidence) =>
     publishConfirmedSuccession(pinned, digest, ports, evidence),
   )
   return confirmed.status === 'confirmed' ? confirmed.value : { status: confirmed.status }

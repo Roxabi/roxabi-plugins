@@ -47,15 +47,20 @@ function parseControlCommand(
   tokens: string[],
 ): ParsedFeatureCommand {
   const reference = normalizeReference(tokens[1])
-  if (control === 'new' && tokens.length === 4 && tokens[2] === '--context-handoff') {
+  if (control === 'new' && tokens[2] === '--context-handoff') {
     const negativeRecordId = tokens[3]
+    const effectsFile = tokens[5]
     if (
       reference !== null &&
       negativeRecordId !== undefined &&
       negativeRecordId.length > 0 &&
-      !negativeRecordId.startsWith('-')
+      !negativeRecordId.startsWith('-') &&
+      tokens.length === 6 &&
+      tokens[4] === '--context-effects' &&
+      effectsFile !== undefined &&
+      isAbsolute(effectsFile)
     )
-      return { ok: true, control, reference, contextHandoff: { negativeRecordId } }
+      return { ok: true, control, reference, contextHandoff: { negativeRecordId, effectsFile } }
     return { ok: false, reason: 'feature-context-handoff-invalid' }
   }
   if (reference === null || tokens.length !== 2) return { ok: false, reason: 'feature-reference-missing' }

@@ -2,7 +2,7 @@ import type { ScopedRecordRef } from '../engine/record-references.ts'
 import { mandatesInHistory } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
-import { bindsOwnPause, publishConfirmedPause } from './feature-control.ts'
+import { bindsOwnPause, publishConfirmedPause, releaseAbandonInhibition } from './feature-control.ts'
 import { disarmKnownTarget } from './feature-disarm.ts'
 import { mandateBranch } from './feature-selection.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
@@ -64,9 +64,12 @@ export async function applyFeatureControl(
     loaded: context.engine,
     mandate: mandateRef,
   })
-  return disarmed.clean
-    ? { kind: 'abandoned', confirmed: true }
-    : { kind: 'abandoned', confirmed: false, failure: { phase: 'disarm', evidence: disarmed.evidence } }
+  if (!disarmed.clean) {
+    return { kind: 'abandoned', confirmed: false, failure: { phase: 'disarm', evidence: disarmed.evidence } }
+  }
+  // Identity-bound: only the exact entry captured at admission; never cwd / replacements.
+  releaseAbandonInhibition(scope, authority.controlInhibition)
+  return { kind: 'abandoned', confirmed: true }
 }
 
 function controlMandate(control: 'pause' | 'abandon', authority: FeatureAuthority) {

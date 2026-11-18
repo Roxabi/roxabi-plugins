@@ -21,7 +21,11 @@ it('refuses a projected context negative whose conserved native output actually 
   const checkout = path.join(worktreeRoot, 'app', 'feat-42-save')
   mkdirSync(path.dirname(checkout), { recursive: true })
   git(box, box.principal, ['worktree', 'move', originalCheckout, checkout])
-  const run = (operation: string, negativeRecordId = '') => {
+  const run = (
+    operation: string,
+    negativeRecordId = '',
+    extras: { effectsMode?: 'prepared' | 'intentional-unqualified-negative' } = {},
+  ) => {
     const child = spawnSync(
       BUN,
       [
@@ -32,6 +36,7 @@ it('refuses a projected context negative whose conserved native output actually 
           reference: '#42',
           control: 'continue',
           negativeRecordId,
+          ...extras,
         }),
       ],
       { cwd: checkout, env: { ...box.env, OMP_WORKTREE_DIR: worktreeRoot }, encoding: 'utf8' },
@@ -267,7 +272,11 @@ it('refuses a projected context negative whose conserved native output actually 
     comments.splice(index, operation.parts.length, ...frames.value.map((body) => ({ ...original, body })))
   })
   const before = readSim(box).issues['42']?.comments.length
-  expect(run('confirmed-context-successor', negative.recordId)).toMatchObject({
+  expect(
+    run('confirmed-context-successor', negative.recordId, {
+      effectsMode: 'intentional-unqualified-negative',
+    }),
+  ).toMatchObject({
     kind: 'blocked',
     reason: 'context-handoff-reconciliation-unconfirmed',
   })

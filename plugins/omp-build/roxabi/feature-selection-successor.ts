@@ -6,7 +6,7 @@ import { causalRefusal } from './causal-refusal.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
+import type { ContextHandoffRequest, ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
 import { freshSuccessorOwnSpec } from './feature-initial-own-spec.ts'
 import { resolveSuccessorWorktreeAnchor } from './feature-parent-anchor.ts'
 import { createHandoffObserver } from './feature-selection-handoff.ts'
@@ -40,7 +40,7 @@ export async function createSuccessorSelection(input: {
   parentHistories: FeatureAuthority['parentHistories']
   parentCoverage?: ParentCoverage | null
   parentCoverageBasis?: ParentCoverageRequest
-  contextHandoff?: { negativeRecordId: string }
+  contextHandoff?: ContextHandoffRequest
 }): Promise<SelectionState | ContinueFeatureResult> {
   if (input.contextHandoff !== undefined && input.uw === undefined)
     return { kind: 'blocked', reason: 'context-handoff-operator-unavailable' }
@@ -52,43 +52,47 @@ export async function createSuccessorSelection(input: {
   const observeHandoff =
     input.contextHandoff === undefined
       ? undefined
-      : createHandoffObserver(authority, reader, history, input.contextHandoff.negativeRecordId)
-  const initialHandoff = observeHandoff === undefined ? undefined : await observeHandoff()
-  if (initialHandoff !== undefined && !initialHandoff.ok) return { kind: 'blocked', reason: initialHandoff.reason }
-  const boot = await bootstrapSuccessor(authority, target)
-  if ('kind' in boot) return boot
-  const confirmed = await confirmSuccessorAfterBootstrap({
-    pullRequests: delivery.pullRequests,
-    authority,
-    reader,
-    own,
-    basis,
-    history,
-    parentHistories,
-    target,
-    anchor,
-    head: boot.head,
-    branch: boot.branch,
-    parentCoverage: input.parentCoverage,
-    parentCoverageBasis: input.parentCoverageBasis,
-    contextHandoff: input.contextHandoff !== undefined,
-  })
-  if ('kind' in confirmed) return confirmed
-  const afterBootstrap = observeHandoff === undefined ? undefined : await observeHandoff()
-  if (afterBootstrap !== undefined && !afterBootstrap.ok) return { kind: 'blocked', reason: afterBootstrap.reason }
-  if (handoffObservationChanged(initialHandoff, afterBootstrap))
-    return { kind: 'blocked', reason: 'context-handoff-observation-changed' }
-  return publishAndRefreshSuccessor(
-    authority,
-    own,
-    confirmed.basis,
-    target,
-    confirmed.history,
-    confirmed.parents,
-    reader,
-    confirmed.delivery.pullRequests,
-    handoffPublication(initialHandoff, input.uw, observeHandoff),
-  )
+      : createHandoffObserver(authority, reader, history, input.contextHandoff)
+  try {
+    const initialHandoff = observeHandoff === undefined ? undefined : await observeHandoff()
+    if (initialHandoff?.ok === false) return { kind: 'blocked', reason: initialHandoff.reason }
+    const boot = await bootstrapSuccessor(authority, target)
+    if ('kind' in boot) return boot
+    const confirmed = await confirmSuccessorAfterBootstrap({
+      pullRequests: delivery.pullRequests,
+      authority,
+      reader,
+      own,
+      basis,
+      history,
+      parentHistories,
+      target,
+      anchor,
+      head: boot.head,
+      branch: boot.branch,
+      parentCoverage: input.parentCoverage,
+      parentCoverageBasis: input.parentCoverageBasis,
+      contextHandoff: input.contextHandoff !== undefined,
+    })
+    if ('kind' in confirmed) return confirmed
+    const afterBootstrap = observeHandoff === undefined ? undefined : await observeHandoff()
+    if (afterBootstrap?.ok === false) return { kind: 'blocked', reason: afterBootstrap.reason }
+    if (handoffObservationChanged(initialHandoff, afterBootstrap))
+      return { kind: 'blocked', reason: 'context-handoff-observation-changed' }
+    return await publishAndRefreshSuccessor(
+      authority,
+      own,
+      confirmed.basis,
+      target,
+      confirmed.history,
+      confirmed.parents,
+      reader,
+      confirmed.delivery.pullRequests,
+      handoffPublication(initialHandoff, input.uw, observeHandoff),
+    )
+  } finally {
+    await observeHandoff?.dispose()
+  }
 }
 
 function handoffPublication(

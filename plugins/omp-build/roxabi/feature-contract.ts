@@ -111,6 +111,8 @@ export type ContinueFeatureResult =
   | { kind: 'operator-decision'; reason: string }
   | { kind: 'framing'; source: FramingSourceRequest }
 
+export type ContextHandoffRequest = { negativeRecordId: string; effectsFile: string }
+
 export type ContinueFeatureInput = {
   cwd: string
   reference: string
@@ -129,7 +131,9 @@ export type ContinueFeatureInput = {
   owned?: () => boolean
   interruption?: { start?: string }
   contextRecovery?: { actionFile: string }
-  contextHandoff?: { negativeRecordId: string }
+  contextHandoff?: ContextHandoffRequest
+  /** Live host capability, never parsed from argv or a persisted resource observation. */
+  contextEffectObserverFactory?: () => import('./context-local-file-observer.ts').ContextLocalFileObserver
 }
 
 export type FeatureSessionPauseInput = {
@@ -180,7 +184,7 @@ export type ParsedFeatureCommand =
       ok: true
       control: Exclude<FeatureControl, 'resolve-interruption' | 'recover-context'>
       reference: string
-      contextHandoff?: { negativeRecordId: string }
+      contextHandoff?: ContextHandoffRequest
     }
   | { ok: true; control: 'resolve-interruption'; reference: string; start?: string }
   | { ok: true; control: 'recover-context'; reference: string; actionFile: string }

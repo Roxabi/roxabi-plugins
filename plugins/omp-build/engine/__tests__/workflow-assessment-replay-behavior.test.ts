@@ -32,15 +32,22 @@ test('observes only a linked authenticated pending expanded-context assessment',
     prior.start.payload.phase !== 'start'
   )
     throw new Error('expected assessment start')
+  const structured = {
+    outcome: 'missing-context' as const,
+    missing: [
+      { locator: { kind: 'information-request' as const, description: 'policy' }, reason: 'needed', targets: [] },
+    ],
+  }
   const negative = must(
     buildRecord({
       ...prior.result,
       payload: {
         ...prior.result.payload,
-        structured: {
-          outcome: 'missing-context',
-          missing: [{ locator: { kind: 'information-request', description: 'policy' }, reason: 'needed', targets: [] }],
+        native: {
+          ...prior.result.payload.native,
+          raw: { exitCode: 0, structuredOutput: { status: 'valid', data: structured } },
         },
+        structured,
       },
     }),
   )
@@ -93,6 +100,12 @@ test('observes only a linked authenticated pending expanded-context assessment',
     ...(manifest.operands === undefined ? {} : { operands: manifest.operands }),
   }
   const prestartIssue = history([mandated, prior.start, negative])
+  const unconserved = must(
+    buildRecord({
+      ...negative,
+      payload: { ...negative.payload, native: { ...negative.payload.native, raw: null } },
+    }),
+  )
   // A syntactically negative receipt with an unconserved native result cannot open
   // the accepted-prefix inspection, even when its payload pin is exact.
   const inspection = {
@@ -101,7 +114,12 @@ test('observes only a linked authenticated pending expanded-context assessment',
     negative: { ...lineage, selector: '/payload' as const },
   }
   expect(resolveAcceptedSpec(mandated, [prestartIssue])).toMatchObject({ ok: false })
-  expect(resolveAcceptedSpec(mandated, [prestartIssue], undefined, inspection)).toMatchObject({ ok: false })
+  expect(
+    resolveAcceptedSpec(mandated, [history([mandated, prior.start, unconserved])], undefined, {
+      ...inspection,
+      negative: { ...inspection.negative, digest: canonicalValueDigest(unconserved.payload) },
+    }),
+  ).toMatchObject({ ok: false })
   expect(resolveAcceptedSpecForAbandonment(mandated, [prestartIssue])).toMatchObject({ ok: false })
   expect(
     resolveAcceptedSpec(mandated, [prestartIssue], undefined, {

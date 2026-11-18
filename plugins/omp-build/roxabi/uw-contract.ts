@@ -14,6 +14,7 @@ import type {
   CreationContext,
   ReportPromotionInput,
 } from '../engine/cause-disposition-schema.ts'
+import type { ContextEffectReportView } from '../engine/context-effect-sources.ts'
 import type { PreparedFixRecovery } from '../engine/fix-recovery-control-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
@@ -155,7 +156,7 @@ export type PreparedOperatorProposal =
   | PreparedCauseDependencyAdjustment
   | PreparedUwReopen
   | PreparedUwAbandon
-  | { proposal: ContextSuccessionProposal; digest: string }
+  | { proposal: ContextSuccessionProposal; digest: string; effectReports: readonly ContextEffectReportView[] }
   | PreparedInterruptionResolution
   | PreparedFramingProposal
   | PreparedToolingPinActivation

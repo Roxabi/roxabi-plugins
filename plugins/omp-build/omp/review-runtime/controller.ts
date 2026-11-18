@@ -9,6 +9,7 @@ import { admittedChild, finishOwnedExecution } from './controller-execution.ts'
 import { type JoinedNativeStop, stopBatches, stopOwnedBatch, throwJoinedStopFailures } from './controller-stop'
 import { rootCurrent, unindexAdmittedChildBatch } from './executed-child-lifecycle.ts'
 import { type HostGitObserver, observeHostGit } from './host-git-observation.ts'
+import { observeToolExecutionEnd, observeToolExecutionStart } from './observed-tools.ts'
 import { consumeNativeAnnouncementGuard, nativeAnnouncementCurrent } from './port'
 import {
   type OwnedResultReplacement,
@@ -202,6 +203,8 @@ export class NativeBatchController {
   captureExecutedChild(batch: NativeBatch, id: string, sessionId: string, event: SubagentEventPayload['event']): void {
     const guard = this.executedChild(batch, id, sessionId)
     if (!guard?.valid || !this.#active) return
+    if (event.type === 'tool_execution_start') observeToolExecutionStart(guard, event)
+    else if (event.type === 'tool_execution_end') observeToolExecutionEnd(guard, event)
     captureSubagentEvent(this.#active, { id, event }, this.#announcements.isFeature(batch))
   }
   noteRetentionFailure(toolCallId: string, reason: string): void {

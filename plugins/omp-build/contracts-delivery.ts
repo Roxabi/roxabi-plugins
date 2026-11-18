@@ -42,6 +42,8 @@ export {
   deliveryDataRefSchema,
 } from './engine/action-input-schema.ts'
 export { type CodeRange, codeRangeSchema } from './engine/code-range-schema.ts'
+export { contextEffectIntentSchema } from './engine/context-effect-review-schema.ts'
+export { contextEffectSources } from './engine/context-effect-sources.ts'
 export { resolveAdmittedCorrectionCriterionSource } from './engine/correction-criterion-source.ts'
 export { resolveCorrectionRequestBasis, resolveCorrectionRootBasis } from './engine/correction-request-basis.ts'
 export {
@@ -146,6 +148,7 @@ export {
   assessmentProposalOriginSchema,
   type CiExact,
 } from './engine/workflow-action-operands.ts'
+export { inspectContextEffectIntent, validateContextEffectReview } from './engine/workflow-context-effects.ts'
 export {
   contextHandoffAbsentBindingDigest,
   contextHandoffHistoryCut,

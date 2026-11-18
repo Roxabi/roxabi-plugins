@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { recordInputRefSchema } from './action-input-refs.ts'
 import { codeRangeSchema } from './code-range-schema.ts'
+import { contextEffectNegativeRefSchema, contextEffectReviewSchema } from './context-effect-review-schema.ts'
 import { codeVersionSchema } from './criterion-evidence-schema.ts'
 import { externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
 import { jsonSchema, scopeSchema, sha256Schema } from './schema-primitives.ts'
@@ -23,60 +24,62 @@ const deliverySchema = z.strictObject({
   integrations: z.array(z.strictObject({ source: recordInputRefSchema, code: codeRangeSchema })),
   commits: z.array(z.strictObject({ code: codeVersionSchema, parents: z.array(gitObjectIdSchema) })),
 })
-export const contextSuccessionReconciliationSchema = z
-  .strictObject({
-    kind: z.literal('unchanged-delivery-baseline'),
-    scope: z.literal('workflow-owned-delivery-state'),
-    code: codeRangeSchema,
-    repository: z.string().min(1),
-    branch: z.string().min(1).nullable(),
-    status: z.strictObject({ code: z.literal(0), stdout: z.literal('') }),
-    remote: z.strictObject({
-      base: z.strictObject({ ref: z.string().min(1), tip: gitObjectIdSchema }),
-      candidate: z.strictObject({ ref: z.string().min(1), tip: gitObjectIdSchema.nullable() }).nullable(),
-    }),
-    delivery: deliverySchema,
-    cuts: z
-      .array(
-        z.strictObject({
-          scope: scopeSchema,
-          count: z.number().int().nonnegative(),
-          last: z
-            .strictObject({
-              operationId: z.string().nullable(),
-              recordId: z.string().nullable(),
-              kind: z.string().nullable(),
-            })
-            .nullable(),
-        }),
-      )
-      .superRefine((cuts, context) => {
-        cuts.forEach((cut, index) => {
-          if ((cut.count === 0) !== (cut.last === null))
-            context.addIssue({
-              code: 'custom',
-              path: [index, 'last'],
-              message: 'empty cut must have no last operation',
-            })
-        })
+const managedBaseline = z.strictObject({
+  kind: z.literal('unchanged-delivery-baseline'),
+  scope: z.literal('workflow-owned-delivery-state'),
+  code: codeRangeSchema,
+  repository: z.string().min(1),
+  branch: z.string().min(1).nullable(),
+  status: z.strictObject({ code: z.literal(0), stdout: z.literal('') }),
+  remote: z.strictObject({
+    base: z.strictObject({ ref: z.string().min(1), tip: gitObjectIdSchema }),
+    candidate: z.strictObject({ ref: z.string().min(1), tip: gitObjectIdSchema.nullable() }).nullable(),
+  }),
+  delivery: deliverySchema,
+  cuts: z
+    .array(
+      z.strictObject({
+        scope: scopeSchema,
+        count: z.number().int().nonnegative(),
+        last: z
+          .strictObject({
+            operationId: z.string().nullable(),
+            recordId: z.string().nullable(),
+            kind: z.string().nullable(),
+          })
+          .nullable(),
       }),
-    historyDigest: sha256Schema,
-    bindingDigest: sha256Schema,
-  })
-  .superRefine((value, context) => {
-    if ((value.branch === null) !== (value.remote.candidate === null))
-      context.addIssue({
-        code: 'custom',
-        path: ['remote', 'candidate'],
-        message: 'candidate and branch must both be present or both absent',
+    )
+    .superRefine((cuts, context) => {
+      cuts.forEach((cut, index) => {
+        if ((cut.count === 0) !== (cut.last === null))
+          context.addIssue({
+            code: 'custom',
+            path: [index, 'last'],
+            message: 'empty cut must have no last operation',
+          })
       })
-  })
+    }),
+  historyDigest: sha256Schema,
+  bindingDigest: sha256Schema,
+})
+const candidateConsistent = (value: z.infer<typeof managedBaseline>) =>
+  (value.branch === null) === (value.remote.candidate === null)
+const candidateIssue = {
+  path: ['remote', 'candidate'],
+  message: 'candidate and branch must both be present or both absent',
+}
+
+/** A fresh managed-state sample never re-observes historical named-file effects. */
+export const contextSuccessionManagedBaselineSchema = managedBaseline.refine(candidateConsistent, candidateIssue)
+export type ContextSuccessionManagedBaseline = z.infer<typeof contextSuccessionManagedBaselineSchema>
+export const contextSuccessionReconciliationSchema = managedBaseline
+  .extend({ effectReview: contextEffectReviewSchema })
+  .refine(candidateConsistent, candidateIssue)
+
 export const contextDispositionSchema = z.strictObject({
   kind: z.literal('superseded-not-delivered'),
-  negative: recordInputRefSchema.extend({
-    record: recordInputRefSchema.shape.record.extend({ kind: z.literal('action-receipt') }),
-    selector: z.literal('/payload'),
-  }),
+  negative: contextEffectNegativeRefSchema,
   replacementAccepted: ownSpecRefSchema,
   reconciliation: contextSuccessionReconciliationSchema,
   proposalDigest: sha256Schema,

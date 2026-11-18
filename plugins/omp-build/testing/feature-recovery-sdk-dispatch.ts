@@ -38,6 +38,8 @@ export async function invokeSdkDriver(
       return invokeOmpLiveInterleave(directory)
     case 'omp-context-initial-negative':
       return invokeContextNative(directory, '', false, true)
+    case 'omp-context-initial-common-negative':
+      return invokeContextNative(directory, '', false, true, 'missing-context')
     case 'omp-context-initial-positive':
       return invokeContextNative(directory, '', true, true)
     case 'omp-context-negative':

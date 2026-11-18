@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { recordsOf } from '../engine/workflow-control.ts'
 import { reviewControllerFor } from '../omp/omp-controller.ts'
 import { createFeatureCommandHost } from '../omp/omp-feature-command-host.ts'
@@ -11,6 +11,10 @@ import { runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import type { OperatorPort } from '../roxabi/uw-contract.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { createInstalledUwReadPort } from '../roxabi/uw-read-port.ts'
+import {
+  fixtureScopeFromReference,
+  prepareFictionalNoneIdentifiedHandoffEffects,
+} from './context-effect-review-fixture.ts'
 import { createExtensionApiStub } from './extension-api-stub.ts'
 import { provisionNativeRoot } from './native-root-fixture.ts'
 
@@ -19,6 +23,7 @@ export async function contextOwnerCoverageRace(
   negativeRecordId: string,
   workflow: FeatureWorkflow,
   operator: OperatorPort,
+  effectsFileArg?: string,
 ) {
   const artifacts = mkdtempSync(join(tmpdir(), 'context-owner-coverage-'))
   const messages: unknown[] = []
@@ -54,7 +59,21 @@ export async function contextOwnerCoverageRace(
     const operation = createOperatorConfirmation(ctx as never)
     const report = createFeatureOperationReportGuard(pi, ctx as never, operation)
     beginFeatureUwIntake(pi, operation, ctx as never)
-    const args = `new #200 --context-handoff ${negativeRecordId}`
+    const effectsFile =
+      effectsFileArg !== undefined
+        ? (() => {
+            if (!isAbsolute(effectsFileArg)) throw new Error('context-effect-intent-path-must-be-absolute')
+            return effectsFileArg
+          })()
+        : (
+            await prepareFictionalNoneIdentifiedHandoffEffects({
+              cwd,
+              scope: fixtureScopeFromReference('#200'),
+              negativeRecordId,
+              directory: artifacts,
+            })
+          ).effectsFile
+    const args = `new #200 --context-handoff ${negativeRecordId} --context-effects ${effectsFile}`
     const host = createFeatureCommandHost(
       { pi, options: { principalCwd: () => false }, interruptOwnedFeatureWork: async () => {}, framing: {} } as never,
       { ctx: ctx as never, operator: operation, originalArgs: args },

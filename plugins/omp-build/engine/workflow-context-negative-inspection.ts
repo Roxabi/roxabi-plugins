@@ -8,8 +8,8 @@ import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Result } from './result.ts'
 import type { ContextDisposition } from './workflow-context-disposition-schema.ts'
+import { contextNativeNegativeValid } from './workflow-context-native-negative.ts'
 import { workflowContextNegative } from './workflow-context-output.ts'
-import { reviewChildValid } from './workflow-context-review.ts'
 import { authenticateWorkflowReceiptPair, workflowContextChain } from './workflow-context-terminal.ts'
 import {
   bindExternalRef,
@@ -107,56 +107,6 @@ function reviewProof(
       return false
     actions.add(action.actionId)
   }
-  return reviewContributionsValid(payload)
-}
-
-function reviewContributionsValid(
-  payload: Extract<ReceiptRecord['payload'], { action: 'plan-review'; phase: 'result' }>,
-): boolean {
-  const slots = new Set<string>()
-  const children = new Set<string>()
-  for (const contribution of payload.contributions) {
-    const slot = payload.slots.find((item) => item.slotId === contribution.host.slotId)
-    const child = contribution.host.childId
-    if (
-      slot === undefined ||
-      slots.has(slot.slotId) ||
-      child === null ||
-      children.has(child) ||
-      !reviewChildValid(slot, contribution) ||
-      contribution.native === null
-    )
-      return false
-    slots.add(slot.slotId)
-    children.add(child)
-    const terminal = inspectNativeTerminal(contribution.native.raw)
-    const raw = contribution.native.raw
-    const last = contribution.rawAttempts.at(-1)
-    if (
-      terminal.reason !== null ||
-      !producerOutputValid('plan-review', terminal.structured) ||
-      !equal(terminal.structured, contribution.structured) ||
-      raw === null ||
-      typeof raw !== 'object' ||
-      Array.isArray(raw) ||
-      raw.id !== child ||
-      last === undefined ||
-      last.raw === null ||
-      !equal(last.data, contribution.structured)
-    )
-      return false
-    const yielded = last.raw
-    if (
-      typeof yielded !== 'object' ||
-      Array.isArray(yielded) ||
-      yielded === null ||
-      typeof yielded.executionArguments !== 'object' ||
-      yielded.executionArguments === null ||
-      Array.isArray(yielded.executionArguments) ||
-      !equal(yielded.executionArguments.data, last.data)
-    )
-      return false
-  }
   return true
 }
 
@@ -169,23 +119,18 @@ function receiptProof(record: ReceiptRecord, mandate: MandateRecord, home: Decod
       payload.action !== 'implement' &&
       payload.action !== 'assess-spec') ||
     payload.admission !== null ||
-    !workflowContextNegative(record) ||
+    !contextNativeNegativeValid(record) ||
     !sameRef(payload.mandate, { scope: home.source.scope, kind: 'mandate', recordId: mandate.recordId }) ||
     !authenticateWorkflowReceiptPair(home, record).ok
   )
     return false
   if (!receiptInputsMatch(payload, mandate)) return false
   if (payload.action === 'plan-review') return reviewProof(payload, home)
-  const terminal = inspectNativeTerminal(payload.native.raw)
-  if (terminal.reason !== null || !equal(terminal.structured, payload.structured)) return false
-  if (payload.action === 'plan' || payload.action === 'assess-spec')
-    return (
-      producerOutputValid(payload.action === 'plan' ? 'plan' : 'spec-assessment', terminal.structured) &&
-      missingContextOutputSchema.safeParse(terminal.structured).success
-    )
-  const parsed = producerImplementationOutputSchema.safeParse(terminal.structured)
+  if (missingContextOutputSchema.safeParse(payload.structured).success) return true
+  if (payload.action !== 'implement') return false
+  const parsed = producerImplementationOutputSchema.safeParse(payload.structured)
   return (
-    producerOutputValid('delivery-execution', terminal.structured) &&
+    producerOutputValid('delivery-execution', payload.structured) &&
     parsed.success &&
     parsed.data.outcome === 'blocked' &&
     !!parsed.data.missing?.length &&

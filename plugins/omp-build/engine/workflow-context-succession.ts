@@ -6,6 +6,7 @@ import type { Result } from './result.ts'
 import { resolveAcceptedSpecAt } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { ContextSuccessionProposal } from './workflow-context-disposition-schema.ts'
+import { validateContextEffectReview } from './workflow-context-effects.ts'
 import { authenticateSuccessionAuthority } from './workflow-context-succession-authority.ts'
 import { authenticateSuccessionBaseline } from './workflow-context-succession-baseline.ts'
 import {
@@ -207,5 +208,5 @@ function authenticateNegativeEffects(
     )
   )
     return refuse('Context succession has another unresolved or delivered effect')
-  return { ok: true, value: undefined }
+  return validateContextEffectReview(chain, proposal.reconciliation.effectReview)
 }

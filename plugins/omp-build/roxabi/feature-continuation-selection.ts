@@ -6,7 +6,7 @@ import { branchFor } from '../skills/feature/epic-naming.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { prepareRefusal } from './delivery-action.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
+import type { ContextHandoffRequest, ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate } from './feature-initial-mandate.ts'
 import { plannerSuccessionInspection } from './feature-planner-succession.ts'
@@ -45,7 +45,7 @@ export async function selectFeatureMandate(
   reader: UwReadPort | undefined = uw,
   parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
   parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
-  contextHandoff?: { negativeRecordId: string },
+  contextHandoff?: ContextHandoffRequest,
   assessmentReplay?: AssessmentReplayContext,
   assessmentInspection?: AcceptedSpecInspection,
 ): Promise<SelectedFeature | ContinueFeatureResult> {
@@ -228,7 +228,7 @@ async function updateMandateSelection(
   branch: string,
   parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
   parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
-  contextHandoff?: { negativeRecordId: string },
+  contextHandoff?: ContextHandoffRequest,
 ): Promise<{ state: SelectionState; mandatePublished: boolean } | ContinueFeatureResult> {
   const state: SelectionState = authority
   if (

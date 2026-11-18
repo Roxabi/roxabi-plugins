@@ -10,6 +10,7 @@ import type {
   Submission,
 } from './contracts'
 import type { HostGitObserver } from './host-git-observation.ts'
+import type { GuardedChildObservation } from './observed-tools.ts'
 export type YieldRaw = {
   toolCallId: string
   contentIndex: number | null
@@ -61,7 +62,7 @@ export type ActiveBatch = {
   retentionFailed: string | null
   childSlots: Map<string, number>
   /** Actual child callbacks, never public observability frames, establish these bindings. */
-  guardedChildren: Map<string, { sessionId: string; valid: boolean; yieldData: Json | null }>
+  guardedChildren: Map<string, GuardedChildObservation>
   starts: Map<
     string,
     {

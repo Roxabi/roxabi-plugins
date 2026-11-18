@@ -14,7 +14,9 @@ import {
   workflowContextTerminal,
   workflowOperationProblem,
 } from '../dist/contracts.js'
+import type { ContextEffectReportView } from '../engine/context-effect-sources.ts'
 import type { ContextDisposition } from '../engine/workflow-context-disposition-schema.ts'
+import { type ContextEffectObservationInput, observeContextEffects } from './feature-context-effects.ts'
 import { contextHandoffDeliveryClear, observeContextHandoffCandidate } from './feature-context-handoff-candidate.ts'
 import { canonicalContextWorktree } from './feature-context-handoff-worktree.ts'
 import { observeParentSuccessorBaseline } from './feature-context-parent-successor.ts'
@@ -36,6 +38,7 @@ export type ContextHandoffObservation = {
   negative: ContextDisposition['negative']
   replacementAccepted: ContextDisposition['replacementAccepted']
   histories: readonly FeatureAuthority['history'][]
+  effectReports: ContextEffectReportView[]
 }
 
 export async function observeContextHandoff(input: {
@@ -44,6 +47,7 @@ export async function observeContextHandoff(input: {
   history: FeatureAuthority['history']
   parentHistories: readonly FeatureAuthority['history'][]
   negativeRecordId: string
+  effects: ContextEffectObservationInput
   prospective?: ConfirmedContextAppend
 }): Promise<{ ok: true; value: ContextHandoffObservation } | { ok: false; reason: string }> {
   const fail = () => ({ ok: false as const, reason: 'context-handoff-reconciliation-unconfirmed' })
@@ -76,15 +80,19 @@ export async function observeContextHandoff(input: {
     delivery.pullRequests,
   )
   if (!binding.ok || binding.plan.kind !== 'absent') return fail()
+  const effects = await observeContextEffects(admission.negativeChain, input.effects)
+  if (!effects.ok) return effects
   return {
     ok: true,
     value: {
       histories: causal.histories,
       negative,
       replacementAccepted: basis.historical.ref,
+      effectReports: effects.reports,
       reconciliation: {
         kind: 'unchanged-delivery-baseline',
         scope: 'workflow-owned-delivery-state',
+        effectReview: effects.value,
         code,
         repository: scope.repository,
         branch,
@@ -201,7 +209,7 @@ function qualifyHandoff(
   const attempts = classifyAttempts({ histories, scan: [issue], actions: INTERRUPTION_ACTIONS })
   if (interruptionGate(attempts).kind !== 'clear') return null
   if (!handoffReceiptsClear(issue, payload.action, priorStarts.value, authenticated.value.negativeChain)) return null
-  return { basis: basis.value, negative, payload }
+  return { basis: basis.value, negative, payload, negativeChain: authenticated.value.negativeChain }
 }
 
 function handoffReceiptsClear(

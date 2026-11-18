@@ -4,8 +4,9 @@ import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import { externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
 import type { Result } from './result.ts'
 import {
+  type ContextSuccessionManagedBaseline,
   type ContextSuccessionProposal,
-  contextSuccessionReconciliationSchema,
+  contextSuccessionManagedBaselineSchema,
 } from './workflow-context-disposition-schema.ts'
 import { admitContextSuccession, type ContextSuccessionAdmission } from './workflow-context-succession.ts'
 import { authenticatedChildAdvance } from './workflow-context-succession-child-advance.ts'
@@ -28,7 +29,7 @@ const parentAdvanceSchema = z.strictObject({
     clean: z.literal(true),
     remoteBase: gitObjectIdSchema,
   }),
-  delivery: contextSuccessionReconciliationSchema.shape.delivery,
+  delivery: contextSuccessionManagedBaselineSchema.shape.delivery,
 })
 
 /** A disposition changes progression only when its selected successor and fresh native baseline still match. */
@@ -88,7 +89,7 @@ function reconcileCurrentObservation(
     if (!effect.ok) return effect
     return currentLineageStarts(evidence, mandate)
   }
-  if (!contextSuccessionReconciliationSchema.safeParse(observed.reconciliation).success)
+  if (!contextSuccessionManagedBaselineSchema.safeParse(observed.reconciliation).success)
     return currentSuccessionFailure()
   if (!matchesCurrentBaseline(evidence, mandate, observed.reconciliation, expected)) return currentSuccessionFailure()
   return currentLineageStarts(evidence, mandate)
@@ -121,7 +122,7 @@ function matchesParentAdvance(
 function matchesCurrentBaseline(
   evidence: WorkflowEvidence,
   mandate: MandateRecord,
-  current: ContextSuccessionProposal['reconciliation'],
+  current: ContextSuccessionManagedBaseline,
   expected: ContextSuccessionProposal['reconciliation'],
 ): boolean {
   const digest = canonicalValueDigest

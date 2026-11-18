@@ -14,7 +14,9 @@ import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 
 type PausedContinuation = Extract<ContinueFeatureResult, { kind: 'paused' }>
 
-const inhibited = new Map<string, 'pause' | 'abandon'>()
+export type FeatureControlInhibition = Readonly<{ control: 'pause' | 'abandon' }>
+
+const inhibited = new Map<string, FeatureControlInhibition>()
 
 // A public pause can synchronously interrupt native work, whose abort then
 // triggers the session-stop pause path. Scope-level coalescing ensures both
@@ -26,23 +28,37 @@ export function inhibitKey(scope: Scope): string {
 }
 
 export function inhibition(scope: Scope): 'pause' | 'abandon' | undefined {
-  return inhibited.get(inhibitKey(scope))
+  return inhibited.get(inhibitKey(scope))?.control
 }
 
-export function inhibit(scope: Scope, control: 'pause' | 'abandon'): void {
-  inhibited.set(inhibitKey(scope), control)
+/** Each call installs a distinct entry identity for later identity-bound release. */
+export function inhibit(scope: Scope, control: 'pause' | 'abandon'): FeatureControlInhibition {
+  const entry: FeatureControlInhibition = Object.freeze({ control })
+  inhibited.set(inhibitKey(scope), entry)
+  return entry
 }
 
 export function releaseInhibition(scope: Scope): void {
   inhibited.delete(inhibitKey(scope))
 }
 
+/**
+ * Deletes only the exact abandon inhibition entry captured for this successful abandonment.
+ * Missing, stale, pause, or replaced identities are no-ops. Never touches cwd holds.
+ */
+export function releaseAbandonInhibition(scope: Scope, expected: FeatureControlInhibition | undefined): void {
+  if (expected === undefined || expected.control !== 'abandon') return
+  const key = inhibitKey(scope)
+  if (inhibited.get(key) !== expected) return
+  inhibited.delete(key)
+}
+
 export function inhibitCwd(cwd: string): void {
-  inhibited.set(cwd, 'pause')
+  inhibited.set(cwd, Object.freeze({ control: 'pause' as const }))
 }
 
 export function cwdInhibition(cwd: string): 'pause' | 'abandon' | undefined {
-  return inhibited.get(cwd)
+  return inhibited.get(cwd)?.control
 }
 
 export function releaseCwdInhibition(cwd: string): void {

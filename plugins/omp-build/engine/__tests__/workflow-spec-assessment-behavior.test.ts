@@ -278,18 +278,28 @@ describe('workflow Spec assessment behavior', () => {
       assessment.start.payload.phase !== 'start'
     )
       throw new Error('expected assessment start')
+    const structured = {
+      outcome: 'missing-context' as const,
+      missing: [
+        {
+          locator: { kind: 'information-request' as const, description: 'Policy' },
+          reason: 'Not available',
+          targets: [],
+        },
+      ],
+    }
     const { inputs: _recordInputs, ...negativeDraft } = assessment.result
     const negative = must(
       buildRecord({
         ...negativeDraft,
         payload: {
           ...assessment.result.payload,
-          structured: {
-            outcome: 'missing-context',
-            missing: [
-              { locator: { kind: 'information-request', description: 'Policy' }, reason: 'Not available', targets: [] },
-            ],
+          native: {
+            completion: 'completed',
+            strict: 'valid',
+            raw: { exitCode: 0, structuredOutput: { status: 'valid', data: structured } },
           },
+          structured,
         },
       }),
     )

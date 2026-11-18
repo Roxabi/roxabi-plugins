@@ -1,6 +1,8 @@
 import { mandateParentHistories } from './feature-context.ts'
+import { readContextEffectIntent } from './feature-context-effects.ts'
 import { observeContextHandoff } from './feature-context-handoff-observation.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
+import type { ContextHandoffRequest } from './feature-contract.ts'
 import type { ConfirmedContextAppend } from './feature-succession-refresh.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwReadPort } from './uw-contract.ts'
@@ -11,9 +13,15 @@ export function createHandoffObserver(
   authority: FeatureAuthority,
   reader: UwReadPort,
   history: FeatureAuthority['history'],
-  negativeRecordId: string,
+  request: ContextHandoffRequest,
 ) {
-  return async (prospective?: ConfirmedContextAppend) => {
+  const observer = authority.context.contextEffectObserverFactory?.()
+  const intent = observer === undefined ? undefined : readContextEffectIntent(request.effectsFile)
+  const observe = async (prospective?: ConfirmedContextAppend) => {
+    if (observer === undefined || intent === undefined)
+      return { ok: false as const, reason: 'context-effect-native-observer-unavailable' }
+    const requested = await intent
+    if (!requested.ok) return requested
     const options = {
       ...withRoxabiGitHubPolicy({ cwd: authority.context.cwd, gh: authority.context.gh }),
       gh: authority.context.gh,
@@ -38,8 +46,14 @@ export function createHandoffObserver(
       uwRead: await currentReader.readUw(authority.scope),
       history: next,
       parentHistories: parents.parents,
-      negativeRecordId,
+      negativeRecordId: request.negativeRecordId,
+      effects: { intent: requested.value, observer },
       ...(prospective === undefined ? {} : { prospective }),
     })
   }
+  return Object.assign(observe, {
+    dispose: async () => {
+      await observer?.dispose()
+    },
+  })
 }

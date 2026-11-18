@@ -5,7 +5,7 @@ import type { MandateSelection } from '../engine/workflow-mandate.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
-import { bindsOwnPause, inhibit } from './feature-control.ts'
+import { bindsOwnPause, type FeatureControlInhibition, inhibit } from './feature-control.ts'
 import { asHistory } from './feature-delivery-facts.ts'
 import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 import { type Contracts, defaultGh, isRecord, loadContracts, type Scope } from './feature-engine.ts'
@@ -25,6 +25,7 @@ export type FeatureContext = Readonly<{
   git: NonNullable<ContinueFeatureInput['git']>
   gh: NonNullable<ContinueFeatureInput['gh']>
   engine: Contracts
+  contextEffectObserverFactory?: ContinueFeatureInput['contextEffectObserverFactory']
 }>
 
 export type FeatureAuthority = {
@@ -37,6 +38,8 @@ export type FeatureAuthority = {
   parentHistories: DecodedHistory[]
   causal: FixUwCausalContext
   selection: MandateSelection
+  /** Exact inhibit() entry from this admission; never late-resnapshotted. */
+  controlInhibition?: FeatureControlInhibition
 }
 
 export async function resolveFeatureAuthority(
@@ -75,7 +78,8 @@ async function featureContext(
   gh: NonNullable<ContinueFeatureInput['gh']>,
 ): Promise<FeatureContext | ContinueFeatureResult> {
   const engine = await loadContracts()
-  if (!('missing' in engine)) return { cwd: input.cwd, git, gh, engine }
+  if (!('missing' in engine))
+    return { cwd: input.cwd, git, gh, engine, contextEffectObserverFactory: input.contextEffectObserverFactory }
   if (input.control === 'pause' || input.control === 'abandon') {
     await disarmUnresolved(gh, input.cwd, input.reference)
     return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
@@ -196,15 +200,21 @@ async function readHistoryAuthority(
   exactMandateRef: ScopedRecordRef | undefined,
   native: NativeAuthority,
   context: FeatureContext,
-): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
+): Promise<
+  | Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection' | 'controlInhibition'>
+  | ContinueFeatureResult
+> {
   const control = input.control
-  if (control === 'pause' || control === 'abandon') inhibit(native.scope, control)
+  // Capture before any await; early failures keep the hold without attaching it.
+  const controlInhibition = control === 'pause' || control === 'abandon' ? inhibit(native.scope, control) : undefined
   const options = { ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }), gh: context.gh }
   const composed = await context.engine.readComposedWorkflowHistory([native.scope], options)
   if (!composed.ok || composed.histories[0] === undefined) {
     return handleUnavailableHistory(input, native, context, composed.ok ? 'incomplete' : composed.reason)
   }
-  return selectHistoryAuthority(input, exactMandateRef, native, context, composed.histories[0], options)
+  const selected = await selectHistoryAuthority(input, exactMandateRef, native, context, composed.histories[0], options)
+  if ('kind' in selected) return selected
+  return controlInhibition === undefined ? selected : { ...selected, controlInhibition }
 }
 
 async function handleUnavailableHistory(

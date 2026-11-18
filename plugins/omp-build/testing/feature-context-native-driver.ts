@@ -10,7 +10,34 @@ import { nativeReviewChild } from './native-review-child.ts'
 import { provisionNativeRoot } from './native-root-fixture.ts'
 
 type Handler = (...args: unknown[]) => unknown
-export async function invokeContextNative(cwd: string, actionFile: string, positive: boolean, initial = false) {
+
+function contextNegativeOutput(form: 'blocked' | 'missing-context') {
+  const missing = [
+    {
+      locator: { kind: 'information-request', description: 'deployment region confirmation' },
+      reason: 'confirmation is required',
+      targets: [],
+    },
+  ]
+  return form === 'blocked'
+    ? {
+        outcome: 'blocked',
+        commitSHAs: [],
+        commands: [],
+        criteria: [],
+        missing,
+        reason: 'The region is required before implementation',
+      }
+    : { outcome: 'missing-context', missing }
+}
+
+export async function invokeContextNative(
+  cwd: string,
+  actionFile: string,
+  positive: boolean,
+  initial = false,
+  initialForm: 'blocked' | 'missing-context' = 'blocked',
+) {
   const commands = new Map<string, Handler>()
   const events = new Map<string, Handler[]>()
   const messages: string[] = []
@@ -87,31 +114,7 @@ export async function invokeContextNative(cwd: string, actionFile: string, posit
       detached: false,
     })
     const child = await nativeReviewChild({ task, sessionFile })
-    let output: object = {
-      outcome: 'missing-context',
-      missing: [
-        {
-          locator: { kind: 'information-request', description: 'deployment region confirmation' },
-          reason: 'confirmation is required',
-          targets: [],
-        },
-      ],
-    }
-    if (initial)
-      output = {
-        outcome: 'blocked',
-        commitSHAs: [],
-        commands: [],
-        criteria: [],
-        missing: [
-          {
-            locator: { kind: 'information-request', description: 'deployment region confirmation' },
-            reason: 'confirmation is required',
-            targets: [],
-          },
-        ],
-        reason: 'The region is required before implementation',
-      }
+    let output: object = contextNegativeOutput(initial ? initialForm : 'missing-context')
     async function positiveOutput() {
       writeFileSync(join(cwd, 'README.md'), initial ? 'region preserved\ntimezone preserved\n' : 'region preserved\n')
       execFileSync('git', ['add', '--', 'README.md'], { cwd })

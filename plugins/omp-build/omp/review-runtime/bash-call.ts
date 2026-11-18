@@ -12,7 +12,8 @@ function bashDetails(value: unknown): value is BashToolDetails {
   return object(value) && (value.exitCode === undefined || typeof value.exitCode === 'number')
 }
 
-function bashExitCode(value: unknown, isError: unknown): number | null {
+/** C3 Bash exit interpretation: reported numeric fact, else sync success omits exitCode → 0. */
+export function bashExitCode(value: unknown, isError: unknown): number | null {
   if (!object(value) || !bashDetails(value.details)) return null
   const details = value.details
   if (typeof details.exitCode === 'number') return details.exitCode

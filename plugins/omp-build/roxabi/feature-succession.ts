@@ -231,6 +231,7 @@ async function publishContextSuccessor(
     )
   }
   const result = await executeHostContextSuccession(handoff.operations, proposal, {
+    effectReports: handoff.observed.effectReports,
     validateBeforeMandate: () => fresh(false),
     validateBeforeSelection: () => fresh(true),
     publishMandate: async () => {

@@ -8,7 +8,10 @@
 - Reuse authenticated immutable histories across read and causal observations, completion and wait projection, while keeping outward native-witness histories detached and catalogue instances intact.
 - Extend pre-delivery context-negative succession to eligible leaf planning, plan-review and implementation and leaf or pre-child-mandate parent Spec assessment, with engine-owned authentication, reconciliation and successor gates. Preserve separate review/fix protocols and block admitted delivery or unresolved effects.
 - Distinguish the synthetic copied-current-code version handoff fixture from real 0.21 implementation evidence; it does not establish historical 0.21 assessment abandonment or live-pilot compatibility.
-- Document same-invocation `PI_TOOL_CALL_ID` capture with exact Bash command and exit provenance. Source fixtures exercise supported boundaries; they do not qualify an installed runtime or a live pilot. No tooling pin or installation is activated.
+- Require same-invocation `PI_TOOL_CALL_ID` capture in the native implementation producer, with exact Bash command/exit/cwd provenance separated from application stdout/stderr assertions. An isolated real-SDK fixture exercises acquisition and admission; it does not qualify the usual installed plugin or a live pilot. No tooling pin or installation is activated.
+- Conserve guarded tool-call observations independently of selected command proof. Require source-bound human effect review and host-observed named-file states for context succession, with exact native confirmation, repeated live-owner sampling and explicit historical-interpretation limits.
+- Keep historical named-resource reconciliation distinct from cold current managed-baseline observations; never reinterpret a historical path as the same resource on another host.
+- Release only the exact local inhibition captured by a fully confirmed abandonment after clean disarm. Allow explicit succession in the same process while preserving newer pause/abandon attempts, cwd pauses, unrelated UW holds and stopped native-producer fences.
 - Recognize exactly 0.22.0 under the existing bounded PR-binding writer contract; unknown versions remain unknown. This source change does not migrate records or activate tooling.
 
 ## 0.21.0 (unreleased)

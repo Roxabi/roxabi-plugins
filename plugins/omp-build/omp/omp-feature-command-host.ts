@@ -11,6 +11,7 @@ import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
+import { ownedContextEffectObserverFactory } from './omp-context-effect-observer.ts'
 import { type OmpBuildExtensionApi, ownedFixRunFor, reportFeatureTerminalStatus } from './omp-controller'
 import { type FeatureOperationReportGuard, featureOperationGeneration } from './omp-feature-composition.ts'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
@@ -119,13 +120,17 @@ export function createFeatureCommandHost(
       continueFeature(input) {
         const owner = ownedFeatureFor(pi)
         const inherited = input.owned
+        const current = () =>
+          report.isCurrent() &&
+          featureOperationGeneration(pi) === operationGeneration &&
+          ownedFeatureFor(pi) === owner &&
+          (inherited?.() ?? true)
         return workflow.continueFeature({
           ...input,
-          owned: () =>
-            report.isCurrent() &&
-            featureOperationGeneration(pi) === operationGeneration &&
-            ownedFeatureFor(pi) === owner &&
-            (inherited?.() ?? true),
+          owned: current,
+          ...(input.contextHandoff === undefined
+            ? {}
+            : { contextEffectObserverFactory: ownedContextEffectObserverFactory(ctx, current) }),
         })
       },
     },

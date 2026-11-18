@@ -3,7 +3,7 @@ import type { ActionInputs } from './action-input-schema.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { UwDeliveryFacts } from './uw-completion-types.ts'
-import type { ContextSuccessionProposal } from './workflow-context-disposition-schema.ts'
+import type { ContextSuccessionManagedBaseline } from './workflow-context-disposition-schema.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
 import type { PauseBinding } from './workflow-pause.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
@@ -58,7 +58,7 @@ export type WorkflowDecision =
     }
 
 export type ContextSuccessionObservation =
-  | { control: ExternalRecordRef; reconciliation: ContextSuccessionProposal['reconciliation'] }
+  | { control: ExternalRecordRef; reconciliation: ContextSuccessionManagedBaseline }
   | {
       kind: 'parent-child-advance'
       control: ExternalRecordRef

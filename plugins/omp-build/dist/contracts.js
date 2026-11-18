@@ -9685,6 +9685,28 @@ var legacyCorrectionBindingSchema = strictObject({
 });
 var slotCorrectionSchema = legacyCorrectionBindingSchema;
 
+// plugins/omp-build/engine/native-tool-observation-schema.ts
+var nativeObservedToolCallSchema = strictObject({
+  ordinal: number2().int().nonnegative(),
+  toolCallId: string2().min(1),
+  toolName: string2().min(1),
+  inputDigest: sha256Schema.nullable(),
+  resultDigest: sha256Schema.nullable(),
+  completion: _enum(["pending", "returned", "deferred", "ambiguous", "unavailable"]),
+  isError: boolean2().nullable(),
+  exitCode: number2().int().nullable()
+});
+var nativeToolObservationSchema = strictObject({
+  format: literal("omp-build-native-tool-observation/1"),
+  scope: literal("guarded-tool-admission"),
+  actionId: identifierSchema,
+  childId: identifierSchema,
+  sessionId: identifierSchema,
+  boundary: _enum(["open", "closed", "invalid"]),
+  closedBy: _enum(["settlement-fence"]).nullable(),
+  calls: array(nativeObservedToolCallSchema)
+});
+
 // plugins/omp-build/engine/record-values.ts
 var labelSchema = _enum([
   "issue",
@@ -9751,7 +9773,8 @@ var nativeOutcomeSchema = strictObject({
   }).optional(),
   commandRuns: array(commandRunSchema).optional(),
   commandProvenance: evidenceProvenanceSchema.optional(),
-  bashCalls: array(nativeProofBashCallSchema).optional()
+  bashCalls: array(nativeProofBashCallSchema).optional(),
+  observedTools: nativeToolObservationSchema.optional()
 });
 var contributionSchema = strictObject({
   content: _enum(["operator-request", "findings", "decision", "action-result"]),
@@ -14603,22 +14626,28 @@ function hasNewLineageContext(history, old, oldInputs, newInputs) {
   return newRefs.some((ref) => canonicalValueDigest(ref) !== canonicalValueDigest(lineage[0]) && !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)));
 }
 
-// plugins/omp-build/engine/workflow-context-replay.ts
-function authenticatedContextReplayStart(history, start) {
-  if (start.payload.action !== "assess-spec" || start.payload.phase !== "start" || !validateActionInputs(start.payload.inputs).ok)
-    return false;
-  const matches = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "action-receipt" && operation.record.payload.action === "assess-spec" && operation.record.payload.actionId === start.payload.actionId);
-  if (matches.length !== 1 || matches[0]?.authority !== "accounted" || matches[0].record !== start || history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === start.operationId).length !== 1)
-    return false;
-  const bound = bindExternalRef({
-    scope: { repository: start.repository, target: start.target },
-    recordId: start.recordId,
-    kind: start.kind
-  }, history);
-  return bound.ok && bound.value === start;
+// plugins/omp-build/engine/native-terminal.ts
+function object4(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function hasUnpairedStart(receipts, replayStart) {
-  return receipts.some((record) => record.payload.phase === "start" && record !== replayStart && !receipts.some((result) => result.payload.phase === "result" && result.payload.actionId === record.payload.actionId));
+function inspectNativeTerminal(value) {
+  if (!object4(value))
+    return { structured: null, reason: "malformed-child-result" };
+  const output = value.structuredOutput;
+  const parsed = object4(output) && output.status === "valid" ? jsonSchema.safeParse(output.data) : null;
+  const structured = parsed?.success ? parsed.data : null;
+  let reason = null;
+  if (value.exitCode !== 0)
+    reason = "required-child-exit-code";
+  else if (value.error !== undefined && value.error !== null)
+    reason = "required-child-error";
+  else if (value.aborted === true)
+    reason = "required-child-aborted";
+  else if (!object4(output))
+    reason = "missing-structured-output";
+  else if (output.status !== "valid")
+    reason = "structured-output-not-valid";
+  return { structured, reason };
 }
 
 // plugins/omp-build/engine/workflow-context-review.ts
@@ -14648,6 +14677,58 @@ function reviewChildValid(slot, contribution) {
   if (contribution.native?.completion !== "completed" || contribution.native.strict !== "valid")
     return false;
   return validateActionInputs(slot.action.inputs).ok && canonicalValueDigest(slot.action) === canonicalValueDigest(contribution.host.action);
+}
+
+// plugins/omp-build/engine/workflow-context-native-negative.ts
+var equal = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
+function contextNativeNegativeValid(record) {
+  const payload = record.payload;
+  if (payload.phase !== "result" || payload.native.completion !== "completed" || payload.native.strict !== "valid" || !workflowContextNegative(record))
+    return false;
+  if (payload.action === "plan-review") {
+    return payload.contributions.some((contribution) => missingContextOf(contribution.structured) !== null && equal(contribution.structured, payload.structured)) && reviewContributionsValid(payload);
+  }
+  const terminal = inspectNativeTerminal(payload.native.raw);
+  return terminal.reason === null && equal(terminal.structured, payload.structured);
+}
+function reviewContributionsValid(payload) {
+  const slots = new Set;
+  const children = new Set;
+  for (const contribution of payload.contributions) {
+    const slot = payload.slots.find((item) => item.slotId === contribution.host.slotId);
+    const child = contribution.host.childId;
+    if (slot === undefined || slots.has(slot.slotId) || child === null || children.has(child) || !reviewChildValid(slot, contribution) || contribution.native === null)
+      return false;
+    slots.add(slot.slotId);
+    children.add(child);
+    const terminal = inspectNativeTerminal(contribution.native.raw);
+    const raw = contribution.native.raw;
+    const last = contribution.rawAttempts.at(-1);
+    if (terminal.reason !== null || !producerOutputValid("plan-review", terminal.structured) || !equal(terminal.structured, contribution.structured) || raw === null || typeof raw !== "object" || Array.isArray(raw) || raw.id !== child || last === undefined || last.raw === null || !equal(last.data, contribution.structured))
+      return false;
+    const yielded = last.raw;
+    if (typeof yielded !== "object" || Array.isArray(yielded) || yielded === null || typeof yielded.executionArguments !== "object" || yielded.executionArguments === null || Array.isArray(yielded.executionArguments) || !equal(yielded.executionArguments.data, last.data))
+      return false;
+  }
+  return true;
+}
+
+// plugins/omp-build/engine/workflow-context-replay.ts
+function authenticatedContextReplayStart(history, start) {
+  if (start.payload.action !== "assess-spec" || start.payload.phase !== "start" || !validateActionInputs(start.payload.inputs).ok)
+    return false;
+  const matches = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "action-receipt" && operation.record.payload.action === "assess-spec" && operation.record.payload.actionId === start.payload.actionId);
+  if (matches.length !== 1 || matches[0]?.authority !== "accounted" || matches[0].record !== start || history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === start.operationId).length !== 1)
+    return false;
+  const bound = bindExternalRef({
+    scope: { repository: start.repository, target: start.target },
+    recordId: start.recordId,
+    kind: start.kind
+  }, history);
+  return bound.ok && bound.value === start;
+}
+function hasUnpairedStart(receipts, replayStart) {
+  return receipts.some((record) => record.payload.phase === "start" && record !== replayStart && !receipts.some((result) => result.payload.phase === "result" && result.payload.actionId === record.payload.actionId));
 }
 
 // plugins/omp-build/engine/workflow-context-terminal.ts
@@ -14699,7 +14780,7 @@ function contextTerminal(history, action, contextLeaf, replayStart, excluded) {
     const resolution = resolveContextNegative(history, item, receipts, new Set, replayStart);
     if (resolution === "missing" && contextLeaf !== undefined) {
       const chain = workflowContextChain(history, item, excluded);
-      if (chain.status === "missing" && chain.leaf.recordId === contextLeaf.recordId && canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf))
+      if (chain.status === "missing" && chain.leaf.recordId === contextLeaf.recordId && canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf) && chain.negatives.every(contextNativeNegativeValid))
         continue;
     }
     if (resolution !== "clear")
@@ -14867,6 +14948,86 @@ var causeDependencyAdjustmentProposalSchema = strictObject({
   nativeEffect: causeDependencyNativePlanSchema
 });
 
+// plugins/omp-build/engine/context-effect-review-schema.ts
+var contextEffectNegativeRefSchema = recordInputRefSchema.extend({
+  record: recordInputRefSchema.shape.record.extend({ kind: literal("action-receipt") }),
+  selector: literal("/payload")
+});
+var conclusionSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("none-identified"), reason: string2().min(1) }),
+  strictObject({ kind: literal("unresolved"), reason: string2().min(1) }),
+  strictObject({
+    kind: literal("local-files"),
+    resourceKeys: array(identifierSchema).min(1),
+    reason: string2().min(1)
+  })
+]);
+var contextLocalFileStateSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("absent") }),
+  strictObject({
+    kind: literal("regular-file"),
+    sha256: sha256Schema,
+    bytes: number2().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    mode: number2().int().min(0).max(4095)
+  })
+]);
+var contextEffectInventorySchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("unavailable") }),
+  strictObject({ kind: literal("captured"), digest: sha256Schema }),
+  strictObject({ kind: literal("partially-captured"), digest: sha256Schema })
+]);
+var contextEffectIntentSchema = strictObject({
+  format: literal("omp-build-context-effect-intent/1"),
+  negatives: array(strictObject({
+    source: contextEffectNegativeRefSchema,
+    inventory: contextEffectInventorySchema,
+    reportConclusion: conclusionSchema,
+    calls: array(strictObject({
+      childId: identifierSchema,
+      sessionId: identifierSchema,
+      ordinal: number2().int().nonnegative(),
+      toolCallId: identifierSchema,
+      callDigest: sha256Schema,
+      conclusion: conclusionSchema
+    }))
+  })).min(1),
+  resources: array(strictObject({
+    key: identifierSchema,
+    absolutePath: string2().min(1),
+    basis: literal("accept-named-state"),
+    expected: contextLocalFileStateSchema
+  }))
+});
+var contextEffectNamespaceSchema = strictObject({
+  kind: literal("confirmation-local-observer"),
+  id: identifierSchema,
+  sessionId: identifierSchema,
+  agentId: identifierSchema
+});
+var identitySchema = strictObject({ device: string2().min(1), inode: string2().min(1) });
+var contextLocalFileObservationSchema = strictObject({
+  key: identifierSchema,
+  namespaceId: identifierSchema,
+  absolutePath: string2().min(1),
+  canonicalParent: string2().min(1),
+  leaf: string2().min(1),
+  ancestry: array(strictObject({ path: string2().min(1), identity: identitySchema })).min(1),
+  file: strictObject({ identity: identitySchema, modifiedNs: string2().min(1), changedNs: string2().min(1) }).nullable(),
+  state: contextLocalFileStateSchema
+});
+var contextEffectSourcesSchema = array(strictObject({
+  source: contextEffectNegativeRefSchema,
+  inventory: contextEffectInventorySchema,
+  observations: array(nativeToolObservationSchema)
+}));
+var contextEffectReviewSchema = strictObject({
+  format: literal("omp-build-context-effect-review/1"),
+  namespace: contextEffectNamespaceSchema,
+  intent: contextEffectIntentSchema,
+  sources: contextEffectSourcesSchema,
+  resources: array(contextLocalFileObservationSchema)
+});
+
 // plugins/omp-build/engine/workflow-context-disposition-schema.ts
 var deliverySchema = strictObject({
   uw: scopeSchema,
@@ -14882,7 +15043,7 @@ var deliverySchema = strictObject({
   integrations: array(strictObject({ source: recordInputRefSchema, code: codeRangeSchema })),
   commits: array(strictObject({ code: codeVersionSchema, parents: array(gitObjectIdSchema) }))
 });
-var contextSuccessionReconciliationSchema = strictObject({
+var managedBaseline = strictObject({
   kind: literal("unchanged-delivery-baseline"),
   scope: literal("workflow-owned-delivery-state"),
   code: codeRangeSchema,
@@ -14914,20 +15075,17 @@ var contextSuccessionReconciliationSchema = strictObject({
   }),
   historyDigest: sha256Schema,
   bindingDigest: sha256Schema
-}).superRefine((value, context) => {
-  if (value.branch === null !== (value.remote.candidate === null))
-    context.addIssue({
-      code: "custom",
-      path: ["remote", "candidate"],
-      message: "candidate and branch must both be present or both absent"
-    });
 });
+var candidateConsistent = (value) => value.branch === null === (value.remote.candidate === null);
+var candidateIssue = {
+  path: ["remote", "candidate"],
+  message: "candidate and branch must both be present or both absent"
+};
+var contextSuccessionManagedBaselineSchema = managedBaseline.refine(candidateConsistent, candidateIssue);
+var contextSuccessionReconciliationSchema = managedBaseline.extend({ effectReview: contextEffectReviewSchema }).refine(candidateConsistent, candidateIssue);
 var contextDispositionSchema = strictObject({
   kind: literal("superseded-not-delivered"),
-  negative: recordInputRefSchema.extend({
-    record: recordInputRefSchema.shape.record.extend({ kind: literal("action-receipt") }),
-    selector: literal("/payload")
-  }),
+  negative: contextEffectNegativeRefSchema,
   replacementAccepted: ownSpecRefSchema,
   reconciliation: contextSuccessionReconciliationSchema,
   proposalDigest: sha256Schema,
@@ -15445,30 +15603,6 @@ function interruptionResolutionCandidate(input) {
   const runtime = { productVersion: config.productVersion, configVersion: config.version, configDigest: config.digest };
   return { ok: true, value: { action, actionId: start.payload.actionId, start, result, pause, runtime } };
 }
-
-// plugins/omp-build/engine/native-terminal.ts
-function object4(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function inspectNativeTerminal(value) {
-  if (!object4(value))
-    return { structured: null, reason: "malformed-child-result" };
-  const output = value.structuredOutput;
-  const parsed = object4(output) && output.status === "valid" ? jsonSchema.safeParse(output.data) : null;
-  const structured = parsed?.success ? parsed.data : null;
-  let reason = null;
-  if (value.exitCode !== 0)
-    reason = "required-child-exit-code";
-  else if (value.error !== undefined && value.error !== null)
-    reason = "required-child-error";
-  else if (value.aborted === true)
-    reason = "required-child-aborted";
-  else if (!object4(output))
-    reason = "missing-structured-output";
-  else if (output.status !== "valid")
-    reason = "structured-output-not-valid";
-  return { structured, reason };
-}
 // plugins/omp-build/engine/workflow-receipt-exact.ts
 var frameExactSchema = strictObject({
   specDigest: sha256Schema,
@@ -15720,7 +15854,7 @@ var actionReceiptPayloadSchema = union([
 ]).superRefine(refineActionReceipt);
 
 // plugins/omp-build/engine/workflow-context-negative-inspection.ts
-var equal = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
+var equal2 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
 var refuse = () => ({
   ok: false,
   diagnostics: [diagnostic2("unconfirmed", "Context negative inspection is not authenticated")]
@@ -15735,7 +15869,7 @@ function reviewProof(payload, home) {
   const draftPayload = draft.payload;
   const terminal = inspectNativeTerminal(draft.payload.native.raw);
   const plan = planOutputSchema.safeParse(draftPayload.structured);
-  if (terminal.reason !== null || !producerOutputValid("plan", terminal.structured) || !equal(terminal.structured, draftPayload.structured) || !plan.success || planDigest(plan.data) !== payload.exactInputs.planDigest)
+  if (terminal.reason !== null || !producerOutputValid("plan", terminal.structured) || !equal2(terminal.structured, draftPayload.structured) || !plan.success || planDigest(plan.data) !== payload.exactInputs.planDigest)
     return false;
   const matchesDraft = (inputs) => {
     const pins = inputs.manifest.deliveryData.filter((pin) => pin.role === "plan");
@@ -15746,48 +15880,26 @@ function reviewProof(payload, home) {
   const actions = new Set;
   for (const slot of payload.slots) {
     const action = slot.action;
-    if (action === undefined || actions.has(action.actionId) || !validateActionInputs(action.inputs).ok || action.inputs.manifest.purpose !== "plan-review" || action.inputs.manifest.code.referenceCommit !== action.inputs.manifest.code.base || !equal(action.inputs.manifest.code, payload.inputs.manifest.code) || !equal(action.inputs.manifest.spec, payload.inputs.manifest.spec) || !matchesDraft(action.inputs))
+    if (action === undefined || actions.has(action.actionId) || !validateActionInputs(action.inputs).ok || action.inputs.manifest.purpose !== "plan-review" || action.inputs.manifest.code.referenceCommit !== action.inputs.manifest.code.base || !equal2(action.inputs.manifest.code, payload.inputs.manifest.code) || !equal2(action.inputs.manifest.spec, payload.inputs.manifest.spec) || !matchesDraft(action.inputs))
       return false;
     actions.add(action.actionId);
-  }
-  return reviewContributionsValid(payload);
-}
-function reviewContributionsValid(payload) {
-  const slots = new Set;
-  const children = new Set;
-  for (const contribution of payload.contributions) {
-    const slot = payload.slots.find((item) => item.slotId === contribution.host.slotId);
-    const child = contribution.host.childId;
-    if (slot === undefined || slots.has(slot.slotId) || child === null || children.has(child) || !reviewChildValid(slot, contribution) || contribution.native === null)
-      return false;
-    slots.add(slot.slotId);
-    children.add(child);
-    const terminal = inspectNativeTerminal(contribution.native.raw);
-    const raw = contribution.native.raw;
-    const last = contribution.rawAttempts.at(-1);
-    if (terminal.reason !== null || !producerOutputValid("plan-review", terminal.structured) || !equal(terminal.structured, contribution.structured) || raw === null || typeof raw !== "object" || Array.isArray(raw) || raw.id !== child || last === undefined || last.raw === null || !equal(last.data, contribution.structured))
-      return false;
-    const yielded = last.raw;
-    if (typeof yielded !== "object" || Array.isArray(yielded) || yielded === null || typeof yielded.executionArguments !== "object" || yielded.executionArguments === null || Array.isArray(yielded.executionArguments) || !equal(yielded.executionArguments.data, last.data))
-      return false;
   }
   return true;
 }
 function receiptProof(record, mandate, home) {
   const payload = record.payload;
-  if (payload.phase !== "result" || payload.action !== "plan" && payload.action !== "plan-review" && payload.action !== "implement" && payload.action !== "assess-spec" || payload.admission !== null || !workflowContextNegative(record) || !sameRef2(payload.mandate, { scope: home.source.scope, kind: "mandate", recordId: mandate.recordId }) || !authenticateWorkflowReceiptPair(home, record).ok)
+  if (payload.phase !== "result" || payload.action !== "plan" && payload.action !== "plan-review" && payload.action !== "implement" && payload.action !== "assess-spec" || payload.admission !== null || !contextNativeNegativeValid(record) || !sameRef2(payload.mandate, { scope: home.source.scope, kind: "mandate", recordId: mandate.recordId }) || !authenticateWorkflowReceiptPair(home, record).ok)
     return false;
   if (!receiptInputsMatch(payload, mandate))
     return false;
   if (payload.action === "plan-review")
     return reviewProof(payload, home);
-  const terminal = inspectNativeTerminal(payload.native.raw);
-  if (terminal.reason !== null || !equal(terminal.structured, payload.structured))
+  if (missingContextOutputSchema.safeParse(payload.structured).success)
+    return true;
+  if (payload.action !== "implement")
     return false;
-  if (payload.action === "plan" || payload.action === "assess-spec")
-    return producerOutputValid(payload.action === "plan" ? "plan" : "spec-assessment", terminal.structured) && missingContextOutputSchema.safeParse(terminal.structured).success;
-  const parsed = producerImplementationOutputSchema.safeParse(terminal.structured);
-  return producerOutputValid("delivery-execution", terminal.structured) && parsed.success && parsed.data.outcome === "blocked" && !!parsed.data.missing?.length && parsed.data.commitSHAs.length === 0 && parsed.data.commands.length === 0 && parsed.data.criteria.every((criterion) => criterion.verification === "unverified");
+  const parsed = producerImplementationOutputSchema.safeParse(payload.structured);
+  return producerOutputValid("delivery-execution", payload.structured) && parsed.success && parsed.data.outcome === "blocked" && !!parsed.data.missing?.length && parsed.data.commitSHAs.length === 0 && parsed.data.commands.length === 0 && parsed.data.criteria.every((criterion) => criterion.verification === "unverified");
 }
 function receiptInputsMatch(payload, mandate) {
   const config = mandate.payload.config;
@@ -15806,7 +15918,7 @@ function inspectContextNegativeReceipt(input) {
   if (home === null || histories.some((history) => !history.source.complete))
     return refuse();
   const bound = bindExternalRef(ref, home);
-  if (!bound.ok || !equal(bound.value, mandate) || citedOperationIntegrity(home, mandate.recordId) !== null)
+  if (!bound.ok || !equal2(bound.value, mandate) || citedOperationIntegrity(home, mandate.recordId) !== null)
     return refuse();
   const candidates = recordsOf(home).filter((record) => record.kind === "action-receipt" && record.payload.phase === "result" && ("scope" in record.payload.mandate) && sameRef2(record.payload.mandate, ref) && workflowContextNegative(record));
   const allChains = candidates.map((record) => workflowContextChain(home, record));
@@ -15838,6 +15950,404 @@ function inspectContextNegativeReceipt(input) {
       negativeStartKeys: new Set(chain.negatives.map(receiptStartKey))
     }
   };
+}
+
+// plugins/omp-build/engine/workflow-context-effects.ts
+import { posix, win32 } from "node:path";
+
+// plugins/omp-build/engine/context-effect-sources.ts
+var refuse2 = (message) => ({
+  ok: false,
+  diagnostics: [diagnostic2("unconfirmed", message)]
+});
+function object5(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function sourceRef(record) {
+  return contextEffectNegativeRefSchema.parse({
+    source: "record",
+    record: {
+      scope: { repository: record.repository, target: record.target },
+      kind: "action-receipt",
+      recordId: record.recordId
+    },
+    selector: "/payload",
+    digest: canonicalValueDigest(record.payload)
+  });
+}
+function terminalChildId(native) {
+  if (native.observation?.childId)
+    return native.observation.childId;
+  const raw = object5(native.raw);
+  return typeof raw?.id === "string" && raw.id.length > 0 ? raw.id : null;
+}
+function contributionIdentity(contribution) {
+  const actionId = contribution.host.action?.actionId ?? contribution.native?.observation?.actionId;
+  const childId = contribution.host.childId ?? contribution.native?.observation?.childId ?? null;
+  if (actionId === undefined || actionId.length === 0 || childId === null || childId.length === 0)
+    return null;
+  if (contribution.native?.observation !== undefined && (contribution.native.observation.actionId !== actionId || contribution.native.observation.childId !== childId))
+    return null;
+  return { actionId, childId };
+}
+function terminalRootIdentity(payload, observation) {
+  const native = payload.native;
+  const terminalChild = terminalChildId(native);
+  if (terminalChild === null || observation.childId !== terminalChild)
+    return null;
+  if (native.observation !== undefined) {
+    if (observation.actionId !== native.observation.actionId || observation.childId !== native.observation.childId)
+      return null;
+    return { actionId: native.observation.actionId, childId: native.observation.childId };
+  }
+  if (observation.actionId !== payload.actionId)
+    return null;
+  return { actionId: payload.actionId, childId: terminalChild };
+}
+function planReviewNestedIdentity(contributions, observation) {
+  for (const contribution of contributions) {
+    const identity = contributionIdentity(contribution);
+    if (identity === null)
+      continue;
+    if (observation.actionId !== identity.actionId || observation.childId !== identity.childId)
+      continue;
+    const contributionObservation = contribution.native?.observedTools;
+    if (contributionObservation !== undefined && canonicalValueDigest(contributionObservation) !== canonicalValueDigest(observation))
+      continue;
+    return identity;
+  }
+  return null;
+}
+function rootIdentity(payload, observation) {
+  const terminal = terminalRootIdentity(payload, observation);
+  if (terminal !== null)
+    return terminal;
+  if (payload.action !== "plan-review")
+    return null;
+  return planReviewNestedIdentity(payload.contributions, observation);
+}
+function authenticateEnvelope(observation, identity) {
+  if (observation.scope !== "guarded-tool-admission")
+    return refuse2("Native tool observation scope is not guarded-tool-admission");
+  if (identity === null)
+    return refuse2("Native tool observation actionId does not match authenticated receipt identity");
+  if (observation.actionId !== identity.actionId)
+    return refuse2("Native tool observation actionId does not match authenticated receipt identity");
+  if (observation.childId !== identity.childId)
+    return refuse2("Native tool observation childId does not match authenticated terminal identity");
+  return { ok: true, value: undefined };
+}
+function slotsFor(record) {
+  if (record.payload.phase !== "result")
+    return refuse2("Context effect source is not a result receipt");
+  const slots = [{ kind: "root", native: record.payload.native }];
+  if (record.payload.action === "plan-review") {
+    record.payload.contributions.forEach((contribution, index) => {
+      slots.push({ kind: "contribution", index, contribution });
+    });
+  }
+  return { ok: true, value: slots };
+}
+function positioned(slots, record) {
+  const payload = record.payload;
+  if (payload.phase !== "result")
+    return refuse2("Context effect source is not a result receipt");
+  const positionedSlots = [];
+  for (const slot of slots) {
+    const position = slot.kind === "root" ? { kind: "root" } : { kind: "contribution", index: slot.index };
+    const native = slot.kind === "root" ? slot.native : slot.contribution.native;
+    if (native === null || native.observedTools === undefined) {
+      positionedSlots.push({ slot: position, observation: null });
+      continue;
+    }
+    const observation = native.observedTools;
+    const identity = slot.kind === "root" ? rootIdentity(payload, observation) : contributionIdentity(slot.contribution);
+    const auth = authenticateEnvelope(observation, identity);
+    if (!auth.ok)
+      return auth;
+    positionedSlots.push({ slot: position, observation });
+  }
+  return { ok: true, value: positionedSlots };
+}
+function inventoryOf(positions) {
+  const digest = canonicalValueDigest(positions.map((position) => ({
+    slot: position.slot,
+    observation: position.observation === null ? null : canonicalValueDigest(position.observation)
+  })));
+  const present = positions.filter((position) => position.observation !== null).length;
+  if (present === 0)
+    return { kind: "unavailable" };
+  if (present === positions.length)
+    return { kind: "captured", digest };
+  return { kind: "partially-captured", digest };
+}
+function distinctObservations(positions) {
+  const observations = [];
+  const byChildSession = new Map;
+  for (const position of positions) {
+    const observation = position.observation;
+    if (observation === null)
+      continue;
+    const key = `${observation.childId}\x00${observation.sessionId}`;
+    const digest = canonicalValueDigest(observation);
+    const prior = byChildSession.get(key);
+    if (prior === undefined) {
+      byChildSession.set(key, digest);
+      observations.push(observation);
+      continue;
+    }
+    if (prior !== digest)
+      return refuse2("Conflicting native tool observations for the same child session");
+  }
+  return { ok: true, value: observations };
+}
+function contextEffectSources(chain) {
+  if (chain.length === 0)
+    return refuse2("Context effect sources require at least one negative receipt");
+  const sources = [];
+  const reports = [];
+  for (const record of chain) {
+    const source = sourceRef(record);
+    const slots = slotsFor(record);
+    if (!slots.ok)
+      return slots;
+    const positions = positioned(slots.value, record);
+    if (!positions.ok)
+      return positions;
+    const observations = distinctObservations(positions.value);
+    if (!observations.ok)
+      return observations;
+    sources.push({
+      source,
+      inventory: inventoryOf(positions.value),
+      observations: observations.value
+    });
+    reports.push({ source, payload: record.payload });
+  }
+  return { ok: true, value: { sources, reports } };
+}
+
+// plugins/omp-build/engine/workflow-context-effects.ts
+var refuse3 = (message) => ({
+  ok: false,
+  diagnostics: [diagnostic2("unconfirmed", message)]
+});
+function same3(left, right) {
+  return canonicalValueDigest(left) === canonicalValueDigest(right);
+}
+function admitEnvelope(observation) {
+  if (observation.scope !== "guarded-tool-admission")
+    return refuse3("Effect review requires guarded-tool-admission observations");
+  if (observation.boundary === "open" || observation.boundary === "invalid")
+    return refuse3("Effect review refuses open or invalid native tool observation boundaries");
+  if (observation.boundary !== "closed" || observation.closedBy !== "settlement-fence")
+    return refuse3("Effect review requires settlement-fence closed native tool observations");
+  for (const call of observation.calls) {
+    if (call.completion === "pending" || call.completion === "deferred" || call.completion === "ambiguous" || call.completion === "unavailable")
+      return refuse3("Effect review refuses unresolved native tool call completions");
+    if (call.completion !== "returned")
+      return refuse3("Effect review requires returned native tool calls");
+    if (call.inputDigest === null || call.resultDigest === null || call.isError === null)
+      return refuse3("Effect review requires available input, result and error metadata on returned calls");
+  }
+  return { ok: true, value: undefined };
+}
+function admitConclusion(conclusion, label) {
+  if (conclusion.kind === "unresolved")
+    return refuse3(`Effect review refuses unresolved ${label}`);
+  if (conclusion.kind === "none-identified") {
+    if (conclusion.reason.length === 0)
+      return refuse3(`Effect review none-identified ${label} requires a reason`);
+    return { ok: true, value: undefined };
+  }
+  if (conclusion.resourceKeys.length === 0)
+    return refuse3(`Effect review local-files ${label} requires resource keys`);
+  if (new Set(conclusion.resourceKeys).size !== conclusion.resourceKeys.length)
+    return refuse3(`Effect review local-files ${label} repeats resource keys`);
+  if (conclusion.reason.length === 0)
+    return refuse3(`Effect review local-files ${label} requires a reason`);
+  return { ok: true, value: undefined };
+}
+function requiredCalls(observations) {
+  const required = [];
+  for (const observation of observations) {
+    for (const call of observation.calls) {
+      if (call.toolName === "yield")
+        continue;
+      required.push({
+        childId: observation.childId,
+        sessionId: observation.sessionId,
+        ordinal: call.ordinal,
+        toolCallId: call.toolCallId,
+        callDigest: canonicalValueDigest(call)
+      });
+    }
+  }
+  return required;
+}
+function callKey(call) {
+  return `${call.childId}\x00${call.sessionId}\x00${call.ordinal}\x00${call.toolCallId}\x00${call.callDigest}`;
+}
+function admitCalls(negative, observations) {
+  const expected = requiredCalls(observations);
+  if (negative.calls.length !== expected.length)
+    return refuse3("Effect review call coverage does not match observed non-yield calls");
+  const seen = new Set;
+  for (const call of negative.calls) {
+    const key = callKey(call);
+    if (seen.has(key))
+      return refuse3("Effect review repeats a native tool call conclusion");
+    seen.add(key);
+    if (!expected.some((item) => callKey(item) === key))
+      return refuse3("Effect review cites a foreign or stale native tool call");
+    const admitted = admitConclusion(call.conclusion, "call conclusion");
+    if (!admitted.ok)
+      return admitted;
+  }
+  for (const item of expected) {
+    if (!seen.has(callKey(item)))
+      return refuse3("Effect review is missing a required native tool call conclusion");
+  }
+  return { ok: true, value: undefined };
+}
+function admitState(expected, observation) {
+  if (!same3(expected, observation.state))
+    return refuse3("Effect review observed file state does not match the proposed expected state");
+  if (observation.state.kind === "absent") {
+    if (observation.file !== null)
+      return refuse3("Absent file observation must not carry file identity");
+    return { ok: true, value: undefined };
+  }
+  if (observation.file === null)
+    return refuse3("Regular file observation requires file identity");
+  return { ok: true, value: undefined };
+}
+function matchesResourcePath(observation) {
+  return [posix, win32].some((path) => path.isAbsolute(observation.absolutePath) && path.normalize(observation.absolutePath) === observation.absolutePath && path.dirname(observation.absolutePath) === observation.canonicalParent && path.basename(observation.absolutePath) === observation.leaf && path.join(observation.canonicalParent, observation.leaf) === observation.absolutePath);
+}
+function admitResource(observation, intent, namespaceId) {
+  if (observation.namespaceId !== namespaceId)
+    return refuse3("Effect review resource namespace does not match the live observer namespace");
+  if (intent === undefined)
+    return refuse3("Effect review observes a foreign resource key");
+  if (observation.absolutePath !== intent.absolutePath)
+    return refuse3("Effect review resource path does not match intent");
+  if (!matchesResourcePath(observation))
+    return refuse3("Effect review resource path does not match canonical parent and leaf");
+  const terminal = observation.ancestry.at(-1);
+  if (terminal === undefined || terminal.path !== observation.canonicalParent)
+    return refuse3("Effect review resource ancestry must terminate at canonicalParent");
+  return admitState(intent.expected, observation);
+}
+function admitResources(review) {
+  const intentByKey = new Map;
+  for (const resource of review.intent.resources) {
+    intentByKey.set(resource.key, resource);
+  }
+  const observedKeys = new Set;
+  for (const observation of review.resources) {
+    if (observedKeys.has(observation.key))
+      return refuse3("Effect review observes duplicate resource keys");
+    observedKeys.add(observation.key);
+    const admitted = admitResource(observation, intentByKey.get(observation.key), review.namespace.id);
+    if (!admitted.ok)
+      return admitted;
+  }
+  if (observedKeys.size !== intentByKey.size)
+    return refuse3("Effect review resource observations must cover intent resources exactly once");
+  return { ok: true, value: undefined };
+}
+function admitNegative(negative, source) {
+  if (!same3(negative.source, source.source))
+    return refuse3("Effect review negative source does not match conserved chain source");
+  if (!same3(negative.inventory, source.inventory))
+    return refuse3("Effect review inventory does not match conserved observation inventory");
+  const report = admitConclusion(negative.reportConclusion, "report conclusion");
+  if (!report.ok)
+    return report;
+  for (const observation of source.observations) {
+    const envelope = admitEnvelope(observation);
+    if (!envelope.ok)
+      return envelope;
+  }
+  if (source.inventory.kind === "unavailable") {
+    if (source.observations.length !== 0)
+      return refuse3("Unavailable effect inventory must not synthesize observation envelopes");
+    if (negative.calls.length !== 0)
+      return refuse3("Unavailable effect inventory must not synthesize call conclusions");
+    return { ok: true, value: undefined };
+  }
+  return admitCalls(negative, source.observations);
+}
+function referenceResources(conclusion, referenced) {
+  if (conclusion.kind !== "local-files")
+    return;
+  for (const key of conclusion.resourceKeys)
+    referenced.add(key);
+}
+function admitIntentResourceKeys(intent) {
+  const intentKeys = new Set;
+  for (const resource of intent.resources) {
+    if (intentKeys.has(resource.key))
+      return refuse3("Effect review intent defines duplicate resource keys");
+    intentKeys.add(resource.key);
+  }
+  const referenced = new Set;
+  for (const negative of intent.negatives) {
+    referenceResources(negative.reportConclusion, referenced);
+    for (const call of negative.calls)
+      referenceResources(call.conclusion, referenced);
+  }
+  for (const key of referenced) {
+    if (!intentKeys.has(key))
+      return refuse3("Effect review references an undefined resource key");
+  }
+  if (referenced.size !== intentKeys.size)
+    return refuse3("Effect review contains an unreferenced resource");
+  return { ok: true, value: undefined };
+}
+function admitIntent(intent, sources) {
+  if (intent.format !== "omp-build-context-effect-intent/1")
+    return refuse3("Effect review intent format is not omp-build-context-effect-intent/1");
+  if (intent.negatives.length !== sources.length)
+    return refuse3("Effect review must cover every authenticated negative-chain source exactly once");
+  const remaining = new Map(intent.negatives.map((negative) => [canonicalValueDigest(negative.source), negative]));
+  if (remaining.size !== intent.negatives.length)
+    return refuse3("Effect review repeats a negative source");
+  for (const source of sources) {
+    const key = canonicalValueDigest(source.source);
+    const matched = remaining.get(key);
+    if (matched === undefined)
+      return refuse3("Effect review negative source does not match conserved chain source");
+    remaining.delete(key);
+    const admitted = admitNegative(matched, source);
+    if (!admitted.ok)
+      return admitted;
+  }
+  if (remaining.size !== 0)
+    return refuse3("Effect review cites a foreign or stale negative source");
+  return admitIntentResourceKeys(intent);
+}
+function inspectContextEffectIntent(chain, intent) {
+  const collected = contextEffectSources(chain);
+  if (!collected.ok)
+    return collected;
+  const admitted = admitIntent(intent, collected.value.sources);
+  if (!admitted.ok)
+    return admitted;
+  return collected;
+}
+function validateContextEffectReview(chain, review) {
+  if (review.format !== "omp-build-context-effect-review/1")
+    return refuse3("Effect review format is not omp-build-context-effect-review/1");
+  if (review.namespace.kind !== "confirmation-local-observer")
+    return refuse3("Effect review namespace must be a confirmation-local-observer");
+  const inspected = inspectContextEffectIntent(chain, review.intent);
+  if (!inspected.ok)
+    return inspected;
+  if (!same3(review.sources, inspected.value.sources))
+    return refuse3("Effect review sources do not match the authenticated negative-chain inventory");
+  return admitResources(review);
 }
 
 // plugins/omp-build/engine/workflow-context-handoff-history.ts
@@ -15891,56 +16401,56 @@ function contextHandoffAbsentBindingDigest() {
 }
 
 // plugins/omp-build/engine/workflow-context-succession-authority.ts
-var refuse2 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
-var same3 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
+var refuse4 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
+var same4 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
 function authenticateSuccessionAuthority(proposal, predecessor, successor, histories) {
   const scope = proposal.uw;
   const home = historyFor(scope, histories);
   if (home === null)
-    return refuse2("Context succession history is missing");
+    return refuse4("Context succession history is missing");
   const observation = proposal.reconciliation;
   const capturedHistories = contextHandoffPrefixHistories(histories, observation.cuts);
   if (capturedHistories === null || observation.historyDigest !== contextHandoffHistoryDigest(capturedHistories) || observation.bindingDigest !== contextHandoffAbsentBindingDigest())
-    return refuse2("Context succession authority or binding observation changed");
+    return refuse4("Context succession authority or binding observation changed");
   const capturedHome = historyFor(scope, capturedHistories);
   if (capturedHome === null)
-    return refuse2("Context succession captured history is missing");
+    return refuse4("Context succession captured history is missing");
   const inCut = (ref) => {
     const cut = observation.cuts.find((item) => equalScope(item.scope, ref.scope));
     const history = historyFor(ref.scope, histories);
     return cut !== undefined && history?.operations.slice(0, cut.count).some((operation) => operation.kind === ref.kind && operation.recordId === ref.recordId) === true;
   };
   if (!inCut(proposal.predecessor) || !inCut(proposal.negative.record) || !inCut(proposal.replacementAccepted.sourceAccepted))
-    return refuse2("Context succession authority is outside its confirmed history cut");
+    return refuse4("Context succession authority is outside its confirmed history cut");
   const checked = authenticatedProspectiveSelection(proposal, predecessor, successor, histories, home, inCut);
   return checked.ok ? { ok: true, value: { home, capturedHome, capturedHistories, inCut } } : checked;
 }
 function authenticatedProspectiveSelection(proposal, predecessor, successor, histories, home, inCut) {
   const scope = proposal.uw;
   if (!mandatePayloadSchema.safeParse(successor.payload).success)
-    return refuse2("Prospective successor payload is malformed");
+    return refuse4("Prospective successor payload is malformed");
   const boundOld = bindExternalRef(proposal.predecessor, home);
-  if (!boundOld.ok || !same3(boundOld.value, predecessor) || citedOperationIntegrity(home, predecessor.recordId) !== null || !equalScope(proposal.predecessor.scope, scope) || !equalScope(proposal.successor.scope, scope) || successor.recordId !== proposal.successor.recordId || !equalScope(successor, scope) || successor.payload.antecedent === null || !sameRef2(successor.payload.antecedent, proposal.predecessor) || !same3(proposal.predecessorConfig, predecessor.payload.config) || !same3(proposal.successorConfig, successor.payload.config) || proposal.successorPayloadDigest !== canonicalValueDigest(successor.payload))
-    return refuse2("Prospective successor does not bind authenticated authority");
+  if (!boundOld.ok || !same4(boundOld.value, predecessor) || citedOperationIntegrity(home, predecessor.recordId) !== null || !equalScope(proposal.predecessor.scope, scope) || !equalScope(proposal.successor.scope, scope) || successor.recordId !== proposal.successor.recordId || !equalScope(successor, scope) || successor.payload.antecedent === null || !sameRef2(successor.payload.antecedent, proposal.predecessor) || !same4(proposal.predecessorConfig, predecessor.payload.config) || !same4(proposal.successorConfig, successor.payload.config) || proposal.successorPayloadDigest !== canonicalValueDigest(successor.payload))
+    return refuse4("Prospective successor does not bind authenticated authority");
   return authenticateSelectionHistory(proposal, histories, home, inCut);
 }
 function authenticateSelectionHistory(proposal, histories, home, inCut) {
   const abandonments = controlsOf(home).filter((record) => record.payload.control === "abandon" && sameRef2(record.payload.mandate, proposal.predecessor));
   const abandonment = abandonments[0];
   if (abandonments.length !== 1 || abandonment === undefined || citedOperationIntegrity(home, abandonment.recordId) !== null)
-    return refuse2("Context succession lacks its authenticated abandonment");
+    return refuse4("Context succession lacks its authenticated abandonment");
   if (!inCut({ scope: proposal.uw, kind: "operator-control", recordId: abandonment.recordId }))
-    return refuse2("Context succession abandonment is outside its confirmed history cut");
+    return refuse4("Context succession abandonment is outside its confirmed history cut");
   if (histories.some((history) => !history.source.complete || history.operations.some((operation) => operation.authority !== "foreign" && operation.status !== "complete")))
-    return refuse2("Context succession history or effects are incomplete");
+    return refuse4("Context succession history or effects are incomplete");
   const selections = controlsOf(home).filter((record) => record.payload.control === "select-successor" && sameRef2(record.payload.predecessor, proposal.predecessor));
   if (selections.length > 1 || selections.some((record) => record.operationId !== proposal.operationId || record.payload.control !== "select-successor" || !sameRef2(record.payload.successor, proposal.successor)))
-    return refuse2("Context succession has a competing selection");
+    return refuse4("Context succession has a competing selection");
   return { ok: true, value: undefined };
 }
 
 // plugins/omp-build/engine/workflow-context-succession-baseline.ts
-var refuse3 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
+var refuse5 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
 function authenticateSuccessionBaseline(proposal, predecessor, successor, histories, spec, code) {
   const observation = proposal.reconciliation;
   const scope = proposal.uw;
@@ -15948,19 +16458,19 @@ function authenticateSuccessionBaseline(proposal, predecessor, successor, histor
   if (!parent.ok)
     return parent;
   if (canonicalValueDigest(observation.code) !== canonicalValueDigest(code) || code.referenceCommit !== code.head || observation.repository !== scope.repository || observation.branch !== predecessor.payload.branch || successor.payload.branch !== observation.branch && !(successor.payload.branch === null && successor.payload.role === "epic" && spec.children.length > 0 && spec.coverage !== null) || successor.payload.base !== predecessor.payload.base || observation.remote.base.ref !== `refs/heads/${predecessor.payload.base}` || (observation.branch === null ? observation.remote.candidate !== null || observation.branch !== null || observation.remote.base.tip !== code.head : observation.remote.candidate === null || observation.branch === null || observation.remote.candidate.ref !== `refs/heads/${observation.branch}` || observation.remote.candidate.tip !== null && observation.remote.candidate.tip !== code.head) || successor.payload.lineageHead !== code.head || !equalScope(observation.delivery.uw, scope) || observation.delivery.pullRequests.length !== 0 || observation.delivery.integrations.length !== 0 || observation.delivery.commits.length !== 0)
-    return refuse3("Context succession delivery baseline is not reconciled");
+    return refuse5("Context succession delivery baseline is not reconciled");
   return { ok: true, value: undefined };
 }
 function authenticateParentBaseline(proposal, predecessor, successor, histories, spec) {
   if (predecessor.payload.role !== "epic")
     return { ok: true, value: undefined };
   if (predecessor.payload.branch !== null || predecessor.payload.children.length === 0 || predecessor.payload.coverage === null || successor.payload.role !== "epic" || successor.payload.branch !== null || spec.children.length === 0 || spec.coverage === null)
-    return refuse3("Plan context succession requires detached parent authority");
+    return refuse5("Plan context succession requires detached parent authority");
   for (const child of [...predecessor.payload.children, ...spec.children]) {
     const history = historyFor(child.scope, histories);
     const cut = proposal.reconciliation.cuts.find((item) => equalScope(item.scope, child.scope));
     if (history === null || cut === undefined || !history.source.complete || history.operations.slice(0, cut.count).some((operation) => operation.authority !== "foreign" && (operation.kind === "mandate" || operation.record?.kind === "mandate" || operation.claimedKinds.includes("mandate"))))
-      return refuse3("Parent context succession requires complete child histories without mandates");
+      return refuse5("Parent context succession requires complete child histories without mandates");
   }
   return { ok: true, value: undefined };
 }
@@ -17887,36 +18397,36 @@ function contextSuccessionProposal(control, successor, predecessor) {
 }
 
 // plugins/omp-build/engine/workflow-context-succession-admit.ts
-var refuse4 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
-var same4 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
+var refuse6 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
+var same5 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
 function admitContextSuccession(control, histories, historical) {
   const payload = control.payload;
   if (payload.control !== "select-successor" || payload.contextDisposition === undefined)
-    return refuse4("Context succession disposition is absent");
+    return refuse6("Context succession disposition is absent");
   const historyCheck = authenticateCompleteHistory(histories);
   if (!historyCheck.ok)
     return historyCheck;
   const scope = { repository: control.repository, target: control.target };
   const home = historyFor(scope, histories);
   if (home === null || !sameRef2(payload.mandate, payload.predecessor) || !equalScope(payload.predecessor.scope, scope) || !equalScope(payload.successor.scope, scope) || !equalScope(payload.contextDisposition.negative.record.scope, scope))
-    return refuse4("Context succession authority is not scoped to one UW");
+    return refuse6("Context succession authority is not scoped to one UW");
   const controlBound = bindExternalRef({ scope, kind: "operator-control", recordId: control.recordId }, home);
-  if (!controlBound.ok || !same4(controlBound.value, control) || citedOperationIntegrity(home, control.recordId) !== null)
-    return refuse4("Context succession control is not authenticated");
+  if (!controlBound.ok || !same5(controlBound.value, control) || citedOperationIntegrity(home, control.recordId) !== null)
+    return refuse6("Context succession control is not authenticated");
   const oldResult = bindExternalRef(payload.predecessor, home);
   const newResult = bindExternalRef(payload.successor, home);
   if (!oldResult.ok || oldResult.value.kind !== "mandate" || !newResult.ok || newResult.value.kind !== "mandate")
-    return refuse4("Context succession mandates are unavailable");
+    return refuse6("Context succession mandates are unavailable");
   const predecessor = oldResult.value;
   const successor = newResult.value;
   if (citedOperationIntegrity(home, predecessor.recordId) !== null || citedOperationIntegrity(home, successor.recordId) !== null || successor.payload.antecedent === null || !sameRef2(successor.payload.antecedent, payload.predecessor))
-    return refuse4("Context succession mandate chain is not authenticated");
+    return refuse6("Context succession mandate chain is not authenticated");
   const claims = authenticateSelectionClaims(home, control, payload.predecessor);
   if (!claims.ok)
     return claims;
   const proposal = contextSuccessionProposal(control, successor, predecessor);
   if (!proposal.ok)
-    return refuse4("Context succession confirmation is not bound");
+    return refuse6("Context succession confirmation is not bound");
   const prepared = prepareContextSuccession(proposal.value, predecessor, successor, histories, historical);
   if (!prepared.ok)
     return prepared;
@@ -17924,31 +18434,31 @@ function admitContextSuccession(control, histories, historical) {
 }
 function authenticateCompleteHistory(histories) {
   if (histories.length === 0 || histories.some((history) => !history.source.complete))
-    return refuse4("Context succession history is incomplete");
+    return refuse6("Context succession history is incomplete");
   if (histories.some((history) => history.operations.some((operation) => operation.authority !== "foreign" && operation.status !== "complete")))
-    return refuse4("Context succession contains incomplete authority or effect history");
+    return refuse6("Context succession contains incomplete authority or effect history");
   return { ok: true, value: undefined };
 }
 function authenticateSelectionClaims(home, control, predecessor) {
   const claims = home.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" && sameRef2(operation.record.payload.predecessor, predecessor));
   if (claims.length === 0 || claims.some((claim) => claim.status !== "complete" || claim.authority !== "accounted" || claim.recordId !== control.recordId))
-    return refuse4("Context succession has competing or incomplete selections");
+    return refuse6("Context succession has competing or incomplete selections");
   const abandonments = controlsOf(home).filter((record) => record.payload.control === "abandon" && sameRef2(record.payload.mandate, predecessor));
   if (abandonments.length !== 1 || abandonments[0] === undefined || citedOperationIntegrity(home, abandonments[0].recordId) !== null)
-    return refuse4("Context succession lacks its unique authenticated abandonment");
+    return refuse6("Context succession lacks its unique authenticated abandonment");
   return { ok: true, value: undefined };
 }
 
 // plugins/omp-build/engine/workflow-context-succession.ts
-var refuse5 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
-var same5 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
+var refuse7 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
+var same6 = (left, right) => canonicalValueDigest(left) === canonicalValueDigest(right);
 function validateContextSuccessionProposal(proposal, successorPayload, histories) {
   const home = historyFor(proposal.predecessor.scope, histories);
   if (home === null)
-    return refuse5("Context succession predecessor history is missing");
+    return refuse7("Context succession predecessor history is missing");
   const bound = bindExternalRef(proposal.predecessor, home);
   if (!bound.ok || bound.value.kind !== "mandate")
-    return refuse5("Context succession predecessor is unavailable");
+    return refuse7("Context succession predecessor is unavailable");
   return prepareContextSuccession(proposal, bound.value, {
     ...proposal.successor.scope,
     recordId: proposal.successor.recordId,
@@ -17970,22 +18480,22 @@ function prepareContextSuccession(proposal, predecessor, successor, histories, h
     historical: context.value
   });
   if (!qualified.ok)
-    return refuse5("Context succession negative is not authenticated under its predecessor");
+    return refuse7("Context succession negative is not authenticated under its predecessor");
   const negative = qualified.value.negativeLeaf;
   if (negative.payload.phase !== "result")
-    return refuse5("Context succession negative has no result");
+    return refuse7("Context succession negative has no result");
   const action = negative.payload.action;
   const priorStarts = historicalAcceptedSpecPriorStarts(context.value, qualified.value.histories, predecessor);
   if (!priorStarts.ok)
     return priorStarts;
   if (!otherContextsClear(capturedHome, action, priorStarts.value))
-    return refuse5("Context succession has an unrelated context hold");
+    return refuse7("Context succession has an unrelated context hold");
   const accepted = resolveAcceptedSpecAt(predecessor, qualified.value.histories, proposal.replacementAccepted, undefined, qualified.value.inspection, context.value);
   if (!accepted.ok || !sameOwnSpecRef(accepted.spec.ref, proposal.replacementAccepted) || !sameOwnSpecRef(qualified.value.accepted.ref, accepted.spec.ref))
-    return refuse5("Context succession replacement is not the latest authenticated accepted Spec");
+    return refuse7("Context succession replacement is not the latest authenticated accepted Spec");
   const spec = accepted.spec;
   if (!carriesReplacement(successor, spec))
-    return refuse5("Successor does not carry the accepted replacement obligations");
+    return refuse7("Successor does not carry the accepted replacement obligations");
   const effects = authenticateNegativeEffects(proposal, qualified.value.negativeChain, home, inCut);
   if (!effects.ok)
     return effects;
@@ -18013,28 +18523,28 @@ function otherContextsClear(home, action, priorStarts) {
   return true;
 }
 function carriesReplacement(successor, spec) {
-  return same5(successor.payload.ownSpec.snapshot, spec.snapshot) && successor.payload.ownSpec.version === spec.ref.version && equalScope(successor.payload.ownSpec.uw, spec.ref.uw) && successor.payload.tier === spec.tier && same5(successor.payload.children, spec.children) && same5(successor.payload.inheritedOwnSpecRefs, spec.inheritedOwnSpecRefs) && same5(successor.payload.coverage, spec.coverage);
+  return same6(successor.payload.ownSpec.snapshot, spec.snapshot) && successor.payload.ownSpec.version === spec.ref.version && equalScope(successor.payload.ownSpec.uw, spec.ref.uw) && successor.payload.tier === spec.tier && same6(successor.payload.children, spec.children) && same6(successor.payload.inheritedOwnSpecRefs, spec.inheritedOwnSpecRefs) && same6(successor.payload.coverage, spec.coverage);
 }
 function validateSuccessionChange(negative, predecessor, successor, spec) {
   const leaf = negative.payload;
   if (leaf.action !== "implement" && leaf.action !== "plan" && leaf.action !== "plan-review" && leaf.action !== "assess-spec" || leaf.phase !== "result")
-    return refuse5("Context succession leaf is not an admitted negative action");
+    return refuse7("Context succession leaf is not an admitted negative action");
   if (leaf.inputs.manifest.spec.kind !== "accepted")
-    return refuse5("Context succession requires accepted historical inputs");
+    return refuse7("Context succession requires accepted historical inputs");
   const originalSource = leaf.inputs.manifest.spec.effective.own.sourceAccepted;
   const originalIndex = spec.chain.findIndex((step) => sameRef2(step.source, originalSource));
   const material = originalIndex >= 0 && spec.chain.slice(originalIndex + 1).some((step) => step.kind === "accept-material");
-  if (!material && same5(predecessor.payload.config, successor.payload.config))
-    return refuse5("Context succession requires a material or product/configuration-version handoff");
+  if (!material && same6(predecessor.payload.config, successor.payload.config))
+    return refuse7("Context succession requires a material or product/configuration-version handoff");
   return { ok: true, value: leaf.inputs.manifest.code };
 }
 function authenticateNegativeEffects(proposal, chain, home, inCut) {
   if (chain.some((member) => member.payload.phase !== "result" || !inCut({ scope: proposal.uw, kind: "action-receipt", recordId: member.recordId }) || !inCut(member.payload.start)))
-    return refuse5("Context succession chain is outside its confirmed history cut");
+    return refuse7("Context succession chain is outside its confirmed history cut");
   const chainIds = new Set(chain.map((record) => record.recordId));
   if (recordsOf(home).some((record) => record.kind === "action-receipt" && (record.payload.action === "implement" || record.payload.action === "integrate") && record.payload.phase === "result" && sameRef2(record.payload.mandate, proposal.predecessor) && !chainIds.has(record.recordId)))
-    return refuse5("Context succession has another unresolved or delivered effect");
-  return { ok: true, value: undefined };
+    return refuse7("Context succession has another unresolved or delivered effect");
+  return validateContextEffectReview(chain, proposal.reconciliation.effectReview);
 }
 
 // plugins/omp-build/engine/workflow-context-succession-comparisons.ts
@@ -18752,7 +19262,7 @@ function replayForMandate(history, mandate, assessmentReplay, inspection, histor
 function diagnostic5(uw, code, message) {
   return { code, message, location: { kind: "native", uw, connection: "state" }, related: [] };
 }
-function same6(left, right) {
+function same7(left, right) {
   return left === null || right === null ? left === right : left.recordId === right.recordId && left.kind === right.kind && left.scope.repository === right.scope.repository && left.scope.target === right.scope.target;
 }
 function record2(operation) {
@@ -18791,7 +19301,7 @@ function applyProposedRetirements(replay, ids, ref, uw, diagnostics) {
   }
 }
 function applyIdentityRecord(replay, entry, uw, diagnostics) {
-  if (!same6(entry.payload.predecessor, replay.head)) {
+  if (!same7(entry.payload.predecessor, replay.head)) {
     diagnostics.push(diagnostic5(uw, "spec-ledger-conflict", "Identity ledger fork or predecessor mismatch"));
     return;
   }
@@ -19875,7 +20385,7 @@ function buildRecord(draft, contextInputs = []) {
 }
 
 // plugins/omp-build/engine/workflow-composed-material-intent.ts
-var equal2 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
+var equal3 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
 var invalid3 = (message) => fail([diagnostic2("material-composition-invalid", message)]);
 var issueScope = (issue) => ({
   repository: issue.repository,
@@ -19917,13 +20427,13 @@ function creationContextProblem(outer, consent, input) {
     return "Composed assessment origin is not a created child";
   const { parentObservation: _originalParent, ...originalCreation } = operands.origin.creation;
   const { parentObservation: _finalParent, ...finalCreation } = outer.creation;
-  return equal2(originalCreation, finalCreation) ? null : "Creation context differs from the context sealed in the assessment";
+  return equal3(originalCreation, finalCreation) ? null : "Creation context differs from the context sealed in the assessment";
 }
 function confirmationBindsIntent(operation, intent, input) {
   const { outer, consent, digest, core } = intent;
   const { confirmation, proposal, authorization } = input;
   const parsedCore = uwCreatePlanSchema.safeParse(core);
-  return parsedCore.success && operation.recordId === `${outer.operationId}:intent` && operation.operationId === `${outer.operationId}:intent` && operation.payload.proposalDigest === digest && equal2(operation.payload.confirmation, confirmation) && confirmation.operationId === outer.operationId && confirmation.proposalDigest === digest && consent.parentOperationId === proposal.operationId && consent.parentProposalDigest === materialAcceptanceDigest(proposal) && equalScope(consent.parent, proposal.uw) && sameRef2(consent.mandate, proposal.mandate) && sameOwnSpecRef(consent.accepted, proposal.exactInputs.accepted.ref) && sameRef2(consent.predecessor, proposal.predecessor) && sameRef2(consent.assessment, proposal.assessment) && equal2(consent.exactInputs, proposal.exactInputs) && equal2(consent.versionVector, [consent.accepted, ...proposal.exactInputs.accepted.inheritedOwnSpecRefs]) && consent.slot.operationId === outer.operationId && equal2(consent.slot, authorization.binding.slot);
+  return parsedCore.success && operation.recordId === `${outer.operationId}:intent` && operation.operationId === `${outer.operationId}:intent` && operation.payload.proposalDigest === digest && equal3(operation.payload.confirmation, confirmation) && confirmation.operationId === outer.operationId && confirmation.proposalDigest === digest && consent.parentOperationId === proposal.operationId && consent.parentProposalDigest === materialAcceptanceDigest(proposal) && equalScope(consent.parent, proposal.uw) && sameRef2(consent.mandate, proposal.mandate) && sameOwnSpecRef(consent.accepted, proposal.exactInputs.accepted.ref) && sameRef2(consent.predecessor, proposal.predecessor) && sameRef2(consent.assessment, proposal.assessment) && equal3(consent.exactInputs, proposal.exactInputs) && equal3(consent.versionVector, [consent.accepted, ...proposal.exactInputs.accepted.inheritedOwnSpecRefs]) && consent.slot.operationId === outer.operationId && equal3(consent.slot, authorization.binding.slot);
 }
 function readComposedMaterialIntent(input) {
   const records = creationRecords(input);
@@ -19946,9 +20456,9 @@ function readComposedMaterialIntent(input) {
 }
 function createdChildReadbackProblem(intent, binding, confirmation) {
   const { outer, consent, identity, digest } = intent;
-  if (!equalScope(binding.identity.scope, binding.child) || !equalScope(issueScope(binding.observed.issue), binding.child) || binding.child.repository !== outer.target.repository || binding.snapshot.raw.reference !== binding.child.target || binding.snapshot.raw.body !== outer.renderedBody || binding.snapshot.raw.body !== binding.observed.body || binding.snapshot.raw.bodySha256 !== specDigest(binding.observed.body) || !equal2(binding.snapshot.spec, outer.allocation.spec) || binding.observed.title !== outer.title || binding.observed.nativeState.state !== "OPEN" || binding.observed.nativeState.stateReason !== null)
+  if (!equalScope(binding.identity.scope, binding.child) || !equalScope(issueScope(binding.observed.issue), binding.child) || binding.child.repository !== outer.target.repository || binding.snapshot.raw.reference !== binding.child.target || binding.snapshot.raw.body !== outer.renderedBody || binding.snapshot.raw.body !== binding.observed.body || binding.snapshot.raw.bodySha256 !== specDigest(binding.observed.body) || !equal3(binding.snapshot.spec, outer.allocation.spec) || binding.observed.title !== outer.title || binding.observed.nativeState.state !== "OPEN" || binding.observed.nativeState.stateReason !== null)
     return "Created child identity, native issue, body or Spec differs from the sealed creation plan";
-  if (identity.payload.event !== "allocate" || identity.payload.predecessor !== null || identity.operationId !== outer.operationId || identity.payload.proposalDigest !== digest || !equal2(identity.payload.confirmation, confirmation) || !equal2(identity.payload.allocations, outer.allocation.assignments))
+  if (identity.payload.event !== "allocate" || identity.payload.predecessor !== null || identity.operationId !== outer.operationId || identity.payload.proposalDigest !== digest || !equal3(identity.payload.confirmation, confirmation) || !equal3(identity.payload.allocations, outer.allocation.assignments))
     return "Created child allocation does not bind the confirmed creation plan";
   const relations = outer.writes.relations;
   const expectedParent = relations.parent ?? null;
@@ -19957,13 +20467,13 @@ function createdChildReadbackProblem(intent, binding, confirmation) {
   const labels = outer.writes.labels.add.filter((label) => !outer.writes.labels.remove.includes(label));
   const children = relations.addChildren.filter((item) => !relations.removeChildren.some((removed) => issueKey(removed) === issueKey(item)));
   const blockers = relations.addBlockers.filter((item) => !relations.removeBlockers.some((removed) => issueKey(removed) === issueKey(item)));
-  if (!equal2(binding.observed.parent, expectedParent) || !equal2(sorted(binding.observed.labels), sorted(labels)) || !equal2(sorted(binding.observed.children.map(issueKey)), sorted(children.map(issueKey))) || !equal2(sorted(binding.observed.blockers.map(issueKey)), sorted(blockers.map(issueKey))))
+  if (!equal3(binding.observed.parent, expectedParent) || !equal3(sorted(binding.observed.labels), sorted(labels)) || !equal3(sorted(binding.observed.children.map(issueKey)), sorted(children.map(issueKey))) || !equal3(sorted(binding.observed.blockers.map(issueKey)), sorted(blockers.map(issueKey))))
     return "Created child readback differs from the sealed label or relation intents";
   return null;
 }
 
 // plugins/omp-build/engine/workflow-composed-material.ts
-var equal3 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
+var equal4 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
 var invalid4 = (message) => fail([diagnostic2("material-composition-invalid", message)]);
 function validateComposedMaterialAuthorization(input) {
   const { proposal, authorization, confirmation } = input;
@@ -19978,7 +20488,7 @@ function validateComposedMaterialAuthorization(input) {
   const proposed = proposal.exactInputs.proposed;
   const slots = proposed.children.filter((child) => ("kind" in child));
   const slot = slots[0];
-  if (slots.length !== 1 || slot === undefined || slot.operationId !== outer.operationId || slot.planDigest !== canonicalValueDigest(core) || !equal3(slot.plan, core) || proposed.children.some((child) => !("kind" in child) && equalScope(child.scope, binding.child)))
+  if (slots.length !== 1 || slot === undefined || slot.operationId !== outer.operationId || slot.planDigest !== canonicalValueDigest(core) || !equal4(slot.plan, core) || proposed.children.some((child) => !("kind" in child) && equalScope(child.scope, binding.child)))
     return invalid4("Parent assessment does not contain exactly the confirmed created child slot");
   const childrenBound = proposed.children.map((child) => ("kind" in child) ? {
     scope: binding.child,
@@ -20002,7 +20512,7 @@ function validateComposedMaterialAuthorization(input) {
     children: childrenBound,
     coverage
   });
-  if (!result.success || !equal3(result.data, authorization.boundState))
+  if (!result.success || !equal4(result.data, authorization.boundState))
     return invalid4("Persisted bound state is not the exact slot substitution");
   return { ok: true, value: result.data };
 }
@@ -23697,7 +24207,7 @@ var failure5 = () => ({
   ok: false,
   diagnostics: [diagnostic2("record-unreadable", "Correction historical basis is missing or inconsistent")]
 });
-var object5 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+var object6 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 function originalDecisionMatches(history, fix, decision, candidate) {
   const records = recordsOf(history);
   const originals = records.filter((r) => r.kind === "contribution" && r.recordId === decision.payload.originalContributionId);
@@ -23722,10 +24232,10 @@ function operatorBasis(history, fix) {
   const original = matches[0];
   if (matches.length !== 1 || original?.kind !== "contribution" || !accounted(history, original) || original.payload.content !== "operator-request" || original.payload.inventoryId !== null || original.payload.host.origin !== "operator" || original.payload.host.phase !== "fix" || original.payload.host.role !== "operator" || original.payload.rawAttempts.length !== 1 || !fix.inputs.includes(original.recordId))
     return null;
-  const raw = object5(original.payload.rawAttempts[0]?.raw);
-  const binding = object5(raw?.publishBinding);
-  const observed = object5(binding?.observed);
-  const pr = object5(observed?.pr);
+  const raw = object6(original.payload.rawAttempts[0]?.raw);
+  const binding = object6(raw?.publishBinding);
+  const observed = object6(binding?.observed);
+  const pr = object6(observed?.pr);
   const candidate = raw?.candidateGitSHA;
   if (typeof candidate !== "string" || !/^[0-9a-f]{40}$/i.test(candidate) || binding?.localHead !== candidate || binding.expectedRemoteSHA !== candidate || pr?.headRefOid !== candidate || typeof binding.localBranch !== "string" || binding.localBranch.length === 0 || pr.headRefName !== binding.localBranch || binding.destinationRef !== `refs/heads/${binding.localBranch}` || binding.publicationRepository !== pr.headRepository || observed?.localRef !== binding.destinationRef || observed.localHead !== candidate || observed.remoteRepository !== binding.publicationRepository || observed.target !== fix.target || observed.baseRepository !== fix.repository || typeof pr.baseRefName !== "string" || pr.baseRefName.length === 0)
     return null;
@@ -24216,19 +24726,19 @@ function uniqueCutParts(parts, home) {
 }
 
 // plugins/omp-build/engine/fix-recovery-discovery-authentication.ts
-var refuse6 = (message) => diagnostic2("unconfirmed", message);
+var refuse8 = (message) => diagnostic2("unconfirmed", message);
 function authenticateAnchors(pair, home) {
   for (const operation of home.operations) {
     if (operation.authority === "foreign" || operation.record === null || operation.record.kind !== "mandate" && operation.record.kind !== "operator-control")
       continue;
     const record = operation.record;
     if (!bindExternalRef({ kind: record.kind, scope: home.source.scope, recordId: record.recordId }, home).ok)
-      return refuse6("Recorded mandate or control source is not authenticated");
+      return refuse8("Recorded mandate or control source is not authenticated");
   }
   for (const anchor of [pair.opened, pair.settled]) {
     const bound = bindExternalRef(asOpenedRef(anchor), home);
     if (!bound.ok || canonicalValueDigest(bound.value) !== canonicalValueDigest(anchor))
-      return refuse6("Owner lifecycle anchor is not uniquely authenticated");
+      return refuse8("Owner lifecycle anchor is not uniquely authenticated");
   }
   return null;
 }
@@ -24236,14 +24746,14 @@ function authenticateBindingRecord(binding, common, pr, histories) {
   const bound = bindExternalRef({ kind: "workflow-binding", scope: common.pullRequest, recordId: binding.recordId }, pr);
   const mandateHome = histories.find((history) => equalScope(history.source.scope, binding.payload.mandate.scope));
   if (!bound.ok || mandateHome === undefined || workflowOperationProblem(mandateHome) !== null)
-    return refuse6("Binding or its mandate history is not authenticated");
+    return refuse8("Binding or its mandate history is not authenticated");
   const boundMandate = bindExternalRef(binding.payload.mandate, mandateHome);
   const bindingMandate = confirmedAccountedMandate(mandateHome, binding.payload.mandate);
   if (!boundMandate.ok || bindingMandate === null)
-    return refuse6("Binding mandate is not authenticated");
+    return refuse8("Binding mandate is not authenticated");
   const policy = bindingPolicy(bindingMandate);
   if (policy === "unknown" || policy === "bounded" && !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base))
-    return refuse6("Recorded binding contradicts its mandate policy");
+    return refuse8("Recorded binding contradicts its mandate policy");
   return null;
 }
 function authenticateBinding(common, pr, histories) {
@@ -24251,7 +24761,7 @@ function authenticateBinding(common, pr, histories) {
   const bindings = [];
   for (const operation of bindingClaims) {
     if (operation.status !== "complete" || operation.authority !== "accounted" || operation.record?.kind !== "workflow-binding")
-      return refuse6("A recorded binding claim is incomplete or unaccounted");
+      return refuse8("A recorded binding claim is incomplete or unaccounted");
     const binding = operation.record;
     const problem = authenticateBindingRecord(binding, common, pr, histories);
     if (problem !== null)
@@ -24259,54 +24769,54 @@ function authenticateBinding(common, pr, histories) {
     bindings.push(binding);
   }
   if (bindings.length === 0)
-    return refuse6("No authenticated recorded binding");
+    return refuse8("No authenticated recorded binding");
   const chain = resolveBindingChain(bindings, histories);
   if (chain.status !== "bound" || chain.binding.recordId !== common.binding.recordId || !sameRef2(chain.binding.payload.mandate, common.mandate))
-    return refuse6("Recorded binding is not the unique current association");
+    return refuse8("Recorded binding is not the unique current association");
   return null;
 }
 function authenticateSpec(input, common, mandate, histories) {
   const accepted = resolveAcceptedSpec(mandate, histories);
   if (!accepted.ok)
-    return refuse6("Latest accepted Spec chain cannot be authenticated");
+    return refuse8("Latest accepted Spec chain cannot be authenticated");
   const effective = "accepted" in input ? resolveSpecEffectiveAtGraph({ mode: "historical", own: accepted.spec.ref, histories, versionVector: input.accepted.versionVector }, input.graph) : resolveSpecEffective({ mode: "current", own: accepted.spec.ref, histories, graph: input.graph });
   if (!effective.ok)
-    return refuse6("Current effective Spec cannot be authenticated from the native graph");
+    return refuse8("Current effective Spec cannot be authenticated from the native graph");
   for (const ref of [
     ...accepted.spec.sourceRefs,
     ...effective.value.versionVector.map((entry) => entry.sourceAccepted)
   ]) {
     const source = histories.find((history) => equalScope(history.source.scope, ref.scope));
     if (source === undefined || !bindExternalRef(ref, source).ok)
-      return refuse6("An accepted Spec source is missing or no longer immutable");
+      return refuse8("An accepted Spec source is missing or no longer immutable");
   }
   const digest = canonicalValueDigest(effective.value);
   if (digest !== common.acceptedDigest || digest !== canonicalValueDigest(common.accepted))
-    return refuse6("Current effective Spec does not match the opening");
+    return refuse8("Current effective Spec does not match the opening");
   if ("accepted" in input && digest !== canonicalValueDigest(input.accepted))
-    return refuse6("Historical effective Spec does not match the recorded observation");
+    return refuse8("Historical effective Spec does not match the recorded observation");
   return null;
 }
 function pauseHomeProblem(current, histories) {
   const home = histories.find((history) => equalScope(history.source.scope, current));
   if (home === undefined || !home.source.complete || workflowOperationProblem(home) !== null)
-    return refuse6("Mandate pause authority history is missing or incomplete");
+    return refuse8("Mandate pause authority history is missing or incomplete");
   for (const operation of home.operations) {
     if (operation.authority === "foreign" || operation.record?.kind !== "operator-control")
       continue;
     if (!bindExternalRef({ kind: "operator-control", scope: home.source.scope, recordId: operation.record.recordId }, home).ok)
-      return refuse6("Mandate pause control source is not authenticated");
+      return refuse8("Mandate pause control source is not authenticated");
   }
   return unliftedPause(home, current) !== null ? diagnostic2("paused", `Mandate ${current.recordId} is paused`) : null;
 }
 function pauseParent(parent, histories) {
   const parentHome = histories.find((history) => equalScope(history.source.scope, parent.scope));
   if (parentHome === undefined || !parentHome.source.complete || workflowOperationProblem(parentHome) !== null)
-    return { problem: refuse6("Parent mandate pause authority history is missing or incomplete") };
+    return { problem: refuse8("Parent mandate pause authority history is missing or incomplete") };
   const bound = bindExternalRef(parent, parentHome);
   const selected = selectedMandate(parentHome);
   if (!bound.ok || bound.value.kind !== "mandate" || "status" in selected || selected.recordId !== parent.recordId || canonicalValueDigest(bound.value) !== canonicalValueDigest(selected))
-    return { problem: refuse6("Parent mandate pause authority is not authenticated") };
+    return { problem: refuse8("Parent mandate pause authority is not authenticated") };
   return { mandate: selected };
 }
 function authenticatePauseAuthority(mandate, histories) {
@@ -24318,7 +24828,7 @@ function authenticatePauseAuthority(mandate, histories) {
   while (true) {
     const key = `${current.repository}\x00${current.target}\x00${current.recordId}`;
     if (seen.has(key))
-      return refuse6("Mandate parent chain cycles");
+      return refuse8("Mandate parent chain cycles");
     seen.add(key);
     const problem = pauseHomeProblem(current, histories);
     if (problem !== null)
@@ -24339,28 +24849,28 @@ function authenticateSourceBasis(input, pair, histories) {
     common.destination.publicationRepository,
     common.destination.destinationRef
   ]))
-    return refuse6("Owner admission descriptor does not bind its destination");
+    return refuse8("Owner admission descriptor does not bind its destination");
   if (!equalScope(input.uw, common.uw))
-    return refuse6("Opening belongs to another UW");
+    return refuse8("Opening belongs to another UW");
   const home = histories.find((history) => equalScope(history.source.scope, common.uw));
   const pr = histories.find((history) => equalScope(history.source.scope, common.pullRequest));
   if (home === undefined || pr === undefined || !home.source.complete || !pr.source.complete)
-    return refuse6("Required UW or pull request history is missing or incomplete");
+    return refuse8("Required UW or pull request history is missing or incomplete");
   if (workflowOperationProblem(home) !== null || workflowOperationProblem(pr) !== null)
-    return refuse6("Recorded workflow authority contains an unresolved claim");
+    return refuse8("Recorded workflow authority contains an unresolved claim");
   const anchorProblem = authenticateAnchors(pair, home);
   if (anchorProblem !== null)
     return anchorProblem;
   const selected = selectedMandate(home);
   if ("status" in selected || selected.recordId !== common.mandate.recordId || !equalScope(selected, common.mandate.scope))
-    return refuse6("Recorded mandate has changed or is ambiguous");
+    return refuse8("Recorded mandate has changed or is ambiguous");
   const mandateBound = bindExternalRef(common.mandate, home);
   const mandate = confirmedAccountedMandate(home, common.mandate);
   if (!mandateBound.ok || mandate === null || canonicalValueDigest(mandateBound.value) !== canonicalValueDigest(selected))
-    return refuse6("Current recorded mandate is not an authenticated accounted source");
+    return refuse8("Current recorded mandate is not an authenticated accounted source");
   const config = mandate.payload.config;
   if (common.configuration.version !== config.version || common.configuration.digest !== config.digest || common.configuration.serialized !== JSON.stringify(config.effective))
-    return refuse6("Opening configuration does not match its recorded mandate");
+    return refuse8("Opening configuration does not match its recorded mandate");
   const bindingProblem = authenticateBinding(common, pr, histories);
   if (bindingProblem !== null)
     return bindingProblem;
@@ -27178,7 +27688,7 @@ function recordOperation(histories, record) {
 // plugins/omp-build/adapters/github-workflow/types.ts
 var SHA = /^[0-9a-f]{40}$/;
 var POSITIVE_INT = /^[1-9][0-9]*$/;
-function object6(value) {
+function object7(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
@@ -27217,7 +27727,7 @@ async function graphqlVariables(options, query, variables) {
     args.push(typeof value === "number" ? "-F" : "-f", `${name}=${value}`);
   }
   const raw = await gh(options)(options.cwd, args);
-  const parsed = object6(parseJson(raw, "GitHub GraphQL response"));
+  const parsed = object7(parseJson(raw, "GitHub GraphQL response"));
   if (parsed === null) {
     throw new GitHubHistoryReadError("GitHub GraphQL response is invalid", [
       diagnostic6("invalid-github-response", "GraphQL response is not an object")
@@ -27245,7 +27755,7 @@ async function resolveRepository(options, repository) {
     return repository;
   }
   const raw = await gh(options)(options.cwd, ["repo", "view", "--json", "nameWithOwner"]);
-  const parsed = object6(parseJson(raw, "gh repo view"));
+  const parsed = object7(parseJson(raw, "gh repo view"));
   const nameWithOwner = parsed?.nameWithOwner;
   if (typeof nameWithOwner !== "string" || !RECORD_REPOSITORY.test(nameWithOwner)) {
     throw new GitHubHistoryReadError("GitHub repository identity is unreadable", [
@@ -27274,8 +27784,8 @@ async function readNativeIssueFacts(repository, number, options) {
     ]);
   }
   const raw = await gh(options)(options.cwd, ["api", `repos/${repository}/issues/${number}`]);
-  const parsed = object6(parseJson(raw, `issue #${number}`));
-  const user = object6(parsed?.user);
+  const parsed = object7(parseJson(raw, `issue #${number}`));
+  const user = object7(parsed?.user);
   const author = typeof user?.login === "string" ? user.login : null;
   const state = parsed?.state;
   const returnedNumber = parsed?.number;
@@ -27291,7 +27801,7 @@ async function readNativeIssueFacts(repository, number, options) {
     state: state.toUpperCase(),
     author,
     body,
-    isPullRequest: object6(parsed.pull_request) !== null
+    isPullRequest: object7(parsed.pull_request) !== null
   };
 }
 // plugins/omp-build/adapters/github-workflow/native-facts.ts
@@ -27319,8 +27829,8 @@ async function readNativePullRequestFacts(repository, pr, options) {
     "--json",
     "number,state,headRefOid,headRefName,baseRefName,baseRefOid,mergeCommit,author"
   ]);
-  const parsed = object6(parseJson(raw, `pull request #${pr}`));
-  const authorObject = object6(parsed?.author);
+  const parsed = object7(parseJson(raw, `pull request #${pr}`));
+  const authorObject = object7(parsed?.author);
   const author = typeof authorObject?.login === "string" ? authorObject.login : null;
   const number = parsed?.number;
   const state = parsed?.state;
@@ -27329,7 +27839,7 @@ async function readNativePullRequestFacts(repository, pr, options) {
   const base = parsed?.baseRefName;
   const baseTip = parsed?.baseRefOid;
   const merge = parsed?.mergeCommit;
-  const mergeCommit = merge === null ? null : object6(merge)?.oid;
+  const mergeCommit = merge === null ? null : object7(merge)?.oid;
   if (number !== pr || state !== "OPEN" && state !== "CLOSED" && state !== "MERGED" || typeof head !== "string" || !SHA.test(head) || typeof branch !== "string" || branch.length === 0 || typeof base !== "string" || base.length === 0 || typeof baseTip !== "string" || !SHA.test(baseTip) || mergeCommit !== null && (typeof mergeCommit !== "string" || !SHA.test(mergeCommit)) || state === "MERGED" && mergeCommit === null) {
     throw new GitHubHistoryReadError(`Pull request #${pr} is unreadable`, [
       diagnostic6("unreadable", `Pull request #${pr} native head/base facts are incomplete`)
@@ -27380,9 +27890,9 @@ async function resolveNativeScope(scope, options) {
 
 // plugins/omp-build/adapters/github-native/association-validation.ts
 function completeClosingIssueNodes(data, facts) {
-  const repo = object6(object6(data)?.repository);
-  const pull = object6(repo?.pullRequest);
-  const closing = object6(pull?.closingIssuesReferences);
+  const repo = object7(object7(data)?.repository);
+  const pull = object7(repo?.pullRequest);
+  const closing = object7(pull?.closingIssuesReferences);
   const nodes = Array.isArray(closing?.nodes) ? closing.nodes : null;
   const totalCount = closing?.totalCount;
   if (pull === null || closing === null || nodes === null || typeof totalCount !== "number" || !Number.isSafeInteger(totalCount) || totalCount !== nodes.length || pull.headRefName !== facts.branch || pull.baseRefName !== facts.base || pull.headRefOid !== facts.head || pull.baseRefOid !== facts.baseTip) {
@@ -27393,7 +27903,7 @@ function completeClosingIssueNodes(data, facts) {
 function closingIssueNumbers(nodes) {
   const numbers = [];
   for (const node of nodes) {
-    const entry = object6(node);
+    const entry = object7(node);
     if (entry === null || typeof entry.number !== "number" || !Number.isSafeInteger(entry.number) || entry.number < 1) {
       return null;
     }
@@ -27437,8 +27947,8 @@ function linkedIssueAssociation(data, facts, repository, pr) {
   return linked === undefined ? { status: "none" } : { status: "linked", scope: githubScope(repository, linked), number: linked };
 }
 function issueParentAssociation(data, number) {
-  const repo = object6(object6(data)?.repository);
-  const issue = object6(repo?.issue);
+  const repo = object7(object7(data)?.repository);
+  const issue = object7(repo?.issue);
   if (issue === null || issue.number !== number) {
     return {
       status: "unreadable",
@@ -27447,8 +27957,8 @@ function issueParentAssociation(data, number) {
   }
   if (!("parent" in issue) || issue.parent === null || issue.parent === undefined)
     return { status: "none" };
-  const parent = object6(issue.parent);
-  const parentRepo = object6(parent?.repository);
+  const parent = object7(issue.parent);
+  const parentRepo = object7(parent?.repository);
   const parentNumber = parent?.number;
   const parentRepository = parentRepo?.nameWithOwner;
   if (parent === null || typeof parentNumber !== "number" || !Number.isSafeInteger(parentNumber) || parentNumber < 1 || typeof parentRepository !== "string" || !RECORD_REPOSITORY.test(parentRepository)) {
@@ -28758,13 +29268,13 @@ function observe(ctx, commit) {
   }
 }
 function parseParents(value) {
-  const item = object6(value);
+  const item = object7(value);
   const sha = item?.sha;
   if (item === null || typeof sha !== "string" || !SHA.test(sha) || !Array.isArray(item.parents))
     return null;
   const parents = [];
   for (const entry of item.parents) {
-    const parent = object6(entry)?.sha;
+    const parent = object7(entry)?.sha;
     if (typeof parent !== "string" || !SHA.test(parent))
       return null;
     parents.push(parent);
@@ -28797,12 +29307,12 @@ async function readHead(ctx, sha) {
     return null;
   }
   const commit = parseJson(await gh(ctx.options)(ctx.options.cwd, ["api", `repos/${ctx.owner}/${ctx.name}/git/commits/${sha}`]), `commit ${sha}`);
-  if (object6(commit)?.sha !== sha || !addCommit(ctx, commit))
+  if (object7(commit)?.sha !== sha || !addCommit(ctx, commit))
     return fail10(ctx, "incomplete", `Commit ${sha} has an incorrect identity or incomplete or conflicting parents`);
   return null;
 }
 async function readPage(ctx, range, page) {
-  const result = object6(parseJson(await gh(ctx.options)(ctx.options.cwd, [
+  const result = object7(parseJson(await gh(ctx.options)(ctx.options.cwd, [
     "api",
     `repos/${ctx.owner}/${ctx.name}/compare/${range.base}...${range.head}?per_page=100&page=${page}`
   ]), `comparison ${range.base}...${range.head}`));
@@ -28814,7 +29324,7 @@ async function readPage(ctx, range, page) {
 }
 function collectPage(ctx, range, values, seen) {
   for (const commit of values) {
-    const sha = object6(commit)?.sha;
+    const sha = object7(commit)?.sha;
     if (typeof sha !== "string" || seen.has(sha))
       return fail10(ctx, "conflicting-duplicate", `Range ${range.base}...${range.head} repeated a commit`);
     seen.add(sha);
@@ -33836,7 +34346,7 @@ function followsAcceptedChildren(commits, allowed, baseline, head) {
 function fail17(message) {
   return { ok: false, diagnostics: [diagnostic2("unconfirmed", message)] };
 }
-function same7(left, right) {
+function same8(left, right) {
   return canonicalValueDigest(left) === canonicalValueDigest(right);
 }
 function inspectChildSources(child, histories, childPins) {
@@ -33872,7 +34382,7 @@ function inspectChild(child, prefix, histories, childPins, replay) {
     const prefixes = resolveAcceptedSpecPrefixes(mandate, histories, replay);
     if (!prefixes.ok)
       return { ok: false, diagnostics: prefixes.evidence };
-    if (prefixes.prefixes.some((state) => sameOwnSpecRef(state.ref, child.spec) && state.tier === commitment.tier && same7(state.snapshot, commitment.snapshot)))
+    if (prefixes.prefixes.some((state) => sameOwnSpecRef(state.ref, child.spec) && state.tier === commitment.tier && same8(state.snapshot, commitment.snapshot)))
       accepted = true;
   }
   if (!accepted)
@@ -33881,7 +34391,7 @@ function inspectChild(child, prefix, histories, childPins, replay) {
 }
 function inspectIntegrationSources(item, output, histories, replay) {
   const prefix = item.frame.prefix;
-  if (prefix.children.length === 0 || prefix.coverage === null || !same7(prefix.coverage, output.coverage) || prefix.children.length !== output.children.length)
+  if (prefix.children.length === 0 || prefix.coverage === null || !same8(prefix.coverage, output.coverage) || prefix.children.length !== output.children.length)
     return fail17("Captured integration does not conserve its accepted children and coverage");
   const scopes = new Set;
   const childPins = new Map;
@@ -34233,21 +34743,21 @@ function capturedPlanForInvocation(item, invocations) {
 function fail19(message) {
   return { ok: false, diagnostics: [diagnostic2("unconfirmed", message)] };
 }
-function same8(left, right) {
+function same9(left, right) {
   return canonicalValueDigest(left) === canonicalValueDigest(right);
 }
-function object7(value) {
+function object8(value) {
   return value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function commandProjection(value) {
   return Array.isArray(value) ? value.map(({ toolCallId, command, exitCode }) => ({ toolCallId, command, exitCode })) : null;
 }
 function producerConserved(raw, output) {
-  if (!object7(raw) || !object7(output) || !producerOutputValid("delivery-execution", raw) || raw.outcome !== output.outcome || raw.reason !== output.reason || !same8(commandProjection(raw.commands), commandProjection(output.commands)))
+  if (!object8(raw) || !object8(output) || !producerOutputValid("delivery-execution", raw) || raw.outcome !== output.outcome || raw.reason !== output.reason || !same9(commandProjection(raw.commands), commandProjection(output.commands)))
     return false;
-  if (!Array.isArray(raw.criteria) || !Array.isArray(output.criteria) || !same8(raw.criteria.map((item) => object7(item) ? item.target : null), output.criteria.map((item) => object7(item) ? item.target : null)))
+  if (!Array.isArray(raw.criteria) || !Array.isArray(output.criteria) || !same9(raw.criteria.map((item) => object8(item) ? item.target : null), output.criteria.map((item) => object8(item) ? item.target : null)))
     return false;
-  return raw.outcome === "implemented" ? same8(raw.commitSHAs, output.commitSHAs) : raw.outcome === "integrated" && same8(raw.code, output.code) && same8(raw.children, output.children) && same8(raw.coverage, output.coverage);
+  return raw.outcome === "implemented" ? same9(raw.commitSHAs, output.commitSHAs) : raw.outcome === "integrated" && same9(raw.code, output.code) && same9(raw.children, output.children) && same9(raw.coverage, output.coverage);
 }
 function inspectIntegration(item, payload, spec, output, histories, replay) {
   const pin = {
@@ -34292,7 +34802,7 @@ function inspectCriterionEvidence(item, payload, spec, remoteTip, criteria, hist
 }
 function inspectDeliveryEffect(item, payload, spec, admission, output, histories, replay) {
   if (payload.action === "implement") {
-    if (!implementationReceiptEligible(item.result) || output.outcome !== "implemented" || !same8(output.commitSHAs, admission.commits) || output.commitSHAs.at(-1) !== admission.remoteTip)
+    if (!implementationReceiptEligible(item.result) || output.outcome !== "implemented" || !same9(output.commitSHAs, admission.commits) || output.commitSHAs.at(-1) !== admission.remoteTip)
       return fail19("Captured implementation commits do not match its admitted remote tip");
   } else {
     if (output.outcome !== "integrated")
@@ -34308,7 +34818,7 @@ function inspectDelivery(item, payload, invocations, histories, replay) {
   if (terminal.reason !== null || !producerOutputValid("delivery-execution", terminal.structured))
     return fail19("Captured delivery lacks its valid native producer terminal");
   if (workflowContextNegative(item.result)) {
-    if (!same8(terminal.structured, payload.structured))
+    if (!same9(terminal.structured, payload.structured))
       return fail19("Captured delivery negative differs from its native terminal");
     return { ok: true, value: undefined };
   }
@@ -34320,7 +34830,7 @@ function inspectDelivery(item, payload, invocations, histories, replay) {
   if (spec.kind !== "accepted" || admission?.admitted !== true || !admission.published || admission.remoteTip === null || admission.remoteBranch !== item.frame.mandate.payload.branch)
     return fail19("Captured delivery has no conserved published host-effect admission");
   const output = payload.action === "implement" ? implementationOutputSchema.safeParse(payload.structured) : integrationOutputSchema.safeParse(payload.structured);
-  if (!output.success || output.data.outcome === "blocked" || !producerConserved(terminal.structured, payload.structured) || !same8(commandProjection(admission.commands), commandProjection(output.data.commands)))
+  if (!output.success || output.data.outcome === "blocked" || !producerConserved(terminal.structured, payload.structured) || !same9(commandProjection(admission.commands), commandProjection(output.data.commands)))
     return fail19("Captured delivery output differs from its native claim or admitted commands");
   const effect = inspectDeliveryEffect(item, payload, spec, admission, output.data, histories, replay);
   if (!effect.ok)
@@ -34626,7 +35136,7 @@ var parentAdvanceSchema = strictObject({
     clean: literal(true),
     remoteBase: gitObjectIdSchema
   }),
-  delivery: contextSuccessionReconciliationSchema.shape.delivery
+  delivery: contextSuccessionManagedBaselineSchema.shape.delivery
 });
 function currentContextSuccession(evidence, mandate, facts) {
   const observed = facts?.contextSuccessionObservation;
@@ -34666,7 +35176,7 @@ function reconcileCurrentObservation(evidence, mandate, admission, observed, exp
       return effect;
     return currentLineageStarts(evidence, mandate);
   }
-  if (!contextSuccessionReconciliationSchema.safeParse(observed.reconciliation).success)
+  if (!contextSuccessionManagedBaselineSchema.safeParse(observed.reconciliation).success)
     return currentSuccessionFailure();
   if (!matchesCurrentBaseline(evidence, mandate, observed.reconciliation, expected))
     return currentSuccessionFailure();
@@ -37192,6 +37702,8 @@ export {
   composedParentConsentSchema,
   confirmHistoricalReviewInputMatch,
   confirmedAccountedMandate,
+  contextEffectIntentSchema,
+  contextEffectSources,
   contextHandoffAbsentBindingDigest,
   contextHandoffHistoryCut,
   contextHandoffHistoryDigest,
@@ -37322,6 +37834,7 @@ export {
   implementationOutputSchema,
   implementationReceiptEligible,
   inspectCapturedWorkForAssessment,
+  inspectContextEffectIntent,
   inspectFinding,
   inspectNativeTerminal,
   integrationOutputSchema,
@@ -37591,6 +38104,7 @@ export {
   validateCauseDispositionRecords,
   validateCausePublication,
   validateComposedMaterialAuthorization,
+  validateContextEffectReview,
   validateContextSuccessionProposal,
   validateDecision2 as validateDecision,
   validateDecisionBindings,

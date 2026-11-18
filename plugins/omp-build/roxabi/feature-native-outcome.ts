@@ -1,4 +1,4 @@
-import type { Submission } from '../engine/record-values.ts'
+import type { NativeToolObservation, Submission } from '../engine/record-values.ts'
 import type { NativeChildResult, NativeProofBashCall } from '../omp/review-runtime/contracts.ts'
 
 export function emptyChild(): NativeChildResult {
@@ -19,11 +19,17 @@ export function emptyChild(): NativeChildResult {
 export function nativeOutcome(
   child: NativeChildResult,
   usable: boolean,
-): { completion: 'completed' | 'incomplete'; strict: 'valid' | 'invalid' | 'absent'; raw: NativeChildResult['raw'] } {
+): {
+  completion: 'completed' | 'incomplete'
+  strict: 'valid' | 'invalid' | 'absent'
+  raw: NativeChildResult['raw']
+  observedTools?: NativeToolObservation
+} {
   return {
     completion: child.usable ? 'completed' : 'incomplete',
     strict: usable ? 'valid' : 'invalid',
     raw: child.raw,
+    ...(child.observedTools !== undefined ? { observedTools: child.observedTools } : {}),
   }
 }
 
@@ -33,7 +39,8 @@ export function hasObservedNativeCapture(child: NativeChildResult): boolean {
     child.raw !== null ||
     child.submissions.length > 0 ||
     child.partialText !== null ||
-    (child.bashCalls?.length ?? 0) > 0
+    (child.bashCalls?.length ?? 0) > 0 ||
+    child.observedTools !== undefined
   )
 }
 
@@ -51,6 +58,7 @@ export function implementNativeOutcome(
   strict: 'valid' | 'invalid' | 'absent'
   raw: NativeChildResult['raw']
   bashCalls?: NativeProofBashCall[]
+  observedTools?: NativeToolObservation
   observation?: { actionId: string; childId: string; submissionIndex: number; submission: Submission }
 } {
   const bashCalls = (child.bashCalls ?? []).filter((call) => claimedIds.has(call.toolCallId))
@@ -71,5 +79,6 @@ export function implementNativeOutcome(
         }
       : {}),
     ...(bashCalls.length > 0 ? { bashCalls } : {}),
+    ...(child.observedTools !== undefined ? { observedTools: child.observedTools } : {}),
   }
 }

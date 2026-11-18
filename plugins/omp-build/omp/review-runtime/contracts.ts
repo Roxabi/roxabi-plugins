@@ -2,6 +2,7 @@ import type { ExtensionAPI } from '@oh-my-pi/pi-coding-agent'
 import type { Json, Submission } from '../../contracts'
 import type { ContextActionBinding, MissingContextItem } from '../../engine/action-context.ts'
 import type { CommandRun, EvidenceProvenance } from '../../engine/criterion-evidence-schema.ts'
+import type { NativeToolObservation } from '../../engine/native-tool-observation-schema.ts'
 import type { PreparedUwAction } from '../../roxabi/uw-action-contract.ts'
 
 export type { Json, Submission }
@@ -63,6 +64,8 @@ export type NativeChildResult = {
   proofEvidence: NativeProofEvidence | null
   /** Referenced Bash calls only, including conflicting captures of those IDs. Unreferenced calls stay ephemeral. */
   bashCalls?: readonly NativeProofBashCall[]
+  /** Independent observed callback metadata; not claim-filtered and not a no-effects proof. */
+  observedTools?: NativeToolObservation
   /** Grounded runs only. Unobserved code identity is omitted, never invented. */
   commandRuns?: readonly CommandRun[]
   /** Actual matched child/yield identity for non-test observations; not an assertion of their truth. */

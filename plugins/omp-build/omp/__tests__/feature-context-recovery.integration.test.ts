@@ -294,148 +294,162 @@ it('retains a native implementation context negative across a cold continuation'
   ).toBe(retained)
 })
 
-it('confirms a material handoff and starts fresh planning while retaining the native negative', () => {
-  const { box, checkout: originalCheckout } = featureFixture('mandate')
-  const worktreeRoot = path.join(box.root, 'context-worktrees')
-  const checkout = path.join(worktreeRoot, 'app', 'feat-42-save')
-  mkdirSync(path.dirname(checkout), { recursive: true })
-  git(box, box.principal, ['worktree', 'move', originalCheckout, checkout])
-  const run = (operation: string, negativeRecordId = '') => {
-    const child = spawnSync(
-      BUN,
-      [
-        RUNNER,
-        operation,
-        checkout,
-        JSON.stringify({
-          reference: '#42',
-          control: 'continue',
-          negativeRecordId,
-        }),
-      ],
-      { cwd: checkout, env: { ...box.env, OMP_WORKTREE_DIR: worktreeRoot }, encoding: 'utf8' },
-    )
-    if (child.status !== 0) throw new Error(`feature runner failed: ${child.stderr}\n${child.stdout}`)
-    return JSON.parse(child.stdout) as {
-      kind?: string
-      node?: string
-      admitted?: boolean
-      before?: { version: string }
-      after?: { version: string }
-      messages?: string[]
-      activeAfterSettlement?: boolean
-      selected?: { kind: string; node: string }
+it.each(['blocked', 'missing-context'] as const)(
+  'confirms a material handoff from %s and starts fresh planning while retaining the native negative',
+  (negativeForm) => {
+    const { box, checkout: originalCheckout } = featureFixture('mandate')
+    const worktreeRoot = path.join(box.root, 'context-worktrees')
+    const checkout = path.join(worktreeRoot, 'app', 'feat-42-save')
+    mkdirSync(path.dirname(checkout), { recursive: true })
+    git(box, box.principal, ['worktree', 'move', originalCheckout, checkout])
+    const run = (operation: string, negativeRecordId = '') => {
+      const child = spawnSync(
+        BUN,
+        [
+          RUNNER,
+          operation,
+          checkout,
+          JSON.stringify({
+            reference: '#42',
+            control: 'continue',
+            negativeRecordId,
+          }),
+        ],
+        { cwd: checkout, env: { ...box.env, OMP_WORKTREE_DIR: worktreeRoot }, encoding: 'utf8' },
+      )
+      if (child.status !== 0) throw new Error(`feature runner failed: ${child.stderr}\n${child.stdout}`)
+      return JSON.parse(child.stdout) as {
+        kind?: string
+        node?: string
+        admitted?: boolean
+        before?: { version: string }
+        after?: { version: string }
+        messages?: string[]
+        activeAfterSettlement?: boolean
+        selected?: { kind: string; node: string }
+      }
     }
-  }
-  const history = () =>
-    decodeHistory({
-      scope: SCOPE,
-      expectedAuthor: 'operator',
-      stopAuthor: null,
-      complete: true,
-      diagnostics: [],
-      comments: (readSim(box).issues['42']?.comments ?? []).map((comment, index) => ({
-        locator: `${SCOPE.target}:${index + 1}`,
-        nativeId: String(index + 1),
-        body: comment.body,
-        author: comment.author,
-        createdAt: comment.createdAt ?? null,
-        updatedAt: comment.updatedAt ?? null,
-      })),
-    })
-  const planner = spawnSync(
-    BUN,
-    [path.resolve(import.meta.dirname, '../../testing/feature-planner-context-runner.ts'), checkout, 'positive-both'],
-    {
-      cwd: checkout,
-      env: { ...box.env, OMP_WORKTREE_DIR: worktreeRoot },
-      encoding: 'utf8',
-    },
-  )
-  if (planner.status !== 0) throw new Error(`Native planning failed: ${planner.stderr}\n${planner.stdout}`)
-  expect(JSON.parse(planner.stdout).selected).toMatchObject({ kind: 'action', node: 'plan' })
-  expect(run('omp-context-initial-negative').admitted).toBe(true)
-  const negative = history().operations.find(
-    ({ record }) =>
-      record?.kind === 'action-receipt' &&
-      record.payload.action === 'implement' &&
-      record.payload.phase === 'result' &&
-      record.payload.admission === null,
-  )?.record
-  if (negative?.kind !== 'action-receipt') throw new Error('Native negative unavailable')
-  const retained = JSON.stringify(negative)
-  writeSim(box, (state) => {
-    const issue = state.issues['42']
-    if (!issue) throw new Error('Fixture issue unavailable')
-    issue.body = nativeFeatureSpec(SCOPE, 'preserves the region and its timezone').body
-  })
-  const accepted = run('accept-context-material')
-  expect(accepted.before?.version).toBeDefined()
-  expect(accepted.after?.version).toBeDefined()
-  expect(accepted.after?.version).not.toBe(accepted.before?.version)
-  expect(run('confirmed-abandon')).toMatchObject({ kind: 'abandoned', confirmed: true })
-  const planned = run('confirmed-context-successor-plan', negative.recordId)
-  expect(planned.selected).toMatchObject({ kind: 'action', node: 'plan' })
-  const after = history()
-  const selection = after.operations.find(
-    ({ record }) =>
-      record?.kind === 'operator-control' &&
-      record.payload.control === 'select-successor' &&
-      record.payload.contextDisposition?.negative.record.recordId === negative.recordId,
-  )?.record
-  expect(selection).toMatchObject({
-    kind: 'operator-control',
-    payload: {
-      control: 'select-successor',
-      contextDisposition: {
-        kind: 'superseded-not-delivered',
-        negative: { record: { recordId: negative.recordId } },
+    const history = () =>
+      decodeHistory({
+        scope: SCOPE,
+        expectedAuthor: 'operator',
+        stopAuthor: null,
+        complete: true,
+        diagnostics: [],
+        comments: (readSim(box).issues['42']?.comments ?? []).map((comment, index) => ({
+          locator: `${SCOPE.target}:${index + 1}`,
+          nativeId: String(index + 1),
+          body: comment.body,
+          author: comment.author,
+          createdAt: comment.createdAt ?? null,
+          updatedAt: comment.updatedAt ?? null,
+        })),
+      })
+    const planner = spawnSync(
+      BUN,
+      [path.resolve(import.meta.dirname, '../../testing/feature-planner-context-runner.ts'), checkout, 'positive-both'],
+      {
+        cwd: checkout,
+        env: { ...box.env, OMP_WORKTREE_DIR: worktreeRoot },
+        encoding: 'utf8',
       },
-    },
-  })
-  expect(JSON.stringify(after.operations.find(({ record }) => record?.recordId === negative.recordId)?.record)).toBe(
-    retained,
-  )
-  expect(
-    after.operations.filter(
+    )
+    if (planner.status !== 0) throw new Error(`Native planning failed: ${planner.stderr}\n${planner.stdout}`)
+    expect(JSON.parse(planner.stdout).selected).toMatchObject({ kind: 'action', node: 'plan' })
+    expect(
+      run(negativeForm === 'blocked' ? 'omp-context-initial-negative' : 'omp-context-initial-common-negative').admitted,
+    ).toBe(true)
+    const negative = history().operations.find(
       ({ record }) =>
         record?.kind === 'action-receipt' &&
-        record.payload.action === 'plan-review' &&
-        record.payload.phase === 'result',
-    ),
-  ).toHaveLength(2)
-  const implementation = run('omp-context-initial-positive')
-  expect(implementation.admitted).toBe(true)
-  // No agent_end is emitted by this driver: settlement itself must hand the
-  // predecessor mask to the public review announcement without clearing it.
-  expect(implementation.messages?.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
-  expect(implementation.activeAfterSettlement).toBe(true)
-  const completed = history()
-  const implementations = completed.operations.flatMap(({ record }) =>
-    record?.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result'
-      ? [record]
-      : [],
-  )
-  expect(implementations).toHaveLength(2)
-  expect(implementations[1]?.payload).toMatchObject({ admission: { admitted: true } })
-  expect(JSON.stringify(implementations[0])).toBe(retained)
-  writeFileSync(path.join(checkout, 'README.md'), 'unreconciled local effect\n')
-  expect(run('continue')).toMatchObject({ kind: 'blocked' })
-  expect(
-    history().operations.filter(
+        record.payload.action === 'implement' &&
+        record.payload.phase === 'result' &&
+        record.payload.admission === null,
+    )?.record
+    if (negative?.kind !== 'action-receipt') throw new Error('Native negative unavailable')
+    expect(negative.payload).toMatchObject({
+      native: { raw: { structuredOutput: { status: 'valid', data: { outcome: negativeForm } } } },
+      structured: { outcome: negativeForm },
+      admission: null,
+    })
+    const retained = JSON.stringify(negative)
+    writeSim(box, (state) => {
+      const issue = state.issues['42']
+      if (!issue) throw new Error('Fixture issue unavailable')
+      issue.body = nativeFeatureSpec(SCOPE, 'preserves the region and its timezone').body
+    })
+    const accepted = run('accept-context-material')
+    expect(accepted.before?.version).toBeDefined()
+    expect(accepted.after?.version).toBeDefined()
+    expect(accepted.after?.version).not.toBe(accepted.before?.version)
+    expect(run('confirmed-abandon')).toMatchObject({ kind: 'abandoned', confirmed: true })
+    const planned = run('confirmed-context-successor-plan', negative.recordId)
+    expect(planned.selected).toMatchObject({ kind: 'action', node: 'plan' })
+    const after = history()
+    const selection = after.operations.find(
       ({ record }) =>
-        record?.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'start',
-    ),
-  ).toHaveLength(2)
-  writeFileSync(path.join(checkout, 'README.md'), 'region preserved\ntimezone preserved\n')
-  expect(run('continue')).not.toMatchObject({ kind: 'action', node: 'implement' })
-  expect(
-    history().operations.filter(
-      ({ record }) =>
-        record?.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'start',
-    ),
-  ).toHaveLength(2)
-})
+        record?.kind === 'operator-control' &&
+        record.payload.control === 'select-successor' &&
+        record.payload.contextDisposition?.negative.record.recordId === negative.recordId,
+    )?.record
+    expect(selection).toMatchObject({
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        contextDisposition: {
+          kind: 'superseded-not-delivered',
+          negative: { record: { recordId: negative.recordId } },
+        },
+      },
+    })
+    expect(JSON.stringify(after.operations.find(({ record }) => record?.recordId === negative.recordId)?.record)).toBe(
+      retained,
+    )
+    expect(
+      after.operations.filter(
+        ({ record }) =>
+          record?.kind === 'action-receipt' &&
+          record.payload.action === 'plan-review' &&
+          record.payload.phase === 'result',
+      ),
+    ).toHaveLength(2)
+    const implementation = run('omp-context-initial-positive')
+    expect(implementation.admitted).toBe(true)
+    // No agent_end is emitted by this driver: settlement itself must hand the
+    // predecessor mask to the public review announcement without clearing it.
+    expect(implementation.messages?.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
+    expect(implementation.activeAfterSettlement).toBe(true)
+    const completed = history()
+    const implementations = completed.operations.flatMap(({ record }) =>
+      record?.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result'
+        ? [record]
+        : [],
+    )
+    expect(implementations).toHaveLength(2)
+    expect(implementations[1]?.payload).toMatchObject({ admission: { admitted: true } })
+    expect(JSON.stringify(implementations[0])).toBe(retained)
+    writeFileSync(path.join(checkout, 'README.md'), 'unreconciled local effect\n')
+    expect(run('continue')).toMatchObject({ kind: 'blocked' })
+    expect(
+      history().operations.filter(
+        ({ record }) =>
+          record?.kind === 'action-receipt' &&
+          record.payload.action === 'implement' &&
+          record.payload.phase === 'start',
+      ),
+    ).toHaveLength(2)
+    writeFileSync(path.join(checkout, 'README.md'), 'region preserved\ntimezone preserved\n')
+    expect(run('continue')).not.toMatchObject({ kind: 'action', node: 'implement' })
+    expect(
+      history().operations.filter(
+        ({ record }) =>
+          record?.kind === 'action-receipt' &&
+          record.payload.action === 'implement' &&
+          record.payload.phase === 'start',
+      ),
+    ).toHaveLength(2)
+  },
+)
 
 it.each(['plan', 'plan-review'] as const)(
   'starts fresh implementation after a material handoff from a native %s context negative',

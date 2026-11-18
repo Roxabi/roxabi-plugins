@@ -84,114 +84,135 @@ it.each([
   expect(next.status).toBe('blocked')
 })
 
-it('admits only an explicitly selected exact plan negative with new pinned context', async () => {
-  const fixtures = roxabiWorkflowFixtures()
-  const mandate = nativeDecisionMandate(fixtures.featureMandate(SCOPE, { body: BODY }))
-  const workflow = authenticatedPlanFixtures(mandate, [fixtures.historyFrom([mandate])]).workflow
-  const [start, original] = workflow.planDraftRecords(mandate)
-  if (
-    start?.payload.action !== 'plan' ||
-    start.payload.phase !== 'start' ||
-    original?.payload.action !== 'plan' ||
-    original.payload.phase !== 'result'
-  )
-    throw new Error('expected plan pair')
-  const result = buildRecord({
-    ...SCOPE,
-    version: 1,
-    recordId: 'negative-plan-context',
-    runId: mandate.runId,
-    operationId: original.operationId,
-    kind: 'action-receipt',
-    payload: {
-      ...original.payload,
-      structured: {
-        outcome: 'missing-context',
-        missing: [
-          {
-            locator: { kind: 'information-request', description: 'Deployment region' },
-            reason: 'Absent',
-            targets: [],
-          },
-        ],
+it.each(['conserved', 'absent', 'positive'] as const)(
+  'admits only the conserved native plan negative with new pinned context (%s raw)',
+  async (native) => {
+    const fixtures = roxabiWorkflowFixtures()
+    const mandate = nativeDecisionMandate(fixtures.featureMandate(SCOPE, { body: BODY }))
+    const workflow = authenticatedPlanFixtures(mandate, [fixtures.historyFrom([mandate])]).workflow
+    const [start, original] = workflow.planDraftRecords(mandate)
+    if (
+      start?.payload.action !== 'plan' ||
+      start.payload.phase !== 'start' ||
+      original?.payload.action !== 'plan' ||
+      original.payload.phase !== 'result'
+    )
+      throw new Error('expected plan pair')
+    const structured = {
+      outcome: 'missing-context' as const,
+      missing: [
+        {
+          locator: { kind: 'information-request' as const, description: 'Deployment region' },
+          reason: 'Absent',
+          targets: [],
+        },
+      ],
+    }
+    const result = buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'negative-plan-context',
+      runId: mandate.runId,
+      operationId: original.operationId,
+      kind: 'action-receipt',
+      payload: {
+        ...original.payload,
+        native: {
+          ...original.payload.native,
+          raw:
+            native === 'absent'
+              ? null
+              : {
+                  exitCode: 0,
+                  structuredOutput: {
+                    status: 'valid',
+                    data: native === 'positive' ? original.payload.structured : structured,
+                  },
+                },
+        },
+        structured,
+        admission: null,
       },
-      admission: null,
-    },
-  })
-  if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
-  const issue = fixtures.historyFrom([mandate, start, result.value])
-  const causal = await observeFixtureNativeWorld({
-    root: SCOPE,
-    nodes: [
-      {
-        scope: SCOPE,
-        title: 'Save the selected region',
-        body: nativeDecisionBody,
-        updatedAt: '2026-10-21T12:00:00Z',
-        labels: ['size:S'],
-        parent: null,
-        children: [],
-        blockers: [],
-        state: 'OPEN',
-        stateReason: null,
-      },
-    ],
-    histories: [issue],
-    pullRequests: [],
-    commits: [],
-    comparisons: [],
-  })
-  const evidence = { issue, pullRequest: null, parents: [], causal }
-  const negative = { scope: SCOPE, kind: 'action-receipt' as const, recordId: result.value.recordId }
-  const manifest = {
-    ...start.payload.inputs.manifest,
-    expandedContext: [
-      {
-        source: 'record' as const,
-        record: negative,
-        selector: '/payload',
-        digest: canonicalValueDigest(result.value.payload),
-      },
-      {
-        source: 'git-file' as const,
-        repository: SCOPE.repository,
-        commit: 'b'.repeat(40),
-        path: 'region.txt',
-        digest: 'a'.repeat(64),
-      },
-    ],
-  }
-  const inputs = { ...start.payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
-  const facts = shippedFacts(mandate)
-  expect(reconstructWorkflow({ evidence, facts, decisions: decisions() }).status).toBe('blocked')
-  const recovery = { negative, actionId: 'expanded-plan', inputs }
-  const recovered = reconstructWorkflow({
-    evidence,
-    facts: { ...facts, contextRecovery: recovery },
-    decisions: decisions(),
-  })
-  expect(recovered, JSON.stringify(recovered)).toMatchObject({ status: 'action', action: 'plan' })
-  expect(
-    reconstructWorkflow({
+    })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    const issue = fixtures.historyFrom([mandate, start, result.value])
+    const causal = await observeFixtureNativeWorld({
+      root: SCOPE,
+      nodes: [
+        {
+          scope: SCOPE,
+          title: 'Save the selected region',
+          body: nativeDecisionBody,
+          updatedAt: '2026-10-21T12:00:00Z',
+          labels: ['size:S'],
+          parent: null,
+          children: [],
+          blockers: [],
+          state: 'OPEN',
+          stateReason: null,
+        },
+      ],
+      histories: [issue],
+      pullRequests: [],
+      commits: [],
+      comparisons: [],
+    })
+    const evidence = { issue, pullRequest: null, parents: [], causal }
+    const negative = { scope: SCOPE, kind: 'action-receipt' as const, recordId: result.value.recordId }
+    const manifest = {
+      ...start.payload.inputs.manifest,
+      expandedContext: [
+        {
+          source: 'record' as const,
+          record: negative,
+          selector: '/payload',
+          digest: canonicalValueDigest(result.value.payload),
+        },
+        {
+          source: 'git-file' as const,
+          repository: SCOPE.repository,
+          commit: 'b'.repeat(40),
+          path: 'region.txt',
+          digest: 'a'.repeat(64),
+        },
+      ],
+    }
+    const inputs = { ...start.payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+    const facts = shippedFacts(mandate)
+    expect(reconstructWorkflow({ evidence, facts, decisions: decisions() }).status).toBe('blocked')
+    const recovery = { negative, actionId: 'expanded-plan', inputs }
+    const recovered = reconstructWorkflow({
       evidence,
-      facts: {
-        ...facts,
-        contextRecovery: { ...recovery, negative: { ...negative, recordId: 'other-negative' } },
-      },
+      facts: { ...facts, contextRecovery: recovery },
       decisions: decisions(),
-    }).status,
-  ).toBe('blocked')
-  expect(
-    reconstructWorkflow({
-      evidence,
-      facts: {
-        ...facts,
-        contextRecovery: { ...recovery, inputs: start.payload.inputs },
-      },
-      decisions: decisions(),
-    }).status,
-  ).toBe('blocked')
-})
+    })
+    if (native !== 'conserved') {
+      expect(recovered, JSON.stringify(recovered)).toMatchObject({ status: 'blocked' })
+      return
+    }
+    expect(recovered, JSON.stringify(recovered)).toMatchObject({ status: 'action', action: 'plan' })
+    expect(
+      reconstructWorkflow({
+        evidence,
+        facts: {
+          ...facts,
+          contextRecovery: { ...recovery, negative: { ...negative, recordId: 'other-negative' } },
+        },
+        decisions: decisions(),
+      }).status,
+    ).toBe('blocked')
+    expect(
+      reconstructWorkflow({
+        evidence,
+        facts: {
+          ...facts,
+          contextRecovery: { ...recovery, inputs: start.payload.inputs },
+        },
+        decisions: decisions(),
+      }).status,
+    ).toBe('blocked')
+  },
+)
 
 it('refuses a projected review negative when all specialist judgments are positive', () => {
   const fixtures = roxabiWorkflowFixtures()
