@@ -47,7 +47,9 @@ it('carries the activated candidate through real CI correction and review of the
       cwd,
       env: box.env,
       encoding: 'utf8',
-      timeout: 55_000,
+      // Correction plus follow-on review completes beyond 55s in the bounded CPU repro.
+      // This is a fixture process clock, not a Native admission bound.
+      timeout: 90_000,
     },
   )
   expect(run.status, lifecycleFailure(box, run)).toBe(0)
@@ -183,7 +185,7 @@ it('carries the activated candidate through real CI correction and review of the
       ]),
     )
   }
-})
+}, 120_000)
 
 it('refuses an issue alias to a different PR at the CI entry before publication', async () => {
   const { box, cwd } = arrangeReviewFixture()
