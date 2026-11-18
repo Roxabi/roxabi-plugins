@@ -460,7 +460,14 @@ describe('scoped native dispatch tool mask', () => {
         )
         expect(f.completed).toHaveBeenCalledTimes(1)
         expect(f.settled).toHaveBeenCalledTimes(mode === 'abort-completion' ? 0 : 1)
-        expect(f.stopped).toEqual([])
+        expect(f.stopped).toEqual(['sdk-abort'])
+        expect(f.stopFacts).toEqual([{ kind: 'completed-after-stop', origin: 'sdk-abort' }])
+        expect(f.stoppedResults).toMatchObject([
+          { complete: true, children: [{ sdkTerminal: 'returned', usable: true }] },
+        ])
+        expect(successorCompleted).not.toHaveBeenCalled()
+        expect(f.harness.controller.active()).toBeNull()
+        expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
         expect(f.sends).toHaveLength(1)
         return
       }
