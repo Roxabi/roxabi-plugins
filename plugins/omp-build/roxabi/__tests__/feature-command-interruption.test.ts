@@ -37,3 +37,34 @@ describe('explicit interruption resolution command', () => {
     expect(parseFeatureCommand('abandon #42')).toEqual({ ok: true, control: 'abandon', reference: '42' })
   })
 })
+
+describe('explicit context recovery controls', () => {
+  it('selects an action request file without executing preparation', () => {
+    expect(parseFeatureCommand('#42 --action /tmp/action.json')).toEqual({
+      ok: true,
+      control: 'recover-context',
+      reference: '42',
+      actionFile: '/tmp/action.json',
+    })
+  })
+
+  it('selects a retained negative with an absolute effect-intent file for a same-UW handoff', () => {
+    expect(parseFeatureCommand('new #42 --context-handoff negative-1 --context-effects /tmp/effects.json')).toEqual({
+      ok: true,
+      control: 'new',
+      reference: '42',
+      contextHandoff: { negativeRecordId: 'negative-1', effectsFile: '/tmp/effects.json' },
+    })
+  })
+
+  it.each([
+    '#42 --action',
+    '#42 --action relative.json',
+    'new #42 --context-handoff',
+    'new #42 --context-handoff negative-1',
+    'new #42 --context-handoff negative-1 --context-effects relative.json',
+    'new #42 --context-handoff negative-1 --context-effects /tmp/effects.json --foreign',
+    'new #42 --context-handoff negative-1 --context-effects',
+    'new #42 --context-effects /tmp/effects.json --context-handoff negative-1',
+  ])('refuses malformed explicit control %j', (args) => expect(parseFeatureCommand(args).ok).toBe(false))
+})

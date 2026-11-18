@@ -33,7 +33,9 @@ describe('prepared epic final review delivery', () => {
           throw new Error('unexpected-framing')
         },
         inhibitFeatureContinuation() {},
-        releaseFeatureContinuation() {},
+        releaseFeatureContinuation() {
+          return true
+        },
         featureContinuationInhibited: inhibited,
         markFeatureBatch() {},
         prepareEpicRangeReview,
@@ -67,7 +69,9 @@ describe('prepared epic final review delivery', () => {
         starts.push('framing')
       },
       inhibitFeatureContinuation() {},
-      releaseFeatureContinuation() {},
+      releaseFeatureContinuation() {
+        return true
+      },
       featureContinuationInhibited: () => inhibited,
       markFeatureBatch() {},
       startReview: async () => {

@@ -28,6 +28,7 @@ test('registered /uw action refuses to expand a reviewed replay', async () => {
       path,
       JSON.stringify({
         reviewed,
+        intent: { kind: 'prepublication' },
         request: {
           actionId: 'fresh',
           purpose: reviewed.manifest.purpose,

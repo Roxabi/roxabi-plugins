@@ -4,6 +4,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import { succeeds } from './workflow-context-lineage.ts'
+import { contextNativeNegativeValid } from './workflow-context-native-negative.ts'
 import { validPositiveSuccessor, workflowContextNegative } from './workflow-context-output.ts'
 import { authenticatedContextReplayStart, hasUnpairedStart } from './workflow-context-replay.ts'
 import { reviewContextPairValid } from './workflow-context-review.ts'
@@ -149,7 +150,8 @@ function contextTerminal(
       if (
         chain.status === 'missing' &&
         chain.leaf.recordId === contextLeaf.recordId &&
-        canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf)
+        canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf) &&
+        chain.negatives.every(contextNativeNegativeValid)
       )
         continue
     }

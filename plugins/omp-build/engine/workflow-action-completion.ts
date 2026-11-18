@@ -1,17 +1,19 @@
-import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
-import { failedCheckEvidenceDigest } from './record-digests.ts'
-import type { CanonicalRecord } from './record-schema.ts'
+import { diagnostic } from './record-diagnostics.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { assessSpecCompletion } from './workflow-assessment-completion.ts'
+import { ciAttributionCompletion, ciInputsMatch } from './workflow-ci-attribution-completion.ts'
+
+export { boundCiAttribution } from './workflow-ci-attribution-completion.ts'
+
+import { selectedContextRecovery } from './workflow-context-recovery.ts'
+import { currentContextSuccession } from './workflow-context-succession-current.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
-import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { type MandateRecord, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
 import { implementationCompletion } from './workflow-implementation-completion.ts'
-import { ciAttributionSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
-import type { ActionReceiptPayload } from './workflow-receipt-schema.ts'
+import { plannerRecoveryCompletion } from './workflow-planner-recovery.ts'
 
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
 
@@ -22,13 +24,13 @@ export function actionCompletion(
   mandate: MandateRecord | null,
   facts: WorkflowFacts | null = null,
 ): ActionCompletion {
-  const context = contextCompletion(action, evidence)
+  const context = contextCompletion(action, evidence, mandate, facts)
   if (context !== null) return context
   switch (action) {
     case 'plan':
-      return planCompletion(evidence, mandate)
+      return planCompletion(evidence, mandate, facts)
     case 'implement':
-      return implementationCompletion(evidence, mandate)
+      return implementationCompletion(evidence, mandate, facts)
     case 'assess-spec':
       return assessSpecCompletion(evidence, facts, mandate)
     case 'attribute-ci':
@@ -44,7 +46,12 @@ export function actionCompletion(
   }
 }
 
-function contextCompletion(action: WorkflowGraphAction, evidence: WorkflowEvidence): ActionCompletion | null {
+function contextCompletion(
+  action: WorkflowGraphAction,
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+  facts: WorkflowFacts | null,
+): ActionCompletion | null {
   if (action !== 'frame' && action !== 'assess-spec' && action !== 'attribute-ci') return null
   const histories = [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
   const classified =
@@ -56,16 +63,63 @@ function contextCompletion(action: WorkflowGraphAction, evidence: WorkflowEviden
           actions: [action],
         })
   if (classified !== null && !classified.ok) return { status: 'blocked', evidence: classified.diagnostics }
+  const disposition =
+    mandate === null
+      ? { ok: true as const, value: new Set<string>() }
+      : currentContextSuccession(evidence, mandate, facts)
+  if (!disposition.ok) return { status: 'blocked', evidence: disposition.diagnostics }
+  const excluded = new Set([...(classified?.value.excluded ?? []), ...disposition.value])
   for (const history of histories) {
-    const terminal = workflowContextTerminal(history, action, undefined, classified?.value.excluded)
-    if (terminal !== 'clear' && classified !== null) {
-      const gate = interruptionGate(classified)
-      if (gate.kind === 'stop') return gate.completion
-    }
-    const decision = contextTerminalDecision(action, terminal)
+    const terminal = workflowContextTerminal(history, action, undefined, excluded)
+    const decision = contextHistoryDecision(terminal, action, evidence, mandate, facts, classified, excluded)
+    if (decision === 'continue') continue
     if (decision !== null) return decision
   }
   return null
+}
+
+function contextHistoryDecision(
+  terminal: 'clear' | 'missing' | 'uncertain' | 'ambiguous',
+  action: WorkflowGraphAction,
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+  facts: WorkflowFacts | null,
+  classified: Extract<ReturnType<typeof classifyAttempts>, { ok: true }> | null,
+  excluded: ReadonlySet<string>,
+): ActionCompletion | 'continue' | null {
+  if (terminal !== 'clear' && classified !== null) {
+    const gate = interruptionGate(classified)
+    if (gate.kind === 'stop') return gate.completion
+  }
+  if (terminal === 'missing' && classified !== null && mandate !== null && facts?.contextRecovery !== undefined) {
+    const selected = selectedContextRecovery(evidence, mandate, action, excluded, facts.contextRecovery)
+    if (selected !== null && selectedRecoveryReady(action, evidence, mandate, facts, selected)) return 'continue'
+  }
+  return contextTerminalDecision(action, terminal)
+}
+
+function selectedRecoveryReady(
+  action: WorkflowGraphAction,
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord,
+  facts: WorkflowFacts,
+  selected: ReceiptRecord,
+): boolean {
+  if (action === 'assess-spec')
+    return (
+      facts.currentSpec !== null &&
+      facts.identityAllocations !== null &&
+      assessSpecCompletion(evidence, facts, mandate, selected).status === 'not-started'
+    )
+  if (action === 'attribute-ci')
+    return (
+      selected.payload.action === 'attribute-ci' &&
+      selected.payload.phase === 'result' &&
+      facts.evidenceDigest != null &&
+      ciInputsMatch(selected.payload, facts, mandate, facts.evidenceDigest) &&
+      ciAttributionCompletion(evidence, facts, mandate).status === 'not-started'
+    )
+  return false
 }
 
 function contextTerminalDecision(
@@ -90,37 +144,19 @@ function contextTerminalDecision(
   return null
 }
 
-export function boundCiAttribution(
-  histories: readonly DecodedHistory[],
-  facts: WorkflowFacts,
+function planCompletion(
+  evidence: WorkflowEvidence,
   mandate: MandateRecord | null,
-): { change: boolean; refused: boolean } {
-  const digest = facts.evidenceDigest
-  if (
-    mandate === null ||
-    facts.pullRequest === null ||
-    facts.candidateGitSHA === null ||
-    digest == null ||
-    !/^[0-9a-f]{64}$/.test(digest)
-  ) {
-    return { change: false, refused: false }
-  }
-  // An invalid resolution index yields no attribution, so the walk reaches the attribution gate and blocks there.
-  const classified = classifyAttempts({ histories, scan: histories, actions: ['attribute-ci'] })
-  if (!classified.ok) return { change: false, refused: false }
-  let change = false
-  let refused = false
-  for (const record of histories.flatMap(recordsOf)) {
-    if (record.kind === 'action-receipt' && excludedReceipt(record, classified.value.excluded)) continue
-    const attribution = ciAttribution(record, facts, mandate, digest)
-    if (attribution === 'change') change = true
-    if (attribution === 'refused') refused = true
-  }
-  return { change, refused }
-}
-
-function planCompletion(evidence: WorkflowEvidence, mandate: MandateRecord | null): ActionCompletion {
-  const macro = planMacro(evidence, mandate)
+  facts: WorkflowFacts | null,
+): ActionCompletion {
+  const disposition =
+    mandate === null
+      ? { ok: true as const, value: new Set<string>() }
+      : currentContextSuccession(evidence, mandate, facts)
+  if (!disposition.ok) return { status: 'blocked', evidence: disposition.diagnostics }
+  const recovery = plannerRecoveryCompletion(evidence, mandate, facts, disposition.value)
+  if (recovery !== null) return recovery
+  const macro = planMacro(evidence, mandate, { excludedStarts: disposition.value })
   if (macro.phase === 'eligible') return { status: 'confirmed', evidence: macro.evidence }
   if (macro.phase === 'blocked') return { status: 'blocked', evidence: macro.evidence }
   if (macro.phase === 'uncertain') return { status: 'uncertain', evidence: macro.evidence }
@@ -159,87 +195,4 @@ function receiptProgress(
   if (starts.some((start) => !results.some((result) => result.payload.actionId === start.payload.actionId)))
     return 'uncertain'
   return results.length > 0 ? 'confirmed' : 'uncertain'
-}
-
-function ciAttributionCompletion(
-  evidence: WorkflowEvidence,
-  facts: WorkflowFacts | null,
-  mandate: MandateRecord | null,
-): ActionCompletion {
-  const histories = [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
-  const gate = interruptionGate(
-    classifyAttempts({
-      histories: [...histories, ...evidence.causal.histories],
-      scan: histories,
-      actions: ['attribute-ci'],
-    }),
-  )
-  if (gate.kind === 'stop') return gate.completion
-  const receipts = histories.flatMap((history) =>
-    recordsOf(history).filter(
-      (record): record is ReceiptRecord =>
-        record.kind === 'action-receipt' &&
-        record.payload.action === 'attribute-ci' &&
-        !excludedReceipt(record, gate.excluded),
-    ),
-  )
-  const starts = receipts.filter((record) => record.payload.phase === 'start')
-  const results = receipts.filter((record) => record.payload.phase === 'result')
-  if (starts.some((start) => !results.some((result) => result.payload.actionId === start.payload.actionId))) {
-    return { status: 'uncertain', evidence: [diagnostic('action-uncertain', 'CI attribution start has no result')] }
-  }
-  if (
-    facts === null ||
-    mandate === null ||
-    facts.pullRequest === null ||
-    facts.candidateGitSHA === null ||
-    facts.evidenceDigest == null
-  ) {
-    return { status: 'not-started', evidence: [] }
-  }
-  for (const record of results) {
-    const payload = record.payload
-    if (
-      payload.phase === 'result' &&
-      payload.action === 'attribute-ci' &&
-      payload.structured === null &&
-      payload.diagnostics.some(({ code }) => code === 'attribute-ci-output-invalid' || code === 'action-uncertain') &&
-      ciInputsMatch(payload, facts, mandate, facts.evidenceDigest)
-    )
-      return { status: 'blocked', evidence: payload.diagnostics }
-  }
-  const bound = boundCiAttribution(histories, facts, mandate)
-  return bound.change || bound.refused ? { status: 'confirmed', evidence: [] } : { status: 'not-started', evidence: [] }
-}
-
-function ciAttribution(
-  record: CanonicalRecord,
-  facts: WorkflowFacts,
-  mandate: MandateRecord,
-  digest: string,
-): 'change' | 'refused' | null {
-  if (record.kind !== 'action-receipt' || record.payload.action !== 'attribute-ci' || record.payload.phase !== 'result')
-    return null
-  if (!ciInputsMatch(record.payload, facts, mandate, digest)) return null
-  const parsed = ciAttributionSchema.safeParse(record.payload.structured)
-  if (!parsed.success) return null
-  return parsed.data.attribution === 'change' ? 'change' : 'refused'
-}
-
-function ciInputsMatch(
-  payload: Extract<ActionReceiptPayload, { action: 'attribute-ci'; phase: 'result' }>,
-  facts: WorkflowFacts,
-  mandate: MandateRecord,
-  digest: string,
-): boolean {
-  if (payload.mandate.recordId !== mandate.recordId || payload.mandate.kind !== 'mandate') return false
-  if (!equalScope(payload.mandate.scope, mandateScope(mandate))) return false
-  const inputs = payload.exactInputs
-  return (
-    inputs.candidateGitSHA === facts.candidateGitSHA &&
-    facts.pullRequest !== null &&
-    equalScope(inputs.scope, facts.pullRequest.scope) &&
-    inputs.evidenceDigest === digest &&
-    failedCheckEvidenceDigest(inputs) === digest
-  )
 }

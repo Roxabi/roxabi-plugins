@@ -8,11 +8,18 @@ export function bindingPolicy(mandate: MandateRecord): 'legacy' | 'bounded' | 'u
   const patch = Number(match[3])
   if (!Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return 'unknown'
   if (minor < 18 || (minor === 18 && patch <= 7)) return 'legacy'
-  if (minor === 18 && patch <= 11) return 'bounded'
-  if (minor === 19 && patch <= 3) return 'bounded'
-  if (minor === 20 && patch <= 1) return 'bounded'
-  if (minor === 21 && patch === 0) return 'bounded'
+  if (boundedWriter(minor, patch)) return 'bounded'
   return 'unknown'
+}
+
+function boundedWriter(minor: number, patch: number): boolean {
+  return (
+    (minor === 18 && patch <= 11) ||
+    (minor === 19 && patch <= 3) ||
+    (minor === 20 && patch <= 1) ||
+    (minor === 21 && patch === 0) ||
+    (minor === 22 && patch === 0)
+  )
 }
 
 export function bindingMatchesMandate(mandate: MandateRecord, branch: string, base: string): boolean {

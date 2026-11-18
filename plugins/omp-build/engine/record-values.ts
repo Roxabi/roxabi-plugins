@@ -8,6 +8,7 @@ import {
 import { type CriterionVerdict, criterionVerdictSchema } from './criterion-verdict-schema.ts'
 import { findingTargetSchema } from './finding-target-schema.ts'
 import { slotCorrectionSchema } from './fix-recovery-schema.ts'
+import { type NativeToolObservation, nativeToolObservationSchema } from './native-tool-observation-schema.ts'
 import {
   diagnosticSchema,
   identifierSchema,
@@ -107,8 +108,10 @@ export const nativeOutcomeSchema = z.strictObject({
   commandRuns: z.array(commandRunSchema).optional(),
   commandProvenance: evidenceProvenanceSchema.optional(),
   bashCalls: z.array(nativeProofBashCallSchema).optional(),
+  observedTools: nativeToolObservationSchema.optional(),
 })
 export type NativeOutcome = z.infer<typeof nativeOutcomeSchema>
+export type { NativeToolObservation }
 export const contributionSchema = z
   .strictObject({
     content: z.enum(['operator-request', 'findings', 'decision', 'action-result']),

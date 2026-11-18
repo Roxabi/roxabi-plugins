@@ -5,6 +5,8 @@ import type { ActiveBatch } from './state'
 export class NativeAnnouncements {
   #features = new WeakSet<NativeBatch>()
   #inhibited = false
+  /** Monotonic inhibition generation; advances on every inhibit, including already-held. */
+  #epoch = 0
 
   markFeature(batch: NativeBatch): void {
     this.#features.add(batch)
@@ -15,10 +17,17 @@ export class NativeAnnouncements {
   isInhibited(): boolean {
     return this.#inhibited
   }
-  release(): void {
+  epoch(): number {
+    return this.#epoch
+  }
+  /** Compare-and-clear for one captured epoch. Epoch is retained after clear (no ABA). */
+  release(expectedEpoch: number): boolean {
+    if (expectedEpoch !== this.#epoch) return false
     this.#inhibited = false
+    return true
   }
   inhibit(active: ActiveBatch | null): void {
+    this.#epoch += 1
     this.#inhibited = true
     if (
       active &&

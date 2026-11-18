@@ -27,6 +27,7 @@ type SimPull = {
   headRefName: string
   headRefOid: string
   baseRefName: string
+  isCrossRepository: boolean
   labels: string[]
   autoMerge: { enabledAt: string; matchHeadCommit?: string } | null
   comments: SimComment[]

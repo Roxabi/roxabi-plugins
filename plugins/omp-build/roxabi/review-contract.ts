@@ -82,5 +82,5 @@ export type ReviewPublisher = {
 }
 
 export type ReviewNativePort = Pick<NativeBatchController, 'activate' | 'inactive'> & {
-  announce(batch: NativeBatch): Promise<void>
+  announce(batch: NativeBatch, current?: () => boolean): Promise<void>
 }

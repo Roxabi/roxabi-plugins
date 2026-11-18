@@ -104,6 +104,15 @@ it.each(phases)(
     input.foundations = []
     const framed = await operations.frame(await prepare(operations, input), effectGuard().guard)
     if (framed.status !== 'written') throw new Error('Expected complete framing')
+    const framedRead = await operations.readUw(framed.value.root)
+    const coldFramed = await createInstalledObservedUwReadPort({ observation: framedRead.observation }).readUw(
+      framed.value.root,
+    )
+    expect(coldFramed.accepted.status).toBe('absent')
+    expect(coldFramed.identity.ok).toBe(true)
+    if (!coldFramed.identity.ok) throw new Error('Pre-mandate identity unavailable')
+    expect(coldFramed.identity.value.head?.kind).toBe('spec-identity')
+    expect(coldFramed.admission.aggregate).toMatchObject({ status: 'complete', member: 'root' })
     const root = native.issues.get(numberOf(framed.value.root))
     if (!root) throw new Error('Expected native root')
     const blockers = [...root.blockers]

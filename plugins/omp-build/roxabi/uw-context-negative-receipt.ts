@@ -15,7 +15,7 @@ import { actionFailure } from './uw-action-result.ts'
 
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
 export type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
-export type Family = 'frame' | 'assess-spec' | 'attribute-ci' | 'implement'
+export type Family = 'frame' | 'assess-spec' | 'attribute-ci' | 'implement' | 'integrate'
 export type Negative = Receipt & { payload: Extract<Receipt['payload'], { action: Family; phase: 'result' }> }
 
 export function authenticateNegative(

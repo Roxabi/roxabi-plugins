@@ -1,8 +1,6 @@
-import { canonicalValueDigest } from './canonical-value.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameOwnSpecRef } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
-import { replayForMandate } from './uw-identity-replay.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import {
   AcceptedSpecDiscovery,
@@ -11,14 +9,24 @@ import {
   type Chain,
   type StructuralOperands,
 } from './workflow-accepted-spec-discovery.ts'
+import { frameInputsProblem } from './workflow-accepted-spec-frame.ts'
 import { createCompatibilityOperands, matchesAcceptedOrigin } from './workflow-accepted-spec-operands.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult, CompatibilityOperandReader } from './workflow-accepted-spec-types.ts'
 import { constraintCompatibilityProblem } from './workflow-constraint-compatibility.ts'
-import { type MandateRecord, mandatesOf } from './workflow-control.ts'
+import { inspectContextNegativeReceipt } from './workflow-context-negative-inspection.ts'
+import {
+  type HistoricalAcceptedSpecContext,
+  historicalAcceptedSpecOwnedHistories,
+} from './workflow-context-succession-inspection.ts'
+import { bindExternalRef, historyFor, type MandateRecord } from './workflow-control.ts'
 import { compatibilityStateProblem } from './workflow-coverage-names.ts'
 import type { SpecAssessment } from './workflow-output-schema.ts'
 import { type AssessResultRecord, specChainFailure } from './workflow-spec-assessment.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+import {
+  type AcceptedSpecInspection,
+  type AssessmentReplayContext,
+  scopeAcceptedSpecInspection,
+} from './workflow-spec-authentication.ts'
 
 type AcceptedSpecRead = {
   latest(mandate: MandateRecord): AcceptedSpecResult
@@ -27,35 +35,6 @@ type AcceptedSpecRead = {
     mandate: MandateRecord,
   ): { ok: true; prefixes: readonly AcceptedOwnSpec[] } | Extract<AcceptedSpecResult, { ok: false }>
   operands: CompatibilityOperandReader
-}
-
-function frameInputsProblem(
-  histories: readonly DecodedHistory[],
-  replayContext?: AssessmentReplayContext,
-): Result<never> | null {
-  const historiesByScope = new Map<string, DecodedHistory>()
-  for (const history of histories) {
-    const scope = `${history.source.scope.repository}\0${history.source.scope.target}`
-    const previous = historiesByScope.get(scope)
-    if (previous !== undefined && canonicalValueDigest(previous) !== canonicalValueDigest(history))
-      return { ok: false, diagnostics: [diagnostic('ambiguous', 'Conflicting histories claim the same scope')] }
-    historiesByScope.set(scope, history)
-  }
-  if (replayContext !== undefined) {
-    const matches = new Set(
-      histories.flatMap((history) =>
-        mandatesOf(history)
-          .filter((candidate) => replayForMandate(history, candidate, replayContext))
-          .map((candidate) => `${candidate.repository}\0${candidate.target}\0${candidate.recordId}`),
-      ),
-    )
-    if (matches.size !== 1)
-      return {
-        ok: false,
-        diagnostics: [diagnostic('action-uncertain', 'Assessment replay does not identify one scoped mandate start')],
-      }
-  }
-  return null
 }
 
 function prefixUnavailable(message: string): Result<never> {
@@ -186,10 +165,39 @@ function authenticateAcceptedSpecs(
   mandate: MandateRecord,
   replayContext?: AssessmentReplayContext,
   extra?: AssessResultRecord,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<AcceptedSpecRead> {
-  const inputProblem = frameInputsProblem(histories, replayContext)
+  if (historical !== undefined) {
+    const owned = historicalAcceptedSpecOwnedHistories(historical, histories)
+    if (!owned.ok) return owned
+    histories = owned.value
+  }
+  const scoped = scopeAcceptedSpecInspection(
+    histories,
+    {
+      scope: { repository: mandate.repository, target: mandate.target },
+      kind: 'mandate',
+      recordId: mandate.recordId,
+    },
+    inspection,
+  )
+  if (scoped === null)
+    return { ok: false, diagnostics: [diagnostic('unconfirmed', 'Succession inspection is not authenticated')] }
+  const inputProblem = frameInputsProblem(histories, replayContext, scoped, historical)
   if (inputProblem !== null) return inputProblem
-  const discovery = new AcceptedSpecDiscovery(histories, replayContext)
+  if (scoped?.kind === 'context-negative-inspection') {
+    const home = historyFor(scoped.mandate.scope, histories)
+    const bound = home === null ? null : bindExternalRef(scoped.mandate, home)
+    if (
+      bound === null ||
+      !bound.ok ||
+      bound.value.kind !== 'mandate' ||
+      !inspectContextNegativeReceipt({ mandate: bound.value, histories, negative: scoped.negative }).ok
+    )
+      return { ok: false, diagnostics: [diagnostic('unconfirmed', 'Accepted Spec inspection is not authenticated')] }
+  }
+  const discovery = new AcceptedSpecDiscovery(histories, replayContext, scoped, historical)
   discovery.discover(mandate, extra)
   const own = acceptedMandateKey(mandate)
   const ownFailure = discovery.failures.get(own)
@@ -206,8 +214,9 @@ export function checkAuthenticatedSpecCompatibility(
   assessment: SpecAssessment,
   histories: readonly DecodedHistory[],
   mandate: MandateRecord,
+  historical?: HistoricalAcceptedSpecContext,
 ): string | null {
-  const frame = authenticateAcceptedSpecs(histories, mandate, undefined, record)
+  const frame = authenticateAcceptedSpecs(histories, mandate, undefined, record, undefined, historical)
   return frame.ok
     ? constraintCompatibilityProblem(record, assessment, histories, frame.value.operands)
     : frame.diagnostics.map((item) => item.message).join('; ')
@@ -216,9 +225,11 @@ export function checkAuthenticatedSpecCompatibility(
 export function resolveAcceptedSpec(
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
-  replayContext?: AssessmentReplayContext,
+  replay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): AcceptedSpecResult {
-  const frame = authenticateAcceptedSpecs(histories, mandate, replayContext)
+  const frame = authenticateAcceptedSpecs(histories, mandate, replay, undefined, inspection, historical)
   return frame.ok ? frame.value.latest(mandate) : { ok: false, reason: 'incomplete', evidence: frame.diagnostics }
 }
 
@@ -226,17 +237,21 @@ export function resolveAcceptedSpecAt(
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
   target: OwnSpecRef,
-  replayContext?: AssessmentReplayContext,
+  replay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): AcceptedSpecResult {
-  const frame = authenticateAcceptedSpecs(histories, mandate, replayContext)
+  const frame = authenticateAcceptedSpecs(histories, mandate, replay, undefined, inspection, historical)
   return frame.ok ? frame.value.at(mandate, target) : { ok: false, reason: 'incomplete', evidence: frame.diagnostics }
 }
 
 export function resolveAcceptedSpecPrefixes(
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
-  replayContext?: AssessmentReplayContext,
+  replay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): { ok: true; prefixes: readonly AcceptedOwnSpec[] } | Extract<AcceptedSpecResult, { ok: false }> {
-  const frame = authenticateAcceptedSpecs(histories, mandate, replayContext)
+  const frame = authenticateAcceptedSpecs(histories, mandate, replay, undefined, inspection, historical)
   return frame.ok ? frame.value.prefixes(mandate) : { ok: false, reason: 'incomplete', evidence: frame.diagnostics }
 }

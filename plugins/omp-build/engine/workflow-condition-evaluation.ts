@@ -5,11 +5,13 @@ import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { boundCiAttribution } from './workflow-action-completion.ts'
 import type { ProposedAssessmentState } from './workflow-action-operands.ts'
 import { adoptedOrConfirmed, implementConfirmed, planConfirmed, workflowBound } from './workflow-action-state.ts'
+import { prepareContextSuccessionInspection } from './workflow-context-succession-inspection.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import type { WorkflowCondition } from './workflow-graph.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import type { SpecializedDecisions, WorkflowFacts } from './workflow-reconstruction-types.ts'
+import { assessmentPrestartContext } from './workflow-spec-authentication.ts'
 
 export function conditionHolds(
   when: WorkflowCondition,
@@ -28,13 +30,13 @@ export function conditionHolds(
     case 'mandate-ready':
       return mandate !== null
     case 'spec-differs':
-      return specMatches(false, facts, mandate, causal)
+      return specMatches(false, facts, mandate, causal, history)
     case 'spec-settled':
-      return specMatches(true, facts, mandate, causal)
+      return specMatches(true, facts, mandate, causal, history)
     case 'plan-confirmed':
-      return planConfirmed(history, mandate, causal)
+      return planConfirmed(history, mandate, causal, facts)
     case 'implement-confirmed':
-      return implementConfirmed(history, mandate, causal)
+      return implementConfirmed(history, mandate, causal, facts)
     case 'pr-open':
       return pullRequestIsOpen(history, facts, mandate, pullRequest, causal)
     case 'review-step-review':
@@ -79,9 +81,14 @@ function specMatches(
   facts: WorkflowFacts,
   mandate: MandateRecord | null,
   causal: WorkflowCausalContext,
+  history: DecodedHistory,
 ): boolean {
   if (mandate === null || facts.currentSpec === null) return false
-  const accepted = resolveAcceptedSpec(mandate, causal.histories)
+  const proof = prepareContextSuccessionInspection({ issue: history, pullRequest: null, parents: [], causal }, mandate)
+  if (!proof.ok) return false
+  const inspection =
+    proof.value === undefined ? undefined : { kind: 'selected-succession' as const, succession: proof.value }
+  const accepted = resolveAcceptedSpec(mandate, causal.histories, assessmentPrestartContext(facts), inspection)
   if (!accepted.ok) return false
   const effective = settled
     ? resolveSpecEffective({
@@ -89,11 +96,14 @@ function specMatches(
         own: accepted.spec.ref,
         histories: causal.histories,
         graph: causal.observation.graph,
+        inspection,
       })
     : resolveSpecEffective({
         mode: 'historical',
         own: accepted.spec.ref,
         versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
+        assessmentReplay: assessmentPrestartContext(facts),
+        inspection,
         histories: causal.histories,
       })
   if (!effective.ok) return false
@@ -139,7 +149,7 @@ function pullRequestIsOpen(
   return (
     facts.pullRequest !== null &&
     workflowBound(mandate, history, pullRequest, facts) &&
-    adoptedOrConfirmed(history, mandate, causal)
+    adoptedOrConfirmed(history, mandate, causal, facts)
   )
 }
 

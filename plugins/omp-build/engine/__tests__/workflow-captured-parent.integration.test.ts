@@ -84,6 +84,7 @@ describe('captured parent integration during material assessment', () => {
               parentCheckout.cwd,
               world.parent,
               world.operations,
+              new Set(),
             )
             expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'integrate' })
             const pending = await world.operations.readUw(world.parentScope)
@@ -285,6 +286,7 @@ describe('captured parent integration during material assessment', () => {
               result: captured,
               gh: world.gh,
               git: world.git,
+              current: () => true,
             })
             if (!published.published)
               throw new Error(`Parent metadata publication refused: ${JSON.stringify(published)}`)

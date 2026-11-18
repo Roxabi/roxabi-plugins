@@ -12,6 +12,7 @@ import { registerHostActionBinding } from '../omp/review-runtime/action-registry
 import type {
   ActionInputManifest,
   ActionInputs,
+  ActionReplayIntent,
   ActionSnapshot,
   CorrectionRootRef,
   PreparedUwAction,
@@ -26,6 +27,7 @@ import { materializeActionFiles } from './uw-action-dossier.ts'
 import { acceptCurrentManifest, verifyExpandedContext, verifyReviewedPlugin } from './uw-action-expanded.ts'
 import { verifiedPluginFiles } from './uw-action-plugin-files.ts'
 import { projectionFiles, repositorySealPath, sealedIndex } from './uw-action-projection.ts'
+import { readReplaySources } from './uw-action-replay-sources.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 import { sealActionSnapshot, verifyActionSnapshot } from './uw-action-snapshot.ts'
 import { correctionLocalPorts } from './uw-correction-local-ports.ts'
@@ -75,7 +77,9 @@ async function buildManifest(
 > {
   const pin = await ports.plugin.resolveInstalledPluginPin()
   if (!pin.ok) return pin
-  const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot, correctionRoot)
+  const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot, correctionRoot, {
+    kind: 'prepublication',
+  })
   if (!facts.ok) return facts
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
@@ -155,28 +159,18 @@ export async function prepareUwAction(
   return { ok: true, value: { inputs, snapshot: sealed.value } }
 }
 
-async function readReplaySources(rebuilt: ActionInputs, ports: UwActionPorts): Promise<Result<true>> {
-  for (const ref of rebuilt.manifest.repositoryReferences) {
-    const read = await ports.readPinnedFile(ref)
-    if (!read.ok) return read
-  }
-  const records = [...rebuilt.manifest.acceptedSources, ...rebuilt.manifest.deliveryData]
-  const selected = await ports.readRecords(records)
-  if (!selected.ok) return selected
-  if (selected.value.length !== records.length)
-    return actionFailure('record-unreadable', 'Selected record batch returned an unexpected number of values')
-  return { ok: true, value: true }
-}
-
 export async function replayUwActionInputs(
   input: {
     reviewed: ActionInputs
     request: UwActionRequest
+    intent: ActionReplayIntent
     reviewedRoot?: ReviewRootRef
     correctionRoot?: CorrectionRootRef
   },
   ports: UwActionPorts,
 ): Promise<Result<ActionInputs>> {
+  if (input.intent?.kind !== 'prepublication' && input.intent?.kind !== 'persisted')
+    return actionFailure('action-input-missing', 'Action replay requires an explicit intent')
   const scoped = correctionLocalPorts(input.request, ports)
   if (
     input.request.expandedContext.length > 0 &&
@@ -193,6 +187,7 @@ export async function replayUwActionInputs(
     input.reviewed.fingerprint,
     input.reviewedRoot,
     input.correctionRoot,
+    input.intent,
   )
   if (!facts.ok) return facts
   const rebuilt: ActionInputs = {
@@ -262,6 +257,7 @@ export async function replayStoredReviewAttempt(
   return replayUwActionInputs(
     {
       reviewed: parsed.value,
+      intent: { kind: 'prepublication' },
       reviewedRoot: root.value,
       request: {
         actionId: `review-${input.pr}`,

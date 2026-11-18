@@ -106,10 +106,9 @@ export function selectWorkflowBinding(input: {
   }
 }
 
-function unboundPinnedMandate(inputs: ActionInputs, histories: readonly DecodedHistory[]): Result<MandateRecord> {
+function pinnedUwMandate(inputs: ActionInputs, histories: readonly DecodedHistory[]): Result<MandateRecord> {
   const { subject, acceptedSources, code } = inputs.manifest
-  if (subject.kind !== 'uw' || subject.pullRequest !== null || subject.binding !== null)
-    return fail([diagnostic('unconfirmed', 'Unbound mandate requires an unbound UW subject')])
+  if (subject.kind !== 'uw') return fail([diagnostic('unconfirmed', 'Pinned mandate requires a UW subject')])
   if (code.repository !== subject.uw.repository)
     return fail([diagnostic('mismatch', 'UW review code repository does not match its subject')])
   const pins = acceptedSources.filter(
@@ -129,6 +128,13 @@ function unboundPinnedMandate(inputs: ActionInputs, histories: readonly DecodedH
   )
     return fail([diagnostic('unconfirmed', 'UW review mandate pin does not match its authenticated record')])
   return { ok: true, value: resolved.value }
+}
+
+function unboundPinnedMandate(inputs: ActionInputs, histories: readonly DecodedHistory[]): Result<MandateRecord> {
+  const { subject } = inputs.manifest
+  if (subject.kind !== 'uw' || subject.pullRequest !== null || subject.binding !== null)
+    return fail([diagnostic('unconfirmed', 'Unbound mandate requires an unbound UW subject')])
+  return pinnedUwMandate(inputs, histories)
 }
 
 /** Authenticate the execution mandate pinned by historical action inputs. */
@@ -190,4 +196,48 @@ export function resolveCapturedWorkMandate(
   return subject.kind === 'uw' && subject.pullRequest === null
     ? unboundPinnedMandate(inputs, histories)
     : resolveManifestMandate(inputs, histories)
+}
+
+/** Authenticate assessment input authority without requiring a delivery binding or granting work authority. */
+export function resolveCapturedAssessmentMandate(
+  inputs: ActionInputs,
+  histories: readonly DecodedHistory[],
+): Result<MandateRecord> {
+  const { purpose, subject } = inputs.manifest
+  if (purpose !== 'assess-spec' || subject.kind !== 'uw' || (subject.pullRequest === null && subject.binding !== null))
+    return fail([diagnostic('unconfirmed', 'Captured assessment requires an authenticated UW subject')])
+  const pinned = pinnedUwMandate(inputs, histories)
+  if (!pinned.ok) return pinned
+  const home = historyFor(subject.uw, histories)
+  const ref: ExternalRecordRef = { scope: subject.uw, kind: 'mandate', recordId: pinned.value.recordId }
+  const accounted = home === null ? null : confirmedAccountedMandate(home, ref)
+  if (accounted === null || canonicalValueDigest(accounted) !== canonicalValueDigest(pinned.value))
+    return fail([diagnostic('unconfirmed', 'Assessment mandate is not accounted')])
+  if (subject.binding === null) return pinned
+  return authenticateAssessmentBinding(inputs, histories, pinned.value)
+}
+
+function authenticateAssessmentBinding(
+  inputs: ActionInputs,
+  histories: readonly DecodedHistory[],
+  pinned: MandateRecord,
+): Result<MandateRecord> {
+  const subject = inputs.manifest.subject
+  if (subject.kind !== 'uw' || subject.binding === null)
+    return fail([diagnostic('unconfirmed', 'Assessment workflow binding is unavailable')])
+  const resolved = resolveManifestMandate(inputs, histories)
+  if (!resolved.ok) return resolved
+  if (canonicalValueDigest(resolved.value) !== canonicalValueDigest(pinned))
+    return fail([diagnostic('unconfirmed', 'Assessment binding differs from its pinned execution mandate')])
+  const bindingHistory = historyFor(subject.binding.record.scope, histories)
+  const binding = bindingHistory === null ? null : bindExternalRef(subject.binding.record, bindingHistory)
+  if (binding === null || !binding.ok || binding.value.kind !== 'workflow-binding')
+    return fail([diagnostic('unconfirmed', 'Assessment workflow binding is unavailable')])
+  const policy = bindingPolicy(pinned)
+  if (
+    policy === 'unknown' ||
+    (policy === 'bounded' && !bindingMatchesMandate(pinned, binding.value.payload.branch, binding.value.payload.base))
+  )
+    return fail([diagnostic('unconfirmed', 'Assessment workflow binding is incompatible with its mandate')])
+  return { ok: true, value: pinned }
 }

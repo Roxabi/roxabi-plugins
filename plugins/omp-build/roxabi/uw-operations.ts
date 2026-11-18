@@ -10,6 +10,7 @@ import type { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { type ActionOperationPorts, actionOperationMethods } from './uw-action-operations.ts'
 import type { CauseEffectGuard } from './uw-cause-guard.ts'
+import { bindContextSuccessionOperator } from './uw-context-succession-operation.ts'
 import type {
   CreatedUwRead,
   OperatorPort,
@@ -210,5 +211,6 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     acceptMaterial: ports.acceptMaterial,
     ...actionOperationMethods(ports),
   }
+  bindContextSuccessionOperator(operations, ports.operator)
   return operations
 }

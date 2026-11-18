@@ -8,6 +8,7 @@ import {
   planMacro,
   recordsOf,
   resolveOwnSpecAuthority,
+  selectedMandate,
   successorOf,
 } from '../dist/contracts.js'
 import type { ActionSpecInput } from '../engine/action-input-schema.ts'
@@ -17,6 +18,8 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
+import type { HistoricalAcceptedSpecContext } from '../engine/workflow-context-succession-inspection.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 
 import type { DeliveryDataRef, UwActionRequest } from './uw-action-contract.ts'
 import { expandedPlannerMacro, type PlannerExpansion } from './uw-action-negative-expansion.ts'
@@ -51,9 +54,11 @@ export function currentAccountedMandate(history: DecodedHistory): Result<Mandate
   if (open.length === 0) return actionFailure('action-input-missing', 'No current accounted mandate')
   if (open.length > 1) return actionFailure('action-input-cycle', 'Several accounted mandates have no successor')
   const mandate = open[0]
-  return mandate === undefined
-    ? actionFailure('action-input-missing', 'No current accounted mandate')
-    : { ok: true, value: mandate }
+  if (mandate === undefined) return actionFailure('action-input-missing', 'No current accounted mandate')
+  const selected = selectedMandate(history)
+  if ('status' in selected || selected.recordId !== mandate.recordId)
+    return actionFailure('record-unreadable', 'Current mandate has no authenticated unique successor selection')
+  return { ok: true, value: mandate }
 }
 
 function selectPlanActionId(
@@ -63,7 +68,7 @@ function selectPlanActionId(
   catalogues: ReviewClassCatalogues,
   observation: Extract<UwCompletionObservation, { status: 'complete' }>,
   expansion?: PlannerExpansion,
-  reviewedFingerprint?: string,
+  excludedStarts?: ReadonlySet<string>,
 ): Result<string | null> {
   const issue = historyFor(mandateScope(mandate), histories)
   if (issue === null) return actionFailure('record-unreadable', 'Mandate history is absent')
@@ -74,14 +79,10 @@ function selectPlanActionId(
     parents: [],
     causal: { histories, catalogues, observation },
   }
-  const replay =
-    request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
-      ? { uw: mandateScope(mandate), actionId: request.actionId, fingerprint: reviewedFingerprint }
-      : undefined
   const selected =
     expansion === undefined
-      ? { ok: true as const, value: planMacro(evidence, mandate, { assessmentReplay: replay }) }
-      : expandedPlannerMacro(evidence, mandate, expansion)
+      ? { ok: true as const, value: planMacro(evidence, mandate, { excludedStarts }) }
+      : expandedPlannerMacro(evidence, mandate, expansion, excludedStarts)
   if (!selected.ok) return selected
   const macro = selected.value
   if (macro.phase === 'uncertain' || macro.phase === 'blocked') return { ok: false, diagnostics: macro.evidence }
@@ -98,7 +99,10 @@ function selectAssessmentData(
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
   completionObservation: Extract<UwCompletionObservation, { status: 'complete' }>,
-  reviewedFingerprint?: string,
+  replay?: AssessmentReplayContext,
+  excludedStarts?: ReadonlySet<string>,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<{ refs: DeliveryDataRef[]; plannedPaths: readonly string[]; planActionId: string | null }> {
   const issue = historyFor(mandateScope(mandate), histories)
   if (issue === null) return actionFailure('record-unreadable', 'Assessment mandate history is absent')
@@ -109,20 +113,14 @@ function selectAssessmentData(
     parents: [],
     causal: { histories, catalogues, observation: completionObservation },
   }
-  const replay =
-    reviewedFingerprint === undefined
-      ? undefined
-      : {
-          uw: mandateScope(mandate),
-          actionId: request.actionId,
-          fingerprint: reviewedFingerprint,
-        }
   const control = resolveOwnSpecAuthority(
     issue,
     histories.filter((history) => history !== issue),
     evidence.causal,
     new Set(),
     replay,
+    inspection,
+    historical,
   )
   if (!control.ok) return control
   if (
@@ -132,7 +130,7 @@ function selectAssessmentData(
     )
   )
     return actionFailure('action-input-missing', 'Assessment does not bind the authenticated own mandate')
-  const closure = inspectCapturedWorkForAssessment(evidence, replay)
+  const closure = inspectCapturedWorkForAssessment(evidence, replay, excludedStarts, historical)
   return closure.ok ? { ok: true, value: { refs: [], plannedPaths: [], planActionId: null } } : closure
 }
 
@@ -145,10 +143,23 @@ export function selectDeliveryData(
   authenticate: (record: CanonicalRecord) => Result<CanonicalRecord>,
   expansion?: PlannerExpansion,
   spec?: ActionSpecInput,
-  reviewedFingerprint?: string,
+  excludedStarts?: ReadonlySet<string>,
+  assessmentReplay?: AssessmentReplayContext,
+  assessmentInspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<{ refs: DeliveryDataRef[]; plannedPaths: readonly string[]; planActionId: string | null }> {
   if (request.purpose === 'assess-spec')
-    return selectAssessmentData(request, mandate, histories, catalogues, completionObservation, reviewedFingerprint)
+    return selectAssessmentData(
+      request,
+      mandate,
+      histories,
+      catalogues,
+      completionObservation,
+      assessmentReplay,
+      excludedStarts,
+      assessmentInspection,
+      historical,
+    )
   const plan = selectPlanActionId(
     request,
     mandate,
@@ -156,7 +167,7 @@ export function selectDeliveryData(
     catalogues,
     completionObservation,
     expansion,
-    reviewedFingerprint,
+    excludedStarts,
   )
   if (!plan.ok) return plan
   const planActionId = plan.value

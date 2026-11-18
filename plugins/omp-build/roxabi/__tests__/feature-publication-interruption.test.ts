@@ -25,6 +25,7 @@ describe('implementation branch effect authority', () => {
     const authority = vi.fn(async () => ({ ok: false as const, reason: 'implementation-authority-withdrawn' }))
 
     const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
+      current: () => true,
       effect: authority,
       beforePush: authority,
     })
@@ -46,6 +47,7 @@ describe('implementation branch effect authority', () => {
     }
     await expect(
       proveAuthorizedBranch(git, '/checkout', branch, tip, {
+        current: () => true,
         effect: authority,
         beforePush: authority,
       }),
@@ -56,16 +58,52 @@ describe('implementation branch effect authority', () => {
   it('does not push when authority is withdrawn before a required push', async () => {
     const { git, calls } = branchGit('b'.repeat(40))
     const denied = async () => ({ ok: false as const, reason: 'implementation-authority-withdrawn' })
-    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: denied, beforePush: denied })
+    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
+      current: () => true,
+      effect: denied,
+      beforePush: denied,
+    })
 
     expect(result).toMatchObject({ ok: false })
+    expect(calls.some(([command]) => command === 'push')).toBe(false)
+  })
+
+  it('does not push when ownership ends during successful beforePush authorization', async () => {
+    let current = true
+    const calls: string[][] = []
+    const git: GitRunner = async (_cwd, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse') {
+        return { code: 0, stdout: args[1] === '--abbrev-ref' ? branch : tip, stderr: '' }
+      }
+      if (args[0] === 'ls-remote') {
+        return { code: 0, stdout: `${'b'.repeat(40)}\trefs/heads/${branch}\n`, stderr: '' }
+      }
+      if (args[0] === 'push') return { code: 0, stdout: '', stderr: '' }
+      throw new Error(`unexpected git call: ${args.join(' ')}`)
+    }
+    const effect = async () => ({ ok: true as const })
+    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
+      current: () => current,
+      effect,
+      beforePush: async () => {
+        await Promise.resolve()
+        current = false
+        return { ok: true as const }
+      },
+    })
+    expect(result).toEqual({ ok: false, reason: 'implementation-local-inhibition' })
     expect(calls.some(([command]) => command === 'push')).toBe(false)
   })
 
   it('distinguishes a failed push from a confirmed remote mismatch', async () => {
     const { git, calls } = branchGit('b'.repeat(40), 1)
     const allowed = async () => ({ ok: true as const })
-    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
+    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
+      current: () => true,
+      effect: allowed,
+      beforePush: allowed,
+    })
 
     expect(result).toEqual({ ok: false, reason: 'implementation-push-failed' })
     expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
@@ -74,7 +112,11 @@ describe('implementation branch effect authority', () => {
   it('distinguishes an unconfirmed remote tip after a successful push', async () => {
     const { git, calls } = branchGit('b'.repeat(40))
     const allowed = async () => ({ ok: true as const })
-    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
+    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
+      current: () => true,
+      effect: allowed,
+      beforePush: allowed,
+    })
 
     expect(result).toEqual({ ok: false, reason: 'implementation-remote-unconfirmed' })
     expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)

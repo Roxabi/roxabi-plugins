@@ -114,7 +114,7 @@ function successorRecords(): Comment[] {
       payload: {
         control: 'select-successor',
         controlId: 'select-m2',
-        mandate: secondRef,
+        mandate: firstRef,
         predecessor: firstRef,
         successor: secondRef,
       },

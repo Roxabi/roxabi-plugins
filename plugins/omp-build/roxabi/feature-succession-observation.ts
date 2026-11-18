@@ -59,6 +59,7 @@ export async function currentSuccessionBasis(
   read: UwRead,
   history: FeatureAuthority['history'],
   parents: FeatureAuthority['parentHistories'],
+  contextHandoff = false,
 ): Promise<{ basis: SuccessionBasis; histories: readonly FeatureAuthority['history'][] } | ContinueFeatureResult> {
   if (!sameScope(read.uw, authority.scope) || !sameScope(history.source.scope, authority.scope))
     return { kind: 'blocked', reason: 'successor-scope-mismatch' }
@@ -67,7 +68,7 @@ export async function currentSuccessionBasis(
     gh: authority.context.gh,
   })
   if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal, 'successor-observation-unconfirmed') }
-  const basis = readSuccessionBasis(history, causal.value.histories)
+  const basis = readSuccessionBasis(history, causal.value.histories, contextHandoff)
   return basis.ok
     ? { basis: basis.value, histories: causal.value.histories }
     : { kind: 'blocked', reason: 'successor-antecedent-unconfirmed', diagnostics: basis.diagnostics }

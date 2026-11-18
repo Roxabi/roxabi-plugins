@@ -9,13 +9,25 @@ import { scopeKey, type UwGraphObservation, type UwSemanticGraph } from './uw-gr
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecAt } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import { historyFor, mandatesOf } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 export type SpecEffectiveRequest = { own: OwnSpecRef; histories: readonly DecodedHistory[] } & (
-  | { mode: 'historical'; versionVector: SpecVersionVector; assessmentReplay?: AssessmentReplayContext }
-  | { mode: 'current'; graph: UwGraphObservation }
+  | {
+      mode: 'historical'
+      versionVector: SpecVersionVector
+      assessmentReplay?: AssessmentReplayContext
+      inspection?: AcceptedSpecInspection
+      historical?: HistoricalAcceptedSpecContext
+    }
+  | {
+      mode: 'current'
+      graph: UwGraphObservation
+      inspection?: AcceptedSpecInspection
+      historical?: HistoricalAcceptedSpecContext
+    }
 )
 
 function refusal(own: OwnSpecRef, code: string, message: string): UwResult<never> {
@@ -31,12 +43,19 @@ function acceptedAt(ref: OwnSpecRef, input: SpecEffectiveRequest): AcceptedOwnSp
   if (input.mode === 'current') {
     const mandate = selectedMandate(history)
     if (!('kind' in mandate) || mandate.kind !== 'mandate') return null
-    const result = resolveAcceptedSpec(mandate, input.histories)
+    const result = resolveAcceptedSpec(mandate, input.histories, undefined, input.inspection, input.historical)
     return result.ok && sameOwnSpecRef(result.spec.ref, ref) ? result.spec : null
   }
   const matches: AcceptedOwnSpec[] = []
   for (const mandate of mandatesOf(history)) {
-    const result = resolveAcceptedSpecAt(mandate, input.histories, ref, input.assessmentReplay)
+    const result = resolveAcceptedSpecAt(
+      mandate,
+      input.histories,
+      ref,
+      input.assessmentReplay,
+      input.inspection,
+      input.historical,
+    )
     if (result.ok && sameOwnSpecRef(result.spec.ref, ref)) matches.push(result.spec)
   }
   const [match] = matches

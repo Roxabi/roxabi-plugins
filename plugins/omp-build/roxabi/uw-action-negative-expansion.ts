@@ -2,14 +2,9 @@ import {
   bindExternalRef,
   canonicalValueDigest,
   historyFor,
-  type MandateRecord,
-  mandateScope,
   missingContextOutputSchema,
-  outstandingPauseRequest,
-  planMacro,
   recordOperation,
   recordsOf,
-  unliftedPause,
   validateActionInputs,
   workflowContextResolution,
   workflowOperationProblem,
@@ -18,12 +13,13 @@ import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
-import type { PlanMacro, WorkflowEvidence } from '../engine/workflow-plan.ts'
 import type { UwActionRequest } from './uw-action-contract.ts'
 import { authenticate } from './uw-action-observe.ts'
-import { matchesReviewedDraft, plannerLineage } from './uw-action-planner-lineage.ts'
+import { plannerLineage } from './uw-action-planner-lineage.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { matchesRequestedSubject } from './uw-action-subject.ts'
+
+export { expandedPlannerMacro } from './uw-expanded-planner-macro.ts'
 
 const equal = (left: unknown, right: unknown): boolean => canonicalValueDigest(left) === canonicalValueDigest(right)
 
@@ -40,7 +36,11 @@ type PlanResult = Receipt & {
 }
 type PlannerSlot =
   | { action: 'plan'; exact: Extract<PlanResult['payload'], { action: 'plan' }>['exactInputs'] }
-  | { action: 'plan-review'; exact: Extract<PlanResult['payload'], { action: 'plan-review' }>['exactInputs'] }
+  | {
+      action: 'plan-review'
+      exact: Extract<PlanResult['payload'], { action: 'plan-review' }>['exactInputs']
+      slotId: string
+    }
 export type PlannerExpansion = {
   histories: readonly DecodedHistory[]
   leaf: Receipt
@@ -240,45 +240,23 @@ export function plannerExpansion(
   const previous = original.value
   const references = validatePlannerExpansionRefs(request, previous, result)
   if (!references.ok) return references
-  const slot: PlannerSlot =
-    body.action === 'plan'
-      ? { action: 'plan', exact: body.exactInputs }
-      : { action: 'plan-review', exact: body.exactInputs }
-  return { ok: true, value: { histories, leaf: result, previous, slot, mandate: body.mandate } }
-}
-
-export function expandedPlannerMacro(
-  evidence: WorkflowEvidence,
-  mandate: MandateRecord,
-  expansion: PlannerExpansion,
-): Result<PlanMacro> {
-  if (outstandingPauseRequest(evidence.issue, mandate) !== null || unliftedPause(evidence.issue, mandate) !== null)
-    return actionFailure('action-input-missing', 'Planner authority has an outstanding or active pause')
-  const blocked = planMacro(evidence, mandate)
-  if (
-    blocked.phase !== 'blocked' ||
-    blocked.evidence.length === 0 ||
-    blocked.evidence.some((item) => item.code !== 'action-context-missing')
-  )
-    return actionFailure('action-input-missing', 'The selected negative is not the only planner block')
-  const issue = historyFor(mandateScope(mandate), expansion.histories)
-  if (issue === null) return actionFailure('record-unreadable', 'Expanded planner history is absent')
-  const macro = planMacro({ ...evidence, issue }, mandate, { contextLeaf: expansion.leaf })
-  const { slot } = expansion
-  const exact = slot.exact
-  if (exact.mandateId !== mandate.recordId || exact.specDigest !== macro.specDigest)
-    return actionFailure('review-input-changed', 'Expanded planner request changes mandate or Spec')
-  if (slot.action === 'plan') {
-    if (
-      slot.exact.amendsReviewActionId === null
-        ? macro.phase !== 'needs-draft'
-        : macro.phase !== 'needs-amendment' ||
-          macro.reviewActionId !== slot.exact.amendsReviewActionId ||
-          canonicalValueDigest(macro.blockers) !== canonicalValueDigest(slot.exact.requiredBlockers)
-    )
-      return actionFailure('review-input-changed', 'Expanded planner request changes its semantic slot')
-  } else if (!matchesReviewedDraft(issue, macro, slot)) {
-    return actionFailure('review-input-changed', 'Expanded plan review changes its reviewed draft')
+  const contribution =
+    body.action === 'plan-review'
+      ? body.contributions.find(
+          (item) =>
+            item.host.action !== undefined &&
+            equal(item.host.action.inputs, previous) &&
+            equal(item.structured, body.structured),
+        )
+      : undefined
+  const slotId = contribution?.host.slotId
+  let slot: PlannerSlot
+  if (body.action === 'plan') {
+    slot = { action: 'plan', exact: body.exactInputs }
+  } else if (slotId != null) {
+    slot = { action: 'plan-review', exact: body.exactInputs, slotId }
+  } else {
+    return actionFailure('record-unreadable', 'Negative plan review slot is unavailable')
   }
-  return { ok: true, value: macro }
+  return { ok: true, value: { histories, leaf: result, previous, slot, mandate: body.mandate } }
 }

@@ -5,6 +5,10 @@ import type { Diagnostic } from './record-values.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import {
+  createHistoricalAcceptedSpecContext,
+  historicalAcceptedSpecFrame,
+} from './workflow-context-succession-inspection.ts'
+import {
   abandoned,
   type MandateRecord,
   mandateScope,
@@ -14,13 +18,18 @@ import {
 import { executableGraph } from './workflow-graph.ts'
 import { INTERRUPTION_ACTIONS } from './workflow-interruption-proof.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
-import { resolveOwnSpecAuthority, selectApplicableMandate } from './workflow-mandate-admission.ts'
+import {
+  resolveOwnSpecAuthority,
+  selectApplicableMandate,
+  selectedMandate as selectCurrentMandate,
+} from './workflow-mandate-admission.ts'
 import { confirmedPause, outstandingPauseInAuthority, outstandingPauseRequest } from './workflow-pause.ts'
 import type { WorkflowCausalContext, WorkflowEvidence } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import { assessmentDecision } from './workflow-reconstruction-assessment.ts'
 import type { SpecializedDecisions, WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import { sessionEvidence, sessionReady } from './workflow-session.ts'
+import { assessmentPrestartContext } from './workflow-spec-authentication.ts'
 import { walkWorkflow } from './workflow-walk.ts'
 
 type ReconstructionInput = { evidence: WorkflowEvidence; facts: WorkflowFacts; decisions: SpecializedDecisions }
@@ -144,9 +153,25 @@ function selectedMandate(
   causal: WorkflowCausalContext,
   facts: WorkflowFacts,
 ): MandateAdmission {
-  const own = resolveOwnSpecAuthority(history, externalHistories, causal)
+  const historical = createHistoricalAcceptedSpecContext(causal.histories)
+  if (!historical.ok) return blocked('unconfirmed', historical.diagnostics)
+  const current = selectCurrentMandate(history)
+  const frame = !('status' in current)
+    ? historicalAcceptedSpecFrame(historical.value, causal.histories, current)
+    : { ok: true as const, value: { inspection: undefined } }
+  if (!frame.ok) return blocked('unconfirmed', frame.diagnostics)
+  const inspection = frame.value.inspection
+  const own = resolveOwnSpecAuthority(
+    history,
+    externalHistories,
+    causal,
+    new Set(),
+    assessmentPrestartContext(facts),
+    inspection,
+    historical.value,
+  )
   if (own.ok) return { mandate: own.value.mandate }
-  const selection = selectApplicableMandate(history, externalHistories, causal)
+  const selection = selectApplicableMandate(history, externalHistories, causal, new Set(), inspection, historical.value)
   if (selection.status === 'applicable') return { mandate: selection.mandate }
   if (selection.reason === 'missing') return missingMandateDecision(facts)
   if (selection.reason === 'abandoned' || selection.reason === 'revoked')
@@ -179,6 +204,8 @@ function configurationDecision(mandate: MandateRecord, facts: WorkflowFacts): Wo
     return blocked('config-drift', [diagnostic('config-drift', 'Host product version differs from the mandate')])
   if (!facts.supportedConfigVersions.includes(mandate.payload.config.version))
     return blocked('unsupported-config', [diagnostic('unsupported-config', 'Mandate config version is not supported')])
+  if (facts.configVersion !== mandate.payload.config.version)
+    return blocked('config-drift', [diagnostic('config-drift', 'Host config version differs from the mandate')])
   if (facts.configDigest !== mandate.payload.config.digest)
     return blocked('config-drift', [diagnostic('config-drift', 'Host config digest differs from the mandate')])
   return null
@@ -227,7 +254,7 @@ export function reconstructWorkflow(input: ReconstructionInput): WorkflowDecisio
   const local = localAuthorityDecision(selected.mandate, history, externalHistories, input.facts)
   if (local !== null) return local
   if (!sessionReady(input.facts)) return blocked('session-cwd', sessionEvidence(input.facts))
-  const assessment = assessmentDecision(history, selected.mandate, input.facts, input.evidence.causal.histories)
+  const assessment = assessmentDecision(history, selected.mandate, input.facts, input.evidence)
   if (assessment !== null) return assessment
   const graph = executableGraph(selected.mandate)
   if (!graph.ok) return blocked('unsupported-graph', graph.diagnostics)

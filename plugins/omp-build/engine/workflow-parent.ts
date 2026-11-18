@@ -4,13 +4,17 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import { abandoned, type MandateRecord, mandateScope, mandatesOf, successorOf } from './workflow-control.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
+import type { AcceptedSpecInspection } from './workflow-spec-authentication.ts'
 
 function parentListings(
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): ExternalRecordRef[] {
   const scope = mandateScope(mandate)
   const refs: ExternalRecordRef[] = []
@@ -21,7 +25,7 @@ function parentListings(
     if (active.length !== 1) continue
     const parent = active[0]
     if (parent === undefined) continue
-    const accepted = resolveAcceptedSpec(parent, causal.histories)
+    const accepted = resolveAcceptedSpec(parent, causal.histories, undefined, inspection, historical)
     if (!accepted.ok || !accepted.spec.children.some((child) => equalScope(child.scope, scope))) continue
     refs.push({ scope: mandateScope(parent), recordId: parent.recordId, kind: 'mandate' })
   }
@@ -32,10 +36,12 @@ export function epicParentProblem(
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): { reason: 'ambiguous' | 'missing' | 'incompatible'; evidence: Diagnostic[] } | null {
   const drift = workflowCausalDiagnostics(histories, causal)
   if (drift.length) return { reason: 'incompatible', evidence: drift }
-  const listings = parentListings(mandate, histories, causal)
+  const listings = parentListings(mandate, histories, causal, inspection, historical)
   if (listings.length > 1) {
     return { reason: 'ambiguous', evidence: [diagnostic('ambiguous', 'More than one parent lists this child')] }
   }

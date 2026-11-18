@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import type { FeatureCommandHost } from '../../roxabi/feature-contract.ts'
+import { runInstalledFeatureCommand } from '../../roxabi/feature-entry.ts'
 import {
   bridgeHarness,
   cleanupFixtureActions,
@@ -39,9 +41,86 @@ describe('feature continuation seam', () => {
     controller.activate(next, { onComplete: async () => undefined, onStop: async () => undefined })
     controller.markFeatureBatch(next)
     expect(controller.announce(next)).toBe(false)
-    controller.releaseFeatureContinuation()
+    expect(controller.releaseFeatureContinuation(controller.featureContinuationEpoch())).toBe(true)
     expect(controller.featureContinuationInhibited()).toBe(false)
     expect(controller.announce(next)).toBe(true)
+  })
+
+  it('newer stop / ABA vetoes a stale generation-bound unlock', () => {
+    const controller = new NativeBatchController()
+    controller.inhibitFeatureContinuation()
+    const staleEpoch = controller.featureContinuationEpoch()
+    controller.inhibitFeatureContinuation()
+    expect(controller.featureContinuationEpoch()).toBeGreaterThan(staleEpoch)
+    expect(controller.releaseFeatureContinuation(staleEpoch)).toBe(false)
+    expect(controller.featureContinuationInhibited()).toBe(true)
+
+    const successor = batch('aba-successor')
+    controller.activate(successor, { onComplete: async () => undefined, onStop: async () => undefined })
+    controller.markFeatureBatch(successor)
+    expect(controller.announce(successor)).toBe(false)
+
+    const currentEpoch = controller.featureContinuationEpoch()
+    expect(controller.releaseFeatureContinuation(currentEpoch)).toBe(true)
+    expect(controller.featureContinuationInhibited()).toBe(false)
+    expect(controller.announce(successor)).toBe(true)
+  })
+
+  it('same-session F5: after abandon latch, new runnable admits without a manual unlock', async () => {
+    const controller = new NativeBatchController()
+    controller.inhibitFeatureContinuation()
+    const ingressNativeEpoch = controller.featureContinuationEpoch()
+    const successor = batch('f5-new-successor')
+    const sent: string[] = []
+    const host: FeatureCommandHost = {
+      key: {},
+      cwd: '/workspace',
+      principal: false,
+      workflow: {
+        async continueFeature() {
+          return { kind: 'review', pr: 99 }
+        },
+        async consumeWatchExit() {
+          throw new Error('unexpected watch')
+        },
+        async publishFeatureNativeResult() {
+          throw new Error('unexpected publication')
+        },
+        async requestFeatureSessionPause() {
+          throw new Error('unexpected pause')
+        },
+      },
+      native: {
+        activate() {},
+        inactive() {},
+        async stopOwned() {},
+        async announce() {
+          throw new Error('unexpected announce')
+        },
+      },
+      async send(text) {
+        sent.push(text)
+      },
+      status() {},
+      async startFraming() {
+        throw new Error('unexpected framing')
+      },
+      inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
+      releaseFeatureContinuation: () => controller.releaseFeatureContinuation(ingressNativeEpoch),
+      featureContinuationInhibited: () => controller.featureContinuationInhibited(),
+      markFeatureBatch: (value) => controller.markFeatureBatch(value),
+      async startReview() {},
+      async exec() {
+        throw new Error('unexpected exec')
+      },
+    }
+    expect(controller.featureContinuationInhibited()).toBe(true)
+    await runInstalledFeatureCommand('new 42', host)
+    expect(controller.featureContinuationInhibited()).toBe(false)
+    controller.activate(successor, { onComplete: async () => undefined, onStop: async () => undefined })
+    controller.markFeatureBatch(successor)
+    expect(controller.announce(successor)).toBe(true)
+    expect(sent).toEqual([])
   })
 
   it('calls onSettled once after a confirmed complete result and not from agent_end', async () => {

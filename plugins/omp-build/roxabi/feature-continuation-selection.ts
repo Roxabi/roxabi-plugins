@@ -1,21 +1,25 @@
-import { effectiveMandateRole } from '../dist/contracts.js'
+import { selectedMandate } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { causalRefusal } from './causal-refusal.ts'
+import { prepareRefusal } from './delivery-action.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
+import type { ContextHandoffRequest, ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate } from './feature-initial-mandate.ts'
-import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
-import { prepareRequestedSession, prepareSuccessorCheckout } from './feature-selection-session.ts'
+import { plannerSuccessionInspection } from './feature-planner-succession.ts'
+import { prepareSelectionSession } from './feature-selection-checkout.ts'
 import { specEntrySelection } from './feature-selection-spec-entry.ts'
 import { createSuccessorSelection } from './feature-selection-successor.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
+import { currentAccountedMandate } from './uw-action-selection.ts'
+import { assessmentSuccessionInspection } from './uw-assessment-prestart.ts'
 import type { UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
+import { createInstalledUwReadPort } from './uw-read-port.ts'
 import { readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
-import { runWorktreeBootstrap, verifyParentCheckout } from './workflow-checkout.ts'
 
 export type SelectedFeature = {
   authority: FeatureAuthority
@@ -25,6 +29,8 @@ export type SelectedFeature = {
   uwRead: UwRead | null
   mandate: MandateRecord | null
   acceptedSpec: AcceptedOwnSpec | null
+  assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
   mandateRef: ScopedRecordRef | null
   /** This call published the first or successor Mandate, consuming supplied coverage intent. */
   mandatePublished: boolean
@@ -40,6 +46,9 @@ export async function selectFeatureMandate(
   reader: UwReadPort | undefined = uw,
   parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
   parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
+  contextHandoff?: ContextHandoffRequest,
+  assessmentReplay?: AssessmentReplayContext,
+  assessmentInspection?: AcceptedSpecInspection,
 ): Promise<SelectedFeature | ContinueFeatureResult> {
   const { context, identity, scope } = authority
   const number = scopeNumber(scope)
@@ -59,14 +68,33 @@ export async function selectFeatureMandate(
     authority,
     uwRead,
     reader,
+    uw,
     branch,
     parentCoverage,
     parentCoverageBasis,
+    contextHandoff,
   )
   if ('kind' in updated) return updated
-  const selected = await finishSelection(authority, updated, exactMandateRef, issue, number, uwRead, reader)
+  const selected = await finishSelection(
+    authority,
+    updated,
+    exactMandateRef,
+    issue,
+    number,
+    uwRead,
+    reader,
+    assessmentReplay,
+    assessmentInspection,
+  )
   if ('kind' in selected) return selected
-  const prepared = await prepareSelectionSession(control, selected, branch, sessionCwd, updated.state)
+  const prepared = await prepareSelectionSession(
+    control,
+    selected,
+    branch,
+    sessionCwd,
+    updated.state,
+    assessmentReplay !== undefined,
+  )
   return prepared ?? selected
 }
 
@@ -78,10 +106,75 @@ async function finishSelection(
   number: number,
   uwRead: UwRead | null,
   reader: UwReadPort | undefined,
+  assessmentReplay?: AssessmentReplayContext,
+  assessmentInspection?: AcceptedSpecInspection,
 ): Promise<SelectedFeature | ContinueFeatureResult> {
+  const observed = await observeSelectedCausal(authority, updated, mandatePublished, uwRead, reader, assessmentReplay)
+  if ('kind' in observed) return observed
+  const { selectionReader, currentRead, selectionCausal } = observed
   const { context, scope } = authority
+  const current = currentAccountedMandate(updated.history)
+  const proof = current.ok
+    ? await plannerSuccessionInspection(current.value, selectionCausal)
+    : { ok: true as const, value: undefined }
+  if (!proof.ok) return { kind: 'blocked', reason: prepareRefusal(proof.diagnostics), diagnostics: proof.diagnostics }
+  assessmentInspection = assessmentSuccessionInspection(proof.value)
+  const applicable = context.engine.selectApplicableMandate(
+    updated.history,
+    updated.parentHistories,
+    selectionCausal,
+    new Set(),
+    assessmentInspection,
+    selectionCausal.historical,
+  )
+  const exactProblem = exactSelectionProblem(applicable, exactMandateRef)
+  if (exactProblem !== null) return exactProblem
+  const own = context.engine.resolveOwnSpecAuthority(
+    updated.history,
+    updated.parentHistories,
+    selectionCausal,
+    new Set(),
+    assessmentReplay,
+    assessmentInspection,
+    selectionCausal.historical,
+  )
+  const mandate = own.ok ? own.value.mandate : null
+  const mandateRef: ScopedRecordRef | null =
+    exactMandateRef ?? (mandate === null ? null : { scope, recordId: mandate.recordId, kind: 'mandate' })
+  return {
+    authority: { ...authority, ...updated, causal: selectionCausal, selection: applicable },
+    number,
+    reader: selectionReader ?? null,
+    issue,
+    uwRead: currentRead,
+    mandate,
+    acceptedSpec: own.ok ? own.value.accepted : null,
+    ...(assessmentReplay === undefined ? {} : { assessmentReplay }),
+    ...(assessmentInspection === undefined ? {} : { assessmentInspection }),
+    mandateRef,
+    mandatePublished,
+  }
+}
+
+async function observeSelectedCausal(
+  authority: FeatureAuthority,
+  updated: SelectionState,
+  mandatePublished: boolean,
+  uwRead: UwRead | null,
+  reader: UwReadPort | undefined,
+  assessmentReplay?: AssessmentReplayContext,
+) {
+  const { context, scope } = authority
+  let selectionReader = reader
+  if (mandatePublished) {
+    const refreshed = await selectionReaderAfterPublication(authority, updated, assessmentReplay)
+    if ('kind' in refreshed) return refreshed
+    selectionReader = refreshed.reader ?? reader
+  }
   const currentRead =
-    reader !== undefined && updated.history !== authority.history ? await reader.readUw(scope) : uwRead
+    selectionReader !== undefined && updated.history !== authority.history
+      ? await selectionReader.readUw(scope)
+      : uwRead
   const causal =
     currentRead === null
       ? updated.causal
@@ -89,25 +182,30 @@ async function finishSelection(
           cwd: context.cwd,
           gh: context.gh,
         })
-  if ('ok' in causal && !causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
+  if ('ok' in causal && !causal.ok) return { kind: 'blocked' as const, ...causalRefusal(causal) }
   const selectionCausal = 'ok' in causal ? causal.value : causal
-  const applicable = context.engine.selectApplicableMandate(updated.history, updated.parentHistories, selectionCausal)
-  const exactProblem = exactSelectionProblem(applicable, exactMandateRef)
-  if (exactProblem !== null) return exactProblem
-  const own = context.engine.resolveOwnSpecAuthority(updated.history, updated.parentHistories, selectionCausal)
-  const mandate = own.ok ? own.value.mandate : null
-  const mandateRef: ScopedRecordRef | null =
-    exactMandateRef ?? (mandate === null ? null : { scope, recordId: mandate.recordId, kind: 'mandate' })
+  return { selectionReader, currentRead, selectionCausal }
+}
+
+async function selectionReaderAfterPublication(
+  authority: FeatureAuthority,
+  updated: SelectionState,
+  assessmentReplay?: AssessmentReplayContext,
+): Promise<{ reader?: UwReadPort } | ContinueFeatureResult> {
+  const current = currentAccountedMandate(updated.history)
+  const proof = current.ok
+    ? await plannerSuccessionInspection(current.value, updated.causal)
+    : { ok: true as const, value: undefined }
+  if (!proof.ok) return { kind: 'blocked', reason: prepareRefusal(proof.diagnostics), diagnostics: proof.diagnostics }
+  const inspection = assessmentSuccessionInspection(proof.value)
+  if (inspection === undefined) return {}
   return {
-    authority: { ...authority, ...updated, causal: selectionCausal, selection: applicable },
-    number,
-    reader: reader ?? null,
-    issue,
-    uwRead: currentRead,
-    mandate,
-    acceptedSpec: own.ok ? own.value.accepted : null,
-    mandateRef,
-    mandatePublished,
+    reader: createInstalledUwReadPort({
+      cwd: authority.context.cwd,
+      gh: authority.context.gh,
+      assessmentReplay,
+      assessmentInspection: inspection,
+    }),
   }
 }
 
@@ -127,9 +225,11 @@ async function updateMandateSelection(
   authority: FeatureAuthority,
   uwRead: UwRead | null,
   reader: UwReadPort | undefined,
+  uw: UwOperations | undefined,
   branch: string,
   parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
   parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
+  contextHandoff?: ContextHandoffRequest,
 ): Promise<{ state: SelectionState; mandatePublished: boolean } | ContinueFeatureResult> {
   const state: SelectionState = authority
   if (
@@ -141,14 +241,17 @@ async function updateMandateSelection(
       authority,
       uwRead,
       reader,
+      uw,
       branch,
       parentCoverage,
       parentCoverageBasis,
+      contextHandoff,
       ...state,
     })
     if ('kind' in successor) return successor
     return { state: successor, mandatePublished: true }
   }
+  if (contextHandoff !== undefined) return { kind: 'blocked', reason: 'context-handoff-successor-required' }
   if (
     state.selection.status === 'refused' &&
     state.selection.reason === 'missing' &&
@@ -166,70 +269,15 @@ async function updateMandateSelection(
     if ('kind' in established) return established
     return { state: { ...state, ...established }, mandatePublished: true }
   }
+  // Partial succession (mandate without authenticated select-successor) is not a ready `new` surface.
+  if (control !== 'new') return { state, mandatePublished: false }
+  const selected = selectedMandate(state.history)
+  if ('status' in selected && (selected.reason === 'unconfirmed' || selected.reason === 'ambiguous')) {
+    return {
+      kind: 'blocked',
+      reason: 'fix-own-uw-unsettled',
+      diagnostics: selected.evidence,
+    }
+  }
   return { state, mandatePublished: false }
-}
-
-async function prepareSelectionSession(
-  control: FeatureControl,
-  selected: SelectedFeature,
-  branch: string,
-  sessionCwd: string | null,
-  state: SelectionState,
-): Promise<ContinueFeatureResult | null> {
-  const { authority, mandate } = selected
-  const checked = await verifySelectedCheckout(selected)
-  if (checked !== null) return checked
-  const requested = control === 'select' || control === 'resume' || control === 'new'
-  if (
-    !requested ||
-    (state.selection.status === 'refused' && state.selection.reason === 'missing' && control === 'select')
-  ) {
-    return null
-  }
-  if (!authority.onPrincipal && sessionCwd !== null) {
-    const boot = await runWorktreeBootstrap(authority.context.cwd)
-    return boot.ok ? null : { kind: 'blocked', reason: boot.reason }
-  }
-  if (!authority.onPrincipal) return null
-  const prepared = await prepareRequestedSession(authority, selectedBranchTarget(authority, mandate, branch))
-  if ('kind' in prepared) return prepared
-  const boot = await runWorktreeBootstrap(authority.context.cwd)
-  return boot.ok ? null : { kind: 'blocked', reason: boot.reason }
-}
-
-function selectedBranchTarget(authority: FeatureAuthority, mandate: MandateRecord | null, branch: string) {
-  if (mandate !== null && mandate.payload.branch !== null)
-    return { kind: 'branch' as const, branch: mandate.payload.branch, attachExisting: true as const }
-  if (authority.target.status === 'pull-request')
-    return { kind: 'branch' as const, branch, attachExisting: true as const }
-  return { kind: 'branch' as const, branch }
-}
-
-async function verifySelectedCheckout(selected: SelectedFeature): Promise<ContinueFeatureResult | null> {
-  const { authority, mandate, acceptedSpec, uwRead } = selected
-  if (authority.selection.status !== 'applicable' || mandate === null || acceptedSpec === null) return null
-  const role = effectiveMandateRole(mandate.payload.role, acceptedSpec)
-  if (role === 'epic') return verifyEpicCheckout(authority, uwRead)
-  if (role !== 'feature') return null
-  if (mandate.payload.branch === null) return { kind: 'blocked', reason: 'mandate-checkout-unreadable' }
-  return prepareSuccessorCheckout(authority, { kind: 'branch', branch: mandate.payload.branch, attachExisting: true })
-}
-
-async function verifyEpicCheckout(
-  authority: FeatureAuthority,
-  uwRead: UwRead | null,
-): Promise<ContinueFeatureResult | null> {
-  if (uwRead === null) return { kind: 'blocked', reason: 'uw-read-required' }
-  const anchor = await resolveParentWorktreeAnchor({ subject: authority.scope, read: uwRead })
-  if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-  if (authority.onPrincipal) {
-    const prepared = await prepareRequestedSession(authority, { kind: 'parent', uw: anchor.anchor })
-    return 'kind' in prepared ? prepared : { kind: 'blocked', reason: 'session-not-intended-worktree' }
-  }
-  const checked = await verifyParentCheckout({
-    git: authority.context.git,
-    cwd: authority.context.cwd,
-    uw: anchor.anchor,
-  })
-  return checked.ok ? null : { kind: 'blocked', reason: checked.reason }
 }

@@ -1,30 +1,24 @@
-import type { Gh } from '../adapters/github/types.ts'
 import { canonicalValueDigest } from '../engine/action-input.ts'
 import { integrationReceiptEligible } from '../engine/delivery-observation-authentication.ts'
 import { criterionTargetSchema } from '../engine/finding-target-schema.ts'
-import type { Scope } from '../engine/record-values.ts'
-import { scopeKey } from '../engine/uw-graph.ts'
 import { integrationOutputSchema } from '../engine/uw-integration-schema.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
-import { bindExternalRef, historyFor, workflowOperationProblem } from '../engine/workflow-control.ts'
+import { bindExternalRef, controlsOf, historyFor } from '../engine/workflow-control.ts'
 import { startImplement } from '../roxabi/feature-action-start.ts'
-import type { ContinueFeatureResult } from '../roxabi/feature-contract.ts'
+import type { ContinueFeatureResult, FeatureNativePublication } from '../roxabi/feature-contract.ts'
 import { loadContracts } from '../roxabi/feature-engine.ts'
 import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
-import type { UwOperations } from '../roxabi/uw-contract.ts'
-import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { captureNativeTask } from './native-action-capture.ts'
 import type { DeclaredCheckout } from './native-implementation-world.ts'
+import {
+  ancestorHistories,
+  authenticatedIntegrationStart,
+  integrationCompletions,
+  requireIntegrationAction,
+  type World,
+} from './parent-integration-observation.ts'
+import { consultableAgentRoot } from './protocol-retention.unit.ts'
+import { bridgeHarness } from './review-runtime-support.ts'
 
-type World = {
-  parentScope: Scope
-  parent: MandateRecord
-  reviews: readonly { uw: Scope }[]
-  operations: UwOperations
-  gh: Gh
-  git: GitRunner
-  checkout(facts: DeclaredCheckout): void
-}
 type Checkout = { cwd: string; checkout(commit: string): void; tree(commit: string): string }
 
 /** Produce and read back the real parent integration while the caller owns the native world. */
@@ -37,6 +31,7 @@ export async function produceParentIntegration(
     command: string
     output: string
     observeStart?: (opened: ContinueFeatureResult) => void
+    open?: () => Promise<ContinueFeatureResult>
   },
 ) {
   const cwd = checkout.cwd
@@ -48,30 +43,7 @@ export async function produceParentIntegration(
   if (initial.observation.status !== 'complete' || initial.accepted.status !== 'accepted')
     throw new Error('Expected authenticated initial parent observation')
   const accepted = initial.accepted.value
-  const completions = world.reviews.map((child) => {
-    const completion = initial.completion.completions.get(scopeKey(child.uw))
-    if (completion?.state !== 'complete')
-      throw new Error(
-        JSON.stringify({
-          child: child.uw,
-          completion,
-          histories: initial.histories.map((history) => ({
-            scope: history.source.scope,
-            complete: history.source.complete,
-            problem: workflowOperationProblem(history),
-            diagnostics: history.diagnostics,
-            operations: history.operations.map((operation) => ({
-              operationId: operation.operationId,
-              recordId: operation.recordId,
-              kind: operation.kind,
-              status: operation.status,
-              authority: operation.authority,
-            })),
-          })),
-        }),
-      )
-    return completion
-  })
+  const completions = integrationCompletions(initial, world)
   const engine = await loadContracts()
   if ('missing' in engine) throw new Error(`Missing engine ${engine.missing}`)
   const history = initial.histories.find(
@@ -85,66 +57,52 @@ export async function produceParentIntegration(
   )
   if (!native) throw new Error('Parent native observation missing')
   const graph = initial.observation.graph
-  const ancestorHistories = () => {
-    const parents = []
-    let ancestor = native.parent
-    while (ancestor !== null) {
-      const currentAncestor = ancestor
-      const node = graph.nodes.find(
-        (item) => item.uw.target === currentAncestor.target && item.uw.repository === currentAncestor.repository,
-      )
-      const parent = initial.histories.find(
-        (item) =>
-          item.source.scope.target === currentAncestor.target &&
-          item.source.scope.repository === currentAncestor.repository,
-      )
-      if (!node || !parent) throw new Error('Parent ancestor observation missing')
-      parents.push(parent)
-      ancestor = node.parent
-    }
-    return parents
-  }
-  const parents = ancestorHistories()
-  const opened = await startImplement(
-    engine,
-    {
-      issue: history,
-      pullRequest: null,
-      parents,
-      causal: {
-        histories: initial.observation.histories,
-        catalogues: initial.observation.catalogues,
-        observation: initial.observation,
-      },
-    },
-    history,
-    world.parentScope,
-    { body: native.raw.body },
-    world.git,
-    world.gh,
-    cwd,
-    world.parent,
-    installed,
+  const parents = ancestorHistories(initial, graph, native)
+  if (
+    !facts.open &&
+    controlsOf(history).some(
+      (control) =>
+        control.payload.control === 'select-successor' &&
+        control.payload.successor.recordId === world.parent.recordId &&
+        control.payload.contextDisposition !== undefined,
+    )
   )
-  facts.observeStart?.(opened)
-  if (opened.kind !== 'action' || opened.node !== 'integrate')
-    throw new Error(`Parent integrate not opened: ${JSON.stringify(opened)}`)
+    throw new Error('Successor integration requires authenticated current context succession')
+  const proposed = facts.open
+    ? await facts.open()
+    : await startImplement(
+        engine,
+        {
+          issue: history,
+          pullRequest: null,
+          parents,
+          causal: {
+            histories: initial.observation.histories,
+            catalogues: initial.observation.catalogues,
+            observation: initial.observation,
+          },
+        },
+        history,
+        world.parentScope,
+        { body: native.raw.body },
+        world.git,
+        world.gh,
+        cwd,
+        world.parent,
+        installed,
+        new Set(),
+      )
+  facts.observeStart?.(proposed)
+  const opened = requireIntegrationAction(proposed)
   const task = opened.followUp.tasks.tasks[0]
   if (!task) throw new Error('Missing opened native integration task')
-  const startReadback = await installed.readUw(world.parentScope)
-  const startHistory = historyFor(opened.start.scope, startReadback.histories)
-  if (startHistory === null || !startHistory.source.complete)
-    throw new Error('Integration START history is missing or incomplete')
-  const boundStart = bindExternalRef(opened.start, startHistory)
-  if (
-    !boundStart.ok ||
-    boundStart.value.kind !== 'action-receipt' ||
-    boundStart.value.payload.action !== 'integrate' ||
-    boundStart.value.payload.phase !== 'start'
-  )
-    throw new Error('Integration START is not authenticated')
-  const criteria = accepted.snapshot.spec.criteria
-  if (criteria.length === 0) throw new Error('Parent producer requires direct criteria')
+  const boundStart = await authenticatedIntegrationStart(installed, world.parentScope, opened)
+  function directCriteria() {
+    const criteria = accepted.snapshot.spec.criteria
+    if (criteria.length === 0) throw new Error('Parent producer requires direct criteria')
+    return criteria
+  }
+  const criteria = directCriteria()
   const targets = criteria.map((criterion) =>
     criterionTargetSchema.parse({
       format: 'omp-build-finding-target/1',
@@ -153,7 +111,7 @@ export async function produceParentIntegration(
       id: criterion.id,
     }),
   )
-  const code = { ...boundStart.value.payload.inputs.manifest.code, head: facts.candidate.head }
+  const code = { ...boundStart.payload.inputs.manifest.code, head: facts.candidate.head }
   const callId = 'integration-test-call'
   const command = facts.command
   const model = {
@@ -191,22 +149,85 @@ export async function produceParentIntegration(
   }
   world.checkout(facts.candidate)
   checkout.checkout(facts.candidate.head)
-  const result = await captureNativeTask({
-    batch: opened.followUp,
-    cwd,
-    childId: 'integration-native-child',
-    command,
-    toolCallId: callId,
-    output: facts.output,
-    claim: model,
-    expectedRuns: 1,
-    git: { repository: code.repository, commit: code.head, tree: checkout.tree(code.head) },
-  })
-  const published = await publishFeatureNativeResult({ cwd, start: opened.start, result, gh: world.gh, git: world.git })
-  if (!published.published || !('receipt' in published) || !published.receipt)
+  let publication: FeatureNativePublication | null = null
+  if (facts.open) {
+    const harness = bridgeHarness()
+    harness.controller.bindHostGit(() => ({
+      repository: code.repository,
+      commit: code.head,
+      tree: checkout.tree(code.head),
+    }))
+    harness.controller.activate(opened.followUp, {
+      onComplete: async (result, canContinue) => {
+        publication = await publishFeatureNativeResult({
+          cwd,
+          start: opened.start,
+          result,
+          gh: world.gh,
+          git: world.git,
+          current: canContinue,
+        })
+      },
+      onStop: async (reason) => {
+        throw new Error(`Parent integration stopped: ${reason}`)
+      },
+    })
+    const root = { ...consultableAgentRoot(), cwd }
+    const operation = opened.followUp.operationId
+    if (!(await harness.admitBatch(opened.followUp, operation, root)))
+      throw new Error('Parent integration admission refused')
+    const child = await harness.admitChild(opened.followUp, task.name, 'integration-native-child', {
+      toolCallId: operation,
+      root,
+      skipRootCall: true,
+    })
+    await child.call('bash', callId, { command })
+    await child.result(
+      'bash',
+      callId,
+      { command },
+      { content: [{ type: 'text', text: facts.output }], details: { exitCode: 0 }, isError: false },
+    )
+    await harness.yieldChild('integration-native-child', model)
+    await harness.settleBatch({
+      toolCallId: operation,
+      errors: [],
+      results: [
+        {
+          index: 0,
+          id: 'integration-native-child',
+          agent: task.agent,
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: model },
+        },
+      ],
+    })
+  } else {
+    const result = await captureNativeTask({
+      batch: opened.followUp,
+      cwd,
+      childId: 'integration-native-child',
+      command,
+      toolCallId: callId,
+      output: facts.output,
+      claim: model,
+      expectedRuns: 1,
+      git: { repository: code.repository, commit: code.head, tree: checkout.tree(code.head) },
+    })
+    publication = await publishFeatureNativeResult({
+      cwd,
+      start: opened.start,
+      result,
+      gh: world.gh,
+      git: world.git,
+      current: () => true,
+    })
+  }
+  const published = publication as FeatureNativePublication | null
+  if (!published?.published || !('receipt' in published) || !published.receipt)
     throw new Error(`Integration not published: ${JSON.stringify(published)}`)
   const receiptRef = published.receipt
-  const startRecord = boundStart.value
+  const startRecord = boundStart
   const startRef = opened.start
   const readIntegratedResult = async () => {
     const beforeReview = await installed.readUw(world.parentScope)

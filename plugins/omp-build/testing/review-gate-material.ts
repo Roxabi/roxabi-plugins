@@ -112,6 +112,7 @@ export async function acceptGateSpecChange(fixture: ReviewGateFixture, body: str
     result: captured,
     gh,
     git: gitPort,
+    current: () => true,
   })
   if (!publication.published) throw new Error(`Gate assessment publication failed: ${JSON.stringify(publication)}`)
   const accepted = await operations.acceptMaterial(uw)

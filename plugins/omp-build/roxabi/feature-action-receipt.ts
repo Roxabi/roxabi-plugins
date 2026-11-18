@@ -1,25 +1,22 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalActionOperands, capturedChildOwnSources, mechanicalSpecDelta } from '../dist/contracts.js'
+import {
+  canonicalActionOperands,
+  canonicalValueDigest,
+  historyFor,
+  outstandingPauseRequest,
+  selectWorkflowBinding,
+  unliftedPause,
+} from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { AssessmentProposalOrigin, CiExact } from '../engine/workflow-action-operands.ts'
 import type { ActionReceiptPayload, AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
-import {
-  actionRequest,
-  blocks,
-  codePin,
-  confirmStartReadback,
-  observeHeadCode,
-  observeSha,
-  prepareDeliveryAction,
-  prepareRefusal,
-  uwSubject,
-} from './delivery-action.ts'
+import { blocks, confirmStartReadback } from './delivery-action.ts'
 import { preparedModelAction } from './feature-action-prompts.ts'
-import { approvedMandateContext } from './feature-approved-context.ts'
-import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, publishRecord, type WorkflowEvidence } from './feature-engine.ts'
-import type { PreparedUwAction } from './uw-action-contract.ts'
+import type { PreparedUwAction, UwActionRequest } from './uw-action-contract.ts'
+import { sourceRef } from './uw-action-observe.ts'
+import { currentAccountedMandate } from './uw-action-selection.ts'
 import type { UwOperations } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
@@ -42,9 +39,10 @@ export type ModelReceiptActionInput = {
   cwd: string
   uw: UwOperations | undefined
   git: GitRunner
+  recovery?: { request: UwActionRequest; prepared: PreparedUwAction }
 }
 
-type ReceiptStartContext = {
+export type ReceiptStartContext = {
   mandateHistory: History
   mandateScope: Scope
   operationId: string
@@ -54,7 +52,7 @@ export function receiptStartContext(input: ModelReceiptActionInput): ReceiptStar
   return {
     mandateHistory: input.mandateHistory ?? input.history,
     mandateScope: { repository: input.mandate.repository, target: input.mandate.target },
-    operationId: randomUUID(),
+    operationId: input.recovery?.request.actionId ?? randomUUID(),
   }
 }
 
@@ -90,7 +88,7 @@ export async function sealReceipt(
     prepared: PreparedUwAction
   } & (
     | { action: 'assess-spec'; origin: AssessmentProposalOrigin; exactInputs: AssessSpecExact }
-    | { action: 'attribute-ci'; exactInputs: CiExact }
+    | { action: 'attribute-ci'; exactInputs: CiExact; native: { branch: string; base: string } }
     | { action: 'implement'; exactInputs: { mandateId: string; planActionId: string } }
     | { action: 'integrate'; exactInputs: { mandateId: string; planActionId: string } }
   ),
@@ -136,7 +134,14 @@ export async function sealReceipt(
   )
   if (!started.ok) return { kind: 'blocked', reason: started.reason, diagnostics: started.diagnostics }
   const confirmed = await confirmStartReadback({
-    read: (scopes) => input.loaded.readComposedWorkflowHistory(scopes, { cwd: input.cwd, gh: input.gh }),
+    read: async (scopes) => {
+      const reread = await input.loaded.readComposedWorkflowHistory(
+        input.action === 'attribute-ci' ? [...scopes, input.mandate.scope] : scopes,
+        { cwd: input.cwd, gh: input.gh },
+      )
+      if (!reread.ok || input.action !== 'attribute-ci') return reread
+      return ciStartReadbackMatches(input, reread.histories) ? reread : { ok: false }
+    },
     scope: input.scope,
     recordId: startId,
     inputs: input.prepared.inputs,
@@ -151,147 +156,37 @@ export async function sealReceipt(
   })
 }
 
-async function publishAssessmentReceipt(
-  input: ModelReceiptActionInput,
-  context: ReceiptStartContext,
-  exactInputs: AssessSpecExact,
-): Promise<ContinueFeatureResult> {
-  const code = await observeHeadCode(input.git, input.cwd, input.scope.repository)
-  if (!code.ok) return blocks(code.reason)
-  if (input.uw === undefined) return blocks('prepare-action-unavailable')
-  const prepared = await prepareDeliveryAction(
-    input.uw,
-    actionRequest({
-      actionId: context.operationId,
-      purpose: 'assess-spec',
-      subject: uwSubject(context.mandateScope, input.target.status === 'pull-request' ? input.target.scope : null),
-      code: code.code,
-      operands: { action: 'assess-spec', origin: { kind: 'native-current' }, exactInputs },
-    }),
+function ciMandateCurrent(mandate: { scope: Scope; recordId: string }, histories: readonly History[]): boolean {
+  const mandateHistory = historyFor(mandate.scope, histories)
+  if (mandateHistory === null) return false
+  const currentMandate = currentAccountedMandate(mandateHistory)
+  if (
+    !currentMandate.ok ||
+    currentMandate.value.recordId !== mandate.recordId ||
+    currentMandate.value.repository !== mandate.scope.repository ||
+    currentMandate.value.target !== mandate.scope.target
   )
-  if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
-  return sealReceipt({
-    loaded: input.loaded,
-    history: input.history,
-    scope: input.scope,
-    cwd: input.cwd,
-    gh: input.gh,
-    parents: input.evidence.parents,
-    operationId: context.operationId,
-    action: 'assess-spec',
-    mandate: { scope: context.mandateScope, recordId: input.mandate.recordId, kind: 'mandate' },
-    origin: { kind: 'native-current' },
-    exactInputs,
-    prepared: prepared.value,
-  })
+    return false
+  return (
+    outstandingPauseRequest(mandateHistory, currentMandate.value) === null &&
+    unliftedPause(mandateHistory, currentMandate.value) === null
+  )
 }
 
-export async function startAssessmentReceipt(
-  input: ModelReceiptActionInput,
-  context: ReceiptStartContext,
-): Promise<ContinueFeatureResult> {
-  if (input.mandate.kind !== 'mandate' || input.currentSpec === null || input.identityAllocations === null)
-    return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  const histories = input.evidence.causal.histories
-  const accepted = input.loaded.resolveAcceptedSpec(input.mandate, histories)
-  if (!accepted.ok) return { kind: 'blocked', reason: 'mandate-spec-missing' }
-  const baseline = {
-    ref: accepted.spec.ref,
-    snapshot: accepted.spec.snapshot,
-    tier: accepted.spec.tier,
-    children: accepted.spec.children,
-    inheritedOwnSpecRefs: accepted.spec.inheritedOwnSpecRefs,
-    coverage: accepted.spec.coverage,
-  }
-  const childOwnSources = capturedChildOwnSources(baseline, input.currentSpec, histories, [])
-  if (childOwnSources === null) return blocks('assessment-child-authority-unavailable')
-  return publishAssessmentReceipt(input, context, {
-    format: 'omp-build-spec-assessment/3',
-    accepted: baseline,
-    proposed: input.currentSpec,
-    attachedChildren: [],
-    attachedWayfinders: [],
-    childOwnSources: childOwnSources.childOwnSources,
-    identityAllocations: input.identityAllocations,
-    mechanical: mechanicalSpecDelta(baseline, input.currentSpec),
-  })
-}
-
-function ciPublicationParents(input: ModelReceiptActionInput, mandateHistory: History): readonly History[] {
-  const mandateIsPrimary =
-    input.history.source.scope.repository === mandateHistory.source.scope.repository &&
-    input.history.source.scope.target === mandateHistory.source.scope.target
-  const mandateIsParent = input.evidence.parents.some(
-    (history) =>
-      history.source.scope.repository === mandateHistory.source.scope.repository &&
-      history.source.scope.target === mandateHistory.source.scope.target,
-  )
-  // Attribution publishes on the PR while retaining the issue mandate as an
-  // external history for canonical reference validation; it never copies it.
-  return mandateIsPrimary || mandateIsParent ? input.evidence.parents : [mandateHistory, ...input.evidence.parents]
-}
-
-export async function startCiAttributionReceipt(
-  input: ModelReceiptActionInput,
-  context: ReceiptStartContext,
-): Promise<ContinueFeatureResult> {
-  if (input.target.status !== 'pull-request') return { kind: 'blocked', reason: 'ci-attribution-requires-pull-request' }
-  const evidence = await readNativeCiFailureEvidence(
-    input.cwd,
-    input.scope.repository,
-    input.target.pullRequest.head,
-    input.scope,
-    { gh: input.gh, failedCheckEvidenceDigest: input.loaded.failedCheckEvidenceDigest },
-  )
-  if (!evidence.ok) return { kind: 'blocked', reason: evidence.reason }
-  const exactInputs = {
-    candidateGitSHA: input.target.pullRequest.head,
+function ciStartReadbackMatches(
+  input: Extract<Parameters<typeof sealReceipt>[0], { action: 'attribute-ci' }>,
+  histories: readonly History[],
+): boolean {
+  const subject = input.prepared.inputs.manifest.subject
+  if (subject.kind !== 'uw' || subject.binding === null) return false
+  if (!ciMandateCurrent(input.mandate, histories)) return false
+  const selected = selectWorkflowBinding({ pullRequest: input.scope, histories, native: input.native })
+  if (selected.status !== 'bound' || canonicalValueDigest(selected.mandate) !== canonicalValueDigest(input.mandate))
+    return false
+  const binding = sourceRef(histories, {
     scope: input.scope,
-    failedChecks: evidence.failedChecks,
-    evidenceDigest: evidence.evidenceDigest,
-    failures: evidence.failures,
-  }
-  const approved = approvedMandateContext(
-    input.loaded,
-    input.mandate,
-    input.evidence.causal?.histories ?? [context.mandateHistory, ...input.evidence.parents],
-  )
-  // Absent Spec context may stay soft for legitimate no-pre-PR / standalone attribution.
-  // Present-invalid / ambiguous Spec chain must refuse — never collapse to prose absence.
-  if (approved.status === 'invalid') {
-    return { kind: 'blocked', reason: `mandate-spec-${approved.reason}`, diagnostics: approved.diagnostics }
-  }
-  const base = await observeSha(input.git, input.cwd, input.target.pullRequest.base)
-  const pinned = codePin(
-    input.scope.repository,
-    base ?? '',
-    input.target.pullRequest.head,
-    input.target.pullRequest.head,
-  )
-  if (!pinned.ok) return blocks(pinned.reason)
-  if (input.uw === undefined) return blocks('prepare-action-unavailable')
-  const prepared = await prepareDeliveryAction(
-    input.uw,
-    actionRequest({
-      actionId: context.operationId,
-      purpose: 'attribute-ci',
-      subject: uwSubject(context.mandateScope, input.scope),
-      code: pinned.code,
-      operands: { action: 'attribute-ci', exactInputs },
-    }),
-  )
-  if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)
-  return sealReceipt({
-    loaded: input.loaded,
-    history: input.history,
-    scope: input.scope,
-    cwd: input.cwd,
-    gh: input.gh,
-    parents: ciPublicationParents(input, context.mandateHistory),
-    operationId: context.operationId,
-    action: 'attribute-ci',
-    mandate: { scope: context.mandateScope, recordId: input.mandate.recordId, kind: 'mandate' },
-    exactInputs,
-    prepared: prepared.value,
+    kind: 'workflow-binding',
+    recordId: selected.binding.recordId,
   })
+  return binding.ok && canonicalValueDigest(binding.value) === canonicalValueDigest(subject.binding)
 }

@@ -45,6 +45,7 @@ function validatePlannerSlot(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
+  excludedStarts?: ReadonlySet<string>,
 ): Check {
   if (start.action !== 'plan' && start.action !== 'plan-review') return { ok: true }
   const planner = plannerExpansion(request, histories)
@@ -60,6 +61,7 @@ function validatePlannerSlot(
     { issue, pullRequest: null, parents: histories.filter((history) => history !== issue), causal },
     mandate,
     planner.value,
+    excludedStarts,
   )
   return macro.ok ? { ok: true } : { ok: false, reason: macro.diagnostics[0]?.code ?? 'action-input-missing' }
 }
@@ -69,6 +71,7 @@ function validateExpandedBinding(
   binding: { actionId: string; inputs: ActionInputs },
   histories: readonly DecodedHistory[],
   causal: WorkflowCausalContext | null,
+  excludedStarts?: ReadonlySet<string>,
 ): Check {
   const inputs = binding.inputs
   if (inputs.manifest.expandedContext.length === 0) return { ok: true }
@@ -86,7 +89,7 @@ function validateExpandedBinding(
   const origin =
     start.action === 'plan' || start.action === 'plan-review'
       ? plannerExpansion(request, histories)
-      : nonPlanExpansion(request, histories)
+      : nonPlanExpansion(request, histories, excludedStarts)
   if (!origin.ok) return { ok: false, reason: origin.diagnostics[0]?.code ?? 'action-input-missing' }
   if (origin.value === null) return { ok: true }
   const previous = origin.value.previous
@@ -105,7 +108,7 @@ function validateExpandedBinding(
     ? start.action === 'plan' || start.action === 'plan-review'
       ? { ok: false, reason: 'causal-uw-unavailable' }
       : { ok: true }
-    : validatePlannerSlot(start, request, histories, causal)
+    : validatePlannerSlot(start, request, histories, causal, excludedStarts)
 }
 
 /** Validate the actual start's semantic slot against every explicit negative lineage before publication. */
@@ -113,13 +116,14 @@ export function authorizeExpandedStart(
   start: Start,
   histories: readonly DecodedHistory[],
   causal: WorkflowCausalContext | null,
+  excludedStarts?: ReadonlySet<string>,
 ): Check {
   const bindings: { actionId: string; inputs: ActionInputs }[] =
     start.action === 'plan-review'
       ? start.slots.flatMap((slot) => (slot.action === undefined ? [] : [slot.action]))
       : [{ actionId: start.actionId, inputs: start.inputs }]
   for (const binding of bindings) {
-    const checked = validateExpandedBinding(start, binding, histories, causal)
+    const checked = validateExpandedBinding(start, binding, histories, causal, excludedStarts)
     if (!checked.ok) return checked
   }
   return { ok: true }
@@ -130,6 +134,7 @@ export function recheckExpandedStart(
   record: Extract<CanonicalRecord, { kind: 'action-receipt' }>,
   histories: readonly DecodedHistory[],
   causal: WorkflowCausalContext | null,
+  excludedStarts?: ReadonlySet<string>,
 ): { ok: true } | { ok: false; reason: string } {
   if (record.payload.phase !== 'start') return { ok: false, reason: 'action-start-unconfirmed' }
   const observed = histories.flatMap((history) =>
@@ -155,7 +160,7 @@ export function recheckExpandedStart(
     ),
   })
   const beforeStart = histories.map(withoutStart)
-  return authorizeExpandedStart(record.payload, beforeStart, causal)
+  return authorizeExpandedStart(record.payload, beforeStart, causal, excludedStarts)
 }
 
 export function hasExpandedStart(start: Start): boolean {

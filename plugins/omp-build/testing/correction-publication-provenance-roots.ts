@@ -65,7 +65,10 @@ export async function multiSlotCorrectionRoot(input: {
   }
   const preparedAction = await prepareUwAction(request, input.ports)
   if (!preparedAction.ok) throw new Error(`intake-prepare-refused: ${JSON.stringify(preparedAction.diagnostics)}`)
-  const replay = await replayUwActionInputs({ reviewed: preparedAction.value.inputs, request }, input.ports)
+  const replay = await replayUwActionInputs(
+    { reviewed: preparedAction.value.inputs, request, intent: { kind: 'prepublication' } },
+    input.ports,
+  )
   const snapshot = await verifyActionSnapshot(preparedAction.value.snapshot)
   if (!replay.ok || replay.value.fingerprint !== preparedAction.value.inputs.fingerprint || !snapshot.ok)
     throw new Error('intake-replay-or-seal-refused')

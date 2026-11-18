@@ -23,7 +23,11 @@ import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 export function planMacro(
   evidence: WorkflowEvidence,
   mandate: MandateRecord | null,
-  options?: { contextLeaf?: ReceiptRecord; assessmentReplay?: AssessmentReplayContext },
+  options?: {
+    contextLeaf?: ReceiptRecord
+    assessmentReplay?: AssessmentReplayContext
+    excludedStarts?: ReadonlySet<string>
+  },
 ): PlanMacro {
   const empty = emptyMacro(mandate, null)
   if (mandate === null) return empty('blocked', [diagnostic('mandate-absent', 'plan macro has no mandate')])
@@ -44,6 +48,7 @@ export function planMacro(
     effective.value,
     acceptedEmpty,
     options?.contextLeaf,
+    options?.excludedStarts,
   )
   if ('macro' in reviewContext) return reviewContext.macro
   return evaluateReview(reviewContext, acceptedEmpty)

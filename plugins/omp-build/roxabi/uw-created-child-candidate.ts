@@ -4,6 +4,7 @@ import {
   bindExternalRef,
   canonicalValueDigest,
   capturedChildOwnSources,
+  createHistoricalAcceptedSpecContext,
   mechanicalSpecDelta,
   nativeIssueObservationFromNode,
   specDigest,
@@ -12,6 +13,7 @@ import {
 } from '../dist/contracts.js'
 import type { CauseCreationContext } from '../engine/cause-creation-context-schema.ts'
 import type { ParentCoverageIntent } from '../engine/cause-disposition-schema.ts'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Result } from '../engine/result.ts'
 import type { UwCreatePlan } from '../engine/uw-create-plan-schema.ts'
 import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
@@ -161,12 +163,21 @@ export async function projectCreatedChildAssessment(
     repository,
     target: `${repository}#${number}`,
   }))
-  const attached = projectObservedChildCommitments({ scopes, observation: input.before })
+  const historical = createHistoricalAcceptedSpecContext(input.before.histories)
+  if (!historical.ok) return historical
+  const attached = projectObservedChildCommitments({ scopes, observation: input.before, historical: historical.value })
   if (!attached.ok) return { ok: false, diagnostics: toDiagnostics(attached.diagnostics) }
   const attachedChildren = attached.value
   const attachedWayfinders = observedWayfinders(scopes, attachedChildren, input.before)
   if (!attachedWayfinders.ok) return attachedWayfinders
-  const childOwnSources = capturedChildOwnSources(baseline, proposed, input.before.histories, attachedChildren)
+  const childOwnSources = capturedChildOwnSources(
+    baseline,
+    proposed,
+    input.before.histories,
+    attachedChildren,
+    undefined,
+    historical.value,
+  )
   if (childOwnSources === null)
     return actionFailure('action-input-missing', 'Existing child authority cannot be authenticated')
   const candidate = actionOperandsSchema.safeParse({
@@ -185,12 +196,21 @@ export async function projectCreatedChildAssessment(
   })
   if (!candidate.success || candidate.data.action !== 'assess-spec')
     return actionFailure('action-input-missing', 'Created child proposal or explicit coverage is invalid')
-  const identitySources: RecordInputRef[] = []
   const refs = [sourceRefValue, ...current.value.identityAllocations, ...childOwnSources.sourceRefs]
+  const identitySources = pinIdentitySources(input.before.histories, refs)
+  if (!identitySources.ok) return identitySources
+  return { ok: true, value: { operands: candidate.data, identitySources: identitySources.value } }
+}
+
+function pinIdentitySources(
+  histories: CreatedChildAssessment['before']['histories'],
+  refs: readonly ExternalRecordRef[],
+): Result<RecordInputRef[]> {
+  const sources: RecordInputRef[] = []
   for (const ref of refs) {
-    const pinned = sourceRef(input.before.histories, ref)
+    const pinned = sourceRef(histories, ref)
     if (!pinned.ok) return pinned
-    identitySources.push(pinned.value)
+    sources.push(pinned.value)
   }
-  return { ok: true, value: { operands: candidate.data, identitySources } }
+  return { ok: true, value: sources }
 }

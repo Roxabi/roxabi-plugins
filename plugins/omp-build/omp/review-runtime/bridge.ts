@@ -120,15 +120,6 @@ export function installNativeBatchBridge(pi: NativeExtension, controller: Native
   pi.on('agent_end', async (event: AgentEndEvent, ctx: ExtensionContext) => {
     controller.observeRootContext(ctx)
     if (!root(ctx) || (event.willContinue && taskMaskOwnsActiveBatch(controller))) return
-
-    try {
-      await releaseTaskMask(controller)
-    } catch (error) {
-      const reason = `native task mask restoration failed: ${error instanceof Error ? error.message : String(error)}`
-      controller.status(reason)
-      await controller.stop(reason)
-      return
-    }
     if (event.willContinue) return
     markNativeTurnEnded(controller)
     await followUpAnnouncement(pi, controller)

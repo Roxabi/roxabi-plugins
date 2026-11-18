@@ -1,12 +1,17 @@
 import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { specDigest } from '../record-digests.ts'
 import type { Scope } from '../record-values.ts'
+import { catalogueForAction } from '../review-class-catalogue.ts'
 import { assessUwCompletion } from '../uw-completion.ts'
 import type { UwCompletionObservation } from '../uw-completion-types.ts'
 import { scopeKey, type UwNativeNode } from '../uw-graph.ts'
+import {
+  createHistoricalAcceptedSpecContext,
+  historicalAcceptedSpecOwnedHistories,
+} from '../workflow-context-succession-inspection.ts'
 
 const root: Scope = { repository: 'org/repo', target: 'org/repo#1' }
 const blocker: Scope = { repository: 'external/repo', target: 'external/repo#2' }
@@ -62,6 +67,32 @@ test('requires full absence evidence as well as CLOSED/COMPLETED for a native-on
   expect(assessUwCompletion(observation('NOT_PLANNED')).dependencies.get(scopeKey(blocker))?.state).toBe('held')
   expect(assessUwCompletion(observation(null)).dependencies.get(scopeKey(blocker))?.state).toBe('held')
   expect(assessUwCompletion(observation('COMPLETED', false)).dependencies.get(scopeKey(blocker))?.state).toBe('held')
+})
+
+test('native-only witnesses cannot mutate historical authority and retain usable review catalogues', () => {
+  const observed = observation('COMPLETED')
+  const context = createHistoricalAcceptedSpecContext(observed.histories)
+  if (!context.ok) throw new Error('Historical context unavailable')
+  const authority = historicalAcceptedSpecOwnedHistories(context.value, observed.histories)
+  if (!authority.ok) throw new Error('Historical authority unavailable')
+  const baseline = structuredClone(authority.value)
+  const result = assessUwCompletion(observed, undefined, context.value).dependencies.get(scopeKey(blocker))
+  if (result?.state !== 'satisfied' || result.basis.kind !== 'native-only')
+    throw new Error('Native-only witness unavailable')
+  const witness = result.basis.witness
+  const inputs = standaloneReviewInputs()
+  const catalogue = catalogueForAction(inputs, observed.catalogues)
+  expect(catalogue.ok).toBe(true)
+  expect(catalogueForAction(inputs, witness.observation.catalogues)).toEqual(catalogue)
+  witness.history.source.complete = false
+  const outwardRoot = witness.observation.histories.find((entry) => entry.source.scope.target === root.target)
+  if (!outwardRoot) throw new Error('Witness root history unavailable')
+  outwardRoot.source.scope.target = 'changed'
+  expect(authority.value).toEqual(baseline)
+  expect(observed.histories).toEqual(baseline)
+  expect(assessUwCompletion(observed, undefined, context.value).dependencies.get(scopeKey(blocker))?.state).toBe(
+    'satisfied',
+  )
 })
 
 test('a foreign mandate claim prevents native-only absence even when the issue is completed', () => {

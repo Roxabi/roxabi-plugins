@@ -8,7 +8,6 @@ import {
   toDiagnostics,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { ActionOperands, AssessSpecExact } from '../engine/workflow-action-operands.ts'
@@ -115,6 +114,7 @@ async function observeSpecOperands(
     histories,
     [],
     replay,
+    read.historical,
   )
   if (childOwnSources === null)
     return actionFailure('action-input-missing', 'Current child own authorities cannot be captured')
@@ -240,7 +240,7 @@ export async function observeActionOperands(
   source: ActionFactSource,
   histories: readonly DecodedHistory[],
   accepted: AcceptedOwnSpec | null,
-  replay?: { uw: Scope; actionId: string; fingerprint: string },
+  replay?: AssessmentReplayContext,
   observedRead?: UwRead,
 ): Promise<Result<{ operands?: ActionOperands; identitySources: RecordInputRef[] }>> {
   if (request.purpose === 'integrate') {

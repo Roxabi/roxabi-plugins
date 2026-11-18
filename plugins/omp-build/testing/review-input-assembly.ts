@@ -26,7 +26,7 @@ function refused(diagnostics: readonly { message: string }[]): string {
 export async function assembleActionInputs(request: UwActionRequest, ports: UwActionPorts): Promise<ActionInputs> {
   const pin = await ports.plugin.resolveInstalledPluginPin()
   if (!pin.ok) throw new Error(refused(pin.diagnostics))
-  const facts = await ports.readCurrentActionFacts(request)
+  const facts = await ports.readCurrentActionFacts(request, undefined, undefined, undefined, { kind: 'prepublication' })
   if (!facts.ok) throw new Error(refused(facts.diagnostics))
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) throw new Error(refused(references.diagnostics))

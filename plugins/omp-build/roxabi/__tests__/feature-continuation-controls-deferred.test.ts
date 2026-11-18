@@ -1,6 +1,7 @@
-import { expect, test, vi } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import type { FeatureAuthority } from '../feature-continuation-admission.ts'
 import { applyFeatureControl } from '../feature-continuation-controls.ts'
+import { type FeatureControlInhibition, inhibit, inhibition, releaseInhibition } from '../feature-control.ts'
 import { featureStopMessage } from '../feature-presentation.ts'
 import type { UwOperations } from '../uw-contract.ts'
 
@@ -13,7 +14,11 @@ const diagnostic = {
   related: [],
 }
 
-function authority(gh: unknown): FeatureAuthority {
+afterEach(() => {
+  releaseInhibition(scope)
+})
+
+function authority(gh: unknown, controlInhibition?: FeatureControlInhibition): FeatureAuthority {
   return {
     context: {
       cwd: '/work',
@@ -29,40 +34,52 @@ function authority(gh: unknown): FeatureAuthority {
     target: null,
     parentHistories: [],
     causal: { histories: [] },
+    ...(controlInhibition === undefined ? {} : { controlInhibition }),
   } as unknown as FeatureAuthority
+}
+
+function heldAuthority(gh: unknown): { auth: FeatureAuthority; hold: FeatureControlInhibition } {
+  const hold = inhibit(scope, 'abandon')
+  return { auth: authority(gh, hold), hold }
 }
 
 test('deferred abandonment reports its diagnostic without disarming or continuing', async () => {
   const gh = vi.fn(() => {
     throw new Error('No native effect is permitted')
   })
+  const { auth, hold } = heldAuthority(gh)
   const abandon = vi.fn(async () => ({ status: 'deferred' as const, diagnostics: [diagnostic] }))
-  const result = await applyFeatureControl('abandon', authority(gh), { abandon } as unknown as UwOperations)
+  const result = await applyFeatureControl('abandon', auth, { abandon } as unknown as UwOperations)
 
   expect(abandon).toHaveBeenCalledOnce()
   expect(abandon).toHaveBeenCalledWith(scope, { scope, recordId: 'mandate-1', kind: 'mandate' })
   expect(result).toEqual({ kind: 'blocked', reason: 'operator-confirmation-deferred', diagnostics: [diagnostic] })
   expect(featureStopMessage(result)).toContain('operator-confirmation-deferred')
   expect(gh).not.toHaveBeenCalled()
+  expect(inhibition(scope)).toBe('abandon')
+  expect(hold.control).toBe('abandon')
 })
 
 test('explicit refusal remains distinct from deferral', async () => {
   const gh = vi.fn(() => {
     throw new Error('No native effect is permitted')
   })
+  const { auth } = heldAuthority(gh)
   const abandon = vi.fn(async () => ({
     status: 'refused' as const,
     diagnostics: [{ ...diagnostic, code: 'operator-confirmation-declined' }],
   }))
-  const result = await applyFeatureControl('abandon', authority(gh), { abandon } as unknown as UwOperations)
+  const result = await applyFeatureControl('abandon', auth, { abandon } as unknown as UwOperations)
 
   expect(result).toMatchObject({ kind: 'abandoned', confirmed: false, failure: { phase: 'uw', status: 'refused' } })
   expect(featureStopMessage(result)).toContain('operator-confirmation-declined')
   expect(gh).not.toHaveBeenCalled()
+  expect(inhibition(scope)).toBe('abandon')
 })
 
 test('preserves raw UW diagnostics while sanitizing their operator projection', async () => {
   const gh = vi.fn()
+  const { auth } = heldAuthority(gh)
   const failure = {
     ...diagnostic,
     code: 'refused GH_TOKEN=code-fake',
@@ -70,7 +87,7 @@ test('preserves raw UW diagnostics while sanitizing their operator projection', 
       'Native refusal GITHUB_TOKEN=github-fake access_token=access-fake Authorization: Basic basic-fake \u009b\u202e',
   }
   const abandon = vi.fn(async () => ({ status: 'refused' as const, diagnostics: [failure] }))
-  const result = await applyFeatureControl('abandon', authority(gh), { abandon } as unknown as UwOperations)
+  const result = await applyFeatureControl('abandon', auth, { abandon } as unknown as UwOperations)
 
   expect(result).toMatchObject({ failure: { phase: 'uw', status: 'refused', diagnostics: [failure] } })
   const message = featureStopMessage(result)
@@ -82,18 +99,21 @@ test('preserves raw UW diagnostics while sanitizing their operator projection', 
   expect(message).not.toContain('\u009b')
   expect(message).not.toContain('\u202e')
   expect(gh).not.toHaveBeenCalled()
+  expect(inhibition(scope)).toBe('abandon')
 })
 
 test.each(['partial', 'uncertain'] as const)('shows %s abandonment evidence without disarming', async (status) => {
   const gh = vi.fn()
+  const { auth } = heldAuthority(gh)
   const failure = { ...diagnostic, code: 'abandon-readback-unconfirmed', message: 'Record readback failed' }
   const abandon = vi.fn(async () => ({ status, uw: scope, diagnostics: [failure] }))
-  const result = await applyFeatureControl('abandon', authority(gh), { abandon } as unknown as UwOperations)
+  const result = await applyFeatureControl('abandon', auth, { abandon } as unknown as UwOperations)
 
   expect(result).toMatchObject({ kind: 'abandoned', confirmed: false, failure: { phase: 'uw', status } })
   expect(featureStopMessage(result)).toContain(status)
   expect(featureStopMessage(result)).toContain('abandon-readback-unconfirmed: Record readback failed')
   expect(gh).not.toHaveBeenCalled()
+  expect(inhibition(scope)).toBe('abandon')
 })
 
 test('reports failed disarm discovery after publication without claiming confirmed abandonment', async () => {
@@ -105,8 +125,9 @@ test('reports failed disarm discovery after publication without claiming confirm
     scope,
     issue: { repository: 'acme/app', number: 42, state: 'OPEN', author: 'automation', body: '', isPullRequest: false },
   } as const
+  const { auth } = heldAuthority(gh)
   const abandon = vi.fn(async () => ({ status: 'abandoned' as const, uw: scope }))
-  const result = await applyFeatureControl('abandon', { ...authority(gh), target }, {
+  const result = await applyFeatureControl('abandon', { ...auth, target }, {
     abandon,
   } as unknown as UwOperations)
 
@@ -117,6 +138,7 @@ test('reports failed disarm discovery after publication without claiming confirm
   expect(featureStopMessage(result)).toContain('pull-request-list-incomplete')
   expect(featureStopMessage(result)).toContain('linked PR discovery unavailable')
   expect(featureStopMessage(result)).not.toContain('feature-abandoned')
+  expect(inhibition(scope)).toBe('abandon')
 })
 
 test('disarm presentation exposes documented reasons but not unrelated evidence payload', () => {
@@ -164,11 +186,26 @@ test('still confirms abandonment after clean disarm discovery', async () => {
     scope,
     issue: { repository: 'acme/app', number: 42, state: 'OPEN', author: 'automation', body: '', isPullRequest: false },
   } as const
+  const { auth } = heldAuthority(gh)
   const abandon = vi.fn(async () => ({ status: 'abandoned' as const, uw: scope }))
-  const result = await applyFeatureControl('abandon', { ...authority(gh), target }, {
+  const result = await applyFeatureControl('abandon', { ...auth, target }, {
     abandon,
   } as unknown as UwOperations)
 
   expect(result).toEqual({ kind: 'abandoned', confirmed: true })
   expect(featureStopMessage(result)).toBe('feature-abandoned')
+  expect(inhibition(scope)).toBeUndefined()
+})
+
+test('missing UW backend leaves the captured abandon hold installed', async () => {
+  const gh = vi.fn(async () => '[]')
+  const target = {
+    status: 'issue',
+    scope,
+    issue: { repository: 'acme/app', number: 42, state: 'OPEN', author: 'automation', body: '', isPullRequest: false },
+  } as const
+  const { auth } = heldAuthority(gh)
+  const result = await applyFeatureControl('abandon', { ...auth, target })
+  expect(result).toEqual({ kind: 'abandoned', confirmed: false })
+  expect(inhibition(scope)).toBe('abandon')
 })

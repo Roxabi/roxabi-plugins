@@ -158,6 +158,7 @@ async function prepareInheritedAttribution(context: NestedContext, artifactsDir:
     action: 'attribute-ci',
     mandate: { scope: scenario.leaf, kind: 'mandate', recordId: scenario.leafMandate.recordId },
     exactInputs,
+    native: { branch: 'feature/202-leaf', base: 'main' },
     prepared: prepared.value,
   })
   if (opened.kind !== 'action' || opened.node !== 'attribute-ci')
@@ -179,6 +180,7 @@ async function prepareInheritedAttribution(context: NestedContext, artifactsDir:
     git: world.git,
     start: opened.start,
     result,
+    current: () => true,
   })
   if (!published.published) throw new Error(`nested-attribution-publish:${published.reason}`)
   if (!published.receipt) throw new Error('nested-attribution-publication-ref-missing')

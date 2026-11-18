@@ -229,6 +229,7 @@ describe('returned negative terminals under a later pause', () => {
         stop,
         gh: async () => '',
         git: async () => ({ code: 0, stdout: '', stderr: '' }),
+        current: () => true,
       })
 
     const request = fixtures.pauseRequested(mandate)

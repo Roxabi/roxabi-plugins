@@ -152,7 +152,14 @@ describe('feature native lifecycle through the installed OMP extension', () => {
           expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0, effectiveCwd: checkout }),
         ]),
       },
-      admission: { admitted: false, published: false, reason: 'implementation-disarm-unconfirmed' },
+      admission: {
+        admitted: false,
+        published: false,
+        commits: [git(box, checkout, ['rev-parse', 'HEAD'])],
+        commands: expect.arrayContaining([
+          expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0 }),
+        ]),
+      },
     })
   })
 

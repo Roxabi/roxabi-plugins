@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.22.0 (unreleased)
+
+- Add explicit same-authority expanded-context recovery and confirmed same-UW context-negative succession. Preserve the historical non-success, exact authority and fresh plan/review gates; incomplete, incompatible or unresolved effects remain blocking.
+- Keep lazy Feature and UW imports in OMP's active module graph so historical contexts, action snapshots and framing proposals retain the same runtime owner.
+- Route host recovery and succession engine imports through the bundled contracts so clean installations do not depend on checkout packages or create a second historical proof owner.
+- Reuse authenticated immutable histories across read and causal observations, completion and wait projection, while keeping outward native-witness histories detached and catalogue instances intact.
+- Extend pre-delivery context-negative succession to eligible leaf planning, plan-review and implementation and leaf or pre-child-mandate parent Spec assessment, with engine-owned authentication, reconciliation and successor gates. Preserve separate review/fix protocols and block admitted delivery or unresolved effects.
+- Distinguish the synthetic copied-current-code version handoff fixture from real 0.21 implementation evidence; it does not establish historical 0.21 assessment abandonment or live-pilot compatibility.
+- Require same-invocation `PI_TOOL_CALL_ID` capture in the native implementation producer, with exact Bash command/exit/cwd provenance separated from application stdout/stderr assertions. An isolated real-SDK fixture exercises acquisition and admission; it does not qualify the usual installed plugin or a live pilot. No tooling pin or installation is activated.
+- Conserve guarded tool-call observations independently of selected command proof. Require source-bound human effect review and host-observed named-file states for context succession, with exact native confirmation, repeated live-owner sampling and explicit historical-interpretation limits.
+- Keep historical named-resource reconciliation distinct from cold current managed-baseline observations; never reinterpret a historical path as the same resource on another host.
+- Release only the exact local inhibition captured by a fully confirmed abandonment after clean disarm. Allow explicit succession in the same process while preserving newer pause/abandon attempts, cwd pauses, unrelated UW holds and stopped native-producer fences.
+- Bind native continuation release to the original command generation. Admit same-session successor work without clearing newer stops; account persisted but unactivated STARTs and preserve explicit select/resume context reentry.
+- Require original-execution currentness alongside mandate authority before implementation effects and final positive implementation/parent-integration receipt POSTs; retain captured outcomes and observed remote truth after interruption. Preserve explicit correction-to-review ownership transfer and late-stop settlement status.
+- Keep the live handoff observer through final context-successor mandate/selection publication. Permit nonadmitted fallback only on writer-proven absence of any POST attempt or existing requested body; preserve partial/uncertain writes without a replacement result.
+- Recognize exactly 0.22.0 under the existing bounded PR-binding writer contract; unknown versions remain unknown. This source change does not migrate records or activate tooling.
+
 ## 0.21.0 (unreleased)
 
 - Add bounded interrupted-correction recovery for authenticated originating owners that sealed admission, joined known trusted host work and witnessed no native/startup or correction-plan entry. Predecision publication can close neutrally before a new ordinary attempt; an unstarted existing-review decision can continue the same request and decision only with genuinely unspent execution coordinates.

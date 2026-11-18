@@ -51,10 +51,14 @@ export async function executeDurableUwCommand(
   }
   const body = actionEnvelopeSchema.safeParse(parsed)
   if (!body.success) return { kind: 'stopped', reason: 'uw-action-invalid' }
-  if (body.data.reviewed !== undefined) {
+  if ('reviewed' in body.data) {
     return {
       kind: 'result',
-      value: await operations.replayActionInputs({ reviewed: body.data.reviewed, request: body.data.request }),
+      value: await operations.replayActionInputs({
+        reviewed: body.data.reviewed,
+        request: body.data.request,
+        intent: body.data.intent,
+      }),
     }
   }
   return { kind: 'result', value: await operations.prepareAction(body.data.request) }

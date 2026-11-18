@@ -256,6 +256,31 @@ describe('implementation admission', () => {
     })
   })
 
+  it('refuses invented or foreign call IDs and mismatched command provenance', async () => {
+    const fixture = admissionFixture()
+    const { red, green } = capturedProofs(fixture.cwd)
+    const claim = implementationClaim(fixture.tip, red, green)
+    const admit = (commands: typeof claim.commands, bashCalls: NativeProofBashCall[]) =>
+      admitImplementationEvidence({
+        cwd: fixture.cwd,
+        startHead: fixture.start,
+        ticket: 42,
+        children: [{ structured: { ...claim, commands }, bashCalls }],
+      })
+
+    for (const toolCallId of ['invented-call', 'foreign-call']) {
+      const commands = claim.commands.map((command, index) => (index === 0 ? { ...command, toolCallId } : command))
+      const result = await admit(commands, [red, green])
+      expect(result.admitted).toBe(false)
+      expect(result.reason).toBe('implementation-command-unbound')
+    }
+    const wrongText = claim.commands.map((command, index) =>
+      index === 0 ? { ...command, command: `${command.command} ` } : command,
+    )
+    expect((await admit(wrongText, [red, green])).admitted).toBe(false)
+    expect((await admit(claim.commands, [{ ...red, effectiveCwd: '/' }, green])).admitted).toBe(false)
+  })
+
   it('requires observed conventional commit subjects to qualify the selected ticket', async () => {
     const admit = async (subject: string, ticket: number) => {
       const fixture = admissionFixture(subject)

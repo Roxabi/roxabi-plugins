@@ -6,12 +6,18 @@ import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { classifyAttempts } from './workflow-action-interruption.ts'
 import { authenticateCapturedWorkFrame } from './workflow-captured-frame.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import {
+  createHistoricalAcceptedSpecContext,
+  type HistoricalAcceptedSpecContext,
+} from './workflow-context-succession-inspection.ts'
 import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   excludedReceipt,
   type MandateRecord,
   type ReceiptRecord,
   receiptStartKey,
+  recordsOf,
   workflowOperationProblem,
 } from './workflow-control.ts'
 import { authenticateInterruptedReceiptPair } from './workflow-interruption-proof.ts'
@@ -23,6 +29,7 @@ export type CapturedInvocation = {
   start: ReceiptRecord
   result: ReceiptRecord
   frame: { mandate: MandateRecord; prefix: AcceptedOwnSpec }
+  historical?: HistoricalAcceptedSpecContext
 }
 const inspected: Record<string, true> = { plan: true, 'plan-review': true, implement: true, integrate: true }
 
@@ -82,6 +89,7 @@ function authenticateInvocation(
   evidence: WorkflowEvidence,
   replay?: AssessmentReplayContext,
   resolved = false,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<CapturedInvocation> {
   const pair = resolved
     ? authenticateInterruptedReceiptPair(history, result)
@@ -110,15 +118,41 @@ function authenticateInvocation(
   const code = payload.inputs.manifest.code
   const expected = payload.action === 'plan' || payload.action === 'plan-review' ? code.base : code.head
   if (code.referenceCommit !== expected) return fail('Captured invocation code reference is not the action reference')
-  const frame = authenticateCapturedWorkFrame(payload.inputs, payload.mandate, evidence.causal.histories, replay)
+  const frame = authenticateCapturedWorkFrame(
+    payload.inputs,
+    payload.mandate,
+    evidence.causal.histories,
+    replay,
+    undefined,
+    historical,
+  )
   if (!frame.ok) return frame
-  return { ok: true, value: { history, start: pair.value.start, result, frame: frame.value } }
+  return { ok: true, value: { history, start: pair.value.start, result, frame: frame.value, historical } }
 }
 
-function validateTerminalContexts(history: DecodedHistory, excluded: ReadonlySet<string>): Result<void> {
+function validateTerminalContexts(
+  history: DecodedHistory,
+  excluded: ReadonlySet<string>,
+  inspection?: { selected: boolean },
+): Result<void> {
   for (const action of Object.keys(inspected)) {
-    if (workflowContextTerminal(history, action, undefined, excluded) !== 'clear')
-      return fail('Captured invocation has unresolved negative context')
+    const terminal = workflowContextTerminal(history, action, undefined, excluded)
+    if (terminal === 'clear') continue
+    if (inspection !== undefined && !inspection.selected && terminal === 'missing') {
+      const leaves = recordsOf(history).filter(
+        (record): record is ReceiptRecord =>
+          record.kind === 'action-receipt' &&
+          record.payload.action === action &&
+          workflowContextNegative(record) &&
+          !excludedReceipt(record, excluded) &&
+          workflowContextTerminal(history, action, record, excluded) === 'clear',
+      )
+      if (leaves.length === 1) {
+        inspection.selected = true
+        continue
+      }
+    }
+    return fail('Captured invocation has unresolved negative context')
   }
   return { ok: true, value: undefined }
 }
@@ -127,6 +161,9 @@ function validateTerminalContexts(history: DecodedHistory, excluded: ReadonlySet
 export function inventoryCapturedWork(
   evidence: WorkflowEvidence,
   replay?: AssessmentReplayContext,
+  dispositionExcluded: ReadonlySet<string> = new Set(),
+  assessmentInspection = false,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<readonly CapturedInvocation[]> {
   const histories = evidence.causal.histories
   const selected = [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
@@ -134,6 +171,9 @@ export function inventoryCapturedWork(
   if (causal.length) return { ok: false, diagnostics: causal }
   const identities = validateOperationIdentities(histories)
   if (!identities.ok) return identities
+  const context =
+    historical === undefined ? createHistoricalAcceptedSpecContext(histories) : { ok: true as const, value: historical }
+  if (!context.ok) return context
   const attempts = classifyAttempts({
     histories: [...selected, ...histories],
     scan: selected,
@@ -141,9 +181,18 @@ export function inventoryCapturedWork(
   })
   if (!attempts.ok) return attempts
   const excluded = attempts.value.excluded
+  const inspection = assessmentInspection ? { selected: false } : undefined
   const invocations: CapturedInvocation[] = []
   for (const history of selected) {
-    const captured = inventoryHistory(history, evidence, excluded, replay)
+    const captured = inventoryHistory(
+      history,
+      evidence,
+      excluded,
+      replay,
+      dispositionExcluded,
+      inspection,
+      context.value,
+    )
     if (!captured.ok) return captured
     invocations.push(...captured.value)
   }
@@ -155,6 +204,9 @@ function inventoryHistory(
   evidence: WorkflowEvidence,
   excluded: ReadonlySet<string>,
   replay?: AssessmentReplayContext,
+  dispositionExcluded: ReadonlySet<string> = new Set(),
+  inspection?: { selected: boolean },
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<readonly CapturedInvocation[]> {
   const receipts = history.operations.flatMap((operation) =>
     operation.authority !== 'foreign' &&
@@ -169,11 +221,11 @@ function inventoryHistory(
   for (const result of receipts.filter((record) => record.payload.phase === 'result')) {
     // A resolved interrupted RESULT is still authenticated, but its output is never interpreted.
     const resolved = excludedReceipt(result, excluded)
-    const invocation = authenticateInvocation(history, result, evidence, replay, resolved)
+    const invocation = authenticateInvocation(history, result, evidence, replay, resolved, historical)
     if (!invocation.ok) return invocation
     if (!resolved) invocations.push(invocation.value)
   }
-  const terminal = validateTerminalContexts(history, excluded)
+  const terminal = validateTerminalContexts(history, new Set([...excluded, ...dispositionExcluded]), inspection)
   if (!terminal.ok) return terminal
   return { ok: true, value: invocations }
 }

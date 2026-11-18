@@ -5,6 +5,10 @@ import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { capturedChildOwnSources } from './workflow-assessment-child-sources.ts'
 import { workflowContextNegative } from './workflow-context-output.ts'
+import {
+  createHistoricalAcceptedSpecContext,
+  historicalAcceptedSpecFrame,
+} from './workflow-context-succession-inspection.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
@@ -16,17 +20,30 @@ import {
   sameAssessedState,
   sameCurrentAssessedState,
 } from './workflow-spec-assessment.ts'
+import { assessmentPrestartContext } from './workflow-spec-authentication.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
 export function assessSpecCompletion(
   evidence: WorkflowEvidence,
   facts: WorkflowFacts | null,
   mandate: MandateRecord | null,
+  selectedNegative?: ReceiptRecord,
 ): ActionCompletion {
   if (facts === null || mandate === null || facts.currentSpec === null || facts.identityAllocations === null) {
     return { status: 'not-started', evidence: [] }
   }
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
+  const historical = createHistoricalAcceptedSpecContext(evidence.causal.histories)
+  if (!historical.ok) return { status: 'blocked', evidence: historical.diagnostics }
+  const frame = historicalAcceptedSpecFrame(historical.value, evidence.causal.histories, mandate)
+  if (!frame.ok) return { status: 'blocked', evidence: frame.diagnostics }
+  const inspection = frame.value.inspection
+  const accepted = resolveAcceptedSpec(
+    mandate,
+    evidence.causal.histories,
+    assessmentPrestartContext(facts),
+    inspection,
+    historical.value,
+  )
   if (!accepted.ok) return { status: 'uncertain', evidence: accepted.evidence }
   const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
   const childOwnSources = capturedChildOwnSources(
@@ -41,6 +58,8 @@ export function assessSpecCompletion(
     facts.currentSpec,
     evidence.causal.histories,
     [],
+    assessmentPrestartContext(facts),
+    historical.value,
   )
   if (childOwnSources === null)
     return {
@@ -73,6 +92,11 @@ export function assessSpecCompletion(
       facts.currentSpec,
     ),
   }
+  if (selectedNegative !== undefined && !isMatchingAssessment(selectedNegative, mandateRef, exactInputs))
+    return {
+      status: 'blocked',
+      evidence: [diagnostic('action-context-missing', 'Assessment context no longer matches current Spec')],
+    }
   const gate = interruptionGate(
     classifyAttempts({
       histories: [evidence.issue, ...evidence.causal.histories],

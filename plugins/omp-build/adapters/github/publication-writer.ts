@@ -95,6 +95,15 @@ async function rejectUnexpectedWriter(
   ])
 }
 
+function revokedPublication(current: DecodedHistory, writeStarted: boolean): PublicationFailure {
+  return publicationFailure('uncertain', current, [
+    {
+      ...diagnostic('publication-ownership-revoked', 'Publication ownership was revoked before the next record write'),
+      detail: writeStarted ? 'write-started' : 'not-started',
+    },
+  ])
+}
+
 export async function publishMissingBodies(
   record: CanonicalRecord,
   bodies: readonly string[],
@@ -107,14 +116,14 @@ export async function publishMissingBodies(
   const existingBodies = new Set(
     current.source.comments.filter((comment) => comment.author === writer).map((comment) => comment.body),
   )
+  let postAttempted = false
   for (const body of bodies) {
     if (existingBodies.has(body)) continue
     if (options.canPublish?.() === false)
-      return publicationFailure('uncertain', current, [
-        diagnostic('publication-ownership-revoked', 'Publication ownership was revoked before the record write'),
-      ])
+      return revokedPublication(current, postAttempted || bodies.some((candidate) => existingBodies.has(candidate)))
     let response: string
     try {
+      postAttempted = true
       response = await postComment(record, body, options)
     } catch (error) {
       return reconcileFailedPost(record, current, options, expectedAuthor, stopAuthor, error)

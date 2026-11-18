@@ -1,4 +1,5 @@
 import type { DecodedHistory } from './history-schema.ts'
+import { currentContextSuccession } from './workflow-context-succession-current.ts'
 import { type MandateRecord, recordsOf } from './workflow-control.ts'
 import { implementationCompletion } from './workflow-implementation-completion.ts'
 import type { ActionCompletion, WorkflowCausalContext } from './workflow-plan.ts'
@@ -10,16 +11,24 @@ export function planConfirmed(
   history: DecodedHistory,
   mandate: MandateRecord | null,
   causal: WorkflowCausalContext,
+  facts: WorkflowFacts,
 ): boolean {
-  return planMacro({ issue: history, pullRequest: null, parents: [], causal }, mandate).phase === 'eligible'
+  const evidence = { issue: history, pullRequest: null, parents: [], causal }
+  const disposition =
+    mandate === null
+      ? { ok: true as const, value: new Set<string>() }
+      : currentContextSuccession(evidence, mandate, facts)
+  return disposition.ok && planMacro(evidence, mandate, { excludedStarts: disposition.value }).phase === 'eligible'
 }
 export function implementConfirmed(
   history: DecodedHistory,
   mandate: MandateRecord | null,
   causal: WorkflowCausalContext,
+  facts: WorkflowFacts,
 ): boolean {
   return (
-    implementationCompletion({ issue: history, pullRequest: null, parents: [], causal }, mandate).status === 'confirmed'
+    implementationCompletion({ issue: history, pullRequest: null, parents: [], causal }, mandate, facts).status ===
+    'confirmed'
   )
 }
 export function prePrStartsAbsent(history: DecodedHistory): boolean {
@@ -36,8 +45,9 @@ export function adoptedOrConfirmed(
   history: DecodedHistory,
   mandate: MandateRecord | null,
   causal: WorkflowCausalContext,
+  facts: WorkflowFacts,
 ): boolean {
-  return prePrStartsAbsent(history) || implementConfirmed(history, mandate, causal)
+  return prePrStartsAbsent(history) || implementConfirmed(history, mandate, causal, facts)
 }
 
 export function workflowBound(

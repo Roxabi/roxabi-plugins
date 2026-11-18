@@ -5,7 +5,7 @@ import {
   type GitHubOptions,
   nativeObservationDigest,
   publishConfirmedWorkflowRecord,
-  resolveAcceptedSpec,
+  resolveAcceptedSpecForAbandonment,
   selectApplicableMandate,
 } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
@@ -44,7 +44,7 @@ function abandonmentAuthority(read: UwRead) {
   if (ref === null) return null
   const mandate = bindExternalRef(ref, home)
   if (!mandate.ok || mandate.value.kind !== 'mandate') return null
-  const accepted = resolveAcceptedSpec(mandate.value, histories)
+  const accepted = resolveAcceptedSpecForAbandonment(mandate.value, histories)
   if (!accepted.ok) return null
   return { mandate: ref, accepted: accepted.spec.ref }
 }

@@ -211,6 +211,25 @@ describe('authorized criterion delivery admission', () => {
     expect(bindExternalRef(ref, metaHistory).ok).toBe(false)
   })
 
+  test('binds a single authenticated record and still checks every duplicate observation', async () => {
+    const { mandate, implementation: receipt, observation } = await deliveredLeaf()
+    const source = observation.histories.find((item) => item.source.scope.target === mandate.target)
+    const observed = source?.operations.find((item) => item.record?.recordId === receipt.recordId)
+    if (source === undefined || observed?.record === null || observed === undefined)
+      throw new Error('Authenticated implementation observation missing')
+    const ref = { scope: mandateScope(mandate), recordId: receipt.recordId, kind: 'action-receipt' as const }
+    const one = { ...source, operations: [observed] }
+    expect(bindExternalRef(ref, one).ok).toBe(true)
+    expect(bindExternalRef(ref, { ...one, operations: [observed, observed] }).ok).toBe(true)
+    const changed = { ...observed, record: { ...observed.record, operationId: 'different-operation' } }
+    expect(bindExternalRef(ref, { ...one, operations: [observed, changed] })).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'ambiguous' }],
+    })
+    const missingPart = { ...observed, parts: observed.parts.map((part) => ({ ...part, nativeId: null })) }
+    expect(bindExternalRef(ref, { ...one, operations: [observed, missingPart] }).ok).toBe(false)
+  })
+
   test('does not approve candidate A when the stored standalone manifest hashes B', () => {
     const aligned = standaloneReviewInputs()
     const manifest = { ...aligned.manifest, code: { ...aligned.manifest.code, head: 'b'.repeat(40) } }

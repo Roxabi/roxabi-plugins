@@ -22,6 +22,7 @@ import { framingSummary } from './omp-operator-confirmation-framing.ts'
 import { materialLines } from './omp-operator-confirmation-material-summary.ts'
 import { recoveryLines } from './omp-operator-confirmation-recovery-summary.ts'
 import { uwLines } from './omp-operator-confirmation-spec-summary.ts'
+import { contextEffectSummary } from './omp-operator-context-effects.ts'
 
 type Proposal = PreparedOperatorProposal['proposal']
 
@@ -179,6 +180,28 @@ function fallbackLines(proposal: Proposal): string[] {
 export function proposalSummary(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
   const candidate: unknown = proposal
+  if (proposal.format === 'omp-build-context-succession/1')
+    return [
+      asked('Sélectionner une nouvelle autorité pour ', scopeText(proposal.uw)),
+      summaryField('Mandat précédent : ', proposal.predecessor.recordId),
+      summaryField('Nouveau mandat : ', proposal.successor.recordId),
+      summaryField(
+        'Ancien produit/configuration : ',
+        `${proposal.predecessorConfig.productVersion} / ${proposal.predecessorConfig.version} / ${proposal.predecessorConfig.digest}`,
+      ),
+      summaryField(
+        'Nouveau produit/configuration : ',
+        `${proposal.successorConfig.productVersion} / ${proposal.successorConfig.version} / ${proposal.successorConfig.digest}`,
+      ),
+      summaryField('Spec acceptée : ', proposal.replacementAccepted.version),
+      summaryField('Résultat négatif conservé : ', proposal.negative.record.recordId),
+      summaryField('Code observé : ', proposal.reconciliation.code.head),
+      'Le résultat précédent reste négatif et ne constitue pas une livraison.',
+      'La réconciliation couvre l’état de livraison géré actuel et les ressources nommées ci-dessous, pas tous les effets historiques.',
+      ...contextEffectSummary(proposal.reconciliation.effectReview),
+      'Une nouvelle planification et ses revues restent nécessaires.',
+      PARTIAL,
+    ]
   if (proposal.format === 'omp-build-fix-recovery-proposal/1') return recoveryLines(proposal)
   if (proposal.format === 'omp-build-tooling-pin-activation/1')
     return [

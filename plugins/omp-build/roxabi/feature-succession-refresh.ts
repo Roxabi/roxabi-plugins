@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { bindExternalRef, canonicalValueDigest, sameScope, workflowOperationProblem } from '../dist/contracts.js'
+import {
+  bindExternalRef,
+  canonicalValueDigest,
+  contextHandoffHistoryDigest,
+  sameScope,
+  workflowOperationProblem,
+} from '../dist/contracts.js'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
 import { type Contracts, type History, type HistoryRecord, publishRecord, type Scope } from './feature-engine.ts'
 import type { Gh } from './feature-succession-binding.ts'
 
@@ -40,6 +47,40 @@ export function validateSuccessorRefresh(
   return { ok: true }
 }
 
+export type ConfirmedContextAppend = {
+  before: History
+  ref: ExternalRecordRef & { kind: 'mandate' }
+  payloadDigest: string
+}
+
+/** Project only the authenticated append, while retaining the full fresh history at the caller. */
+export function projectConfirmedContextAppend(
+  histories: readonly History[],
+  input: ConfirmedContextAppend,
+): readonly History[] | null {
+  const matches = histories.filter((item) => sameScope(item.source.scope, input.ref.scope))
+  const fresh = matches[0]
+  if (
+    matches.length !== 1 ||
+    fresh === undefined ||
+    !validateSuccessorRefresh(input.before, fresh, input.ref.scope, input.ref.recordId).ok
+  )
+    return null
+  const bound = bindExternalRef(input.ref, fresh)
+  if (!bound.ok || bound.value.kind !== 'mandate' || canonicalValueDigest(bound.value.payload) !== input.payloadDigest)
+    return null
+  const operation = fresh.operations.find((item) => item.recordId === input.ref.recordId)
+  if (operation === undefined) return null
+  const parts = new Set(operation.parts.map((part) => part.locator))
+  if (
+    canonicalValueDigest(fresh.source.comments.filter((comment) => !parts.has(comment.locator))) !==
+      canonicalValueDigest(input.before.source.comments) ||
+    contextHandoffHistoryDigest([fresh], [input.ref]) !== contextHandoffHistoryDigest([input.before])
+  )
+    return null
+  return histories.map((item) => (item === fresh ? input.before : item))
+}
+
 /** Publish the mandate, then prove the observed home changed only by that complete mandate. */
 export async function publishAndRefreshSuccessor(
   input: {
@@ -52,6 +93,7 @@ export async function publishAndRefreshSuccessor(
   },
   successorId: string,
   payload: Extract<HistoryRecord, { kind: 'mandate' }>['payload'],
+  canPublish?: () => boolean,
 ) {
   const published = await publishRecord(
     input.loaded,
@@ -69,6 +111,7 @@ export async function publishAndRefreshSuccessor(
     input.gh,
     input.cwd,
     input.parents,
+    canPublish,
   )
   if (!published.ok) return { ok: false as const, reason: published.reason }
   const readOptions = {

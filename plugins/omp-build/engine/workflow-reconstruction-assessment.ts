@@ -6,9 +6,15 @@ import { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './work
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './workflow-assessment-child-sources.ts'
 import { workflowContextNegative } from './workflow-context-output.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
+import {
+  createHistoricalAcceptedSpecContext,
+  historicalAcceptedSpecFrame,
+} from './workflow-context-succession-inspection.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
+import type { WorkflowEvidence } from './workflow-plan.ts'
 import type { WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import {
   type AssessResultRecord,
@@ -18,6 +24,7 @@ import {
   sameAssessedState,
   sameCurrentAssessedState,
 } from './workflow-spec-assessment.ts'
+import { assessmentPrestartContext, authenticatedAssessmentPrestart } from './workflow-spec-authentication.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
 function specDecisionRequired(code: string, message: string): WorkflowDecision {
@@ -29,6 +36,7 @@ function matchingAssessments(
   mandate: MandateRecord,
   facts: WorkflowFacts,
   excluded: ReadonlySet<string>,
+  recovering: boolean,
 ): AssessResultRecord[] {
   const currentSpec = facts.currentSpec
   if (currentSpec === null) return []
@@ -38,7 +46,7 @@ function matchingAssessments(
       !excludedReceipt(record, excluded) &&
       !(
         workflowContextNegative(record) &&
-        workflowContextTerminal(history, 'assess-spec', undefined, excluded) === 'clear'
+        (recovering || workflowContextTerminal(history, 'assess-spec', undefined, excluded) === 'clear')
       ) &&
       sameRef(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }) &&
       sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),
@@ -86,13 +94,30 @@ export function assessmentDecision(
   history: DecodedHistory,
   mandate: MandateRecord,
   facts: WorkflowFacts,
-  histories: readonly DecodedHistory[],
+  evidence: WorkflowEvidence,
 ): WorkflowDecision | null {
+  const histories = evidence.causal.histories
+  const historical = createHistoricalAcceptedSpecContext(histories)
+  if (!historical.ok) return { status: 'blocked', reason: 'unconfirmed', evidence: historical.diagnostics }
+  const frame = historicalAcceptedSpecFrame(historical.value, histories, mandate)
+  if (!frame.ok) return { status: 'blocked', reason: 'unconfirmed', evidence: frame.diagnostics }
+  const inspection = frame.value.inspection
   const interruption = assessmentInterruption(history, mandate, facts, histories)
   if (interruption.kind === 'stop') return interruption.decision
-  const assessments = matchingAssessments(history, mandate, facts, interruption.excluded)
+  const replay = assessmentPrestartContext(facts)
+  const recovering =
+    replay !== undefined &&
+    authenticatedAssessmentPrestart(
+      history,
+      histories,
+      { scope: mandateScope(mandate), kind: 'mandate', recordId: mandate.recordId },
+      interruption.excluded,
+      replay,
+      inspection,
+    ) !== null
+  const assessments = matchingAssessments(history, mandate, facts, interruption.excluded, recovering)
   if (assessments.length === 0) return null
-  const accepted = resolveAcceptedSpec(mandate, histories)
+  const accepted = resolveAcceptedSpec(mandate, histories, replay, inspection, historical.value)
   if (!accepted.ok) return { status: 'terminal', reason: 'spec-ambiguous', evidence: accepted.evidence }
   const qualified = assessments.filter((assessment) =>
     sameAssessedState(assessment.payload.exactInputs.accepted, {
@@ -112,13 +137,16 @@ export function assessmentDecision(
     }
   }
   const assessment = qualified[0]
-  return assessment === undefined ? null : authenticatedAssessmentDecision(assessment, mandate, histories)
+  return assessment === undefined
+    ? null
+    : authenticatedAssessmentDecision(assessment, mandate, histories, historical.value)
 }
 
 function authenticatedAssessmentDecision(
   assessment: AssessResultRecord,
   mandate: MandateRecord,
   histories: readonly DecodedHistory[],
+  historical: HistoricalAcceptedSpecContext,
 ): WorkflowDecision | null {
   const authenticated = authenticatedAssessResult(assessment, histories, {
     scope: mandateScope(mandate),
@@ -144,11 +172,19 @@ function authenticatedAssessmentDecision(
     parsed.data,
     histories,
     mandate,
+    historical,
   )
   if (compatibilityProblem !== null)
     return specDecisionRequired('constraint-compatibility-unresolved', compatibilityProblem)
   const exact = authenticated.record.payload.exactInputs
-  const currentChildren = capturedChildOwnSources(exact.accepted, exact.proposed, histories, exact.attachedChildren)
+  const currentChildren = capturedChildOwnSources(
+    exact.accepted,
+    exact.proposed,
+    histories,
+    exact.attachedChildren,
+    undefined,
+    historical,
+  )
   if (
     currentChildren === null ||
     canonicalValueDigest(currentChildren.childOwnSources) !== canonicalValueDigest(exact.childOwnSources) ||

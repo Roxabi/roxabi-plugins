@@ -49,6 +49,8 @@ export type FeatureNativeResultInput = {
   startHead?: string
   git?: GitRunner
   gh?: Gh
+  /** Original native execution ownership, checked independently of durable mandate authority. */
+  current: () => boolean
 }
 
 async function publishOtherActionResult(
@@ -187,12 +189,14 @@ export async function publishFeatureNativeResult(input: FeatureNativeResultInput
     )
     return retainedRefusal(retained, 'implementation-not-remote')
   }
-  const effect = () => implementationEffectAuthority(binding, input.cwd)
+  const effect = () => implementationEffectAuthority(binding, input.cwd, input.current)
   const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, {
+    current: input.current,
     effect,
     beforePush: async () => {
       const before = await effect()
       if (!before.ok) return before
+      if (!input.current()) return { ok: false, reason: 'implementation-local-inhibition' }
       if (!(await disarmBranchBeforePush(gh, input.cwd, binding.mandate.scope.repository, binding.branch)))
         return { ok: false, reason: 'implementation-disarm-unconfirmed' }
       return effect()

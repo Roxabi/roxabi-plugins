@@ -5,6 +5,7 @@ import { identifierSchema, jsonSchema, sha256Schema } from './schema-primitives.
 import { operatorConfirmationEvidenceSchema } from './uw-identity-schema.ts'
 import { nativeIssueObservationSchema } from './uw-native-observation-schema.ts'
 import { specItemIdSchema } from './uw-spec-schema.ts'
+import { contextDispositionSchema } from './workflow-context-disposition-schema.ts'
 import { materialAuthorizationSchema, sameRefMeaning } from './workflow-mandate-schema.ts'
 
 const disarmSchema = z.strictObject({ observed: z.literal(true), evidence: jsonSchema })
@@ -65,6 +66,7 @@ export const operatorControlPayloadSchema = z
       control: z.literal('select-successor'),
       predecessor: externalRecordRefSchema,
       successor: externalRecordRefSchema,
+      contextDisposition: contextDispositionSchema.optional(),
       ...controlShared,
     }),
     z.strictObject({
@@ -98,7 +100,20 @@ export const operatorControlPayloadSchema = z
       if (control.authorization.kind === 'cause-creation')
         refs.push(control.authorization.operation, control.authorization.binding.identity)
     }
-    if (control.control === 'select-successor') refs.push(control.successor)
+    if (control.control === 'select-successor') {
+      refs.push(control.successor)
+      if (control.contextDisposition) {
+        refs.push(
+          control.contextDisposition.negative.record,
+          control.contextDisposition.replacementAccepted.sourceAccepted,
+        )
+        refs.push(
+          ...control.contextDisposition.reconciliation.delivery.integrations.map(
+            (integration) => integration.source.record,
+          ),
+        )
+      }
+    }
     if (control.control === 'resolve-interruption') refs.push(control.start, control.result)
     sameRefMeaning(refs, context)
   })

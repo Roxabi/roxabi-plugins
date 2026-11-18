@@ -32,13 +32,14 @@ import {
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
 export type NonPlanExpansion = {
   previous: ActionInputs
+  negative: Negative
   histories: readonly DecodedHistory[]
   mandate: Negative['payload']['mandate']
   slot: { action: Family; exact: unknown }
 }
 
 function negativeOutput(result: Negative): boolean {
-  if (result.payload.action === 'implement') {
+  if (result.payload.action === 'implement' || result.payload.action === 'integrate') {
     return deliveryMissingContextSchema.safeParse(result.payload.structured).success
   }
   return missingContextOutputSchema.safeParse(result.payload.structured).success
@@ -170,7 +171,7 @@ function validateRemaining(
 ): Result<true> {
   if (
     histories.some((history) =>
-      ['frame', 'plan', 'plan-review', 'assess-spec', 'attribute-ci', 'implement'].some(
+      ['frame', 'plan', 'plan-review', 'assess-spec', 'attribute-ci', 'implement', 'integrate'].some(
         (action) => workflowContextTerminal(history, action, result, excluded) !== 'clear',
       ),
     )
@@ -229,11 +230,13 @@ function validateCurrentMandate(
 export function nonPlanExpansion(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
+  disposedStarts: ReadonlySet<string> = new Set(),
 ): Result<NonPlanExpansion | null> {
-  if (!['frame', 'assess-spec', 'attribute-ci', 'implement'].includes(request.purpose)) return { ok: true, value: null }
+  if (!['frame', 'assess-spec', 'attribute-ci', 'implement', 'integrate'].includes(request.purpose))
+    return { ok: true, value: null }
   const index = resolutionIndex(histories)
   if (!index.ok) return actionFailure('action-input-missing', 'Interruption resolution is invalid')
-  const excluded = new Set(index.value.resolved.keys())
+  const excluded = new Set([...index.value.resolved.keys(), ...disposedStarts])
   const selected = selectNegative(request, histories, excluded)
   if (!selected.ok) return selected
   if (selected.value === null) return { ok: true, value: null }
@@ -248,6 +251,7 @@ export function nonPlanExpansion(
     ok: true,
     value: {
       previous: result.payload.inputs,
+      negative: result,
       histories,
       mandate: result.payload.mandate,
       slot: { action: result.payload.action, exact: result.payload.exactInputs },

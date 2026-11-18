@@ -1,6 +1,8 @@
 import type { Gh } from '../adapters/github/types.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
+import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { Contracts, History } from './feature-engine.ts'
+import { plannerSuccessionStarts } from './feature-planner-succession.ts'
 import {
   authorizeExpandedStart,
   hasExpandedStart,
@@ -36,6 +38,37 @@ function startUw(start: Extract<Extract<CanonicalRecord, { kind: 'action-receipt
     ? first.uw
     : undefined
 }
+async function dispositionStarts(
+  start: Extract<Extract<CanonicalRecord, { kind: 'action-receipt' }>['payload'], { phase: 'start' }>,
+  causal: WorkflowCausalContext | null,
+  cwd: string,
+  gh: Gh,
+) {
+  if (
+    start.action !== 'plan' &&
+    start.action !== 'plan-review' &&
+    start.action !== 'assess-spec' &&
+    start.action !== 'implement'
+  )
+    return { ok: true as const, value: new Set<string>() }
+  if (causal === null) return { ok: false as const, reason: 'causal-uw-unavailable' }
+  const mandates = causal.histories.flatMap((history) =>
+    history.operations.flatMap((operation) =>
+      operation.status === 'complete' &&
+      operation.record?.kind === 'mandate' &&
+      operation.record.recordId === start.mandate.recordId &&
+      operation.record.repository === start.mandate.scope.repository &&
+      operation.record.target === start.mandate.scope.target
+        ? [operation.record]
+        : [],
+    ),
+  )
+  if (mandates.length !== 1 || mandates[0] === undefined) return { ok: false as const, reason: 'mandate-unconfirmed' }
+  const result = await plannerSuccessionStarts(mandates[0], causal, { cwd, gh })
+  return result.ok
+    ? result
+    : { ok: false as const, reason: result.diagnostics[0]?.code ?? 'context-succession-unconfirmed' }
+}
 
 export async function authorizeStartPublication(
   record: CanonicalRecord,
@@ -57,7 +90,9 @@ export async function authorizeStartPublication(
   const causal = uw === null ? null : await readFreshUwCausalContext(uw, fresh.histories, options)
   if (causal !== null && !causal.ok) return { ok: false, reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
   if (!hasExpandedStart(record.payload)) return { ok: true }
-  const authorized = authorizeExpandedStart(record.payload, fresh.histories, causal?.value ?? null)
+  const disposition = await dispositionStarts(record.payload, causal?.value ?? null, cwd, gh)
+  if (!disposition.ok) return disposition
+  const authorized = authorizeExpandedStart(record.payload, fresh.histories, causal?.value ?? null, disposition.value)
   if (!authorized.ok) return authorized
   return validateExpandedStartLive(record.payload, fresh.histories, { cwd, gh })
 }
@@ -80,7 +115,9 @@ export async function recheckStartPublication(
   const causal = uw === null ? null : await readFreshUwCausalContext(uw, fresh.histories, options)
   if (causal !== null && !causal.ok) return { ok: false, reason: causal.diagnostics[0] ?? 'causal-history-unavailable' }
   if (!hasExpandedStart(record.payload)) return { ok: true }
-  const authorized = recheckExpandedStart(record, fresh.histories, causal?.value ?? null)
+  const disposition = await dispositionStarts(record.payload, causal?.value ?? null, cwd, gh)
+  if (!disposition.ok) return disposition
+  const authorized = recheckExpandedStart(record, fresh.histories, causal?.value ?? null, disposition.value)
   if (!authorized.ok) return authorized
   const beforeStart = fresh.histories.map((item) => ({
     ...item,

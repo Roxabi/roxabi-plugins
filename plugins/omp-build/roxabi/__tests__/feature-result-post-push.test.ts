@@ -218,6 +218,7 @@ it.each([
           git,
           gh: async () => '',
           startHead: 'c'.repeat(40),
+          current: () => true,
         }),
       failure === 'already-throw' ? authorityError : publicationError,
       already,
@@ -236,9 +237,147 @@ it.each([
     git,
     gh: async () => '',
     startHead: 'c'.repeat(40),
+    current: () => true,
   })
 
   expect(pushed).toBe(!already)
   expect(git.mock.calls.filter(([, args]) => args[0] === 'push')).toHaveLength(already ? 0 : 1)
   assertRefusal(failure, published, branch, tip)
+})
+
+it('blocks push when ownership drops during fresh authority despite applicable mandate', async () => {
+  const scope = { repository: 'acme/app', target: 'acme/app#42' }
+  const start = { scope, recordId: 'start-1', kind: 'action-receipt' as const }
+  const mandate = { ...scope, recordId: 'mandate-1', kind: 'mandate' as const }
+  const mandateRef = { scope, recordId: mandate.recordId, kind: 'mandate' as const }
+  const branch = 'feat/42-save'
+  const tip = 'a'.repeat(40)
+  const history = { source: { scope }, operations: [{ status: 'complete', record: mandate }] }
+  const child = {
+    id: 'child',
+    expectedId: 'child',
+    submissions: [],
+    proofEvidence: null,
+    raw: { exitCode: 0, structuredOutput: null },
+    partialText: null,
+    structured: { outcome: 'implemented', commitSHAs: [tip], commands: [], criteria: [], reason: 'done' },
+    usable: true,
+    reason: null,
+  }
+  let live = true
+  let freshAuthorityResolvedOk = false
+  let pushed = false
+  const loaded = {
+    readComposedWorkflowHistory: async () => ({ ok: true, histories: [history] }),
+    startResolution: () => ({ ok: true, value: null }),
+  }
+  vi.mocked(bindImplementationResult).mockResolvedValue({
+    loaded,
+    gh: vi.fn(),
+    history,
+    receiptScope: scope,
+    start: {
+      recordId: start.recordId,
+      payload: { actionId: 'action-1', inputs: { manifest: { deliveryData: [] } } },
+    },
+    mandate: mandateRef,
+    branch,
+    exactInputs: { mandateId: mandate.recordId, planActionId: 'plan-1' },
+    publicationParents: [],
+    child,
+  } as never)
+  vi.mocked(readFreshUwCausalContext).mockResolvedValue({ ok: true, value: { histories: [history] } } as never)
+  vi.mocked(admitImplementationEvidence).mockResolvedValue({
+    admitted: true,
+    commits: [tip],
+    paths: ['file.ts'],
+    commands: [{ toolCallId: 'tool-1', command: 'bun test', exitCode: 0 }],
+    remoteBranch: null,
+    remoteTip: null,
+    published: false,
+    reason: 'done',
+  } as never)
+  vi.mocked(disarmBranchBeforePush).mockReset().mockResolvedValue(true)
+  vi.mocked(publishRecord)
+    .mockReset()
+    .mockResolvedValue({ ok: true } as never)
+  // The mandate remains applicable across the await, but its original execution no longer owns effects.
+  // Refuse before disarming any PR or pushing, and retain the actual completed evidence.
+  vi.mocked(implementationEffectAuthority)
+    .mockReset()
+    .mockImplementation(async () => {
+      await Promise.resolve().then(() => {
+        live = false
+      })
+      freshAuthorityResolvedOk = true
+      return { ok: true as const }
+    })
+  const git = vi.fn(async (_cwd: string, args: string[]) => {
+    if (args[0] === 'rev-parse') return { code: 0, stdout: args[1] === '--abbrev-ref' ? branch : tip, stderr: '' }
+    if (args[0] === 'ls-remote') return { code: 0, stdout: `${'b'.repeat(40)}\trefs/heads/${branch}\n`, stderr: '' }
+    if (args[0] === 'push') {
+      pushed = true
+      return { code: 0, stdout: '', stderr: '' }
+    }
+    throw new Error(`unexpected git call: ${args.join(' ')}`)
+  })
+  const result: NativeBatchResult = {
+    batch: {
+      operationId: 'action-1',
+      tasks: {
+        context: '',
+        tasks: [
+          {
+            name: 'child',
+            agent: 'R-workflow-implement',
+            task: '',
+            solutionSpace: '',
+            action: { inputs: { manifest: { purpose: 'implement' } } } as never,
+          },
+        ],
+      },
+    },
+    children: [child],
+    raw: null,
+    complete: true,
+  }
+  const published = await publishFeatureNativeResult({
+    cwd: '/checkout',
+    start,
+    result,
+    git,
+    gh: async () => '',
+    startHead: 'c'.repeat(40),
+    current: () => live,
+  })
+  expect(freshAuthorityResolvedOk).toBe(true)
+  expect(live).toBe(false)
+  expect(pushed).toBe(false)
+  expect(git.mock.calls.filter(([, args]) => args[0] === 'push')).toHaveLength(0)
+  expect(disarmBranchBeforePush).not.toHaveBeenCalled()
+  expect(published).toMatchObject({
+    published: false,
+    retained: true,
+    reason: 'implementation-local-inhibition',
+  })
+  expect(published).not.toHaveProperty('confirmedRemote')
+  expect(publishRecord).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({
+      payload: expect.objectContaining({
+        admission: expect.objectContaining({
+          admitted: false,
+          published: false,
+          commits: [tip],
+          paths: ['file.ts'],
+          commands: [{ toolCallId: 'tool-1', command: 'bun test', exitCode: 0 }],
+          reason: 'implementation-local-inhibition',
+        }),
+      }),
+    }),
+    expect.anything(),
+    '/checkout',
+    [],
+  )
 })

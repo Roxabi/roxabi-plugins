@@ -48,7 +48,7 @@ export function succeeds(
   return hasNewLineageContext(history, old, oldInputs, newInputs)
 }
 
-function hasNewLineageContext(
+export function hasNewLineageContext(
   history: DecodedHistory,
   old: ReceiptRecord,
   oldInputs: ActionInputs,

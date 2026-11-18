@@ -1,6 +1,7 @@
 import type { Result } from '../engine/result.ts'
 import type {
   ActionInputs,
+  ActionReplayIntent,
   ActionSnapshot,
   CorrectionRootRef,
   PreparedUwAction,
@@ -44,6 +45,7 @@ export function actionOperationMethods(
     replayActionInputs: (input: {
       reviewed: ActionInputs
       request: UwActionRequest
+      intent: ActionReplayIntent
       reviewedRoot?: SelectedReview['root']
       correctionRoot?: CorrectionRootRef
     }): Promise<Result<ActionInputs>> =>

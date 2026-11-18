@@ -13,7 +13,7 @@ import type { NativeBatchResult, NativeStop } from '../omp/review-runtime/contra
 import { type NonImplementPublication, resolvePublication } from './feature-action-publication-context.ts'
 import { publishTerminalNegative } from './feature-action-terminal-result.ts'
 import { matchesContextNegative } from './feature-context-negative.ts'
-import { publishRecord } from './feature-engine.ts'
+import { publicationDidNotStart, publishRecord } from './feature-engine.ts'
 import { hostCompletedStructured } from './feature-implementation-receipt.ts'
 import { admitIntegration, type IntegrationAdmission } from './feature-integration-admission.ts'
 import { IntegrationRefusal } from './feature-integration-observation.ts'
@@ -21,6 +21,23 @@ import { implementNativeOutcome, type nativeOutcome } from './feature-native-out
 import type { GitRunner } from './workflow-checkout.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
+type IntegrationPublication = { published: true; recordId: string } | { published: false; reason: string }
+type IntegrationEvidence = {
+  structured: IntegrationOutput | DeliveryMissingContext
+  native: ReturnType<typeof nativeOutcome>
+  admission: IntegrationAdmission | null
+}
+type IntegrateStart = Extract<ActionReceiptPayload, { action: 'integrate'; phase: 'start' }>
+type IntegrateResultDraft = {
+  repository: string
+  target: string
+  version: 1
+  recordId: string
+  runId: string
+  operationId: string
+  kind: 'action-receipt'
+  payload: Extract<ActionReceiptPayload, { action: 'integrate'; phase: 'result' }>
+}
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
 
 function selectContribution(
@@ -40,7 +57,6 @@ function selectContribution(
   const children = result.children.filter((child) => child.expectedId === task.name)
   const child = children[0]
   if (children.length !== 1 || child === undefined || child.id === null) return { reason: 'missing-contribution' }
-  if (result.canPublishContext?.() === false) return { reason: 'publication-ownership-revoked' }
   return { child }
 }
 
@@ -51,6 +67,8 @@ export type IntegrationPublicationInput = {
   stop?: NativeStop
   gh: Gh
   git: GitRunner
+  /** Original native execution ownership, checked independently of durable mandate authority. */
+  current: () => boolean
 }
 
 function prepareIntegrationContextNegative(
@@ -76,14 +94,7 @@ async function prepareIntegrationEvidence(
   input: IntegrationPublicationInput,
   context: NonImplementPublication,
   child: NativeBatchResult['children'][number],
-): Promise<
-  | { reason: string }
-  | {
-      structured: IntegrationOutput | DeliveryMissingContext
-      native: ReturnType<typeof nativeOutcome>
-      admission: IntegrationAdmission | null
-    }
-> {
+): Promise<{ reason: string } | IntegrationEvidence> {
   if (child.contextBlock !== undefined) return prepareIntegrationContextNegative(input, context, child)
   if (!input.result.complete || !child.usable) return { reason: 'action-uncertain' }
   const parsed = integrationOutputSchema.safeParse(hostCompletedStructured(child))
@@ -119,11 +130,11 @@ async function prepareIntegrationEvidence(
 async function publishInterruptedIntegration(
   input: IntegrationPublicationInput,
   context: NonImplementPublication,
-  opened: Extract<ActionReceiptPayload, { action: 'integrate'; phase: 'start' }>,
+  opened: IntegrateStart,
   origin: string,
-) {
+): Promise<IntegrationPublication> {
   const finalContext = await resolvePublication(input)
-  if ('reason' in finalContext) return { published: false as const, reason: finalContext.reason }
+  if ('reason' in finalContext) return { published: false, reason: finalContext.reason }
   const recordId = randomUUID()
   const published = await publishRecord(
     context.loaded,
@@ -155,7 +166,7 @@ async function publishInterruptedIntegration(
     input.cwd,
     finalContext.publicationParents,
   )
-  return published.ok ? { published: true as const, recordId } : { published: false as const, reason: published.reason }
+  return published.ok ? { published: true, recordId } : { published: false, reason: published.reason }
 }
 
 function integrationTerminalFailure(result: NativeBatchResult, stop: NativeStop | undefined) {
@@ -169,17 +180,112 @@ function integrationTerminalFailure(result: NativeBatchResult, stop: NativeStop 
   return null
 }
 
-/** Admit only actual, pinned child deliveries and host-observed integration effects. */
-export async function publishIntegrationResult(
+function demoteExpiredAdmission(
+  admission: IntegrationAdmission | null,
+  current: () => boolean,
+): IntegrationAdmission | null {
+  if (admission?.admitted !== true || current()) return admission
+  return { ...admission, admitted: false, reason: 'integration-local-inhibition' }
+}
+
+async function retainUnstartedPositiveIntegration(
   input: IntegrationPublicationInput,
-): Promise<{ published: true; recordId: string } | { published: false; reason: string }> {
+  draft: IntegrateResultDraft,
+  admission: IntegrationAdmission,
+): Promise<IntegrationPublication> {
+  const fresh = await resolvePublication(input)
+  if ('reason' in fresh) return { published: false, reason: fresh.reason }
+  const retained: IntegrationAdmission = { ...admission, admitted: false, reason: 'integration-local-inhibition' }
+  const retainedId = randomUUID()
+  const retainedPublication = await publishRecord(
+    fresh.loaded,
+    fresh.history,
+    {
+      ...draft,
+      recordId: retainedId,
+      runId: randomUUID(),
+      payload: {
+        ...draft.payload,
+        admission: retained,
+        diagnostics: [{ code: retained.reason, message: retained.reason }],
+      },
+    },
+    fresh.gh,
+    input.cwd,
+    fresh.publicationParents,
+  )
+  return retainedPublication.ok
+    ? { published: true, recordId: retainedId }
+    : { published: false, reason: retainedPublication.reason }
+}
+
+async function publishSettledIntegrationResult(
+  input: IntegrationPublicationInput,
+  context: NonImplementPublication,
+  opened: IntegrateStart,
+  startRecordId: string,
+  child: NativeBatchResult['children'][number],
+  evidence: IntegrationEvidence,
+): Promise<IntegrationPublication> {
+  const finalContext = await resolvePublication(input)
+  if ('reason' in finalContext) return { published: false, reason: finalContext.reason }
+  const admission = demoteExpiredAdmission(evidence.admission, input.current)
+  const positiveWrite = admission?.admitted === true
+  const canPublish = positiveWrite
+    ? input.current
+    : child.contextBlock !== undefined
+      ? input.result.canPublishContext
+      : undefined
+  const recordId = randomUUID()
+  const draft: IntegrateResultDraft = {
+    repository: context.receiptScope.repository,
+    target: context.receiptScope.target,
+    version: 1,
+    recordId,
+    runId: randomUUID(),
+    operationId: `${input.result.batch.operationId}:result`,
+    kind: 'action-receipt',
+    payload: {
+      format: 'omp-build-action-receipt/2',
+      phase: 'result',
+      action: 'integrate',
+      actionId: opened.actionId,
+      mandate: opened.mandate,
+      start: { scope: context.receiptScope, recordId: startRecordId, kind: 'action-receipt' },
+      inputs: opened.inputs,
+      exactInputs: opened.exactInputs,
+      native: evidence.native,
+      structured: evidence.structured,
+      admission,
+      diagnostics:
+        admission !== null && !admission.admitted ? [{ code: admission.reason, message: admission.reason }] : [],
+    },
+  }
+  const published = await publishRecord(
+    context.loaded,
+    context.history,
+    draft,
+    context.gh,
+    input.cwd,
+    context.publicationParents,
+    canPublish,
+  )
+  if (published.ok) return { published: true, recordId }
+  // Retain only on writer not-started + live revoke; never after write-started/partial.
+  if (!(positiveWrite && publicationDidNotStart(published) && !input.current() && admission !== null))
+    return { published: false, reason: published.reason }
+  return retainUnstartedPositiveIntegration(input, draft, admission)
+}
+
+/** Admit only actual, pinned child deliveries and host-observed integration effects. */
+export async function publishIntegrationResult(input: IntegrationPublicationInput): Promise<IntegrationPublication> {
   const context = await resolvePublication(input)
   if ('reason' in context) return { published: false, reason: context.reason }
   const opened = context.opened
   if (opened.payload.action !== 'integrate' || opened.payload.inputs.manifest.purpose !== 'integrate')
     return { published: false, reason: 'integration-start-unconfirmed' }
-  if (input.stop?.kind === 'interrupted')
-    return publishInterruptedIntegration(input, context, opened.payload, input.stop.origin)
+  const start = opened.payload
+  if (input.stop?.kind === 'interrupted') return publishInterruptedIntegration(input, context, start, input.stop.origin)
   const failure = integrationTerminalFailure(input.result, input.stop)
   if (failure !== null) return publishTerminalNegative(context, input.result, failure.reason, failure.strict)
   const selected = selectContribution(input.result, opened)
@@ -190,41 +296,5 @@ export async function publishIntegrationResult(
       return publishTerminalNegative(context, input.result, evidence.reason, 'invalid')
     return { published: false, reason: evidence.reason }
   }
-  const { native, structured, admission } = evidence
-  const finalContext = await resolvePublication(input)
-  if ('reason' in finalContext) return { published: false, reason: finalContext.reason }
-  const recordId = randomUUID()
-  const published = await publishRecord(
-    context.loaded,
-    context.history,
-    {
-      repository: context.receiptScope.repository,
-      target: context.receiptScope.target,
-      version: 1,
-      recordId,
-      runId: randomUUID(),
-      operationId: `${input.result.batch.operationId}:result`,
-      kind: 'action-receipt',
-      payload: {
-        format: 'omp-build-action-receipt/2',
-        phase: 'result',
-        action: 'integrate',
-        actionId: opened.payload.actionId,
-        mandate: opened.payload.mandate,
-        start: { scope: context.receiptScope, recordId: opened.recordId, kind: 'action-receipt' },
-        inputs: opened.payload.inputs,
-        exactInputs: opened.payload.exactInputs,
-        native,
-        structured,
-        admission,
-        diagnostics:
-          admission !== null && !admission.admitted ? [{ code: admission.reason, message: admission.reason }] : [],
-      },
-    },
-    context.gh,
-    input.cwd,
-    context.publicationParents,
-    input.result.canPublishContext,
-  )
-  return published.ok ? { published: true, recordId } : { published: false, reason: published.reason }
+  return publishSettledIntegrationResult(input, context, start, opened.recordId, selected.child, evidence)
 }

@@ -75,6 +75,7 @@ function matchingCoverageCandidates(
       histories,
       exact.attachedChildren,
       input.assessmentReplay,
+      input.read.historical,
     )
     const frozenCoverage = parentCoverageSchema.nullable().safeParse(exact.proposed.coverage)
     if (
@@ -95,7 +96,7 @@ function matchingCoverageCandidates(
         histories,
       ) ||
       !capturedAssessmentSourcesMatch(sources, record.payload.inputs.manifest.acceptedSources, histories) ||
-      checkAuthenticatedSpecCompatibility(record, parsed.data, histories, bound.value) !== null
+      checkAuthenticatedSpecCompatibility(record, parsed.data, histories, bound.value, input.read.historical) !== null
     )
       continue
     candidates.push(frozenCoverage.data)

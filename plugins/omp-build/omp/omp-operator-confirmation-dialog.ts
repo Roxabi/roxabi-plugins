@@ -13,6 +13,7 @@ import {
 } from './omp-operator-confirmation-input.ts'
 import { operatorDialogLayout } from './omp-operator-confirmation-layout.ts'
 import { proposalSummary } from './omp-operator-confirmation-summary.ts'
+import { contextEffectReportDetails } from './omp-operator-context-effects.ts'
 
 function nativeButton(label: string, act: string, key: string, buttons: boolean): NativeNode {
   const title = `${label}  ${key === 'escape' ? 'esc' : key}`
@@ -62,6 +63,7 @@ export async function showOperatorProposal(
     `Référence : ${detailRef}`,
     `Digest : ${prepared.digest}`,
     JSON.stringify(prepared.proposal, null, 2),
+    ...contextEffectReportDetails(prepared),
   ]
   let abort: (() => void) | undefined
   const cancelled = Promise.withResolvers<never>()

@@ -27,6 +27,7 @@ export type FeatureControl =
   | 'new'
   | 'material-decision'
   | 'resolve-interruption'
+  | 'recover-context'
 
 export type FeatureSessionReason = 'session-stop' | 'session-switch' | 'session-shutdown'
 
@@ -34,7 +35,7 @@ export type FeatureNativePort = {
   activate(batch: NativeBatch, callbacks: NativeBatchCallbacks): void
   inactive(): void
   stopOwned(batch: NativeBatch, reason: string): Promise<void>
-  announce(batch: NativeBatch): Promise<void>
+  announce(batch: NativeBatch, current?: () => boolean): Promise<void>
 }
 
 export type FeatureFixTerminal =
@@ -88,6 +89,8 @@ export type ContinueFeatureResult =
       reason: string
       diagnostics?: readonly Diagnostic[]
       coverageRequest?: ParentCoverageRequest
+      /** One-use, same-invocation continuation after an authenticated context succession. */
+      continueCoverage?: (coverage: ParentCoverage | null) => Promise<ContinueFeatureResult>
       /** Present only on a recoverable hold; its owner stays pausable. */
       next?: FeatureHoldNext
     }
@@ -108,6 +111,8 @@ export type ContinueFeatureResult =
   | { kind: 'operator-decision'; reason: string }
   | { kind: 'framing'; source: FramingSourceRequest }
 
+export type ContextHandoffRequest = { negativeRecordId: string; effectsFile: string }
+
 export type ContinueFeatureInput = {
   cwd: string
   reference: string
@@ -125,6 +130,10 @@ export type ContinueFeatureInput = {
   /** Ephemeral owner fence for a native continuation; never persisted. */
   owned?: () => boolean
   interruption?: { start?: string }
+  contextRecovery?: { actionFile: string }
+  contextHandoff?: ContextHandoffRequest
+  /** Live host capability, never parsed from argv or a persisted resource observation. */
+  contextEffectObserverFactory?: () => import('./context-local-file-observer.ts').ContextLocalFileObserver
 }
 
 export type FeatureSessionPauseInput = {
@@ -166,13 +175,20 @@ export type FeatureWorkflow = {
     stop?: NativeStop
     git?: GitRunner
     gh?: Gh
+    current: () => boolean
   }): Promise<FeatureNativePublication>
   requestFeatureSessionPause(input: FeatureSessionPauseInput): Promise<ContinueFeatureResult>
 }
 
 export type ParsedFeatureCommand =
-  | { ok: true; control: Exclude<FeatureControl, 'resolve-interruption'>; reference: string }
+  | {
+      ok: true
+      control: Exclude<FeatureControl, 'resolve-interruption' | 'recover-context'>
+      reference: string
+      contextHandoff?: ContextHandoffRequest
+    }
   | { ok: true; control: 'resolve-interruption'; reference: string; start?: string }
+  | { ok: true; control: 'recover-context'; reference: string; actionFile: string }
   | { ok: true; control: 'init'; args: readonly string[] }
   | { ok: false; reason: string }
 
@@ -190,12 +206,14 @@ export type FeatureCommandHost = {
     request: ParentCoverageRequest,
   ) => Promise<{ kind: 'proposed'; coverage: ParentCoverage | null } | { kind: 'cancelled' }>
   inhibitFeatureContinuation: () => void
-  releaseFeatureContinuation: () => void
+  /** Generation-bound latch clear; false leaves delivery suppressed. */
+  releaseFeatureContinuation: () => boolean
   featureContinuationInhibited: () => boolean
   markFeatureBatch: (batch: NativeBatch) => void
   startReview?: (
     args: string,
     onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
+    current?: () => boolean,
   ) => Promise<void>
   startFix?: (
     input: FeatureReviewFix,

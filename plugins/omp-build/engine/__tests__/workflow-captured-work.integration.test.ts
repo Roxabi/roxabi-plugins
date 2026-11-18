@@ -11,11 +11,15 @@ import { openNativePlanStep, produceNativePlan, publishNativePlanStep } from '..
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { bridgeHarness } from '../../testing/review-runtime-support.ts'
 import { actionInputDigest } from '../action-input.ts'
+import type { ActionInputs } from '../action-input-schema.ts'
 import { buildRecord } from '../record-construction.ts'
+import { inventoryCapturedWork } from '../workflow-captured-inventory.ts'
 import { inspectCapturedWorkForAssessment } from '../workflow-captured-work.ts'
+import { workflowContextTerminal } from '../workflow-context-terminal.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import type { PlanReview } from '../workflow-output-schema.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
+import { expectEditedWorkRefused } from './workflow-captured-edited-fixture.ts'
 import { clear, evidence, inWorld, output } from './workflow-captured-world-fixture.ts'
 
 function singleNativeStartParts(wire: ReturnType<typeof encodeParts>) {
@@ -23,55 +27,17 @@ function singleNativeStartParts(wire: ReturnType<typeof encodeParts>) {
   return wire.value
 }
 
-async function expectEditedWorkRefused(
-  {
-    world,
-    scenario,
-    confirmations,
-  }: Pick<Parameters<Parameters<typeof inWorld>[0]>[0], 'world' | 'scenario' | 'confirmations'>,
-  recordId: string,
-  nativeId: string,
-  editedBody: string,
-) {
-  const after = await world.operations.readUw(scenario.leaf)
-  expect(after.observation).toMatchObject({
-    status: 'incomplete',
-    diagnostics: [
-      expect.objectContaining({
-        code: 'legacy-coverage-incomplete',
-        message: 'UW home history is incomplete or ambiguous',
-      }),
-    ],
-  })
-  const home = after.observation.histories.find((item) => item.source.scope.target === scenario.leaf.target)
-  if (!home) throw new Error('Edited native history is missing')
-  expect(home.source.comments.find((comment) => comment.nativeId === nativeId)?.body).toBe(editedBody)
-  expect(home.operations.find((operation) => operation.recordId === recordId)).toMatchObject({ status: 'invalid' })
-  expect(home.diagnostics).toContainEqual(
-    expect.objectContaining({ code: 'record-edited', message: expect.stringContaining(recordId) }),
-  )
-  const confirmationCount = confirmations()
-  const result = await continueFeature({
-    cwd: world.cwd,
-    reference: '202',
-    control: 'continue',
-    principal: false,
-    git: world.git,
-    gh: world.gh,
-    uw: world.operations,
-  })
-  expect(result, JSON.stringify(result)).toMatchObject({
-    kind: 'blocked',
-    reason: 'fix-own-uw-unsettled',
-    diagnostics: expect.arrayContaining([
-      expect.objectContaining({ message: expect.stringContaining('legacy-coverage-incomplete') }),
-    ]),
-  })
-  expect(confirmations()).toBe(confirmationCount)
-  const reread = await world.operations.readUw(scenario.leaf)
-  expect(reread.observation.histories.map((item) => item.source)).toEqual(
-    after.observation.histories.map((item) => item.source),
-  )
+function replayRequest(inputs: ActionInputs, actionId: string) {
+  const manifest = inputs.manifest
+  return {
+    actionId,
+    purpose: manifest.purpose,
+    subject: manifest.subject,
+    code: manifest.code,
+    stageSources: inputs.stageSources,
+    expandedContext: manifest.expandedContext,
+    ...(manifest.operands === undefined ? {} : { operands: manifest.operands }),
+  }
 }
 
 describe('captured work during material assessment', () => {
@@ -138,20 +104,30 @@ describe('captured work during material assessment', () => {
       const task = next.followUp.tasks.tasks[0]
       if (!task) throw new Error('Assessment task is missing')
       const inputs = task.action.inputs
-      const manifest = inputs.manifest
-      const request = {
-        actionId: task.action.snapshot.actionId,
-        purpose: manifest.purpose,
-        subject: manifest.subject,
-        code: manifest.code,
-        stageSources: inputs.stageSources,
-        expandedContext: manifest.expandedContext,
-        ...(manifest.operands === undefined ? {} : { operands: manifest.operands }),
-      }
-      const replay = await world.operations.replayActionInputs({ reviewed: inputs, request })
+      const request = replayRequest(inputs, task.action.snapshot.actionId)
       const afterStartRead = await world.operations.readUw(scenario.leaf)
+      const start = afterStartRead.observation.histories
+        .flatMap((history) => history.operations)
+        .map((operation) => operation.record)
+        .find(
+          (record) =>
+            record?.kind === 'action-receipt' &&
+            record.payload.phase === 'start' &&
+            record.payload.actionId === request.actionId,
+        )
+      if (!start) throw new Error('Assessment START missing')
+      const intent = {
+        kind: 'persisted' as const,
+        start: { scope: scenario.leaf, recordId: start.recordId, kind: 'action-receipt' as const },
+      }
+      const replay = await world.operations.replayActionInputs({ reviewed: inputs, request, intent })
       const afterStart = evidence(afterStartRead, scenario.leaf, ctx.parentScopes)
-      const replayContext = { uw: scenario.leaf, actionId: request.actionId, fingerprint: inputs.fingerprint }
+      const replayContext = {
+        uw: scenario.leaf,
+        actionId: request.actionId,
+        fingerprint: inputs.fingerprint,
+        start: intent.start,
+      }
       const ownControl = resolveOwnSpecAuthority(
         afterStart.issue,
         afterStart.parents,
@@ -178,8 +154,13 @@ describe('captured work during material assessment', () => {
         ),
       ).toBe(true)
       expect(
-        (await world.operations.replayActionInputs({ reviewed: { ...inputs, fingerprint: 'f'.repeat(64) }, request }))
-          .ok,
+        (
+          await world.operations.replayActionInputs({
+            reviewed: { ...inputs, fingerprint: 'f'.repeat(64) },
+            request,
+            intent,
+          })
+        ).ok,
       ).toBe(false)
     })
   })
@@ -254,6 +235,7 @@ describe('captured work during material assessment', () => {
         world.cwd,
         scenario.leafMandate,
         world.operations,
+        new Set(),
       )
       expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'implement' })
       const after = await world.operations.readUw(scenario.leaf)
@@ -325,7 +307,7 @@ describe('captured work during material assessment', () => {
     })
   })
 
-  test('holds a host-settled native missing-context review until a real successor exists', async () => {
+  test('inspects a native missing-context review for assessment without clearing its workflow hold', async () => {
     await inWorld(async ({ world, scenario, git }) => {
       const ctx = {
         world,
@@ -376,6 +358,7 @@ describe('captured work during material assessment', () => {
             result,
             gh: world.gh,
             git: world.git,
+            current: () => result.canPublishContext?.() === true,
           })
         },
       })
@@ -416,7 +399,11 @@ describe('captured work during material assessment', () => {
       expect(completedCallback).toBe(false)
       expect(publication, JSON.stringify(publication)).toMatchObject({ published: true })
       const after = await world.operations.readUw(scenario.leaf)
-      expect(inspectCapturedWorkForAssessment(evidence(after, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+      const current = evidence(after, scenario.leaf, ctx.parentScopes)
+      expect(inspectCapturedWorkForAssessment(current)).toEqual({ ok: true, value: undefined })
+      expect(inventoryCapturedWork(current).ok).toBe(false)
+      expect(workflowContextTerminal(current.issue, 'plan-review')).toBe('missing')
+      expect(planMacro(current, scenario.leafMandate).phase).not.toBe('eligible')
     })
   })
 

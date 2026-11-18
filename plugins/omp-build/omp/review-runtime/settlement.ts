@@ -48,6 +48,7 @@ export async function settleReceivedBatch(
   event: NativeExecutionObservation,
   detach: (active: ActiveBatch) => void,
   ownsPresentation: (batch: NativeBatch) => boolean = () => true,
+  releasePresentation: () => Promise<void> = async () => {},
 ): Promise<NativeSuccessor | undefined> {
   const executionDone = active.executionDone
   flushPendingYields(active)
@@ -60,11 +61,18 @@ export async function settleReceivedBatch(
     const publicationErrors = await publishRaw(active.callbacks, prepared.children, () => rootCurrent(active))
     detach(active)
     if (await stopAfterPublication(active, event, resolved, prepared, publicationErrors)) return undefined
+    // Observation is complete before settlement is queued. The owned tool
+    // awaits settlement, so agent_end cannot restore its mask before a
+    // callback announces the next batch.
+    await releasePresentation()
     const canContinue = (): boolean =>
-      active.continuationClosed === null && active.retentionFailed === null && rootCurrent(active)
+      active.continuationClosed === null &&
+      active.retentionFailed === null &&
+      !active.sdkSignal?.aborted &&
+      rootCurrent(active)
     if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
-    status = 'completed'
     await active.callbacks.onComplete(prepared.result, canContinue)
+    // Host/session stops may fence during onComplete; notify onStop before dropping the terminal.
     if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
     const observed = await active.callbacks.onSettled?.(prepared.result, canContinue)
     const successor = typeof observed === 'function' ? observed : undefined
@@ -73,6 +81,7 @@ export async function settleReceivedBatch(
       if (executionDone !== null) await executionDone
     }
     if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
+    status = 'completed'
     return successor
   } catch (error) {
     failed = true
@@ -82,11 +91,12 @@ export async function settleReceivedBatch(
   }
 }
 
-export function isolatedReceivedSettlement(
+export async function isolatedReceivedSettlement(
   active: ActiveBatch,
   event: NativeExecutionObservation,
   detach: (active: ActiveBatch) => void,
   ownsPresentation: (batch: NativeBatch) => boolean,
+  releasePresentation: () => Promise<void> = async () => {},
 ): Promise<NativeSuccessor | undefined> {
   let isolated: NativeExecutionObservation
   try {
@@ -94,7 +104,8 @@ export function isolatedReceivedSettlement(
   } catch (error) {
     active.settling = true
     const message = error instanceof Error ? error.message : String(error)
-    return Promise.resolve().then(async () => {
+    try {
+      await Promise.resolve()
       detach(active)
       try {
         await active.callbacks.onStop(`settlement-isolation-failed:${message}`, null, {
@@ -107,36 +118,47 @@ export function isolatedReceivedSettlement(
         presentTerminal(active, ownsPresentation, 'stopped')
       }
       return undefined
-    })
+    } finally {
+      await releasePresentation()
+    }
   }
   active.settling = true
-  return settleReceivedBatch(active, isolated, detach, ownsPresentation)
-    .then(
-      (successor) => successor,
-      async (error) => {
-        if (active.continuationClosed === 'action-context-missing') {
-          presentTerminal(active, ownsPresentation, 'stopped')
-          throw error
-        }
-        const message = error instanceof Error ? error.message : String(error)
-        try {
-          await active.callbacks.onStop(`settlement-failed:${message}`, null, {
-            kind: 'withheld',
-            cause: 'settlement-failure',
-          })
-        } catch (stopError) {
-          throw new AggregateError([error, stopError], `Settlement failed: ${message}; stop callback failed`, {
-            cause: error,
-          })
-        } finally {
-          presentTerminal(active, ownsPresentation, 'stopped')
-        }
-        throw error
-      },
-    )
-    .finally(() => {
+  try {
+    return await settleReceivedBatch(active, isolated, detach, ownsPresentation, releasePresentation)
+  } catch (error) {
+    return await reportSettlementFailure(active, error, ownsPresentation)
+  } finally {
+    try {
+      await releasePresentation()
+    } finally {
       active.contextPublicationOwned = false
+    }
+  }
+}
+
+async function reportSettlementFailure(
+  active: ActiveBatch,
+  error: unknown,
+  ownsPresentation: (batch: NativeBatch) => boolean,
+): Promise<never> {
+  if (active.continuationClosed === 'action-context-missing') {
+    presentTerminal(active, ownsPresentation, 'stopped')
+    throw error
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  try {
+    await active.callbacks.onStop(`settlement-failed:${message}`, null, {
+      kind: 'withheld',
+      cause: 'settlement-failure',
     })
+  } catch (stopError) {
+    throw new AggregateError([error, stopError], `Settlement failed: ${message}; stop callback failed`, {
+      cause: error,
+    })
+  } finally {
+    presentTerminal(active, ownsPresentation, 'stopped')
+  }
+  throw error
 }
 
 function stoppedDisposition(

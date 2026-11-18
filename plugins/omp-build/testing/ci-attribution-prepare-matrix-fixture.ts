@@ -33,7 +33,12 @@ export type MatrixSetup = {
   receipt: CiReceipt
   binding: Extract<CanonicalRecord, { kind: 'workflow-binding' }>
   baseline: SimState
-  refused: (name: string, code: UwActionRequest['code'], refs: RecordInputRef[], expected?: string | string[]) => void
+  refused: (
+    name: string,
+    code: UwActionRequest['code'],
+    refs: RecordInputRef[],
+    expected?: string | string[],
+  ) => { ok: boolean; inputs?: ActionInputs; diagnostics?: { code: string }[] }
 }
 
 export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
@@ -125,6 +130,7 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
           `${name}: ${JSON.stringify(result)}`,
         )
         .toContain(diagnostic)
+    return result
   }
   return {
     box,

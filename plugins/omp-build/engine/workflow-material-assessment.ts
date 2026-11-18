@@ -6,6 +6,7 @@ import type { Result } from './result.ts'
 import { checkAuthenticatedSpecCompatibility } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './workflow-assessment-child-sources.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
 import {
@@ -30,6 +31,7 @@ function candidateSourcesCurrent(
   record: AssessResultRecord,
   accepted: AcceptedOwnSpec,
   histories: readonly DecodedHistory[],
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<boolean> {
   const exact = record.payload.exactInputs
   if (
@@ -48,7 +50,14 @@ function candidateSourcesCurrent(
     )
   )
     return { ok: true, value: false }
-  const currentChildren = capturedChildOwnSources(exact.accepted, exact.proposed, histories, exact.attachedChildren)
+  const currentChildren = capturedChildOwnSources(
+    exact.accepted,
+    exact.proposed,
+    histories,
+    exact.attachedChildren,
+    undefined,
+    historical,
+  )
   if (currentChildren === null)
     return materialFailure('material-child-sources-unavailable', 'Current child own sources cannot be authenticated')
   return {
@@ -64,6 +73,7 @@ export function evaluateCandidate(
   histories: readonly DecodedHistory[],
   mandate: ExternalRecordRef,
   accepted: AcceptedOwnSpec,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<CandidateOutcome> {
   if (!specAssessmentSchema.safeParse(record.payload.structured).success)
     return materialFailure('material-assessment-malformed', 'Material assessment output is malformed')
@@ -83,9 +93,10 @@ export function evaluateCandidate(
     specAssessmentSchema.parse(authenticated.record.payload.structured),
     histories,
     mandateRecord.value,
+    historical,
   )
   if (compatibilityProblem !== null) return materialFailure('constraint-compatibility-unresolved', compatibilityProblem)
-  const sources = candidateSourcesCurrent(record, accepted, histories)
+  const sources = candidateSourcesCurrent(record, accepted, histories, historical)
   if (!sources.ok) return sources
   if (!sources.value) return { ok: true, value: { status: 'stale' } }
   const exact = record.payload.exactInputs

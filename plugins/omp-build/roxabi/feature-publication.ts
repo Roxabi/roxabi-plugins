@@ -23,6 +23,7 @@ export async function proveAuthorizedBranch(
   branch: string,
   tip: string,
   authority: {
+    current: () => boolean
     effect: () => Promise<{ ok: true } | { ok: false; reason: string }>
     beforePush: () => Promise<{ ok: true } | { ok: false; reason: string }>
   },
@@ -40,6 +41,7 @@ export async function proveAuthorizedBranch(
     return authorizeObservedTip(branch, observedTip, () => authority.effect())
   const authorized = await authority.beforePush()
   if (!authorized.ok) return authorized
+  if (!authority.current()) return { ok: false, reason: 'implementation-local-inhibition' }
   const pushed = await git(cwd, ['push', 'origin', `HEAD:refs/heads/${branch}`])
   if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed' }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
@@ -57,7 +59,9 @@ export async function proveAuthorizedPublishedBase(
   base: string,
   tip: string,
   authorized: () => Promise<{ ok: true } | { ok: false; reason: string }>,
-): Promise<{ ok: true; remoteTip: string } | { ok: false; reason: string }> {
+): Promise<
+  { ok: true; remoteTip: string } | { ok: false; reason: string; confirmedRemote?: { branch: string; tip: string } }
+> {
   const origin = await git(cwd, ['remote', 'get-url', 'origin'])
   if (origin.code !== 0 || origin.stdout.trim() === '') return { ok: false, reason: 'integration-origin-unreadable' }
   try {
@@ -96,7 +100,7 @@ export async function proveAuthorizedPublishedBase(
     remoteTip !== tip
   )
     return { ok: false, reason: 'integration-base-not-published' }
-  const secondAuthority = await authorized()
+  const secondAuthority = await authorizeObservedTip(base, remoteTip, authorized)
   if (!secondAuthority.ok) return secondAuthority
   const [originAgain, remoteAgain, headAgain, branchAgain, statusAgain] = await Promise.all([
     git(cwd, ['remote', 'get-url', 'origin']),
@@ -117,6 +121,10 @@ export async function proveAuthorizedPublishedBase(
     statusAgain.code !== 0 ||
     statusAgain.stdout.trim() !== ''
   )
-    return { ok: false, reason: 'integration-base-changed' }
+    return {
+      ok: false,
+      reason: 'integration-base-changed',
+      confirmedRemote: { branch: base, tip: remoteTip },
+    }
   return { ok: true, remoteTip }
 }

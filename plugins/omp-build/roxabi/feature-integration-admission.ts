@@ -77,14 +77,16 @@ export async function admitIntegration(
   )
   if (!publication.ok) {
     if (publication.reason === 'integration-start-resolved') refuse(publication.reason)
+    // Observed matching base tip is factual publication evidence (leaf demotion); not admission/freshness.
+    const observedTip = publication.confirmedRemote?.tip ?? null
     return {
       admitted: false,
       commits: lineage.commits,
       paths: lineage.paths,
       commands,
       remoteBranch: null,
-      remoteTip: null,
-      published: false,
+      remoteTip: observedTip,
+      published: observedTip !== null,
       reason: publication.reason,
     }
   }
@@ -98,7 +100,7 @@ export async function admitIntegration(
       commands,
       remoteBranch: null,
       remoteTip: publication.remoteTip,
-      published: false,
+      published: true,
       reason: finalAuthority.reason,
     }
   }

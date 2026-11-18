@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import { buildRecord } from '../engine/record-construction.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { shippedMandate } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
@@ -61,7 +61,7 @@ function fixture() {
     stageSources: start.payload.inputs.stageSources,
     expandedContext: [ref, added],
   }
-  return { history, request, ref, added }
+  return { history, request, ref, added, mandate, start, negative: negative.value }
 }
 
 describe('planner negative expansion authentication', () => {
@@ -80,5 +80,53 @@ describe('planner negative expansion authentication', () => {
     const { history, request } = fixture()
     expect(plannerExpansion({ ...request, code: { ...request.code, head: 'c'.repeat(40) } }, [history]).ok).toBe(false)
     expect(plannerExpansion(request, [{ ...history, source: { ...history.source, complete: false } }]).ok).toBe(false)
+  })
+
+  test('requires the current authenticated negative after a repeated negative', () => {
+    const { request, ref, added, mandate, start, negative } = fixture()
+    if (
+      start.payload.action !== 'plan' ||
+      start.payload.phase !== 'start' ||
+      negative.payload.action !== 'plan' ||
+      negative.payload.phase !== 'result'
+    )
+      throw new Error('expected plan pair')
+    const manifest = { ...start.payload.inputs.manifest, expandedContext: [...request.expandedContext] }
+    const inputs = { ...start.payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+    const nextStart = buildRecord({
+      ...start,
+      recordId: 'expanded-start',
+      operationId: 'expanded-plan-operation',
+      payload: { ...start.payload, actionId: request.actionId, inputs },
+    })
+    if (!nextStart.ok) throw new Error(JSON.stringify(nextStart.diagnostics))
+    const nextResult = buildRecord({
+      ...negative,
+      recordId: 'expanded-negative',
+      operationId: 'expanded-plan-result',
+      payload: {
+        ...negative.payload,
+        actionId: request.actionId,
+        inputs,
+        start: {
+          scope: request.subject.kind === 'uw' ? request.subject.uw : ref.record.scope,
+          recordId: nextStart.value.recordId,
+          kind: 'action-receipt',
+        },
+      },
+    })
+    if (!nextResult.ok) throw new Error(JSON.stringify(nextResult.diagnostics))
+    const history = roxabiWorkflowFixtures().historyFrom([mandate, start, negative, nextStart.value, nextResult.value])
+    const nextRef = {
+      ...ref,
+      record: { ...ref.record, recordId: nextResult.value.recordId },
+      digest: canonicalValueDigest(nextResult.value.payload),
+    }
+    const another = { ...added, path: 'second-context.txt', digest: 'c'.repeat(64) }
+    const fresh = { ...request, actionId: 'expanded-plan-again', expandedContext: [ref, added, nextRef, another] }
+    const selected = plannerExpansion(fresh, [history])
+    expect(selected.ok && selected.value?.leaf.recordId).toBe('expanded-negative')
+    expect(plannerExpansion({ ...fresh, expandedContext: [ref, added, another] }, [history]).ok).toBe(false)
+    expect(plannerExpansion({ ...fresh, expandedContext: [ref, added, nextRef] }, [history]).ok).toBe(false)
   })
 })

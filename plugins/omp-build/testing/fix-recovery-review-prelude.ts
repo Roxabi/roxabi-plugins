@@ -191,9 +191,9 @@ export async function runRecoveryReviewPrelude(input: {
       }
       if (notifications.some((message) => message.includes('continuation stopped')))
         throw new Error(`review-prelude-terminal-stop:${JSON.stringify(diagnostic())}`)
-      if (announcedBatch(root.session.messages, model.dispatched))
+      if (announcedBatch(root.session.messages, model.dispatched)) {
         await root.session.prompt('Execute the announced native review batch.')
-      else await delay(25)
+      } else await delay(25)
     }
     throw new Error(`review-prelude-timeout:${JSON.stringify(diagnostic())}`)
   } finally {

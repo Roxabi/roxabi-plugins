@@ -1,8 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import type { OperatorPort, UwOperations } from '../roxabi/uw-contract.ts'
-import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
-import { createInstalledUwOperations, type InstalledUwOperationsOptions } from '../roxabi/uw-installed-operations.ts'
+import type { InstalledUwOperationsOptions, UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import type { UwOperationsFactory } from './omp-uw-command.ts'
 
 export function installedUwRequest(
@@ -27,7 +26,10 @@ export function createHostUwOperations(
   pin?: TrustedHostPluginPin,
   nativeHost?: UwNativeHost,
 ): Promise<UwOperations> {
-  return Promise.resolve(createInstalledUwOperations(installedUwRequest(ctx, operator, pin, nativeHost)))
+  const request = installedUwRequest(ctx, operator, pin, nativeHost)
+  return import('../roxabi/uw-installed-operations.ts').then(({ createInstalledUwOperations }) =>
+    createInstalledUwOperations(request),
+  )
 }
 
 export function hostUwFactory() {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { nativeComment } from '../../adapters/__tests__/github-workflow-support.ts'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
-import { selectWorkflowBinding } from '../../dist/contracts.js'
+import { selectedMandate, selectWorkflowBinding } from '../../dist/contracts.js'
 import { parseRecord } from '../../engine/record-construction.ts'
 import { bindExternalRef } from '../../engine/workflow-control.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -217,10 +217,19 @@ test('failed successor control publication never appends a PR binding', async ()
   expect(subject.native.comments.get(41)?.map((comment) => comment.body)).toEqual(issueBeforeRetry)
   expect(subject.native.comments.get(70)?.map((comment) => comment.body)).toEqual(previous)
   const readback = await subject.reader.readUw(scope)
-  expect(readback.observation).toMatchObject({
-    status: 'incomplete',
-    diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'legacy-coverage-incomplete' })]),
-  })
+  // Complete authenticated raw observation is not current mandate selection.
+  expect(readback.observation.status).toBe('complete')
+  const home = readback.histories.find((item) => item.source.scope.target === scope.target)
+  if (home === undefined) throw new Error('Missing home history after failed successor control')
+  expect(selectedMandate(home)).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
+  // Retained predecessor PR binding bytes are not effective binding authority after an unconfirmed successor.
+  expect(
+    selectWorkflowBinding({
+      pullRequest: pull,
+      histories: readback.histories,
+      native: { branch, base: 'main' },
+    }).status,
+  ).toBe('incomplete')
 })
 
 test('ordinary PR conversation after preparation does not invalidate authenticated binding facts', async () => {

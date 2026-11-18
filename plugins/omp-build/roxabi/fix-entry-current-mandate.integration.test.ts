@@ -15,7 +15,7 @@ afterEach(() => {
   roots.clear()
 })
 
-it('refuses a stale same-branch binding at entry and on re-resolution without publishing', async () => {
+it('refuses interrupted succession at entry without treating stale predecessor binding as current', async () => {
   const { box, cwd } = arrangeReviewFixture()
   roots.add(box.root)
   const pin = isolatedPinSandbox(box)
@@ -35,31 +35,41 @@ it('refuses a stale same-branch binding at entry and on re-resolution without pu
   const predecessor = featureMandate(box).record
   expect(execute(runner, 'interrupt')).toMatchObject({ refused: true, result: { ok: false } })
   const issue = featureMandate(box).history
-  const current = currentAccountedMandate(issue)
-  expect(current.ok).toBe(true)
-  if (!current.ok) throw new Error('current-mandate-missing')
-  expect(current.value.recordId).not.toBe(predecessor.recordId)
-  expect(current.value.payload.branch).toBe(predecessor.payload.branch)
-  expect(current.value.payload.base).toBe(predecessor.payload.base)
-  expect({ repository: current.value.repository, target: current.value.target }).toEqual({
+  // Interrupted succession publishes a successor mandate without select-successor — not current-accounted.
+  const published = issue.operations
+    .map((operation) => operation.record)
+    .filter(
+      (record): record is NonNullable<typeof record> & { kind: 'mandate' } =>
+        record?.kind === 'mandate' && record.recordId !== predecessor.recordId,
+    )
+  expect(published.length).toBeGreaterThan(0)
+  const successor = published[published.length - 1]
+  if (successor === undefined) throw new Error('successor-mandate-missing')
+  expect(successor.payload.branch).toBe(predecessor.payload.branch)
+  expect(successor.payload.base).toBe(predecessor.payload.base)
+  expect({ repository: successor.repository, target: successor.target }).toEqual({
     repository: predecessor.repository,
     target: predecessor.target,
   })
+  const current = currentAccountedMandate(issue)
+  expect(current.ok).toBe(false)
   const bindings = pullHistory(box).operations.flatMap((operation) =>
     operation.record?.kind === 'workflow-binding' ? [operation.record] : [],
   )
   expect(bindings).toHaveLength(1)
   expect(bindings[0]?.payload.mandate.recordId).toBe(predecessor.recordId)
   const observed = execute(runner, 'inspect')
-  expect(observed.current).toMatchObject({ ok: true, value: { recordId: current.value.recordId } })
+  expect(observed.current).toMatchObject({ ok: false })
   expect(observed.binding).toMatchObject({
     mandateScope: { repository: predecessor.repository, target: predecessor.target },
     mandateRecordId: predecessor.recordId,
   })
   const before = readSim(box)
   const result = execute(runner, JSON.stringify(initial.value))
-  expect(result.reread).toEqual({ ok: false, diagnostics: ['fix-issue-alias-binding-mismatch'] })
-  expect(result.entry).toEqual({ ok: false, diagnostics: ['fix-issue-alias-binding-mismatch'] })
+  // Interrupted successor has no current accounted mandate — distinct from binding-mismatch
+  // (which requires a current mandate whose binding names a different record).
+  expect(result.reread).toEqual({ ok: false, diagnostics: ['fix-issue-alias-no-mandate'] })
+  expect(result.entry).toEqual({ ok: false, diagnostics: ['fix-issue-alias-no-mandate'] })
   const after = readSim(box)
   expect(after.issues['42']?.comments).toEqual(before.issues['42']?.comments)
   expect(after.prs['7']?.comments).toEqual(before.prs['7']?.comments)

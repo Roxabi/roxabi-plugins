@@ -43,6 +43,7 @@ export type NativeWorldFacts = {
   author: string
   graph: Extract<UwGraphObservation, { status: 'complete' }>
   histories: readonly DecodedHistory[]
+  linkedPullRequests?: readonly { issue: Scope; pulls: readonly Scope[] }[]
   authorization?: { repositoryId: number; operatorId: number; appId: number; botUserId: number }
 }
 
@@ -75,6 +76,7 @@ type NativeWorld = {
   checkout(facts: DeclaredCheckout): void
   observeGraph(graph: NativeWorldFacts['graph']): void
   observePullRequest(facts: NativeWorldFacts['pullRequests'][number]): void
+  observeEpic(facts: NativeEpicFacts): void
   editComment(scope: Scope, nativeId: string, body: string, updatedAt: string, author?: string): void
   at(cwd: string): Promise<NativeWorld>
 }
@@ -122,6 +124,7 @@ export async function withNativeImplementationWorld<T>(
       ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       author: input.author,
       histories: input.histories,
+      ...(input.linkedPullRequests === undefined ? {} : { linkedPullRequests: input.linkedPullRequests }),
       graph: input.graph,
       commits,
       pulls,
@@ -181,6 +184,7 @@ export async function withNativeImplementationWorld<T>(
         checkout,
         observeGraph: transport.observeGraph,
         observePullRequest: transport.observePullRequest,
+        observeEpic: transport.observeEpic,
         editComment: transport.editComment,
         at: (next) => at(next, realGit),
       }

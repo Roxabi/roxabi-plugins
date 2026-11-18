@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { planOutputSchema } from '../dist/contracts.js'
+import { canonicalValueDigest, planOutputSchema } from '../dist/contracts.js'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
 import {
   actionRequest,
@@ -20,6 +20,7 @@ import {
 } from './feature-approved-context.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { type Contracts, type History, publishRecord, type Scope, type WorkflowEvidence } from './feature-engine.ts'
+import type { PreparedUwAction, UwActionRequest } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
@@ -38,6 +39,7 @@ export async function startPlanReview(
   draftActionId: string | null,
   uw: UwOperations | undefined,
   git: GitRunner,
+  recovery?: { request: UwActionRequest; prepared: PreparedUwAction; slotId: string },
 ): Promise<ContinueFeatureResult> {
   if (draftActionId === null) return { kind: 'blocked', reason: 'plan-review-unbound' }
   if (uw === undefined) return blocks('prepare-action-unavailable')
@@ -49,17 +51,31 @@ export async function startPlanReview(
   const startId = randomUUID()
   const code = await observeCleanHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
-  const architectId = randomUUID()
-  const adversarialId = randomUUID()
+  if (recovery !== undefined && recovery.slotId !== 'architect' && recovery.slotId !== 'adversarial')
+    return blocks('context-recovery-input-changed')
+  const architectId = recovery?.slotId === 'architect' ? recovery.request.actionId : randomUUID()
+  const adversarialId = recovery?.slotId === 'adversarial' ? recovery.request.actionId : randomUUID()
   const subject = uwSubject(scope, null)
-  const architect = await prepareDeliveryAction(
-    uw,
-    actionRequest({ actionId: architectId, purpose: 'plan-review', subject, code: code.code }),
-  )
-  const adversarial = await prepareDeliveryAction(
-    uw,
-    actionRequest({ actionId: adversarialId, purpose: 'plan-review', subject, code: code.code }),
-  )
+  const prepareSlot = async (slotId: string, actionId: string) => {
+    const selected = recovery?.slotId === slotId ? recovery : undefined
+    const request = actionRequest({
+      actionId,
+      purpose: 'plan-review',
+      subject,
+      code: code.code,
+      expandedContext: recovery?.request.expandedContext,
+    })
+    if (selected === undefined) return prepareDeliveryAction(uw, request)
+    if (
+      canonicalValueDigest(request) !== canonicalValueDigest(selected.request) ||
+      !(await uw.verifyAction(selected.prepared.snapshot)).ok
+    )
+      return null
+    return { ok: true as const, value: selected.prepared }
+  }
+  const architect = await prepareSlot('architect', architectId)
+  const adversarial = await prepareSlot('adversarial', adversarialId)
+  if (architect === null || adversarial === null) return blocks('context-recovery-input-changed')
   if (!architect.ok) return blocks(prepareRefusal(architect.diagnostics), architect.diagnostics)
   if (!adversarial.ok) return blocks(prepareRefusal(adversarial.diagnostics), adversarial.diagnostics)
   const slots: PlanReviewSlot[] = [

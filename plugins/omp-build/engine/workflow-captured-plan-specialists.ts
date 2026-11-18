@@ -8,9 +8,10 @@ import type { Result } from './result.ts'
 import { authenticateCapturedWorkFrame } from './workflow-captured-frame.ts'
 import type { CapturedInvocation } from './workflow-captured-inventory.ts'
 import { reviewChildValid } from './workflow-context-review.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import type { ReceiptRecord } from './workflow-control.ts'
 import { PLAN_REVIEW_SPECIALISTS } from './workflow-receipt-schema.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 type ReviewPayload = Extract<ReceiptRecord['payload'], { action: 'plan-review'; phase: 'result' }>
 
@@ -41,6 +42,8 @@ function inspectActions(
   draft: ReceiptRecord,
   histories: readonly DecodedHistory[],
   replay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<void> {
   if (
     payload.slots.length !== PLAN_REVIEW_SPECIALISTS.length ||
@@ -60,7 +63,14 @@ function inspectActions(
     )
       return fail('Captured specialist action does not bind the exact declared review')
     actionIds.add(action.actionId)
-    const frame = authenticateCapturedWorkFrame(action.inputs, payload.mandate, histories, replay)
+    const frame = authenticateCapturedWorkFrame(
+      action.inputs,
+      payload.mandate,
+      histories,
+      replay,
+      inspection,
+      historical,
+    )
     if (!frame.ok) return frame
     if (
       canonicalValueDigest(frame.value.prefix) !== canonicalValueDigest(item.frame.prefix) ||
@@ -125,8 +135,10 @@ export function inspectPlanSpecialists(
   draft: ReceiptRecord,
   histories: readonly DecodedHistory[],
   replay?: AssessmentReplayContext,
+  inspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): Result<void> {
-  const actions = inspectActions(item, payload, draft, histories, replay)
+  const actions = inspectActions(item, payload, draft, histories, replay, inspection, historical)
   if (!actions.ok) return actions
   return inspectContributions(payload)
 }

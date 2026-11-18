@@ -136,7 +136,7 @@ export function createOmpFixPort(
   pi: NativeExtension,
   suppliedFence?: FixExecutionFence,
 ): Pick<NativeBatchController, 'active' | 'activate' | 'stopOwned'> & {
-  announce(batch: NativeBatch): Promise<void>
+  announce(batch: NativeBatch, current?: () => boolean): Promise<void>
   executionFence: FixExecutionFence
 } {
   const executionFence = suppliedFence ?? new FixExecutionFence()

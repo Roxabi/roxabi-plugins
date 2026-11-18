@@ -6,7 +6,10 @@ type Comment = { id: number; body: string; user: { login: string }; created_at: 
 
 export function createNativeComments(repository: string, author: string, histories: NativeWorldFacts['histories']) {
   const comments = new Map<number, Comment[]>()
-  let nextId = 1
+  const observedIds = histories
+    .flatMap((history) => history.source.comments.map((comment) => Number(comment.nativeId)))
+    .filter((id) => Number.isSafeInteger(id) && id > 0)
+  let nextId = Math.max(0, ...observedIds) + 1
   for (const history of histories) {
     const number = nativeNumber(history.source.scope)
     if (comments.has(number)) throw new Error('Ambiguous native history scope')
@@ -16,7 +19,12 @@ export function createNativeComments(repository: string, author: string, histori
         if (comment.author === null || comment.createdAt === null || comment.updatedAt === null)
           throw new Error('Native fixture comment metadata is incomplete')
         return {
-          id: nextId++,
+          id:
+            comment.nativeId !== null &&
+            /^[1-9][0-9]*$/.test(comment.nativeId) &&
+            Number.isSafeInteger(Number(comment.nativeId))
+              ? Number(comment.nativeId)
+              : nextId++,
           body: comment.body,
           user: { login: comment.author },
           created_at: comment.createdAt,

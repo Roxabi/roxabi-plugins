@@ -167,6 +167,7 @@ export {
 } from './engine/record-values.ts'
 export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
+export { resolveAcceptedSpecForAbandonment } from './engine/workflow-accepted-spec-control.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
 export {
@@ -197,6 +198,16 @@ export {
   recheckComposedAssessmentDelta,
   recheckComposedParentAcceptance,
 } from './engine/workflow-composed-material-preparation.ts'
+export { currentContextSuccession } from './engine/workflow-context-succession-current.ts'
+export {
+  contextSuccessionInspectionStarts,
+  createHistoricalAcceptedSpecContext,
+  historicalAcceptedSpecFrame,
+  historicalAcceptedSpecOwnedHistories,
+  historicalAcceptedSpecPriorStarts,
+  prepareContextSuccessionInspection,
+} from './engine/workflow-context-succession-inspection.ts'
+export { qualifyContextNegative } from './engine/workflow-context-succession-negative.ts'
 export {
   bindExternalRef,
   excludedReceipt,
@@ -237,7 +248,11 @@ export { admitInterruptionResolution, resolutionIndex } from './engine/workflow-
 export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
 export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
-export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
+export {
+  resolveOwnSpecAuthority,
+  selectApplicableMandate,
+  selectedMandate,
+} from './engine/workflow-mandate-admission.ts'
 export {
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
@@ -264,15 +279,6 @@ export type {
   WorkflowFacts,
 } from './engine/workflow-reconstruction-types.ts'
 export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'
-export {
-  isAssessResult,
-  materialAcceptanceDigest,
-  mechanicalSpecDelta,
-  sameAssessedState,
-  sameCurrentAssessedState,
-} from './engine/workflow-spec-assessment.ts'
-export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
-export { authenticatedAssessResult } from './engine/workflow-spec-authentication-chain.ts'
 export { type TerminalMandate, terminalMandate } from './engine/workflow-terminal-mandate.ts'
 export {
   type OmpBuildPrepareCheckoutParameters,

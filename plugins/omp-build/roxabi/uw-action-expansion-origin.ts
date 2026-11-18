@@ -28,11 +28,12 @@ export function expansionOrigin(
   request: UwActionRequest,
   histories: readonly DecodedHistory[],
   reviewedFingerprint?: string,
+  disposedStarts?: ReadonlySet<string>,
 ): Result<ExpansionOrigin | null> {
   if (reviewedFingerprint !== undefined) return { ok: true, value: null }
   const planner = plannerExpansion(request, histories)
   if (!planner.ok) return planner
-  const workflow = nonPlanExpansion(request, histories)
+  const workflow = nonPlanExpansion(request, histories, disposedStarts)
   if (!workflow.ok) return workflow
   const contribution = resolveNegativeContribution(request, histories)
   if (!contribution.ok) return contribution

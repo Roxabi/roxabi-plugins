@@ -18,6 +18,7 @@ type NativeTransportInput = {
   histories: NativeWorldFacts['histories']
   authorization?: NativeWorldFacts['authorization']
   graph: NativeWorldFacts['graph']
+  linkedPullRequests?: NativeWorldFacts['linkedPullRequests']
   commits: Map<string, NativeWorldFacts['commits'][number]>
   pulls: Map<string, NativeWorldFacts['pullRequests'][number]>
   comparisons: Map<string, NativeWorldFacts['comparisons'][number]>
@@ -145,6 +146,7 @@ export function createNativeImplementationTransport(input: NativeTransportInput)
     })
   }
   let graph = input.graph
+  let epic = input.epic
   function repositoryResponse(args: readonly string[]): string {
     const reference = args[2]
     if (
@@ -170,10 +172,10 @@ export function createNativeImplementationTransport(input: NativeTransportInput)
       () => fixtureCatalogueGhResponse(args) ?? undefined,
       () => identityResponse(args),
       () => pullIssueResponse(args),
-      () => nativeEpicResponse(args, repository, graph, pulls, commits, input.epic),
+      () => nativeEpicResponse(args, repository, graph, pulls, commits, epic),
       () => nativeGraphResponse(args, repository, graph),
       () => comments.response(args),
-      () => nativePullResponse(args, repository, pulls),
+      () => nativePullResponse(args, repository, pulls, input.linkedPullRequests),
       () => nativeCommitResponse(args, repository, commits, comparisons),
     ]
     for (const respond of responders) {
@@ -210,5 +212,8 @@ export function createNativeImplementationTransport(input: NativeTransportInput)
     }
     pulls.set(facts.scope.target, facts)
   }
-  return { gh, ghSync, observeGraph, observePullRequest, editComment: comments.editComment }
+  function observeEpic(next: NativeEpicFacts): void {
+    epic = next
+  }
+  return { gh, ghSync, observeGraph, observePullRequest, observeEpic, editComment: comments.editComment }
 }

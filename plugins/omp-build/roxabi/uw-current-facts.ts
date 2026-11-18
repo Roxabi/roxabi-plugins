@@ -1,22 +1,24 @@
 import {
+  createHistoricalAcceptedSpecContext,
   isWayfinder,
   parseIssueSpecBody,
   resolveCurrentInheritedOwnSpecRefs,
   resolveSpecIdentityLedger,
-  unknownWayfinderLabels,
 } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { CurrentChildrenProjection } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
+import type { HistoricalAcceptedSpecContext } from '../engine/workflow-context-succession-inspection.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
-import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { ParentCoverageRequest } from './feature-contract.ts'
 import { assessmentCoverageFacts } from './uw-assessment-coverage.ts'
 import type { UwRead } from './uw-contract.ts'
+import { allocationRefs, diagnostic, root, tier } from './uw-current-facts-validation.ts'
 import { projectObservedOwnSpecFacts } from './uw-read-state.ts'
 
-const factualReadContracts = { parseIssueSpecBody, resolveSpecIdentityLedger }
+const factualReadContracts = { createHistoricalAcceptedSpecContext, parseIssueSpecBody, resolveSpecIdentityLedger }
 
 type CurrentChildCommitment = Extract<AssessSpecExact['proposed']['children'][number], { scope: Scope }>
 
@@ -31,83 +33,23 @@ function sameScope(left: Scope, right: Scope): boolean {
   return left.repository === right.repository && left.target === right.target
 }
 
-function diagnostic(uw: Scope, code: string, message: string): UwDiagnostic {
-  return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
-}
-
-function tier(
-  uw: Scope,
-  labels: readonly string[],
-): CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['currentSpec']['tier']> {
-  const values = labels.filter((label) => label === 'size:S' || label === 'size:F-lite' || label === 'size:F-full')
-  if (values.length !== 1)
-    return {
-      ok: false,
-      diagnostics: [
-        diagnostic(
-          uw,
-          values.length === 0 ? 'tier-missing' : 'tier-conflicting',
-          'UW must have exactly one native size tier',
-        ),
-      ],
-    }
-  return { ok: true, value: values[0] === 'size:S' ? 'S' : values[0] === 'size:F-lite' ? 'F-lite' : 'F-full' }
-}
-
-function allocationRefs(
-  uw: Scope,
-  read: Pick<UwRead, 'identity' | 'proposed'>,
-): CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['identityAllocations']> {
-  if (!read.identity.ok) return { ok: false, diagnostics: read.identity.diagnostics }
-  if (!read.proposed.ok) return { ok: false, diagnostics: read.proposed.diagnostics }
-  const references: CurrentOwnSpecFacts['identityAllocations'] = []
-  for (const item of [...read.proposed.snapshot.spec.criteria, ...read.proposed.snapshot.spec.invariants]) {
-    const allocation = read.identity.value.allocations.get(item.id)
-    if (allocation === undefined || read.identity.value.retired.has(item.id))
-      return {
-        ok: false,
-        diagnostics: [
-          diagnostic(uw, 'spec-ledger-incomplete', 'Current proposed Spec has unknown or retired identities'),
-        ],
-      }
-    references.push(allocation)
-  }
-  return { ok: true, value: references }
-}
-
-function root(
-  uw: Scope,
-  observation: UwRead['observation'],
-): CurrentOwnSpecFactsResult<UwRead['graph']['nodes'][number]> {
-  if (observation === undefined)
-    return {
-      ok: false,
-      diagnostics: [diagnostic(uw, 'observation-missing', 'Current facts require a complete joint observation')],
-    }
-  if (observation.status !== 'complete') return { ok: false, diagnostics: observation.diagnostics }
-  const node = observation.graph.nodes.find((candidate) => sameScope(candidate.uw, uw))
-  if (node === undefined)
-    return { ok: false, diagnostics: [diagnostic(uw, 'graph-root-missing', 'UW graph root is absent')] }
-  const unknownWayfinders = unknownWayfinderLabels(node)
-  if (unknownWayfinders.length > 0)
-    return {
-      ok: false,
-      diagnostics: [
-        diagnostic(uw, 'wayfinder-unknown', `UW has unknown wayfinder labels: ${unknownWayfinders.join(', ')}`),
-      ],
-    }
-  return { ok: true, value: node }
-}
-
 function childCommitment(
   child: Scope,
   observation: UwRead['observation'],
   assessmentReplay?: AssessmentReplayContext,
+  assessmentInspection?: AcceptedSpecInspection,
+  historical?: HistoricalAcceptedSpecContext,
 ): CurrentOwnSpecFactsResult<CurrentChildCommitment | null> {
   const childRoot = root(child, observation)
   if (!childRoot.ok) return childRoot
   if (isWayfinder(childRoot.value)) return { ok: true, value: null }
-  const observed = projectObservedOwnSpecFacts(factualReadContracts, { uw: child, observation, assessmentReplay })
+  const observed = projectObservedOwnSpecFacts(factualReadContracts, {
+    uw: child,
+    observation,
+    assessmentReplay,
+    assessmentInspection,
+    historical,
+  })
   if (!observed.ok) return observed
   const facts = observed.value
   if (!facts.proposed.ok) return { ok: false, diagnostics: facts.proposed.diagnostics }
@@ -131,8 +73,21 @@ export function projectObservedChildCommitments(input: {
   scopes: readonly Scope[]
   observation: UwRead['observation']
   assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
+  historical?: HistoricalAcceptedSpecContext
 }): CurrentOwnSpecFactsResult<CurrentChildCommitment[]> {
   if (input.observation.status !== 'complete') return { ok: false, diagnostics: input.observation.diagnostics }
+  const prepared =
+    input.historical === undefined
+      ? createHistoricalAcceptedSpecContext(input.observation.histories)
+      : { ok: true as const, value: input.historical }
+  if (!prepared.ok)
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(input.observation.root, 'history-unconfirmed', 'Historical Spec context cannot be authenticated'),
+      ],
+    }
   const commitments: CurrentChildCommitment[] = []
   const childScopes = [...input.scopes].sort((left, right) => {
     const leftKey = `${left.repository}\0${left.target}`
@@ -147,7 +102,13 @@ export function projectObservedChildCommitments(input: {
         diagnostics: [diagnostic(child, 'child-scope-duplicate', 'Candidate child scopes must be unique')],
       }
     previous = child
-    const commitment = childCommitment(child, input.observation, input.assessmentReplay)
+    const commitment = childCommitment(
+      child,
+      input.observation,
+      input.assessmentReplay,
+      input.assessmentInspection,
+      prepared.value,
+    )
     if (!commitment.ok) return commitment
     if (commitment.value !== null) commitments.push(commitment.value)
   }
@@ -158,6 +119,7 @@ function currentChildCommitments(input: {
   uw: Scope
   read: UwRead
   assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
 }): CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['currentSpec']['children']> {
   const rootNode = root(input.uw, input.read.observation)
   if (!rootNode.ok) return rootNode
@@ -165,6 +127,8 @@ function currentChildCommitments(input: {
     scopes: rootNode.value.children,
     observation: input.read.observation,
     assessmentReplay: input.assessmentReplay,
+    assessmentInspection: input.assessmentInspection,
+    historical: input.read.historical,
   })
 }
 
@@ -172,6 +136,8 @@ function currentChildCommitments(input: {
 export async function readCurrentChildrenProjection(input: {
   uw: Scope
   read: UwRead
+  assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
 }): Promise<CurrentChildrenProjection> {
   const commitments = currentChildCommitments(input)
   return commitments.ok
@@ -192,6 +158,7 @@ export async function readCurrentFramingFacts(input: {
   uw: Scope
   read: UwRead
   assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
 }): Promise<
   CurrentOwnSpecFactsResult<
     Omit<CurrentOwnSpecFacts, 'currentSpec'> & {
@@ -211,13 +178,24 @@ export async function readCurrentFramingFacts(input: {
   if (!ownAllocations.ok) return ownAllocations
   const ownTier = tier(input.uw, rootNode.value.labels)
   if (!ownTier.ok) return ownTier
-  const children = currentChildCommitments(input)
+  const prepared =
+    input.read.historical === undefined
+      ? createHistoricalAcceptedSpecContext(input.read.observation.histories)
+      : { ok: true as const, value: input.read.historical }
+  if (!prepared.ok)
+    return {
+      ok: false,
+      diagnostics: [diagnostic(input.uw, 'history-unconfirmed', 'Historical Spec context cannot be authenticated')],
+    }
+  const children = currentChildCommitments({ ...input, read: { ...input.read, historical: prepared.value } })
   if (!children.ok) return children
   const inherited = resolveCurrentInheritedOwnSpecRefs(
     input.uw,
     input.read.observation.graph,
     input.read.observation.histories,
     input.assessmentReplay,
+    input.assessmentInspection,
+    prepared.value,
   )
   if (!inherited.ok) return inherited
   return {
@@ -238,6 +216,7 @@ export async function readCurrentOwnSpecFacts(input: {
   uw: Scope
   read: UwRead
   assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
 }): Promise<CurrentOwnSpecFactsResult<CurrentOwnSpecFacts>> {
   const framing = await readCurrentFramingFacts(input)
   if (!framing.ok) return framing
@@ -261,6 +240,7 @@ export async function readAssessmentSpecFacts(input: {
   uw: Scope
   read: UwRead
   assessmentReplay?: AssessmentReplayContext
+  assessmentInspection?: AcceptedSpecInspection
   coverage?: ParentCoverage | null
   basis?: ParentCoverageRequest
 }): Promise<

@@ -37,7 +37,8 @@ const requiredContractNames = [
 
 type RequiredContractName = (typeof requiredContractNames)[number]
 
-export type Contracts = Pick<typeof import('../contracts.ts'), RequiredContractName>
+export type Contracts = Pick<typeof import('../contracts.ts'), RequiredContractName> &
+  Partial<Pick<typeof import('../contracts.ts'), 'resolveAcceptedSpecForAbandonment'>>
 export type History = DecodedHistory
 export type HistoryRecord = NonNullable<History['operations'][number]['record']>
 export type { WorkflowEvidence } from '../engine/workflow-plan.ts'
@@ -108,4 +109,14 @@ export async function publishRecord(
   const rechecked = await recheckStartPublication(built.value, contracts, histories, cwd, gh)
   if (!rechecked.ok) return rechecked
   return { ok: true }
+}
+
+/** Only the writer can prove no POST began; fresh history absence does not prove it. */
+export function publicationDidNotStart(published: Awaited<ReturnType<typeof publishRecord>>): boolean {
+  return (
+    !published.ok &&
+    published.diagnostics?.some(
+      (item) => item.code === 'publication-ownership-revoked' && item.detail === 'not-started',
+    ) === true
+  )
 }

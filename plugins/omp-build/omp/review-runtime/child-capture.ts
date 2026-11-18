@@ -4,6 +4,7 @@ import type { CommandRun } from '../../engine/criterion-evidence-schema.ts'
 import { nativeSnapshot, object } from './capture'
 import type { Json, NativeChildResult, NativeProofBashCall, NativeProofDirective } from './contracts'
 import { commandRunFromCapture, nativeProvenance, referencedCommandIds } from './criterion-grounding.ts'
+import { snapshotObservedTools } from './observed-tools.ts'
 import type { ActiveBatch, ChildCapture } from './state'
 
 type SelectedProofReference = { toolCallId: string; guardId: string | null }
@@ -85,6 +86,12 @@ function proofEvidence(
   }
 }
 
+function capturedToolObservations(active: ActiveBatch, childId: string | null) {
+  const guard = childId === null ? undefined : active.guardedChildren.get(childId)
+  const observedTools = snapshotObservedTools(guard, childId, active.settling)
+  return observedTools === undefined ? {} : { observedTools }
+}
+
 export function captureChildResult(
   active: ActiveBatch,
   value: unknown,
@@ -110,6 +117,7 @@ export function captureChildResult(
     submissions,
     proofEvidence: proofEvidence(directive, proofReference, capture),
     bashCalls: referencedBashCalls(capture, structured),
+    ...capturedToolObservations(active, captureKey),
     commandRuns,
     raw: nativeSnapshot(value),
     ...(value === null || value === undefined

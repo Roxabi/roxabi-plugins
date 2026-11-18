@@ -1,11 +1,21 @@
-import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
-import { batch, bridgeHarness, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
+import { deliverFeatureResult } from '../../roxabi/feature-entry.ts'
+import { announceFeatureBatch } from '../../roxabi/feature-host-native.ts'
+import { rememberFeatureOwner } from '../../roxabi/feature-host-ownership.ts'
+import {
+  cleanup as cleanupFeatureHost,
+  fixture as featureHostFixture,
+  start as featureStart,
+} from '../../testing/feature-host-native-interruption-fixture.ts'
+import { nativeReviewChild } from '../../testing/native-review-child.ts'
+import { batch, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { installNativeBatchBridge } from '../review-runtime/bridge.ts'
-import type { NativeBatchResult, NativeStop } from '../review-runtime/contracts.ts'
-import { createNativeReviewPort } from '../review-runtime/port.ts'
+import type { NativeBatchResult } from '../review-runtime/contracts.ts'
+import { createMaskFixture, owned } from './native-task-mask-fixture.ts'
 
 // Only the public registry/session boundary is simulated; no child lifecycle is fabricated.
 const sdk = vi.hoisted(() => ({ get: vi.fn() }))
@@ -18,101 +28,143 @@ vi.mock('../review-runtime/native-sdk-adapter.ts', () => ({
   captureNativeRoot: adapter.capture,
 }))
 
-const owned = 'omp_build_execute_native_batch'
-
 afterEach(() => {
   cleanupFixtureActions()
+  cleanupFeatureHost()
   sdk.get.mockReset()
   adapter.execute.mockReset()
   adapter.capture.mockReset()
 })
 
-function fixture(idle: boolean, taskMounted = false) {
-  const harness = bridgeHarness()
-  const prepared = batch(['slot-a'])
-  let active = taskMounted ? ['read', owned] : ['read', 'task', owned]
-  let mounted = taskMounted ? ['task', 'search'] : ['search']
-  const manager = {
-    getSessionId: () => 'journal',
-    getSessionFile: () => '/fixture/session.jsonl',
-    getCwd: () => '/fixture-root',
-  }
-  const modelRegistry = {}
-  const session = {
-    hasBuiltInTool: (name: string): boolean => name === 'task',
-    registerSessionChangeCallback: () => () => undefined,
-    sessionManager: manager,
-    modelRegistry,
-    agent: { sessionId: 'provider' },
-    isDisposed: false,
-    isSessionTransitioning: false,
-    getActiveToolNames: () => [...active],
-    getMountedXdevToolNames: () => [...mounted],
-    getEnabledToolNames: () => [...active, ...mounted],
-    runToolRegistryMutation: vi.fn(async (fn: () => Promise<void>) => await fn()),
-    setActiveToolPresentation: vi.fn(async (enabled: string[], nextMounted: string[]) => {
-      mounted = [...nextMounted]
-      active = enabled.filter((name) => !mounted.includes(name))
-    }),
-  }
-  const ref = { kind: 'main', session, sessionFile: manager.getSessionFile() }
-  sdk.get.mockReturnValue(ref)
-  const model = { id: 'fixture-model', provider: 'fixture-provider' }
-  const ctx = {
-    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
-    cwd: '/fixture-root',
-    sessionManager: manager,
-    modelRegistry,
-    model,
-    localProtocolOptions: consultableProtocolOptions(),
-    models: { resolve: () => model, current: () => model },
-    isIdle: () => idle,
-  }
-  const sends: Array<{ active: string[]; mounted: string[] }> = []
-  vi.spyOn(harness.native, 'sendMessage').mockImplementation(() => {
-    sends.push({ active: [...active], mounted: [...mounted] })
-  })
-  const stopped: string[] = []
-  const stoppedResults: Array<NativeBatchResult | null> = []
-  const stopFacts: NativeStop[] = []
-  const completed = vi.fn()
-  const stoppedSignal = Promise.withResolvers<void>()
-  const port = createNativeReviewPort(harness.native, harness.controller)
-  const start = async () => {
-    await harness.emitBridge('session_start', {}, ctx)
-    port.activate(prepared, {
-      onComplete: completed,
-      onStop: async (reason, result, stop) => {
-        stopFacts.push(stop)
-        stopped.push(reason)
-        stoppedResults.push(result)
-        stoppedSignal.resolve()
-      },
-    })
-  }
-  return {
-    harness,
-    prepared,
-    port,
-    start,
-    ctx,
-    session,
-    ref,
-    sends,
-    stopped,
-    stoppedResults,
-    stopFacts,
-    stoppedSignal,
-    completed,
-    surface: () => ({ active: [...active], mounted: [...mounted] }),
-    replaceSurface: (a: string[], m: string[]) => {
-      active = [...a]
-      mounted = [...m]
-    },
-  }
-}
+const fixture = (idle: boolean, taskMounted = false, install = true) =>
+  createMaskFixture(sdk, idle, taskMounted, install)
 
 describe('scoped native dispatch tool mask', () => {
+  it.each([
+    'normal',
+    'abort',
+    'foreign-owner',
+    'abort-acquisition',
+    'abort-after-send',
+    'foreign-after-send',
+    'root-after-send',
+  ] as const)('preserves deferred feature ownership through a %s successor', async (mode) => {
+    const f = fixture(false, false, false)
+    const registration = vi.spyOn(f.harness.native, 'registerTool')
+    installNativeBatchBridge(f.harness.native, f.harness.controller)
+    const tool = registration.mock.calls
+      .map(([definition]) => definition)
+      .find((definition) => definition.name === owned)
+    if (!tool) throw new Error('owned tool not registered')
+    const execute = tool.execute as (...args: never[]) => Promise<unknown>
+    const { host, published } = featureHostFixture(f.harness)
+    host.native = f.port
+    const successor = batch(['feature-successor'])
+    host.workflow.continueFeature = async () => ({
+      kind: 'action',
+      node: 'plan',
+      followUp: successor,
+      start: featureStart(`successor-${mode}`),
+    })
+    adapter.capture.mockResolvedValue({ current: () => true })
+    adapter.execute.mockImplementation(async (options) => {
+      const task = options.batch.tasks.tasks[0]
+      const id = task.name
+      expect(options.bindChild(id, 0, { provider: 'fixture-provider', id: 'fixture-model' })).toBe(true)
+      const sessionFile = join(tmpdir(), `feature-mask-child-${randomUUID()}.jsonl`)
+      f.harness.native.events.emit('task:subagent:lifecycle', {
+        status: 'started',
+        id,
+        agent: task.agent,
+        index: 0,
+        parentToolCallId: options.toolCallId,
+        sessionFile,
+        detached: false,
+      })
+      const child = await nativeReviewChild({ task, sessionFile })
+      const input = { data: { findings: [] } }
+      await child.call('yield', 'review-yield', input)
+      await child.result('yield', 'review-yield', input, { content: [], details: {}, isError: false })
+      return {
+        results: [
+          { index: 0, id, agent: task.agent, exitCode: 0, structuredOutput: { status: 'valid', data: input.data } },
+        ],
+        errors: [],
+      }
+    })
+    await f.harness.emitBridge('session_start', {}, f.ctx)
+    await announceFeatureBatch('#42', f.prepared, featureStart(`first-${mode}`), host, (next, current) =>
+      deliverFeatureResult('#42', next, host, current),
+    )
+    expect(f.sends).toHaveLength(0)
+    await f.harness.emitBridge('agent_end', { willContinue: false }, f.ctx)
+    expect(f.sends).toHaveLength(1)
+    await f.harness.emitBridge('agent_start', {}, f.ctx)
+    const wire = f.harness.controller.wire(f.prepared)
+    if (!wire) throw new Error('first feature not wired')
+    const abort = new AbortController()
+    await execute('feature-first' as never, wire as never, abort.signal as never, undefined as never, f.ctx as never)
+    expect(published).toHaveLength(1)
+    expect(f.harness.controller.active()).toBe(successor)
+    expect(f.sends).toHaveLength(1)
+    if (mode === 'abort') abort.abort()
+    if (mode === 'foreign-owner')
+      rememberFeatureOwner(host.key, { reference: '#foreign', cwd: host.cwd, pausable: true })
+    async function endDuringAcquisition() {
+      const entered = Promise.withResolvers<void>()
+      const resume = Promise.withResolvers<void>()
+      if (mode === 'abort-acquisition') {
+        f.session.runToolRegistryMutation.mockImplementationOnce(async (fn) => {
+          entered.resolve()
+          await resume.promise
+          await fn()
+        })
+      }
+      const ending = f.harness.emitBridge('agent_end', { willContinue: false }, f.ctx)
+      if (mode === 'abort-acquisition') {
+        await entered.promise
+        abort.abort()
+        resume.resolve()
+      }
+      await ending
+    }
+    await endDuringAcquisition()
+    const sent = mode === 'normal' || mode.endsWith('-after-send')
+    expect(f.sends).toHaveLength(sent ? 2 : 1)
+    expect(f.harness.controller.active()).toBe(sent ? successor : null)
+    async function finishSent() {
+      await f.harness.emitBridge('agent_end', { willContinue: false }, f.ctx)
+      expect(f.sends).toHaveLength(2)
+      expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
+      const successorWire = f.harness.controller.wire(successor)
+      if (!successorWire) throw new Error('successor not wired')
+      const invalidateOwner = () => {
+        if (mode === 'abort-after-send') abort.abort()
+        if (mode === 'foreign-after-send')
+          rememberFeatureOwner(host.key, { reference: '#foreign', cwd: host.cwd, pausable: true })
+        if (mode === 'root-after-send') f.ctx.sessionManager.getSessionId = () => 'foreign-root'
+      }
+      invalidateOwner()
+      if (mode === 'normal') {
+        expect(f.harness.controller.admit(successor, 'feature-second', f.ctx as never, () => true)).toBe(true)
+        f.harness.controller.finishExecution(successor)
+        await f.port.stopOwned(successor, 'test-cleanup')
+      } else {
+        await expect(
+          execute(
+            'feature-second' as never,
+            successorWire as never,
+            new AbortController().signal as never,
+            undefined as never,
+            f.ctx as never,
+          ),
+        ).rejects.toThrow()
+        expect(f.harness.controller.active()).toBeNull()
+      }
+    }
+    if (sent) await finishSent()
+  })
+
   it('refuses a non-local root without changing its tool presentation', async () => {
     const f = fixture(true)
     await f.start()
@@ -231,26 +283,27 @@ describe('scoped native dispatch tool mask', () => {
       const execute = tool.execute as (
         ...args: never[]
       ) => Promise<{ isError: boolean; details: { detailRef: string; childIds: string[] } }>
-      const result = await execute(
-        'owned-call' as never,
-        wire as never,
-        new AbortController().signal as never,
-        undefined as never,
-        f.ctx as never,
-      )
-      expect(result.isError).toBe(true)
-      expect(result.details.childIds).toEqual(['observed-child'])
-      expect(result.details.detailRef).toMatch(/^local:\/\//)
-      const retained = JSON.parse(
-        readFileSync(
-          join(
-            f.ctx.localProtocolOptions.getArtifactsDir(),
-            'local',
-            result.details.detailRef.slice('local://'.length),
-          ),
-          'utf8',
+      await expect(
+        execute(
+          'owned-call' as never,
+          wire as never,
+          new AbortController().signal as never,
+          undefined as never,
+          f.ctx as never,
         ),
+      ).rejects.toThrow('native task mask restoration refused')
+      const directory = join(
+        f.ctx.localProtocolOptions.getArtifactsDir(),
+        'local',
+        'omp-build',
+        'communication',
+        'native-result',
       )
+      const records = readdirSync(directory)
+      expect(records).toHaveLength(1)
+      const recordFile = records[0]
+      if (!recordFile) throw new Error('Native result artifact missing')
+      const retained = JSON.parse(readFileSync(join(directory, recordFile), 'utf8'))
       expect(retained.results).toEqual([actual])
       expect(retained.errors).toEqual([
         expect.stringContaining(
@@ -292,131 +345,151 @@ describe('scoped native dispatch tool mask', () => {
     await execute('sdk-abort-call' as never, wire as never, abort.signal as never, undefined as never, f.ctx as never)
     await f.stoppedSignal.promise
     expect(f.stopFacts).toEqual([{ kind: 'unattributed', origin: 'sdk-abort' }])
+    expect(f.completed).not.toHaveBeenCalled()
+    expect(f.sends).toHaveLength(1)
   })
 
-  it.each(['journal', 'file', 'provider', 'cwd', 'ref', 'session', 'modelRegistry', 'costGate'] as const)(
-    'does not restore into a changed %s identity',
-    async (identity) => {
-      const f = fixture(true)
-      Reflect.set(f.session, 'costGate', { generation: 1 })
+  it.each(['normal', 'abort-completion', 'abort-continuation', 'abort-acquisition'] as const)(
+    'settles an owned handoff with %s',
+    async (mode) => {
+      const f = fixture(true, false, false)
+      const registration = vi.spyOn(f.harness.native, 'registerTool')
+      installNativeBatchBridge(f.harness.native, f.harness.controller)
+      const tool = registration.mock.calls
+        .map(([definition]) => definition)
+        .find((definition) => definition.name === owned)
+      if (!tool) throw new Error('owned tool not registered')
+      const execute = tool.execute as (...args: never[]) => Promise<unknown>
+      const successor = batch(['slot-b'])
+      const events: string[] = []
+      const successorCompleted = vi.fn(async () => {
+        events.push('successor-complete')
+      })
+      const completionEntered = Promise.withResolvers<void>()
+      const finishCompletion = Promise.withResolvers<void>()
+      const continuationEntered = Promise.withResolvers<void>()
+      const finishContinuation = Promise.withResolvers<void>()
+      const acquisitionEntered = Promise.withResolvers<void>()
+      const finishAcquisition = Promise.withResolvers<void>()
+      f.completed.mockImplementation(async () => {
+        events.push('predecessor-receipt')
+        completionEntered.resolve()
+        await finishCompletion.promise
+      })
+      f.settled.mockImplementation(async (_result: NativeBatchResult, canContinue: () => boolean) => {
+        continuationEntered.resolve()
+        await finishContinuation.promise
+        if (!canContinue()) return
+        f.port.activate(successor, {
+          onComplete: successorCompleted,
+          onStop: async () => {
+            events.push('successor-stop')
+          },
+        })
+        if (mode === 'abort-acquisition') {
+          f.session.runToolRegistryMutation.mockImplementationOnce(async (fn) => {
+            acquisitionEntered.resolve()
+            await finishAcquisition.promise
+            await fn()
+          })
+        }
+        await f.port.announce(successor, canContinue)
+        if (!canContinue()) return
+        events.push('successor-announced')
+      })
+      adapter.capture.mockResolvedValue({ current: () => true })
+      adapter.execute.mockImplementation(async (options) => {
+        const task = options.batch.tasks.tasks[0]
+        const id = task.name
+        expect(options.bindChild(id, 0, { provider: 'fixture-provider', id: 'fixture-model' })).toBe(true)
+        const sessionFile = join(tmpdir(), `mask-child-${randomUUID()}.jsonl`)
+        f.harness.native.events.emit('task:subagent:lifecycle', {
+          status: 'started',
+          id,
+          agent: task.agent,
+          index: 0,
+          parentToolCallId: options.toolCallId,
+          sessionFile,
+          detached: false,
+        })
+        const child = await nativeReviewChild({ task, sessionFile })
+        const input = { data: { findings: [] } }
+        await child.call('yield', 'review-yield', input)
+        await child.result('yield', 'review-yield', input, { content: [], details: {}, isError: false })
+        return {
+          results: [
+            { index: 0, id, agent: task.agent, exitCode: 0, structuredOutput: { status: 'valid', data: input.data } },
+          ],
+          errors: [],
+        }
+      })
       await f.start()
       await f.port.announce(f.prepared)
-      const changes = {
-        journal: () => {
-          f.ctx.sessionManager.getSessionId = () => 'other'
-        },
-        file: () => {
-          f.ctx.sessionManager.getSessionFile = () => '/elsewhere/session.jsonl'
-        },
-        provider: () => {
-          f.session.agent.sessionId = 'other'
-        },
-        cwd: () => {
-          f.ctx.cwd = '/elsewhere'
-        },
-        ref: () => {
-          sdk.get.mockReturnValue({ ...f.ref })
-        },
-        session: () => {
-          f.ref.session = { ...f.session }
-        },
-        modelRegistry: () => {
-          f.ctx.modelRegistry = f.session.modelRegistry = {}
-        },
-        costGate: () => {
-          Reflect.set(f.session, 'costGate', { generation: 2 })
-        },
+      const firstWire = f.harness.controller.wire(f.prepared)
+      if (!firstWire) throw new Error('predecessor not wired')
+      const abort = new AbortController()
+      const first = execute(
+        'first-call' as never,
+        firstWire as never,
+        abort.signal as never,
+        undefined as never,
+        f.ctx as never,
+      )
+      async function settlePredecessor() {
+        await completionEntered.promise
+        expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
+        if (mode === 'abort-completion') abort.abort()
+        finishCompletion.resolve()
+        if (mode !== 'abort-completion') {
+          await continuationEntered.promise
+          if (mode === 'abort-continuation') abort.abort()
+          finishContinuation.resolve()
+        }
+        if (mode === 'abort-acquisition') {
+          await acquisitionEntered.promise
+          expect(f.harness.controller.active()).toBe(successor)
+          abort.abort()
+          finishAcquisition.resolve()
+        }
+        await first
       }
-      changes[identity]()
-      await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx).catch(() => undefined)
+      await settlePredecessor()
+      if (mode !== 'normal') {
+        expect(events).toEqual(
+          mode === 'abort-acquisition' ? ['predecessor-receipt', 'successor-stop'] : ['predecessor-receipt'],
+        )
+        expect(f.completed).toHaveBeenCalledTimes(1)
+        expect(f.settled).toHaveBeenCalledTimes(mode === 'abort-completion' ? 0 : 1)
+        expect(f.stopped).toEqual(['sdk-abort'])
+        expect(f.stopFacts).toEqual([{ kind: 'completed-after-stop', origin: 'sdk-abort' }])
+        expect(f.stoppedResults).toMatchObject([
+          { complete: true, children: [{ sdkTerminal: 'returned', usable: true }] },
+        ])
+        expect(successorCompleted).not.toHaveBeenCalled()
+        expect(f.harness.controller.active()).toBeNull()
+        expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
+        expect(f.sends).toHaveLength(1)
+        return
+      }
+      expect(events).toEqual(['predecessor-receipt', 'successor-announced'])
+      expect(f.completed).toHaveBeenCalledTimes(1)
+      expect(f.sends).toHaveLength(2)
+      expect(f.harness.controller.active()).toBe(successor)
+      await f.harness.emitBridge('agent_end', { willContinue: false }, f.ctx)
       expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
+      const secondWire = f.harness.controller.wire(successor)
+      if (!secondWire) throw new Error('successor not wired')
+      await execute(
+        'second-call' as never,
+        secondWire as never,
+        new AbortController().signal as never,
+        undefined as never,
+        f.ctx as never,
+      )
+      expect(successorCompleted).toHaveBeenCalledTimes(1)
+      expect(events).toEqual(['predecessor-receipt', 'successor-announced', 'successor-complete'])
+      expect(f.harness.controller.active()).toBeNull()
+      expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
     },
   )
-
-  it('restores when the captured cost gate changes internally without replacement', async () => {
-    const f = fixture(true)
-    const gate = { generation: 1 }
-    Reflect.set(f.session, 'costGate', gate)
-    await f.start()
-    await f.port.announce(f.prepared)
-    gate.generation = 2
-    await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx)
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-  })
-
-  it('restores and stops when the control send throws synchronously', async () => {
-    const f = fixture(true)
-    await f.start()
-    vi.mocked(f.harness.native.sendMessage).mockImplementation(() => {
-      throw new Error('send failed')
-    })
-    await expect(f.port.announce(f.prepared)).rejects.toThrow('send failed')
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-    expect(f.harness.controller.active()).toBeNull()
-  })
-
-  it('does not send after cancellation while the SDK mutation queue is blocked', async () => {
-    const f = fixture(true)
-    await f.start()
-    const entered = Promise.withResolvers<void>()
-    const unblock = Promise.withResolvers<void>()
-    f.session.runToolRegistryMutation.mockImplementationOnce(async (fn) => {
-      entered.resolve()
-      await unblock.promise
-      await fn()
-    })
-    const announcement = f.port.announce(f.prepared)
-    await entered.promise
-    const stop = f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx)
-    unblock.resolve()
-    await announcement.catch(() => undefined)
-    await stop
-    expect(f.sends).toEqual([])
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-    expect(f.harness.controller.active()).toBeNull()
-  })
-
-  it('keeps the mask for a continuing owned action, then restores on terminal agent end', async () => {
-    const f = fixture(true)
-    await f.start()
-    await f.port.announce(f.prepared)
-    await f.harness.emitBridge('agent_end', { willContinue: true }, f.ctx)
-    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
-    await f.harness.emitBridge('agent_end', { willContinue: false }, f.ctx)
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-  })
-
-  it('does not retain a completed batch mask for unrelated continuing work', async () => {
-    const f = fixture(true)
-    await f.start()
-    await f.port.announce(f.prepared)
-    f.harness.controller.inactive()
-    await f.harness.emitBridge('agent_end', { willContinue: true }, f.ctx)
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-  })
-
-  it('releases the old batch before a successor send and ignores a stale batch stop', async () => {
-    const f = fixture(true)
-    await f.start()
-    await f.port.announce(f.prepared)
-    f.harness.controller.inactive()
-    await f.harness.emitBridge('agent_end', { willContinue: false }, f.ctx)
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-    const successor = batch(['slot-b'])
-    f.port.activate(successor, { onComplete: async () => undefined, onStop: async () => undefined })
-    await f.port.announce(successor)
-    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
-    await f.port.stopOwned(f.prepared, 'stale')
-    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
-    expect(f.harness.controller.active()).toBe(successor)
-  })
-
-  it('restores the original partition during the same-root pre-switch transition', async () => {
-    const f = fixture(true)
-    await f.start()
-    await f.port.announce(f.prepared)
-    f.session.isSessionTransitioning = true
-    await f.harness.emitBridge('session_before_switch', {}, f.ctx)
-    expect(f.surface()).toEqual({ active: ['read', 'task', owned], mounted: ['search'] })
-  })
 })

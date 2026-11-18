@@ -10,10 +10,16 @@ afterEach(() => {
 
 type Interruption = { start?: string }
 
-function commandHost(result: ContinueFeatureResult) {
+function commandHost(
+  result:
+    | ContinueFeatureResult
+    | ((input: ContinueFeatureInput) => ContinueFeatureResult | Promise<ContinueFeatureResult>),
+  options: { initiallyInhibited?: boolean } = {},
+) {
   const inputs: ContinueFeatureInput[] = []
   const sent: string[] = []
   const counters = { interrupts: 0, inhibited: 0, released: 0, stops: 0, activations: 0 }
+  let inhibited = options.initiallyInhibited === true
   const key = {}
   keys.push(key)
   const host: FeatureCommandHost = {
@@ -23,7 +29,7 @@ function commandHost(result: ContinueFeatureResult) {
     workflow: {
       async continueFeature(input) {
         inputs.push(input)
-        return result
+        return typeof result === 'function' ? await result(input) : result
       },
       async consumeWatchExit() {
         throw new Error('unexpected watch')
@@ -55,12 +61,16 @@ function commandHost(result: ContinueFeatureResult) {
       throw new Error('resolution must not start framing')
     },
     inhibitFeatureContinuation() {
+      inhibited = true
       counters.inhibited += 1
     },
     releaseFeatureContinuation() {
       counters.released += 1
+      if (!inhibited) return true
+      inhibited = false
+      return true
     },
-    featureContinuationInhibited: () => false,
+    featureContinuationInhibited: () => inhibited,
     markFeatureBatch() {
       throw new Error('resolution must not mark native work')
     },
@@ -71,8 +81,82 @@ function commandHost(result: ContinueFeatureResult) {
       counters.interrupts += 1
     },
   }
-  return { host, inputs, sent, counters }
+  return { host, inputs, sent, counters, isInhibited: () => inhibited }
 }
+describe('/feature explicit context recovery entry', () => {
+  it('passes the selected file to the workflow without starting work on a refusal', async () => {
+    const { host, inputs, counters } = commandHost({ kind: 'blocked', reason: 'action-context-missing' })
+    await runInstalledFeatureCommand('#42 --action /tmp/action.json', host)
+    expect(inputs).toHaveLength(1)
+    expect(inputs[0]).toMatchObject({
+      reference: '42',
+      control: 'recover-context',
+      contextRecovery: { actionFile: '/tmp/action.json' },
+    })
+    expect(counters.activations).toBe(0)
+  })
+
+  it('completed context-negative: --action never releases the independently held latch', async () => {
+    const { host, counters, isInhibited } = commandHost(
+      { kind: 'blocked', reason: 'action-context-missing' },
+      { initiallyInhibited: true },
+    )
+    await runInstalledFeatureCommand('#42 --action /tmp/action.json', host)
+    expect(counters.released).toBe(0)
+    expect(isInhibited()).toBe(true)
+  })
+
+  it('independent stop: --action keeps the held latch held', async () => {
+    const { host, counters, isInhibited } = commandHost(
+      { kind: 'terminal', reason: 'pause' },
+      { initiallyInhibited: true },
+    )
+    await runInstalledFeatureCommand('#42 --action /tmp/held-action.json', host)
+    expect(counters.released).toBe(0)
+    expect(isInhibited()).toBe(true)
+  })
+})
+
+describe('/feature generation-bound release modes', () => {
+  it('confirmed resume → missing-context releases so a following --action is not stranded', async () => {
+    const { host, counters, isInhibited, inputs } = commandHost(
+      { kind: 'blocked', reason: 'action-context-missing' },
+      { initiallyInhibited: true },
+    )
+    await runInstalledFeatureCommand('resume 42', host)
+    expect(inputs[0]).toMatchObject({ control: 'resume' })
+    expect(counters.released).toBe(1)
+    expect(isInhibited()).toBe(false)
+
+    await runInstalledFeatureCommand('#42 --action /tmp/action.json', host)
+    expect(inputs[1]).toMatchObject({ control: 'recover-context' })
+    expect(counters.released).toBe(1)
+    expect(isInhibited()).toBe(false)
+  })
+
+  it('new admits only authenticated runnable results for release', async () => {
+    const blocked = commandHost({ kind: 'blocked', reason: 'action-context-missing' }, { initiallyInhibited: true })
+    await runInstalledFeatureCommand('new 42', blocked.host)
+    expect(blocked.counters.released).toBe(0)
+    expect(blocked.isInhibited()).toBe(true)
+
+    const runnable = commandHost({ kind: 'review', pr: 7 }, { initiallyInhibited: true })
+    await runInstalledFeatureCommand('new 42', runnable.host)
+    expect(runnable.counters.released).toBe(1)
+    expect(runnable.isInhibited()).toBe(false)
+  })
+
+  it('stale generation-bound unlock suppresses delivery for select', async () => {
+    const { host, sent, counters } = commandHost({ kind: 'blocked', reason: 'action-context-missing' })
+    host.releaseFeatureContinuation = () => {
+      counters.released += 1
+      return false
+    }
+    await runInstalledFeatureCommand('#42', host)
+    expect(counters.released).toBe(1)
+    expect(sent).toEqual([])
+  })
+})
 
 describe('/feature resolve-interruption entry', () => {
   it('passes the explicit START, interrupts nothing, and never resumes', async () => {

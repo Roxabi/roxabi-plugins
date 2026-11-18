@@ -1,13 +1,21 @@
 import type { assessUwAdmission } from '../dist/contracts.js'
+import type { AcceptedSpecInspection, AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { UwRead } from './uw-contract.ts'
 import { readCurrentChildrenProjection } from './uw-current-facts.ts'
 
 export async function withTransitionAdmission(
   contracts: { assessUwAdmission: typeof assessUwAdmission },
   read: UwRead,
+  assessmentReplay?: AssessmentReplayContext,
+  assessmentInspection?: AcceptedSpecInspection,
 ): Promise<UwRead> {
   if (!read.identity.ok) return read
-  const currentChildren = await readCurrentChildrenProjection({ uw: read.uw, read })
+  const currentChildren = await readCurrentChildrenProjection({
+    uw: read.uw,
+    read,
+    assessmentReplay,
+    assessmentInspection,
+  })
   const result: UwRead = {
     ...read,
     admission: contracts.assessUwAdmission({

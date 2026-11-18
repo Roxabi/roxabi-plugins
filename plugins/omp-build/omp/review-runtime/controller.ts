@@ -5,9 +5,12 @@ import { admitNativeBatch } from './batch-admission.ts'
 import { validateNativeBatch } from './batch-validation.ts'
 import { captureSubagentEvent } from './capture'
 import type { NativeBatch, NativeBatchCallbacks, NativeExecutionObservation, NativeTaskWireInput } from './contracts'
+import { admittedChild, bindChildSlot, finishOwnedExecution } from './controller-execution.ts'
 import { type JoinedNativeStop, stopBatches, stopOwnedBatch, throwJoinedStopFailures } from './controller-stop'
 import { rootCurrent, unindexAdmittedChildBatch } from './executed-child-lifecycle.ts'
 import { type HostGitObserver, observeHostGit } from './host-git-observation.ts'
+import { observeToolExecutionEnd, observeToolExecutionStart } from './observed-tools.ts'
+import { consumeNativeAnnouncementGuard, nativeAnnouncementCurrent } from './port'
 import {
   type OwnedResultReplacement,
   retainNativeObservation,
@@ -106,9 +109,15 @@ export class NativeBatchController {
   async stopOwned(batch: NativeBatch, reason: string): Promise<void> {
     await stopOwnedBatch(this.#stopContext(), batch, reason)
   }
+  bindExecutionSignal(batch: NativeBatch, signal: AbortSignal | undefined): void {
+    if (this.#active?.batch === batch) this.#active.sdkSignal = signal ?? null
+  }
   noteExecutionAborted(batch: NativeBatch): void {
     const owned = [...this.#live].find((active) => active.batch === batch)
-    if (owned && owned.stopOrigin === null) owned.stopOrigin = 'sdk-abort'
+    if (!owned) return
+    if (owned.stopOrigin === null) owned.stopOrigin = 'sdk-abort'
+    if (owned.continuationClosed === null) owned.continuationClosed = 'sdk-abort'
+    owned.executionAbort?.abort('sdk-abort')
   }
   active(): NativeBatch | null {
     return this.#active?.batch ?? null
@@ -132,11 +141,14 @@ export class NativeBatchController {
   markFeatureBatch(batch: NativeBatch): void {
     this.#announcements.markFeature(batch)
   }
+  featureContinuationEpoch(): number {
+    return this.#announcements.epoch()
+  }
   inhibitFeatureContinuation(): void {
     this.#announcements.inhibit(this.#active)
   }
-  releaseFeatureContinuation(): void {
-    this.#announcements.release()
+  releaseFeatureContinuation(expectedEpoch: number): boolean {
+    return this.#announcements.release(expectedEpoch)
   }
   featureContinuationInhibited(): boolean {
     return this.#announcements.isInhibited()
@@ -149,8 +161,12 @@ export class NativeBatchController {
   }
   /** Bind the genuine owned-tool call to the announced action and root generation. */
   admit(batch: NativeBatch, toolCallId: string, ctx: ExtensionContext, current: () => boolean): boolean {
+    if (!nativeAnnouncementCurrent(batch)) return false
     const admitted = admitNativeBatch(this, this.#active, this.#ownedActive, batch, toolCallId, ctx, current)
-    if (admitted && this.#active) this.#present(this.#active, 'running')
+    if (admitted && this.#active) {
+      consumeNativeAnnouncementGuard(batch)
+      this.#present(this.#active, 'running')
+    }
     return admitted
   }
   executionSignal(batch: NativeBatch): AbortSignal | null {
@@ -166,45 +182,23 @@ export class NativeBatchController {
   }
   bindChild(id: string, index: number, model: { provider: string; id: string }): boolean {
     const active = this.#active
-    if (
-      !active ||
-      !this.current(active.batch) ||
-      !active.batch.tasks.tasks[index] ||
-      active.childSlots.has(id) ||
-      [...active.childSlots.values()].includes(index)
-    )
-      return false
-    active.childSlots.set(id, index)
-    active.models[index] = model
-    return true
+    if (!active || !this.current(active.batch)) return false
+    return bindChildSlot(active, id, index, model)
   }
   finishExecution(batch: NativeBatch): void {
-    const active = [...this.#live].find((item) => item.batch === batch)
-    if (!active) return
-    const finish = active.finishExecution
-    active.finishExecution = null
-    active.executionDone = null
-    finish?.()
+    finishOwnedExecution(this.#live, batch)
   }
   allowSpawn(event: BeforeSubagentSpawnEvent): string | null {
     return nativeSpawnRefusal(this.#active, event)
   }
   executedChild(batch: NativeBatch, id: string, sessionId: string) {
-    const active = this.#active
-    if (
-      !active ||
-      active.settling ||
-      active.batch !== batch ||
-      active.admittedToolCallId === null ||
-      !rootCurrent(active)
-    )
-      return null
-    const guard = active.guardedChildren.get(id)
-    return guard?.sessionId === sessionId ? guard : null
+    return admittedChild(this.#active, batch, id, sessionId)
   }
   captureExecutedChild(batch: NativeBatch, id: string, sessionId: string, event: SubagentEventPayload['event']): void {
     const guard = this.executedChild(batch, id, sessionId)
     if (!guard?.valid || !this.#active) return
+    if (event.type === 'tool_execution_start') observeToolExecutionStart(guard, event)
+    else if (event.type === 'tool_execution_end') observeToolExecutionEnd(guard, event)
     captureSubagentEvent(this.#active, { id, event }, this.#announcements.isFeature(batch))
   }
   noteRetentionFailure(toolCallId: string, reason: string): void {
@@ -228,6 +222,7 @@ export class NativeBatchController {
       event,
       (current) => this.#detach(current),
       () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
+      () => releaseTaskMask(this, false, active.batch),
     )
     const terminal = handoffReceivedSettlement(active, predecessor, this.#retiredWriters)
     rememberBatchTerminal(this.#terminalByBatch, this.#live, active.batch, terminal)

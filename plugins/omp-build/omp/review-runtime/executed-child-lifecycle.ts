@@ -130,6 +130,12 @@ export function bindExecutedChild(
   if (!start) return null
   const model = found.models[start.index]
   if (!model) return null
-  found.guardedChildren.set(id, { sessionId, valid: false, yieldData: null })
+  found.guardedChildren.set(id, {
+    sessionId,
+    valid: false,
+    yieldData: null,
+    actionId: start.action.snapshot.actionId,
+    observedCalls: [],
+  })
   return { controller: owner, batch: found.batch, index: start.index, model }
 }

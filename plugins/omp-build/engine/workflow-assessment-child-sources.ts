@@ -6,6 +6,7 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecPrefixes } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import type { HistoricalAcceptedSpecContext } from './workflow-context-succession-inspection.ts'
 import {
   bindExternalRef,
   controlsOf,
@@ -37,7 +38,7 @@ function childHistory(uw: Scope, histories: readonly DecodedHistory[]): DecodedH
   return history
 }
 
-function matchesCommitment(own: AcceptedOwnSpec, commitment: AcceptedChildCommitment): boolean {
+export function matchesCommitment(own: AcceptedOwnSpec, commitment: AcceptedChildCommitment): boolean {
   return (
     own.ref.version === commitment.specVersion &&
     own.tier === commitment.tier &&
@@ -53,8 +54,9 @@ function currentChildSource(
   commitment: AssessSpecExact['proposed']['children'][number] | undefined,
   histories: readonly DecodedHistory[],
   assessmentReplay?: AssessmentReplayContext,
+  historical?: HistoricalAcceptedSpecContext,
 ): ChildSource | null {
-  const own = resolveAcceptedSpec(selected, histories, assessmentReplay)
+  const own = resolveAcceptedSpec(selected, histories, assessmentReplay, undefined, historical)
   if (!own.ok) return null
   if (commitment === undefined || 'kind' in commitment || !matchesCommitment(own.spec, commitment)) return null
   return { own: own.spec.ref, sourceRefs: own.spec.sourceRefs }
@@ -67,8 +69,9 @@ function abandonedChildSource(
   prior: AcceptedChildCommitment,
   histories: readonly DecodedHistory[],
   assessmentReplay?: AssessmentReplayContext,
+  historical?: HistoricalAcceptedSpecContext,
 ): ChildSource | null {
-  const candidates = historicalChildCandidates(mandates, prior, histories, assessmentReplay)
+  const candidates = historicalChildCandidates(mandates, prior, histories, assessmentReplay, historical)
   if (candidates === null) return null
   const [candidate] = candidates
   if (candidates.length !== 1 || candidate === undefined) return null
@@ -93,6 +96,7 @@ function captureChildSource(
   histories: readonly DecodedHistory[],
   attachedChildren: AssessSpecExact['attachedChildren'],
   assessmentReplay?: AssessmentReplayContext,
+  historical?: HistoricalAcceptedSpecContext,
 ): ChildSource | null {
   const history = childHistory(uw, histories)
   if (history === null) return null
@@ -122,10 +126,10 @@ function captureChildSource(
       prior ??
       proposed.children.find((child) => !('kind' in child) && equalScope(child.scope, uw)) ??
       attachedChildren.find((child) => equalScope(child.scope, uw))
-    return currentChildSource(selected, commitment, histories, assessmentReplay)
+    return currentChildSource(selected, commitment, histories, assessmentReplay, historical)
   }
   if ('kind' in selected || selected.reason !== 'abandoned') return null
-  return abandonedChildSource(uw, history, mandates, prior, histories, assessmentReplay)
+  return abandonedChildSource(uw, history, mandates, prior, histories, assessmentReplay, historical)
 }
 
 /** Capture current authority or the exact abandoned historical engagement, never inferred absence. */
@@ -135,6 +139,7 @@ export function capturedChildOwnSources(
   histories: readonly DecodedHistory[],
   attachedChildren: AssessSpecExact['attachedChildren'],
   assessmentReplay?: AssessmentReplayContext,
+  historical?: HistoricalAcceptedSpecContext,
 ): CapturedAssessmentChildSources | null {
   const scopes = [
     ...accepted.children.map((child) => child.scope),
@@ -145,7 +150,7 @@ export function capturedChildOwnSources(
   const sourceRefs: ExternalRecordRef[] = []
   for (const uw of scopes) {
     if (childOwnSources.some((entry) => equalScope(entry.uw, uw))) continue
-    const source = captureChildSource(uw, accepted, proposed, histories, attachedChildren, assessmentReplay)
+    const source = captureChildSource(uw, accepted, proposed, histories, attachedChildren, assessmentReplay, historical)
     if (source === null) return null
     childOwnSources.push({ uw, own: source.own })
     sourceRefs.push(...source.sourceRefs)
@@ -173,10 +178,11 @@ function historicalChildCandidates(
   prior: AcceptedChildCommitment,
   histories: readonly DecodedHistory[],
   assessmentReplay?: AssessmentReplayContext,
+  historical?: HistoricalAcceptedSpecContext,
 ): { mandate: MandateRecord; prefix: AcceptedOwnSpec }[] | null {
   const candidates: { mandate: MandateRecord; prefix: AcceptedOwnSpec }[] = []
   for (const mandate of mandates) {
-    const prefixes = resolveAcceptedSpecPrefixes(mandate, histories, assessmentReplay)
+    const prefixes = resolveAcceptedSpecPrefixes(mandate, histories, assessmentReplay, undefined, historical)
     if (!prefixes.ok) return null
     for (const prefix of prefixes.prefixes) {
       if (!matchesCommitment(prefix, prior)) continue

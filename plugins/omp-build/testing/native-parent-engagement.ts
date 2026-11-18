@@ -77,8 +77,20 @@ export async function confirmNewParentEngagement(
     throw new Error('Parent assessment lacks actual sealed native operands')
   const inputs = task.action.inputs
   const manifest = inputs.manifest
+  const read = await world.operations.readUw(scenario.middle)
+  const start = read.observation.histories
+    .flatMap((history) => history.operations)
+    .map((operation) => operation.record)
+    .find(
+      (record) =>
+        record?.kind === 'action-receipt' &&
+        record.payload.phase === 'start' &&
+        record.payload.actionId === task.action.snapshot.actionId,
+    )
+  if (!start) throw new Error('Parent assessment START missing')
   const replay = await world.operations.replayActionInputs({
     reviewed: inputs,
+    intent: { kind: 'persisted', start: { scope: scenario.middle, recordId: start.recordId, kind: 'action-receipt' } },
     request: {
       actionId: task.action.snapshot.actionId,
       purpose: manifest.purpose,
@@ -155,6 +167,7 @@ export async function confirmNewParentEngagement(
     result: captured,
     gh: world.gh,
     git: world.git,
+    current: () => true,
   })
   if (!published.published) throw new Error(`Parent assessment publication refused: ${JSON.stringify(published)}`)
   const accepted = await world.operations.acceptMaterial(scenario.middle)
