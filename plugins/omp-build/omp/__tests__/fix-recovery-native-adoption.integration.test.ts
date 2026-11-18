@@ -40,7 +40,8 @@ it('adopts the real unspent review decision and original request across physical
       cwd,
       env: { ...env, ...extra },
       encoding: 'utf8',
-      timeout: 240_000,
+      // The new root includes recovery, correction, and final-head review.
+      timeout: mode === 'new' ? 420_000 : 240_000,
     })
     expect(
       run.status,
