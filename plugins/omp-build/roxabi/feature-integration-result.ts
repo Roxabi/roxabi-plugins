@@ -190,15 +190,16 @@ function demoteExpiredAdmission(
 
 async function retainUnstartedPositiveIntegration(
   input: IntegrationPublicationInput,
-  context: NonImplementPublication,
   draft: IntegrateResultDraft,
   admission: IntegrationAdmission,
 ): Promise<IntegrationPublication> {
+  const fresh = await resolvePublication(input)
+  if ('reason' in fresh) return { published: false, reason: fresh.reason }
   const retained: IntegrationAdmission = { ...admission, admitted: false, reason: 'integration-local-inhibition' }
   const retainedId = randomUUID()
   const retainedPublication = await publishRecord(
-    context.loaded,
-    context.history,
+    fresh.loaded,
+    fresh.history,
     {
       ...draft,
       recordId: retainedId,
@@ -209,9 +210,9 @@ async function retainUnstartedPositiveIntegration(
         diagnostics: [{ code: retained.reason, message: retained.reason }],
       },
     },
-    context.gh,
+    fresh.gh,
     input.cwd,
-    context.publicationParents,
+    fresh.publicationParents,
   )
   return retainedPublication.ok
     ? { published: true, recordId: retainedId }
@@ -270,10 +271,10 @@ async function publishSettledIntegrationResult(
     canPublish,
   )
   if (published.ok) return { published: true, recordId }
-  // Retain only on writer not-started ownership marker + live revoke; never after write-started/partial.
+  // Retain only on writer not-started + live revoke; never after write-started/partial.
   if (!(positiveWrite && publicationDidNotStart(published) && !input.current() && admission !== null))
     return { published: false, reason: published.reason }
-  return retainUnstartedPositiveIntegration(input, context, draft, admission)
+  return retainUnstartedPositiveIntegration(input, draft, admission)
 }
 
 /** Admit only actual, pinned child deliveries and host-observed integration effects. */

@@ -27,6 +27,7 @@ export async function publishCapturedParentIntegration(
     output: string
     current: () => boolean
     stop?: Parameters<typeof publishFeatureNativeResult>[0]['stop']
+    beforePublication?: (input: { world: World; candidateHead: string }) => void
   },
 ) {
   const cwd = checkout.cwd
@@ -136,6 +137,7 @@ export async function publishCapturedParentIntegration(
     expectedRuns: 1,
     git: { repository: code.repository, commit: code.head, tree: checkout.tree(code.head) },
   })
+  facts.beforePublication?.({ world, candidateHead: facts.candidate.head })
   const publication = await publishFeatureNativeResult({
     cwd,
     start: opened.start,

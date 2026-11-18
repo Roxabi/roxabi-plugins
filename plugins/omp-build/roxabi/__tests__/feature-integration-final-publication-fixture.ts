@@ -1,11 +1,18 @@
 import { publishMissingBodies } from '../../adapters/github/publication-writer.ts'
 import type { PublicationFailure } from '../../adapters/github/publisher-validation.ts'
 import type { GitHubOptions } from '../../adapters/github/types.ts'
-import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { startResolution } from '../../engine/workflow-action-interruption.ts'
 import type { NativeBatchResult } from '../../omp/review-runtime/contracts.ts'
 import type { Contracts, History } from '../feature-engine.ts'
 import type { admitIntegration } from '../feature-integration-admission.ts'
+import {
+  emptyIntegrationPublicationHistory,
+  integrationPublicationScope,
+  seedCompetingResultReceipt,
+  seedInvalidInterruptionResolution,
+  seedResolvePublicationHistory,
+} from './feature-integration-final-publication-history-fixture.ts'
 
 type AdmittedIntegrationSuccess = Awaited<ReturnType<typeof admitIntegration>> & {
   admitted: true
@@ -13,7 +20,7 @@ type AdmittedIntegrationSuccess = Awaited<ReturnType<typeof admitIntegration>> &
   remoteTip: string
 }
 
-const scope = { repository: 'acme/app', target: 'acme/app#42' }
+const scope = integrationPublicationScope
 export const integrationPublicationTip = 'a'.repeat(40)
 export const integrationPublicationBody = 'omp-build-admitted-positive-integrate'
 export const integrationPublicationSecondBody = 'omp-build-admitted-positive-integrate-2'
@@ -23,7 +30,6 @@ export type IntegrationFinalPublicationProbe = {
   setLive: (value: boolean) => void
   awaitPublisherPrep: () => Promise<void>
   releasePublisherPrep: () => void
-  /** Count of actual gh POST attempts for admitted-positive bodies. */
   admittedPositivePosts: () => number
   retainedDrafts: () => readonly CanonicalRecord[]
   /**
@@ -31,24 +37,20 @@ export type IntegrationFinalPublicationProbe = {
    * so the writer returns ownership-revoked detail=write-started (not not-started).
    */
   armPartialAfterFirstBody: () => void
-  context: {
-    opened: {
-      recordId: string
-      payload: {
-        action: 'integrate'
-        actionId: string
-        mandate: { scope: typeof scope; recordId: string; kind: 'mandate' }
-        inputs: { manifest: { purpose: 'integrate' } }
-        exactInputs: Record<string, never>
-      }
-    }
-    loaded: Contracts
-    history: History
-    receiptScope: typeof scope
-    publicationParents: []
-    cwd: string
-    gh: NonNullable<GitHubOptions['gh']>
-  }
+  /**
+   * Seed a late competing RESULT with same action/START/mandate/inputs but a different
+   * record/operation identity than `${batch.operationId}:result`.
+   */
+  seedCompetingResultReceipt: () => void
+  /**
+   * Seed an incomplete unrelated interruption-resolution operation so production
+   * `startResolution`/`resolutionIndex` fail closed.
+   */
+  armInvalidInterruptionResolution: () => void
+  /** Contracts returned by mocked loadContracts for production resolvePublication. */
+  loaded: Contracts
+  history: History
+  gh: NonNullable<GitHubOptions['gh']>
   result: NativeBatchResult
   start: { scope: typeof scope; recordId: string; kind: 'action-receipt' }
   current: () => boolean
@@ -61,21 +63,6 @@ export type IntegrationFinalPublicationProbe = {
     commands: { toolCallId: string; command: string; exitCode: number }[]
     criteria: []
     reason: string
-  }
-}
-
-function emptyHistory(): DecodedHistory {
-  return {
-    source: {
-      scope,
-      expectedAuthor: 'automation',
-      stopAuthor: null,
-      complete: true,
-      comments: [],
-      diagnostics: [],
-    },
-    operations: [],
-    diagnostics: [],
   }
 }
 
@@ -116,7 +103,7 @@ export function createIntegrationFinalPublicationProbe(args?: {
   const retainedDrafts: CanonicalRecord[] = []
   const entered = Promise.withResolvers<void>()
   const release = Promise.withResolvers<void>()
-  const history = emptyHistory() as History
+  const history = emptyIntegrationPublicationHistory() as History
   const tip = integrationPublicationTip
   const structured = {
     outcome: 'integrated' as const,
@@ -141,6 +128,7 @@ export function createIntegrationFinalPublicationProbe(args?: {
     commandRuns: [{ toolCallId: 'tool-1', command: 'bun test', exitCode: 0, cwd: '/checkout' }],
   }
   const inputs = { manifest: { purpose: 'integrate' as const } }
+  seedResolvePublicationHistory(history, tip, inputs)
   const gh: NonNullable<GitHubOptions['gh']> = async (_cwd, args) => {
     if (args.includes('POST')) {
       admittedPositivePosts += 1
@@ -178,21 +166,21 @@ export function createIntegrationFinalPublicationProbe(args?: {
       const written = await publishMissingBodies(
         record,
         bodies,
-        emptyHistory(),
+        emptyIntegrationPublicationHistory(),
         options,
         'automation',
         'automation',
         options.stopAuthor ?? null,
       )
       if (written === null) return confirmed(record)
-      // Controlled probe only admits confirmed writes or PublicationFailure; recovered is unsupported.
       if (written.status === 'recovered') {
         throw new Error('unexpected recovered publication in integration final-publication probe')
       }
       return written
     },
     readComposedWorkflowHistory: async () => ({ ok: true as const, histories: [history] }),
-    startResolution: () => ({ ok: true as const, value: null }),
+    // Production interruption/result fence entry used by resolvePublication.
+    startResolution,
     selectApplicableMandate: () => ({ status: 'applicable' as const, mandate: { recordId: 'mandate-1' } }),
   } as unknown as Contracts
   const result: NativeBatchResult = {
@@ -238,24 +226,11 @@ export function createIntegrationFinalPublicationProbe(args?: {
     armPartialAfterFirstBody: () => {
       partialAfterFirstBody = true
     },
-    context: {
-      opened: {
-        recordId: 'start-1',
-        payload: {
-          action: 'integrate',
-          actionId: 'action-1',
-          mandate: { scope, recordId: 'mandate-1', kind: 'mandate' },
-          inputs,
-          exactInputs: {},
-        },
-      },
-      loaded,
-      history,
-      receiptScope: scope,
-      publicationParents: [],
-      cwd: '/checkout',
-      gh,
-    },
+    seedCompetingResultReceipt: () => seedCompetingResultReceipt(history, inputs),
+    armInvalidInterruptionResolution: () => seedInvalidInterruptionResolution(history),
+    loaded,
+    history,
+    gh,
     result,
     start: { scope, recordId: 'start-1', kind: 'action-receipt' },
     current: () => live,
