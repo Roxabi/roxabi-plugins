@@ -1118,6 +1118,8 @@ Run `bun run quality:omp-build` for the same owned-source check used by the pre-
 
 Vitest runs the inline projects in ordered groups: unit first, then integration with `groupOrder: 1`. Unit inherits `min(8, max(1, availableParallelism() - 1))` workers; integration explicitly uses `max(1, floor(availableParallelism() / 4))` workers. These are separate project limits, not one shared default-group cap. The unit budget is 5s and the default integration budget is 60s. Two long review lifecycle cases and the third canonical review race have 120s test budgets; the continuous Goal case has 180s. These are case-specific, finite integration harness clocks, not Native bounds or performance guarantees. A [full hosted diagnostic](https://github.com/Roxabi/roxabi-plugins/actions/runs/42352240126) observed finite semantic completion beyond several previous clocks; it does not establish the cause of the [original timeouts](https://github.com/Roxabi/roxabi-plugins/actions/runs/42340744132).
 
+The candidate CI correction lifecycle has a 90-second subprocess clock inside a 120-second case budget. The complete correction and current-head follow-on review finished in 59.8 seconds under a controlled process CPU quota, with all seven candidate-pinned stages checked; its former 55-second clock cut off the same scenario with `SIGTERM/ETIMEDOUT`. This calibrates the finite fixture workload without changing Native admission or consumer assertions. The resource probe does not establish the exact resource conditions of the historical hosted failure; other case clocks remain unchanged.
+
 | Surface | Enforced limit |
 |---|---|
 | Runtime code, helpers, types, schemas, live configuration and exclusive omp-build tools | 300 physical lines |
