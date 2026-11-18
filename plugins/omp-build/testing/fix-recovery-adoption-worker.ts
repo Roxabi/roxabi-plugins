@@ -198,7 +198,8 @@ try {
     if (!originalReview || !originalRequest || !originalDecision) throw new Error('adoption-original-lineage-missing')
     let completed = false
     let finalReviewRequested = false
-    const deadline = Date.now() + 150_000
+    // Budget the correction and final-head review observed under the bounded CPU repro.
+    const deadline = Date.now() + 240_000
     while (Date.now() < deadline) {
       const failedBatch = root.session.messages.find(
         (message) =>

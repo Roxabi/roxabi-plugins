@@ -1,6 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { availableParallelism, cpus } from 'node:os'
 import { join, resolve } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { afterEach, expect, it } from 'vitest'
 import { featureMandate, pullHistory } from '../../testing/feature-ci-review-fixture.ts'
 import { arrangeRecoveryReviewFixture } from '../../testing/fix-recovery-review-prelude.ts'
@@ -16,6 +18,8 @@ afterEach(() => {
 })
 
 it('adopts the real unspent review decision and original request across physical SDK roots through final-head review', () => {
+  // Match the Vitest budget below: spawnSync cannot be interrupted by its timer.
+  const caseDeadline = performance.now() + 720_000
   const { box, cwd } = arrangeRecoveryReviewFixture('defect')
   roots.add(box.root)
   const branch = readSim(box).prs['7']?.headRefName
@@ -34,13 +38,22 @@ it('adopts the real unspent review decision and original request across physical
   for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST'])
     delete env[key]
   const invoke = (mode: 'prelude' | 'old' | 'new', extra: NodeJS.ProcessEnv = {}) => {
+    const started = performance.now()
+    const timeout = Math.min(mode === 'new' ? 420_000 : 240_000, Math.floor(caseDeadline - started))
+    if (timeout <= 0) throw new Error(`${mode}: adoption-case-budget-exhausted`)
     const run = spawnSync(bun, [worker, mode, cwd, box.root, box.stateFile, JSON.stringify({ ...box, env: {} })], {
       cwd,
       env: { ...env, ...extra },
       encoding: 'utf8',
-      timeout: 240_000,
+      // The new root includes recovery, correction, and final-head review.
+      timeout,
     })
-    expect(run.status, `${mode}: ${run.stderr}\n${run.stdout}`).toBe(0)
+    expect(
+      run.status,
+      run.status === 0
+        ? ''
+        : `${mode}: status=${run.status} signal=${run.signal} errorCode=${(run.error as NodeJS.ErrnoException | undefined)?.code ?? 'none'} elapsedMs=${Math.round(performance.now() - started)} availableParallelism=${availableParallelism()} cpu=${cpus()[0]?.model ?? 'unknown'}\n${run.stderr}\n${run.stdout}`,
+    ).toBe(0)
     const line = run.stdout
       .trim()
       .split('\n')
