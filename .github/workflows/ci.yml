@@ -15,7 +15,9 @@ permissions:
 jobs:
   ci:
     if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
-    runs-on: ubuntu-latest
+    # Containment: ubuntu-latest moved to 26.04 while native SDK tests time out.
+    # Keep the last green OS baseline; qualify 26.04 before removing this pin.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
