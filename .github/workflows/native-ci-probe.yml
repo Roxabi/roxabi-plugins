@@ -1,0 +1,22 @@
+# Temporary investigation only; remove before qualifying the corrective PR.
+# Does not replace, skip, or modify the required CI workflow or its tests.
+name: Native fixture diagnostic (not CI qualification)
+on:
+  push:
+    branches: [fix/F08-native-ci]
+permissions:
+  contents: read
+jobs:
+  native-fixture-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Observe original lifecycle without changing the required test
+        run: /usr/bin/time -v bun tools/diagnose-omp-build-native-ci.ts
