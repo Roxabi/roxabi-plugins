@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import type { ToolSession } from '@oh-my-pi/pi-coding-agent'
-import type { AgentRegistry } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
+import type { AgentRegistryApi } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
 import type { AgentSession } from '@oh-my-pi/pi-coding-agent/session/agent-session'
 import type { AgentOutputManager } from '@oh-my-pi/pi-coding-agent/task/output-manager'
 import type { Semaphore } from '@oh-my-pi/pi-coding-agent/task/parallel'
@@ -12,7 +12,7 @@ import type { Options } from './native-sdk-adapter.ts'
 export type TaskContext = {
   options: Options
   root: AgentSession
-  registry: AgentRegistry
+  registry: AgentRegistryApi
   session: ToolSession
   providerSessionId: string
   signal: AbortSignal

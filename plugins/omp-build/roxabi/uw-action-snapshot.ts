@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
-import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { Result } from '../engine/result.ts'
+import { trackPreparationSyncOperation } from '../host/preparation-cohort.ts'
 import { registerHostActionHandle } from '../omp/review-runtime/action-registry.ts'
-import type { ActionSnapshot, ActionSnapshotStore } from './uw-action-contract.ts'
+import type { ActionSnapshot } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
 
 type SealedEntry = {
@@ -30,62 +30,6 @@ function treeDigest(entries: readonly SealedEntry[]): string {
     hash.update('\0')
   }
   return hash.digest('hex')
-}
-
-function linkedWorktreeGitDir(cwd: string): string | null {
-  try {
-    const gitDir = resolve(
-      cwd,
-      execFileSync('git', ['-C', cwd, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).trim(),
-    )
-    const common = resolve(
-      cwd,
-      execFileSync('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim(),
-    )
-    return gitDir === common ? null : gitDir
-  } catch {
-    return null
-  }
-}
-
-function placementRoot(input: {
-  artifactsDir?: string | null
-  cwd: string
-}): Result<{ root: string; location: ActionSnapshot['location'] }> {
-  if (input.artifactsDir) {
-    const root = join(input.artifactsDir, 'local', 'omp-build', 'actions')
-    try {
-      mkdirSync(root, { recursive: true, mode: 0o755 })
-      return { ok: true, value: { root, location: 'local' } }
-    } catch {
-      // Fall through to the linked worktree git dir. Never the principal .git.
-    }
-  }
-  const gitDir = linkedWorktreeGitDir(input.cwd)
-  if (gitDir === null) {
-    return actionFailure(
-      'snapshot-placement-unavailable',
-      'Neither the local protocol root nor this worktree git dir can hold the action snapshot',
-    )
-  }
-  const root = join(gitDir, 'omp-build', 'actions')
-  try {
-    mkdirSync(root, { recursive: true, mode: 0o755 })
-  } catch (error) {
-    return actionFailure(
-      'snapshot-placement-unavailable',
-      error instanceof Error ? error.message : 'worktree git dir is not writable',
-    )
-  }
-  return { ok: true, value: { root, location: 'worktree-gitdir' } }
-}
-
-function writeTree(directory: string, files: readonly { path: string; bytes: Uint8Array }[]): void {
-  for (const file of files) {
-    const target = join(directory, file.path)
-    mkdirSync(dirname(target), { recursive: true, mode: 0o755 })
-    writeFileSync(target, file.bytes, { mode: 0o444 })
-  }
 }
 
 function walk(directory: string, prefix = ''): { path: string; kind: SealedEntry['kind'] }[] {
@@ -179,34 +123,15 @@ export function verifyActionSnapshot(snapshot: ActionSnapshot): Promise<Result<A
       actionFailure('action-handle-unregistered', 'The action snapshot is not a registered host handle'),
     )
   const directory = dirname(snapshot.indexPath)
-  const root = snapshotRoot(directory)
+  const root = trackPreparationSyncOperation('snapshot', () => snapshotRoot(directory))
   if (!root.ok) return Promise.resolve(root)
-  const observed = observedTree(directory)
+  const observed = trackPreparationSyncOperation('snapshot', () => observedTree(directory))
   if (!observed.ok) return Promise.resolve(observed)
-  const compared = compareSealedTree(directory, observed.value, new Map(baseline.map((entry) => [entry.path, entry])))
+  const compared = trackPreparationSyncOperation('snapshot', () =>
+    compareSealedTree(directory, observed.value, new Map(baseline.map((entry) => [entry.path, entry]))),
+  )
   if (!compared.ok) return Promise.resolve(compared)
   return Promise.resolve({ ok: true, value: snapshot })
-}
-
-export function createActionSnapshotStore(input: { artifactsDir?: string | null; cwd: string }): ActionSnapshotStore {
-  return {
-    create: async (request) => {
-      const placed = placementRoot(input)
-      if (!placed.ok) return placed
-      const id = randomBytes(16).toString('hex')
-      const directory = join(placed.value.root, `${id}-${request.actionId.replace(/[^a-z0-9-]/gi, '')}`)
-      try {
-        mkdirSync(directory, { recursive: true, mode: 0o755 })
-        writeTree(directory, request.files)
-      } catch (error) {
-        return actionFailure(
-          'snapshot-placement-unavailable',
-          error instanceof Error ? error.message : 'snapshot write failed',
-        )
-      }
-      return { ok: true, value: { indexPath: join(directory, 'index.md'), location: placed.value.location } }
-    },
-  }
 }
 
 export type ActionSnapshotClaim = {
@@ -268,11 +193,13 @@ export function sealActionSnapshot(
   const directory = dirname(claim.indexPath)
   const intended = sealEntries(files)
   try {
-    const root = snapshotRoot(directory)
+    const root = trackPreparationSyncOperation('snapshot', () => snapshotRoot(directory))
     if (!root.ok) return root
-    const observed = observedTree(directory)
+    const observed = trackPreparationSyncOperation('snapshot', () => observedTree(directory))
     if (!observed.ok) return observed
-    const matched = matchIntendedTree(directory, observed.value, intended)
+    const matched = trackPreparationSyncOperation('snapshot', () =>
+      matchIntendedTree(directory, observed.value, intended),
+    )
     if (!matched.ok) return matched
   } catch (error) {
     return actionFailure('snapshot-unreadable', error instanceof Error ? error.message : 'snapshot seal failed')

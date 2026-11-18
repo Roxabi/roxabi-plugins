@@ -9,6 +9,7 @@ import { continueFramedFeature, runFeatureCommand } from './omp-feature-command.
 import type { FeatureCommandComposition, FeatureCommandOptions } from './omp-feature-command-host.ts'
 import { installFeatureUwOperationLifecycle } from './omp-feature-composition.ts'
 import { dispatchDefaultFix } from './omp-fix-dispatch'
+import { registerOmpFixRecoveryTool } from './omp-fix-recovery.ts'
 import { type FramingRuntimeOptions, installFeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { dispatchDefaultReview } from './omp-review-dispatch'
 import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
@@ -27,7 +28,7 @@ export type OmpBuildExtensionOptions = FeatureCommandOptions & {
 export function registerOmpCommandsAndTools(
   pi: OmpBuildExtensionApi,
   options: OmpBuildExtensionOptions,
-  interruptOwnedFeatureWork: (reason: string) => Promise<void>,
+  interruptOwnedFeatureWork: FeatureCommandComposition['interruptOwnedFeatureWork'],
 ): void {
   bindHostPluginPin(pi, options.pluginPin)
   const installRoot = options.installRoot ?? INSTALL_ROOT
@@ -55,6 +56,7 @@ export function registerOmpCommandsAndTools(
     },
   })
   registerOmpReviewRecoveryTools(pi, options)
+  registerOmpFixRecoveryTool(pi)
   registerPrepareCheckoutTool(pi)
   registerUwCommand(pi, options.uwOperations ?? hostUwFactory())
   registerToolingPinCommand(pi)

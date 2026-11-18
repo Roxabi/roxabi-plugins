@@ -85,7 +85,8 @@ function validApplied(
       slot.output === 'action-result' &&
       slot.phase === 'fix' &&
       slot.role === applied.payload.host.role &&
-      slot.correction?.phase === 'apply' &&
+      slot.correction !== undefined &&
+      slot.correction.phase === 'apply' &&
       slot.correction.causeId === payload.causeId &&
       slot.action?.actionId === action.actionId &&
       canonicalValueDigest(slot.action.inputs) === canonicalValueDigest(action.inputs),

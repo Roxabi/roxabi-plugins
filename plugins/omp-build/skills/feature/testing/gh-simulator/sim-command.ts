@@ -16,7 +16,14 @@ function repoView(context: Context): boolean {
       ? repository
       : context.state.repositoryUrls?.[reference]
   if (!name) fail('gh: cannot resolve repository URL')
-  emit({ nameWithOwner: name, defaultBranchRef: { name: context.state.defaultBranch } }, context.expression)
+  emit(
+    {
+      nameWithOwner: name,
+      defaultBranchRef: { name: context.state.defaultBranch },
+      url: `https://${context.state.repositoryAuthority ?? 'github.com'}/${name}`,
+    },
+    context.expression,
+  )
   return true
 }
 

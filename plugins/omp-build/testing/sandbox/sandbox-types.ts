@@ -53,6 +53,7 @@ export type SimIssue = {
 export type SimState = {
   viewer: string
   nextCommentId?: number
+  repositoryAuthority?: string
   repositoryUrls?: Record<string, string>
   prs: Record<string, SimPull>
   issues: Record<string, SimIssue>

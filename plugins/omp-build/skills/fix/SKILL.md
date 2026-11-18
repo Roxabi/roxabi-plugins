@@ -2,9 +2,9 @@
 name: fix
 argument-hint: '[#PR | #issue]'
 description: >-
-  OMP-only correction intake for an explicit open issue or PR. Captures review
-  evidence by reference, publishes correction records, and never lands a change.
-version: 0.5.0
+  OMP-only correction intake for an explicit open issue or PR, and bounded
+  interrupted-correction recovery. Captures evidence by reference and never lands.
+version: 0.6.0
 ---
 
 # Fix
@@ -28,6 +28,9 @@ It never creates a feature, arms, labels `reviewed`, lands, or enters `/feature`
    On `fix-publish-remote-credential-refused` or `fix-publish-remote-head-mismatch`,
    report the code without the URL and stop before publication; use the push-binding
    guidance in [README](../../README.md).
+   Before C0/R publication, the host completes preparation/origin checks and
+   confirms a durable `fix-owner` under the shared destination mutex. An existing
+   owner is a stop; follow the interrupted branch below rather than minting a root.
 2. **Request.** Publish the raw operator contribution, then a limited-scope
    `fix-request` with `landing: false`. Existing structured review data is consumed
    by its confirmed record ID; it is not parsed, reclustered, relabelled, or
@@ -71,6 +74,21 @@ judgments; only `fix-original` outcomes enter correction, subject to the existin
 mandate, authority and continuation gates. Missing or contested blocking evidence
 holds the original for motivated adjudication; insufficient nonblocking evidence
 becomes a report. No cause identity is inferred by code.
+
+## Interrupted correction
+
+1. **Inspect.** Use the factual `/uw` or correction-refusal hint. Call
+   `omp_build_recover_interrupted_fix` with only the authenticated PR number;
+   the current host and engine select the owner, evidence and eligible transition.
+2. **Confirm.** Wait for genuine root-operator confirmation of the exact proposal.
+   Neutral predecision closure permits a fresh ordinary `/fix` on the same UW/PR.
+   Unstarted existing-review adoption continues the original R/D and bounds;
+   it does not run a request-producing preparer.
+3. **Honor holds.** Native/startup or plan entry, missing originating witness,
+   spent work, stale authority and ambiguous effects remain held. Report the
+   actual reason; model text, process absence and local caches grant no authority.
+   Preserve raw history and local data. See the
+   [supported cuts and host limits](../../README.md#bounded-correction-recovery).
 
 ## Falsification
 

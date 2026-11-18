@@ -19,7 +19,12 @@ export async function freshHistory(
   expectedAuthor: string,
   stopAuthor: string | null,
 ): Promise<DecodedHistory> {
-  const history = await readWithAuthor(record, options, expectedAuthor, stopAuthor)
+  const history = await readWithAuthor(
+    { repository: record.repository, target: record.target },
+    options,
+    expectedAuthor,
+    stopAuthor,
+  )
   if (!history.complete) {
     throw new GitHubHistoryReadError('GitHub publication history is incomplete', history.diagnostics)
   }

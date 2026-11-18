@@ -10,6 +10,7 @@ import {
   readCauseDispositionHeads,
   readCauseHistoryClosure,
   type Scope,
+  selectFixRecoveryDispositionPlan,
   type UwGraphObservation,
   validateCauseDispositionRecords,
 } from '../dist/contracts.js'
@@ -79,12 +80,20 @@ function rawCaptureMatches(capture: PreparedCauseCapture, source: DispositionSou
   )
 }
 
-export async function persistCauseDispositions(
+type DispositionAssessment = {
+  outcomes: CauseDispositionPayload[]
+  executableCauseIds: string[]
+  heads: readonly Extract<CanonicalRecord, { kind: 'cause-disposition' }>[]
+  histories: readonly DecodedHistory[]
+  operations: DecodedHistory['operations']
+}
+
+/** Authenticates and assesses the same current basis without publishing dispositions. */
+export async function assessCauseDispositionPlan(
   prepared: Pick<PreparedFix, 'causeContext'> & { capture: PreparedCauseCapture; graph: UwGraphObservation },
   source: DispositionSource,
-  identity: FixIdentity,
   store: FixDispositionStore,
-): Promise<FixActionResult<PersistedDispositions>> {
+): Promise<FixActionResult<DispositionAssessment>> {
   const recordSource = source.kind === 'decision' ? source.decision : source.contributions[0]
   if (prepared.capture === undefined || prepared.graph === undefined)
     return failure('correction-disposition-capture-or-graph-missing')
@@ -123,15 +132,53 @@ export async function persistCauseDispositions(
     adjudications: [],
   })
   if (!assessment.ok) return failure(...assessment.diagnostics.map((item) => item.code))
+  return {
+    ok: true,
+    value: {
+      outcomes: assessment.value.outcomes,
+      executableCauseIds: assessment.value.executableCauseIds,
+      heads: heads.value,
+      histories: loaded.value,
+      operations,
+    },
+  }
+}
+
+/** Mirrors the persisted-head selection without creating or replacing any disposition. */
+export async function previewCauseDispositions(
+  prepared: Pick<PreparedFix, 'causeContext'> & { capture: PreparedCauseCapture; graph: UwGraphObservation },
+  source: DispositionSource,
+  store: FixDispositionStore,
+): Promise<FixActionResult<{ executableCauseIds: string[] }>> {
+  const plan = await assessCauseDispositionPlan(prepared, source, store)
+  if (!plan.ok) return plan
+  const selected = selectFixRecoveryDispositionPlan({
+    outcomes: plan.value.outcomes,
+    heads: plan.value.heads,
+    executableCauseIds: plan.value.executableCauseIds,
+    source,
+  })
+  if (!selected.ok) return failure(...selected.diagnostics.map((item) => item.code))
+  return { ok: true, value: selected.value }
+}
+
+export async function persistCauseDispositions(
+  prepared: Pick<PreparedFix, 'causeContext'> & { capture: PreparedCauseCapture; graph: UwGraphObservation },
+  source: DispositionSource,
+  identity: FixIdentity,
+  store: FixDispositionStore,
+): Promise<FixActionResult<PersistedDispositions>> {
+  const plan = await assessCauseDispositionPlan(prepared, source, store)
+  if (!plan.ok) return plan
   return persistAssessedOutcomes(
-    assessment.value.outcomes,
-    assessment.value.executableCauseIds,
-    heads.value,
+    plan.value.outcomes,
+    plan.value.executableCauseIds,
+    plan.value.heads,
     prepared.causeContext.original,
     identity,
     store,
-    loaded.value,
-    operations,
+    plan.value.histories,
+    plan.value.operations,
   )
 }
 

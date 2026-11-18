@@ -77,6 +77,7 @@ export type State = {
   defaultBranch: string
   /** Bare origin. Merge-on-read runs `git merge --no-ff` into it. */
   origin: string
+  repositoryAuthority?: string
   repositoryUrls?: Record<string, string>
   /** Explicit remote refs for transport-only fixtures without a Git origin. */
   remoteRefs?: Record<string, string>

@@ -7,6 +7,7 @@ import {
 } from './criterion-evidence-schema.ts'
 import { type CriterionVerdict, criterionVerdictSchema } from './criterion-verdict-schema.ts'
 import { findingTargetSchema } from './finding-target-schema.ts'
+import { slotCorrectionSchema } from './fix-recovery-schema.ts'
 import {
   diagnosticSchema,
   identifierSchema,
@@ -235,12 +236,6 @@ export const slotSchema = z.strictObject({
   classId: identifierSchema.nullable(),
   sourceFindingIds: z.array(identifierSchema),
   action: contextNegativeBindingSchema.optional(),
-  correction: z
-    .strictObject({
-      phase: z.enum(['apply', 'falsify', 'restore-proof', 'revalidate']),
-      causeId: identifierSchema,
-      context: jsonSchema,
-    })
-    .optional(),
+  correction: slotCorrectionSchema.optional(),
 })
 export type Slot = z.infer<typeof slotSchema>

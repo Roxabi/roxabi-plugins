@@ -184,15 +184,17 @@ export async function uwFacts(
   const subject = request.subject
   const joint = await observeJointCompletion(subject, source, histories, observeCausal)
   if (!joint.ok) return joint
-  const observation = joint.value
+  const rawObservation = joint.value
   const replay =
     request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
       ? { uw: subject.uw, actionId: request.actionId, fingerprint: reviewedFingerprint }
       : undefined
   const uwRead = await createInstalledObservedUwReadPort({
-    observation,
+    observation: rawObservation,
     ...(replay === undefined ? {} : { assessmentReplay: replay }),
   }).readUw(subject.uw)
+  const observation = uwRead.observation
+  if (observation.status !== 'complete') return { ok: false, diagnostics: toDiagnostics(observation.diagnostics) }
   const sameCutHistories = observation.histories
   const bound = bindSubject(request, subject, sameCutHistories, observed)
   if (!bound.ok) return bound

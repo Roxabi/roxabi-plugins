@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto'
 import type { Gh } from '../adapters/github/types.ts'
 import type { Result } from '../engine/result.ts'
+import { BLOB_QUERY, catalogueQuery } from '../host/preparation-graphql.cjs'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
 import type { GitByteRequest } from './uw-git-bytes.ts'
-
-const BLOB_QUERY =
-  'query($owner:String!,$name:String!,$expression:String!){repository(owner:$owner,name:$name){object(expression:$expression){... on Blob{oid}}}}'
 
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex')
@@ -169,11 +167,7 @@ function catalogueBlob(lookup: unknown, alias: string, request: GitByteRequest):
 
 async function lookupCatalogue(requests: readonly GitByteRequest[]): Promise<Result<readonly CatalogueBlob[]>> {
   const first = requests[0]
-  const variables = requests.map((_, index) => `$e${index}:String!`).join(',')
-  const fields = requests
-    .map((_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid byteSize isBinary isTruncated text}}`)
-    .join(' ')
-  const query = `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`
+  const query = catalogueQuery(requests.length)
   const slash = first.repository.indexOf('/')
   const missing = `${first.repository}@${first.commit}`
   const located = await ghText(

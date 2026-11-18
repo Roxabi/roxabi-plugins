@@ -43,6 +43,16 @@ function identitySorted<T extends RefLike>(refs: readonly T[]): T[] {
     .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
     .map(({ ref }) => ref)
 }
+/** Compare complete plugin pins with the same set-valued file identity as action inputs. */
+export function samePluginPin(left: ActionInputManifest['plugin'], right: ActionInputManifest['plugin']): boolean {
+  const valid = (pin: ActionInputManifest['plugin']) => new Set(pin.files.map(pinnedIdentity)).size === pin.files.length
+  return (
+    valid(left) &&
+    valid(right) &&
+    JSON.stringify(ordered({ ...left, files: identitySorted(left.files) })) ===
+      JSON.stringify(ordered({ ...right, files: identitySorted(right.files) }))
+  )
+}
 
 function durableSource(raw: { reference: string; body: string; bodySha256: string }): {
   reference: string

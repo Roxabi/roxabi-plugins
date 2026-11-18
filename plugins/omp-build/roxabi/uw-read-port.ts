@@ -2,7 +2,9 @@ import type { Gh, GitHubOptions } from '../adapters/github/types.ts'
 import {
   assessUwAdmission,
   assessUwCompletion,
+  discoverFixRecovery,
   parseIssueSpecBody,
+  projectRecoveryHistories,
   readComposedWorkflowHistory,
   readFramingMembership,
   readUwCompletionObservation,
@@ -70,6 +72,49 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
   }
 }
 
+function projectObservation(
+  contracts: InstalledUwContracts,
+  observation: UwCompletionObservation,
+): UwCompletionObservation {
+  const projected = contracts.projectRecoveryHistories(observation.histories)
+  if (projected.ok) return { ...observation, histories: projected.value }
+  const refusal: UwDiagnostic = {
+    code: 'recovery-projection-refused',
+    message: projected.diagnostics.map((entry) => entry.message).join('; '),
+    location: { kind: 'native', uw: observation.root, connection: 'state' },
+    related: [],
+  }
+  const diagnostics: [UwDiagnostic, ...UwDiagnostic[]] = [refusal]
+  if (observation.status === 'incomplete') diagnostics.unshift(...observation.diagnostics)
+  return { ...observation, status: 'incomplete', diagnostics }
+}
+
+function projectHistory(
+  contracts: InstalledUwContracts,
+  original: UwCompletionObservation,
+  observation: UwCompletionObservation,
+  supplied?: HistoryObservation,
+): HistoryObservation {
+  if (supplied === undefined || supplied.histories === original.histories) {
+    if (observation.status === 'complete' && (supplied === undefined || supplied.ok))
+      return { ok: true, histories: observation.histories }
+    return {
+      ok: false,
+      reason: 'incomplete',
+      histories: observation.histories,
+      ...(observation.status === 'incomplete'
+        ? { diagnostics: observation.diagnostics }
+        : supplied?.ok === false && supplied.diagnostics !== undefined
+          ? { diagnostics: supplied.diagnostics }
+          : {}),
+    }
+  }
+  const projection = contracts.projectRecoveryHistories(supplied.histories)
+  return projection.ok
+    ? { ...supplied, histories: projection.value }
+    : { ok: false, reason: 'incomplete', histories: supplied.histories, diagnostics: projection.diagnostics }
+}
+
 /** Test seam for an already-observed graph and its composed histories. */
 export function createObservedUwReadPort(
   contracts: InstalledUwContracts,
@@ -79,30 +124,22 @@ export function createObservedUwReadPort(
     assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
 ): UwReadPort {
-  const completion = contracts.assessUwCompletion(input.observation)
-  const history: HistoryObservation =
-    input.history ??
-    (input.observation.status === 'complete'
-      ? { ok: true, histories: input.observation.histories }
-      : {
-          ok: false,
-          reason: 'incomplete',
-          histories: input.observation.histories,
-          diagnostics: input.observation.diagnostics,
-        })
+  const observation = projectObservation(contracts, input.observation)
+  const completion = contracts.assessUwCompletion(observation)
+  const history = projectHistory(contracts, input.observation, observation, input.history)
   const causalObservation: UwRead['causalObservation'] =
-    input.observation.status === 'complete' && history.ok && history.histories === input.observation.histories
-      ? { status: 'complete', histories: input.observation.histories, catalogues: input.observation.catalogues }
+    observation.status === 'complete' && history.ok && history.histories === observation.histories
+      ? { status: 'complete', histories: observation.histories, catalogues: observation.catalogues }
       : { status: 'unavailable' }
   let reader: UwReadPort
   reader = {
     async readUw(uw): Promise<UwRead> {
       return assembleUwRead(contracts, {
         uw,
-        graph: input.observation.graph,
+        graph: observation.graph,
         history,
-        catalogues: input.observation.catalogues,
-        observation: input.observation,
+        catalogues: observation.catalogues,
+        observation,
         causalObservation,
         completion,
         observedReader: reader,
@@ -115,6 +152,8 @@ export function createObservedUwReadPort(
 
 const installedUwContracts: InstalledUwContracts = {
   assessUwAdmission,
+  discoverFixRecovery,
+  projectRecoveryHistories,
   readFramingMembership,
   assessUwCompletion,
   readUwCompletionObservation,

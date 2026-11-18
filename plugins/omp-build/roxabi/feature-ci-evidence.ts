@@ -4,6 +4,8 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { FailedCheckFailure } from '../engine/record-digests.ts'
 import type { Scope } from '../engine/record-values.ts'
+import { trackPreparationOperation } from '../host/preparation-cohort.ts'
+import { CI_ROLLUP_QUERY } from '../host/preparation-graphql.cjs'
 
 export type NativeCiEvidence =
   | {
@@ -42,26 +44,7 @@ const CHECK_CONCLUSION = new Set([
 const RED_CI = new Set(['failure', 'timed_out', 'startup_failure'])
 const STATUS_STATE = new Set(['expected', 'error', 'failure', 'pending', 'success'])
 const RED_STATUS = new Set(['error', 'failure'])
-const CI_PAGE = 100
 const CI_PAGE_BOUND = 50
-const ROLLUP_QUERY = `query($owner: String!, $name: String!, $sha: GitObjectID!, $after: String = null) {
-  repository(owner: $owner, name: $name) {
-    object(oid: $sha) {
-      ... on Commit {
-        statusCheckRollup {
-          contexts(first: ${CI_PAGE}, after: $after) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              __typename
-              ... on CheckRun { id name status conclusion }
-              ... on StatusContext { id context state }
-            }
-          }
-        }
-      }
-    }
-  }
-}`
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -79,7 +62,9 @@ async function loadContracts(): Promise<Contracts | { missing: string }> {
 
 function defaultGh(): Gh {
   return async (cwd, args) => {
-    const out = await execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+    const out = await trackPreparationOperation('gh-read', () =>
+      execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
+    )
     return out.stdout
   }
 }
@@ -129,7 +114,7 @@ async function readRollupNodes(
       'api',
       'graphql',
       '-f',
-      `query=${ROLLUP_QUERY}`,
+      `query=${CI_ROLLUP_QUERY}`,
       '-f',
       `owner=${owner}`,
       '-f',
@@ -140,7 +125,7 @@ async function readRollupNodes(
     if (after !== null) args.push('-f', `after=${after}`)
     let parsed: unknown
     try {
-      parsed = JSON.parse(await gh(cwd, args))
+      parsed = JSON.parse(await trackPreparationOperation('gh-read', () => gh(cwd, args)))
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : 'ci-evidence-unreadable' }
     }

@@ -24,6 +24,8 @@ export const KIND_NAMES = [
   'workflow-binding',
   'review-interruption',
   'review-replacement-grant',
+  'fix-owner',
+  'fix-recovery',
 ] as const
 export const kindSchema = z.enum(KIND_NAMES)
 export const WORKFLOW_RECORD_KINDS = [
@@ -38,6 +40,8 @@ export const WORKFLOW_RECORD_KINDS = [
   'cause-disposition',
   'cause-operation',
   'report-promotion',
+  'fix-owner',
+  'fix-recovery',
 ] as const
 export type WorkflowRecordKind = (typeof WORKFLOW_RECORD_KINDS)[number]
 

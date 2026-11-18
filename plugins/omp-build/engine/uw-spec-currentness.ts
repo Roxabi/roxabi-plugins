@@ -1,15 +1,15 @@
-import { parseIssueSpecBody } from '../adapters/github-native/uw-spec.ts'
+import { parseSpecBody } from '../adapters/github-native/uw-spec-parser.ts'
 import type { UwNativeNode } from './uw-graph.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 
 export function currentOwnSpecProblem(
-  node: UwNativeNode,
+  node: Pick<UwNativeNode, 'uw' | 'labels'> & { raw: Pick<UwNativeNode['raw'], 'body'> },
   accepted: Pick<AcceptedOwnSpec, 'snapshot' | 'tier'>,
 ): 'current-spec-unresolved' | 'material-change-pending' | 'tier-changed' | null {
   if (node.raw.body !== accepted.snapshot.raw.body) {
-    const current = parseIssueSpecBody({ uw: node.uw, raw: node.raw })
-    if (current.status !== 'conformant') return 'current-spec-unresolved'
-    if (current.snapshot.spec.version !== accepted.snapshot.spec.version) return 'material-change-pending'
+    const current = parseSpecBody({ kind: 'uw', uw: node.uw }, node.raw)
+    if (current.status !== 'conformant' || current.content === undefined) return 'current-spec-unresolved'
+    if (current.content.version !== accepted.snapshot.spec.version) return 'material-change-pending'
   }
   let tiers = 0
   let matching = false

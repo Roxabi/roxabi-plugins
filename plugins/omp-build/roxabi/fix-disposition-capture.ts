@@ -11,7 +11,11 @@ import {
 } from '../dist/contracts.js'
 import type { FixActionResult, FixIdentity, PreparedFix } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
-import { loadDispositionHistories, persistCauseDispositions } from './fix-disposition-execution.ts'
+import {
+  loadDispositionHistories,
+  persistCauseDispositions,
+  previewCauseDispositions,
+} from './fix-disposition-execution.ts'
 import { dispositionSourceScopes } from './fix-disposition-persistence.ts'
 import type { FixDispositionStore } from './fix-disposition-store.ts'
 import { dispositionContext } from './fix-origin.ts'
@@ -121,6 +125,20 @@ function captureDeclaredProducer(
     if (checked.ok) return { ok: true, value: { kind: 'action', input: capture } }
   }
   return failure('correction-disposition-producer-unconfirmed')
+}
+
+/** Authenticate and assess the exact source against the fresh graph without durable writes. */
+export async function previewCapturedCauseDispositions(
+  context: CauseContext,
+  source: DispositionSource,
+  store: FixDispositionStore,
+  reader: UwReadPort,
+): Promise<FixActionResult<{ executableCauseIds: string[] }>> {
+  const captured = await captureDispositionSource(context, source, store)
+  if (!captured.ok) return captured
+  const prepared = await dispositionContext(context, captured.value, reader)
+  if (!prepared.ok) return prepared
+  return previewCauseDispositions(prepared.value, source, store)
 }
 
 /** Carry a producer capture or reconstruct the explicitly named source, then bind a fresh graph. */

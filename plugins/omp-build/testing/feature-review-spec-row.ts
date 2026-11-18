@@ -11,7 +11,10 @@ import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
 import { criterionSatisfiedRow } from './criterion-approval.ts'
 import type { SimState } from './sandbox/sandbox-types.ts'
 
-export function fixtureSpecRow(action: PreparedUwAction) {
+export function fixtureSpecRow(action: {
+  inputs: Pick<PreparedUwAction['inputs'], 'fingerprint'>
+  snapshot: Pick<PreparedUwAction['snapshot'], 'indexPath' | 'manifestDigest'>
+}) {
   const stateFile = process.env.GH_SIM_STATE
   if (stateFile === undefined) throw new Error('gh-state-missing')
   const state = JSON.parse(readFileSync(stateFile, 'utf8')) as SimState
@@ -101,7 +104,7 @@ export function fixtureSpecRow(action: PreparedUwAction) {
   if (authenticated.kind === 'fix-result') return correctionSpecRow(selected, manifest, selection)
   return criterionSatisfiedRow({
     mandate,
-    inputs: { ...action.inputs, manifest },
+    inputs: { manifest },
     head: manifest.code.head,
     issueRecords,
   })

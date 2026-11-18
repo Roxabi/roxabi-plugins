@@ -4,6 +4,7 @@ import type {
   NativeIssueWritePlan,
 } from '../../issue-triage/skills/shared/domain/issue-write.ts'
 import type { ParsedIssueSpec } from '../adapters/github-native/uw-spec.ts'
+import type { FixRecoveryRead } from '../dist/contracts.js'
 import type { PreparedCauseDependencyAdjustment } from '../engine/cause-dependency-adjustment-schema.ts'
 import type { ReportListing } from '../engine/cause-disposition.ts'
 import type {
@@ -13,6 +14,7 @@ import type {
   CreationContext,
   ReportPromotionInput,
 } from '../engine/cause-disposition-schema.ts'
+import type { PreparedFixRecovery } from '../engine/fix-recovery-control-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
@@ -154,6 +156,7 @@ export type PreparedOperatorProposal =
   | PreparedInterruptionResolution
   | PreparedFramingProposal
   | PreparedToolingPinActivation
+  | PreparedFixRecovery
   | { proposal: CauseAdjudicationProposal; digest: string }
 
 /** Context-bound only: command argv and a native result cannot manufacture this capability. */
@@ -182,6 +185,8 @@ export type UwRead = {
   graph: UwGraphObservation
   observation: UwCompletionObservation
   completion: UwCompletionAssessment
+  /** Authenticated interrupted fix ownership, or none when no settled owner applies. */
+  fixRecovery: FixRecoveryRead
   /** Reuses the complete graph/history observation for sibling current-child facts. */
   observedReader?: UwReadPort
 }

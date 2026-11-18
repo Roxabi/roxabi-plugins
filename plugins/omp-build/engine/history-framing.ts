@@ -1,10 +1,11 @@
-import type { History } from '../../engine/history-schema.ts'
-import { parseRecord } from '../../engine/record-construction.ts'
-import type { CanonicalRecord } from '../../engine/record-schema.ts'
-import type { Diagnostic } from '../../engine/record-values.ts'
 import { looseHeaderClue } from './history-authority.ts'
-import type { Frame, FrameFailure, UnclaimedOperation } from './types.ts'
-import { base64url, decodeHeaderIdentifier, decoder, diagnostic, HEADER, WIRE_PREFIX } from './types.ts'
+import type { History } from './history-schema.ts'
+import type { Frame, FrameFailure, UnclaimedOperation } from './history-wire-types.ts'
+import { base64url, decodeHeaderIdentifier, decoder, HEADER, WIRE_PREFIX } from './history-wire-types.ts'
+import { parseRecord } from './record-construction.ts'
+import { diagnostic } from './record-diagnostics.ts'
+import type { CanonicalRecord } from './record-schema.ts'
+import type { Diagnostic } from './record-values.ts'
 
 export function frameFrom(comment: History['comments'][number]): Frame | FrameFailure | null {
   if (!comment.body.startsWith(WIRE_PREFIX)) return null

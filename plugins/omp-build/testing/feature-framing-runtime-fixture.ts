@@ -195,7 +195,7 @@ export function installed(
     registerShortcut: (shortcut, shortcutOptions) => {
       shortcuts.set(shortcut, shortcutOptions.handler)
     },
-    sendUserMessage: (content, sendOptions) => {
+    sendUserMessage: async (content, sendOptions) => {
       userMessages.push({ content, options: sendOptions })
       notification.resolve()
     },

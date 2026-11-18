@@ -18,7 +18,7 @@ import { readProductionActionFactsBatch } from './uw-action-batch-facts.ts'
 import type { PinnedFileRef, TrustedHostPluginPin, UwActionPorts, UwInputReadPorts } from './uw-action-contract.ts'
 import { readProductionActionFacts, readSelectedRecord } from './uw-action-facts.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
-import { createActionSnapshotStore } from './uw-action-snapshot.ts'
+import { createActionSnapshotStore } from './uw-action-snapshot-store.ts'
 import { correctionObservation } from './uw-correction-observation.ts'
 import type { CreatedChildAssessment } from './uw-created-child-candidate.ts'
 import type { UwDeliveryReadPorts } from './uw-delivery-read.ts'
@@ -260,12 +260,12 @@ export async function readReviewInputHistories(
   const fetched =
     cited.scopes.length === 0
       ? { ok: true as const, histories: [] as DecodedHistory[] }
-      : await readComposedWorkflowHistory(cited.scopes, options)
+      : await readComposedWorkflowHistory(cited.scopes, options, [history])
   if (!fetched.ok) return { ok: false, diagnostics: fetched.diagnostics }
   const scopes = confirmFetchedScopes(cited.scopes, fetched.histories)
   if (!scopes.ok) return scopes
   const closure = await readCauseHistoryClosureFromPrimary(history, fetched.histories, (required) =>
-    readComposedWorkflowHistory(required, options),
+    readComposedWorkflowHistory(required, options, [history]),
   )
   if (!closure.ok) return { ok: false, diagnostics: closure.diagnostics }
   const external = closure.histories.filter(

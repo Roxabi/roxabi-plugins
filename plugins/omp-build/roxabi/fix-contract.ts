@@ -1,8 +1,11 @@
 import type { CanonicalRecord, CauseContext, Json, Scope, Submission } from '../dist/contracts.js'
+import type { ActionInputManifest } from '../engine/action-input-schema.ts'
 import type { NativeBatch, NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { FixPolicy } from './fix-domain'
+import type { FixExecutionFence } from './fix-execution-fence.ts'
 import { credentialFreePushUrl } from './fix-publish-url.ts'
+import type { OperatorRequestReservation } from './fix-records.ts'
 import type { ActionSubject } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
 /** `reasons` names why an observation was unavailable, for the operator only: it is never a published code. */
@@ -38,6 +41,7 @@ export type TargetResolver = {
 export type { NativeBatch, NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
 export type NativePort = Pick<NativeBatchController, 'activate' | 'active' | 'stopOwned'> & {
   announce(batch: NativeBatch): Promise<void>
+  executionFence?: FixExecutionFence
 }
 
 export type ReviewStepResult = {
@@ -84,6 +88,12 @@ export type FixRequestInput = {
   candidateGitSHA?: string
   policy?: FixPolicy
   identity: FixIdentity
+  executionFence?: FixExecutionFence
+  openOwner?: (input: {
+    target: FixTarget
+    manifest: ActionInputManifest
+    reservation: OperatorRequestReservation
+  }) => Promise<FixActionResult<void>>
   publishBinding: PublishBinding
   nativeTasks: Array<Omit<NativeTask, 'action'>>
   operations: UwOperations
@@ -116,8 +126,13 @@ export function sameScopeAuthorityInputs(input: FixRequestInput): FixActionResul
   return { ok: true, value: ids }
 }
 
-export function failure<T>(...diagnostics: string[]): FixActionResult<T> {
+export function failure<T>(...diagnostics: string[]): Extract<FixActionResult<T>, { ok: false }> {
   return { ok: false, diagnostics }
+}
+
+/** Preserve stable codes while retaining the operator-facing detail supplied by the authority. */
+export function recoveryDiagnosticStrings(diagnostics: readonly { code: string; message: string }[]): string[] {
+  return [...diagnostics.map((item) => item.code), ...diagnostics.map((item) => `${item.code}:${item.message}`)]
 }
 export function validPublishBinding(binding: PublishBinding, target: FixTarget): boolean {
   return (

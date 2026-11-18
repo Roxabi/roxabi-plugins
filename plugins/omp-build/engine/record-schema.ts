@@ -4,6 +4,8 @@ import {
   causeOperationPayloadSchema,
   reportPromotionPayloadSchema,
 } from './cause-disposition-schema.ts'
+import { type FixRecoveryPayload, fixRecoveryPayloadSchema } from './fix-recovery-control-schema.ts'
+import { type FixOwnerPayload, fixOwnerPayloadSchema } from './fix-recovery-schema.ts'
 import { contributionSchema, identifierSchema, type Json, jsonSchema, scopeSchema } from './record-values.ts'
 import {
   type ReviewInterruptionPayload,
@@ -78,6 +80,8 @@ type PayloadByKind = {
   'workflow-binding': WorkflowBindingPayload
   'review-interruption': ReviewInterruptionPayload
   'review-replacement-grant': ReviewReplacementGrantPayload
+  'fix-owner': FixOwnerPayload
+  'fix-recovery': FixRecoveryPayload
 }
 // The schema stays the runtime authority. Its inferred union is too large for TS to
 // keep kind and payload paired, so the export type is the explicit pairing above.
@@ -104,6 +108,8 @@ export const recordSchema = z.discriminatedUnion('kind', [
   record('workflow-binding', workflowBindingPayloadSchema),
   record('review-interruption', reviewInterruptionPayloadSchema),
   record('review-replacement-grant', reviewReplacementGrantPayloadSchema),
+  record('fix-owner', fixOwnerPayloadSchema),
+  record('fix-recovery', fixRecoveryPayloadSchema),
 ]) as z.ZodType<CanonicalRecord>
 export type Kind = CanonicalRecord['kind']
 export type Payloads = {

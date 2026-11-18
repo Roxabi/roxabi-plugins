@@ -114,7 +114,7 @@ function identifiedItems<K extends CriterionId | InvariantId>(
   })
 }
 
-export function parseSpecBody(uw: SpecParseSubject, raw: SpecRawSource): ParsedBody {
+export function parseSpecBody(uw: SpecParseSubject, raw: Pick<SpecRawSource, 'body'>): ParsedBody {
   const parsed = scanSpecStructure(uw, raw.body)
   const byHeading = sectionsByHeading(parsed)
   const diagnostics = [...parsed.diagnostics, ...structuralDiagnostics(uw, parsed, byHeading)]
