@@ -40,7 +40,7 @@
     {
       "name": "roxabi-forge",
       "source": "https://github.com/Roxabi/roxabi-forge",
-      "description": "Roxabi Forge legacy marketplace (publish + setup); keep isolated and pinned until authorized retirement, never an automatic fallback."
+      "description": "Roxabi Forge publish and setup skills for the canonical MCP publisher; the retained legacy Cloudflare path stays separately pinned, never a fallback."
     },
     {
       "name": "unkillable-forge",
