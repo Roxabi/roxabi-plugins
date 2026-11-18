@@ -52,6 +52,7 @@ export function createHandoffObserver(
     })
   }
   return Object.assign(observe, {
+    canPublish: () => observer?.active() === true,
     dispose: async () => {
       await observer?.dispose()
     },

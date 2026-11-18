@@ -93,6 +93,7 @@ export async function publishAndRefreshSuccessor(
   },
   successorId: string,
   payload: Extract<HistoryRecord, { kind: 'mandate' }>['payload'],
+  canPublish?: () => boolean,
 ) {
   const published = await publishRecord(
     input.loaded,
@@ -110,6 +111,7 @@ export async function publishAndRefreshSuccessor(
     input.gh,
     input.cwd,
     input.parents,
+    canPublish,
   )
   if (!published.ok) return { ok: false as const, reason: published.reason }
   const readOptions = {

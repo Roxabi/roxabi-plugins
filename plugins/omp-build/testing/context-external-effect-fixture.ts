@@ -116,6 +116,7 @@ export function createRecreateBeforeSelectionObserverFactory(
     let successfulSamples = 0
     return {
       namespace: inner.namespace,
+      active: () => inner.active(),
       async observe(resources) {
         const sampled = await inner.observe(resources)
         if (sampled.ok) {

@@ -14,6 +14,8 @@ import { type PathBaseline, sampleNamedResource } from './context-local-file-sam
 
 export type ContextLocalFileObserver = {
   readonly namespace: ContextEffectNamespace
+  /** Live owner/session capability; not a retained last-observation boolean. */
+  active(): boolean
   observe(
     resources: ContextEffectIntent['resources'],
   ): Promise<{ ok: true; value: ContextLocalFileObservation[] } | { ok: false; reason: string }>
@@ -103,6 +105,7 @@ export function createContextLocalFileObserver(
 
   return {
     namespace,
+    active: () => inactiveReason() === null,
     async observe(resources) {
       if (disposed) return { ok: false, reason: 'observer-disposed' }
       if (observing) return { ok: false, reason: 'observer-busy' }

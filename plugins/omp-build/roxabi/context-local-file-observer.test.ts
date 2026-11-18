@@ -196,13 +196,17 @@ describe('createContextLocalFileObserver', () => {
     writeRegular(path, 'owned\n')
     let live = true
     const observer = createContextLocalFileObserver(namespace(), () => live)
+    expect(observer.active()).toBe(true)
     live = false
+    expect(observer.active()).toBe(false)
     const inactive = await observer.observe([resource(path, { kind: 'absent' })])
     expect(inactive.ok).toBe(false)
     live = true
+    expect(observer.active()).toBe(false)
     const revived = await observer.observe([resource(path, { kind: 'absent' })])
     expect(revived.ok).toBe(false)
     await observer.dispose()
+    expect(observer.active()).toBe(false)
   })
 
   it('rejects noncanonical and foreign path shapes without rewriting', async () => {

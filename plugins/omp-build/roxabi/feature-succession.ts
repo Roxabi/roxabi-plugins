@@ -46,6 +46,7 @@ export type SuccessionBasis = Readonly<{ terminal: TerminalMandate; historical: 
 export type ContextHandoffPublication = {
   operations: UwOperations
   observed: ContextHandoffObservation
+  canPublish: () => boolean
   observe(prospective?: {
     ref: SuccessorAntecedent
     payloadDigest: string
@@ -226,9 +227,8 @@ async function publishContextSuccessor(
     }
     failureStage = stages.config
     const shared = await successorShared(input, antecedent, prior, baseAndBranch, input.loaded.shippedProductVersion())
-    return (
-      shared.ok && canonicalValueDigest(successorRolePayload(prior, shared.shared)) === proposal.successorPayloadDigest
-    )
+    if (!shared.ok || !handoff.canPublish()) return false
+    return canonicalValueDigest(successorRolePayload(prior, shared.shared)) === proposal.successorPayloadDigest
   }
   const result = await executeHostContextSuccession(handoff.operations, proposal, {
     effectReports: handoff.observed.effectReports,
@@ -236,7 +236,7 @@ async function publishContextSuccessor(
     validateBeforeSelection: () => fresh(true),
     publishMandate: async () => {
       failureStage = 'mandate-publication'
-      const published = await publishAndRefreshSuccessor(input, successorId, payload)
+      const published = await publishAndRefreshSuccessor(input, successorId, payload, handoff.canPublish)
       if (!published.ok) {
         failureStage = 'mandate-publication-' + published.reason.replace(/[^a-z0-9,-]/gi, '-').slice(0, 80)
         return false
@@ -265,7 +265,15 @@ async function publishContextSuccessor(
         },
       }
       failureStage = 'selection-publication'
-      const published = await publishRecord(input.loaded, publishedHistory, record, input.gh, input.cwd, input.parents)
+      const published = await publishRecord(
+        input.loaded,
+        publishedHistory,
+        record,
+        input.gh,
+        input.cwd,
+        input.parents,
+        handoff.canPublish,
+      )
       if (!published.ok) {
         failureStage = 'selection-publication-' + published.reason.replace(/[^a-z0-9,-]/gi, '-').slice(0, 80)
         return false

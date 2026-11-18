@@ -44,6 +44,7 @@ it('retains the host-interrupted integration without inventing a child result or
     stop: { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
     gh: async () => '',
     git: async () => ({ code: 0, stdout: '', stderr: '' }),
+    current: () => true,
   })
   expect(published.published).toBe(true)
   expect(publishRecord).toHaveBeenCalledWith(
@@ -149,6 +150,7 @@ it('retains the SDK-valid blocked integration context output without discarding 
       result,
       gh: async () => '',
       git: async () => ({ code: 0, stdout: '', stderr: '' }),
+      current: () => true,
     }),
   ).toMatchObject({ published: true })
   expect(publishRecord).toHaveBeenCalledWith(

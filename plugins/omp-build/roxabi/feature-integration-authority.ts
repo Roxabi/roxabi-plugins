@@ -16,6 +16,7 @@ type Input = {
   result: NativeBatchResult
   start: ScopedRecordRef
   gh: (cwd: string, args: string[]) => Promise<string>
+  current: () => boolean
 }
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
 
@@ -54,7 +55,7 @@ async function checkFreshMandate(
   if (!resolution.ok) return { ok: false as const, reason: 'integration-authority-unreadable' }
   if (resolution.value !== null) return { ok: false as const, reason: 'integration-start-resolved' }
   const currentMandate = context.loaded.selectApplicableMandate(mandateHistory, parents.parents, causal.value)
-  if (cwdInhibition(input.cwd) !== undefined || inhibition(mandateRef.scope) !== undefined)
+  if (!input.current() || cwdInhibition(input.cwd) !== undefined || inhibition(mandateRef.scope) !== undefined)
     return { ok: false as const, reason: 'integration-local-inhibition' }
   if (currentMandate.status !== 'applicable' || currentMandate.mandate?.recordId !== mandateRef.recordId)
     return { ok: false as const, reason: 'integration-authority-withdrawn' }
@@ -70,11 +71,7 @@ export function integrationAuthority(
   accepted: AcceptedOwnSpec,
 ): () => Promise<{ ok: true } | { ok: false; reason: string }> {
   return async () => {
-    if (
-      input.result.canPublishContext?.() === false ||
-      cwdInhibition(input.cwd) !== undefined ||
-      inhibition(mandateRef.scope) !== undefined
-    )
+    if (!input.current() || cwdInhibition(input.cwd) !== undefined || inhibition(mandateRef.scope) !== undefined)
       return { ok: false, reason: 'integration-local-inhibition' }
     const mandate = await checkFreshMandate(input, context, mandateRef)
     if (!mandate.ok) return mandate
@@ -89,6 +86,8 @@ export function integrationAuthority(
             ? 'integration-start-resolved'
             : 'integration-authority-unreadable',
       }
+    if (!input.current() || cwdInhibition(input.cwd) !== undefined || inhibition(mandateRef.scope) !== undefined)
+      return { ok: false, reason: 'integration-local-inhibition' }
     return { ok: true }
   }
 }

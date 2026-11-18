@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ActionReceiptPayload } from '../engine/workflow-receipt-schema.ts'
-import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { FeatureNativePublication } from './feature-contract.ts'
-import { publishRecord } from './feature-engine.ts'
+import { publicationDidNotStart, publishRecord } from './feature-engine.ts'
 import { implementationEffectAuthority } from './feature-implementation-authorization.ts'
 import {
   checkResultFence,
@@ -18,13 +17,27 @@ import type { ImplementationResultBinding } from './feature-result-binding.ts'
 
 type ImplementationResultPayload = Extract<ActionReceiptPayload, { action: 'implement'; phase: 'result' }>
 
+async function retainAfterRemote(
+  binding: ImplementationResultBinding,
+  input: FeatureNativeResultInput,
+  claims: ImplementationClaims,
+  reason: string,
+  commits: readonly RetainedCommit[],
+  commands: PublishedImplementationAdmission['commands'],
+  confirmedRemote: { branch: string; tip: string },
+): Promise<FeatureNativePublication> {
+  const retained = await retainImplementationResult(binding, input, claims, reason, commits, commands, confirmedRemote)
+  return retainedRefusal(retained, reason, confirmedRemote)
+}
+
 async function publishImplementedResult(
   binding: ImplementationResultBinding,
-  input: { cwd: string; result: NativeBatchResult },
+  input: FeatureNativeResultInput,
   claims: ImplementationClaims & { reason: string },
   admission: PublishedImplementationAdmission,
-  remoteTip: string,
+  commits: readonly RetainedCommit[],
   child: NonNullable<ImplementationResultBinding['child']>,
+  confirmedRemote: { branch: string; tip: string },
 ): Promise<FeatureNativePublication> {
   const fence = await checkResultFence(binding, input.cwd)
   if (fence !== null)
@@ -32,8 +45,18 @@ async function publishImplementedResult(
       published: false,
       retained: false,
       reason: fence,
-      confirmedRemote: { branch: binding.branch, tip: remoteTip },
+      confirmedRemote,
     }
+  if (!input.current())
+    return retainAfterRemote(
+      binding,
+      input,
+      claims,
+      'implementation-local-inhibition',
+      commits,
+      admission.commands,
+      confirmedRemote,
+    )
   const published = await publishRecord(
     binding.loaded,
     binding.history,
@@ -61,7 +84,7 @@ async function publishImplementedResult(
           paths: [...admission.paths],
           commands: [...admission.commands],
           remoteBranch: binding.branch,
-          remoteTip,
+          remoteTip: confirmedRemote.tip,
           published: true,
           reason: admission.reason,
         },
@@ -78,15 +101,37 @@ async function publishImplementedResult(
     binding.gh,
     input.cwd,
     binding.publicationParents,
+    input.current,
   )
-  return published.ok
-    ? { published: true, retained: true }
-    : {
-        published: false,
-        retained: false,
-        reason: published.reason,
-        confirmedRemote: { branch: binding.branch, tip: remoteTip },
-      }
+  if (published.ok) return { published: true, retained: true }
+  // Retain only on the writer's exact not-started ownership marker plus live revoke.
+  // Do not infer no-write from ownership loss, fresh absence, or write-started revoke.
+  // Fence recheck uses retention.ts decoded result-receipt presence / startResolution
+  // (resolution-index + source.complete), not operation.status multipart inference.
+  if (!(publicationDidNotStart(published) && !input.current()))
+    return {
+      published: false,
+      retained: false,
+      reason: published.reason,
+      confirmedRemote,
+    }
+  const after = await checkResultFence(binding, input.cwd)
+  if (after !== null)
+    return {
+      published: false,
+      retained: false,
+      reason: after,
+      confirmedRemote,
+    }
+  return retainAfterRemote(
+    binding,
+    input,
+    claims,
+    'implementation-local-inhibition',
+    commits,
+    admission.commands,
+    confirmedRemote,
+  )
 }
 
 export async function publishAfterRemoteProof(
@@ -127,7 +172,15 @@ export async function publishAfterRemoteProof(
       )
       return retainedRefusal(retained, 'implementation-claim-missing', confirmedRemote)
     }
-    return await publishImplementedResult(binding, input, { ...claims, reason }, admission, confirmedRemote.tip, child)
+    return await publishImplementedResult(
+      binding,
+      input,
+      { ...claims, reason },
+      admission,
+      commits,
+      child,
+      confirmedRemote,
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`${message} (confirmed remote tip ${confirmedRemote.branch} ${confirmedRemote.tip})`, {

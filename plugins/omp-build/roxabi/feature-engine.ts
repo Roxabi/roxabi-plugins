@@ -110,3 +110,13 @@ export async function publishRecord(
   if (!rechecked.ok) return rechecked
   return { ok: true }
 }
+
+/** Only the writer can prove no POST began; fresh history absence does not prove it. */
+export function publicationDidNotStart(published: Awaited<ReturnType<typeof publishRecord>>): boolean {
+  return (
+    !published.ok &&
+    published.diagnostics?.some(
+      (item) => item.code === 'publication-ownership-revoked' && item.detail === 'not-started',
+    ) === true
+  )
+}

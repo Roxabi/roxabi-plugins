@@ -13,7 +13,8 @@
 - Keep historical named-resource reconciliation distinct from cold current managed-baseline observations; never reinterpret a historical path as the same resource on another host.
 - Release only the exact local inhibition captured by a fully confirmed abandonment after clean disarm. Allow explicit succession in the same process while preserving newer pause/abandon attempts, cwd pauses, unrelated UW holds and stopped native-producer fences.
 - Bind native continuation release to the original command generation. Admit same-session successor work without clearing newer stops; account persisted but unactivated STARTs and preserve explicit select/resume context reentry.
-- Require original-execution currentness alongside mandate authority before implementation effects; retain captured outcomes and observed remote truth after interruption. Preserve explicit correction-to-review ownership transfer and late-stop settlement status.
+- Require original-execution currentness alongside mandate authority before implementation effects and final positive implementation/parent-integration receipt POSTs; retain captured outcomes and observed remote truth after interruption. Preserve explicit correction-to-review ownership transfer and late-stop settlement status.
+- Keep the live handoff observer through final context-successor mandate/selection publication. Permit nonadmitted fallback only on writer-proven absence of any POST attempt or existing requested body; preserve partial/uncertain writes without a replacement result.
 - Recognize exactly 0.22.0 under the existing bounded PR-binding writer contract; unknown versions remain unknown. This source change does not migrate records or activate tooling.
 
 ## 0.21.0 (unreleased)

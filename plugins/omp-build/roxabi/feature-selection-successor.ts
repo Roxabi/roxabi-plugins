@@ -101,7 +101,7 @@ function handoffPublication(
   observe: ReturnType<typeof createHandoffObserver> | undefined,
 ): ContextHandoffPublication | undefined {
   return initial?.ok && operations !== undefined && observe !== undefined
-    ? { operations, observed: initial.value, observe }
+    ? { operations, observed: initial.value, observe, canPublish: () => observe.canPublish() }
     : undefined
 }
 
