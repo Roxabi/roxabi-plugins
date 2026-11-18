@@ -19,6 +19,10 @@ const [mode, cwd, rootDir, stateFile, boxText] = process.argv.slice(2)
 if (!mode || !cwd || !rootDir || !stateFile || !boxText) throw new Error('adoption-worker-arguments-missing')
 const box = JSON.parse(boxText) as Box
 box.env = process.env
+const started = Date.now()
+const tracePhase = (stage: string) =>
+  process.stderr.write(`[native-adoption ${mode}] ${stage} ${Date.now() - started}ms\n`)
+tracePhase('worker-start')
 if (mode === 'prelude') {
   const review = await runRecoveryReviewPrelude({
     box,
@@ -27,6 +31,7 @@ if (mode === 'prelude') {
     credential: process.env.RECOVERY_TEST_CREDENTIAL ?? '',
     mode: 'defect',
   })
+  tracePhase('prelude-complete')
   process.stdout.write(`${JSON.stringify({ mode, review })}\n`)
   process.exit(0)
 }
@@ -115,6 +120,7 @@ const root = await createRecoveryTestRoot({
     return { content: ['Sandbox operator event completed.'] }
   },
 })
+tracePhase('real-root-ready')
 try {
   await root.session.prompt('/tooling-pin activate')
   if (
@@ -122,6 +128,7 @@ try {
     !notifications.includes('tooling-pin: tooling-pin-not-needed')
   )
     throw new Error(`adoption-pin-refused:${JSON.stringify(notifications)}`)
+  tracePhase('pin-ready')
   if (mode === 'old') {
     const marker = process.env.FIX_RECOVERY_FAULT_MARKER
     const release = process.env.FIX_RECOVERY_FAULT_RELEASE
@@ -129,6 +136,7 @@ try {
     const command = root.session.prompt('/feature #42')
     try {
       await until(() => (existsSync(marker) ? true : undefined), 'request-cut')
+      tracePhase('request-cut')
     } catch (error) {
       throw new Error(
         `adoption-before-request:${JSON.stringify({ error: String(error), notifications, errors: root.errors, messages: root.session.messages })}`,
@@ -143,6 +151,7 @@ try {
     if (held.status !== 'occupied') throw new Error(`adoption-owner-not-occupied:${JSON.stringify(held)}`)
     writeFileSync(release, 'release\n')
     await command
+    tracePhase('old-command-complete')
     const trace = process.env.RECOVERY_GH_TRACE
     const diagnostic = (error: unknown) => {
       const state = readSim(box)
@@ -177,12 +186,15 @@ try {
       await delay(25)
     }
     if (!released) throw new Error('adoption-lease-release-unobserved')
+    tracePhase('old-lease-released')
     process.stdout.write(
       `${JSON.stringify({ mode, pid: process.pid, sessionId: root.session.sessionManager.getSessionId(), opened, settled, held: true, released, nativeDispatches: root.nativeDispatches, children: root.children, notifications })}\n`,
     )
   } else if (mode === 'new') {
     phase = 'recover'
+    tracePhase('recovery-start')
     await root.session.prompt('Recover the interrupted fix for pull request 7.')
+    tracePhase('recovery-complete')
     phase = 'execute'
     const report = (label: string) =>
       adoptionRecoveryReport({ label, root, box, recoveryCalled, used, notifications, nativeErrors })
@@ -241,8 +253,11 @@ try {
           if (lease.status === 'acquired') {
             const released = await releaseDestinationAdmissionLease(lease.lease)
             if (released.status !== 'released') throw new Error(report('adoption-probe-lease-release-failed'))
+            tracePhase('fix-complete-idle-start')
             await root.session.waitForIdle()
+            tracePhase('fix-complete-idle-complete')
             await root.session.prompt('/feature #42')
+            tracePhase('final-review-prompt-complete')
             finalReviewRequested = true
           } else if (lease.status !== 'occupied') {
             throw new Error(report(`adoption-lease-observation:${JSON.stringify(lease)}`))
@@ -256,11 +271,14 @@ try {
         review.payload.candidateGitSHA === result.payload.candidateGitSHA
       ) {
         completed = true
+        tracePhase('final-review-observed')
         break
       }
       await delay(25)
     }
+    tracePhase('final-idle-start')
     await root.session.waitForIdle()
+    tracePhase('final-idle-complete')
     for (const id of root.nativeDispatches) {
       const result = root.session.messages.find((message) => message.role === 'toolResult' && message.toolCallId === id)
       if (result?.role !== 'toolResult' || result.isError)
@@ -268,11 +286,14 @@ try {
     }
     if (!completed) throw new Error(report('adoption-not-complete'))
     const replay = await requiredReviewRecords(cwd, 7)
+    tracePhase('replay-complete')
     process.stdout.write(
       `${JSON.stringify({ mode, pid: process.pid, sessionId: root.session.sessionManager.getSessionId(), recoveryCalled, finalReviewRequested, confirmations, approvals: approvals.length, nativeDispatches: root.nativeDispatches, children: root.children, dialogs, notifications, errors: root.errors, replay, head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(), code: readFileSync(join(cwd, 'src/save.ts'), 'utf8') })}\n`,
     )
   } else throw new Error('adoption-worker-mode-invalid')
 } finally {
   console.error = originalConsoleError
+  tracePhase('dispose-start')
   await root.dispose()
+  tracePhase('dispose-complete')
 }

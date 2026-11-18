@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { availableParallelism, cpus } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { featureMandate, pullHistory } from '../../testing/feature-ci-review-fixture.ts'
@@ -34,13 +35,19 @@ it('adopts the real unspent review decision and original request across physical
   for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST'])
     delete env[key]
   const invoke = (mode: 'prelude' | 'old' | 'new', extra: NodeJS.ProcessEnv = {}) => {
+    const started = Date.now()
     const run = spawnSync(bun, [worker, mode, cwd, box.root, box.stateFile, JSON.stringify({ ...box, env: {} })], {
       cwd,
       env: { ...env, ...extra },
       encoding: 'utf8',
       timeout: 240_000,
     })
-    expect(run.status, `${mode}: ${run.stderr}\n${run.stdout}`).toBe(0)
+    expect(
+      run.status,
+      run.status === 0
+        ? ''
+        : `${mode}: status=${run.status} signal=${run.signal} errorCode=${(run.error as NodeJS.ErrnoException | undefined)?.code ?? 'none'} elapsedMs=${Date.now() - started} availableParallelism=${availableParallelism()} cpu=${cpus()[0]?.model ?? 'unknown'}\n${run.stderr}\n${run.stdout}`,
+    ).toBe(0)
     const line = run.stdout
       .trim()
       .split('\n')

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { availableParallelism, cpus, tmpdir } from 'node:os'
 import path from 'node:path'
 import type { TestProject } from 'vitest/node'
 import type { ActionInputs } from '../plugins/omp-build/engine/action-input-schema.ts'
@@ -64,6 +64,9 @@ try {
     signal: run.signal,
     errorCode: (run.error as NodeJS.ErrnoException | undefined)?.code ?? null,
     elapsedMs,
+    availableParallelism: availableParallelism(),
+    cpuModel: cpus()[0]?.model ?? null,
+    bunVersion: process.versions.bun,
     originalTestWatchdogMs: 55_000,
     finishedWithinOriginalWatchdog: run.status === 0 && elapsedMs < 55_000,
     stateBytes: statSync(box.stateFile).size,
