@@ -82,7 +82,7 @@ describe('feature init route', () => {
         throw new Error('init must not start framing')
       },
       inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
+      releaseFeatureContinuation: () => true,
       featureContinuationInhibited: () => false,
       markFeatureBatch: () => undefined,
       git: async (args: readonly string[], cwd: string) => {
@@ -152,7 +152,7 @@ describe('feature init route', () => {
         throw new Error('init must not start framing')
       },
       inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
+      releaseFeatureContinuation: () => true,
       featureContinuationInhibited: () => false,
       markFeatureBatch: () => undefined,
       git: async () => ({ stdout: '', exitCode: 1 }),

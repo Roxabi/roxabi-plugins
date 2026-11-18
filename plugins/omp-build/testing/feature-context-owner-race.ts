@@ -82,6 +82,7 @@ export async function contextOwnerCoverageRace(
       await createInstalledUwOperations({ cwd, operator }),
       report,
       undefined,
+      controller.featureContinuationEpoch(),
     )
     const running = runInstalledFeatureCommand(args, host)
     const offered = await Promise.race([entered.promise, running.then(() => null)])

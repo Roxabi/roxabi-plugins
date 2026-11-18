@@ -354,8 +354,53 @@ test('does not retire an omitted proposal, but recognizes authenticated accepted
     }),
   )
   if (successor.kind !== 'mandate') throw new Error('expected successor mandate')
+  const abandonedPredecessor = must(
+    buildRecord({
+      version: 1,
+      repository: UW.repository,
+      target: UW.target,
+      recordId: 'abandon-mandate-predecessor',
+      runId: mandated.runId,
+      operationId: 'op-abandon-mandate-predecessor',
+      kind: 'operator-control',
+      payload: {
+        control: 'abandon',
+        controlId: 'abandon-mandate-predecessor',
+        mandate: ref(mandated),
+        predecessor: null,
+      },
+    }),
+  )
+  const selectedSuccessor = must(
+    buildRecord({
+      version: 1,
+      repository: UW.repository,
+      target: UW.target,
+      recordId: 'select-mandate-successor',
+      runId: successor.runId,
+      operationId: 'op-select-mandate-successor',
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-mandate-successor',
+        mandate: ref(mandated),
+        predecessor: ref(mandated),
+        successor: ref(successor),
+      },
+    }),
+  )
   const successorHistory = workflowHistory(
-    [first, second, mandated, assessment.start, assessment.result, acceptedRetirement, successor],
+    [
+      first,
+      second,
+      mandated,
+      assessment.start,
+      assessment.result,
+      acceptedRetirement,
+      abandonedPredecessor,
+      successor,
+      selectedSuccessor,
+    ],
     UW,
   )
   const successorAccepted = resolveAcceptedSpec(successor, [successorHistory])

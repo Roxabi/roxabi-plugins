@@ -7,7 +7,7 @@ import type {
   FeatureWorkflow,
 } from '../roxabi/feature-contract.ts'
 import { continueWithParentCoverage } from '../roxabi/feature-coverage-continuation.ts'
-import { deliverFeatureResult, runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
+import { deliverFeatureResult, isRunnableFeatureResult, runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
 import { featureErrorMessage } from '../roxabi/feature-presentation.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
@@ -90,6 +90,7 @@ async function runClassifiedFeatureCommand(
   uw: FeatureCommandHost['uw'],
   report: FeatureOperationReportGuard,
   pluginPin: TrustedHostPluginPin | undefined,
+  ingressNativeEpoch: number,
 ): Promise<void> {
   await runInstalledFeatureCommand(
     args,
@@ -101,6 +102,7 @@ async function runClassifiedFeatureCommand(
       uw,
       report,
       pluginPin,
+      ingressNativeEpoch,
     ),
   )
 }
@@ -134,6 +136,8 @@ export async function runFeatureCommand(
         await runPreparedFeatureInit(pi, operator, parsed.args, ctx, report)
         return
       }
+      // Capture latch epoch before any await; createFeatureCommandHost is too late after pin/UW loads.
+      const ingressNativeEpoch = controller.featureContinuationEpoch()
       // Read-only from here, before any await, until the source is classified.
       beginFeatureUwIntake(pi, operator, ctx)
       const pluginPin = await hostPluginPin(pi, ctx)
@@ -155,6 +159,7 @@ export async function runFeatureCommand(
         uw,
         reporting,
         pluginPin,
+        ingressNativeEpoch,
       )
     } catch (error) {
       canReportFailure = reporting.captureFailure()
@@ -200,6 +205,7 @@ export async function continueFramedFeature(
   beginFeatureUwContinuation(pi, operator, ctx)
   const controller = reviewControllerFor(pi)
   controller.observeRootContext(ctx)
+  const ingressNativeEpoch = controller.featureContinuationEpoch()
   try {
     const workflow = await loadInstalledFeatureWorkflow(report, options)
     if (!ownsFeatureUwOperation(pi, operator)) return
@@ -215,14 +221,20 @@ export async function continueFramedFeature(
       continuation.uw,
       reporting,
       continuation.pluginPin,
+      ingressNativeEpoch,
     )
-    const result = await workflow.continueFeature(continuation)
-    if (!ownsFeatureUwOperation(pi, operator)) return
-    // The framed `/feature` entry deferred its select release until a non-framing classification.
-    if (result.kind !== 'framing') host.releaseFeatureContinuation()
+    const result = await host.workflow.continueFeature(continuation)
+    if (!ownsFeatureUwOperation(pi, operator)) {
+      await deliverFeatureResult(continuation.reference, result, host, () => false)
+      return
+    }
     const withCoverage = await continueWithParentCoverage(host, continuation, result, false)
     if (withCoverage === undefined) return
-    await deliverFeatureResult(continuation.reference, withCoverage, host)
+    const control = continuation.control
+    const mayRelease =
+      control === 'new' ? isRunnableFeatureResult(withCoverage) : control === 'select' || control === 'resume'
+    const admitted = !mayRelease || host.releaseFeatureContinuation()
+    await deliverFeatureResult(continuation.reference, withCoverage, host, () => admitted)
   } catch (error) {
     const canReport = reporting.captureFailure()
     cancelFeatureUwOperation(pi, operator)

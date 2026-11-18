@@ -98,6 +98,7 @@ export async function acceptContextMaterial(
     result: captured,
     ...(options.gh === undefined ? {} : { gh: options.gh }),
     ...(options.git === undefined ? {} : { git: options.git }),
+    current: () => true,
   })
   if (!published.published) throw new Error(`Material assessment publication failed: ${JSON.stringify(published)}`)
   const accepted = await uw.acceptMaterial(scope)

@@ -85,7 +85,6 @@ async function continueFeatureCommand(
     )
     return
   }
-  if (control === 'select' || control === 'resume') host.releaseFeatureContinuation()
   const withCoverage = await continueWithParentCoverage(host, commandInput, result, principalDispatch)
   if (withCoverage === undefined) return
   result = withCoverage
@@ -93,7 +92,23 @@ async function continueFeatureCommand(
     await deliverPrincipalRefusal(host, result)
     return
   }
-  await deliverFeatureResult(commandInput.reference, result, host)
+  // recover-context never unlocks the native latch. Legacy select/resume keep
+  // generation-bound release for non-framing outcomes (incl. blocked missing-context).
+  // F5 `new` admits only authenticated runnable results after coverage.
+  const mayRelease = control === 'new' ? isRunnableFeatureResult(result) : control === 'select' || control === 'resume'
+  const admitted = !mayRelease || host.releaseFeatureContinuation()
+  await deliverFeatureResult(commandInput.reference, result, host, () => admitted)
+}
+
+export function isRunnableFeatureResult(result: ContinueFeatureResult): boolean {
+  return (
+    result.kind === 'action' ||
+    result.kind === 'watch' ||
+    result.kind === 'review' ||
+    result.kind === 'fix' ||
+    result.kind === 'admitted-ci-correction' ||
+    result.kind === 'epic-final-review'
+  )
 }
 
 async function reportFeatureFailure(host: FeatureCommandHost, principal: boolean, error: unknown): Promise<void> {

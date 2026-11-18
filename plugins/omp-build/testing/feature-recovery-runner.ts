@@ -180,6 +180,7 @@ async function invokeWorkflowContinuation(operationName: string): Promise<unknow
         cwd: cwd ?? '',
         result,
         start: continuation.start,
+        current: () => true,
       })
       return {
         agent: continuation.followUp.tasks.tasks[0]?.agent,

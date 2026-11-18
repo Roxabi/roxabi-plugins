@@ -1,3 +1,4 @@
+import { selectedMandate } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
@@ -267,6 +268,16 @@ async function updateMandateSelection(
     })
     if ('kind' in established) return established
     return { state: { ...state, ...established }, mandatePublished: true }
+  }
+  // Partial succession (mandate without authenticated select-successor) is not a ready `new` surface.
+  if (control !== 'new') return { state, mandatePublished: false }
+  const selected = selectedMandate(state.history)
+  if ('status' in selected && (selected.reason === 'unconfirmed' || selected.reason === 'ambiguous')) {
+    return {
+      kind: 'blocked',
+      reason: 'fix-own-uw-unsettled',
+      diagnostics: selected.evidence,
+    }
   }
   return { state, mandatePublished: false }
 }

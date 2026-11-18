@@ -83,6 +83,7 @@ it('cannot dispatch an old implementation after session replacement and a move-o
     undefined,
     reportA,
     undefined,
+    controller.featureContinuationEpoch(),
   )
   hostA.git = async () => {
     entered.resolve()
@@ -105,8 +106,10 @@ it('cannot dispatch an old implementation after session replacement and a move-o
     undefined,
     reportB,
     undefined,
+    controller.featureContinuationEpoch(),
   )
   await runInstalledFeatureCommand('#43', hostB)
+  // Legacy select may clear the latch for session-cwd; the superseded hostA epoch still cannot dispatch.
   expect(controller.featureContinuationInhibited()).toBe(false)
   expect(ownedFeatureFor(pi)).toBeUndefined()
   gate.resolve({ stdout: 'a'.repeat(40), exitCode: 0 })
@@ -201,6 +204,7 @@ it('discards a background correction selection after failed pause and replacemen
     undefined,
     report,
     undefined,
+    controller.featureContinuationEpoch(),
   )
   expect(ownedFeatureFor(pi)).toBeUndefined()
   await deliverFeatureResult('#42', fix, host)
@@ -216,6 +220,7 @@ it('discards a background correction selection after failed pause and replacemen
     undefined,
     pauseReport,
     undefined,
+    controller.featureContinuationEpoch(),
   )
   await expect(runInstalledFeatureCommand('pause #42', pauseHost)).rejects.toThrow('pause-interruption-failed')
   expect(controller.featureContinuationInhibited()).toBe(true)
@@ -231,6 +236,7 @@ it('discards a background correction selection after failed pause and replacemen
     undefined,
     replacementReport,
     undefined,
+    controller.featureContinuationEpoch(),
   )
   await runInstalledFeatureCommand('resume #42', replacementHost)
   expect(fixInputs).toEqual([fix, fix])

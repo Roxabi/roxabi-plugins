@@ -403,7 +403,7 @@ describe('workflow plan execution behavior', () => {
         payload: {
           control: 'select-successor',
           controlId: 'select-mandate-2',
-          mandate: successorRef,
+          mandate: mandateRef,
           predecessor: mandateRef,
           successor: successorRef,
         },
@@ -450,12 +450,25 @@ describe('workflow plan execution behavior', () => {
     expect(ordinarySuccession.evidence.some((item) => item.code === 'action-context-missing')).toBe(true)
 
     // A successor mandate alone is not an operator selection or a disposition.
-    // Reconstruct from the persisted prefix as a cold reader would after a partial publication.
+    // Evidence construction may succeed for authenticated partial history; admission must still refuse.
     const partialHistory = history([mandated, oldStart, oldNegative, abandoned, successor])
-    await expect(planEvidence(partialHistory, null, originalBody, [])).rejects.toThrow(
-      'UW home has multiple or missing mandate lineage tips',
-    )
+    const partialEvidence = await planEvidence(partialHistory, null, originalBody, [])
     expect(partialHistory.operations.some((operation) => operation.recordId === oldNegative.recordId)).toBe(true)
+    expect(selectApplicableMandate(partialHistory, [], partialEvidence.causal)).toMatchObject({
+      status: 'refused',
+      reason: 'unconfirmed',
+    })
+    const partialReconstruction = reconstructWorkflow({
+      evidence: partialEvidence,
+      facts: facts({
+        productVersion: successor.payload.config.productVersion,
+        configVersion: successor.payload.config.version,
+        configDigest: successor.payload.config.digest,
+        supportedConfigVersions: [successor.payload.config.version],
+      }),
+      decisions: workflowDecisions,
+    })
+    expect(partialReconstruction).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
 
     // A later record must not erase the retained negative from a cold reconstruction.
     const [laterStart, laterResult] = workflow.planDraftRecords(successor, 'act-plan-later', originalVersion)

@@ -202,6 +202,7 @@ export async function produceNativeImplementation(input: {
     result,
     gh: input.gh,
     git: input.git,
+    current: () => true,
   })
   if (!published.published)
     await refuseImplementationPublication(input.operations, input.scope, opened.followUp.operationId, published)

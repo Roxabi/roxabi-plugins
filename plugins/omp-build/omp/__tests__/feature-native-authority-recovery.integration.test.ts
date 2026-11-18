@@ -19,7 +19,7 @@ afterEach(() => {
   roots.clear()
 })
 
-it('retains captured implementation evidence when disarm is unconfirmed during a real pause', () => {
+it('retains completed implementation evidence without pushing after a real confirmed pause', () => {
   const box = sandbox({
     base: { '.dev/stack.yml': 'package_manager: bun\nrelease:\n  model: trunk\n', 'README.md': 'base\n' },
     branches: [{ name: branch, from: 'main', commits: [] }],
@@ -102,6 +102,13 @@ it('retains captured implementation evidence when disarm is unconfirmed during a
         expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0 }),
       ]),
     },
-    admission: { admitted: false, published: false, reason: 'implementation-disarm-unconfirmed' },
+    admission: {
+      admitted: false,
+      published: false,
+      commits: [git(box, checkout, ['rev-parse', 'HEAD'])],
+      commands: expect.arrayContaining([
+        expect.objectContaining({ toolCallId: 'implementation-proof-green', exitCode: 0 }),
+      ]),
+    },
   })
 })

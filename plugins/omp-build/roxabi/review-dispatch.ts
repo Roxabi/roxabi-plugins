@@ -41,6 +41,18 @@ export class ReviewProduct {
     throw new Error(`review-dispatch-refused:${this.options.refusalReason?.() ?? 'fix-run-active'}`)
   }
 
+  /**
+   * Admit/activate/announce only. A closed continuation with an inhibited latch must
+   * refuse new dispatch; settlement callbacks soft-return instead so stopIfLate can
+   * conserve the concrete stop cause (session-stop / sdk-abort) rather than rewriting
+   * it to review-dispatch-refused:continuation-inhibited.
+   */
+  #continueOrRefuse(canContinue: (() => boolean) | null): boolean {
+    if (canContinue === null || canContinue()) return true
+    this.#assertDispatchable()
+    return false
+  }
+
   async preparePullRequestReview(context: ReviewContext, prepared: PreparedReviewBatch): Promise<void> {
     if (context.subject.kind !== 'pull-request') throw new Error('pull-request review requires a pull-request subject')
     await this.#dispatch(context, prepared, null)
@@ -60,17 +72,17 @@ export class ReviewProduct {
     prepared: PreparedReviewBatch,
     canContinue: (() => boolean) | null,
   ): Promise<boolean> {
-    if (canContinue !== null && !canContinue()) return false
+    if (!this.#continueOrRefuse(canContinue)) return false
     this.#assertDispatchable()
     const authorization = await this.publisher.authorize(context, prepared.stage)
     if (!authorization.ok) {
       await this.publisher.stop(context, authorization.reason, null)
       return false
     }
-    if (canContinue !== null && !canContinue()) return false
+    if (!this.#continueOrRefuse(canContinue)) return false
     this.#assertDispatchable()
     const publication = await this.publisher.publishInventory(prepared, canContinue ?? undefined)
-    if (canContinue !== null && !canContinue()) return false
+    if (!this.#continueOrRefuse(canContinue)) return false
     if (!publication.ok) {
       await this.publisher.stop(context, publication.reason, null)
       return false
@@ -92,6 +104,7 @@ export class ReviewProduct {
         contributions.push(await this.publisher.publishRawContribution(prepared, child))
       },
       onComplete: async (result, canContinue) => {
+        // Soft-return only: settlement stopIfLate after onComplete owns the stop cause.
         if (!canContinue()) return
         if (result.children.some((child) => child.contextBlock !== undefined)) {
           await this.publisher.stop(context, 'action-context-missing', result)
@@ -113,10 +126,10 @@ export class ReviewProduct {
         await this.publisher.stop(context, reason, result)
       },
     }
-    if (canContinue !== null && !canContinue()) return
+    if (!this.#continueOrRefuse(canContinue)) return
     this.#assertDispatchable()
     this.native.activate(prepared.batch, callbacks)
-    if (canContinue !== null && !canContinue()) return
+    if (!this.#continueOrRefuse(canContinue)) return
     try {
       await this.native.announce(
         prepared.batch,

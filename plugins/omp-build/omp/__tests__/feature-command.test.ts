@@ -292,7 +292,7 @@ describe('installed /feature command', () => {
         throw new Error('unexpected-framing')
       },
       inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
+      releaseFeatureContinuation: () => true,
       featureContinuationInhibited: () => false,
       markFeatureBatch: () => undefined,
       exec: async () => ({ code: 0, killed: false }),
@@ -331,7 +331,7 @@ describe('installed /feature command', () => {
         throw new Error('unexpected-framing')
       },
       inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
+      releaseFeatureContinuation: () => true,
       featureContinuationInhibited: () => false,
       markFeatureBatch: () => undefined,
       exec: async () => ({ code: 0, killed: false }),

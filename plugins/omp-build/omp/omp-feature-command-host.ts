@@ -6,7 +6,7 @@ import type {
   FeatureReviewFix,
   FeatureWorkflow,
 } from '../roxabi/feature-contract.ts'
-import { ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
+import { type FeatureCurrent, ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
@@ -96,19 +96,28 @@ export function createFeatureCommandHost(
   uw: FeatureCommandHost['uw'],
   report: FeatureOperationReportGuard,
   pluginPin: TrustedHostPluginPin | undefined,
+  ingressNativeEpoch: number,
 ): FeatureCommandHost {
   const { pi, options, interruptOwnedFeatureWork, framing } = composition
   const { ctx } = binding
   const operationGeneration = featureOperationGeneration(pi)
-  const fixCurrent = (current?: () => boolean) => {
-    const owner = ownedFeatureFor(pi)
-    const generation = featureOperationGeneration(pi)
-    return () =>
-      report.isCurrent() &&
-      featureOperationGeneration(pi) === generation &&
-      ownedFeatureFor(pi) === owner &&
-      !controller.featureContinuationInhibited() &&
-      (current?.() ?? true)
+  const operationCurrent = (owner: object | null | undefined, inherited?: () => boolean): boolean =>
+    report.isCurrent() &&
+    featureOperationGeneration(pi) === operationGeneration &&
+    ownedFeatureFor(pi) === owner &&
+    (inherited?.() ?? true)
+  const preparationCurrent = (owner: object | null | undefined, inherited?: () => boolean): boolean =>
+    operationCurrent(owner, inherited) && controller.featureContinuationEpoch() === ingressNativeEpoch
+  const dispatchCurrent = (owner: object | null | undefined, inherited?: () => boolean): boolean =>
+    preparationCurrent(owner, inherited) && !controller.featureContinuationInhibited()
+  const fixCurrent = (current?: FeatureCurrent): FeatureCurrent => {
+    let owner = ownedFeatureFor(pi)
+    const guard: FeatureCurrent = () => dispatchCurrent(owner, current)
+    guard.transfer = (successor) => {
+      owner = successor
+      current?.transfer?.(successor)
+    }
+    return guard
   }
   const native = createNativeReviewPort(pi, controller)
   return {
@@ -120,11 +129,11 @@ export function createFeatureCommandHost(
       continueFeature(input) {
         const owner = ownedFeatureFor(pi)
         const inherited = input.owned
+        // Pause/abandon stay operation-generation/origin bound only; their own inhibits advance the latch epoch.
         const current = () =>
-          report.isCurrent() &&
-          featureOperationGeneration(pi) === operationGeneration &&
-          ownedFeatureFor(pi) === owner &&
-          (inherited?.() ?? true)
+          input.control === 'pause' || input.control === 'abandon'
+            ? operationCurrent(owner, inherited)
+            : preparationCurrent(owner, inherited)
         return workflow.continueFeature({
           ...input,
           owned: current,
@@ -137,15 +146,15 @@ export function createFeatureCommandHost(
     native: {
       ...native,
       activate(batch, callbacks) {
-        if (!report.isCurrent()) throw new Error('feature operation origin is no longer current')
+        if (!dispatchCurrent(ownedFeatureFor(pi))) throw new Error('feature operation origin is no longer current')
         native.activate(batch, callbacks)
       },
       async announce(batch, current) {
-        if (!report.isCurrent()) {
+        if (!dispatchCurrent(ownedFeatureFor(pi), current)) {
           await native.stopOwned(batch, 'feature-operation-origin-changed')
           throw new Error('feature operation origin is no longer current')
         }
-        await native.announce(batch, () => report.isCurrent() && (current?.() ?? true))
+        await native.announce(batch, () => dispatchCurrent(ownedFeatureFor(pi), current))
       },
     },
     send: async (message) => {
@@ -157,7 +166,10 @@ export function createFeatureCommandHost(
     startFraming: (source) => framing.start(binding, source, report.handoff),
     requestParentCoverage: (request) => requestParentCoverage(ctx, request),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
-    releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
+    releaseFeatureContinuation: () =>
+      report.isCurrent() &&
+      featureOperationGeneration(pi) === operationGeneration &&
+      controller.releaseFeatureContinuation(ingressNativeEpoch),
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
     markFeatureBatch: (batch) => controller.markFeatureBatch(batch),
     ...(uw === undefined ? {} : { uw }),
@@ -168,7 +180,7 @@ export function createFeatureCommandHost(
         onComplete,
         prepareReview: options.prepareReview,
         pluginPin,
-        scopedGuard: () => !controller.featureContinuationInhibited() && (current?.() ?? true),
+        scopedGuard: () => dispatchCurrent(ownedFeatureFor(pi), current),
       }),
     prepareEpicRangeReview: (review, onComplete) => prepareInstalledEpicRangeReview(pi, review, onComplete),
     exec: (command, args, executionOptions) => pi.exec(command, args, executionOptions),

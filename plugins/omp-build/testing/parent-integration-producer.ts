@@ -158,13 +158,14 @@ export async function produceParentIntegration(
       tree: checkout.tree(code.head),
     }))
     harness.controller.activate(opened.followUp, {
-      onComplete: async (result) => {
+      onComplete: async (result, canContinue) => {
         publication = await publishFeatureNativeResult({
           cwd,
           start: opened.start,
           result,
           gh: world.gh,
           git: world.git,
+          current: canContinue,
         })
       },
       onStop: async (reason) => {
@@ -213,7 +214,14 @@ export async function produceParentIntegration(
       expectedRuns: 1,
       git: { repository: code.repository, commit: code.head, tree: checkout.tree(code.head) },
     })
-    publication = await publishFeatureNativeResult({ cwd, start: opened.start, result, gh: world.gh, git: world.git })
+    publication = await publishFeatureNativeResult({
+      cwd,
+      start: opened.start,
+      result,
+      gh: world.gh,
+      git: world.git,
+      current: () => true,
+    })
   }
   const published = publication as FeatureNativePublication | null
   if (!published?.published || !('receipt' in published) || !published.receipt)

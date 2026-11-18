@@ -37,7 +37,9 @@ describe('principal refusal stays one message', () => {
         starts.push('framing')
       },
       inhibitFeatureContinuation() {},
-      releaseFeatureContinuation() {},
+      releaseFeatureContinuation() {
+        return true
+      },
       featureContinuationInhibited: () => false,
       markFeatureBatch() {
         starts.push('batch')

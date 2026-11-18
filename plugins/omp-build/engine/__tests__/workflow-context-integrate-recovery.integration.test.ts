@@ -146,6 +146,7 @@ it('recovers a native parent integration context negative through the public act
                     result,
                     gh: world.gh,
                     git: world.git,
+                    current: () => result.canPublishContext?.() === true,
                   })
                   expect(published).toMatchObject({ published: true })
                   stopped = true
@@ -311,13 +312,14 @@ it('recovers a native parent integration context negative through the public act
             successor.controller.bindHostGit(() => identity)
             let published = false
             successor.controller.activate(recovered.followUp, {
-              onComplete: async (result) => {
+              onComplete: async (result, canContinue) => {
                 const value = await publishFeatureNativeResult({
                   cwd: parent.cwd,
                   start: recovered.start,
                   result,
                   gh: world.gh,
                   git: world.git,
+                  current: canContinue,
                 })
                 expect(value).toMatchObject({ published: true })
                 published = true

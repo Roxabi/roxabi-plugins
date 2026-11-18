@@ -107,6 +107,15 @@ describe('completed results stay on their own paths', () => {
     const negative = withPayload(rejectedImplementResult(world.mandate), {
       structured: MISSING_CONTEXT,
       admission: null,
+      native: {
+        completion: 'completed',
+        strict: 'valid',
+        raw: {
+          id: 'implement-context-child',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: MISSING_CONTEXT },
+        },
+      },
     })
     if (negative.payload.phase !== 'result') throw new Error('expected implementation result')
     const old = negative.payload.inputs

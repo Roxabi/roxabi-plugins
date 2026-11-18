@@ -59,7 +59,9 @@ function recordingHost(impl: Partial<FeatureWorkflow> = {}, exec: () => Promise<
       throw new Error('unexpected-framing')
     },
     inhibitFeatureContinuation() {},
-    releaseFeatureContinuation() {},
+    releaseFeatureContinuation() {
+      return true
+    },
     featureContinuationInhibited: () => false,
     markFeatureBatch() {},
     exec,

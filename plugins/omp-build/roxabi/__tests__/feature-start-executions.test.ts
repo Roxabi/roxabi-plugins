@@ -82,6 +82,33 @@ describe('START dispatch facts', () => {
   })
 })
 
+const emptyHistory = {
+  source: {
+    scope: { repository: 'acme/app', target: 'acme/app#42' },
+    expectedAuthor: 'automation',
+    stopAuthor: null,
+    complete: true,
+    comments: [],
+    diagnostics: [],
+  },
+  operations: [],
+  diagnostics: [],
+}
+
+function mockAuthority() {
+  return {
+    context: { cwd: '/workspace', engine: { reconstructWorkflow: continuation.reconstruct } },
+    scope: { repository: 'acme/app', target: 'acme/app#42' },
+    history: emptyHistory,
+    parentHistories: [],
+    causal: {
+      histories: [emptyHistory],
+      catalogues: {},
+      observation: { status: 'complete', histories: [emptyHistory] },
+    },
+  }
+}
+
 describe('continuation owner revocation before engine dispatch', () => {
   it.each([
     ['land', { status: 'action', action: 'land' }],
@@ -92,10 +119,7 @@ describe('continuation owner revocation before engine dispatch', () => {
     const entered = Promise.withResolvers<void>()
     const gate = Promise.withResolvers<void>()
     let owned = true
-    const authority = {
-      context: { cwd: '/workspace', engine: { reconstructWorkflow: continuation.reconstruct } },
-      scope: { repository: 'acme/app', target: 'acme/app#42' },
-    }
+    const authority = mockAuthority()
     continuation.authority.mockResolvedValue(authority)
     continuation.select.mockResolvedValue({
       authority,
@@ -146,10 +170,7 @@ describe('continuation owner revocation before engine dispatch', () => {
     const entered = Promise.withResolvers<void>()
     const gate = Promise.withResolvers<void>()
     let owned = true
-    const authority = {
-      context: { cwd: '/workspace', engine: { reconstructWorkflow: continuation.reconstruct } },
-      scope: { repository: 'acme/app', target: 'acme/app#42' },
-    }
+    const authority = mockAuthority()
     continuation.select.mockReset().mockResolvedValue({ authority, mandate: null, acceptedSpec: null })
     continuation.observation.mockReset().mockResolvedValue({ evidence: {}, facts: {}, decisions: {} })
     continuation.reconstruct.mockReset().mockReturnValue({ status: 'blocked', reason: 'fixture-stop', evidence: [] })
@@ -174,10 +195,7 @@ describe('continuation owner revocation before engine dispatch', () => {
   })
 
   it('dispatches an action while the owner remains current', async () => {
-    const authority = {
-      context: { cwd: '/workspace', engine: { reconstructWorkflow: continuation.reconstruct } },
-      scope: { repository: 'acme/app', target: 'acme/app#42' },
-    }
+    const authority = mockAuthority()
     continuation.authority.mockResolvedValue(authority)
     continuation.select.mockResolvedValue({ authority, mandate: null, acceptedSpec: null })
     continuation.observation.mockResolvedValue({

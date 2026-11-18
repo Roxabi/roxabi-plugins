@@ -164,7 +164,8 @@ describe('feature abandon ownership', () => {
     expect(result).toEqual({ kind: 'abandoned', confirmed: true })
     expect(inhibition(scope)).toBeUndefined()
 
-    // Scope cleanup does not reopen the old tracked batch fence. Successor id is a controller batch only — not an authenticated mandate.
+    // Scope cleanup does not reopen the old tracked batch fence. Latch remains until F5 generation-bound release.
+    // Successor id is a controller batch only — not an authenticated mandate / public-host handoff proof.
     expect(controller.featureContinuationInhibited()).toBe(true)
     expect(controller.current(prepared)).toBe(false)
     expect(controller.consumeFollowUp()).toBeNull()
@@ -175,7 +176,8 @@ describe('feature abandon ownership', () => {
     controller.markFeatureBatch(successorBatch)
     expect(controller.announce(successorBatch)).toBe(false)
 
-    controller.releaseFeatureContinuation()
+    // Test-only latch clear of the held epoch — production F5 admits via host compare-and-release.
+    expect(controller.releaseFeatureContinuation(controller.featureContinuationEpoch())).toBe(true)
     expect(controller.announce(successorBatch)).toBe(true)
     // Announced/queued is not current/running — current requires follow-up dispatch + admit.
     expect(controller.current(prepared)).toBe(false)
@@ -266,7 +268,7 @@ describe('feature abandon ownership', () => {
     }
 
     expect(inhibition(scope)).toBeUndefined()
-    const effect = await implementationEffectAuthority(binding, cwd)
+    const effect = await implementationEffectAuthority(binding, cwd, () => true)
     expect(effect).toEqual({ ok: false, reason: 'implementation-authority-withdrawn' })
     expect(successorMandate.recordId).not.toBe(oldMandate.recordId)
   })

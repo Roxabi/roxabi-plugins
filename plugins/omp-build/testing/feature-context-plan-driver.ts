@@ -40,7 +40,12 @@ export async function finishContextPlan(
     git: identity,
     claims: [{ task: draftTask.name, childId: 'successor-plan-child', value: draft }],
   })
-  const published = await publishFeatureNativeResult({ cwd, start: selected.start, result: captured })
+  const published = await publishFeatureNativeResult({
+    cwd,
+    start: selected.start,
+    result: captured,
+    current: () => true,
+  })
   if (!published.published) throw new Error(`Successor plan publication failed: ${JSON.stringify(published)}`)
   const uw = await createInstalledUwOperations({ cwd, operator })
   const review = await continueFeature({
@@ -64,7 +69,12 @@ export async function finishContextPlan(
     })),
   })
   if (review.followUp.tasks.tasks.length !== 2) throw new Error('Expected two successor plan reviewers')
-  const reviewPublished = await publishFeatureNativeResult({ cwd, start: review.start, result: reviewCapture })
+  const reviewPublished = await publishFeatureNativeResult({
+    cwd,
+    start: review.start,
+    result: reviewCapture,
+    current: () => true,
+  })
   if (!reviewPublished.published)
     throw new Error(`Successor review publication failed: ${JSON.stringify(reviewPublished)}`)
   return { selected, published, reviewPublished }

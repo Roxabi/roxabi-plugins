@@ -87,6 +87,7 @@ export async function acceptGoalCoverage(
     result: captured,
     gh: transport,
     git: gitPort,
+    current: () => true,
   })
   if (!result.published) throw new Error(`Goal assessment publication failed: ${JSON.stringify(result)}`)
   const accepted = await installed.acceptMaterial(parent)

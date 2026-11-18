@@ -180,6 +180,7 @@ async function prepareInheritedAttribution(context: NestedContext, artifactsDir:
     git: world.git,
     start: opened.start,
     result,
+    current: () => true,
   })
   if (!published.published) throw new Error(`nested-attribution-publish:${published.reason}`)
   if (!published.receipt) throw new Error('nested-attribution-publication-ref-missing')

@@ -286,6 +286,7 @@ describe('captured parent integration during material assessment', () => {
               result: captured,
               gh: world.gh,
               git: world.git,
+              current: () => true,
             })
             if (!published.published)
               throw new Error(`Parent metadata publication refused: ${JSON.stringify(published)}`)

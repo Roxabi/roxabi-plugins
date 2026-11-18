@@ -167,6 +167,7 @@ export async function confirmNewParentEngagement(
     result: captured,
     gh: world.gh,
     git: world.git,
+    current: () => true,
   })
   if (!published.published) throw new Error(`Parent assessment publication refused: ${JSON.stringify(published)}`)
   const accepted = await world.operations.acceptMaterial(scenario.middle)

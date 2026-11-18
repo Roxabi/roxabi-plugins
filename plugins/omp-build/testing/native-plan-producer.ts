@@ -126,6 +126,7 @@ export async function publishNativePlanStep(
     result,
     gh: input.world.gh,
     git: input.world.git,
+    current: () => true,
   })
   if (!published.published) return { published, result, read: await input.world.operations.readUw(input.scope) }
   if (!('receipt' in published) || !published.receipt)

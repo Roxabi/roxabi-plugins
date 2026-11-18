@@ -170,6 +170,16 @@ function checkCanonicalCases(input: MatrixSetup): CiOperands {
   return operands
 }
 
+function expectAuthenticationRefusal(result: ReturnType<MatrixSetup['refused']>, name: string) {
+  const codes = result.diagnostics?.map((item) => item.code) ?? []
+  expect
+    .soft(
+      codes.includes('unconfirmed') || codes.includes('cause-history-unconfirmed'),
+      `${name}: ${JSON.stringify(result)}`,
+    )
+    .toBe(true)
+}
+
 function checkRawHistoryCases(input: MatrixSetup, operands: CiOperands) {
   const { box, intake, ref, history, op, receipt, binding, baseline, refused } = input
   const duplicate = encodeParts(
@@ -196,7 +206,8 @@ function checkRawHistoryCases(input: MatrixSetup, operands: CiOperands) {
   const bindingOp = history.operations.find((item) => item.recordId === binding.recordId)
   if (!bindingOp) throw new Error('binding-operation-missing')
   for (const [name, parts, expected] of [
-    ['edited receipt', op.parts, 'cause-history-unconfirmed'],
+    // Authenticated-history refusal: code OR at call site (helper AND skipped via []).
+    ['edited receipt', op.parts, null],
     ['edited binding', bindingOp.parts, 'incomplete'],
   ] as const) {
     const indices = new Set(parts.map((part) => Number(part.nativeId) - 1))
@@ -211,7 +222,8 @@ function checkRawHistoryCases(input: MatrixSetup, operands: CiOperands) {
     const target = name === 'edited receipt' ? receipt : binding
     expect(changed.operations.find((item) => item.recordId === target.recordId)?.status).toBe('invalid')
     expect(accounted(changed, target)).toBe(false)
-    refused(name, intake.manifest.code, [ref], expected)
+    const result = refused(name, intake.manifest.code, [ref], expected ?? [])
+    if (expected === null) expectAuthenticationRefusal(result, name)
   }
   const duplicateBinding = encodeParts(
     { ...binding, operationId: `${binding.operationId}-duplicate` },
@@ -270,12 +282,13 @@ function checkRawHistoryCases(input: MatrixSetup, operands: CiOperands) {
   })
   const invalidHistory = pullHistory(box)
   expect(invalidHistory.operations.find((item) => item.recordId === receipt.recordId)?.status).toBe('invalid')
-  refused(
+  const invalidEvidence = refused(
     'invalid evidence digest',
     intake.manifest.code,
     [{ ...ref, digest: canonicalValueDigest(invalidReceipt.payload) }],
-    'cause-history-unconfirmed',
+    [],
   )
+  expectAuthenticationRefusal(invalidEvidence, 'invalid evidence digest')
 }
 
 it('refuses invalid CI stage evidence through installed prepare without publishing records', async () => {

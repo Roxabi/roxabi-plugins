@@ -51,7 +51,9 @@ describe('Feature native host ownership', () => {
         throw new Error('candidate activation must not start framing')
       },
       inhibitFeatureContinuation() {},
-      releaseFeatureContinuation() {},
+      releaseFeatureContinuation() {
+        return true
+      },
       featureContinuationInhibited: () => false,
       markFeatureBatch: (value) => harness.controller.markFeatureBatch(value),
       async exec() {

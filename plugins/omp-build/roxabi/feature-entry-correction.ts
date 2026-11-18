@@ -14,9 +14,10 @@ function observeFeatureTerminal(
   host: FeatureCommandHost,
   terminal: Promise<FeatureFixTerminal>,
   deliver: Deliver,
-  current: () => boolean,
+  current: FeatureCurrent,
 ): void {
-  const owns = () => current() && !host.featureContinuationInhibited()
+  const owns: FeatureCurrent = () => current() && !host.featureContinuationInhibited()
+  if (current.transfer) owns.transfer = current.transfer
   void terminal
     .then(async (result) => {
       if (result.status !== 'complete' || !owns()) return

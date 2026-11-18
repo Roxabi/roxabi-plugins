@@ -5,7 +5,7 @@ import { admitNativeBatch } from './batch-admission.ts'
 import { validateNativeBatch } from './batch-validation.ts'
 import { captureSubagentEvent } from './capture'
 import type { NativeBatch, NativeBatchCallbacks, NativeExecutionObservation, NativeTaskWireInput } from './contracts'
-import { admittedChild, finishOwnedExecution } from './controller-execution.ts'
+import { admittedChild, bindChildSlot, finishOwnedExecution } from './controller-execution.ts'
 import { type JoinedNativeStop, stopBatches, stopOwnedBatch, throwJoinedStopFailures } from './controller-stop'
 import { rootCurrent, unindexAdmittedChildBatch } from './executed-child-lifecycle.ts'
 import { type HostGitObserver, observeHostGit } from './host-git-observation.ts'
@@ -141,11 +141,14 @@ export class NativeBatchController {
   markFeatureBatch(batch: NativeBatch): void {
     this.#announcements.markFeature(batch)
   }
+  featureContinuationEpoch(): number {
+    return this.#announcements.epoch()
+  }
   inhibitFeatureContinuation(): void {
     this.#announcements.inhibit(this.#active)
   }
-  releaseFeatureContinuation(): void {
-    this.#announcements.release()
+  releaseFeatureContinuation(expectedEpoch: number): boolean {
+    return this.#announcements.release(expectedEpoch)
   }
   featureContinuationInhibited(): boolean {
     return this.#announcements.isInhibited()
@@ -179,17 +182,8 @@ export class NativeBatchController {
   }
   bindChild(id: string, index: number, model: { provider: string; id: string }): boolean {
     const active = this.#active
-    if (
-      !active ||
-      !this.current(active.batch) ||
-      !active.batch.tasks.tasks[index] ||
-      active.childSlots.has(id) ||
-      [...active.childSlots.values()].includes(index)
-    )
-      return false
-    active.childSlots.set(id, index)
-    active.models[index] = model
-    return true
+    if (!active || !this.current(active.batch)) return false
+    return bindChildSlot(active, id, index, model)
   }
   finishExecution(batch: NativeBatch): void {
     finishOwnedExecution(this.#live, batch)

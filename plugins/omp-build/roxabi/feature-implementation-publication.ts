@@ -99,7 +99,7 @@ export async function publishAfterRemoteProof(
   confirmedRemote: { branch: string; tip: string },
 ): Promise<FeatureNativePublication> {
   try {
-    const finalAuthority = await implementationEffectAuthority(binding, input.cwd)
+    const finalAuthority = await implementationEffectAuthority(binding, input.cwd, input.current)
     if (!finalAuthority.ok) {
       if (finalAuthority.reason === 'implementation-start-resolved')
         return { published: false, retained: false, reason: finalAuthority.reason, confirmedRemote }

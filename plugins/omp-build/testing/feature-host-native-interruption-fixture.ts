@@ -67,7 +67,9 @@ export function fixture(
       throw new Error('unexpected framing')
     },
     inhibitFeatureContinuation() {},
-    releaseFeatureContinuation() {},
+    releaseFeatureContinuation() {
+      return true
+    },
     featureContinuationInhibited: () => false,
     markFeatureBatch: (value) => controller.markFeatureBatch(value),
     async exec() {

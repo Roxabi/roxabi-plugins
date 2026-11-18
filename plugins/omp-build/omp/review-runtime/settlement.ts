@@ -71,16 +71,17 @@ export async function settleReceivedBatch(
       !active.sdkSignal?.aborted &&
       rootCurrent(active)
     if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
-    status = 'completed'
     await active.callbacks.onComplete(prepared.result, canContinue)
-    if (!canContinue()) return undefined
+    // Host/session stops may fence during onComplete; notify onStop before dropping the terminal.
+    if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
     const observed = await active.callbacks.onSettled?.(prepared.result, canContinue)
     const successor = typeof observed === 'function' ? observed : undefined
     if (successor !== undefined) {
       active.handoffPending = true
       if (executionDone !== null) await executionDone
     }
-    if (!canContinue()) return undefined
+    if (await stopIfLate(active, prepared.result, resolved, event)) return undefined
+    status = 'completed'
     return successor
   } catch (error) {
     failed = true

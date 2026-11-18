@@ -18,8 +18,9 @@ export type ImplementationEffectAuthority =
 export async function implementationEffectAuthority(
   binding: ImplementationResultBinding,
   cwd: string,
+  executionCurrent: () => boolean,
 ): Promise<ImplementationEffectAuthority> {
-  if (cwdInhibition(cwd) !== undefined || inhibition(binding.mandate.scope) !== undefined)
+  if (!executionCurrent() || cwdInhibition(cwd) !== undefined || inhibition(binding.mandate.scope) !== undefined)
     return { ok: false, reason: 'implementation-local-inhibition' }
   const options = { ...withRoxabiGitHubPolicy({ cwd, gh: binding.gh }), gh: binding.gh }
   const fresh = await binding.loaded.readComposedWorkflowHistory([binding.mandate.scope], options)
@@ -45,7 +46,7 @@ export async function implementationEffectAuthority(
   if (!resolution.ok) return { ok: false, reason: 'implementation-authority-unreadable' }
   if (resolution.value !== null) return { ok: false, reason: 'implementation-start-resolved' }
   const current = binding.loaded.selectApplicableMandate(fresh.histories[0], freshParents.parents, causal.value)
-  if (cwdInhibition(cwd) !== undefined || inhibition(binding.mandate.scope) !== undefined)
+  if (!executionCurrent() || cwdInhibition(cwd) !== undefined || inhibition(binding.mandate.scope) !== undefined)
     return { ok: false, reason: 'implementation-local-inhibition' }
   if (current.status !== 'applicable' || current.mandate?.recordId !== binding.mandate.recordId)
     return { ok: false, reason: 'implementation-authority-withdrawn' }

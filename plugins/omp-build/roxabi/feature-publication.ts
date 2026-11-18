@@ -23,6 +23,7 @@ export async function proveAuthorizedBranch(
   branch: string,
   tip: string,
   authority: {
+    current: () => boolean
     effect: () => Promise<{ ok: true } | { ok: false; reason: string }>
     beforePush: () => Promise<{ ok: true } | { ok: false; reason: string }>
   },
@@ -40,6 +41,7 @@ export async function proveAuthorizedBranch(
     return authorizeObservedTip(branch, observedTip, () => authority.effect())
   const authorized = await authority.beforePush()
   if (!authorized.ok) return authorized
+  if (!authority.current()) return { ok: false, reason: 'implementation-local-inhibition' }
   const pushed = await git(cwd, ['push', 'origin', `HEAD:refs/heads/${branch}`])
   if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed' }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])

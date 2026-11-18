@@ -41,6 +41,7 @@ async function publishNativeResult(
   host: FeatureCommandHost,
   settled: NativeBatchResult,
   canReport: () => boolean,
+  canEffect: () => boolean,
   stop?: NativeStop,
 ) {
   try {
@@ -53,6 +54,7 @@ async function publishNativeResult(
       start,
       ...(startHead === undefined ? {} : { startHead }),
       ...(stop === undefined ? {} : { stop }),
+      current: () => canEffect() && !host.featureContinuationInhibited(),
     })
   } catch (error) {
     if (settled.canPublishContext?.() !== false && canReport()) await notifyPublicationFailure(host, error)
@@ -70,8 +72,9 @@ async function publishCompletedResult(
   host: FeatureCommandHost,
   result: NativeBatchResult,
   canReport: () => boolean,
+  canContinue: () => boolean,
 ): Promise<NativeBatch | null> {
-  const publication = await publishNativeResult(host, result, canReport)
+  const publication = await publishNativeResult(host, result, canReport, () => canReport() && canContinue())
   if (publication.published) return result.batch
   const failure = new Error(publicationFailure(publication))
   if (canReport()) await notifyPublicationFailure(host, failure)
@@ -85,7 +88,7 @@ async function publishStoppedResult(
   stop: NativeStop,
   canReport: () => boolean,
 ) {
-  const publication = await publishNativeResult(host, result, canReport, stop)
+  const publication = await publishNativeResult(host, result, canReport, () => false, stop)
   if (!publication.published && canReport())
     await notifyPublicationFailure(host, new Error(publicationFailure(publication)))
   return publication
@@ -139,7 +142,7 @@ async function deliverContextNegative(
   deliver: (result: ContinueFeatureResult) => Promise<void>,
 ): Promise<void> {
   if (result.canPublishContext?.() !== true) return
-  const publication = await publishNativeResult(host, result, owns, stop)
+  const publication = await publishNativeResult(host, result, owns, () => false, stop)
   if (result.canPublishContext?.() !== true || !owns()) return
   if (!publication.retained || !('receipt' in publication) || publication.receipt === undefined) {
     await notifyPublicationFailure(
@@ -220,7 +223,7 @@ export async function announceFeatureBatch(
     onComplete: async (result, canContinue) => {
       if (!canContinue()) return
       completionPublished = true
-      admittedBatch = await publishCompletedResult(host, result, owns)
+      admittedBatch = await publishCompletedResult(host, result, owns, canContinue)
       if (!canContinue()) admittedBatch = null
     },
     onSettled: async (_result, canContinue) => {

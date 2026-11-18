@@ -114,6 +114,7 @@ async function scenario(next: Extract<ContinueFeatureResult, { kind: 'fix' | 'ad
       current: () => current?.() ?? true,
     }
   }
+  const ingressNativeEpoch = controller.featureContinuationEpoch()
   const host: FeatureCommandHost = {
     key: harness.native,
     cwd: '/fixture-root',
@@ -128,7 +129,7 @@ async function scenario(next: Extract<ContinueFeatureResult, { kind: 'fix' | 'ad
       throw new Error('unexpected-framing')
     },
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
-    releaseFeatureContinuation: () => controller.releaseFeatureContinuation(),
+    releaseFeatureContinuation: () => controller.releaseFeatureContinuation(ingressNativeEpoch),
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
     markFeatureBatch: (value) => controller.markFeatureBatch(value),
     startFix: async (_input, current) => start('fix', current),

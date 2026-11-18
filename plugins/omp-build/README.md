@@ -106,6 +106,8 @@ Detected mid-turn user interruption, session switch, and shutdown await the dura
 
 A fully confirmed abandonment clears only its own local UW inhibition, after clean disarm. Newer pause/abandon requests, cwd pauses and other UWs' holds are not cleared; stopped native producers remain fenced. An explicit successor can therefore progress in the same process without inheriting the old abandonment hold.
 
+Native continuation has a separate generation fence. An admitted runnable `/feature new` can release its inherited native hold only after coverage and principal checks, while still owning the generation captured at command ingress. A later stop or replacement invalidates that permission, even if another command subsequently clears the hold. Explicit `select`/`resume` can release their captured hold before requesting missing action context; `--action` and `recover-context` cannot release an unrelated hold. A persisted START that loses activation is accounted as not activated, not presented as launched.
+
 The owning session projects the UW, business action, executors and next decision. Queued is not running; a finished native batch is not workflow success. Recoverable landing holds preserve their reason, next action and pausable owner without looping immediately into landing. Uncertain execution never means “nothing is running.” A late outcome from a replaced owner or session cannot overwrite the current projection. Abandonment refusal retains its UW diagnostics; confirmed abandonment with unconfirmed disarm is reported separately, not as rollback.
 
 Interactive `/feature` and `/uw` confirmation capabilities are bound to their root command: ordinary idle settlement preserves an open confirmation; root abort, session switch, shutdown, or command replacement invalidates it. Escape or `Plus tard` keeps that exact proposal pending. `ctrl+alt+u` reopens it in the same live session and location and does not approve it. A command that was not deferred this way still requires explicit re-entry.
@@ -632,6 +634,8 @@ Feature-owned PR and parent reviews check local continuation before authorizatio
 the inventory, and before native activation. Standalone `/dev-review` and `omp_build_start_review` remain independent
 of Feature inhibition. Native Feature ownership is registered before asynchronous work and is not recreated by a stop
 callback; passive diagnostics remain visible under inhibition.
+
+An authorized correction-to-review handoff transfers the continuation's expected owner explicitly; it does not grant a stale caller fresh authority. Implementation effects require both the original execution's currentness and the exact applicable mandate, with synchronous currentness checks immediately before branch disarm and push. Losing that permission does not erase a completed native result, captured command evidence or a remote tip already observed. Late stops keep the native settlement stopped rather than reporting completion.
 
 An already-engaged GitHub publication is not rolled back. An interrupted inventory can remain explicitly pending:
 it is not an approval, does not silently restart, and does not reset the review bound. These guards do not provide

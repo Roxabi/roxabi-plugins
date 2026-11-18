@@ -60,6 +60,7 @@ it('retains an honestly empty implementation interruption without inventing a ch
     result,
     stop: { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
     gh: async () => '',
+    current: () => true,
   })
   expect(published).toMatchObject({ published: false, retained: true, reason: 'action-interrupted' })
   expect(publishRecord).toHaveBeenCalledWith(
@@ -158,6 +159,7 @@ it('retains an SDK terminal without structured output as completed invalid, not 
     result,
     stop: { kind: 'invalid-terminal', origin: 'host-stop' },
     gh: async () => '',
+    current: () => true,
   })
   expect(published).toMatchObject({ published: false, retained: true, reason: 'implementation-output-invalid' })
   expect(publishRecord).toHaveBeenCalledWith(
@@ -237,6 +239,7 @@ it('retains an invalid SDK terminal without claiming it returned or completed', 
     result,
     stop: { kind: 'invalid-terminal', origin: null },
     gh: async () => '',
+    current: () => true,
   })
   expect(published).toMatchObject({ published: false, retained: true, reason: 'implementation-output-invalid' })
   expect(publishRecord).toHaveBeenCalledWith(
@@ -335,7 +338,9 @@ it('retains the SDK-valid common missing-context output for implementation uncha
     complete: true,
     canPublishContext: () => true,
   }
-  expect(await publishFeatureNativeResult({ cwd: '/checkout', start, result, gh: async () => '' })).toMatchObject({
+  expect(
+    await publishFeatureNativeResult({ cwd: '/checkout', start, result, gh: async () => '', current: () => true }),
+  ).toMatchObject({
     published: false,
     retained: true,
     reason: 'action-context-missing',

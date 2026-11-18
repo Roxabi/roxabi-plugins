@@ -358,6 +358,7 @@ describe('captured work during material assessment', () => {
             result,
             gh: world.gh,
             git: world.git,
+            current: () => result.canPublishContext?.() === true,
           })
         },
       })

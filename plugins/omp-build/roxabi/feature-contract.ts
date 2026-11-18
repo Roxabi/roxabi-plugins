@@ -175,6 +175,7 @@ export type FeatureWorkflow = {
     stop?: NativeStop
     git?: GitRunner
     gh?: Gh
+    current: () => boolean
   }): Promise<FeatureNativePublication>
   requestFeatureSessionPause(input: FeatureSessionPauseInput): Promise<ContinueFeatureResult>
 }
@@ -205,7 +206,8 @@ export type FeatureCommandHost = {
     request: ParentCoverageRequest,
   ) => Promise<{ kind: 'proposed'; coverage: ParentCoverage | null } | { kind: 'cancelled' }>
   inhibitFeatureContinuation: () => void
-  releaseFeatureContinuation: () => void
+  /** Generation-bound latch clear; false leaves delivery suppressed. */
+  releaseFeatureContinuation: () => boolean
   featureContinuationInhibited: () => boolean
   markFeatureBatch: (batch: NativeBatch) => void
   startReview?: (

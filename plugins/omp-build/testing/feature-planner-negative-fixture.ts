@@ -43,6 +43,7 @@ export async function publishNativePlanNegative(input: ContinueFeatureInput, ide
         stop,
         gh: input.gh,
         git: input.git,
+        current: () => true,
       })
     },
   })
