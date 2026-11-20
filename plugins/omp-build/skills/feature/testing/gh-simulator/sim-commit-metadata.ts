@@ -51,7 +51,7 @@ function recall(file: string | null): string | null {
 function remember(file: string | null, value: string): void {
   if (file === null) return
   mkdirSync(join(file, '..'), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
+  const tmp = `${file}.${currentInvocation().pid}.tmp`
   writeFileSync(tmp, value)
   renameSync(tmp, file)
 }

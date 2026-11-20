@@ -172,7 +172,10 @@ export function recordedBase(state: State, pr: Pull): string | null {
 function mergeIntoOrigin(state: State, pr: Pull): void {
   refreshHead(state, pr)
   if (!pr.headRefOid) fail(`gh: PR #${pr.number} has no head`)
-  const scratch = join(tmpdir(), `gh-sim-merge-${pr.number}-${process.pid}`)
+  const scratch = join(
+    currentInvocation().env.TMPDIR || tmpdir(),
+    `gh-sim-merge-${pr.number}-${currentInvocation().pid}`,
+  )
   mkdirSync(scratch, { recursive: true })
   try {
     git(state.origin, ['worktree', 'add', '--detach', scratch, pr.baseRefName])
