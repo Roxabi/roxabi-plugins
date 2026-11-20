@@ -1,6 +1,11 @@
 import type { PublicationContextResolver } from '../adapters/github/publication-context.ts'
 import type { Gh } from '../adapters/github/types.ts'
-import { canonicalValueDigest, resolveSpecEffective } from '../dist/contracts.js'
+import {
+  canonicalValueDigest,
+  projectWriterRetryHistory,
+  readWriterRetryUwCompletionObservation,
+  resolveSpecEffective,
+} from '../dist/contracts.js'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import { diagnostic } from '../engine/record-diagnostics.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
@@ -15,6 +20,7 @@ import {
 } from './feature-start-expansion.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { integrationProofInputs } from './uw-action-stage-closure.ts'
 import { readInstalledObservedUwTransition } from './uw-read-port.ts'
 
@@ -91,6 +97,46 @@ export async function authorizeOrdinaryIntegration(
   return { ok: true }
 }
 
+async function resolveOrdinaryIntegrationRetry(
+  input: Parameters<PublicationContextResolver>[0],
+  resolve: PublicationContextResolver,
+  inputs: ActionInputs,
+  cwd: string,
+  gh: Gh,
+): ReturnType<PublicationContextResolver> {
+  const { record } = input
+  const scope = { repository: record.repository, target: record.target }
+  const options = withRoxabiGitHubPolicy({ cwd, gh })
+  const retry = { record, observed: input.history }
+  const home = projectWriterRetryHistory(input.history, retry)
+  if (home === null)
+    return {
+      ok: false,
+      diagnostics: [diagnostic('integration-authority-unreadable', 'Writer retry history is invalid')],
+    }
+  const resolved = await resolve({ ...input, history: home })
+  if (!resolved.ok) return resolved
+  const observation = await readWriterRetryUwCompletionObservation(retry, options, (histories) =>
+    loadReviewClassCatalogues({ histories, cwd, gh }),
+  )
+  if (observation.status !== 'complete')
+    return {
+      ok: false,
+      diagnostics: [diagnostic('integration-authority-unreadable', 'Writer retry observation is incomplete')],
+    }
+  const checked = await authorizeOrdinaryIntegration(inputs, scope, {
+    observation,
+    histories: observation.histories,
+    catalogues: observation.catalogues,
+  })
+  return checked.ok
+    ? resolved
+    : {
+        ok: false,
+        diagnostics: [diagnostic(checked.reason, 'Current integration authority is unavailable or changed')],
+      }
+}
+
 /** Bind the UW decision to the writer's own native history at each resolver cut. */
 export function guardOrdinaryIntegrationWriter(
   resolve: PublicationContextResolver,
@@ -98,8 +144,6 @@ export function guardOrdinaryIntegrationWriter(
   gh: Gh,
 ): PublicationContextResolver {
   return async (input) => {
-    const resolved = await resolve(input)
-    if (!resolved.ok) return resolved
     const record = input.record
     if (
       record.kind !== 'action-receipt' ||
@@ -107,7 +151,18 @@ export function guardOrdinaryIntegrationWriter(
       record.payload.action !== 'integrate' ||
       hasExpandedStart(record.payload)
     )
-      return resolved
+      return resolve(input)
+    if (
+      input.history.operations.some(
+        (operation) =>
+          operation.operationId === record.operationId &&
+          operation.authority !== 'foreign' &&
+          operation.status === 'incomplete',
+      )
+    )
+      return resolveOrdinaryIntegrationRetry(input, resolve, record.payload.inputs, cwd, gh)
+    const resolved = await resolve(input)
+    if (!resolved.ok) return resolved
     // The post-publication recheck handles an exact confirmed operation before dispatch.
     if (hasConfirmedRecord(input.history, record)) return resolved
     const scope = { repository: record.repository, target: record.target }

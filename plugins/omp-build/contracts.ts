@@ -43,7 +43,11 @@ export type {
   WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
 export { createUwDeliveryFactReader } from './adapters/github-workflow/uw-delivery-facts.ts'
-export { readUwCompletionObservation } from './adapters/github-workflow/uw-observation.ts'
+export {
+  readUwCompletionObservation,
+  readWriterRetryUwCompletionObservation,
+} from './adapters/github-workflow/uw-observation.ts'
+export { projectWriterRetryHistory } from './adapters/github-workflow/writer-retry-observation.ts'
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
 export * from './contracts-fix-recovery.ts'

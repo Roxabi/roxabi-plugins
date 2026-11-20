@@ -27660,6 +27660,39 @@ class UwObservationCut {
   }
 }
 
+// plugins/omp-build/adapters/github-workflow/writer-retry-observation.ts
+function matchingRetainedParts(history, observed, record, own, parts) {
+  const matching = history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
+  return matching.length === 1 && JSON.stringify(matching[0]) === JSON.stringify(own) && JSON.stringify(history.source.comments.filter((comment) => parts.has(comment.locator))) === JSON.stringify(observed.source.comments.filter((comment) => parts.has(comment.locator)));
+}
+function projectWriterRetryHistory(history, retry) {
+  const { record, observed } = retry;
+  if (record.kind !== "action-receipt" || record.payload.phase !== "start")
+    return null;
+  if (history.source.scope.repository !== record.repository || history.source.scope.target !== record.target)
+    return history;
+  if (observed.source.scope.repository !== record.repository || observed.source.scope.target !== record.target)
+    return null;
+  if (!history.source.complete || !observed.source.complete || history.source.expectedAuthor !== observed.source.expectedAuthor || history.source.stopAuthor !== observed.source.stopAuthor)
+    return null;
+  if (JSON.stringify(history.source) !== JSON.stringify(observed.source))
+    return null;
+  const own = observed.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
+  if (own.length !== 1 || own[0]?.status !== "incomplete" || own[0].recordId !== record.recordId || own[0].kind !== record.kind)
+    return null;
+  if (recordIntegrity(own[0].parts, record) !== null)
+    return null;
+  const parts = new Set(own[0].parts.map((part) => part.locator));
+  if (parts.size === 0 || parts.size !== own[0].parts.length)
+    return null;
+  if (!matchingRetainedParts(history, observed, record, own[0], parts))
+    return null;
+  return decodeHistory({
+    ...history.source,
+    comments: history.source.comments.filter((comment) => !parts.has(comment.locator))
+  });
+}
+
 // plugins/omp-build/adapters/github-workflow/uw-observation.ts
 function receiptScopes(payload) {
   if (payload.phase === "intent")
@@ -27680,11 +27713,16 @@ async function readUwCompletionObservation(root, options, loadCatalogues, additi
   const collector = new UwObservationCollector(root, options, loadCatalogues, additionalScopes, additionalHistories);
   return collector.read();
 }
+async function readWriterRetryUwCompletionObservation(retry, options, loadCatalogues) {
+  const root = { repository: retry.record.repository, target: retry.record.target };
+  return new UwObservationCollector(root, options, loadCatalogues, [], [], retry).read();
+}
 
 class UwObservationCollector {
   options;
   loadCatalogues;
   additionalHistories;
+  writerRetry;
   cut;
   graphSeen = new Set;
   historySeen = new Set;
@@ -27694,10 +27732,11 @@ class UwObservationCollector {
   evaluationRoots;
   factReader;
   historyDiagnostics = [];
-  constructor(root, options, loadCatalogues, additionalScopes, additionalHistories) {
+  constructor(root, options, loadCatalogues, additionalScopes, additionalHistories, writerRetry) {
     this.options = options;
     this.loadCatalogues = loadCatalogues;
     this.additionalHistories = additionalHistories;
+    this.writerRetry = writerRetry;
     this.cut = new UwObservationCut(root);
     this.factReader = createUwDeliveryFactReader(options);
     this.pendingGraph = new Map([[scopeKey(root), root]]);
@@ -27749,6 +27788,8 @@ class UwObservationCollector {
   }
   historyScopes() {
     const wanted = new Map;
+    if (this.writerRetry !== undefined)
+      wanted.set(scopeKey(this.cut.root), this.cut.root);
     for (const history of this.additionalHistories)
       wanted.set(scopeKey(history.source.scope), history.source.scope);
     for (const node of this.cut.nodes.values())
@@ -27774,7 +27815,10 @@ class UwObservationCollector {
   async readHistory(scope) {
     try {
       const source = await readGitHubHistory(scope, this.options);
-      const history = decodeHistory(source);
+      const decoded = decodeHistory(source);
+      const history = this.writerRetry === undefined ? decoded : projectWriterRetryHistory(decoded, this.writerRetry);
+      if (history === null)
+        throw new Error("history projection does not match the observed writer history");
       this.cut.addHistory(history);
       this.requireGraphs(framingMemberScopes(history));
     } catch (error) {
@@ -35368,6 +35412,7 @@ export {
   projectRecoveryHistories,
   projectUwDelivery,
   projectUwWaits,
+  projectWriterRetryHistory,
   proveHistoricalReviewAssociation,
   publicationPrefixPhaseSchema,
   publishConfirmedWorkflowRecord,
@@ -35394,6 +35439,7 @@ export {
   readUwGraph,
   readUwSubtree,
   readWorkflowBinding,
+  readWriterRetryUwCompletionObservation,
   recallClassSchema,
   recallPlanSchema,
   receiptStartKey,

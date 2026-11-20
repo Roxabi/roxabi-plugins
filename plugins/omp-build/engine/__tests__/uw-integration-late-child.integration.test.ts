@@ -3,6 +3,7 @@ import { expect, test, vi } from 'vitest'
 import * as featureEngine from '../../roxabi/feature-engine.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { threeDeliveredChildren } from './uw-delivery-proof-fixture.ts'
 
@@ -305,3 +306,167 @@ test.each(['before-writer', 'after-receipt'] as const)(
   },
   60_000,
 )
+
+test('resumes the same ordinary integration START after a retained multipart prefix', async () => {
+  const checkout = nativeImplementationGit()
+  let interrupt = false
+  const posted: string[] = []
+  try {
+    const [first, second, third] = checkout.merges
+    if (!first || !second || !third) throw new Error('Expected three child merges')
+    await checkout.publishBase(third)
+    const parent = await checkout.parent({ repository: 'acme/app', target: 'acme/app#200' })
+    const initial = parent.observe()
+    await threeDeliveredChildren(
+      {
+        ...checkout,
+        cwd: parent.cwd,
+        trees: checkout.heads.map(checkout.tree),
+        baseTrees: [checkout.p0, first, second].map(checkout.tree),
+        mergeTrees: checkout.merges.map(checkout.tree),
+        parentTree: checkout.tree(checkout.parentHead),
+        diff: checkout.diff(third, checkout.parentHead),
+        wrapGh: (gh) => async (cwd, args) => {
+          if (interrupt && args[0] === 'api' && args[1] === '--method' && args[2] === 'POST') {
+            if (posted.length === 1) throw new Error('Interrupted transport')
+            const response = await gh(cwd, args)
+            posted.push(args.find((arg) => arg.startsWith('body='))?.slice(5) ?? '')
+            return response
+          }
+          return gh(cwd, args)
+        },
+      },
+      [{ id: 'C1', statement: 'Save keeps the selected region' }],
+      'planned',
+      async (world) => {
+        const originalLoadContracts = featureEngine.loadContracts
+        const capture: { record?: CanonicalRecord; externalHistories?: readonly featureEngine.History[] } = {}
+        const spy = vi.spyOn(featureEngine, 'loadContracts').mockImplementation(async () => {
+          const contracts = await originalLoadContracts()
+          if ('missing' in contracts) return contracts
+          return {
+            ...contracts,
+            publishConfirmedWorkflowRecord: async (...args) => {
+              const record = args[0]
+              if (
+                record.kind === 'action-receipt' &&
+                record.payload.phase === 'start' &&
+                record.payload.action === 'integrate'
+              ) {
+                capture.record = record
+                capture.externalHistories = args[3]
+                throw new Error('Captured integration draft')
+              }
+              return contracts.publishConfirmedWorkflowRecord(...args)
+            },
+          }
+        })
+        try {
+          await expect(
+            produceParentIntegration(world, parent, {
+              initial,
+              candidate: initial,
+              command: 'bun test parent.test.ts',
+              output: 'PASS parent integration',
+            }),
+          ).rejects.toThrow('Captured integration draft')
+        } finally {
+          spy.mockRestore()
+        }
+        if (!capture.record) throw new Error('Integration draft not captured')
+        const contracts = await originalLoadContracts()
+        if ('missing' in contracts) throw new Error(`Missing engine ${contracts.missing}`)
+        const before = await world.operations.readUw(world.parentScope)
+        const history = before.histories.find((item) => item.source.scope.target === world.parentScope.target)
+        if (!history) throw new Error('Parent history missing')
+        // A long valid run ID makes this otherwise genuine START span multiple GitHub comments.
+        const draft = { ...capture.record, runId: `retry-${'x'.repeat(70_000)}` }
+        const comments = async (gh = world.gh) => {
+          const all: { id: number; body: string }[] = []
+          for (let page = 1; ; page++) {
+            const batch = JSON.parse(
+              await gh(parent.cwd, ['api', `repos/acme/app/issues/200/comments?per_page=100&page=${page}`]),
+            ) as { id: number; body: string }[]
+            all.push(...batch)
+            if (batch.length < 100) return all
+          }
+        }
+        interrupt = true
+        const interrupted = await featureEngine.publishRecord(
+          contracts,
+          history,
+          draft,
+          world.gh,
+          parent.cwd,
+          capture.externalHistories,
+        )
+        expect(interrupted.ok).toBe(false)
+        expect(posted).toHaveLength(1)
+        expect(posted[0]).toMatch(/part=1\/[2-9]/)
+        const retained = (await comments()).find((comment) => comment.body === posted[0])
+        expect(retained).toBeDefined()
+        interrupt = false
+        const retryPosts: string[] = []
+        const retryGh: typeof world.gh = async (cwd, args) => {
+          if (args[0] === 'api' && args[1] === '--method' && args[2] === 'POST') {
+            retryPosts.push(args.find((arg) => arg.startsWith('body='))?.slice(5) ?? '')
+          }
+          return world.gh(cwd, args)
+        }
+        const originalGraph = world.observation.graph
+        world.observeGraph({
+          ...originalGraph,
+          nodes: originalGraph.nodes.map((node) =>
+            node.uw.target === 'acme/app#201' ? { ...node, labels: ['size:F-lite'] } : node,
+          ),
+        })
+        const refused = await featureEngine.publishRecord(
+          contracts,
+          history,
+          draft,
+          retryGh,
+          parent.cwd,
+          capture.externalHistories,
+        )
+        expect(refused).toMatchObject({
+          ok: false,
+          diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'integration-authority-withdrawn' })]),
+        })
+        expect(retryPosts).toEqual([])
+        const afterRefusal = await comments(retryGh)
+        expect(afterRefusal.find((comment) => comment.id === retained?.id)).toEqual(retained)
+        expect(afterRefusal.filter((comment) => comment.body === posted[0])).toHaveLength(1)
+        world.observeGraph(originalGraph)
+        expect(
+          await featureEngine.publishRecord(contracts, history, draft, retryGh, parent.cwd, capture.externalHistories),
+        ).toEqual({ ok: true })
+        const total = Number(posted[0]?.match(/part=1\/(\d+)/)?.[1])
+        expect(retryPosts).toHaveLength(total - 1)
+        for (let index = 0; index < retryPosts.length; index++) {
+          expect(retryPosts[index]).toContain(`part=${index + 2}/${total} `)
+        }
+        expect(retryPosts).not.toContain(posted[0])
+        const after = await comments(retryGh)
+        expect(after.find((comment) => comment.id === retained?.id)).toEqual(retained)
+        expect(after.filter((comment) => comment.body === posted[0])).toHaveLength(1)
+        const cold = await world.operations.readUw(world.parentScope)
+        const coldHistory = cold.histories.find((item) => item.source.scope.target === world.parentScope.target)
+        if (!coldHistory) throw new Error('Parent history missing')
+        const starts = recordsOf(coldHistory).filter(
+          (record) =>
+            record.kind === 'action-receipt' &&
+            record.payload.action === 'integrate' &&
+            record.payload.phase === 'start',
+        )
+        expect(starts).toHaveLength(1)
+        expect(starts[0]).toMatchObject({
+          recordId: draft.recordId,
+          operationId: draft.operationId,
+          runId: draft.runId,
+        })
+      },
+    )
+  } finally {
+    checkout.cleanup()
+  }
+}, 60_000)
