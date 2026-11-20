@@ -4,6 +4,7 @@
 
 - Prepare the child proof sources for a Parent integration from its current accepted Spec and delivery evidence. Replay checks those exact sources again before the first START.
 - Keep a stale local tracking ref out of a new Parent integration's START. The published candidate is verified before START and checked again at RESULT.
+- Block ordinary Parent integration if a child loses eligibility before the START write or before native work is announced. A START already written remains visible.
 
 ## 0.21.2 (unreleased)
 

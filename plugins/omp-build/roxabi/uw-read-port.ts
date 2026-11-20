@@ -267,3 +267,12 @@ export function createInstalledObservedUwReadPort(input: {
 }): UwReadPort {
   return createObservedUwReadPort(installedUwContracts, input)
 }
+
+/** Apply the production delivery transition to this exact, already observed cut. */
+export async function readInstalledObservedUwTransition(
+  observation: UwCompletionObservation,
+  uw: Scope,
+): Promise<UwRead> {
+  const read = await createInstalledObservedUwReadPort({ observation }).readUw(uw)
+  return withTransitionAdmission(installedUwContracts, read)
+}

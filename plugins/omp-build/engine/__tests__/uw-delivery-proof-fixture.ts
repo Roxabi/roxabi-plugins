@@ -42,6 +42,7 @@ type ParentDeliveryWorld = {
   gh: Gh
   git: GitRunner
   operations: UwOperations
+  observeGraph(graph: Extract<UwGraphObservation, { status: 'complete' }>): void
   checkout(facts: DeclaredCheckout): void
 }
 
@@ -263,6 +264,7 @@ export async function threeDeliveredChildren<T>(
         gh: active.gh,
         git: active.git,
         operations: active.operations,
+        observeGraph: active.observeGraph,
         checkout: active.checkout,
       })
     },

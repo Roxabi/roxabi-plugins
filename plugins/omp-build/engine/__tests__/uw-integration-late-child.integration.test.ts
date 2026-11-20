@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
+import * as featureEngine from '../../roxabi/feature-engine.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
 import { recordsOf } from '../workflow-control.ts'
@@ -179,3 +180,128 @@ test('sealed integration refuses a late unreadable child without publishing', as
     checkout.cleanup()
   }
 }, 60_000)
+
+test.each(['before-writer', 'after-receipt'] as const)(
+  'refuses parent integration when a child is reclassified %s',
+  async (changeAt) => {
+    const checkout = nativeImplementationGit()
+    let reclassify: (() => void) | undefined
+    let armed = false
+    let posts = 0
+    let writerReached = false
+    try {
+      const [first, second, third] = checkout.merges
+      if (!first || !second || !third) throw new Error('Expected three child merges')
+      await checkout.publishBase(third)
+      const parent = await checkout.parent({ repository: 'acme/app', target: 'acme/app#200' })
+      const initial = parent.observe()
+      await threeDeliveredChildren(
+        {
+          ...checkout,
+          cwd: parent.cwd,
+          trees: checkout.heads.map(checkout.tree),
+          baseTrees: [checkout.p0, first, second].map(checkout.tree),
+          mergeTrees: checkout.merges.map(checkout.tree),
+          parentTree: checkout.tree(checkout.parentHead),
+          diff: checkout.diff(third, checkout.parentHead),
+          wrapGh: (gh) => async (cwd, args) => {
+            const result = await gh(cwd, args)
+            if (armed && args[0] === 'api' && args[1] === '--method' && args[2] === 'POST') {
+              posts++
+              if (changeAt === 'after-receipt') {
+                armed = false
+                if (!reclassify) throw new Error('Missing child reclassification')
+                reclassify()
+              }
+            }
+            return result
+          },
+        },
+        [{ id: 'C1', statement: 'Save keeps the selected region' }],
+        'planned',
+        async (world) => {
+          reclassify = () => {
+            world.observeGraph({
+              ...world.observation.graph,
+              nodes: world.observation.graph.nodes.map((node) =>
+                node.uw.target === 'acme/app#201' ? { ...node, labels: ['size:F-lite'] } : node,
+              ),
+            })
+          }
+          const operations = {
+            ...world.operations,
+            async prepareAction(
+              request: Parameters<typeof world.operations.prepareAction>[0],
+              ...rest: Parameters<typeof world.operations.prepareAction> extends [unknown, ...infer R] ? R : never
+            ) {
+              const prepared = await world.operations.prepareAction(request, ...rest)
+              if (request.purpose === 'integrate' && prepared.ok) armed = true
+              return prepared
+            },
+          }
+          const originalLoadContracts = featureEngine.loadContracts
+          const spy =
+            changeAt === 'before-writer'
+              ? vi.spyOn(featureEngine, 'loadContracts').mockImplementation(async () => {
+                  const contracts = await originalLoadContracts()
+                  if ('missing' in contracts) return contracts
+                  return {
+                    ...contracts,
+                    publishConfirmedWorkflowRecord: async (...args) => {
+                      const record = args[0]
+                      if (
+                        record.kind === 'action-receipt' &&
+                        record.payload.phase === 'start' &&
+                        record.payload.action === 'integrate'
+                      ) {
+                        writerReached = true
+                        if (!reclassify) throw new Error('Missing child reclassification')
+                        reclassify()
+                      }
+                      return contracts.publishConfirmedWorkflowRecord(...args)
+                    },
+                  }
+                })
+              : undefined
+          let opened: unknown
+          try {
+            await expect(
+              produceParentIntegration({ ...world, operations }, parent, {
+                initial,
+                candidate: initial,
+                command: 'bun test parent.test.ts',
+                output: 'PASS parent integration',
+                observeStart: (result) => {
+                  opened = result
+                },
+              }),
+            ).rejects.toThrow()
+          } finally {
+            spy?.mockRestore()
+          }
+          if (changeAt === 'before-writer') expect(writerReached).toBe(true)
+          expect(opened).toMatchObject({ kind: 'blocked' })
+          const current = await world.operations.readUw(world.parentScope)
+          expect(current.observation.status).toBe('complete')
+          if (current.observation.status !== 'complete') throw new Error('Current observation incomplete')
+          expect(current.observation.graph.nodes.find((node) => node.uw.target === 'acme/app#201')?.labels).toEqual([
+            'size:F-lite',
+          ])
+          const history = current.histories.find((item) => item.source.scope.target === world.parentScope.target)
+          if (!history) throw new Error('Parent history missing')
+          const starts = recordsOf(history).filter(
+            (record) =>
+              record.kind === 'action-receipt' &&
+              record.payload.action === 'integrate' &&
+              record.payload.phase === 'start',
+          )
+          expect(starts).toHaveLength(changeAt === 'before-writer' ? 0 : 1)
+          expect(posts).toBe(changeAt === 'before-writer' ? 0 : 1)
+        },
+      )
+    } finally {
+      checkout.cleanup()
+    }
+  },
+  60_000,
+)

@@ -4,7 +4,11 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Diagnostic, Scope } from '../engine/record-values.ts'
-import { authorizeStartPublication, recheckStartPublication } from './feature-start-publication.ts'
+import {
+  authorizeStartPublication,
+  guardOrdinaryIntegrationWriter,
+  recheckStartPublication,
+} from './feature-start-publication.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 
@@ -95,7 +99,7 @@ export async function publishRecord(
   const published = await contracts.publishConfirmedWorkflowRecord(
     built.value,
     options,
-    createPublicationContextResolver(options, null),
+    guardOrdinaryIntegrationWriter(createPublicationContextResolver(options, null), cwd, gh),
     externalHistories,
   )
   if (published.status !== 'confirmed') {

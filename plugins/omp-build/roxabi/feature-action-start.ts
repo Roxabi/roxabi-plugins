@@ -26,6 +26,7 @@ import type { ContinueFeatureResult } from './feature-contract.ts'
 import { cwdInhibition, inhibition } from './feature-control.ts'
 import type { Contracts, History, WorkflowEvidence } from './feature-engine.ts'
 import { proveAuthorizedPublishedBase } from './feature-publication.ts'
+import { authorizeOrdinaryIntegration } from './feature-start-publication.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { PreparedUwAction } from './uw-action-contract.ts'
@@ -86,6 +87,8 @@ async function integrationStartAuthority(
     !verified.ok
   )
     return { ok: false, reason: 'integration-authority-withdrawn' }
+  const admitted = await authorizeOrdinaryIntegration(prepared.inputs, scope, causal.value)
+  if (!admitted.ok) return admitted
   return { ok: true }
 }
 
