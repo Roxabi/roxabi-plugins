@@ -128,29 +128,34 @@ describe('gh fault server client', () => {
 
   it('lets the recovery guards accept only the fault script or a generated fault client', () => {
     const dir = mkdtempSync(join(tmpdir(), 'omp-fault-identity-'))
+    const generated = client()
+    const forge = (name: string, text: string) => {
+      const file = join(dir, name)
+      writeFileSync(file, text, { mode: 0o700 })
+      return file
+    }
     try {
       const linked = join(dir, 'gh')
-      symlinkSync(client(), linked)
+      symlinkSync(generated, linked)
       expect(isRecoveryFaultGh(join(import.meta.dirname, 'fix-recovery-gh-fault.ts'))).toBe(true)
       expect(isRecoveryFaultGh(linked)).toBe(true)
       const simulator = process.env.OMP_TEST_GH_SIMULATOR_PATH
       if (!simulator) throw new Error('fixture-gh-simulator-missing')
       expect(isRecoveryFaultGh(simulator)).toBe(false)
-      // A fault-mode client whose fallback is not this repository's fault script is someone else's.
-      const forged = join(dir, 'forged')
-      const foreign = join(dir, 'fix-recovery-gh-fault.ts')
-      writeFileSync(foreign, '')
-      writeFileSync(
-        forged,
-        readFileSync(client(), 'utf8').replace(/exec bun '[^']+' "\$@"/, `exec bun '${foreign}' "$@"`),
-        { mode: 0o700 },
-      )
-      expect(readFileSync(forged, 'utf8')).toContain(foreign)
-      expect(isRecoveryFaultGh(forged)).toBe(false)
-      const unrelated = join(dir, 'other')
-      writeFileSync(unrelated, '#!/bin/bash\nexit 0\n', { mode: 0o700 })
+      const text = readFileSync(generated, 'utf8')
+      // A fault-mode client falling back to another fault script is someone else's.
+      const foreign = forge('fix-recovery-gh-fault.ts', '')
+      const foreignFallback = text.replace(/exec bun '[^']+' "\$@"/, `exec bun '${foreign}' "$@"`)
+      expect(foreignFallback).toContain(foreign)
+      expect(isRecoveryFaultGh(forge('foreign', foreignFallback))).toBe(false)
+      // The client's own lines do not vouch for commands placed around them.
+      expect(isRecoveryFaultGh(forge('early-exit', text.replace('#!/bin/bash\n', '#!/bin/bash\nexit 0\n')))).toBe(false)
+      // Neither does the environment that names the client.
+      const unrelated = forge('other', '#!/bin/bash\nexit 0\n')
+      process.env.OMP_TEST_GH_FAULT_CLIENT_PATH = unrelated
       expect(isRecoveryFaultGh(unrelated)).toBe(false)
     } finally {
+      process.env.OMP_TEST_GH_FAULT_CLIENT_PATH = generated
       rmSync(dir, { recursive: true, force: true })
     }
   })
