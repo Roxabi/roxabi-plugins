@@ -107,7 +107,8 @@ export function yieldNative(
           id: 'held-probe',
           name: 'bash',
           arguments: {
-            command: `test -f src/save.ts && cat src/save.ts > '${probe}' && while [ ! -f '${release}' ]; do sleep 0.05; done`,
+            // The rename publishes the probe whole: its existence is the readiness signal.
+            command: `test -f src/save.ts && cat src/save.ts > '${probe}.tmp' && mv '${probe}.tmp' '${probe}' && while [ ! -f '${release}' ]; do sleep 0.05; done`,
           },
         },
       ],
