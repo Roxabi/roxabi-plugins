@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
@@ -181,8 +181,9 @@ try {
       () => (existsSync(probe) && root.nativeDispatches.length > 0 && root.children.length > 0 ? true : undefined),
       'native-child-probe',
     )
+    // The test parses `ready` as soon as it exists, so publish it whole by rename.
     writeFileSync(
-      ready,
+      `${ready}.tmp`,
       JSON.stringify({
         pid: process.pid,
         called,
@@ -191,6 +192,7 @@ try {
         leaseHeld,
       }),
     )
+    renameSync(`${ready}.tmp`, ready)
     await until(() => (existsSync(release) ? true : undefined), 'child-release')
     await requireNativeCompletion()
     await root.session.waitForIdle()

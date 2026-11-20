@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { createHash } from 'node:crypto'
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, linkSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { githubPreparationKind } from '../host/preparation-gh-classifier.ts'
 import { executeSimCommand } from '../skills/feature/testing/gh-simulator/sim-execution.ts'
 
@@ -68,11 +68,17 @@ if (
 }
 function interrupt(): boolean {
   if (!marker) return false
+  // Readers act on the marker's existence, so it appears whole: the JSON is staged, then linked.
+  // Like an exclusive create, the link fails with EEXIST when another call published first.
+  const staged = `${marker}.${process.pid}.tmp`
   try {
-    writeFileSync(marker, JSON.stringify({ kind, body, argv, before }), { flag: 'wx' })
+    writeFileSync(staged, JSON.stringify({ kind, body, argv, before }))
+    linkSync(staged, marker)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
     throw error
+  } finally {
+    rmSync(staged, { force: true })
   }
   const release = process.env.FIX_RECOVERY_FAULT_RELEASE
   if (release) {
