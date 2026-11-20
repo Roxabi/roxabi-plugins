@@ -81,15 +81,15 @@ timeout alarm. Do not automatically raise the budget again; reassess a tighter
 budget once the full workload demonstrably supports it.
 
 CI plans eight integration shards from Vitest's file list, using cached
-per-file durations only to balance them. Unit tests and other checks run in
-parallel; the required `ci` job verifies that every listed file ran exactly
-once with at least one passing test. Local `bun run test` still runs both
-complete projects.
+per-file durations only to balance them. The `checks` job runs unit tests and
+the other checks alongside the shards (its steps are sequential); the required
+`ci` job verifies that every listed file ran exactly once with at least one
+passing test. Local `bun run test` still runs both complete projects.
 
 A shard selects its files through literal include globs, so integration test
-paths may contain only letters, digits, `.`, `_`, `/` and `-`. CI planning
-fails with an explicit error on any other character rather than risk a glob
-that selects the wrong files.
+paths may contain only ASCII letters and digits, `.`, `_`, `/` and `-`. CI
+planning fails with an explicit error on any other character rather than risk
+a glob that selects the wrong files.
 
 Vitest workers run under Node. The shared setup isolates the SDK's Bun-only
 logging and task-rendering dependencies, while fixture registry and event-bus
