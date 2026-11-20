@@ -85,14 +85,16 @@ function fakeIndexers(dir: string): { env: NodeJS.ProcessEnv; log: string } {
   return { env: { ...ENV, PATH: `${bin}:${ENV.PATH}` }, log }
 }
 
-// Hides CLIs: each PATH directory holding one becomes a mirror of its other entries.
-function withoutClis(env: NodeJS.ProcessEnv, names: string[], scratch: string): NodeJS.ProcessEnv {
+// Hides CLIs from a child running in cwd: each PATH directory holding one becomes a
+// mirror of its other entries.
+function withoutClis(env: NodeJS.ProcessEnv, names: string[], scratch: string, cwd: string): NodeJS.ProcessEnv {
   const entries = env.PATH?.split(path.delimiter).map((entry, index) => {
-    if (!names.some((name) => existsSync(path.join(entry, name)))) return entry
+    const dir = path.resolve(cwd, entry)
+    if (!names.some((name) => existsSync(path.join(dir, name)))) return dir
     const mirror = path.join(scratch, `path-mirror-${index}`)
     mkdirSync(mirror)
-    for (const file of readdirSync(entry)) {
-      if (!names.includes(file)) symlinkSync(path.join(entry, file), path.join(mirror, file))
+    for (const file of readdirSync(dir)) {
+      if (!names.includes(file)) symlinkSync(path.join(dir, file), path.join(mirror, file))
     }
     return mirror
   })
@@ -353,23 +355,31 @@ commands:
   })
 
   it.each([
-    { name: 'installed', hidden: false },
-    { name: 'missing', hidden: true },
-  ])('prepares no code index from a principal holding ccc and codegraph indexes, CLIs $name', ({ hidden }) => {
+    { name: 'an index, CLIs installed', indexed: true, hidden: false },
+    { name: 'an index, CLIs missing', indexed: true, hidden: true },
+    { name: 'tool config only, CLIs installed', indexed: false, hidden: false },
+  ])('prepares no code index from a principal holding $name', ({ indexed, hidden }) => {
     const { repo, wt } = principalWith('worktree:\n  setup: echo setup >> ../indexers.log\n')
     const ccc = path.join(repo, '.cocoindex_code')
-    mkdirSync(path.join(ccc, 'cocoindex.db', 'mdb'), { recursive: true })
-    writeFileSync(path.join(ccc, 'settings.yml'), 'include_patterns: []\n')
-    writeFileSync(path.join(ccc, 'cocoindex.db', 'mdb', 'data.mdb'), 'state\n')
-    writeFileSync(path.join(ccc, 'target_sqlite.db'), 'vectors\n')
-    mkdirSync(path.join(repo, '.codegraph'))
-    writeFileSync(path.join(repo, '.codegraph', 'codegraph.db'), 'graph\n')
+    const codegraph = path.join(repo, '.codegraph')
+    mkdirSync(ccc)
+    mkdirSync(codegraph)
+    if (indexed) {
+      mkdirSync(path.join(ccc, 'cocoindex.db', 'mdb'), { recursive: true })
+      writeFileSync(path.join(ccc, 'settings.yml'), 'include_patterns: []\n')
+      writeFileSync(path.join(ccc, 'cocoindex.db', 'mdb', 'data.mdb'), 'state\n')
+      writeFileSync(path.join(ccc, 'target_sqlite.db'), 'vectors\n')
+      writeFileSync(path.join(codegraph, 'codegraph.db'), 'graph\n')
+    } else {
+      writeFileSync(path.join(ccc, 'global_settings.yml'), 'embedding: {}\n')
+      writeFileSync(path.join(codegraph, 'telemetry.json'), '{}\n')
+    }
     mkdirSync(path.join(wt, '.semctx'))
     const { env, log } = fakeIndexers(path.dirname(repo))
 
     const run = spawnSync('bash', [BOOT], {
       cwd: wt,
-      env: hidden ? withoutClis(env, INDEXERS, path.dirname(repo)) : env,
+      env: hidden ? withoutClis(env, INDEXERS, path.dirname(repo), wt) : env,
       encoding: 'utf8',
     })
 
