@@ -1,9 +1,11 @@
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, watch, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { base, dispose, openState, pull, saved } from '../skills/feature/testing/gh-simulator/sim-transport-fixture.ts'
+import { isRecoveryFaultGh } from './fix-recovery-gh-identity.ts'
 
 function client(): string {
   const path = process.env.OMP_TEST_GH_FAULT_CLIENT_PATH
@@ -123,4 +125,33 @@ describe('gh fault server client', () => {
       }
     })
   }
+
+  it('lets the recovery guards accept only the fault script or a generated fault client', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omp-fault-identity-'))
+    try {
+      const linked = join(dir, 'gh')
+      symlinkSync(client(), linked)
+      expect(isRecoveryFaultGh(join(import.meta.dirname, 'fix-recovery-gh-fault.ts'))).toBe(true)
+      expect(isRecoveryFaultGh(linked)).toBe(true)
+      const simulator = process.env.OMP_TEST_GH_SIMULATOR_PATH
+      if (!simulator) throw new Error('fixture-gh-simulator-missing')
+      expect(isRecoveryFaultGh(simulator)).toBe(false)
+      // A fault-mode client whose fallback is not this repository's fault script is someone else's.
+      const forged = join(dir, 'forged')
+      const foreign = join(dir, 'fix-recovery-gh-fault.ts')
+      writeFileSync(foreign, '')
+      writeFileSync(
+        forged,
+        readFileSync(client(), 'utf8').replace(/exec bun '[^']+' "\$@"/, `exec bun '${foreign}' "$@"`),
+        { mode: 0o700 },
+      )
+      expect(readFileSync(forged, 'utf8')).toContain(foreign)
+      expect(isRecoveryFaultGh(forged)).toBe(false)
+      const unrelated = join(dir, 'other')
+      writeFileSync(unrelated, '#!/bin/bash\nexit 0\n', { mode: 0o700 })
+      expect(isRecoveryFaultGh(unrelated)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

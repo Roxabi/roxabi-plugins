@@ -1,8 +1,8 @@
-import { realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
+import { isRecoveryFaultGh } from './fix-recovery-gh-identity.ts'
 import { operatorDialogUi } from './operator-dialog-ui.ts'
 
 /** Actual SDK root with the installed extension. UI answers are deterministic sandbox events. */
@@ -25,9 +25,7 @@ export async function createRecoveryTestRoot(input: {
   const gh = Bun.which('gh')
   if (
     !gh ||
-    (realpathSync(gh) !== realpathSync(join(import.meta.dirname, 'fix-recovery-gh-fault.ts')) &&
-      (!process.env.OMP_TEST_GH_FAULT_CLIENT_PATH ||
-        realpathSync(gh) !== realpathSync(process.env.OMP_TEST_GH_FAULT_CLIENT_PATH))) ||
+    !isRecoveryFaultGh(gh) ||
     process.env.HOME !== input.sandboxHome ||
     process.env.GH_CONFIG_DIR !== input.ghConfigDir ||
     process.env.GH_SIM_STATE !== input.ghSimulatorState ||
