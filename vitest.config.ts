@@ -1,5 +1,6 @@
 import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
+import { literalIncludes } from './tools/ci-test-shards.ts'
 
 const exclude = [
   '**/node_modules/**',
@@ -21,10 +22,9 @@ const exclude = [
 // land in the tight budget by accident — including when it forks only through an
 // imported helper, which its own source does not reveal.
 const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
-// CI supplies the planned files as JSON. Escape glob metacharacters so include
-// matches literal paths, not substrings or patterns from repository filenames.
+// CI paths must be literal-safe globs, not arbitrary picomatch expressions.
 const integrationFiles = process.env.CI_INTEGRATION_FILES
-  ? (JSON.parse(process.env.CI_INTEGRATION_FILES) as string[]).map((file) => file.replace(/[\\*?[\]{}()!+@]/g, '\\$&'))
+  ? literalIncludes(process.env.CI_INTEGRATION_FILES)
   : [INTEGRATION]
 
 export default defineConfig({

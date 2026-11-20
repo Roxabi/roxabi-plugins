@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { partition, verifyCoverage } from '../ci-test-shards'
+import { literalIncludes, parseTimings, partition, verifyCoverage } from '../ci-test-shards'
 
 describe('integration shard planning', () => {
   it('assigns every file once deterministically using median for unknown files', () => {
@@ -14,6 +14,24 @@ describe('integration shard planning', () => {
     expect(shards.flat().sort()).toEqual([...files].sort())
     expect(partition(['c', 'a', 'b'], {}, 2)).toEqual([['a', 'c'], ['b']])
   })
+
+  it('rejects unsafe glob syntax in test paths', () => {
+    for (const char of ['|', '*', '{', ' ']) {
+      expect(() => literalIncludes(JSON.stringify([`test${char}.integration.test.ts`]))).toThrow('Unsafe')
+    }
+    expect(literalIncludes('["plugins/a-b.test.ts"]')).toEqual(['plugins/a-b.test.ts'])
+  })
+
+  it('ignores malformed timing caches and invalid entries', () => {
+    for (const json of ['{', 'null', '[]', '123']) {
+      expect(parseTimings(json)).toEqual({ timings: {}, warning: true })
+    }
+    expect(parseTimings('{"ok":2,"zero":0,"negative":-1,"infinite":1e999,"text":"4"}')).toEqual({
+      timings: { ok: 2 },
+      warning: true,
+    })
+    expect(parseTimings('{"ok":2}')).toEqual({ timings: { ok: 2 }, warning: false })
+  })
 })
 
 describe('coverage verification', () => {
@@ -25,13 +43,19 @@ describe('coverage verification', () => {
     ],
     shards: [['one.ts'], ['two.ts']],
   }
-  const result = (name: string, status = 'passed') => ({ name, status, startTime: 1000, endTime: 3500 })
-  const report = (...testResults: { name: string; status: string; startTime: number; endTime: number }[]) => ({
-    success: true,
-    testResults,
+  const result = (file: string, project: 'unit' | 'integration' = 'integration', state = 'passed') => ({
+    file,
+    project,
+    state,
+    passed: 1,
+    failed: 0,
+    skipped: 0,
+    pending: 0,
+    duration: 2500,
   })
+  const report = (...modules: ReturnType<typeof result>[]) => ({ success: true, modules })
   const reports = () => [
-    report(result('/repo/unit.ts')),
+    report(result('/repo/unit.ts', 'unit')),
     report(result('/repo/one.ts')),
     report(result('/repo/two.ts')),
   ]
@@ -52,7 +76,21 @@ describe('coverage verification', () => {
     )
     expect(() => verifyCoverage(plan, [unit, report(result('unknown.ts')), two], '/repo')).toThrow('Unknown')
     expect(() => verifyCoverage(plan, [unit, two, one], '/repo')).toThrow('misplaced')
-    expect(() => verifyCoverage(plan, [unit, report(result('one.ts', 'failed')), two], '/repo')).toThrow('Failed file')
+    expect(() => verifyCoverage(plan, [unit, report(result('one.ts', 'integration', 'failed')), two], '/repo')).toThrow(
+      'Failed file',
+    )
     expect(() => verifyCoverage(plan, [unit, { ...one, success: false }, two], '/repo')).toThrow('Failed')
+  })
+
+  it('rejects an entirely skipped file but accepts a partially skipped file', () => {
+    const [unit, one, two] = reports()
+    const module = one.modules[0]
+    expect(() => verifyCoverage(plan, [unit, report({ ...module, passed: 0, skipped: 2 }), two], '/repo')).toThrow(
+      'no passing tests',
+    )
+    expect(verifyCoverage(plan, [unit, report({ ...module, passed: 1, skipped: 1 }), two], '/repo')).toEqual({
+      'one.ts': 2.5,
+      'two.ts': 2.5,
+    })
   })
 })

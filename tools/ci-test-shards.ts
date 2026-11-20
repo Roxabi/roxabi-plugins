@@ -3,9 +3,43 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path'
 
 type Project = 'unit' | 'integration'
 type FileEntry = { file: string; project: Project }
-type Result = { name: string; status: string; startTime: number; endTime: number }
-type Report = { success: boolean; testResults: Result[] }
+type Result = {
+  file: string
+  project: Project
+  state: string
+  passed: number
+  failed: number
+  skipped: number
+  pending: number
+  duration: number
+}
+type Report = { success: boolean; modules: Result[] }
 type Plan = { expected: FileEntry[]; shards: string[][] }
+
+export function literalIncludes(json: string): string[] {
+  const files: unknown = JSON.parse(json)
+  if (!Array.isArray(files) || files.some((file) => typeof file !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(file))) {
+    throw new Error('Unsafe integration test path: only letters, digits, dot, underscore, slash and hyphen are allowed')
+  }
+  return files
+}
+
+export function parseTimings(json: string): { timings: Record<string, number>; warning: boolean } {
+  let value: unknown
+  try {
+    value = JSON.parse(json)
+  } catch {
+    return { timings: {}, warning: true }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { timings: {}, warning: true }
+  const timings: Record<string, number> = {}
+  let warning = false
+  for (const [file, duration] of Object.entries(value)) {
+    if (typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0) warning = true
+    else timings[file] = duration
+  }
+  return { timings, warning }
+}
 
 export function partition(files: string[], timings: Record<string, number>, count: number): string[][] {
   const known = files.map((file) => timings[file]).filter((n): n is number => Number.isFinite(n) && n > 0)
@@ -33,21 +67,29 @@ export function verifyCoverage(plan: Plan, reports: (Report | undefined)[], root
   if (expected.size !== plan.expected.length) throw new Error('Duplicate expected file')
   const timings: Record<string, number> = {}
   for (const [index, report] of reports.entries()) {
-    if (!report || !report.success || !Array.isArray(report.testResults)) throw new Error('Failed or invalid report')
+    if (report?.success !== true || !Array.isArray(report.modules)) throw new Error('Failed or invalid report')
     const project = index === 0 ? 'unit' : 'integration'
     const assigned = index === 0 ? undefined : new Set(plan.shards[index - 1])
-    for (const result of report.testResults) {
-      const file = normalise(result.name, root)
+    for (const result of report.modules) {
+      const file = normalise(result.file, root)
       const key = `${project}:${file}`
-      if (!expected.has(key) || (assigned && !assigned.has(file))) throw new Error(`Unknown or misplaced file: ${key}`)
-      if (result.status !== 'passed') throw new Error(`Failed file: ${key}`)
+      if (result.project !== project || !expected.has(key) || (assigned && !assigned.has(file)))
+        throw new Error(`Unknown or misplaced file: ${key}`)
+      if (
+        result.state !== 'passed' ||
+        !Number.isInteger(result.passed) ||
+        result.passed < 1 ||
+        result.failed !== 0 ||
+        result.pending !== 0 ||
+        !Number.isInteger(result.skipped) ||
+        result.skipped < 0
+      )
+        throw new Error(`Failed file or no passing tests: ${key}`)
       const seen = (expected.get(key) ?? 0) + 1
       if (seen !== 1) throw new Error(`Duplicate file: ${key}`)
       expected.set(key, seen)
-      if (!Number.isFinite(result.startTime) || !Number.isFinite(result.endTime) || result.endTime < result.startTime) {
-        throw new Error(`Invalid duration: ${key}`)
-      }
-      if (project === 'integration') timings[file] = (result.endTime - result.startTime) / 1000
+      if (!Number.isFinite(result.duration) || result.duration < 0) throw new Error(`Invalid duration: ${key}`)
+      if (project === 'integration') timings[file] = result.duration / 1000
     }
   }
   const missing = [...expected].filter(([, seen]) => seen !== 1).map(([key]) => key)
@@ -76,10 +118,19 @@ if (import.meta.main) {
     if (expected.some(({ project }) => project !== 'unit' && project !== 'integration'))
       throw new Error('Unknown project')
     const integration = expected.filter(({ project }) => project === 'integration').map(({ file }) => file)
+    literalIncludes(JSON.stringify(integration))
     if (integration.length < 8 || !expected.some(({ project }) => project === 'unit'))
       throw new Error('Insufficient test files')
     let timings: Record<string, number> = {}
-    if (existsSync(timingsPath)) timings = readJson<Record<string, number>>(timingsPath)
+    if (existsSync(timingsPath)) {
+      try {
+        const parsed = parseTimings(readFileSync(timingsPath, 'utf8'))
+        timings = parsed.timings
+        if (parsed.warning) console.error('::warning::Ignoring invalid cached test timings')
+      } catch {
+        console.error('::warning::Unable to read cached test timings; using defaults')
+      }
+    }
     const plan: Plan = { expected, shards: partition(integration, timings, 8) }
     writeJson(outputPath, plan)
     console.log(JSON.stringify({ include: plan.shards.map((files, index) => ({ shard: index + 1, files })) }))

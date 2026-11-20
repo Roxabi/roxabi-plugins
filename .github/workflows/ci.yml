@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ci-${{ github.event_name == 'pull_request' && github.run_attempt == '1' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -45,7 +45,8 @@ jobs:
           name: test-plan
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
+          overwrite: true
 
   checks:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -87,14 +88,17 @@ jobs:
         run: actionlint
       - name: Test unit project
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bunx vitest run --project unit --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/unit/report.json"
+        env:
+          CI_TEST_REPORT: ${{ runner.temp }}/unit/report.json
+        run: bunx vitest run --project unit --reporter=default --reporter=./tools/vitest-ci-report.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: unit
           path: ${{ runner.temp }}/unit/report.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
+          overwrite: true
       - name: Verify action pins resolve
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
@@ -132,14 +136,16 @@ jobs:
       - name: Test integration shard
         env:
           CI_INTEGRATION_FILES: ${{ toJSON(matrix.files) }}
-        run: bunx vitest run --project integration --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/integration/report.json"
+          CI_TEST_REPORT: ${{ runner.temp }}/integration/report.json
+        run: bunx vitest run --project integration --reporter=default --reporter=./tools/vitest-ci-report.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: integration-${{ matrix.shard }}
           path: ${{ runner.temp }}/integration/report.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
+          overwrite: true
 
   ci:
     needs: [plan, checks, integration]
