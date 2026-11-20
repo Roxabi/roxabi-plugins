@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Idempotent worktree bootstrap. Never writes on the principal.
 # Marker: $(git rev-parse --git-dir)/omp-build-bootstrapped
-# after ccc/codegraph and before setup.
+# after codegraph and before setup.
 set -euo pipefail
 
 toplevel="$(git rev-parse --show-toplevel)"
