@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.2 (unreleased)
+
+- Drop code-index tools from the feature workflow: `/feature init` no longer proposes ccc or codegraph, and worktree bootstrap no longer runs `codegraph init` or requires its CLI. Bootstrap is transfer, setup and marker only; a project that opted in to codegraph indexes its worktrees itself.
+- Recognize 0.21.2 under the bounded PR-binding policy while preserving 0.21.0 and 0.21.1. This source change does not migrate mandates, activate tooling or authorize recovery.
+
 ## 0.21.1 (unreleased)
 
 - Stop preparing cocoindex-code (`ccc`) in worktree bootstrap: no CLI requirement, store copy or `ccc index`/`reset`. A principal holding a stale `.cocoindex_code/` no longer fails bootstrap on a host without `ccc`; codegraph indexing is unchanged.

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent worktree bootstrap. Never writes on the principal.
-# Marker: $(git rev-parse --git-dir)/omp-build-bootstrapped
-# after codegraph and before setup.
+# Marker: $(git rev-parse --git-dir)/omp-build-bootstrapped, written after setup.
 set -euo pipefail
 
 toplevel="$(git rev-parse --show-toplevel)"
@@ -65,8 +64,6 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/worktree-bootstrap-stack.sh"
 # shellcheck source=worktree-bootstrap-files.sh
 source "$script_dir/worktree-bootstrap-files.sh"
-# shellcheck source=worktree-bootstrap-indexes.sh
-source "$script_dir/worktree-bootstrap-indexes.sh"
 
 read_bootstrap_stack "$stack"
 
@@ -78,8 +75,6 @@ for rel in "${seed_values[@]}"; do
   [ -n "$rel" ] || continue
   copy_from_principal "$rel"
 done
-
-run_pre_setup_indexes
 
 case "$setup_mode" in
   snippet)

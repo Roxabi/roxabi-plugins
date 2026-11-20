@@ -70,12 +70,14 @@ const STACK = `worktree:
   setup: touch setup-ran
 `
 
-// Stand-ins for ccc and codegraph: each call logs its argv and physical cwd.
+const INDEXERS = ['ccc', 'codegraph', 'semctx']
+
+// Stand-ins for the index CLIs: each call logs its argv and physical cwd.
 function fakeIndexers(dir: string): { env: NodeJS.ProcessEnv; log: string } {
   const bin = path.join(dir, 'bin')
   const log = path.join(dir, 'indexers.log')
   mkdirSync(bin)
-  for (const name of ['ccc', 'codegraph']) {
+  for (const name of INDEXERS) {
     const file = path.join(bin, name)
     writeFileSync(file, `#!/usr/bin/env bash\nprintf '%s|%s\\n' "${name} $*" "$(pwd -P)" >> '${log}'\n`)
     chmodSync(file, 0o755)
@@ -83,14 +85,14 @@ function fakeIndexers(dir: string): { env: NodeJS.ProcessEnv; log: string } {
   return { env: { ...ENV, PATH: `${bin}:${ENV.PATH}` }, log }
 }
 
-// Hides one CLI: each PATH directory holding it becomes a mirror of its other entries.
-function withoutCli(env: NodeJS.ProcessEnv, name: string, scratch: string): NodeJS.ProcessEnv {
+// Hides CLIs: each PATH directory holding one becomes a mirror of its other entries.
+function withoutClis(env: NodeJS.ProcessEnv, names: string[], scratch: string): NodeJS.ProcessEnv {
   const entries = env.PATH?.split(path.delimiter).map((entry, index) => {
-    if (!existsSync(path.join(entry, name))) return entry
-    const mirror = path.join(scratch, `path-without-${name}-${index}`)
+    if (!names.some((name) => existsSync(path.join(entry, name)))) return entry
+    const mirror = path.join(scratch, `path-mirror-${index}`)
     mkdirSync(mirror)
     for (const file of readdirSync(entry)) {
-      if (file !== name) symlinkSync(path.join(entry, file), path.join(mirror, file))
+      if (!names.includes(file)) symlinkSync(path.join(entry, file), path.join(mirror, file))
     }
     return mirror
   })
@@ -265,29 +267,24 @@ commands:
     expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
   })
 
-  it('fails malformed YAML before transfer, setup, indexing or marking, then retries after correction', () => {
+  it('fails malformed YAML before transfer, setup or marking, then retries after correction', () => {
     const { repo, wt } = principalWith('worktree:\n  copy: [.env\n  setup: touch setup-ran\n')
     const gitDir = path.join(repo, '.git', 'worktrees', 'wt')
-    mkdirSync(path.join(repo, '.codegraph'))
-    writeFileSync(path.join(repo, '.codegraph', 'codegraph.db'), 'graph\n')
-    const { env, log } = fakeIndexers(path.dirname(repo))
 
-    const failed = spawnSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
+    const failed = spawnSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
 
     expect(failed.status).not.toBe(0)
     expect(failed.stderr).toContain(path.join(wt, '.dev', 'stack.yml'))
     expect(existsSync(path.join(wt, '.env'))).toBe(false)
     expect(existsSync(path.join(wt, 'setup-ran'))).toBe(false)
-    expect(existsSync(log)).toBe(false)
     expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(false)
     expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
 
     writeFileSync(path.join(wt, '.dev', 'stack.yml'), 'worktree:\n  copy: [.env]\n  setup: touch setup-ran\n')
-    execFileSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
+    execFileSync('bash', [BOOT], { cwd: wt, env: ENV, encoding: 'utf8' })
 
     expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('REAL=1\n')
     expect(existsSync(path.join(wt, 'setup-ran'))).toBe(true)
-    expect(readFileSync(log, 'utf8')).toContain('codegraph init -y')
     expect(existsSync(path.join(gitDir, 'omp-build-bootstrapped'))).toBe(true)
     expect(() => lstatSync(path.join(gitDir, 'omp-build-bootstrap.lock'))).toThrow(/ENOENT/)
   })
@@ -355,60 +352,33 @@ commands:
     expect(readFileSync(path.join(repo, 'out', 'NEW'), 'utf8')).toBe('src-bytes\n')
   })
 
-  it('indexes the worktree itself before setup despite a residual Semctx directory', () => {
-    const { repo, wt } = principalWith('worktree:\n  setup: echo setup >> ../indexers.log\n')
-    mkdirSync(path.join(repo, '.codegraph'))
-    writeFileSync(path.join(repo, '.codegraph', 'codegraph.db'), 'graph\n')
-    mkdirSync(path.join(wt, '.semctx'))
-    const { env, log } = fakeIndexers(path.dirname(repo))
-    const here = realpathSync(wt)
-
-    const out = execFileSync('bash', [BOOT], {
-      cwd: wt,
-      env: withoutCli(env, 'semctx', path.dirname(repo)),
-      encoding: 'utf8',
-    })
-
-    expect(out.trim().split('\n').at(-1)).toBe('bootstrap=done')
-    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([`codegraph init -y ${here}|${here}`, 'setup'])
-    expect(readFileSync(log, 'utf8')).not.toMatch(/semctx/i)
-  })
-
   it.each([
     { name: 'installed', hidden: false },
     { name: 'missing', hidden: true },
-  ])('prepares no ccc index from a principal that holds one, with ccc $name', ({ hidden }) => {
-    const { repo, wt } = principalWith('')
+  ])('prepares no code index from a principal holding ccc and codegraph indexes, CLIs $name', ({ hidden }) => {
+    const { repo, wt } = principalWith('worktree:\n  setup: echo setup >> ../indexers.log\n')
     const ccc = path.join(repo, '.cocoindex_code')
     mkdirSync(path.join(ccc, 'cocoindex.db', 'mdb'), { recursive: true })
     writeFileSync(path.join(ccc, 'settings.yml'), 'include_patterns: []\n')
     writeFileSync(path.join(ccc, 'cocoindex.db', 'mdb', 'data.mdb'), 'state\n')
     writeFileSync(path.join(ccc, 'target_sqlite.db'), 'vectors\n')
+    mkdirSync(path.join(repo, '.codegraph'))
+    writeFileSync(path.join(repo, '.codegraph', 'codegraph.db'), 'graph\n')
+    mkdirSync(path.join(wt, '.semctx'))
     const { env, log } = fakeIndexers(path.dirname(repo))
 
     const run = spawnSync('bash', [BOOT], {
       cwd: wt,
-      env: hidden ? withoutCli(env, 'ccc', path.dirname(repo)) : env,
+      env: hidden ? withoutClis(env, INDEXERS, path.dirname(repo)) : env,
       encoding: 'utf8',
     })
 
-    expect(run.stderr).not.toContain('cocoindex')
+    expect(run.stderr).not.toContain('cli-missing')
     expect(run.status).toBe(0)
     expect(run.stdout.trim()).toBe('bootstrap=done')
-    expect(existsSync(log)).toBe(false)
+    expect(readFileSync(log, 'utf8')).toBe('setup\n')
     expect(existsSync(path.join(wt, '.cocoindex_code'))).toBe(false)
-  })
-
-  it('starts no indexer when the principal only holds tool config, not an index', () => {
-    const { repo, wt } = principalWith('')
-    mkdirSync(path.join(repo, '.codegraph'))
-    writeFileSync(path.join(repo, '.codegraph', 'telemetry.json'), '{}\n')
-    const { env, log } = fakeIndexers(path.dirname(repo))
-
-    const out = execFileSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
-
-    expect(out.trim()).toBe('bootstrap=done')
-    expect(existsSync(log)).toBe(false)
+    expect(existsSync(path.join(wt, '.codegraph'))).toBe(false)
   })
 
   it('runs setup once when two bootstraps race, the later one waiting then no-op', async () => {
