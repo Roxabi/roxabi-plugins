@@ -25,7 +25,11 @@ it('refuses stale attribution before publishing a correction root', async () => 
   const ghConfig = path.join(box.root, 'race-gh-config')
   mkdirSync(bin)
   mkdirSync(ghConfig)
-  symlinkSync(path.resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts'), path.join(bin, 'gh'))
+  symlinkSync(
+    process.env.OMP_TEST_GH_FAULT_CLIENT_PATH ??
+      path.resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts'),
+    path.join(bin, 'gh'),
+  )
   const env: NodeJS.ProcessEnv = { ...box.env, PATH: `${bin}:${box.env.PATH}`, HOME: box.root, GH_CONFIG_DIR: ghConfig }
   for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST'])
     delete env[key]

@@ -11,7 +11,8 @@ const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const worker = resolve(import.meta.dirname, '../../testing/fix-recovery-ci-worker.ts')
 const seedWorker = resolve(import.meta.dirname, '../../testing/fix-recovery-cold-worker.ts')
 const leaseWorker = resolve(import.meta.dirname, '../../testing/linux-execution-lease-process.ts')
-const fault = resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts')
+const fault =
+  process.env.OMP_TEST_GH_FAULT_CLIENT_PATH ?? resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts')
 const roots = new Set<string>()
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })

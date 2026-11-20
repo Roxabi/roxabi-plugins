@@ -25,7 +25,9 @@ export async function createRecoveryTestRoot(input: {
   const gh = Bun.which('gh')
   if (
     !gh ||
-    realpathSync(gh) !== realpathSync(join(import.meta.dirname, 'fix-recovery-gh-fault.ts')) ||
+    (realpathSync(gh) !== realpathSync(join(import.meta.dirname, 'fix-recovery-gh-fault.ts')) &&
+      (!process.env.OMP_TEST_GH_FAULT_CLIENT_PATH ||
+        realpathSync(gh) !== realpathSync(process.env.OMP_TEST_GH_FAULT_CLIENT_PATH))) ||
     process.env.HOME !== input.sandboxHome ||
     process.env.GH_CONFIG_DIR !== input.ghConfigDir ||
     process.env.GH_SIM_STATE !== input.ghSimulatorState ||

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, readlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { executeFaultCommand } from '../../../../testing/fix-recovery-gh-fault-core.ts'
 import { executeSimCommand, type SimCommandResult } from './sim-execution.ts'
 
 const token = process.argv[2]
@@ -48,6 +49,54 @@ function readFields(request: Buffer): string[] {
   return fields
 }
 
+function executeRequest(socket: Bun.Socket<SocketData>, fields: string[], argc: number, mode: 'sim' | 'fault') {
+  try {
+    const pid = fields[1]
+    const cwd = readlinkSync(`/proc/${pid}/cwd`)
+    const env: NodeJS.ProcessEnv = {}
+    for (const item of readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0')) {
+      const separator = item.indexOf('=')
+      if (separator > 0) env[item.slice(0, separator)] = item.slice(separator + 1)
+    }
+    env.OMP_GH_SIM_SERVER_REQUEST = '1'
+    const stdinPath = fields[3 + argc]
+    const oldCwd = process.cwd()
+    const oldEnv = process.env
+    let result: SimCommandResult & { awaitRelease?: string; awaitDeadline?: number }
+    try {
+      process.chdir(cwd)
+      process.env = env
+      result = (mode === 'fault' ? executeFaultCommand : executeSimCommand)(fields.slice(3, 3 + argc), {
+        cwd,
+        env,
+        pid: Number(pid),
+        readStdin: () => {
+          if (!stdinPath) throw new Error('gh simulator: stdin was not staged')
+          return readFileSync(stdinPath, 'utf8')
+        },
+      })
+    } finally {
+      process.env = oldEnv
+      process.chdir(oldCwd)
+    }
+    let stderrPath = '-'
+    if (result.stderr) {
+      stderrPath = path.join(directory, `stderr-${randomUUID()}`)
+      writeFileSync(stderrPath, result.stderr, { mode: 0o600 })
+    }
+    let releasePath = '-'
+    if (result.awaitRelease) {
+      releasePath = path.join(directory, `release-${randomUUID()}`)
+      writeFileSync(releasePath, `${result.awaitRelease}\0${result.awaitDeadline}\0`, { mode: 0o600 })
+    }
+    respond(socket, `${result.status}\0${stderrPath}\0${releasePath}\0${result.stdout}`)
+  } catch (error) {
+    const stderrPath = path.join(directory, `stderr-${randomUUID()}`)
+    writeFileSync(stderrPath, `gh simulator: ${String(error)}\n`, { mode: 0o600 })
+    respond(socket, `1\0${stderrPath}\0-\0`)
+  }
+}
+
 const server = Bun.listen<SocketData>({
   hostname: '127.0.0.1',
   port: 0,
@@ -64,56 +113,22 @@ const server = Bun.listen<SocketData>({
       const argc = Number(fields[2])
       if (!Number.isSafeInteger(argc) || argc < 0 || argc > 100000) {
         socket.data.handled = true
-        respond(socket, '1 !\n')
+        respond(socket, '1\0!\0-\0')
         return
       }
-      if (fields.length < 4 + argc) return
+      if (fields.length < 5 + argc) return
       socket.data.handled = true
       socket.data.chunks = []
       if (fields[0] !== token || !/^\d+$/.test(fields[1] ?? '')) {
-        respond(socket, '1 !\n')
+        respond(socket, '1\0!\0-\0')
         return
       }
-      try {
-        const pid = fields[1]
-        const cwd = readlinkSync(`/proc/${pid}/cwd`)
-        const env: NodeJS.ProcessEnv = {}
-        for (const item of readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0')) {
-          const separator = item.indexOf('=')
-          if (separator > 0) env[item.slice(0, separator)] = item.slice(separator + 1)
-        }
-        env.OMP_GH_SIM_SERVER_REQUEST = '1'
-        const stdinPath = fields[3 + argc]
-        const oldCwd = process.cwd()
-        const oldEnv = process.env
-        let result: SimCommandResult
-        try {
-          process.chdir(cwd)
-          process.env = env
-          result = executeSimCommand(fields.slice(3, 3 + argc), {
-            cwd,
-            env,
-            pid: Number(pid),
-            readStdin: () => {
-              if (!stdinPath) throw new Error('gh simulator: stdin was not staged')
-              return readFileSync(stdinPath, 'utf8')
-            },
-          })
-        } finally {
-          process.env = oldEnv
-          process.chdir(oldCwd)
-        }
-        let stderrPath = '-'
-        if (result.stderr) {
-          stderrPath = path.join(directory, `stderr-${randomUUID()}`)
-          writeFileSync(stderrPath, result.stderr, { mode: 0o600 })
-        }
-        respond(socket, `${result.status} ${stderrPath}\n${result.stdout}`)
-      } catch (error) {
-        const stderrPath = path.join(directory, `stderr-${randomUUID()}`)
-        writeFileSync(stderrPath, `gh simulator: ${String(error)}\n`, { mode: 0o600 })
-        respond(socket, `1 ${stderrPath}\n`)
+      const mode = fields[4 + argc]
+      if (mode !== 'sim' && mode !== 'fault') {
+        respond(socket, '1\0!\0-\0')
+        return
       }
+      executeRequest(socket, fields, argc, mode)
     },
     drain(socket) {
       flushResponse(socket)

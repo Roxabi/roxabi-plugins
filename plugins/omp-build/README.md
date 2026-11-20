@@ -1112,6 +1112,8 @@ Commit and comparison metadata is batched from real Git within each request, ret
 
 Integration fixtures use a lightweight `gh` client to send commands to a dedicated simulator server per test file; the server is compiled with automatic loading of ambient Bun configuration and `.env` files disabled, and fixtures pass their environment explicitly. The server path is Linux `/proc`-based. A standalone executable serves comment-barrier calls, calls made while the state lock is held, and hosts without `/proc`; a nested `gh` call inside a server request fails fast.
 
+The fix-recovery fault fixture uses the same per-file server through its fault client. The release-gate wait stays client-side, and its standalone fallback is a TypeScript script.
+
 ### Quality contract
 
 Run `bun run quality:omp-build` for the same owned-source check used by the pre-commit hook and CI. Physical discovery feeds both the line counter and the pinned Biome command; warnings fail, and an empty lint set is not success.

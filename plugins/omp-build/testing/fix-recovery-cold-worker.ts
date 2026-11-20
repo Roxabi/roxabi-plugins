@@ -16,7 +16,9 @@ if (!mode || !cwd || !rootDir || !stateFile) throw new Error('cold-worker-argume
 const gh = Bun.which('gh')
 if (
   !gh ||
-  realpathSync(gh) !== realpathSync(join(import.meta.dirname, 'fix-recovery-gh-fault.ts')) ||
+  (realpathSync(gh) !== realpathSync(join(import.meta.dirname, 'fix-recovery-gh-fault.ts')) &&
+    (!process.env.OMP_TEST_GH_FAULT_CLIENT_PATH ||
+      realpathSync(gh) !== realpathSync(process.env.OMP_TEST_GH_FAULT_CLIENT_PATH))) ||
   process.env.HOME !== rootDir ||
   process.env.GH_CONFIG_DIR !== join(rootDir, 'gh-config') ||
   process.env.GH_SIM_STATE !== stateFile ||

@@ -73,6 +73,9 @@ executable instead for comment-barrier calls, calls made while the state lock
 is held, and hosts without `/proc`. A nested `gh` call issued from inside a
 server request fails fast. Standalone Bun fixture runs continue to use the
 simulator source.
+The fix-recovery fault fixture also uses the per-file server through its fault
+client. Its release-gate wait remains client-side; its standalone fallback is
+a TypeScript script.
 
 Vitest runs unit and integration files in separate, non-overlapping resource
 groups. Integration uses at most one worker per four available CPUs (minimum

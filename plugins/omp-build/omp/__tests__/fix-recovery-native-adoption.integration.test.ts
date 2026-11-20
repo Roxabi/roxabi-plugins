@@ -10,7 +10,8 @@ import { readSim } from '../../testing/sandbox/sandbox-repository.ts'
 
 const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const worker = resolve(import.meta.dirname, '../../testing/fix-recovery-adoption-worker.ts')
-const fault = resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts')
+const fault =
+  process.env.OMP_TEST_GH_FAULT_CLIENT_PATH ?? resolve(import.meta.dirname, '../../testing/fix-recovery-gh-fault.ts')
 const roots = new Set<string>()
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
