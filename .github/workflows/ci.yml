@@ -133,6 +133,10 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
+      - name: Record runner hardware
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          echo "cpus=$(nproc)"
       - name: Test integration shard
         env:
           CI_INTEGRATION_FILES: ${{ toJSON(matrix.files) }}
