@@ -1,16 +1,6 @@
-import { spawn, spawnSync } from 'node:child_process'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  watch,
-  writeFileSync,
-} from 'node:fs'
-import { join } from 'node:path'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, watch, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { describe, expect, inject, it, vi } from 'vitest'
 import { base, dispose, openState, pull, saved } from './sim-transport-fixture.ts'
 
@@ -335,8 +325,9 @@ describe('gh simulator server client', () => {
     child.once('close', closed.resolve)
     try {
       // Without the client's lock check the call would sit in the serial server instead.
-      const standalone = realpathSync(inject('ompTestGhStandalonePath'))
-      await vi.waitFor(() => expect(readlinkSync(`/proc/${child.pid}/exe`)).toBe(standalone), { timeout: 10_000 })
+      const standalone = basename(inject('ompTestGhStandalonePath'))
+      const command = () => execFileSync('ps', ['-o', 'comm=', '-p', String(child.pid)], { encoding: 'utf8' }).trim()
+      await vi.waitFor(() => expect(basename(command())).toBe(standalone), { timeout: 10_000 })
       const unrelated = invoke(other.file, other.root, ['repo', 'view', '--jq', '.nameWithOwner'])
       expect(unrelated.status, unrelated.stderr.toString()).toBe(0)
       expect(unrelated.stdout.toString()).toBe('other/repo\n')
