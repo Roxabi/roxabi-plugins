@@ -2,7 +2,6 @@
 
 ## 0.21.3 (unreleased)
 
-- Read pinned review catalogues together within one observation. A missing pin or revoked read still fails for the affected input; a later decision reads the pins again.
 - Prepare the child proof sources for a Parent integration from its current accepted Spec and delivery evidence. Replay checks those exact sources again before the first START.
 
 ## 0.21.2 (unreleased)

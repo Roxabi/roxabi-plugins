@@ -39,16 +39,6 @@ function catalogueQuery(count) {
   return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`
 }
 
-const PIN_VECTOR_LIMIT = 32
-function pinVectorQuery(count) {
-  const variables = Array.from({ length: count }, (_, index) => `$e${index}:String!`).join(',')
-  const fields = Array.from(
-    { length: count },
-    (_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid}}`,
-  ).join(' ')
-  return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`
-}
-
 module.exports = {
   BLOB_QUERY,
   PULLS_QUERY,
@@ -56,6 +46,4 @@ module.exports = {
   PR_BODY_QUERY,
   CI_ROLLUP_QUERY,
   catalogueQuery,
-  PIN_VECTOR_LIMIT,
-  pinVectorQuery,
 }
