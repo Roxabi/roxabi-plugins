@@ -65,21 +65,13 @@ var require_preparation_graphql = __commonJS(function(exports, module) {
     const fields = Array.from({ length: count }, (_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid byteSize isBinary isTruncated text}}`).join(" ");
     return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`;
   }
-  var PIN_VECTOR_LIMIT = 32;
-  function pinVectorQuery(count) {
-    const variables = Array.from({ length: count }, (_, index) => `$e${index}:String!`).join(",");
-    const fields = Array.from({ length: count }, (_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid}}`).join(" ");
-    return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`;
-  }
   module.exports = {
     BLOB_QUERY,
     PULLS_QUERY,
     AUTH_COMMENT_QUERY,
     PR_BODY_QUERY,
     CI_ROLLUP_QUERY,
-    catalogueQuery,
-    PIN_VECTOR_LIMIT,
-    pinVectorQuery
+    catalogueQuery
   };
 });
 
@@ -24830,7 +24822,7 @@ function isKnownGraphRead(args) {
     return names.join(",") === "owner,name" || names.join(",") === "owner,name,cursor" || names.join(",") === "owner,name,branch" || names.join(",") === "owner,name,cursor,branch";
   }
   const count = names.length - 2;
-  return count > 0 && names[0] === "owner" && names[1] === "name" && names.slice(2).every((name, index) => name === `e${index}`) && (query === import_preparation_graphql.catalogueQuery(count) || count <= import_preparation_graphql.PIN_VECTOR_LIMIT && query === import_preparation_graphql.pinVectorQuery(count));
+  return count > 0 && names[0] === "owner" && names[1] === "name" && names.slice(2).every((name, index) => name === `e${index}`) && query === import_preparation_graphql.catalogueQuery(count);
 }
 function githubPreparationKind(args) {
   if (isUwGraphRead(args) || isKnownGraphRead(args))
