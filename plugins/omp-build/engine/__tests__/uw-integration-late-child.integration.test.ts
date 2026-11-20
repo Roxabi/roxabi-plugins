@@ -1,11 +1,41 @@
 import { execFileSync } from 'node:child_process'
 import { expect, test, vi } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { readGitHubHistory } from '../../adapters/github/transport.ts'
+import { projectWriterRetryHistory } from '../../adapters/github-workflow/writer-retry-observation.ts'
 import * as featureEngine from '../../roxabi/feature-engine.ts'
+import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
+import type { History } from '../history-schema.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { threeDeliveredChildren } from './uw-delivery-proof-fixture.ts'
+
+function assertRetryProjection(
+  rawHome: History,
+  originalHome: History,
+  record: CanonicalRecord,
+  body: string | undefined,
+) {
+  const observed = decodeHistory(rawHome)
+  expect(projectWriterRetryHistory(observed, { record, observed })).toEqual(decodeHistory(originalHome))
+  const prefix = rawHome.comments.find((comment) => comment.body === body)
+  const other = rawHome.comments.find((comment) => comment.body !== body)
+  if (!prefix?.nativeId || !other) throw new Error('Expected retained fragment and earlier native comment')
+  const missingId = decodeHistory({
+    ...rawHome,
+    comments: rawHome.comments.map((comment) => (comment === prefix ? { ...comment, nativeId: null } : comment)),
+  })
+  expect(projectWriterRetryHistory(missingId, { record, observed: missingId })).toBeNull()
+  const repeatedId = decodeHistory({
+    ...rawHome,
+    comments: rawHome.comments.map((comment) =>
+      comment === other ? { ...comment, nativeId: prefix.nativeId } : comment,
+    ),
+  })
+  expect(projectWriterRetryHistory(repeatedId, { record, observed: repeatedId })).toBeNull()
+}
 
 test('sealed integration refuses a late unreadable child without publishing', async () => {
   const checkout = nativeImplementationGit()
@@ -381,6 +411,11 @@ test('resumes the same ordinary integration START after a retained multipart pre
         if (!history) throw new Error('Parent history missing')
         // A long valid run ID makes this otherwise genuine START span multiple GitHub comments.
         const draft = { ...capture.record, runId: `retry-${'x'.repeat(70_000)}` }
+        const built = contracts.buildRecord(draft)
+        if (!built.ok) throw new Error('Integration draft is invalid')
+        const readOptions = withRoxabiGitHubPolicy({ cwd: parent.cwd, gh: world.gh })
+        const originalHome = await readGitHubHistory(world.parentScope, readOptions)
+        expect(originalHome.complete).toBe(true)
         const comments = async (gh = world.gh) => {
           const all: { id: number; body: string }[] = []
           for (let page = 1; ; page++) {
@@ -406,6 +441,9 @@ test('resumes the same ordinary integration START after a retained multipart pre
         const retained = (await comments()).find((comment) => comment.body === posted[0])
         expect(retained).toBeDefined()
         interrupt = false
+        const rawHome = await readGitHubHistory(world.parentScope, readOptions)
+        expect(rawHome.complete).toBe(true)
+        assertRetryProjection(rawHome, originalHome, built.value, posted[0])
         const retryPosts: string[] = []
         const retryGh: typeof world.gh = async (cwd, args) => {
           if (args[0] === 'api' && args[1] === '--method' && args[2] === 'POST') {

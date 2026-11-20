@@ -27661,9 +27661,31 @@ class UwObservationCut {
 }
 
 // plugins/omp-build/adapters/github-workflow/writer-retry-observation.ts
-function matchingRetainedParts(history, observed, record, own, parts) {
-  const matching = history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
-  return matching.length === 1 && JSON.stringify(matching[0]) === JSON.stringify(own) && JSON.stringify(history.source.comments.filter((comment) => parts.has(comment.locator))) === JSON.stringify(observed.source.comments.filter((comment) => parts.has(comment.locator)));
+function withoutRetainedParts(history, parts) {
+  const ids = new Map;
+  for (const part of parts) {
+    const id = part.nativeId;
+    if (!id || part.author !== history.source.expectedAuthor || part.locator !== `${history.source.scope.target}:comment:${id}`)
+      return null;
+    ids.set(id, false);
+  }
+  if (ids.size === 0 || ids.size !== parts.length)
+    return null;
+  let removed = 0;
+  const remaining = [];
+  for (const comment of history.source.comments) {
+    const id = comment.nativeId ?? "";
+    const seen = ids.get(id);
+    if (seen === undefined)
+      remaining.push(comment);
+    else {
+      if (seen)
+        return null;
+      ids.set(id, true);
+      removed++;
+    }
+  }
+  return removed === ids.size ? remaining : null;
 }
 function projectWriterRetryHistory(history, retry) {
   const { record, observed } = retry;
@@ -27682,15 +27704,11 @@ function projectWriterRetryHistory(history, retry) {
     return null;
   if (recordIntegrity(own[0].parts, record) !== null)
     return null;
-  const parts = new Set(own[0].parts.map((part) => part.locator));
-  if (parts.size === 0 || parts.size !== own[0].parts.length)
+  const matching = history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
+  if (matching.length !== 1 || JSON.stringify(matching[0]) !== JSON.stringify(own[0]))
     return null;
-  if (!matchingRetainedParts(history, observed, record, own[0], parts))
-    return null;
-  return decodeHistory({
-    ...history.source,
-    comments: history.source.comments.filter((comment) => !parts.has(comment.locator))
-  });
+  const comments = withoutRetainedParts(history, own[0].parts);
+  return comments === null ? null : decodeHistory({ ...history.source, comments });
 }
 
 // plugins/omp-build/adapters/github-workflow/uw-observation.ts

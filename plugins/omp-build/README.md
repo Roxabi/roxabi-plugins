@@ -471,7 +471,7 @@ An ordinary integration START pins the clean, detached HEAD only after proving i
 
 Before writing an ordinary integration START, the workflow rechecks the Parent's current Spec and child delivery proofs. It checks them again before returning the integration action to the owning session. If a child becomes ineligible after the write, the START remains in history, but the session does not announce native work.
 
-If publication stops between comments, the writer can finish the **same draft**. It checks current eligibility and the retained fragments before posting only the missing ones. This resumes a write; it does not start another integration or turn an incomplete receipt into permission to run.
+If publication stops between comments, the writer can finish the **same draft**. Each retained fragment must identify one unedited comment from the expected author in the current history. If the identity is missing or ambiguous, or the Parent is no longer eligible, the writer posts nothing more. This resumes a write; it does not start another integration.
 
 Only calculated completion of the whole nested Parent permits continuation into its exact accepted ancestor Mandate in that worktree. A Leaf merge alone does not permit that handoff, and continuation never implicitly unpauses a stopped ancestor.
 

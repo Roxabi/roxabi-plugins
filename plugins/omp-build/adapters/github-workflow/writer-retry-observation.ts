@@ -5,22 +5,35 @@ import { decodeHistory } from '../github/history-codec.ts'
 
 export type WriterRetryObservation = { record: CanonicalRecord; observed: DecodedHistory }
 
-function matchingRetainedParts(
-  history: DecodedHistory,
-  observed: DecodedHistory,
-  record: CanonicalRecord,
-  own: DecodedHistory['operations'][number],
-  parts: Set<string>,
-): boolean {
-  const matching = history.operations.filter(
-    (operation) => operation.authority !== 'foreign' && operation.operationId === record.operationId,
-  )
-  return (
-    matching.length === 1 &&
-    JSON.stringify(matching[0]) === JSON.stringify(own) &&
-    JSON.stringify(history.source.comments.filter((comment) => parts.has(comment.locator))) ===
-      JSON.stringify(observed.source.comments.filter((comment) => parts.has(comment.locator)))
-  )
+type Comment = DecodedHistory['source']['comments'][number]
+
+/** A page position cannot identify a write; every retained native ID must identify one raw comment. */
+function withoutRetainedParts(history: DecodedHistory, parts: readonly Comment[]): Comment[] | null {
+  const ids = new Map<string, boolean>()
+  for (const part of parts) {
+    const id = part.nativeId
+    if (
+      !id ||
+      part.author !== history.source.expectedAuthor ||
+      part.locator !== `${history.source.scope.target}:comment:${id}`
+    )
+      return null
+    ids.set(id, false)
+  }
+  if (ids.size === 0 || ids.size !== parts.length) return null
+  let removed = 0
+  const remaining: Comment[] = []
+  for (const comment of history.source.comments) {
+    const id = comment.nativeId ?? ''
+    const seen = ids.get(id)
+    if (seen === undefined) remaining.push(comment)
+    else {
+      if (seen) return null
+      ids.set(id, true)
+      removed++
+    }
+  }
+  return removed === ids.size ? remaining : null
 }
 
 /** Remove only the canonical writer's exact retained incomplete frames from its causal cut. */
@@ -53,11 +66,10 @@ export function projectWriterRetryHistory(
   )
     return null
   if (recordIntegrity(own[0].parts, record) !== null) return null
-  const parts = new Set(own[0].parts.map((part) => part.locator))
-  if (parts.size === 0 || parts.size !== own[0].parts.length) return null
-  if (!matchingRetainedParts(history, observed, record, own[0], parts)) return null
-  return decodeHistory({
-    ...history.source,
-    comments: history.source.comments.filter((comment) => !parts.has(comment.locator)),
-  })
+  const matching = history.operations.filter(
+    (operation) => operation.authority !== 'foreign' && operation.operationId === record.operationId,
+  )
+  if (matching.length !== 1 || JSON.stringify(matching[0]) !== JSON.stringify(own[0])) return null
+  const comments = withoutRetainedParts(history, own[0].parts)
+  return comments === null ? null : decodeHistory({ ...history.source, comments })
 }
