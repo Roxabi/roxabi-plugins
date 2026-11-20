@@ -6,7 +6,6 @@ import {
   actionRequest,
   blocks,
   confirmPreparedAction,
-  type DeliveryCode,
   observeHeadCode,
   observeSha,
   prepareDeliveryAction,
@@ -44,20 +43,6 @@ function integrationStartOperands(action: 'integrate' | 'implement', mandateId: 
   return action === 'integrate'
     ? { operands: { action: 'integrate' as const, exactInputs: { mandateId, planActionId } } }
     : {}
-}
-
-async function pinIntegrationBase(
-  action: 'integrate' | 'implement',
-  git: GitRunner,
-  cwd: string,
-  baseName: string,
-  code: DeliveryCode,
-): Promise<ContinueFeatureResult | null> {
-  if (action !== 'integrate') return null
-  const base = await observeSha(git, cwd, `origin/${baseName}`)
-  if (base === null) return blocks('integration-base-unobserved')
-  code.base = base
-  return null
 }
 
 type IntegrationStartPreflight = {
@@ -143,8 +128,10 @@ export async function startImplement(
   const code = await observeHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
   if (uw === undefined) return blocks('prepare-action-unavailable')
-  const codeFailure = await pinIntegrationBase(action, git, cwd, approved.mandate.payload.base, code.code)
-  if (codeFailure !== null) return codeFailure
+  // A tracking ref must exist, but its pre-fetch tip is not the integration base.
+  // Keep the observed HEAD: preflight must prove this exact commit is published before sealing START.
+  if (action === 'integrate' && (await observeSha(git, cwd, `origin/${approved.mandate.payload.base}`)) === null)
+    return blocks('integration-base-unobserved')
   const prepared = await (action === 'integrate' ? confirmPreparedAction : prepareDeliveryAction)(
     uw,
     actionRequest({

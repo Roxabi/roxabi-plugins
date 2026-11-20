@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
@@ -206,9 +209,33 @@ test.each(['published-before-start', 'published-after-start', 'unpublished-until
             return
           }
           async function assertPublishedStart() {
-            await checkout.publishBase(checkout.parentHead)
             parentCheckout.checkout(checkout.parentHead)
-            const published = parentCheckout.observe()
+            const beforeAdvance = parentCheckout.observe()
+            const publisher = mkdtempSync(join(tmpdir(), 'omp-parent-publisher-'))
+            try {
+              execFileSync('git', ['clone', '--quiet', checkout.originUrl, publisher])
+              execFileSync('git', ['-C', publisher, 'fetch', '--quiet', checkout.cwd, checkout.parentHead])
+              execFileSync('git', ['-C', publisher, 'push', '--quiet', 'origin', 'FETCH_HEAD:refs/heads/main'])
+            } finally {
+              rmSync(publisher, { recursive: true, force: true })
+            }
+            const git = (args: string[]) =>
+              execFileSync('git', ['-C', parentCheckout.cwd, ...args], { encoding: 'utf8' }).trim()
+            const remote = git(['ls-remote', 'origin', 'refs/heads/main']).split(/\s+/)[0]
+            expect({
+              head: git(['rev-parse', 'HEAD']),
+              tracking: git(['rev-parse', 'refs/remotes/origin/main']),
+              remote,
+              branch: git(['branch', '--show-current']),
+              status: git(['status', '--porcelain']),
+            }).toEqual({
+              head: checkout.parentHead,
+              tracking: thirdMerge,
+              remote: checkout.parentHead,
+              branch: '',
+              status: '',
+            })
+            const published = { ...beforeAdvance, remoteTip: checkout.parentHead }
             const result = await produceParentIntegration(realWorld, parentCheckout, {
               initial: published,
               candidate: published,
@@ -235,6 +262,7 @@ test.each(['published-before-start', 'published-after-start', 'unpublished-until
               receipt.payload.phase !== 'result'
             )
               throw new Error('Actual authenticated START/result pair is missing')
+            expect(start.payload.inputs.manifest.code.base).toBe(checkout.parentHead)
             const expected = {
               subject: receipt.payload.inputs.manifest.subject,
               spec: receipt.payload.inputs.manifest.spec,

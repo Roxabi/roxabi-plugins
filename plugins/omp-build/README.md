@@ -467,7 +467,7 @@ Parent/leaf execution follows the **current authenticated accepted child set**, 
 
 The hierarchy shares the [Parent UW worktree](GLOSSARY.md), anchored by its outermost authenticated Parent; nested Parents retain separate branch-null Mandates, not separate branches or PRs. Before Parent integration, the checkout must be clean and detached at the freshly fetched published base. After child merges, integration and direct review may honestly pin an empty `M..M` range: no synthetic Parent commit is needed, but the Parent's own criteria, coverage and child proofs still require independent review.
 
-Publication is proved before the integration START is sealed. RESULT and historical replay must retain that exact captured HEAD: publishing a descendant after START cannot substitute it. A non-empty `M..U` range is not rejected solely for differing base/head when `U` was already the captured published candidate.
+An ordinary integration START pins the clean, detached HEAD only after proving it is the published base. An out-of-date local tracking ref does not set the range; an unreadable ref or an unpublished HEAD still blocks START. RESULT and historical replay must retain the captured HEAD: publishing a descendant after START cannot substitute it. A historical `M..U` range remains valid when `U` was the captured published candidate and the other checks pass.
 
 Only calculated completion of the whole nested Parent permits continuation into its exact accepted ancestor Mandate in that worktree. A Leaf merge alone does not permit that handoff, and continuation never implicitly unpauses a stopped ancestor.
 
