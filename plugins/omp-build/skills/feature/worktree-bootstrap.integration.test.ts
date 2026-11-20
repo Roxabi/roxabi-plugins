@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -69,25 +70,31 @@ const STACK = `worktree:
   setup: touch setup-ran
 `
 
-// Stand-in for codegraph: each call logs its argv and physical cwd. PATH drops any
-// real `ccc`, so a bootstrap that still required it would fail on a missing CLI.
+// Stand-ins for ccc and codegraph: each call logs its argv and physical cwd.
 function fakeIndexers(dir: string): { env: NodeJS.ProcessEnv; log: string } {
   const bin = path.join(dir, 'bin')
   const log = path.join(dir, 'indexers.log')
   mkdirSync(bin)
-  const file = path.join(bin, 'codegraph')
-  writeFileSync(file, `#!/usr/bin/env bash\nprintf '%s|%s\\n' "codegraph $*" "$(pwd -P)" >> '${log}'\n`)
-  chmodSync(file, 0o755)
-  return { env: withoutCli({ ...ENV, PATH: `${bin}:${ENV.PATH}` }, 'ccc'), log }
+  for (const name of ['ccc', 'codegraph']) {
+    const file = path.join(bin, name)
+    writeFileSync(file, `#!/usr/bin/env bash\nprintf '%s|%s\\n' "${name} $*" "$(pwd -P)" >> '${log}'\n`)
+    chmodSync(file, 0o755)
+  }
+  return { env: { ...ENV, PATH: `${bin}:${ENV.PATH}` }, log }
 }
 
-function withoutCli(env: NodeJS.ProcessEnv, name: string): NodeJS.ProcessEnv {
-  return {
-    ...env,
-    PATH: env.PATH?.split(path.delimiter)
-      .filter((entry) => !existsSync(path.join(entry, name)))
-      .join(path.delimiter),
-  }
+// Hides one CLI: each PATH directory holding it becomes a mirror of its other entries.
+function withoutCli(env: NodeJS.ProcessEnv, name: string, scratch: string): NodeJS.ProcessEnv {
+  const entries = env.PATH?.split(path.delimiter).map((entry, index) => {
+    if (!existsSync(path.join(entry, name))) return entry
+    const mirror = path.join(scratch, `path-without-${name}-${index}`)
+    mkdirSync(mirror)
+    for (const file of readdirSync(entry)) {
+      if (file !== name) symlinkSync(path.join(entry, file), path.join(mirror, file))
+    }
+    return mirror
+  })
+  return { ...env, PATH: entries?.join(path.delimiter) }
 }
 
 describe('worktree bootstrap', () => {
@@ -356,14 +363,21 @@ commands:
     const { env, log } = fakeIndexers(path.dirname(repo))
     const here = realpathSync(wt)
 
-    const out = execFileSync('bash', [BOOT], { cwd: wt, env: withoutCli(env, 'semctx'), encoding: 'utf8' })
+    const out = execFileSync('bash', [BOOT], {
+      cwd: wt,
+      env: withoutCli(env, 'semctx', path.dirname(repo)),
+      encoding: 'utf8',
+    })
 
     expect(out.trim().split('\n').at(-1)).toBe('bootstrap=done')
     expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([`codegraph init -y ${here}|${here}`, 'setup'])
     expect(readFileSync(log, 'utf8')).not.toMatch(/semctx/i)
   })
 
-  it('prepares no ccc index from a principal that holds one, without the ccc CLI installed', () => {
+  it.each([
+    { name: 'installed', hidden: false },
+    { name: 'missing', hidden: true },
+  ])('prepares no ccc index from a principal that holds one, with ccc $name', ({ hidden }) => {
     const { repo, wt } = principalWith('')
     const ccc = path.join(repo, '.cocoindex_code')
     mkdirSync(path.join(ccc, 'cocoindex.db', 'mdb'), { recursive: true })
@@ -372,7 +386,11 @@ commands:
     writeFileSync(path.join(ccc, 'target_sqlite.db'), 'vectors\n')
     const { env, log } = fakeIndexers(path.dirname(repo))
 
-    const run = spawnSync('bash', [BOOT], { cwd: wt, env, encoding: 'utf8' })
+    const run = spawnSync('bash', [BOOT], {
+      cwd: wt,
+      env: hidden ? withoutCli(env, 'ccc', path.dirname(repo)) : env,
+      encoding: 'utf8',
+    })
 
     expect(run.stderr).not.toContain('cocoindex')
     expect(run.status).toBe(0)

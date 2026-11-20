@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.1 (unreleased)
+
+- Stop preparing cocoindex-code (`ccc`) in worktree bootstrap: no CLI requirement, store copy or `ccc index`/`reset`. A principal holding a stale `.cocoindex_code/` no longer fails bootstrap on a host without `ccc`; codegraph indexing is unchanged.
+- Recognize 0.21.1 under the bounded PR-binding policy while preserving 0.21.0. This source change does not migrate mandates, activate tooling or authorize recovery.
+
 ## 0.21.0 (unreleased)
 
 - Add bounded interrupted-correction recovery for authenticated originating owners that sealed admission, joined known trusted host work and witnessed no native/startup or correction-plan entry. Predecision publication can close neutrally before a new ordinary attempt; an unstarted existing-review decision can continue the same request and decision only with genuinely unspent execution coordinates.
