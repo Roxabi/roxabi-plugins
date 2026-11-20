@@ -68,7 +68,11 @@ bun run test              # Vitest — must pass
 Vitest's integration project compiles the GitHub simulator server and standalone
 executable into a run-owned temporary directory and removes them at teardown.
 Integration test files use a dedicated simulator server through a lightweight
-`gh` client; standalone Bun fixture runs continue to use the simulator source.
+`gh` client, which relies on Linux `/proc`. The client runs the standalone
+executable instead for comment-barrier calls, calls made while the state lock
+is held, and hosts without `/proc`. A nested `gh` call issued from inside a
+server request fails fast. Standalone Bun fixture runs continue to use the
+simulator source.
 
 Vitest runs unit and integration files in separate, non-overlapping resource
 groups. Integration uses at most one worker per four available CPUs (minimum

@@ -1,7 +1,17 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, symlinkSync, watch, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  watch,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, inject, it, vi } from 'vitest'
 import { base, dispose, openState, pull, saved } from './sim-transport-fixture.ts'
 
 function client(): string {
@@ -234,19 +244,110 @@ describe('gh simulator server client', () => {
     }
   })
 
-  it('fails quickly rather than entering the server on a nested simulator request', () => {
+  it('fails a real nested gh call from a git subprocess while the outer request completes', () => {
     const box = openState(base())
+    const bin = join(box.root, 'bin')
+    const log = join(box.root, 'nested.log')
+    const codes = join(box.root, 'nested.codes')
+    mkdirSync(bin)
+    const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim()
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\n"$OMP_TEST_NESTED_CLIENT" repo view >/dev/null 2>>"$OMP_TEST_NESTED_LOG"\necho "$?" >>"$OMP_TEST_NESTED_CODES"\nexec "${realGit}" "$@"\n`,
+      { mode: 0o755 },
+    )
     try {
-      const result = invoke(box.file, box.root, ['repo', 'view'], {
-        env: { OMP_GH_SIM_SERVER_REQUEST: '1' },
-        timeout: 2_000,
-      })
+      const result = invoke(
+        box.file,
+        box.root,
+        ['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'],
+        {
+          env: {
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
+            OMP_TEST_NESTED_CLIENT: client(),
+            OMP_TEST_NESTED_LOG: log,
+            OMP_TEST_NESTED_CODES: codes,
+          },
+        },
+      )
       expect(result.error).toBeUndefined()
-      expect(result.status).not.toBe(0)
-      expect(result.stderr.toString()).toContain('nested gh call')
-      expect(saved(box.file).calls).toEqual([])
+      expect(result.status, result.stderr.toString()).toBe(0)
+      expect(result.stdout.toString()).toMatch(/^[0-9a-f]{40}\n$/)
+      const statuses = readFileSync(codes, 'utf8').trim().split('\n')
+      expect(statuses.length).toBeGreaterThan(0)
+      expect(new Set(statuses)).toEqual(new Set(['1']))
+      expect(readFileSync(log, 'utf8')).toContain('nested gh call inside a simulator request')
+      expect(saved(box.file).calls).toEqual([
+        ['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'],
+      ])
     } finally {
       dispose(box.root)
+    }
+  })
+
+  it('preserves multiline unicode, empty and dash-leading arguments exactly', () => {
+    const box = openState(base({ prs: { 10: pull(10, 'feat/a', 'a'.repeat(40)) } }))
+    const body = 'a\nb é🙂'
+    try {
+      const argv = [
+        'api',
+        '--method',
+        'POST',
+        'repos/acme/app/issues/10/comments',
+        '-f',
+        `body=${body}`,
+        '',
+        '--silent',
+        '-x',
+      ]
+      const result = invoke(box.file, box.root, argv)
+      expect(result.error).toBeUndefined()
+      expect(result.status, result.stderr.toString()).toBe(0)
+      const state = saved(box.file)
+      expect(state.prs['10'].comments.map((comment) => comment.body)).toEqual([body])
+      const recorded = argv.map((arg) =>
+        arg === `body=${body}` ? `body=<persisted-comment; ${Buffer.byteLength(body)} bytes>` : arg,
+      )
+      expect(state.calls).toEqual([recorded])
+    } finally {
+      dispose(box.root)
+    }
+  })
+
+  it('does not let a lock held outside the server stall an unrelated state', async () => {
+    const held = openState(base())
+    const other = openState(base({ owner: 'other', name: 'repo' }))
+    mkdirSync(`${held.file}.lock`)
+    const child = spawn(client(), ['repo', 'view', '--jq', '.nameWithOwner'], {
+      cwd: held.root,
+      env: { ...process.env, GH_SIM_STATE: held.file },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    const closed = Promise.withResolvers<number | null>()
+    child.once('close', closed.resolve)
+    try {
+      // Without the client's lock check the call would sit in the serial server instead.
+      const standalone = realpathSync(inject('ompTestGhStandalonePath'))
+      await vi.waitFor(() => expect(readlinkSync(`/proc/${child.pid}/exe`)).toBe(standalone), { timeout: 10_000 })
+      const unrelated = invoke(other.file, other.root, ['repo', 'view', '--jq', '.nameWithOwner'])
+      expect(unrelated.status, unrelated.stderr.toString()).toBe(0)
+      expect(unrelated.stdout.toString()).toBe('other/repo\n')
+      rmSync(`${held.file}.lock`, { recursive: true, force: true })
+      expect(await closed.promise, stderr).toBe(0)
+      expect(stdout).toBe('acme/app\n')
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill()
+      await closed.promise.catch(() => undefined)
+      dispose(held.root)
+      dispose(other.root)
     }
   })
 })

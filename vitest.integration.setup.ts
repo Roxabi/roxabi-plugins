@@ -39,9 +39,13 @@ if [[ \${OMP_GH_SIM_SERVER_REQUEST:-} == 1 ]]; then
   echo 'gh simulator: nested gh call inside a simulator request' >&2
   exit 1
 fi
+use_standalone=
+[[ -r /proc/$$/environ ]] || use_standalone=1
+[[ -z \${GH_SIM_STATE:-} || ! -e "\${GH_SIM_STATE}.lock" ]] || use_standalone=1
 for barrier in "\${!GH_SIM_COMMENT_BARRIER_@}"; do
-  exec '${standalone}' "$@"
+  use_standalone=1
 done
+[[ -z $use_standalone ]] || exec '${standalone}' "$@"
 stdin_path=
 stderr_path=
 cleanup() {
