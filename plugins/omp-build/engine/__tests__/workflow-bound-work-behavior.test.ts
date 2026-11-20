@@ -60,7 +60,11 @@ test.each([
   { version: '0.21.1', branch: 'other', base: 'main', expected: 'conflicting' },
   { version: '0.21.1', branch: null, base: 'main', expected: 'conflicting' },
   { version: '0.21.1', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
-  { version: '0.21.2', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: '0.21.2', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.21.2', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.21.2', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.21.2', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.21.3', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
   { version: '0.22.0', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
   { version: 'unknown', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
 ])(

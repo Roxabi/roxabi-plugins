@@ -36,13 +36,6 @@ function trackerPlan(facts: Facts): string[] {
   return [...(facts.hasTracker ? [] : ['tracker contract']), ...labelPlan(facts)]
 }
 
-function toolPlan(facts: Facts): string[] {
-  const lines: string[] = []
-  if (!facts.hasCcc && !facts.cccConsent) lines.push('ccc proposed')
-  if (!facts.hasCodegraph && !facts.codegraphConsent) lines.push('codegraph proposed')
-  return lines
-}
-
 function landingPlan(facts: Facts): string[] {
   if (facts.hasLanding) {
     return [
@@ -65,7 +58,7 @@ function releasePlan(facts: Facts): string[] {
 }
 
 export function plan(facts: Facts): string[] {
-  return [...trackerPlan(facts), ...toolPlan(facts), ...landingPlan(facts), ...releasePlan(facts)]
+  return [...trackerPlan(facts), ...landingPlan(facts), ...releasePlan(facts)]
 }
 
 /** Runs `gh` in the target repo; returns stdout, or null when gh cannot answer. */
@@ -219,8 +212,6 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
     labels: labels.labels,
     labelsState: labels.state,
     legacyLabels: labels.labels.filter((label) => inputs.migrate(label).remove),
-    hasCcc: existsSync(join(dir, '.cocoindex_code')),
-    hasCodegraph: existsSync(join(dir, '.codegraph')),
     mergeOnGreen: Boolean(sources.merge),
     hasLanding,
     landingHidesChecks: hasLanding && landingHidesChecks(sources.stack, Boolean(sources.merge), inputs.parseYaml),
@@ -228,7 +219,5 @@ export async function readFacts(dir: string, opts: ReadFactsOpts = {}): Promise<
     hasWorktree: /^worktree:/m.test(sources.stack),
     hasPostMerge: /post_merge/.test(sources.stack),
     hasReleaseModel: /^ {2}model:/m.test(sources.stack),
-    cccConsent: /ccc:\s*true/.test(sources.stack),
-    codegraphConsent: /codegraph:\s*true/.test(sources.stack),
   }
 }
