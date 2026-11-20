@@ -21,6 +21,11 @@
     "vitest.integration.setup.ts",
     "plugins/issue-triage/**/*.ts",
     "plugins/omp-build/**/*.ts",
+    "tools/ci-test-shards.ts",
+    "tools/vitest-ci-report.ts",
+    "tools/__tests__/ci-test-shards.test.ts",
+    "tools/verify-action-pins.ts",
+    "tools/__tests__/verify-action-pins.test.ts",
     "tools/**/*omp-build*.ts",
     "tools/**/*omp-build*/**/*.ts",
     "scripts/**/*.ts"

@@ -26,9 +26,9 @@ export interface InlinePin extends InlineRef {
   file: string
 }
 
-/** Parse quoted and unquoted `uses: owner/repo@ref` workflow values. */
+/** Parse third-party `uses: owner/repo[/path]@ref` workflow values. */
 export function parseInlinePins(source: string): InlineRef[] {
-  const re = /uses:\s*(?:["']\s*)?([\w.-]+\/[\w.-]+)@([^\s'"#]+)(?:\s*["'])?/g
+  const re = /uses:\s*(?:["']\s*)?([\w.-]+\/[\w.-]+)(?:\/[^\s@'"#]+)?@([^\s'"#]+)(?:\s*["'])?/g
   return [...source.matchAll(re)].map((match) => ({ action: match[1], ref: match[2] }))
 }
 
