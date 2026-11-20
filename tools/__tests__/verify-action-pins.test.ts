@@ -20,6 +20,13 @@ describe('parseInlinePins', () => {
     },
   )
 
+  it('resolves sub-path SHA pins against the owner and repository', () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567'
+    expect(parseInlinePins(`uses: actions/cache/restore/deep@${sha}\n`)).toEqual([
+      { action: 'actions/cache', ref: sha },
+    ])
+  })
+
   it('does not treat local or expression-based uses values as third-party actions', () => {
     const expression = ['uses: ./local-action\nuses: ${{', ' inputs.action }}\n'].join('')
     expect(parseInlinePins(expression)).toEqual([])
@@ -57,6 +64,14 @@ describe('findFloatingWorkflowPins', () => {
     fs.writeFileSync(path.join(dirAbs, name), source)
     expect(findFloatingWorkflowPins(dirRel)).toEqual([
       { file: `${dirRel}/${name}`, action: 'actions/checkout', ref: 'v7' },
+    ])
+  })
+
+  it('rejects floating sub-path action references', () => {
+    fs.mkdirSync(dirAbs, { recursive: true })
+    fs.writeFileSync(path.join(dirAbs, 'subpath.yml'), 'uses: actions/cache/restore@v6\n')
+    expect(findFloatingWorkflowPins(dirRel)).toEqual([
+      { file: `${dirRel}/subpath.yml`, action: 'actions/cache', ref: 'v6' },
     ])
   })
 

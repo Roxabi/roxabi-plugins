@@ -75,6 +75,11 @@ groups. Integration uses at most one worker per four available CPUs (minimum
 one) to limit subprocess and I/O contention. `--project integration` selects
 the same integration files and keeps their 60-second per-test budget.
 
+CI plans eight integration shards from Vitest's file list, using cached
+per-file durations only to balance them. Unit tests and other checks run in
+parallel; the required `ci` job verifies exact report coverage before passing.
+Local `bun run test` still runs both complete projects.
+
 The allowance covers the full lifecycle workload; it is not a performance
 optimization. Tests taking 30–60 seconds no longer trigger the previous
 timeout alarm. Do not automatically raise the budget again; reassess a tighter

@@ -21,6 +21,11 @@ const exclude = [
 // land in the tight budget by accident — including when it forks only through an
 // imported helper, which its own source does not reveal.
 const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
+// CI supplies the planned files as JSON. Escape glob metacharacters so include
+// matches literal paths, not substrings or patterns from repository filenames.
+const integrationFiles = process.env.CI_INTEGRATION_FILES
+  ? (JSON.parse(process.env.CI_INTEGRATION_FILES) as string[]).map((file) => file.replace(/[\\*?[\]{}()!+@]/g, '\\$&'))
+  : [INTEGRATION]
 
 export default defineConfig({
   test: {
@@ -53,7 +58,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'integration',
-          include: [INTEGRATION],
+          include: integrationFiles,
           maxWorkers: Math.max(1, Math.floor(availableParallelism() / 4)),
           sequence: { groupOrder: 1 },
           globalSetup: ['./vitest.integration.global-setup.ts'],
