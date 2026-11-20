@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Context } from './sim-command-context.ts'
@@ -10,17 +10,21 @@ import { fail } from './sim-types.ts'
 
 type ObservedCommit = { sha: string; parents: { sha: string }[]; tree: { sha: string } }
 
-// Reads keyed only by full commit SHAs have exactly one answer: commits are immutable Merkle nodes.
-// Remembering successful answers on disk spares one git process per repeated read, inside the
-// simulator's state lock, so polling consumers no longer pay a process launch for every observation.
-function memoFile(context: Context, key: readonly string[]): string {
+// GitHub answers SHA-addressed history from the objects alone: it ignores replace refs, and its
+// repositories are neither grafted nor shallow. These reads therefore pass --no-replace-objects, and
+// with no grafts or shallow boundary each answer is fixed by the commit SHAs. Remembering successful
+// answers on disk spares one git process per repeated read inside the simulator's state lock.
+function memoFile(context: Context, key: readonly string[]): string | null {
+  const origin = context.state.origin
+  if (existsSync(join(origin, 'shallow')) || existsSync(join(origin, 'info', 'grafts'))) return null
   const digest = createHash('sha256')
-    .update([context.state.origin, ...key].join('\0'))
+    .update([origin, ...key].join('\0'))
     .digest('hex')
   return join(`${statePath()}.git-memo`, digest)
 }
 
-function recall(file: string): string | null {
+function recall(file: string | null): string | null {
+  if (file === null) return null
   try {
     return readFileSync(file, 'utf8')
   } catch (error) {
@@ -29,7 +33,8 @@ function recall(file: string): string | null {
   }
 }
 
-function remember(file: string, value: string): void {
+function remember(file: string | null, value: string): void {
+  if (file === null) return
   mkdirSync(join(file, '..'), { recursive: true })
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, value)
@@ -40,7 +45,7 @@ function immutableGit(context: Context, args: string[]): string {
   const file = memoFile(context, args)
   const known = recall(file)
   if (known !== null) return known
-  const output = git(context.state.origin, args)
+  const output = git(context.state.origin, ['--no-replace-objects', ...args])
   remember(file, output)
   return output
 }
@@ -73,7 +78,13 @@ export function observedCommits(context: Context, shas: readonly string[]): Map<
   }
   if (missing.length > 0) {
     const fetched = new Map<string, string>()
-    const output = git(context.state.origin, ['log', '--no-walk=unsorted', '--format=%H%x00%T%x00%P', ...missing])
+    const output = git(context.state.origin, [
+      '--no-replace-objects',
+      'log',
+      '--no-walk=unsorted',
+      '--format=%H%x00%T%x00%P',
+      ...missing,
+    ])
     for (const line of output.split('\n')) {
       const record = parseCommit(line)
       if (records.has(record.sha)) fail('gh: commit metadata is unreadable')
