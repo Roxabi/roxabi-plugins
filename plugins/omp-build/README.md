@@ -1110,7 +1110,7 @@ The executable GitHub simulator, the goal-only direct driver/workflow entries, a
 
 Commit and comparison metadata is batched from real Git within each request, retaining exact SHAs, trees, all parents and page order. Range observations and simulator transactions remain fresh; no metadata cache spans requests.
 
-The compiled fake `gh` used by integration fixtures disables automatic loading of ambient Bun configuration and `.env` files; fixtures pass their environment explicitly. It remains an external CLI process.
+Integration fixtures use a lightweight `gh` client to send commands to a dedicated simulator server per test file; the server is compiled with automatic loading of ambient Bun configuration and `.env` files disabled, and fixtures pass their environment explicitly. A standalone executable remains available for direct CLI probes.
 
 ### Quality contract
 

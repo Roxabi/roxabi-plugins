@@ -6,19 +6,38 @@ import type { TestProject } from 'vitest/node'
 
 declare module 'vitest' {
   export interface ProvidedContext {
-    ompTestGhSimulatorPath: string
+    ompTestGhServerPath: string
+    ompTestGhStandalonePath: string
     ompTestPinGhPath: string
     ompTestToolingGhPath: string
   }
 }
 
 export default function setupSimulator(project: TestProject): () => void {
-  const dir = mkdtempSync(path.join(tmpdir(), 'omp-test-gh-simulator-'))
-  const binary = path.join(dir, 'gh')
+  const dir = mkdtempSync(path.join(path.resolve(tmpdir()), 'omp-test-gh-simulator-'))
+  const binary = path.join(dir, 'gh-server')
+  const standalone = path.join(dir, 'gh-standalone')
   const pinGh = path.join(dir, 'pin-gh')
   const toolingReader = path.join(dir, 'tooling-gh')
   const plugin = path.resolve(import.meta.dirname, 'plugins/omp-build')
   try {
+    execFileSync(
+      'bun',
+      [
+        'build',
+        path.join(plugin, 'skills/feature/testing/gh-simulator/sim-server.ts'),
+        '--compile',
+        '--no-compile-autoload-dotenv',
+        '--no-compile-autoload-bunfig',
+        '--bytecode',
+        '--format=esm',
+        '--define',
+        `OMP_SIM_PHYSICAL_TOOLING_ROOT=${JSON.stringify(plugin)}`,
+        '--outfile',
+        binary,
+      ],
+      { stdio: 'inherit' },
+    )
     execFileSync(
       'bun',
       [
@@ -32,7 +51,7 @@ export default function setupSimulator(project: TestProject): () => void {
         '--define',
         `OMP_SIM_PHYSICAL_TOOLING_ROOT=${JSON.stringify(plugin)}`,
         '--outfile',
-        binary,
+        standalone,
       ],
       { stdio: 'inherit' },
     )
@@ -69,7 +88,8 @@ export default function setupSimulator(project: TestProject): () => void {
       ],
       { stdio: 'inherit' },
     )
-    project.provide('ompTestGhSimulatorPath', binary)
+    project.provide('ompTestGhServerPath', binary)
+    project.provide('ompTestGhStandalonePath', standalone)
     project.provide('ompTestPinGhPath', pinGh)
     project.provide('ompTestToolingGhPath', toolingReader)
   } catch (error) {
