@@ -10,7 +10,7 @@ import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ReviewCatalogueRead, ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import { actionFailure } from './uw-action-result.ts'
-import { readGitFileBytes } from './uw-git-bytes.ts'
+import { readGitCataloguePins } from './uw-git-bytes.ts'
 
 /** Candidate discovery loads content only; producing-source authentication remains in the engine. */
 function capturedActions(histories: readonly DecodedHistory[], candidates: readonly ActionInputs[]): ActionInputs[] {
@@ -55,41 +55,33 @@ export async function loadReviewClassCatalogues(input: {
     if (ref.ok) refs.set(identity(ref.value), ref.value)
   }
   const digests = new Map<string, Set<string>>()
-  const groups = new Map<string, PinnedFileRef[]>()
   for (const ref of refs.values()) {
     const key = coordinates(ref)
     const claimed = digests.get(key) ?? new Set<string>()
     claimed.add(ref.digest)
     digests.set(key, claimed)
-    const group = `${ref.repository}\0${ref.commit}`
-    const members = groups.get(group) ?? []
-    members.push(ref)
-    groups.set(group, members)
   }
-  const reads: ReviewCatalogueRead[] = []
-  for (const group of groups.values()) {
-    // One exact read per reference keeps an unreadable historical pin from poisoning its peers.
-    const observed = await Promise.all(
-      group.map(
-        async (ref): Promise<ReviewCatalogueRead> => ({
-          ref,
-          contents:
-            (digests.get(coordinates(ref))?.size ?? 0) > 1
-              ? actionFailure(
-                  'action-input-stale',
-                  `Conflicting catalogue digests for ${ref.repository}@${ref.commit}:${ref.path}`,
-                )
-              : await readGitFileBytes({
-                  repository: ref.repository,
-                  commit: ref.commit,
-                  path: ref.path,
-                  cwd: input.cwd,
-                  gh: input.gh,
-                }),
-        }),
-      ),
-    )
-    reads.push(...observed)
-  }
+  const eligible = [...refs.values()].filter((ref) => digests.get(coordinates(ref))?.size === 1)
+  const observed = await readGitCataloguePins(
+    eligible.map((ref) => ({
+      repository: ref.repository,
+      commit: ref.commit,
+      path: ref.path,
+      cwd: input.cwd,
+      gh: input.gh,
+    })),
+  )
+  const byCoordinate = new Map(eligible.map((ref, index) => [coordinates(ref), observed[index]]))
+  const reads: ReviewCatalogueRead[] = [...refs.values()].map((ref) => ({
+    ref,
+    contents:
+      (digests.get(coordinates(ref))?.size ?? 0) > 1
+        ? actionFailure(
+            'action-input-stale',
+            `Conflicting catalogue digests for ${ref.repository}@${ref.commit}:${ref.path}`,
+          )
+        : (byCoordinate.get(coordinates(ref)) ??
+          actionFailure('pinned-file-unreadable', 'Catalogue observation is missing')),
+  }))
   return createReviewClassCatalogues(reads)
 }

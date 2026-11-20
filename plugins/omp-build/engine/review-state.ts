@@ -45,6 +45,8 @@ function reviewTransportDiagnostics(transportDiagnostics: Diagnostic[], incomple
   return incompleteFinal ? [diagnostic('incomplete', 'A final review operation is not complete')] : null
 }
 
+type HistoricalDecision = ReturnType<typeof validateHistoricalReviewDecision>
+
 function latestReviewSummary(
   latest: Extract<CanonicalRecord, { kind: 'review' }> | null,
   at: ReviewSummary['at'],
@@ -56,6 +58,7 @@ function latestReviewSummary(
   spent: boolean,
   externalHistories: readonly DecodedHistory[],
   deliveryHistory: DecodedHistory,
+  latestHistorical: HistoricalDecision | undefined,
 ): Result<ReviewSummary> {
   if (latest === null)
     return {
@@ -70,15 +73,17 @@ function latestReviewSummary(
       true,
       spent,
     )
-  const assessed = validateHistoricalReviewDecision(
-    decision,
-    history,
-    catalogues,
-    acceptedPolicyRef,
-    externalHistories,
-    deliveryHistory,
-    latest.payload.causeDispositionRefs,
-  )
+  const assessed =
+    latestHistorical ??
+    validateHistoricalReviewDecision(
+      decision,
+      history,
+      catalogues,
+      acceptedPolicyRef,
+      externalHistories,
+      deliveryHistory,
+      latest.payload.causeDispositionRefs,
+    )
   if (!assessed.ok) return summaryFailure(assessed.diagnostics, knownReviews, true, spent)
   const assessment = assessed.value
   if (assessment.verdict === null) return summaryFailure(assessment.diagnostics, knownReviews, true, spent)
@@ -107,6 +112,7 @@ function validateAuthorityReviewSpend(
   deliveryHistory: DecodedHistory,
 ) {
   let spent = initialSpent
+  let latestHistorical: HistoricalDecision | undefined
   for (const [index, review] of reviews.entries()) {
     const record = review.record
     if (record?.kind !== 'review') continue
@@ -116,34 +122,29 @@ function validateAuthorityReviewSpend(
         diagnostics: [diagnostic('unknown-reference', `Review ${record.recordId} lacks its decision`)],
         spent,
       }
-    const assessed =
-      record.payload.causeDispositionRefs === undefined
-        ? {
-            ok: true as const,
-            value: validateDecision(
-              decision,
-              history,
-              catalogues,
-              acceptedPolicyRef,
-              externalHistories,
-              deliveryHistory,
-            ),
-          }
-        : validateHistoricalReviewDecision(
-            decision,
-            history,
-            catalogues,
-            acceptedPolicyRef,
-            externalHistories,
-            deliveryHistory,
-            record.payload.causeDispositionRefs,
-          )
+    const causeRefs = record.payload.causeDispositionRefs
+    // Legacy spend uses a different validator; never carry it into the final verdict.
+    latestHistorical =
+      causeRefs &&
+      validateHistoricalReviewDecision(
+        decision,
+        history,
+        catalogues,
+        acceptedPolicyRef,
+        externalHistories,
+        deliveryHistory,
+        causeRefs,
+      )
+    const assessed: HistoricalDecision = latestHistorical ?? {
+      ok: true,
+      value: validateDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory),
+    }
     if (!assessed.ok) return { diagnostics: assessed.diagnostics, spent }
     const assessment = assessed.value
     if (!assessment.admissible) return { diagnostics: assessment.diagnostics, spent }
     if (index >= 2 && assessment.verdict === 'Request changes') spent = true
   }
-  return { diagnostics: null, spent }
+  return { diagnostics: null, spent, latestHistorical }
 }
 
 function summarizeAuthorityReviews(
@@ -214,6 +215,7 @@ function summarizeAuthorityReviews(
     reviewSpend.spent,
     externalHistories,
     deliveryHistory,
+    reviewSpend.latestHistorical,
   )
 }
 

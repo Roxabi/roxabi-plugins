@@ -139,6 +139,28 @@ it('tells the operator which GitHub read failed when the observation is unavaila
   expect(stop.slice(2).join('\n')).toContain('API rate limit exceeded')
 })
 
+it('refuses an unavailable joint reread without writing', async () => {
+  const { read, options } = await observed(true)
+  const fixtures = roxabiWorkflowFixtures()
+  const addedScope = { repository: 'acme/app', target: 'acme/app#43' }
+  const selected = fixtures.historyFrom(
+    [fixtures.fixOnlyMandate(addedScope, { recordId: 'added-mandate' })],
+    'automation',
+  )
+  const requests: string[][] = []
+  const gh: Gh = async (cwd, args) => {
+    requests.push([...args])
+    if (args.some((arg) => arg.includes('/issues/42/comments'))) throw new Error('joint history unavailable')
+    return options.gh(cwd, args)
+  }
+  const result = await composeObservedUwCausalContext(read, [selected], { ...options, gh })
+  expect(result.ok).toBe(false)
+  expect(requests.some((args) => args.some((arg) => arg.includes('/issues/42/comments')))).toBe(true)
+  expect(requests.some((args) => args.includes('POST') || args.includes('PATCH') || args.includes('DELETE'))).toBe(
+    false,
+  )
+})
+
 it('extends a completed observation through newly selected and recursively cited scopes', async () => {
   const { read, options, inputs } = await observed(true)
   const fixtures = roxabiWorkflowFixtures()

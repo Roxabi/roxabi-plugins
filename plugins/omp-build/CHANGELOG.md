@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.3 (unreleased)
+
+- Read pinned review catalogues together within one observation. A missing pin or revoked read still fails for the affected input; a later decision reads the pins again.
+- Prepare the child proof sources for a Parent integration from its current accepted Spec and delivery evidence. Replay checks those exact sources again before the first START.
+
 ## 0.21.2 (unreleased)
 
 - Drop code-index tools from the feature workflow: `/feature init` no longer proposes ccc or codegraph, and worktree bootstrap no longer runs `codegraph init` or requires its CLI. Bootstrap is transfer, setup and marker only; a project that opted in to codegraph indexes its worktrees itself.

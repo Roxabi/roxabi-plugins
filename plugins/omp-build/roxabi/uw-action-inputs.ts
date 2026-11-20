@@ -24,8 +24,14 @@ import type {
 } from './uw-action-contract.ts'
 import { materializeActionFiles } from './uw-action-dossier.ts'
 import { acceptCurrentManifest, verifyExpandedContext, verifyReviewedPlugin } from './uw-action-expanded.ts'
+import {
+  type PreparedActionManifest,
+  preparedStageSources,
+  refuseIntegrationReplayDiscovery,
+} from './uw-action-integration-discovery.ts'
 import { verifiedPluginFiles } from './uw-action-plugin-files.ts'
 import { projectionFiles, repositorySealPath, sealedIndex } from './uw-action-projection.ts'
+import { readReplaySources } from './uw-action-replay-sources.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 import { sealActionSnapshot, verifyActionSnapshot } from './uw-action-snapshot.ts'
 import { correctionLocalPorts } from './uw-correction-local-ports.ts'
@@ -36,13 +42,13 @@ function text(bytes: Uint8Array): string {
 }
 
 async function resolveFiles(
-  request: UwActionRequest,
+  stageSources: UwActionRequest['stageSources'],
   ports: UwActionPorts,
   manifest: ActionInputManifest,
   verifiedPluginFiles: readonly { path: string; bytes: Uint8Array }[],
   projection?: ReviewActionProjection,
 ): Promise<Result<readonly { path: string; bytes: Uint8Array }[]>> {
-  const materialized = await materializeActionFiles(ports, manifest, request.stageSources)
+  const materialized = await materializeActionFiles(ports, manifest, stageSources)
   if (!materialized.ok) return materialized
   const files = [...materialized.value]
   files.push(...verifiedPluginFiles)
@@ -70,13 +76,14 @@ async function buildManifest(
   reviewedFingerprint?: string,
   reviewedRoot?: ReviewRootRef,
   correctionRoot?: CorrectionRootRef,
-): Promise<
-  Result<{ manifest: ActionInputManifest; verifiedPluginFiles: readonly { path: string; bytes: Uint8Array }[] }>
-> {
+): Promise<Result<PreparedActionManifest>> {
   const pin = await ports.plugin.resolveInstalledPluginPin()
   if (!pin.ok) return pin
   const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot, correctionRoot)
   if (!facts.ok) return facts
+  const stages = preparedStageSources(request, facts.value)
+  if (!stages.ok) return stages
+  const stageSources = stages.value
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
   const plugin = await verifiedPluginFiles(request, ports, pin.value)
@@ -104,13 +111,13 @@ async function buildManifest(
     format: ACTION_BINDING_FORMAT,
     manifest: draft,
     fingerprint: actionInputDigest(draft),
-    stageSources: [...request.stageSources],
+    stageSources: [...stageSources],
   }
   const validated = validateActionInputs(inputs)
   if (!validated.ok) return { ok: false, diagnostics: validated.diagnostics }
   const accepted = await acceptCurrentManifest(request, ports, validated.value.manifest, facts.value.currentOutputs)
   return accepted.ok
-    ? { ok: true, value: { manifest: accepted.value, verifiedPluginFiles: plugin.value.files } }
+    ? { ok: true, value: { manifest: accepted.value, stageSources, verifiedPluginFiles: plugin.value.files } }
     : accepted
 }
 
@@ -125,7 +132,7 @@ export async function prepareUwAction(
   const manifest = await buildManifest(request, scoped, review?.fingerprint, review?.root, correctionRoot)
   if (!manifest.ok) return manifest
   const files = await resolveFiles(
-    request,
+    manifest.value.stageSources,
     scoped,
     manifest.value.manifest,
     manifest.value.verifiedPluginFiles,
@@ -149,23 +156,10 @@ export async function prepareUwAction(
     format: ACTION_BINDING_FORMAT,
     manifest: manifest.value.manifest,
     fingerprint: sealed.value.manifestDigest,
-    stageSources: [...request.stageSources],
+    stageSources: [...manifest.value.stageSources],
   }
   registerHostActionBinding(sealed.value, inputs)
   return { ok: true, value: { inputs, snapshot: sealed.value } }
-}
-
-async function readReplaySources(rebuilt: ActionInputs, ports: UwActionPorts): Promise<Result<true>> {
-  for (const ref of rebuilt.manifest.repositoryReferences) {
-    const read = await ports.readPinnedFile(ref)
-    if (!read.ok) return read
-  }
-  const records = [...rebuilt.manifest.acceptedSources, ...rebuilt.manifest.deliveryData]
-  const selected = await ports.readRecords(records)
-  if (!selected.ok) return selected
-  if (selected.value.length !== records.length)
-    return actionFailure('record-unreadable', 'Selected record batch returned an unexpected number of values')
-  return { ok: true, value: true }
 }
 
 export async function replayUwActionInputs(
@@ -177,6 +171,8 @@ export async function replayUwActionInputs(
   },
   ports: UwActionPorts,
 ): Promise<Result<ActionInputs>> {
+  const replayMode = refuseIntegrationReplayDiscovery(input.request)
+  if (!replayMode.ok) return replayMode
   const scoped = correctionLocalPorts(input.request, ports)
   if (
     input.request.expandedContext.length > 0 &&

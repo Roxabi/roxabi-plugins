@@ -30,6 +30,7 @@ export type IntegrationStageObservation = {
   read: UwRead
   accepted: AcceptedOwnSpec
   acceptedSources: readonly RecordInputRef[]
+  stageSources?: readonly RecordInputRef[]
 }
 
 export function integrationProofInputs(read: UwRead): Result<{
@@ -98,11 +99,21 @@ function integrationStageSources(
   if (!projected.ok) return projected
   if (canonicalValueDigest(acceptedSources) !== canonicalValueDigest(projected.value.acceptedSources))
     return actionFailure('self-output', 'Integration accepted sources differ from the observed parent')
+  if (
+    request.expectedIntegrationParent !== undefined &&
+    (request.stageSources.length !== 0 ||
+      request.expandedContext.length !== 0 ||
+      canonicalValueDigest(request.expectedIntegrationParent) !== canonicalValueDigest(accepted) ||
+      integration.stageSources === undefined ||
+      canonicalValueDigest(integration.stageSources) !== canonicalValueDigest(projected.value.stageSources))
+  )
+    return actionFailure('self-output', 'Integration discovery cannot replace supplied sources or parent authority')
   const expected = new Set(projected.value.stageSources.map((ref) => canonicalValueDigest(ref)))
   if (
-    request.stageSources.length !== expected.size ||
-    request.stageSources.some((ref) => !expected.has(canonicalValueDigest(ref))) ||
-    new Set(request.stageSources.map((ref) => canonicalValueDigest(ref))).size !== expected.size
+    request.expectedIntegrationParent === undefined &&
+    (request.stageSources.length !== expected.size ||
+      request.stageSources.some((ref) => !expected.has(canonicalValueDigest(ref))) ||
+      new Set(request.stageSources.map((ref) => canonicalValueDigest(ref))).size !== expected.size)
   )
     return actionFailure('self-output', 'Integration stage sources differ from the observed child completion proofs')
   return { ok: true, value: projected.value.childSources }

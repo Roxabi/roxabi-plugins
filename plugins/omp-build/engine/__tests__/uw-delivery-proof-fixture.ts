@@ -59,6 +59,7 @@ export async function threeDeliveredChildren<T>(
     diff: Uint8Array
     cwd?: string
     originUrl?: string
+    wrapGh?: (gh: Gh) => Gh
   },
   parentCriteria: Readonly<Parameters<typeof canonicalSpec>[0]['criteria']>,
   initialParentPlan: 'framed' | 'planned',
@@ -243,6 +244,7 @@ export async function threeDeliveredChildren<T>(
         { base: thirdMerge, head: thirdMerge, bytes: new Uint8Array() },
       ],
       ...(git.cwd === undefined ? {} : { cwd: git.cwd }),
+      wrapGh: git.wrapGh,
     },
     async (native) => {
       const active = git.originUrl === undefined ? native : await native.at(native.cwd)

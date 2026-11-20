@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
+import { gh as wrapGh } from '../adapters/github/types.ts'
 import { UW_GRAPH_QUERY } from '../adapters/github-native/uw-graph-query.ts'
 import { graphqlVariables } from '../adapters/github-workflow/client.ts'
 import { readNativeCiFailureEvidence } from '../roxabi/feature-ci-evidence.ts'
 import { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
 import { reconcileRecoveryHostEffects } from '../roxabi/fix-recovery-host-effects.ts'
+import { readGitHubBlob } from '../roxabi/uw-github-blobs.ts'
+import { readGitHubCataloguePins } from '../roxabi/uw-github-catalogue-pins.ts'
 import { readPrBody } from '../skills/feature/review-input.ts'
 import {
   createPreparationCohort,
@@ -13,7 +16,15 @@ import {
   withPreparationAttribution,
 } from './preparation-cohort.ts'
 import { githubPreparationKind } from './preparation-gh-classifier.ts'
-import { AUTH_COMMENT_QUERY, BLOB_QUERY, CI_ROLLUP_QUERY, catalogueQuery, PULLS_QUERY } from './preparation-graphql.cjs'
+import {
+  AUTH_COMMENT_QUERY,
+  BLOB_QUERY,
+  CI_ROLLUP_QUERY,
+  catalogueQuery,
+  PIN_VECTOR_LIMIT,
+  PULLS_QUERY,
+  pinVectorQuery,
+} from './preparation-graphql.cjs'
 
 function expectUnattributedWrite(result: ReturnType<typeof reconcileRecoveryHostEffects>, args: readonly string[]) {
   expect(result.status).toBe('held')
@@ -46,6 +57,78 @@ function expectUnattributedWrite(result: ReturnType<typeof reconcileRecoveryHost
   expect(encoded).not.toContain('fixture-secret-credential')
   expect(encoded).not.toContain('fixture-secret-argument')
 }
+
+it('classifies only exact bounded catalogue pin vectors as reads', () => {
+  const args = (count: number, query = pinVectorQuery(count)) => [
+    'api',
+    'graphql',
+    '-f',
+    `query=${query}`,
+    '-f',
+    'owner=Roxabi',
+    '-f',
+    'name=roxabi-plugins',
+    ...Array.from({ length: count }, (_, index) => ['-f', `e${index}=${'a'.repeat(40)}:path`]).flat(),
+  ]
+  expect(githubPreparationKind(args(2))).toBe('gh-read')
+  expect(githubPreparationKind(args(PIN_VECTOR_LIMIT))).toBe('gh-read')
+  expect(githubPreparationKind(args(PIN_VECTOR_LIMIT + 1))).toBe('gh-write')
+  expect(githubPreparationKind(args(2, `${pinVectorQuery(2)} mutation`))).toBe('gh-write')
+  expect(githubPreparationKind([...args(2), '-f', 'unknown=x'])).toBe('gh-write')
+})
+
+it('keeps scalar and partially failed vector lookups as rejected reads in the actual preparation cohort', async () => {
+  const bytes = Buffer.from('catalogue')
+  const oid = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+  const wrapped = wrapGh({
+    cwd: '/fixture',
+    gh: async (_cwd, args) => {
+      if (args[1] === 'graphql') {
+        const vector = args.includes(`query=${pinVectorQuery(2)}`)
+        const stdout = JSON.stringify({
+          data: { repository: vector ? { f0: { oid }, f1: null } : { object: null } },
+          errors: [{ path: vector ? ['repository', 'f1'] : ['repository', 'object'] }],
+        })
+        throw Object.assign(new Error('GraphQL error'), { stdout, code: 1 })
+      }
+      return JSON.stringify({ sha: oid, encoding: 'base64', size: bytes.length, content: bytes.toString('base64') })
+    },
+  })
+  const request = {
+    repository: 'acme/plugins',
+    commit: 'a'.repeat(40),
+    path: 'classes.yml',
+    cwd: '/fixture',
+    gh: wrapped,
+  }
+  const scalar = createPreparationCohort()
+  const scalarResult = await scalar.run(() => readGitHubBlob(request))
+  scalar.seal()
+  const scalarHost = await scalar.join()
+  expect(scalarResult.ok).toBe(false)
+  expect(scalarHost.operations).toEqual([expect.objectContaining({ kind: 'gh-read', outcome: 'rejected' })])
+  const vector = createPreparationCohort()
+  const vectorResult = await vector.run(() =>
+    readGitHubCataloguePins([request, { ...request, commit: 'b'.repeat(40) }]),
+  )
+  vector.seal()
+  const vectorHost = await vector.join()
+  expect(vectorResult.map((result) => result.ok)).toEqual([true, false])
+  expect(vectorHost.operations).toEqual([
+    expect.objectContaining({ kind: 'gh-read', outcome: 'rejected' }),
+    expect.objectContaining({ kind: 'gh-read', outcome: 'fulfilled' }),
+  ])
+  for (const host of [scalarHost, vectorHost]) {
+    if (host.status !== 'joined') throw new Error('fixture-cohort-not-joined')
+    expect(
+      reconcileRecoveryHostEffects({
+        host,
+        publications: [],
+        target: { repository: 'acme/app', pr: 7, head: 'a'.repeat(40) },
+      }).status,
+    ).toBe('qualified')
+  }
+})
 
 it('does not treat unentered or entered-empty cohorts as joined evidence', async () => {
   const unentered = createPreparationCohort()

@@ -65,7 +65,22 @@ var require_preparation_graphql = __commonJS(function(exports, module) {
     const fields = Array.from({ length: count }, (_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid byteSize isBinary isTruncated text}}`).join(" ");
     return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`;
   }
-  module.exports = { BLOB_QUERY, PULLS_QUERY, AUTH_COMMENT_QUERY, PR_BODY_QUERY, CI_ROLLUP_QUERY, catalogueQuery };
+  var PIN_VECTOR_LIMIT = 32;
+  function pinVectorQuery(count) {
+    const variables = Array.from({ length: count }, (_, index) => `$e${index}:String!`).join(",");
+    const fields = Array.from({ length: count }, (_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid}}`).join(" ");
+    return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`;
+  }
+  module.exports = {
+    BLOB_QUERY,
+    PULLS_QUERY,
+    AUTH_COMMENT_QUERY,
+    PR_BODY_QUERY,
+    CI_ROLLUP_QUERY,
+    catalogueQuery,
+    PIN_VECTOR_LIMIT,
+    pinVectorQuery
+  };
 });
 
 // plugins/issue-triage/skills/shared/queries.ts
@@ -11202,7 +11217,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 2)
+  if (minor === 21 && patch <= 3)
     return "bounded";
   return "unknown";
 }
@@ -24815,7 +24830,7 @@ function isKnownGraphRead(args) {
     return names.join(",") === "owner,name" || names.join(",") === "owner,name,cursor" || names.join(",") === "owner,name,branch" || names.join(",") === "owner,name,cursor,branch";
   }
   const count = names.length - 2;
-  return count > 0 && names[0] === "owner" && names[1] === "name" && names.slice(2).every((name, index) => name === `e${index}`) && query === import_preparation_graphql.catalogueQuery(count);
+  return count > 0 && names[0] === "owner" && names[1] === "name" && names.slice(2).every((name, index) => name === `e${index}`) && (query === import_preparation_graphql.catalogueQuery(count) || count <= import_preparation_graphql.PIN_VECTOR_LIMIT && query === import_preparation_graphql.pinVectorQuery(count));
 }
 function githubPreparationKind(args) {
   if (isUwGraphRead(args) || isKnownGraphRead(args))
@@ -28491,7 +28506,7 @@ function reviewTransportDiagnostics(transportDiagnostics, incompleteFinal) {
     return transportDiagnostics;
   return incompleteFinal ? [diagnostic2("incomplete", "A final review operation is not complete")] : null;
 }
-function latestReviewSummary(latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, spent, externalHistories, deliveryHistory) {
+function latestReviewSummary(latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, spent, externalHistories, deliveryHistory, latestHistorical) {
   if (latest === null)
     return {
       ok: true,
@@ -28500,7 +28515,7 @@ function latestReviewSummary(latest, at, records, history, catalogues, acceptedP
   const decision = records.get(latest.payload.decisionId);
   if (decision?.kind !== "decision")
     return summaryFailure([diagnostic2("unknown-reference", `Review ${latest.recordId} lacks its decision`)], knownReviews, true, spent);
-  const assessed = validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, latest.payload.causeDispositionRefs);
+  const assessed = latestHistorical ?? validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, latest.payload.causeDispositionRefs);
   if (!assessed.ok)
     return summaryFailure(assessed.diagnostics, knownReviews, true, spent);
   const assessment = assessed.value;
@@ -28521,6 +28536,7 @@ function latestReviewSummary(latest, at, records, history, catalogues, acceptedP
 }
 function validateAuthorityReviewSpend(reviews, records, history, catalogues, acceptedPolicyRef, initialSpent, externalHistories, deliveryHistory) {
   let spent = initialSpent;
+  let latestHistorical;
   for (const [index, review] of reviews.entries()) {
     const record = review.record;
     if (record?.kind !== "review")
@@ -28531,10 +28547,12 @@ function validateAuthorityReviewSpend(reviews, records, history, catalogues, acc
         diagnostics: [diagnostic2("unknown-reference", `Review ${record.recordId} lacks its decision`)],
         spent
       };
-    const assessed = record.payload.causeDispositionRefs === undefined ? {
+    const causeRefs = record.payload.causeDispositionRefs;
+    latestHistorical = causeRefs && validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, causeRefs);
+    const assessed = latestHistorical ?? {
       ok: true,
       value: validateDecision2(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
-    } : validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, record.payload.causeDispositionRefs);
+    };
     if (!assessed.ok)
       return { diagnostics: assessed.diagnostics, spent };
     const assessment = assessed.value;
@@ -28543,7 +28561,7 @@ function validateAuthorityReviewSpend(reviews, records, history, catalogues, acc
     if (index >= 2 && assessment.verdict === "Request changes")
       spent = true;
   }
-  return { diagnostics: null, spent };
+  return { diagnostics: null, spent, latestHistorical };
 }
 function summarizeAuthorityReviews(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) {
   const identity = analyzeReviewIdentity(history, recordMap(history));
@@ -28573,7 +28591,7 @@ function summarizeAuthorityReviews(history, catalogues, acceptedPolicyRef, exter
       diagnostic2("incomplete", `Pull-request review inventory ${identity.pendingRoot.recordId} is pending completion by its own final review`, { rootId: identity.pendingRoot.recordId, pendingRoot: true })
     ], knownReviews, true, reviewSpend.spent);
   const at = identity.latestOperation?.parts.map((part) => part.createdAt).find((value) => value !== null) ?? null;
-  return latestReviewSummary(identity.latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, reviewSpend.spent, externalHistories, deliveryHistory);
+  return latestReviewSummary(identity.latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, reviewSpend.spent, externalHistories, deliveryHistory, reviewSpend.latestHistorical);
 }
 function reviewStateFailure(diagnostics, knownReviews, countExact, spent) {
   return { ok: false, next: "stop", knownReviews, countExact, spent, diagnostics };

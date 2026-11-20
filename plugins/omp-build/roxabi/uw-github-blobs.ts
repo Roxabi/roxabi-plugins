@@ -18,11 +18,11 @@ function decodeBase64(value: string, size: number): Uint8Array | null {
   return bytes
 }
 
-function record(value: unknown): value is Record<string, unknown> {
+export function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function blobOid(parsed: unknown, alias = 'object'): string | 'absent' | 'unreadable' {
+export function blobOid(parsed: unknown, alias = 'object'): string | 'absent' | 'unreadable' {
   if (
     !record(parsed) ||
     !('data' in parsed) ||
@@ -51,7 +51,7 @@ function blobBody(parsed: unknown): { content: string; size: number; sha: string
   return { content: parsed.content, size: parsed.size, sha: parsed.sha }
 }
 
-function ghFailure(error: unknown, missing: string): Result<never> {
+export function ghFailure(error: unknown, missing: string): Result<never> {
   const detail = error instanceof Error ? error.message : 'no local fallback'
   return actionFailure('pinned-file-unreadable', `Cross-repository Git object is unreadable: ${missing}. ${detail}`)
 }
@@ -64,7 +64,7 @@ async function ghText(gh: Gh, cwd: string | undefined, args: string[], missing: 
   }
 }
 
-function jsonBody(raw: string, missing: string, label: string): Result<unknown> {
+export function jsonBody(raw: string, missing: string, label: string): Result<unknown> {
   try {
     return { ok: true, value: JSON.parse(raw) }
   } catch {
@@ -103,8 +103,11 @@ export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Ui
   return fetchGitHubBlob(request, oid)
 }
 
-async function fetchGitHubBlob(request: GitByteRequest, oid: string): Promise<Result<Uint8Array>> {
-  const missing = `${request.repository}@${request.commit}:${request.path}`
+export async function fetchGitHubBlob(
+  request: GitByteRequest,
+  oid: string,
+  missing = `${request.repository}@${request.commit}:${request.path}`,
+): Promise<Result<Uint8Array>> {
   const raw = await ghText(
     request.gh,
     request.cwd,

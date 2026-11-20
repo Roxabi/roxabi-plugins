@@ -24,6 +24,11 @@ import type {
   UwActionRequest,
 } from './uw-action-contract.ts'
 import { expansionOrigin } from './uw-action-expansion-origin.ts'
+import {
+  admitIntegrationRead,
+  discoverIntegrationSources,
+  integrationObservation,
+} from './uw-action-integration-discovery.ts'
 import { type ActionFactSource, authenticate, configuration, observeCode, readHistories } from './uw-action-observe.ts'
 import { observeActionOperands } from './uw-action-operands.ts'
 import { proposedSpec } from './uw-action-proposed-spec.ts'
@@ -189,10 +194,11 @@ export async function uwFacts(
     request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
       ? { uw: subject.uw, actionId: request.actionId, fingerprint: reviewedFingerprint }
       : undefined
-  const uwRead = await createInstalledObservedUwReadPort({
+  const observedRead = await createInstalledObservedUwReadPort({
     observation: rawObservation,
     ...(replay === undefined ? {} : { assessmentReplay: replay }),
   }).readUw(subject.uw)
+  const uwRead = await admitIntegrationRead(request, observedRead)
   const observation = uwRead.observation
   if (observation.status !== 'complete') return { ok: false, diagnostics: toDiagnostics(observation.diagnostics) }
   const sameCutHistories = observation.histories
@@ -207,6 +213,9 @@ export async function uwFacts(
     replay,
   )
   if (!accepted.ok) return accepted
+  const discovery = discoverIntegrationSources(request, uwRead)
+  if (!discovery.ok) return discovery
+  const integrationStageSources = discovery.value
   const spec = await proposedSpec(request, subject, source, accepted.value.spec)
   if (!spec.ok) return spec
   const operands = await observeActionOperands(
@@ -222,7 +231,7 @@ export async function uwFacts(
   const uniqueSources = [...new Map(sources.map((ref) => [JSON.stringify([ref.record, ref.selector]), ref])).values()]
   const completeHistories = observation.histories
   const completeCatalogues = observation.catalogues
-  return finishFacts(
+  const finished = await finishFacts(
     request,
     source,
     completeHistories,
@@ -234,14 +243,14 @@ export async function uwFacts(
     operands.value.operands,
     accepted.value.configuration,
     observation,
-    request.purpose === 'integrate' && accepted.value.acceptedSpec !== null
-      ? { read: uwRead, accepted: accepted.value.acceptedSpec, acceptedSources: uniqueSources }
-      : undefined,
+    integrationObservation(request, uwRead, accepted.value.acceptedSpec, uniqueSources, integrationStageSources),
     reviewedFingerprint,
     seedEvidenceObservation(completeHistories),
     reviewedRoot,
     correctionRoot,
   )
+  if (!finished.ok || integrationStageSources === undefined) return finished
+  return { ok: true, value: { ...finished.value, integrationStageSources } }
 }
 
 export async function readProductionActionFacts(

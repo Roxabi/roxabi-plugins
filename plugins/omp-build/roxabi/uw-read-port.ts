@@ -49,27 +49,37 @@ function readOptions(options: InstalledUwReadOptions): GitHubOptions {
 
 /** Test seam for a loaded facade. */
 export function createUwReadPort(contracts: InstalledUwContracts, options: InstalledUwReadOptions): UwReadPort {
-  const github = readOptions(options)
   return {
     async readUw(uw): Promise<UwRead> {
-      const observation = await contracts.readUwCompletionObservation(uw, github, (histories) =>
-        loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() }),
-      )
-      const root = observation.graph.nodes.find(
-        (node) => node.uw.repository === uw.repository && node.uw.target === uw.target,
-      )
-      if (root === undefined) {
-        const diagnostics =
-          observation.status === 'incomplete'
-            ? observation.diagnostics
-            : refused(uw, 'graph-root-missing', `UW graph root ${uw.target} is absent`)
-        throw new UwGraphUnavailableError(diagnostics)
-      }
+      const observation = await readUwObservation(contracts, uw, options)
       const reader = createObservedUwReadPort(contracts, { observation, assessmentReplay: options.assessmentReplay })
       const read = await reader.readUw(uw)
       return withTransitionAdmission(contracts, read)
     },
   }
+}
+
+async function readUwObservation(
+  contracts: InstalledUwContracts,
+  uw: Scope,
+  options: InstalledUwReadOptions,
+): Promise<UwCompletionObservation> {
+  const observation = await contracts.readUwCompletionObservation(uw, readOptions(options), (histories) =>
+    loadReviewClassCatalogues({ histories, cwd: options.cwd, gh: options.gh ?? defaultGh() }),
+  )
+  if (!observation.graph.nodes.some((node) => node.uw.repository === uw.repository && node.uw.target === uw.target)) {
+    const diagnostics =
+      observation.status === 'incomplete'
+        ? observation.diagnostics
+        : refused(uw, 'graph-root-missing', `UW graph root ${uw.target} is absent`)
+    throw new UwGraphUnavailableError(diagnostics)
+  }
+  return observation
+}
+
+/** A fresh observation, not an admission or completion decision. */
+export async function readInstalledUwObservation(uw: Scope, options: InstalledUwReadOptions) {
+  return projectObservation(installedUwContracts, await readUwObservation(installedUwContracts, uw, options))
 }
 
 function projectObservation(

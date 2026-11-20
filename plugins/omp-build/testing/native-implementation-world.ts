@@ -64,6 +64,7 @@ type NativeWorldSeed = NativeWorldFacts & {
   originUrl?: string
   epic?: NativeEpicFacts
   cwd?: string
+  wrapGh?: (gh: Gh) => Gh
 }
 
 type NativeWorld = {
@@ -127,7 +128,7 @@ export async function withNativeImplementationWorld<T>(
       pulls,
       comparisons,
     })
-    const { gh } = transport
+    const gh = input.wrapGh ? input.wrapGh(transport.gh) : transport.gh
     const declared = declaredNativeGit(commits, input.checkout)
     const { checkout } = declared
     const realGit = defaultGit()

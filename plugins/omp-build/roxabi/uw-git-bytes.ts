@@ -4,8 +4,10 @@ import type { Gh } from '../adapters/github/types.ts'
 import { repoRelativePathSchema } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
 import { trackPreparationOperation } from '../host/preparation-cohort.ts'
+import { PIN_VECTOR_LIMIT } from '../host/preparation-graphql.cjs'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
 import { readGitHubBlob, readGitHubBlobs } from './uw-github-blobs.ts'
+import { readGitHubCataloguePins } from './uw-github-catalogue-pins.ts'
 
 const execFileAsync = promisify(execFile)
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
@@ -77,6 +79,59 @@ export async function readGitFileBytes(request: GitByteRequest): Promise<Result<
     if (local.ok) return { ok: true, value: local.stdout }
   }
   return readGitHubBlob(request)
+}
+async function localCataloguePin(
+  request: GitByteRequest,
+  origins: Map<string, Promise<string | null>>,
+): Promise<Result<Uint8Array> | null> {
+  if (
+    !REPOSITORY.test(request.repository) ||
+    !isGitSha(request.commit) ||
+    !repoRelativePathSchema.safeParse(request.path).success ||
+    !pathSegments(request.path)
+  )
+    return actionFailure('pinned-file-unreadable', 'Pinned file coordinates are incomplete')
+  if (request.cwd === undefined) return null
+  let origin = origins.get(request.cwd)
+  if (origin === undefined) {
+    origin = checkoutRepository(request.cwd)
+    origins.set(request.cwd, origin)
+  }
+  if ((await origin) !== request.repository) return null
+  const local = await git(request.cwd, ['cat-file', 'blob', `${request.commit}:${request.path}`])
+  return local.ok ? { ok: true, value: local.stdout } : null
+}
+
+/** Independent historical catalogue pins, with local exact-object reads before remote lookup. */
+export async function readGitCataloguePins(
+  requests: readonly GitByteRequest[],
+): Promise<readonly Result<Uint8Array>[]> {
+  const results: Result<Uint8Array>[] = new Array(requests.length)
+  const remote = new Map<string, number[]>()
+  const origins = new Map<string, Promise<string | null>>()
+  for (const [index, request] of requests.entries()) {
+    const local = await localCataloguePin(request, origins)
+    if (local !== null) {
+      results[index] = local
+      continue
+    }
+    const group = remote.get(request.repository) ?? []
+    group.push(index)
+    remote.set(request.repository, group)
+  }
+  for (const group of remote.values()) {
+    for (let offset = 0; offset < group.length; offset += PIN_VECTOR_LIMIT) {
+      const indices = group.slice(offset, offset + PIN_VECTOR_LIMIT)
+      const observed =
+        indices.length === 1
+          ? [await readGitHubBlob(requests[indices[0]])]
+          : await readGitHubCataloguePins(indices.map((index) => requests[index]))
+      indices.forEach((index, position) => {
+        results[index] = observed[position]
+      })
+    }
+  }
+  return results
 }
 
 async function localCatalogue(cwd: string, requests: readonly GitByteRequest[]): Promise<readonly Uint8Array[] | null> {

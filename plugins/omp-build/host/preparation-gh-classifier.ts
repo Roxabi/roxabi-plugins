@@ -5,8 +5,10 @@ import {
   BLOB_QUERY,
   CI_ROLLUP_QUERY,
   catalogueQuery,
+  PIN_VECTOR_LIMIT,
   PR_BODY_QUERY,
   PULLS_QUERY,
+  pinVectorQuery,
 } from './preparation-graphql.cjs'
 
 function isUwGraphRead(args: readonly string[]): boolean {
@@ -89,7 +91,7 @@ function isKnownGraphRead(args: readonly string[]): boolean {
     names[0] === 'owner' &&
     names[1] === 'name' &&
     names.slice(2).every((name, index) => name === `e${index}`) &&
-    query === catalogueQuery(count)
+    (query === catalogueQuery(count) || (count <= PIN_VECTOR_LIMIT && query === pinVectorQuery(count)))
   )
 }
 

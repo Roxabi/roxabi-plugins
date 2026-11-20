@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { PIN_VECTOR_LIMIT, pinVectorQuery } from '../host/preparation-graphql.cjs'
 import { executeSimCommand } from '../skills/feature/testing/gh-simulator/sim-execution.ts'
 
 const args = process.argv.slice(2)
@@ -45,6 +46,27 @@ if (args[0] === 'variable' && args[1] === 'get' && args[2] === 'OMP_BUILD_TOOLIN
   }
 }
 if (args[0] === 'api' && args[1] === 'graphql') {
+  const expressions = args.filter((arg) => /^e[0-9]+=/.test(arg))
+  if (
+    args.includes('owner=Roxabi') &&
+    args.includes('name=roxabi-plugins') &&
+    expressions.length > 1 &&
+    expressions.length <= PIN_VECTOR_LIMIT &&
+    args.includes(`query=${pinVectorQuery(expressions.length)}`)
+  ) {
+    const repository: Record<string, { oid: string } | null> = {}
+    for (const [index, field] of expressions.entries()) {
+      const expression = field.slice(field.indexOf('=') + 1)
+      try {
+        const oid = git('rev-parse', '--verify', expression)
+        repository[`f${index}`] = git('cat-file', '-t', oid) === 'blob' ? { oid } : null
+      } catch {
+        repository[`f${index}`] = null
+      }
+    }
+    console.log(JSON.stringify({ data: { repository } }))
+    process.exit(0)
+  }
   const expression = args.find((arg) => arg.startsWith(`expression=${shared}:`))?.slice('expression='.length)
   if (expression) {
     console.log(JSON.stringify({ data: { repository: { object: { oid: git('rev-parse', expression) } } } }))

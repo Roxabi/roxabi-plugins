@@ -69,6 +69,7 @@ export function actionRequest(input: {
   stageSources?: readonly RecordInputRef[]
   expandedContext?: readonly (RecordInputRef | PinnedFileRef)[]
   operands?: UwActionRequest['operands']
+  expectedIntegrationParent?: UwActionRequest['expectedIntegrationParent']
 }): UwActionRequest {
   return {
     actionId: input.actionId,
@@ -77,6 +78,9 @@ export function actionRequest(input: {
     code: input.code,
     stageSources: input.stageSources ?? [],
     ...(input.operands === undefined ? {} : { operands: input.operands }),
+    ...(input.expectedIntegrationParent === undefined
+      ? {}
+      : { expectedIntegrationParent: input.expectedIntegrationParent }),
     expandedContext: input.expandedContext ?? [],
   }
 }
@@ -227,9 +231,14 @@ export async function confirmPreparedAction(
 ): Promise<Result<PreparedUwAction, Diagnostic>> {
   const prepared = await prepareDeliveryAction(operations, request, projection, review, correctionRoot)
   if (!prepared.ok) return prepared
+  const { expectedIntegrationParent, ...replayBase } = request
+  const replayRequest =
+    expectedIntegrationParent === undefined
+      ? request
+      : { ...replayBase, stageSources: prepared.value.inputs.stageSources }
   const replay = await operations.replayActionInputs({
     reviewed: prepared.value.inputs,
-    request,
+    request: replayRequest,
     reviewedRoot: review?.root,
     correctionRoot,
   })
