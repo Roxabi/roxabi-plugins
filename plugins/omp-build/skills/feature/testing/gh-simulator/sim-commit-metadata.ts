@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { Context } from './sim-command-context.ts'
 import { git } from './sim-git.ts'
 import { emit, one } from './sim-graphql.ts'
+import { currentInvocation } from './sim-invocation.ts'
 import { statePath } from './sim-state.ts'
 import { fail } from './sim-types.ts'
 
@@ -14,13 +15,27 @@ type ObservedCommit = { sha: string; parents: { sha: string }[]; tree: { sha: st
 // repositories are neither grafted nor shallow. These reads therefore pass --no-replace-objects, and
 // with no grafts or shallow boundary each answer is fixed by the commit SHAs. Remembering successful
 // answers on disk spares one git process per repeated read inside the simulator's state lock.
-function memoFile(context: Context, key: readonly string[]): string | null {
+// Eligibility is decided once per read, before Git runs: a read that began with a grafted or shallow
+// view is never remembered. An origin gaining such a view during a read is outside this model.
+function memoDir(context: Context): string | null {
   const origin = context.state.origin
-  if (existsSync(join(origin, 'shallow')) || existsSync(join(origin, 'info', 'grafts'))) return null
+  const env = currentInvocation().env
+  if (
+    env.GIT_SHALLOW_FILE !== undefined ||
+    env.GIT_GRAFT_FILE !== undefined ||
+    existsSync(join(origin, 'shallow')) ||
+    existsSync(join(origin, 'info', 'grafts'))
+  )
+    return null
+  return `${statePath()}.git-memo`
+}
+
+function memoFile(dir: string | null, context: Context, key: readonly string[]): string | null {
+  if (dir === null) return null
   const digest = createHash('sha256')
-    .update([origin, ...key].join('\0'))
+    .update([context.state.origin, ...key].join('\0'))
     .digest('hex')
-  return join(`${statePath()}.git-memo`, digest)
+  return join(dir, digest)
 }
 
 function recall(file: string | null): string | null {
@@ -42,7 +57,7 @@ function remember(file: string | null, value: string): void {
 }
 
 function immutableGit(context: Context, args: string[]): string {
-  const file = memoFile(context, args)
+  const file = memoFile(memoDir(context), context, args)
   const known = recall(file)
   if (known !== null) return known
   const output = git(context.state.origin, ['--no-replace-objects', ...args])
@@ -69,10 +84,11 @@ function parseCommit(line: string): ObservedCommit {
 
 export function observedCommits(context: Context, shas: readonly string[]): Map<string, ObservedCommit> {
   const requested = [...new Set(shas)]
+  const dir = memoDir(context)
   const records = new Map<string, ObservedCommit>()
   const missing: string[] = []
   for (const sha of requested) {
-    const line = recall(memoFile(context, ['commit', sha]))
+    const line = recall(memoFile(dir, context, ['commit', sha]))
     if (line === null) missing.push(sha)
     else records.set(sha, parseCommit(line))
   }
@@ -91,7 +107,7 @@ export function observedCommits(context: Context, shas: readonly string[]): Map<
       records.set(record.sha, record)
       fetched.set(record.sha, line)
     }
-    for (const [sha, line] of fetched) remember(memoFile(context, ['commit', sha]), line)
+    for (const [sha, line] of fetched) remember(memoFile(dir, context, ['commit', sha]), line)
   }
   for (const sha of requested) if (!records.has(sha)) fail(`gh: commit ${sha} not found`)
   return records
