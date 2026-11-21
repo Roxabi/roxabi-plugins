@@ -92,6 +92,46 @@ describe('captured review catalogue loading', () => {
     expect(catalogueForAction(old, table).ok).toBe(false)
   })
 
+  it('observes each pin again and refuses a revoked blob read in the second round', async () => {
+    const otherPin = { ...pin, commit: 'd'.repeat(40) }
+    const absentPin = { ...pin, commit: 'e'.repeat(40) }
+    const action = (p: typeof pin) => {
+      const manifest = { ...input.manifest, plugin: { ...input.manifest.plugin, commit: p.commit, files: [p] } }
+      return { ...input, manifest, fingerprint: actionInputDigest(manifest) }
+    }
+    const other = action(otherPin)
+    const absent = action(absentPin)
+    let lookups = 0
+    let gets = 0
+    const gh: Gh = async (_cwd, args) => {
+      if (args[1] === 'graphql') {
+        lookups++
+        const expression = args.find((arg) => arg.startsWith('expression=')) ?? ''
+        const object = expression.includes(absentPin.commit) ? null : { oid }
+        return JSON.stringify({ data: { repository: { object } } })
+      }
+      gets++
+      if (gets > 2) throw new Error('permission revoked')
+      return JSON.stringify({ sha: oid, encoding: 'base64', size: bytes.length, content: bytes.toString('base64') })
+    }
+    const load = () =>
+      loadReviewClassCatalogues({
+        histories: [],
+        candidateInputs: [input, other, absent],
+        cwd: '/not-a-repository',
+        gh,
+      })
+    const first = await load()
+    expect(catalogueForAction(input, first).ok).toBe(true)
+    expect(catalogueForAction(other, first).ok).toBe(true)
+    expect(catalogueForAction(absent, first).ok).toBe(false)
+    const second = await load()
+    expect(catalogueForAction(input, second).ok).toBe(false)
+    expect(catalogueForAction(other, second).ok).toBe(false)
+    expect(catalogueForAction(absent, second).ok).toBe(false)
+    expect([lookups, gets]).toEqual([6, 4])
+  })
+
   it('does not choose between conflicting digests for the same coordinates', async () => {
     const plugin = input.manifest.plugin
     const otherPin = { ...pin, digest: 'f'.repeat(64) }

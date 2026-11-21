@@ -14,6 +14,7 @@ import { readUwGraph } from '../github-native/uw-graph-reader.ts'
 import { validateComposedWorkflowHistories } from './history.ts'
 import { createUwDeliveryFactReader } from './uw-delivery-facts.ts'
 import { UwObservationCut } from './uw-observation-cut.ts'
+import { projectWriterRetryHistory, type WriterRetryObservation } from './writer-retry-observation.ts'
 
 type FramingReceiptPayload = Extract<
   NonNullable<DecodedHistory['operations'][number]['record']>,
@@ -51,6 +52,16 @@ export async function readUwCompletionObservation(
   return collector.read()
 }
 
+/** Re-read the UW and project only the exact incomplete operation observed by the writer. */
+export async function readWriterRetryUwCompletionObservation(
+  retry: WriterRetryObservation,
+  options: GitHubOptions,
+  loadCatalogues: (histories: readonly DecodedHistory[]) => Promise<ReviewClassCatalogues>,
+): Promise<UwCompletionObservation> {
+  const root = { repository: retry.record.repository, target: retry.record.target }
+  return new UwObservationCollector(root, options, loadCatalogues, [], [], retry).read()
+}
+
 class UwObservationCollector {
   private readonly cut: UwObservationCut
   private readonly graphSeen = new Set<string>()
@@ -68,6 +79,7 @@ class UwObservationCollector {
     private readonly loadCatalogues: (histories: readonly DecodedHistory[]) => Promise<ReviewClassCatalogues>,
     additionalScopes: readonly Scope[],
     private readonly additionalHistories: readonly DecodedHistory[],
+    private readonly writerRetry?: WriterRetryObservation,
   ) {
     this.cut = new UwObservationCut(root)
     this.factReader = createUwDeliveryFactReader(options)
@@ -119,6 +131,7 @@ class UwObservationCollector {
 
   private historyScopes(): Map<string, Scope> {
     const wanted = new Map<string, Scope>()
+    if (this.writerRetry !== undefined) wanted.set(scopeKey(this.cut.root), this.cut.root)
     for (const history of this.additionalHistories) wanted.set(scopeKey(history.source.scope), history.source.scope)
     for (const node of this.cut.nodes.values()) wanted.set(scopeKey(node.uw), node.uw)
     const records = [...this.cut.histories.values()].flatMap((history) =>
@@ -145,7 +158,9 @@ class UwObservationCollector {
   private async readHistory(scope: Scope): Promise<void> {
     try {
       const source = await readGitHubHistory(scope, this.options)
-      const history = decodeHistory(source)
+      const decoded = decodeHistory(source)
+      const history = this.writerRetry === undefined ? decoded : projectWriterRetryHistory(decoded, this.writerRetry)
+      if (history === null) throw new Error('history projection does not match the observed writer history')
       this.cut.addHistory(history)
       this.requireGraphs(framingMemberScopes(history))
     } catch (error) {

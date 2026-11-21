@@ -55,41 +55,28 @@ export async function loadReviewClassCatalogues(input: {
     if (ref.ok) refs.set(identity(ref.value), ref.value)
   }
   const digests = new Map<string, Set<string>>()
-  const groups = new Map<string, PinnedFileRef[]>()
   for (const ref of refs.values()) {
     const key = coordinates(ref)
     const claimed = digests.get(key) ?? new Set<string>()
     claimed.add(ref.digest)
     digests.set(key, claimed)
-    const group = `${ref.repository}\0${ref.commit}`
-    const members = groups.get(group) ?? []
-    members.push(ref)
-    groups.set(group, members)
   }
   const reads: ReviewCatalogueRead[] = []
-  for (const group of groups.values()) {
-    // One exact read per reference keeps an unreadable historical pin from poisoning its peers.
-    const observed = await Promise.all(
-      group.map(
-        async (ref): Promise<ReviewCatalogueRead> => ({
-          ref,
-          contents:
-            (digests.get(coordinates(ref))?.size ?? 0) > 1
-              ? actionFailure(
-                  'action-input-stale',
-                  `Conflicting catalogue digests for ${ref.repository}@${ref.commit}:${ref.path}`,
-                )
-              : await readGitFileBytes({
-                  repository: ref.repository,
-                  commit: ref.commit,
-                  path: ref.path,
-                  cwd: input.cwd,
-                  gh: input.gh,
-                }),
-        }),
-      ),
-    )
-    reads.push(...observed)
+  for (const ref of refs.values()) {
+    const contents =
+      (digests.get(coordinates(ref))?.size ?? 0) > 1
+        ? actionFailure(
+            'action-input-stale',
+            `Conflicting catalogue digests for ${ref.repository}@${ref.commit}:${ref.path}`,
+          )
+        : await readGitFileBytes({
+            repository: ref.repository,
+            commit: ref.commit,
+            path: ref.path,
+            cwd: input.cwd,
+            gh: input.gh,
+          })
+    reads.push({ ref, contents })
   }
   return createReviewClassCatalogues(reads)
 }

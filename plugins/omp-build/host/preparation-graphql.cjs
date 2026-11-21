@@ -39,4 +39,11 @@ function catalogueQuery(count) {
   return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`
 }
 
-module.exports = { BLOB_QUERY, PULLS_QUERY, AUTH_COMMENT_QUERY, PR_BODY_QUERY, CI_ROLLUP_QUERY, catalogueQuery }
+module.exports = {
+  BLOB_QUERY,
+  PULLS_QUERY,
+  AUTH_COMMENT_QUERY,
+  PR_BODY_QUERY,
+  CI_ROLLUP_QUERY,
+  catalogueQuery,
+}

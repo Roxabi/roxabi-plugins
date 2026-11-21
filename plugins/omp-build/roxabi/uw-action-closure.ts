@@ -249,7 +249,7 @@ export function assertCurrentOutputClosure(
   const normativeOutputs = refuseNormativeOutputs(checkedRequest, normative, outputs)
   if (!normativeOutputs.ok) return normativeOutputs
   return walkCitations(records, outputs, normative, [
-    ...request.stageSources,
+    ...(integration?.stageSources ?? request.stageSources),
     ...checkedRequest.expandedContext.filter((item): item is RecordInputRef => item.source === 'record'),
   ])
 }

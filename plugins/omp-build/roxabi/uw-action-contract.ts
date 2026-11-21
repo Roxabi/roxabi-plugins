@@ -10,6 +10,7 @@ import type {
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Json } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { ActionOperands } from '../engine/workflow-action-operands.ts'
 import type { FramingOrigin } from './feature-framing-controller-lease.ts'
 import type { PreparedReviewChunk } from './review-input-contract.ts'
@@ -77,6 +78,8 @@ export type UwActionRequest = {
   stageSources: readonly RecordInputRef[]
   expandedContext: readonly (RecordInputRef | PinnedFileRef)[]
   operands?: ActionOperands
+  /** Expected parent for fresh integration discovery; never an authority grant. */
+  expectedIntegrationParent?: AcceptedOwnSpec
 }
 
 /** Host-only local view. Excluded from the canonical manifest hash; included in the seal. */
@@ -103,6 +106,8 @@ export type CurrentActionFacts = {
   configuration: ActionInputManifest['configuration']
   /** Authenticated prior action for explicit fresh planner expansion. */
   expansionPrevious?: ActionInputs
+  /** Freshly authenticated integration annex, when requested by the host. */
+  integrationStageSources?: readonly RecordInputRef[]
 }
 
 export type UwInputReadPorts = {

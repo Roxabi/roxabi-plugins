@@ -65,7 +65,14 @@ var require_preparation_graphql = __commonJS(function(exports, module) {
     const fields = Array.from({ length: count }, (_, index) => `f${index}:object(expression:$e${index}){... on Blob{oid byteSize isBinary isTruncated text}}`).join(" ");
     return `query($owner:String!,$name:String!,${variables}){repository(owner:$owner,name:$name){${fields}}}`;
   }
-  module.exports = { BLOB_QUERY, PULLS_QUERY, AUTH_COMMENT_QUERY, PR_BODY_QUERY, CI_ROLLUP_QUERY, catalogueQuery };
+  module.exports = {
+    BLOB_QUERY,
+    PULLS_QUERY,
+    AUTH_COMMENT_QUERY,
+    PR_BODY_QUERY,
+    CI_ROLLUP_QUERY,
+    catalogueQuery
+  };
 });
 
 // plugins/issue-triage/skills/shared/queries.ts
@@ -11202,7 +11209,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 2)
+  if (minor === 21 && patch <= 3)
     return "bounded";
   return "unknown";
 }
@@ -27653,6 +27660,57 @@ class UwObservationCut {
   }
 }
 
+// plugins/omp-build/adapters/github-workflow/writer-retry-observation.ts
+function withoutRetainedParts(history, parts) {
+  const ids = new Map;
+  for (const part of parts) {
+    const id = part.nativeId;
+    if (!id || part.author !== history.source.expectedAuthor || part.locator !== `${history.source.scope.target}:comment:${id}`)
+      return null;
+    ids.set(id, false);
+  }
+  if (ids.size === 0 || ids.size !== parts.length)
+    return null;
+  let removed = 0;
+  const remaining = [];
+  for (const comment of history.source.comments) {
+    const id = comment.nativeId ?? "";
+    const seen = ids.get(id);
+    if (seen === undefined)
+      remaining.push(comment);
+    else {
+      if (seen)
+        return null;
+      ids.set(id, true);
+      removed++;
+    }
+  }
+  return removed === ids.size ? remaining : null;
+}
+function projectWriterRetryHistory(history, retry) {
+  const { record, observed } = retry;
+  if (record.kind !== "action-receipt" || record.payload.phase !== "start")
+    return null;
+  if (history.source.scope.repository !== record.repository || history.source.scope.target !== record.target)
+    return history;
+  if (observed.source.scope.repository !== record.repository || observed.source.scope.target !== record.target)
+    return null;
+  if (!history.source.complete || !observed.source.complete || history.source.expectedAuthor !== observed.source.expectedAuthor || history.source.stopAuthor !== observed.source.stopAuthor)
+    return null;
+  if (JSON.stringify(history.source) !== JSON.stringify(observed.source))
+    return null;
+  const own = observed.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
+  if (own.length !== 1 || own[0]?.status !== "incomplete" || own[0].recordId !== record.recordId || own[0].kind !== record.kind)
+    return null;
+  if (recordIntegrity(own[0].parts, record) !== null)
+    return null;
+  const matching = history.operations.filter((operation) => operation.authority !== "foreign" && operation.operationId === record.operationId);
+  if (matching.length !== 1 || JSON.stringify(matching[0]) !== JSON.stringify(own[0]))
+    return null;
+  const comments = withoutRetainedParts(history, own[0].parts);
+  return comments === null ? null : decodeHistory({ ...history.source, comments });
+}
+
 // plugins/omp-build/adapters/github-workflow/uw-observation.ts
 function receiptScopes(payload) {
   if (payload.phase === "intent")
@@ -27673,11 +27731,16 @@ async function readUwCompletionObservation(root, options, loadCatalogues, additi
   const collector = new UwObservationCollector(root, options, loadCatalogues, additionalScopes, additionalHistories);
   return collector.read();
 }
+async function readWriterRetryUwCompletionObservation(retry, options, loadCatalogues) {
+  const root = { repository: retry.record.repository, target: retry.record.target };
+  return new UwObservationCollector(root, options, loadCatalogues, [], [], retry).read();
+}
 
 class UwObservationCollector {
   options;
   loadCatalogues;
   additionalHistories;
+  writerRetry;
   cut;
   graphSeen = new Set;
   historySeen = new Set;
@@ -27687,10 +27750,11 @@ class UwObservationCollector {
   evaluationRoots;
   factReader;
   historyDiagnostics = [];
-  constructor(root, options, loadCatalogues, additionalScopes, additionalHistories) {
+  constructor(root, options, loadCatalogues, additionalScopes, additionalHistories, writerRetry) {
     this.options = options;
     this.loadCatalogues = loadCatalogues;
     this.additionalHistories = additionalHistories;
+    this.writerRetry = writerRetry;
     this.cut = new UwObservationCut(root);
     this.factReader = createUwDeliveryFactReader(options);
     this.pendingGraph = new Map([[scopeKey(root), root]]);
@@ -27742,6 +27806,8 @@ class UwObservationCollector {
   }
   historyScopes() {
     const wanted = new Map;
+    if (this.writerRetry !== undefined)
+      wanted.set(scopeKey(this.cut.root), this.cut.root);
     for (const history of this.additionalHistories)
       wanted.set(scopeKey(history.source.scope), history.source.scope);
     for (const node of this.cut.nodes.values())
@@ -27767,7 +27833,10 @@ class UwObservationCollector {
   async readHistory(scope) {
     try {
       const source = await readGitHubHistory(scope, this.options);
-      const history = decodeHistory(source);
+      const decoded = decodeHistory(source);
+      const history = this.writerRetry === undefined ? decoded : projectWriterRetryHistory(decoded, this.writerRetry);
+      if (history === null)
+        throw new Error("history projection does not match the observed writer history");
       this.cut.addHistory(history);
       this.requireGraphs(framingMemberScopes(history));
     } catch (error) {
@@ -28491,7 +28560,7 @@ function reviewTransportDiagnostics(transportDiagnostics, incompleteFinal) {
     return transportDiagnostics;
   return incompleteFinal ? [diagnostic2("incomplete", "A final review operation is not complete")] : null;
 }
-function latestReviewSummary(latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, spent, externalHistories, deliveryHistory) {
+function latestReviewSummary(latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, spent, externalHistories, deliveryHistory, latestHistorical) {
   if (latest === null)
     return {
       ok: true,
@@ -28500,7 +28569,7 @@ function latestReviewSummary(latest, at, records, history, catalogues, acceptedP
   const decision = records.get(latest.payload.decisionId);
   if (decision?.kind !== "decision")
     return summaryFailure([diagnostic2("unknown-reference", `Review ${latest.recordId} lacks its decision`)], knownReviews, true, spent);
-  const assessed = validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, latest.payload.causeDispositionRefs);
+  const assessed = latestHistorical ?? validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, latest.payload.causeDispositionRefs);
   if (!assessed.ok)
     return summaryFailure(assessed.diagnostics, knownReviews, true, spent);
   const assessment = assessed.value;
@@ -28521,6 +28590,7 @@ function latestReviewSummary(latest, at, records, history, catalogues, acceptedP
 }
 function validateAuthorityReviewSpend(reviews, records, history, catalogues, acceptedPolicyRef, initialSpent, externalHistories, deliveryHistory) {
   let spent = initialSpent;
+  let latestHistorical;
   for (const [index, review] of reviews.entries()) {
     const record = review.record;
     if (record?.kind !== "review")
@@ -28531,10 +28601,12 @@ function validateAuthorityReviewSpend(reviews, records, history, catalogues, acc
         diagnostics: [diagnostic2("unknown-reference", `Review ${record.recordId} lacks its decision`)],
         spent
       };
-    const assessed = record.payload.causeDispositionRefs === undefined ? {
+    const causeRefs = record.payload.causeDispositionRefs;
+    latestHistorical = causeRefs && validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, causeRefs);
+    const assessed = latestHistorical ?? {
       ok: true,
       value: validateDecision2(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory)
-    } : validateHistoricalReviewDecision(decision, history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory, record.payload.causeDispositionRefs);
+    };
     if (!assessed.ok)
       return { diagnostics: assessed.diagnostics, spent };
     const assessment = assessed.value;
@@ -28543,7 +28615,7 @@ function validateAuthorityReviewSpend(reviews, records, history, catalogues, acc
     if (index >= 2 && assessment.verdict === "Request changes")
       spent = true;
   }
-  return { diagnostics: null, spent };
+  return { diagnostics: null, spent, latestHistorical };
 }
 function summarizeAuthorityReviews(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) {
   const identity = analyzeReviewIdentity(history, recordMap(history));
@@ -28573,7 +28645,7 @@ function summarizeAuthorityReviews(history, catalogues, acceptedPolicyRef, exter
       diagnostic2("incomplete", `Pull-request review inventory ${identity.pendingRoot.recordId} is pending completion by its own final review`, { rootId: identity.pendingRoot.recordId, pendingRoot: true })
     ], knownReviews, true, reviewSpend.spent);
   const at = identity.latestOperation?.parts.map((part) => part.createdAt).find((value) => value !== null) ?? null;
-  return latestReviewSummary(identity.latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, reviewSpend.spent, externalHistories, deliveryHistory);
+  return latestReviewSummary(identity.latest, at, records, history, catalogues, acceptedPolicyRef, knownReviews, reviewSpend.spent, externalHistories, deliveryHistory, reviewSpend.latestHistorical);
 }
 function reviewStateFailure(diagnostics, knownReviews, countExact, spent) {
   return { ok: false, next: "stop", knownReviews, countExact, spent, diagnostics };
@@ -35358,6 +35430,7 @@ export {
   projectRecoveryHistories,
   projectUwDelivery,
   projectUwWaits,
+  projectWriterRetryHistory,
   proveHistoricalReviewAssociation,
   publicationPrefixPhaseSchema,
   publishConfirmedWorkflowRecord,
@@ -35384,6 +35457,7 @@ export {
   readUwGraph,
   readUwSubtree,
   readWorkflowBinding,
+  readWriterRetryUwCompletionObservation,
   recallClassSchema,
   recallPlanSchema,
   receiptStartKey,

@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
+import { gh as wrapGh } from '../adapters/github/types.ts'
 import { UW_GRAPH_QUERY } from '../adapters/github-native/uw-graph-query.ts'
 import { graphqlVariables } from '../adapters/github-workflow/client.ts'
 import { readNativeCiFailureEvidence } from '../roxabi/feature-ci-evidence.ts'
 import { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
 import { reconcileRecoveryHostEffects } from '../roxabi/fix-recovery-host-effects.ts'
+import { readGitHubBlob } from '../roxabi/uw-github-blobs.ts'
 import { readPrBody } from '../skills/feature/review-input.ts'
 import {
   createPreparationCohort,
@@ -46,6 +48,40 @@ function expectUnattributedWrite(result: ReturnType<typeof reconcileRecoveryHost
   expect(encoded).not.toContain('fixture-secret-credential')
   expect(encoded).not.toContain('fixture-secret-argument')
 }
+
+it('keeps a failed scalar catalogue lookup as a rejected preparation read', async () => {
+  const wrapped = wrapGh({
+    cwd: '/fixture',
+    gh: async () => {
+      const stdout = JSON.stringify({
+        data: { repository: { object: null } },
+        errors: [{ path: ['repository', 'object', 'oid'] }],
+      })
+      throw Object.assign(new Error('GraphQL error'), { stdout, code: 1 })
+    },
+  })
+  const request = {
+    repository: 'acme/plugins',
+    commit: 'a'.repeat(40),
+    path: 'classes.yml',
+    cwd: '/fixture',
+    gh: wrapped,
+  }
+  const cohort = createPreparationCohort()
+  const result = await cohort.run(() => readGitHubBlob(request))
+  cohort.seal()
+  const host = await cohort.join()
+  expect(result.ok).toBe(false)
+  expect(host.operations).toEqual([expect.objectContaining({ kind: 'gh-read', outcome: 'rejected' })])
+  if (host.status !== 'joined') throw new Error('fixture-cohort-not-joined')
+  expect(
+    reconcileRecoveryHostEffects({
+      host,
+      publications: [],
+      target: { repository: 'acme/app', pr: 7, head: 'a'.repeat(40) },
+    }).status,
+  ).toBe('qualified')
+})
 
 it('does not treat unentered or entered-empty cohorts as joined evidence', async () => {
   const unentered = createPreparationCohort()

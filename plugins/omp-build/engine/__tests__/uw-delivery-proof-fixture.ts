@@ -42,6 +42,7 @@ type ParentDeliveryWorld = {
   gh: Gh
   git: GitRunner
   operations: UwOperations
+  observeGraph(graph: Extract<UwGraphObservation, { status: 'complete' }>): void
   checkout(facts: DeclaredCheckout): void
 }
 
@@ -59,6 +60,7 @@ export async function threeDeliveredChildren<T>(
     diff: Uint8Array
     cwd?: string
     originUrl?: string
+    wrapGh?: (gh: Gh) => Gh
   },
   parentCriteria: Readonly<Parameters<typeof canonicalSpec>[0]['criteria']>,
   initialParentPlan: 'framed' | 'planned',
@@ -243,6 +245,7 @@ export async function threeDeliveredChildren<T>(
         { base: thirdMerge, head: thirdMerge, bytes: new Uint8Array() },
       ],
       ...(git.cwd === undefined ? {} : { cwd: git.cwd }),
+      wrapGh: git.wrapGh,
     },
     async (native) => {
       const active = git.originUrl === undefined ? native : await native.at(native.cwd)
@@ -261,6 +264,7 @@ export async function threeDeliveredChildren<T>(
         gh: active.gh,
         git: active.git,
         operations: active.operations,
+        observeGraph: active.observeGraph,
         checkout: active.checkout,
       })
     },

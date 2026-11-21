@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { canonicalValueDigest } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import {
   actionRequest,
@@ -27,10 +26,10 @@ import type { ContinueFeatureResult } from './feature-contract.ts'
 import { cwdInhibition, inhibition } from './feature-control.ts'
 import type { Contracts, History, WorkflowEvidence } from './feature-engine.ts'
 import { proveAuthorizedPublishedBase } from './feature-publication.ts'
+import { authorizeOrdinaryIntegration } from './feature-start-publication.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import type { PreparedUwAction, RecordInputRef } from './uw-action-contract.ts'
-import { integrationProofInputs } from './uw-action-stage-closure.ts'
+import type { PreparedUwAction } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
@@ -39,38 +38,6 @@ export async function startModelReceiptAction(input: ModelReceiptActionInput): P
   return input.action === 'assess-spec'
     ? startAssessmentReceipt(input, context)
     : startCiAttributionReceipt(input, context)
-}
-
-async function integrationSources(
-  uw: UwOperations,
-  scope: Scope,
-  accepted: AcceptedOwnSpec,
-): Promise<{ sources: readonly RecordInputRef[] } | ContinueFeatureResult> {
-  const read = await uw.readUw(scope)
-  if (
-    read.observation.status !== 'complete' ||
-    read.accepted.status !== 'accepted' ||
-    canonicalValueDigest(read.accepted.value) !== canonicalValueDigest(accepted)
-  )
-    return blocks('integration-observation-incomplete')
-  const projected = integrationProofInputs(read)
-  if (!projected.ok) return blocks(prepareRefusal(projected.diagnostics), projected.diagnostics)
-  return { sources: projected.value.stageSources }
-}
-
-async function integrationStartSources(
-  git: GitRunner,
-  cwd: string,
-  base: string,
-  uw: UwOperations,
-  scope: Scope,
-  accepted: AcceptedOwnSpec,
-): Promise<{ base: string; sources: readonly RecordInputRef[] } | ContinueFeatureResult> {
-  const tip = await observeSha(git, cwd, `origin/${base}`)
-  if (tip === null) return blocks('integration-base-unobserved')
-  const projected = await integrationSources(uw, scope, accepted)
-  if ('kind' in projected) return projected
-  return { base: tip, sources: projected.sources }
 }
 
 function integrationStartOperands(action: 'integrate' | 'implement', mandateId: string, planActionId: string) {
@@ -120,6 +87,8 @@ async function integrationStartAuthority(
     !verified.ok
   )
     return { ok: false, reason: 'integration-authority-withdrawn' }
+  const admitted = await authorizeOrdinaryIntegration(prepared.inputs, scope, causal.value)
+  if (!admitted.ok) return admitted
   return { ok: true }
 }
 
@@ -162,20 +131,10 @@ export async function startImplement(
   const code = await observeHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
   if (uw === undefined) return blocks('prepare-action-unavailable')
-  const stageSources: RecordInputRef[] = []
-  if (action === 'integrate') {
-    const projected = await integrationStartSources(
-      git,
-      cwd,
-      approved.mandate.payload.base,
-      uw,
-      scope,
-      approved.accepted,
-    )
-    if ('kind' in projected) return projected
-    code.code.base = projected.base
-    stageSources.push(...projected.sources)
-  }
+  // A tracking ref must exist, but its pre-fetch tip is not the integration base.
+  // Keep the observed HEAD: preflight must prove this exact commit is published before sealing START.
+  if (action === 'integrate' && (await observeSha(git, cwd, `origin/${approved.mandate.payload.base}`)) === null)
+    return blocks('integration-base-unobserved')
   const prepared = await (action === 'integrate' ? confirmPreparedAction : prepareDeliveryAction)(
     uw,
     actionRequest({
@@ -184,7 +143,7 @@ export async function startImplement(
       subject: uwSubject(scope, null),
       code: code.code,
       ...integrationStartOperands(action, approved.mandate.recordId, planAction),
-      stageSources,
+      ...(action === 'integrate' ? { expectedIntegrationParent: approved.accepted } : {}),
     }),
   )
   if (!prepared.ok) return blocks(prepareRefusal(prepared.diagnostics), prepared.diagnostics)

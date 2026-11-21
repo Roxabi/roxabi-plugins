@@ -1,6 +1,7 @@
 import { type GitHubOptions, readUwCompletionObservation } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { observationReasons, reasonLine } from './causal-refusal.ts'
@@ -16,7 +17,7 @@ import {
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { UwRead } from './uw-contract.ts'
-import { createInstalledUwReadPort } from './uw-read-port.ts'
+import { readInstalledUwObservation } from './uw-read-port.ts'
 
 export type FixUwCausalContext = WorkflowCausalContext
 
@@ -147,10 +148,21 @@ export async function composeObservedUwCausalContext(
     read.observation.catalogues !== read.catalogues
   )
     return unsettled(['fix-completion-observation-unavailable'], observationReasons(read.observation))
+  return composeCausalObservation(read.uw, read.observation, selected, options)
+}
+
+async function composeCausalObservation(
+  uw: Scope,
+  observation: UwCompletionObservation,
+  selected: readonly DecodedHistory[],
+  options: GitHubOptions,
+): Promise<FixActionResult<WorkflowCausalContext>> {
+  if (observation.status !== 'complete')
+    return unsettled(['fix-causal-observation-unavailable'], observationReasons(observation))
   const scopes = new Set<string>()
   let own = false
   const policy = withRoxabiGitHubPolicy(options)
-  for (const history of read.histories) {
+  for (const history of observation.histories) {
     const scope = history.source.scope
     const key = `${scope.repository}\0${scope.target}`
     if (
@@ -161,17 +173,17 @@ export async function composeObservedUwCausalContext(
     )
       return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
     scopes.add(key)
-    if (scope.repository === read.uw.repository && scope.target === read.uw.target) own = true
+    if (scope.repository === uw.repository && scope.target === uw.target) own = true
   }
   if (!own) return failure('fix-own-uw-unsettled', 'fix-causal-own-history-missing')
-  const merged = mergeFixUwHistories(read.histories, selected)
+  const merged = mergeFixUwHistories(observation.histories, selected)
   if (!merged.ok) return merged
-  if (merged.value.length === read.histories.length)
+  if (merged.value.length === observation.histories.length)
     return {
       ok: true,
-      value: { histories: read.histories, catalogues: read.catalogues, observation: read.observation },
+      value: { histories: observation.histories, catalogues: observation.catalogues, observation },
     }
-  return collectJointUwCausalContext(read.uw, merged.value, options)
+  return collectJointUwCausalContext(uw, merged.value, options)
 }
 
 /** Obtain the complete joint observation for a known canonical UW, then bind the selected histories. */
@@ -181,12 +193,12 @@ export async function readFreshUwCausalContext(
   options: GitHubOptions,
 ): Promise<FixActionResult<FixUwCausalContext>> {
   try {
-    const read = await createInstalledUwReadPort({
+    const observation = await readInstalledUwObservation(scope, {
       cwd: options.cwd,
       gh: options.gh ?? defaultGh(),
       ...(options.readAuthor === undefined ? {} : { readAuthor: options.readAuthor }),
-    }).readUw(scope)
-    return composeObservedUwCausalContext(read, selected, options)
+    })
+    return composeCausalObservation(scope, observation, selected, options)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     return unsettled(['fix-completion-observation-unavailable'], [reasonLine(`uw-read-failed: ${detail}`)])
