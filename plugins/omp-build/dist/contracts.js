@@ -11207,7 +11207,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 3)
+  if (minor === 21 && patch <= 4)
     return "bounded";
   return "unknown";
 }

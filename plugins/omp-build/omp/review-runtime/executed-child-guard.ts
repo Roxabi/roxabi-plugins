@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { ExtensionContext, SubagentEventPayload, ToolCallEvent, ToolResultEvent } from '@oh-my-pi/pi-coding-agent'
-import { matchesAuthorizedModel } from './authorized-model-route.ts'
 import { json, nativeSnapshot, object } from './capture.ts'
 import type { NativeBatch, NativeExtension } from './contracts.ts'
 import type { NativeBatchController } from './controller.ts'
@@ -22,7 +21,6 @@ type Binding = {
   sessionFile: string
   parentId: string
   tools: readonly string[]
-  model: { provider: string; id: string }
   task: string
   prompt: string[]
   admitted: boolean
@@ -45,7 +43,6 @@ function readyIdentity(binding: Binding, ctx: ExtensionContext, pi: NativeExtens
     ctx.agent.parentId === binding.parentId &&
     sessionId(ctx) === binding.sessionId &&
     ctx.sessionManager.getSessionFile() === binding.sessionFile &&
-    matchesAuthorizedModel(ctx, binding.model) &&
     toolSetValid(pi, binding.tools)
   )
 }
@@ -77,7 +74,6 @@ async function prepareBinding(ctx: ExtensionContext, pi: NativeExtension): Promi
   const entry = entries[0]
   const profile = await loadPinnedProfile(task)
   if (!profile || !validateChildInit(profile, task, entry) || !entry || typeof entry.task !== 'string') return null
-  if (!matchesAuthorizedModel(ctx, bound.model)) return null
   if (!childExecutionCurrent(controller, bound.batch, ctx.agent.id, file, ctx.agent.parentId)) return null
   const tools = effectiveTools(pi, profile)
   if (!tools) return null
@@ -89,7 +85,6 @@ async function prepareBinding(ctx: ExtensionContext, pi: NativeExtension): Promi
     sessionFile: file,
     parentId: ctx.agent.parentId,
     tools,
-    model: bound.model,
     task: entry.task,
     prompt: [
       profile.prompt,
@@ -117,7 +112,7 @@ function recordYield(binding: Binding, event: ToolResultEvent, input: unknown): 
 }
 
 function activateBinding(binding: Binding, ctx: ExtensionContext, pi: NativeExtension): void {
-  if (!toolSetValid(pi, binding.tools) || !matchesAuthorizedModel(ctx, binding.model)) return
+  if (!toolSetValid(pi, binding.tools)) return
   if (!childExecutionCurrent(binding.controller, binding.batch, binding.id, binding.sessionFile, binding.parentId))
     return
   if (ctx.sessionManager.getSessionFile() !== binding.sessionFile || sessionId(ctx) !== binding.sessionId) return
@@ -280,7 +275,6 @@ export function installExecutedChildGuard(pi: NativeExtension, controller: Nativ
         sessionId(ctx) !== binding.sessionId ||
         ctx.sessionManager.getSessionFile() !== binding.sessionFile ||
         !isDeepStrictEqual(ctx.getSystemPrompt(), binding.prompt) ||
-        !matchesAuthorizedModel(ctx, binding.model) ||
         !toolSetValid(pi, binding.tools)
       )
         invalidate(binding)

@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises'
+import { isDeepStrictEqual } from 'node:util'
 import type { ToolSession } from '@oh-my-pi/pi-coding-agent'
 import type { AgentRegistryApi } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
 import type { AgentSession } from '@oh-my-pi/pi-coding-agent/session/agent-session'
@@ -40,22 +41,19 @@ async function authorizeSpawn(context: TaskContext, policy: EffectiveSubagentPol
       agent: policy.agentName,
       invocationKind: 'task',
       modelRole: policy.modelRole,
-      patterns: policy.modelOverride ?? [],
+      patterns: [...(policy.modelOverride ?? [])],
       spawnKey: id,
     },
     signal,
   )
   if (hook?.block) throw new Error(hook.reason ?? 'subagent spawn blocked')
-  let modelOverride = policy.modelOverride
   if (hook?.model !== undefined) {
     const replacement = resolveConfiguredModelPatterns(hook.model, session.settings)
     if (!replacement.length) throw new Error('spawn hook supplied an unresolved model route')
-    const routed = options.ctx.models.resolve(replacement.join(','))
-    if (!routed || routed.provider !== authorized.provider || routed.id !== authorized.id)
-      throw new Error('spawn hook changed the authorized model')
-    modelOverride = replacement
+    if (!isDeepStrictEqual(replacement, policy.modelOverride))
+      throw new Error('spawn hook changed the authorized model route')
   }
-  return { hook, modelOverride }
+  return { hook, modelOverride: policy.modelOverride }
 }
 
 async function prepareArtifacts(root: AgentSession, alive: () => boolean) {

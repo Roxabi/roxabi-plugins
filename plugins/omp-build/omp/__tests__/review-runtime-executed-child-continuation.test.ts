@@ -115,14 +115,13 @@ describe('native executed-child continuation guard', () => {
     expect(fixture.runtime.yield).not.toHaveBeenCalled()
   })
 
-  it.each(['unbound', 'root', 'model', 'tools', 'first task'] as const)(
+  it.each(['unbound', 'root', 'tools', 'first task'] as const)(
     'refuses continuation with %s drift before another provider, tool or yield',
     async (drift) => {
       const fixture = await setup()
       await fixture.start()
       if (drift === 'unbound') fixture.setSession('different-child-session')
       if (drift === 'root') await fixture.switchRoot()
-      if (drift === 'model') fixture.child.model.id = 'different-model'
       if (drift === 'tools') fixture.childEndpoint.addTool('bash')
       const first =
         drift === 'first task' ? { ...fixture.initialMessage, content: 'different assignment' } : fixture.initialMessage
