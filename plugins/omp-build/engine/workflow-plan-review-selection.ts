@@ -32,12 +32,14 @@ export type ReviewContext = {
 
 function reviewContextProblem(
   history: DecodedHistory,
+  mandate: MandateRecord,
   empty: EmptyMacro,
   excluded: ReadonlySet<string>,
   contextLeaf?: ReceiptRecord,
 ): PlanMacro | null {
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
   for (const action of ['plan', 'plan-review'] as const) {
-    const terminal = workflowContextTerminal(history, action, contextLeaf, excluded)
+    const terminal = workflowContextTerminal(history, action, mandateRef, contextLeaf, excluded)
     if (terminal === 'missing')
       return empty('blocked', [diagnostic('action-context-missing', `${action} requires expanded context`)])
     if (terminal === 'uncertain')
@@ -67,7 +69,7 @@ export function prepareReview(
   if (gate.kind === 'stop')
     return { macro: empty(gate.completion.status === 'uncertain' ? 'uncertain' : 'blocked', gate.completion.evidence) }
   const excluded = gate.excluded
-  const problem = reviewContextProblem(history, empty, excluded, contextLeaf)
+  const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf)
   if (problem !== null) return { macro: problem }
   const starts = receiptsFor(history, 'plan', 'start', excluded)
   const results = planResults(history, excluded).filter(

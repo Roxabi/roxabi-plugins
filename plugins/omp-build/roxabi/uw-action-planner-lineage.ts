@@ -72,7 +72,7 @@ export function plannerLineage<T extends ReceiptRecord>(
   for (const candidate of candidates) {
     const history = historyFor({ repository: candidate.repository, target: candidate.target }, histories)
     if (history === null) return actionFailure('record-unreadable', 'Planner negative history is absent')
-    const successor = workflowContextDirectSuccessor(history, candidate, excluded)
+    const successor = workflowContextDirectSuccessor(history, candidate, candidate.payload.mandate, excluded)
     if (successor.status === 'uncertain' || successor.status === 'ambiguous')
       return actionFailure('record-unreadable', 'Planner negative lineage is uncertain or forked')
     if (successor.status === 'successor') {

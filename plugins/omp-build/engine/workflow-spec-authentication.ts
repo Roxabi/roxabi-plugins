@@ -145,8 +145,8 @@ function contextAssessment(
   )
   const terminal =
     replayStart === undefined
-      ? workflowContextTerminal(home, 'assess-spec', undefined, excluded)
-      : observeAssessmentContextReplay(home, replayStart, excluded)
+      ? workflowContextTerminal(home, 'assess-spec', mandateRef, undefined, excluded)
+      : observeAssessmentContextReplay(home, replayStart, mandateRef, excluded)
   if (terminal === 'clear' || terminal === 'observed') return { ok: true }
   if (terminal === 'ambiguous') return specChainFailure('ambiguous', 'Spec assessment context has competing successors')
   return specChainFailure(

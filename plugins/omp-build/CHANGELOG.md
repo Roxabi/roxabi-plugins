@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.3 (unreleased)
+
+- Scope authenticated `missing-context` action holds to the mandate that produced them. After explicit abandonment and `/feature new`, an old mandate's negative no longer blocks planning, plan review, implementation or CI attribution; a current-mandate negative still blocks as before. Interruption, orphan and lineage rules are unchanged. Another mandate's negative must still be an authenticated pair, otherwise the action stays uncertain. Spec-assessment negatives are not covered: they still prevent pause/abandon of their mandate and block authentication of that mandate's earlier work.
+- Recognize 0.21.3 under the bounded PR-binding policy while preserving earlier supported versions. This source change does not migrate mandates, activate tooling or authorize recovery.
+
 ## 0.21.2 (unreleased)
 
 - Drop code-index tools from the feature workflow: `/feature init` no longer proposes ccc or codegraph, and worktree bootstrap no longer runs `codegraph init` or requires its CLI. Bootstrap is transfer, setup and marker only; a project that opted in to codegraph indexes its worktrees itself.

@@ -46,7 +46,7 @@ export function walkWorkflow(
       return blocked('unconfirmed', [
         diagnostic('unconfirmed', 'Assessment does not bind the authenticated own mandate'),
       ])
-    const captured = inspectCapturedWorkForAssessment(evidence)
+    const captured = inspectCapturedWorkForAssessment(evidence, mandate)
     if (!captured.ok) return blocked('unconfirmed', captured.diagnostics)
     const unresolved = unresolvedAssessmentWork(evidence, facts, decisions, mandate)
     return unresolved === null ? candidate : blocked(completionBlockReason(unresolved), unresolved.evidence)

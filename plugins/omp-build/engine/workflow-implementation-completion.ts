@@ -8,8 +8,16 @@ import { toDiagnostics } from './uw-diagnostics.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
-import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import {
+  excludedReceipt,
+  type MandateRecord,
+  mandateScope,
+  type ReceiptRecord,
+  receiptMandate,
+  recordsOf,
+} from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
@@ -68,8 +76,14 @@ function macroBlocked(evidence: WorkflowEvidence, mandate: MandateRecord | null)
   return null
 }
 
-function hasRejectedResult(receipts: readonly ImplementationReceipt[]): boolean {
-  return receipts.some((record) => record.payload.phase === 'result' && isUnadmittedImplementation(record))
+function hasRejectedResult(receipts: readonly ImplementationReceipt[], mandate: MandateRecord): boolean {
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+  return receipts.some(
+    (record) =>
+      record.payload.phase === 'result' &&
+      isUnadmittedImplementation(record) &&
+      (!workflowContextNegative(record) || sameRef(record.payload.mandate, mandateRef)),
+  )
 }
 
 function coveredImplementation(
@@ -140,7 +154,7 @@ function mandatedCompletion(
   if (!effective.ok) return { status: 'blocked', evidence: toDiagnostics(effective.diagnostics) }
   const blocked = macroBlocked(evidence, mandate)
   if (blocked !== null) {
-    if (blocked.status === 'not-started' && hasRejectedResult(receipts)) {
+    if (blocked.status === 'not-started' && hasRejectedResult(receipts, mandate)) {
       return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
     }
     return blocked
@@ -162,7 +176,8 @@ export function implementationCompletion(evidence: WorkflowEvidence, mandate: Ma
   const receipts = implementationReceipts(evidence.issue, action).filter((record) => !excludedReceipt(record, excluded))
   const gate = interruptionGate(classified)
   if (gate.kind === 'stop') return gate.completion
-  const terminal = workflowContextTerminal(evidence.issue, action, undefined, excluded)
+  const mandateRef = receiptMandate(mandate)
+  const terminal = workflowContextTerminal(evidence.issue, action, mandateRef, undefined, excluded)
   if (terminal === 'missing')
     return {
       status: 'blocked',

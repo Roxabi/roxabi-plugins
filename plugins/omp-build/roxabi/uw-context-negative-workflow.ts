@@ -93,11 +93,11 @@ function outstandingCandidate(
   if (!start.ok) return start
   const history = historyFor({ repository: result.repository, target: result.target }, histories)
   if (history === null) return actionFailure('record-unreadable', 'Negative result history is absent')
-  const state = workflowContextResolution(history, result, excluded)
+  const state = workflowContextResolution(history, result, result.payload.mandate, excluded)
   if (state === 'clear') return { ok: true, value: false }
   if (state !== 'missing')
     return actionFailure('action-input-missing', 'Selected negative lineage is not uniquely resolved')
-  const direct = workflowContextDirectSuccessor(history, result, excluded)
+  const direct = workflowContextDirectSuccessor(history, result, result.payload.mandate, excluded)
   if (direct.status === 'successor') return { ok: true, value: false }
   if (direct.status !== 'missing')
     return actionFailure('action-input-missing', 'Selected negative lineage is not uniquely resolved')
@@ -171,7 +171,7 @@ function validateRemaining(
   if (
     histories.some((history) =>
       ['frame', 'plan', 'plan-review', 'assess-spec', 'attribute-ci', 'implement'].some(
-        (action) => workflowContextTerminal(history, action, result, excluded) !== 'clear',
+        (action) => workflowContextTerminal(history, action, result.payload.mandate, result, excluded) !== 'clear',
       ),
     )
   )

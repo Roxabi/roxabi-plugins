@@ -220,7 +220,7 @@ export function plannerExpansion(
       recordOperation(histories, result)?.authority !== 'accounted' ||
       !authenticate(result, histories).ok ||
       !bindExternalRef({ scope, kind: result.kind, recordId: result.recordId }, history).ok ||
-      workflowContextResolution(history, result) !== 'clear'
+      workflowContextResolution(history, result, result.payload.mandate) !== 'clear'
     )
   })
   if (candidates.length === 0) return { ok: true, value: null }

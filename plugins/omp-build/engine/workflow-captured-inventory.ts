@@ -10,6 +10,7 @@ import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './work
 import {
   excludedReceipt,
   type MandateRecord,
+  mandateScope,
   type ReceiptRecord,
   receiptStartKey,
   workflowOperationProblem,
@@ -115,9 +116,14 @@ function authenticateInvocation(
   return { ok: true, value: { history, start: pair.value.start, result, frame: frame.value } }
 }
 
-function validateTerminalContexts(history: DecodedHistory, excluded: ReadonlySet<string>): Result<void> {
+function validateTerminalContexts(
+  history: DecodedHistory,
+  mandate: MandateRecord,
+  excluded: ReadonlySet<string>,
+): Result<void> {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' as const }
   for (const action of Object.keys(inspected)) {
-    if (workflowContextTerminal(history, action, undefined, excluded) !== 'clear')
+    if (workflowContextTerminal(history, action, mandateRef, undefined, excluded) !== 'clear')
       return fail('Captured invocation has unresolved negative context')
   }
   return { ok: true, value: undefined }
@@ -126,6 +132,7 @@ function validateTerminalContexts(history: DecodedHistory, excluded: ReadonlySet
 /** Bind every owned invocation before interpreting any historical result. This is not eligibility. */
 export function inventoryCapturedWork(
   evidence: WorkflowEvidence,
+  mandate: MandateRecord,
   replay?: AssessmentReplayContext,
 ): Result<readonly CapturedInvocation[]> {
   const histories = evidence.causal.histories
@@ -143,7 +150,7 @@ export function inventoryCapturedWork(
   const excluded = attempts.value.excluded
   const invocations: CapturedInvocation[] = []
   for (const history of selected) {
-    const captured = inventoryHistory(history, evidence, excluded, replay)
+    const captured = inventoryHistory(history, evidence, mandate, excluded, replay)
     if (!captured.ok) return captured
     invocations.push(...captured.value)
   }
@@ -153,6 +160,7 @@ export function inventoryCapturedWork(
 function inventoryHistory(
   history: DecodedHistory,
   evidence: WorkflowEvidence,
+  mandate: MandateRecord,
   excluded: ReadonlySet<string>,
   replay?: AssessmentReplayContext,
 ): Result<readonly CapturedInvocation[]> {
@@ -173,7 +181,7 @@ function inventoryHistory(
     if (!invocation.ok) return invocation
     if (!resolved) invocations.push(invocation.value)
   }
-  const terminal = validateTerminalContexts(history, excluded)
+  const terminal = validateTerminalContexts(history, mandate, excluded)
   if (!terminal.ok) return terminal
   return { ok: true, value: invocations }
 }

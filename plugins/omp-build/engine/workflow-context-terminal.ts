@@ -105,34 +105,52 @@ function matchingReceipts(
 export function workflowContextTerminal(
   history: DecodedHistory,
   action: string,
+  mandate: ReceiptRecord['payload']['mandate'],
   contextLeaf?: ReceiptRecord,
   excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
-  return contextTerminal(history, action, contextLeaf, undefined, excluded)
+  return contextTerminal(history, action, mandate, contextLeaf, undefined, excluded)
 }
 
 /** Observes a pending assessment only for replay; it does not terminalize the negative. */
 export function observeAssessmentContextReplay(
   history: DecodedHistory,
   replayStart: ReceiptRecord,
+  mandate: ReceiptRecord['payload']['mandate'],
   excluded?: ReadonlySet<string>,
 ): 'observed' | 'missing' | 'uncertain' | 'ambiguous' {
   if (!authenticatedContextReplayStart(history, replayStart)) return 'uncertain'
-  const result = contextTerminal(history, 'assess-spec', undefined, replayStart, excluded)
+  const result = contextTerminal(history, 'assess-spec', mandate, undefined, replayStart, excluded)
   return result === 'clear' ? 'observed' : result
+}
+
+/** Another mandate's negative no longer blocks, but it must still be an authenticated pair. */
+function otherMandateNegativeUnpaired(
+  history: DecodedHistory,
+  actionReceipts: readonly ReceiptRecord[],
+  scoped: readonly ReceiptRecord[],
+): boolean {
+  return actionReceipts.some(
+    (record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record, actionReceipts),
+  )
 }
 
 function contextTerminal(
   history: DecodedHistory,
   action: string,
+  mandate: ReceiptRecord['payload']['mandate'],
   contextLeaf?: ReceiptRecord,
   replayStart?: ReceiptRecord,
   excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
-  const receipts = recordsOf(history).filter(
+  const actionReceipts = recordsOf(history).filter(
     (record): record is ReceiptRecord =>
       record.kind === 'action-receipt' && record.payload.action === action && !excludedReceipt(record, excluded),
   )
+  const receipts = actionReceipts.filter(
+    (record) => canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate),
+  )
+  if (otherMandateNegativeUnpaired(history, actionReceipts, receipts)) return 'uncertain'
   if (
     replayStart !== undefined &&
     (action !== 'assess-spec' ||
@@ -145,7 +163,7 @@ function contextTerminal(
   for (const item of negatives) {
     const resolution = resolveContextNegative(history, item, receipts, new Set(), replayStart)
     if (resolution === 'missing' && contextLeaf !== undefined) {
-      const chain = workflowContextChain(history, item, excluded)
+      const chain = workflowContextChain(history, item, mandate, excluded)
       if (
         chain.status === 'missing' &&
         chain.leaf.recordId === contextLeaf.recordId &&
@@ -164,12 +182,14 @@ type ContextResolution = 'clear' | 'missing' | 'uncertain' | 'ambiguous'
 export function workflowContextResolution(
   history: DecodedHistory,
   negative: ReceiptRecord,
+  mandate: ReceiptRecord['payload']['mandate'],
   excluded?: ReadonlySet<string>,
 ): ContextResolution {
   const receipts = recordsOf(history).filter(
     (record): record is ReceiptRecord =>
       record.kind === 'action-receipt' &&
       record.payload.action === negative.payload.action &&
+      canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) &&
       !excludedReceipt(record, excluded),
   )
   const matches = receipts.filter((record) => record.recordId === negative.recordId)
@@ -181,12 +201,14 @@ export function workflowContextResolution(
 export function workflowContextDirectSuccessor(
   history: DecodedHistory,
   negative: ReceiptRecord,
+  mandate: ReceiptRecord['payload']['mandate'],
   excluded?: ReadonlySet<string>,
 ): { status: 'successor'; record: ReceiptRecord } | { status: 'missing' | 'uncertain' | 'ambiguous' } {
   const receipts = recordsOf(history).filter(
     (record): record is ReceiptRecord =>
       record.kind === 'action-receipt' &&
       record.payload.action === negative.payload.action &&
+      canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) &&
       !excludedReceipt(record, excluded),
   )
   const matches = receipts.filter((record) => record.recordId === negative.recordId)
@@ -207,6 +229,7 @@ export function workflowContextDirectSuccessor(
 export function workflowContextChain(
   history: DecodedHistory,
   negative: ReceiptRecord,
+  mandate: ReceiptRecord['payload']['mandate'],
   excluded?: ReadonlySet<string>,
 ): { status: ContextResolution; negatives: ReceiptRecord[]; leaf: ReceiptRecord } {
   const negatives: ReceiptRecord[] = []
@@ -216,7 +239,7 @@ export function workflowContextChain(
     if (seen.has(current.recordId)) return { status: 'uncertain', negatives, leaf: current }
     seen.add(current.recordId)
     negatives.push(current)
-    const direct = workflowContextDirectSuccessor(history, current, excluded)
+    const direct = workflowContextDirectSuccessor(history, current, mandate, excluded)
     if (direct.status !== 'successor') return { status: direct.status, negatives, leaf: current }
     if (!workflowContextNegative(direct.record)) return { status: 'clear', negatives, leaf: current }
     current = direct.record

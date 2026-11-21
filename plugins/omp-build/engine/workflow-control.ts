@@ -163,6 +163,11 @@ export function mandateScope(record: MandateRecord): Scope {
   return { repository: record.repository, target: record.target }
 }
 
+export function receiptMandate(mandate: MandateRecord | null): ReceiptRecord['payload']['mandate'] {
+  if (mandate === null) return { kind: 'absent', reason: 'pre-mandate' }
+  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+}
+
 export function abandoned(history: DecodedHistory, mandate: MandateRecord): boolean {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' as const }
   return controlsOf(history).some(
