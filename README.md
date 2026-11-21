@@ -58,7 +58,6 @@ Upstream Watch is separate: it monitors only explicit omp-build `watched_paths`,
 | context7-marketplace | [upstash/context7](https://github.com/upstash/context7) |
 | visual-explainer | [nicobailon/visual-explainer](https://github.com/nicobailon/visual-explainer) |
 | ui-ux-pro-max-skill | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) |
-| roxabi-forge | [Roxabi/roxabi-forge](https://github.com/Roxabi/roxabi-forge) |
 | unkillable-forge | [go-silex/unkillable-forge](https://github.com/go-silex/unkillable-forge) |
 | roxabi-video-engine | [Roxabi/roxabi-production](https://github.com/Roxabi/roxabi-production) |
 | impeccable | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) |
@@ -69,13 +68,7 @@ See [External marketplace curation](CONTRIBUTING.md#external-marketplace-curatio
 
 ### Roxabi Forge publisher
 
-The curated [canonical publisher](https://github.com/go-silex/unkillable-forge/tree/4db8a1f0d28515c67875ff2bd0d662d730c7156b/plugins/unkillable-forge) is installed directly from its public source, not vendored here. The reviewed source is commit `4db8a1f0d28515c67875ff2bd0d662d730c7156b`; the registry's `last_checked_commit` records review, not an installation pin. Select that exact revision when reproducibility is required rather than assuming an upstream marketplace installation tracks it. Keep the complete upstream `dist/` and `LICENSE` together, including its inventory, notices, shared chunks and four native payloads. Installation neither builds nor downloads a runtime. Node 22+ is required on Linux glibc 2.28+ or macOS 11+, x64 or arm64.
-
-For Claude Code, Codex or OMP, follow the pinned package's setup instructions and select `claude-code`, `codex` or `omp` respectively. Use an operator-approved, explicit Roxabi instance profile with its own read and management origins, OAuth issuer and endpoint origin, private state and a configured source root resolving to the authorized `~/.roxabi/forge` sources. The profile, state and credentials stay outside the release directory; do not substitute live content for the source root or infer endpoints and credentials. Use absolute paths and an existing operator-owned `0700` state directory; macOS state must also satisfy the package's extended-ACL restrictions.
-
-Run the package's `profile-check`, have the operator perform interactive `connect`, then generate `config-proposal` for that client and review its `forge-roxabi` entry before installing it without disturbing other settings. The proposal does not change client configuration. Discover `forge_publish` in the configured client and supply source references, not file contents or credentials: the local adapter streams bytes outside the model context. Existing publications require an explicit working baseline or protected checkpoint; removals are explicit. Publisher access requires no Cloudflare administration credentials.
-
-Installing this code does not configure a real profile, authorize a server cutover, migrate or republish content, or change access, URLs, shortlinks, assets or visibility. The Roxabi marketplace's publish and setup skills use canonical MCP since `roxabi-forge/v2.0.0`; they are distinct from the retained legacy Cloudflare/Direct Upload scripts and their `roxabi-forge/v1.1.5` engine pin. Until authorized retirement, keep any existing legacy installation separately pinned and explicitly selected; never fall back to it automatically if MCP setup or publication fails. Catalogue entries do not pin or migrate installed copies. Client discovery, native acceptance and delivery are separate from this source preparation.
+Install the curated `unkillable-forge` plugin from [`https://github.com/go-silex/unkillable-forge`](https://github.com/go-silex/unkillable-forge) (marketplace `unkillable-forge`, plugin `unkillable-forge@unkillable-forge`). Follow its `unkillable-forge-setup` skill with an operator-provided Roxabi instance profile: read origin `https://forge.roxabi.dev`, with management origin and Access issuer supplied by the operator. Run interactive `connect`, then `config-proposal`, and publish with `unkillable-forge-publish`.
 
 ## Documentation
 

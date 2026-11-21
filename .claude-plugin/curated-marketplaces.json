@@ -38,11 +38,6 @@
       "description": "UI/UX design intelligence — 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stack guidelines."
     },
     {
-      "name": "roxabi-forge",
-      "source": "https://github.com/Roxabi/roxabi-forge",
-      "description": "Roxabi Forge publish and setup skills for the canonical MCP publisher; the retained legacy Cloudflare path stays separately pinned, never a fallback."
-    },
-    {
       "name": "unkillable-forge",
       "source": "https://github.com/go-silex/unkillable-forge",
       "description": "Canonical local MCP publisher for explicitly configured Forge instances; Claude Code, Codex and OMP."
