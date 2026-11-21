@@ -134,6 +134,7 @@ describe('check-skill-version.sh', () => {
     skillContent?: string
     pluginJson?: boolean
     catalogue?: { documentVersion: string; entryVersion?: string }
+    claudeCatalogue?: { documentVersion: string; entryVersion?: string }
   }): {
     work: string
     bare: string
@@ -167,6 +168,19 @@ describe('check-skill-version.sh', () => {
           version: opts.catalogue.documentVersion,
           plugins: [row],
         }),
+      )
+    }
+    if (opts.claudeCatalogue) {
+      const dir = path.join(work, '.claude-plugin')
+      fs.mkdirSync(dir, { recursive: true })
+      const row: Record<string, string> = {
+        name: opts.pluginName,
+        source: `./plugins/${opts.pluginName}`,
+      }
+      if (opts.claudeCatalogue.entryVersion !== undefined) row.version = opts.claudeCatalogue.entryVersion
+      fs.writeFileSync(
+        path.join(dir, 'marketplace.json'),
+        JSON.stringify({ version: opts.claudeCatalogue.documentVersion, plugins: [row] }),
       )
     }
 
@@ -219,6 +233,18 @@ describe('check-skill-version.sh', () => {
 
   function writeCatalogue(work: string, bytes: string): void {
     fs.writeFileSync(path.join(work, '.omp-plugin', 'marketplace.json'), bytes)
+  }
+  function writeClaudeCatalogue(work: string, bytes: string): void {
+    const file = path.join(work, '.claude-plugin', 'marketplace.json')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, bytes)
+  }
+
+  function claudeCatalogueBytes(plugin: string, version?: string): string {
+    return JSON.stringify({
+      version: '9.9.9',
+      plugins: [{ name: plugin, source: `./plugins/${plugin}`, ...(version === undefined ? {} : { version }) }],
+    })
   }
 
   function pushAsMain(work: string, message: string): void {
@@ -285,7 +311,7 @@ describe('check-skill-version.sh', () => {
 
     // Assert — inertness MUST be disclosed, not silent (same bar as the origin/main SKIP)
     expect(code).toBe(0)
-    expect(stderr).toMatch(/SKIP: bar is SHA-based/)
+    expect(stderr).toContain('SKIP: bar takes its Claude version from the commit SHA')
   })
 
   it('exits 0 when a plugin version is bumped above base and skills/ changed', () => {
@@ -348,6 +374,340 @@ describe('check-skill-version.sh', () => {
     // Assert — guard skips with exit 0 and prints a visible SKIP line to stderr
     expect(code).toBe(0)
     expect(stderr).toMatch(/origin\/main unreachable/)
+  })
+
+  describe('Claude catalogue version fallback', () => {
+    function fixture(manifestVersion?: string): string {
+      const { work, bare } = setupOriginWithPlugin({
+        pluginName: 'claude-only',
+        version: manifestVersion,
+        claudeCatalogue: { documentVersion: '9.9.9', entryVersion: '1.0.0' },
+      })
+      workDir = work
+      bareDir = bare
+      return work
+    }
+
+    it('rejects an unchanged catalogue row when the manifest has no version', () => {
+      const work = fixture()
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('.claude-plugin/marketplace.json')
+      expect(stdout).toContain('1.0.0')
+      expect(stdout).not.toContain('9.9.9')
+    })
+
+    it('accepts a bumped catalogue row without a manifest version', () => {
+      const work = fixture()
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.1.0'))
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      expect(runScript(CHECK_SKILL_VERSION, work)).toBe(0)
+    })
+
+    it('uses the catalogue when the manifest is absent', () => {
+      const { work, bare } = setupOriginWithPlugin({
+        pluginName: 'claude-only',
+        pluginJson: false,
+        claudeCatalogue: { documentVersion: '9.9.9', entryVersion: '1.0.0' },
+      })
+      workDir = work
+      bareDir = bare
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('.claude-plugin/marketplace.json')
+    })
+
+    it('gives the manifest precedence over a bumped catalogue row', () => {
+      const work = fixture('2.0.0')
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.1.0'))
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('plugins/claude-only/.claude-plugin/plugin.json')
+      expect(stdout).not.toContain('bump .claude-plugin/marketplace.json')
+    })
+
+    it('accepts a manifest bump even when the catalogue row is unchanged', () => {
+      const work = fixture('2.0.0')
+      fs.writeFileSync(
+        path.join(work, 'plugins', 'claude-only', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ version: '2.1.0' }),
+      )
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      expect(runScript(CHECK_SKILL_VERSION, work)).toBe(0)
+    })
+
+    it('compares a catalogue fallback against the base manifest version', () => {
+      const work = fixture('2.0.0')
+      fs.writeFileSync(path.join(work, 'plugins', 'claude-only', '.claude-plugin', 'plugin.json'), '{}')
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '2.0.0'))
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('2.0.0')
+    })
+
+    it('compares a new manifest version against the base catalogue fallback', () => {
+      const work = fixture()
+      fs.writeFileSync(
+        path.join(work, 'plugins', 'claude-only', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ version: '1.0.0' }),
+      )
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('1.0.0')
+    })
+
+    it('discloses SHA-based versioning when neither surface declares a version', () => {
+      const work = fixture()
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only'))
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(0)
+      expect(stderr).toContain('SKIP: claude-only takes its Claude version from the commit SHA')
+    })
+
+    it('skips when neither Claude version surface exists', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'no-surface', pluginJson: false })
+      workDir = work
+      bareDir = bare
+      commitSkillChange(work, 'no-surface', '# changed\n')
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(0)
+      expect(stderr).toContain('SKIP: no-surface has no Claude manifest or local catalogue row')
+    })
+
+    it.each(['head', 'base'] as const)('rejects malformed Claude catalogue JSON on %s', (side) => {
+      const work = fixture()
+      writeClaudeCatalogue(work, '{not json')
+      if (side === 'base') {
+        pushAsMain(work, 'break Claude catalogue')
+        writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.1.0'))
+      }
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('.claude-plugin/marketplace.json')
+      expect(stdout).toMatch(/pars/i)
+    })
+
+    it.each(['head', 'base'] as const)('rejects duplicate Claude catalogue rows on %s', (side) => {
+      const work = fixture()
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({
+          plugins: [
+            { name: 'claude-only', source: './plugins/claude-only', version: '1.0.0' },
+            { name: 'claude-only', source: './plugins/claude-only', version: '1.1.0' },
+          ],
+        }),
+      )
+      if (side === 'base') {
+        pushAsMain(work, 'duplicate Claude row')
+        writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.1.0'))
+      }
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('.claude-plugin/marketplace.json')
+      expect(stdout).toMatch(/duplicate/i)
+    })
+
+    // Claude versions are free strings, so a non-semver bump passes. A version that is
+    // not a non-empty single-line string fails closed; Claude Code refuses an explicit null.
+    it.each([
+      ['a number', 2, 1],
+      ['an explicit null', null, 1],
+      ['an empty string', '', 1],
+      ['a multi-line string', '1.1.0\n', 1],
+      ['a non-semver string', 'build-42', 0],
+    ])('treats a HEAD Claude row version that is %s as exit %i', (_case, version, expected) => {
+      const work = fixture()
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({ plugins: [{ name: 'claude-only', source: './plugins/claude-only', version }] }),
+      )
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(expected)
+      if (expected === 1) expect(stdout).toContain('not a non-empty single-line string')
+    })
+
+    it('rejects duplicate Claude rows even when plugin.json supplies the bumped version', () => {
+      const work = fixture('2.0.0')
+      fs.writeFileSync(
+        path.join(work, 'plugins', 'claude-only', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ version: '2.1.0' }),
+      )
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({
+          plugins: [
+            { name: 'claude-only', source: './plugins/claude-only', version: '1.0.0' },
+            { name: 'claude-only', source: './plugins/claude-copy', version: '1.1.0' },
+          ],
+        }),
+      )
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('duplicate plugins[] rows named claude-only in .claude-plugin/marketplace.json')
+    })
+
+    // A remote row with the same name is another install, not this directory's Claude row.
+    it('does not ask a local plugin to bump a remote Claude row that shares its name', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'claude-only', pluginJson: false })
+      workDir = work
+      bareDir = bare
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({
+          plugins: [{ name: 'claude-only', source: { source: 'github', repo: 'a/b' }, version: '1.0.0' }],
+        }),
+      )
+      pushAsMain(work, 'remote Claude row')
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(0)
+      expect(stderr).toContain('SKIP: claude-only has no Claude manifest or local catalogue row')
+    })
+
+    it('discloses that a vendored plugin was remote at the base', () => {
+      const work = fixture()
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({ plugins: [{ name: 'claude-only', source: { source: 'github', repo: 'a/b' } }] }),
+      )
+      pushAsMain(work, 'remote at base')
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.0.0'))
+      commitSkillChange(work, 'claude-only', '# vendored\n')
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(0)
+      expect(stderr).toContain('NOTE: claude-only was a remote Claude plugin at origin/main')
+    })
+
+    // Only a source object is remote; a missing or malformed source is still this row.
+    it.each([
+      ['missing', {}],
+      ['null', { source: null }],
+      ['an array', { source: [] }],
+    ])('still compares a Claude row whose source is %s', (_case, source) => {
+      const work = fixture()
+      writeClaudeCatalogue(work, JSON.stringify({ plugins: [{ name: 'claude-only', version: '1.0.0', ...source }] }))
+      pushAsMain(work, 'malformed source')
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('(still 1.0.0) — bump .claude-plugin/marketplace.json')
+    })
+
+    // Git quotes a non-ASCII path by default; a quoted path never matched plugins/<p>/.
+    it.each([
+      ['locally', undefined],
+      ['with an explicit base', 'HEAD^'],
+    ])('sees a runtime file with a non-ASCII name %s', (_case, base) => {
+      const work = fixture()
+      commitPluginPathChange(work, 'claude-only', 'commands/résumé.md', '# new command\n')
+      const env = base === undefined ? undefined : { ...CLEAN_ENV, CHECK_SKILL_VERSION_BASE: base }
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work, env)
+      expect(code).toBe(1)
+      expect(stdout).toContain('claude-only: distributed runtime changed without version bump (still 1.0.0)')
+    })
+
+    // A skills/ directory holding SKILL.md is a skill even when it is named like a
+    // category; without SKILL.md, a category-named directory stays source-only.
+    it.each([
+      ['a new skill named docs', '', 'skills/docs/SKILL.md', 1],
+      ['a new skill named tests', '', 'skills/tests/SKILL.md', 1],
+      ['a script in an existing docs skill', 'skills/docs/SKILL.md', 'skills/docs/run.sh', 1],
+      ['tests inside an existing docs skill', 'skills/docs/SKILL.md', 'skills/docs/tests/case.md', 0],
+      ['docs inside an ordinary skill', '', 'skills/my-skill/docs/notes.md', 0],
+      ['a test helper with no SKILL.md', '', 'skills/__tests__/helpers.ts', 0],
+      ['a tests directory with no SKILL.md', '', 'skills/tests/helpers.ts', 0],
+      ['a command in a group named docs', '', 'commands/docs/labels.md', 1],
+      ['an agent in a group named fixtures', '', 'agents/fixtures/guide.md', 1],
+      ['a test helper under commands', '', 'commands/__tests__/helpers.ts', 0],
+      ['an agent whose file is named like a spec', '', 'agents/issue.spec.md', 1],
+      ['a skill reference named like a test', '', 'skills/my-skill/api.test.md', 1],
+      ['a unit test beside a skill', '', 'skills/my-skill/lib.test.ts', 0],
+      ['a Vitest snapshot beside a script', '', 'scripts/__snapshots__/gate.integration.test.ts.snap', 0],
+      ['the plugin glossary', '', 'GLOSSARY.md', 1],
+      ['the plugin README', '', 'README.md', 0],
+      ['a template named like a spec', '', 'templates/issue.spec.json', 1],
+      ['a file under a spec-named directory', '', 'templates/issue.spec.v2/labels.json', 1],
+    ])('treats %s as exit %i', (_case, existing, file, expected) => {
+      const work = fixture()
+      if (existing !== '') {
+        const skill = path.join(work, 'plugins', 'claude-only', existing)
+        fs.mkdirSync(path.dirname(skill), { recursive: true })
+        fs.writeFileSync(skill, '# skill\n')
+        pushAsMain(work, 'existing skill')
+      }
+      commitPluginPathChange(work, 'claude-only', file, '# body\n')
+      expect(runScriptCapture(CHECK_SKILL_VERSION, work).code).toBe(expected)
+    })
+
+    // A rename lists only its destination: retiring a command into docs/ must still count.
+    it('sees the source side of a rename', () => {
+      const work = fixture()
+      const command = path.join(work, 'plugins', 'claude-only', 'commands', 'labels.md')
+      fs.mkdirSync(path.dirname(command), { recursive: true })
+      fs.writeFileSync(command, '# labels command\n')
+      pushAsMain(work, 'command at base')
+      fs.mkdirSync(path.join(work, 'plugins', 'claude-only', 'docs'), { recursive: true })
+      git('git mv plugins/claude-only/commands/labels.md plugins/claude-only/docs/labels.md', work)
+      git('git -c user.email=t@t -c user.name=t commit -q -m retire', work)
+      expect(runScriptCapture(CHECK_SKILL_VERSION, work).code).toBe(1)
+    })
+
+    it('fails when the changed paths cannot be listed', () => {
+      const work = fixture()
+      git('git checkout -q --orphan unrelated', work)
+      git('git -c user.email=t@t -c user.name=t commit -q -m unrelated', work)
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).not.toBe(0)
+      expect(stderr).toContain('no merge base')
+    })
+
+    // A catalogue reached through a symlink is not in the tree under its own path, so
+    // reading it as absent would silently skip the gate.
+    it.each(['directory', 'file'] as const)('rejects a Claude catalogue behind a symlinked %s', (kind) => {
+      const work = fixture()
+      const bytes = claudeCatalogueBytes('claude-only', '1.0.0')
+      fs.rmSync(path.join(work, '.claude-plugin'), { recursive: true })
+      if (kind === 'directory') {
+        fs.mkdirSync(path.join(work, 'claude-config'))
+        fs.writeFileSync(path.join(work, 'claude-config', 'marketplace.json'), bytes)
+        fs.symlinkSync('claude-config', path.join(work, '.claude-plugin'))
+      } else {
+        fs.mkdirSync(path.join(work, '.claude-plugin'))
+        fs.writeFileSync(path.join(work, 'claude-catalogue.json'), bytes)
+        fs.symlinkSync('../claude-catalogue.json', path.join(work, '.claude-plugin', 'marketplace.json'))
+      }
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('.claude-plugin/marketplace.json is a symlink or sits under one')
+    })
+
+    it('uses the committed catalogue rather than a dirty bump locally and with an explicit base', () => {
+      const work = fixture()
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.1.0'))
+
+      const local = runScriptCapture(CHECK_SKILL_VERSION, work)
+      const ci = runScriptCapture(CHECK_SKILL_VERSION, work, {
+        ...CLEAN_ENV,
+        CHECK_SKILL_VERSION_BASE: 'HEAD^',
+      })
+      for (const result of [local, ci]) {
+        expect(result.code).toBe(1)
+        expect(result.stdout).toContain('.claude-plugin/marketplace.json')
+      }
+    })
   })
 
   it('exits 1 and names the OMP catalogue when skills change and the catalogue version equals origin/main', () => {
@@ -486,7 +846,7 @@ describe('check-skill-version.sh', () => {
     expect(stdout).toContain('still 0.3.0')
     expect(stdout).toContain('.omp-plugin/marketplace.json')
     expect(stdout).not.toContain('9.9.9')
-    expect(stderr).toMatch(/SKIP: sha-plugin is SHA-based/)
+    expect(stderr).toContain('SKIP: sha-plugin takes its Claude version from the commit SHA')
   })
 
   it('exits 0 and keeps the SHA-based SKIP when plugin.json has no version and the catalogue entry is bumped', () => {
@@ -502,7 +862,7 @@ describe('check-skill-version.sh', () => {
     const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
 
     expect(code).toBe(0)
-    expect(stderr).toMatch(/SKIP: sha-plugin is SHA-based/)
+    expect(stderr).toContain('SKIP: sha-plugin takes its Claude version from the commit SHA')
   })
 
   it('exits 1 naming plugin.json when the Claude version is unchanged even if the OMP catalogue entry is bumped', () => {
@@ -937,7 +1297,7 @@ describe('check-skill-version.sh', () => {
 
       expect(code).toBe(expected)
       expect(stdout).toContain(message)
-      expect(stderr).not.toMatch(/SKIP: foo (has no \.claude-plugin|is SHA-based)/)
+      expect(stderr).not.toMatch(/SKIP: foo (has no Claude manifest|takes its Claude version from the commit SHA)/)
     })
 
     it('keeps the visible SKIP when plugin.json is absent', () => {
@@ -950,7 +1310,7 @@ describe('check-skill-version.sh', () => {
       const { code, stderr } = ci(work, 'HEAD^1')
 
       expect(code).toBe(0)
-      expect(stderr).toContain('SKIP: foo has no .claude-plugin/plugin.json')
+      expect(stderr).toContain('SKIP: foo has no Claude manifest or local catalogue row')
     })
 
     // .claude-plugin itself is a link: once the directory resolves, plugin.json is an optional leaf.
@@ -960,7 +1320,7 @@ describe('check-skill-version.sh', () => {
         'config',
         { 'config/README.md': '# config\n' },
         0,
-        'SKIP: foo has no .claude-plugin/plugin.json',
+        'SKIP: foo has no Claude manifest or local catalogue row',
       ],
       ['with an unchanged plugin.json', 'config', { 'config/plugin.json': v('1.0.0') }, 1, '(still 1.0.0)'],
       ['to a missing directory', 'nowhere', {}, 1, unresolved],
