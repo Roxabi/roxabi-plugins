@@ -13,7 +13,6 @@ import { createFeatureFramingController } from '../roxabi/feature-framing-contro
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { createProductionInputPorts } from '../roxabi/uw-input-readers.ts'
 import { defaultGit } from '../roxabi/workflow-checkout.ts'
-import { hostPluginPin } from './host-plugin-pin.ts'
 import { resolveFeatureUw } from './host-uw-operations.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import {
@@ -35,7 +34,6 @@ const FRAMING_STATUS = 'omp-build-framing'
 
 export type FramingRuntimeOptions = {
   uwOperations?: UwOperationsFactory
-  pluginPin?: TrustedHostPluginPin
   /** Trusted host composition and tests only; defaults are the installed GitHub, git and pin readers. */
   framing?: Partial<Pick<FeatureFramingControllerHost, 'gh' | 'git' | 'procedurePorts'>>
 }
@@ -48,6 +46,7 @@ export type FramingCommandBinding = Readonly<{
   ctx: ExtensionContext
   operator: FramingOperator
   originalArgs: string | null
+  pluginPin?: TrustedHostPluginPin
 }>
 
 export type FeatureFramingRuntime = Readonly<{
@@ -81,10 +80,8 @@ export function installFeatureFramingRuntime(
   const git = options.framing?.git ?? defaultGit()
   const procedurePorts: FeatureFramingControllerHost['procedurePorts'] =
     options.framing?.procedurePorts ??
-    (({ cwd }) => {
-      const pin = options.pluginPin ?? hostPluginPin()
-      return createProductionInputPorts({ cwd, gh, git, ...(pin === undefined ? {} : { pluginPin: pin }) })
-    })
+    (({ cwd, pluginPin }) =>
+      createProductionInputPorts({ cwd, gh, git, ...(pluginPin === undefined ? {} : { pluginPin }) }))
   const controller: FramingController = createFeatureFramingController({
     owner: {
       extensionInstanceId: featureOperationInstanceId(pi),
@@ -94,10 +91,9 @@ export function installFeatureFramingRuntime(
     status: (message) => statusContext?.ui?.setStatus?.(FRAMING_STATUS, message),
     procedurePorts,
     operator: (ctx) => createOperatorConfirmation(ctx, { escape: 'defer' }),
-    uw: ({ ctx, operator }) => resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin),
+    uw: ({ ctx, operator, pluginPin }) => resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin),
     gh,
     git,
-    ...(options.pluginPin === undefined ? {} : { pluginPin: options.pluginPin }),
     continueFeature,
   })
   const governed = (ctx: ExtensionContext): boolean =>
@@ -160,7 +156,7 @@ export function installFeatureFramingRuntime(
           ? { kind: 'free-text', acceptedArgs: binding.originalArgs }
           : source
       statusContext = binding.ctx
-      const lease = controller.begin(accepted, binding.ctx)
+      const lease = controller.begin(accepted, binding.ctx, binding.pluginPin)
       onHandoff(
         () =>
           currentFeatureFraming(pi) === controller &&

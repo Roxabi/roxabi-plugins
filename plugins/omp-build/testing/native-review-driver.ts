@@ -1,31 +1,23 @@
-import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { dirname, join } from 'node:path'
-import * as hostSdk from '@oh-my-pi/pi-coding-agent'
-import { cfgTaskAgentModelOverrides } from '@oh-my-pi/pi-coding-agent/task/settings'
+import { join } from 'node:path'
 import ompBuildExtension from '../omp/index.ts'
-import { createOmpFixPort, ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
+import { createOmpFixPort, hasOwnedFixRun, ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { NativePort } from '../roxabi/fix-contract.ts'
 import type { FixRun } from '../roxabi/fix-entry-lifecycle.ts'
 import { createExtensionApiStub, fixtureEventBus } from './extension-api-stub.ts'
-import { type NativeReviewChild, nativeReviewChild } from './native-review-child.ts'
+import { nativeReviewChild } from './native-review-child.ts'
 import { observeDriverCallbacks } from './native-review-diagnostics.ts'
+import { dispatchInitialCommand } from './native-review-dispatch.ts'
+import { emit, pause, type RootContext, rootContext } from './native-review-driver-events.ts'
 import { type BatchWaiter, type ContinuationWaiter, messageText, notifyWaiters } from './native-review-notifications.ts'
+import { captureNativeReviewProof } from './native-review-proof.ts'
 import { provisionNativeRoot } from './native-root-fixture.ts'
+import { operatorDialogUi } from './operator-dialog-ui.ts'
 
 type Handler = (...args: unknown[]) => unknown
 export type NativeData = { findings: unknown[] } | Record<string, unknown>
-type RootContext = {
-  cwd: string
-  agent: { kind: 'main'; id: string; name: string; depth: number }
-  model: { contextWindow: number }
-  models: { resolve(role: string): { id: string; provider: string } }
-  isIdle(): boolean
-  localProtocolOptions: { getArtifactsDir(): string }
-  sessionManager: { getSessionId(): string }
-}
 export type ActionProof = { command: string; args: string[]; program?: string; prepare?(): void; restore?(): void }
 export type ReviewDriver = {
   controller: NativeBatchController
@@ -33,10 +25,13 @@ export type ReviewDriver = {
   messages: string[]
   diagnostics: Record<string, unknown>[]
   fixRun(): FixRun | undefined
+  hasFixIngress(): boolean
+  beginFeature(): Promise<void>
   fixTransition(after: number): Promise<'next-batch' | 'terminal'>
   nextBatch(after: number): Promise<void>
   fixTerminal(): FixRun['terminal']
   pause(): Promise<unknown[]>
+  pauseFeature(): Promise<void>
   continueFeature(): Promise<void>
   settle(data: (task: NativeTask) => NativeData): Promise<void>
   settleAction(data: (task: NativeTask) => NativeData, proof: ActionProof): Promise<void>
@@ -46,50 +41,6 @@ function addHandler(events: Map<string, Handler[]>, name: string, handler: Handl
   events.set(name, [...(events.get(name) ?? []), handler])
 }
 
-function modelRouteDiagnostic(context: unknown): string {
-  try {
-    const manager = Reflect.get(hostSdk, 'SettingsManager')
-    if (!manager || typeof manager.create !== 'function') return 'SDK root SettingsManager unavailable'
-    if (typeof context !== 'object' || context === null || !('cwd' in context)) return 'root cwd unavailable'
-    const settings = manager.create(context.cwd)
-    const overrides = cfgTaskAgentModelOverrides.get(settings)
-    return `SDK Settings=${settings.constructor?.name ?? 'unknown'}; rawValue=${typeof settings.rawValue}; overrides=${typeof overrides}; cwd matches fixture=${context.cwd === process.argv[3]}`
-  } catch (error) {
-    return `SDK settings failed: ${error instanceof Error ? error.message : String(error)}`
-  }
-}
-
-async function emit(events: Map<string, Handler[]>, name: string, ...args: unknown[]): Promise<void> {
-  for (const handler of events.get(name) ?? []) {
-    const result = await handler(...args)
-    if (typeof result === 'object' && result !== null && 'block' in result && result.block === true) {
-      const reason = 'reason' in result ? String(result.reason) : 'no reason provided'
-      const detail = name === 'before_subagent_spawn' ? `; ${modelRouteDiagnostic(args[1])}` : ''
-      throw new Error(`native-fixture-${name}-refused: ${reason}${detail}`)
-    }
-  }
-}
-
-function rootContext(cwd: string, contextWindow: number): RootContext {
-  return {
-    cwd,
-    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
-    model: { contextWindow },
-    models: { resolve: () => ({ id: 'fixture-model', provider: 'fixture-provider' }) },
-    isIdle: () => true,
-    localProtocolOptions: { getArtifactsDir: () => join(dirname(cwd), 'native-review-artifacts') },
-    sessionManager: { getSessionId: () => 'native-review-fixture-root' },
-  }
-}
-
-function pause(events: Map<string, Handler[]>, context: RootContext): Promise<unknown[]> {
-  return Promise.all(
-    (events.get('message_end') ?? []).map((handler) =>
-      handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67108864 } }, context),
-    ),
-  )
-}
-
 type DriverSettlement = {
   controller: NativeBatchController
   context: RootContext
@@ -97,45 +48,6 @@ type DriverSettlement = {
   messages: string[]
   data: (task: NativeTask) => NativeData
   proof?: ActionProof
-}
-
-async function captureProof(input: DriverSettlement, task: NativeTask, child: NativeReviewChild): Promise<void> {
-  if (input.proof === undefined) return
-  const toolCallId = `${task.name}-proof`
-  await child.call('bash', toolCallId, { command: input.proof.command })
-  await emit(input.events, 'task:subagent:event', {
-    id: task.name,
-    event: { type: 'tool_execution_start', toolName: 'bash', toolCallId, args: { command: input.proof.command } },
-  })
-  const execution = spawnSync(input.proof.program ?? 'git', input.proof.args, {
-    cwd: input.context.cwd,
-    encoding: 'utf8',
-  })
-  input.proof.restore?.()
-  if (execution.error) throw execution.error
-  if (execution.status === null) throw new Error(`proof terminated by signal: ${execution.signal}`)
-  const exitCode = execution.status
-  const content = [{ type: 'text', text: `${execution.stdout}${execution.stderr}` }]
-  await child.result(
-    'bash',
-    toolCallId,
-    { command: input.proof.command },
-    {
-      content,
-      details: { exitCode },
-      isError: exitCode !== 0,
-    },
-  )
-  await emit(input.events, 'task:subagent:event', {
-    id: task.name,
-    event: {
-      type: 'tool_execution_end',
-      toolName: 'bash',
-      toolCallId,
-      isError: exitCode !== 0,
-      result: { content, details: { exitCode } },
-    },
-  })
 }
 
 async function settleChild(
@@ -165,7 +77,9 @@ async function settleChild(
     detached: false,
   })
   const child = await nativeReviewChild({ task, sessionFile })
-  await captureProof(input, task, child)
+  await captureNativeReviewProof(input.proof, input.context.cwd, task, child, (event) =>
+    emit(input.events, 'task:subagent:event', event),
+  )
   const data = input.data(task)
   await child.call('yield', `${task.name}-yield`, { data })
   await emit(input.events, 'task:subagent:event', {
@@ -206,16 +120,19 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
   input.controller.queueOwnedSettlement(observation)
   const settlement = input.controller.ownedSettlement()
   input.controller.finishExecution(batch)
-  // The host ends the tool's turn independently of asynchronous settlement.
-  // This releases the old task-mask lease before a successor is announced.
-  await emit(input.events, 'agent_end', { willContinue: false }, input.context)
-  await settlement
+  const endTurn = emit(input.events, 'agent_end', { willContinue: false }, input.context)
+  const outcomes = await Promise.allSettled([endTurn, settlement])
+  const failures = outcomes.flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : []))
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'Review driver turn and settlement failed')
 }
 
 export async function createReviewDriver(
   cwd: string,
   contextWindow = 128_000,
-  mode: 'feature' | 'review-only' = 'feature',
+  mode: 'feature' | 'review-only' | 'fix-pr' | 'fix-issue' = 'feature',
+  activatePin = false,
+  deferred = false,
 ): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
   const commands = new Map<string, Handler>()
@@ -234,30 +151,60 @@ export async function createReviewDriver(
       return () => undefined
     }),
     registerCommand: (name, command) => commands.set(name, command.handler as Handler),
-    sendUserMessage: recordMessage,
+    sendUserMessage: async (message) => {
+      recordMessage(message)
+    },
     sendMessage: recordMessage,
   })
   const context = rootContext(cwd, contextWindow)
+  if (deferred) {
+    const getSessionId = context.sessionManager.getSessionId
+    let switched = false
+    context.sessionManager.getSessionId = () => {
+      if (!switched && hasOwnedFixRun(api) && ownedFixRunFor(api) === undefined) {
+        switched = true
+        process.env.GH_TOKEN = `fixture-ingress-${randomUUID()}`
+      }
+      return getSessionId()
+    }
+  }
+  if (activatePin) {
+    Object.assign(context, {
+      hasUI: true,
+      mode: 'tui',
+      ui: {
+        ...operatorDialogUi(async () => 'confirm'),
+        notify: recordMessage,
+        setStatus: (key: string, text?: string) => recordMessage(`status ${key}: ${text ?? ''}`),
+      },
+    })
+    Object.assign(context.sessionManager, { getCwd: () => cwd })
+  }
   provisionNativeRoot(context)
   ompBuildExtension(api)
   const controller = reviewControllerFor(api)
   const diagnostics = observeDriverCallbacks(controller)
   await emit(events, 'session_start', { type: 'session_start' }, context)
+  if (activatePin) {
+    const pinCommand = commands.get('tooling-pin')
+    if (pinCommand === undefined) throw new Error('tooling-pin-command-unregistered')
+    await pinCommand('activate', context)
+    if (!messages.some((message) => message.includes('tooling-pin: activated for this session')))
+      throw new Error(`tooling-pin-activation-failed: ${JSON.stringify(messages)}`)
+  }
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  if (mode === 'review-only') {
-    const review = commands.get('dev-review')
-    if (review === undefined) throw new Error('review-command-unregistered')
-    await review('7', context)
-  } else {
-    await feature('#42', context)
-  }
+  if (!deferred) await dispatchInitialCommand(commands, mode, context, feature)
   return {
     controller,
     native: createOmpFixPort(api),
     messages,
     diagnostics,
     fixRun: () => ownedFixRunFor(api)?.run,
+    hasFixIngress: () => hasOwnedFixRun(api),
+    beginFeature: async () => {
+      await feature('#42', context)
+    },
     fixTransition: (after) => {
       const run = ownedFixRunFor(api)?.run
       if (run === undefined) throw new Error('fix-run-missing')
@@ -294,6 +241,9 @@ export async function createReviewDriver(
       await feature('#42', context)
     },
     pause: () => pause(events, context),
+    pauseFeature: async () => {
+      await feature('pause #42', context)
+    },
     settle: (data) => settleDriver({ controller, context, events, messages, data }),
     settleAction: (data, proof) => settleDriver({ controller, context, events, messages, data, proof }),
   }

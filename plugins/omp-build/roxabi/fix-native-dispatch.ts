@@ -1,6 +1,7 @@
 import type { NativeBatch, NativeBatchResult, NativeTask } from '../omp/review-runtime/contracts.ts'
-import type { FixActionResult, NativePort } from './fix-contract.ts'
+import type { FixActionResult, FixRequestInput, NativePort } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
+import type { FixExecutionFence } from './fix-execution-fence.ts'
 import type { UwOperations } from './uw-contract.ts'
 
 export function actionTask(
@@ -16,6 +17,8 @@ export function actionTask(
 export type FixWorkflowRuntime = {
   signal: AbortSignal
   uw: UwOperations
+  executionFence?: FixExecutionFence
+  openOwner?: FixRequestInput['openOwner']
   onBatch(batch: NativeBatch): void
   onStarted(batch: NativeBatch): void
   /** Re-read authority before the next native dispatch. A refusal inhibits that continuation only. */

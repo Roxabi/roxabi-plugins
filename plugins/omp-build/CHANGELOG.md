@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.21.2 (unreleased)
+
+- Drop code-index tools from the feature workflow: `/feature init` no longer proposes ccc or codegraph, and worktree bootstrap no longer runs `codegraph init` or requires its CLI. Bootstrap is transfer, setup and marker only; a project that opted in to codegraph indexes its worktrees itself.
+- Recognize 0.21.2 under the bounded PR-binding policy while preserving 0.21.0 and 0.21.1. This source change does not migrate mandates, activate tooling or authorize recovery.
+
+## 0.21.1 (unreleased)
+
+- Stop preparing cocoindex-code (`ccc`) in worktree bootstrap: no CLI requirement, store copy or `ccc index`/`reset`. A principal holding a stale `.cocoindex_code/` no longer fails bootstrap on a host without `ccc`; codegraph indexing is unchanged.
+- Recognize 0.21.1 under the bounded PR-binding policy while preserving 0.21.0. This source change does not migrate mandates, activate tooling or authorize recovery.
+
+## 0.21.0 (unreleased)
+
+- Add bounded interrupted-correction recovery for authenticated originating owners that sealed admission, joined known trusted host work and witnessed no native/startup or correction-plan entry. Predecision publication can close neutrally before a new ordinary attempt; an unstarted existing-review decision can continue the same request and decision only with genuinely unspent execution coordinates.
+- Hold entered, spent, ambiguous or unproven attempts for separate reconciliation; do not infer cessation of arbitrary helpers or automatically reconcile local effects. Positive host qualification is Linux-only and remains separate from this source change.
+- Merge a late streamed yield observation into its uniquely matching executed yield only when the tool-call ID and complete arguments agree; unmatched or differing observations do not acquire execution authority.
+- Keep edited or invalid incomplete fragments blocking, refuse neutral closure under paused mandates, and hold Fix preparation, confirmation and no-entry settlement when known foreign native batches are active.
+- Restore bundled contract runtime imports for clean installation, preserve normal Parent observation identity and retain GitHub read diagnostics.
+- Defer ordinary and Epic review-to-Fix delivery until the predecessor's execution and settlement join; external stops fence and join detached publication, selection and delivery callbacks while preserving their failures.
+- Join the exact owned Fix driver, host release and native work before explicit pause; preserve stop, pause and notification failures, and hold pre-owner ingress without a completion handle.
+- Carry the originating Feature ownership guard through Fix/CI completion and continuation; command replacement cannot revive an old continuation after pause/resume.
+- Recognize exactly 0.21.0 under the existing bounded PR-binding contract; unknown versions remain unknown. This source change does not activate tooling, move pins, upgrade installed caches, migrate records or qualify native delivery.
+
+## 0.20.1 (unreleased)
+
+- Prepare and validate CI correction inputs before publishing the canonical root. Authenticate intake against that root and bind synthesis to its complete findings set; CI attribution stays authenticated stage data, not dispatch authority or a decision finding.
+- Resolve `/fix #issue` only through the exact current mandate and uniquely bound open PR; remove PR-less correction targets and retain typed, no-write refusals.
+- Refuse credential-bearing effective push URLs and absent or mismatched remote branch tips before publishing correction roots. Preserve exact repository and push-origin identity checks.
+- Preserve the ordinary correction's own live request and publication ownership checks without widening the existing standalone decision-backed closure gate.
+- Recognize 0.20.1 under the bounded PR-binding policy while preserving 0.20.0. This source change does not migrate mandates, activate tooling or authorize recovery.
+
+## 0.20.0 (unreleased)
+
+- Add an opt-in manual `inventory --force` / single-path `remove --force` mode. It requires a fresh mode-bound token, exact path selection and `--ack-discard-local-data` before abandoning tracked/staged edits, untracked files or ignored data. Incomplete usage inspection still needs its separate acknowledgement; safe mode remains unchanged.
+- Inspect the entire force candidate without following symlinks or reading payloads, retaining nested Git repositories, mounts, special files, uncertain paths, active usage and every existing structural/Git guard. Bind force selection to exact status, index and observed worktree metadata, including changes inside ignored directories. Preserve branch/tag refs and retained commits; no automatic escalation, pre-deletion or raw deletion.
+- Keep administrative `modules/` repositories even after a submodule checkout or gitlink disappears: Git's forced removal skips its normal submodule guard. Disable fsmonitor/untracked-cache status shortcuts and refresh observable usage after the full tree walk before force removal.
+- Recognize exactly 0.20.0 under the existing bounded PR-binding writer contract; future versions remain unknown. This source change does not publish or activate tooling, move pins, migrate records or authorize deletion of any existing worktree.
+
+## 0.19.2 (unreleased)
+
+- Resolve tracker repository defaults only when needed, so feature init can preview and apply the selected checkout's tracker from an installed script outside that checkout. Recognize 0.19.2 under the existing bounded PR-binding policy; unknown versions remain unknown. This does not migrate records or activate tooling.
+
+## 0.19.1
+
+- Treat a finite set of already-ignored dependency, cache and build-output artifacts as conditional cleanup candidates. Keep tracked changes, nonignored untracked files and unknown local data protected.
+- Require explicit exact-path selection and `--ack-ignored-artifacts` for the entire listed artifacts; bind fresh inventory tokens to the exact visible ignored manifest. Incomplete usage observations still require a separate `--ack-unknown-usage` acknowledgement. Artifact names and metadata do not prove regenerability.
+- Walk artifact metadata without reading payloads or following internal symlinks. Preserve nested Git repositories, mountpoints, special files and uncertain filesystem states; remove approved worktrees with ordinary `git worktree remove` only and preserve every branch.
+- Present short, explicit path batches without preselected deletion choices.
+- Recognize exactly 0.19.1 under the bounded PR-binding policy with the same writer contract as 0.19.0; future versions remain unknown. This source update alone neither migrates mandates, moves tooling pins, upgrades installed caches, authorizes cleanup nor qualifies native delivery.
+
+## 0.19.0 (unreleased)
+
+- Let the workflow engine decide CI continuation and business stops from fresh observations. Check runtime/configuration compatibility before offering resume; preserve read failures instead of inventing business verdicts.
+- Restrict confirmed interruption resolution to exact STARTs positively prevented from activation or fenced closed before native admission in the current process. Closure requires confirmed terminal RESULT retention; pending, failed or uncertain publication, missing evidence and admitted dispatch stay blocked. Recheck the selected paused authority on final readback rather than announcing a pause contradicted by newer controls.
+- Keep prior preparation and root-turn effects intact and let ordinary admission perform fresh code checks; resolution proves no native child dispatch, not absence of all effects. It does not reconcile effects, adopt implementation commits or assert successful execution. Malformed legacy history remains blocking, including beside a synthetic abandon.
+- Preserve confirmed remote branch/tip facts, including already-remote authority refusals, without claiming a new push, RESULT retention, admission or resume. Preserve publication and notification failures through the actual native settlement boundary, with their original causes.
+- Preserve recoverable landing holds, their next decision and pausable ownership. Project the UW, action and executors in the owning session; distinguish queued, running, stopping, uncertain, paused, held and done. Keep abandonment refusal and partial-disarm diagnostics.
+- Fence native activation and announcement to the initiating command origin, including when asynchronous preparation outlives a session replacement.
+- Recognize 0.19.0 under the bounded PR-binding policy; future versions remain unknown. This source change neither migrates existing mandates nor activates tooling, changes a pin/cache, authorizes a suspended witness or qualifies native delivery.
+
+## 0.18.11
+
+- Recenter `/cleanup` on read-only multi-repository worktree inventory and explicitly selected worktree removal. Preserve every branch; remove coupled remote deletion, label sweeps and CI cancellation.
+- Enforce fresh path/HEAD identity, local-data, Git-operation, lock and observable process-usage checks in the bundled executor. Keep active, dirty and nonempty orphan paths; incomplete usage observations require a separate exact-path human acknowledgement. Remove empty shells with `rmdir` only; reject blanket `--yes`.
+- Replace the misleading merge-proof analyzer with worktree-level safety checks and outcome-based Git integration coverage.
+- Recognize 0.18.11 under the existing bounded PR-binding policy; unknown policy versions still refuse.
+- Update source only. No cleanup, installed-runtime upgrade, tooling activation or pin change is authorized by this release.
+
+## 0.18.9
+
+- Restore role-scoped code exploration in the action worktree for planning, plan review, implementation, review and correction. Source, tests, technical documentation and CI/build/test configuration need not be preselected in the snapshot.
+- Keep authoritative UW data and pinned normative references snapshot-only. Preserve dossier-only roles, existing tool permissions, snapshot integrity and publication authority; do not claim filesystem or credential isolation.
+- Require a clean observed worktree before preparing a plan draft, amendment or specialist plan review, including nonignored untracked files. Dirty or unreadable state refuses before action preparation; no cleanup or continuous filesystem guarantee is implied.
+- Recognize 0.18.9 under the existing bounded PR-binding policy; unknown policy versions still refuse.
+- Update the source product version only. This release does not activate tooling, move its pin, upgrade an installed cache or authorize a suspended witness.
+
+## 0.18.8
+
+- Require new-policy PR bindings to match the mandate and native branch and base at publication and selection, while retaining historical off-branch and branchless facts under their original rules.
+- Discover covered delivery candidates by every relevant mandate branch across all PR states and pages, without filtering by base; canonical bindings remain the association authority.
+- Preserve both exhaustive observations for the first uncovered legacy succession. Bound a fully observed, rediscoverable old prefix only through an authenticated new-policy successor control; incomplete, competing or post-boundary legacy history refuses.
+- Ignore foreign claims when determining UW home-history coverage; candidate PR binding guards remain strict and can still refuse foreign-only claims.
+- Update the source product version only. This release does not activate tooling, move its pin, upgrade an installed cache or authorize a suspended witness.
+
 ## 0.18.7
 
 - Revalidate workflow history comment pages with GitHub (`If-None-Match`). An unchanged page answers `304`, which the primary rate limit does not charge: repeated closure reads in one host process cost quota only for the histories that changed. Every read still asks GitHub; the in-memory, compressed, byte-capped copy is returned on that `304` alone and never replaces a failed request.

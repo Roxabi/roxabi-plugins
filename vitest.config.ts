@@ -1,5 +1,6 @@
 import { availableParallelism } from 'node:os'
 import { defineConfig } from 'vitest/config'
+import { literalIncludes } from './tools/ci-test-shards.ts'
 
 const exclude = [
   '**/node_modules/**',
@@ -21,6 +22,10 @@ const exclude = [
 // land in the tight budget by accident — including when it forks only through an
 // imported helper, which its own source does not reveal.
 const INTEGRATION = '**/*.integration.test.?(c|m)[jt]s?(x)'
+// CI paths must be literal-safe globs, not arbitrary picomatch expressions.
+const integrationFiles = process.env.CI_INTEGRATION_FILES
+  ? literalIncludes(process.env.CI_INTEGRATION_FILES)
+  : [INTEGRATION]
 
 export default defineConfig({
   test: {
@@ -32,7 +37,7 @@ export default defineConfig({
     // Root-only: vitest runs a root globalSetup once per run, not per project.
     globalSetup: ['./vitest.global-setup.ts'],
     env: {
-      // Prevent config.ts from throwing during module evaluation.
+      // Supply the default repository to tests that use implicit coordinates.
       // Tests that need a different value override via process.env or vi.mock.
       GITHUB_REPO: 'Test/test-repo',
     },
@@ -53,7 +58,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'integration',
-          include: [INTEGRATION],
+          include: integrationFiles,
           maxWorkers: Math.max(1, Math.floor(availableParallelism() / 4)),
           sequence: { groupOrder: 1 },
           globalSetup: ['./vitest.integration.global-setup.ts'],

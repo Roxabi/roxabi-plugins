@@ -3,12 +3,14 @@ import { spawnSync } from 'node:child_process'
 
 export type SimCommandInput = {
   cwd: string
+  pid?: number
   env?: NodeJS.ProcessEnv
   readStdin: () => string
 }
 
 export type SimInvocation = {
   cwd: string
+  pid: number
   env: NodeJS.ProcessEnv
   toolingEnv?: NodeJS.ProcessEnv
   readStdin: () => string
@@ -29,6 +31,7 @@ export function currentInvocation(): SimInvocation {
 export function runInvocation<T>(input: SimCommandInput, fn: (invocation: SimInvocation) => T): T {
   const invocation: SimInvocation = {
     cwd: input.cwd,
+    pid: input.pid ?? process.pid,
     env: input.env ?? process.env,
     readStdin: input.readStdin,
     stdout: '',

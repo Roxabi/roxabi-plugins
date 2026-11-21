@@ -64,7 +64,9 @@ fi
 scan_root "$legacy_root/$repo_name" "~/.omp/worktrees" "$legacy_anchor"
 
 # --- 2) <principal>/.claude/worktrees/ ---
-scan_root "$claude_root" ".claude/worktrees" "$principal"
+if [ "$principal_bare" != true ]; then
+  scan_root "$claude_root" ".claude/worktrees" "$principal"
+fi
 
 # --- 3) <worktree base>/<repo>/ ---
 if [[ "$wt_base" == "$principal" || "$wt_base" == "$principal"/* ]]; then

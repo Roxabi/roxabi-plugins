@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import { repoRelativePathSchema } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
+import { trackPreparationOperation } from '../host/preparation-cohort.ts'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
 import { readGitHubBlob, readGitHubBlobs } from './uw-github-blobs.ts'
 
@@ -17,7 +18,7 @@ export type GitByteRequest = {
   gh: Gh
 }
 
-function githubRepository(url: string): string | null {
+export function githubRepository(url: string): string | null {
   const match = url
     .trim()
     .match(
@@ -28,11 +29,13 @@ function githubRepository(url: string): string | null {
 
 async function git(cwd: string, args: string[]): Promise<{ ok: true; stdout: Buffer } | { ok: false }> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
-      encoding: 'buffer',
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 30_000,
-    })
+    const { stdout } = await trackPreparationOperation('git', () =>
+      execFileAsync('git', ['-C', cwd, ...args], {
+        encoding: 'buffer',
+        maxBuffer: 32 * 1024 * 1024,
+        timeout: 30_000,
+      }),
+    )
     return { ok: true, stdout }
   } catch {
     return { ok: false }

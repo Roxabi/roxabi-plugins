@@ -191,7 +191,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
         }
       },
     },
-    sendUserMessage: (content, sendOptions) => {
+    sendUserMessage: async (content, sendOptions) => {
       sent.push({ content, options: sendOptions })
     },
     status: (message) => {

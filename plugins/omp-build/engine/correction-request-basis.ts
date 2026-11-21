@@ -15,7 +15,7 @@ const failure = (): Result<never> => ({
 })
 const object = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
-function originalDecisionMatches(
+export function originalDecisionMatches(
   history: DecodedHistory,
   fix: FixRequest,
   decision: Decision,
@@ -120,6 +120,16 @@ function operatorBasis(
   }
 }
 
+/** Authenticate the request and its original host-observed H1 anchor without a decision. */
+export function resolveCorrectionRootBasis(
+  history: DecodedHistory,
+  fix: FixRequest,
+): Result<{ originalCandidate: string; expectedRemoteHead: string; branch: string; base: string }> {
+  if (!accounted(history, fix)) return failure()
+  const basis = operatorBasis(history, fix)
+  return basis === null ? failure() : { ok: true, value: basis }
+}
+
 /** Authenticate the request-to-decision and original host-observed H1 anchor. */
 export function resolveCorrectionRequestBasis(
   history: DecodedHistory,
@@ -135,8 +145,6 @@ export function resolveCorrectionRequestBasis(
   if (!accounted(history, fix) || !accounted(history, decision)) return failure()
   const bindings = validateDecisionBindings(decision, history, catalogues)
   if (!bindings.admissible) return { ok: false, diagnostics: bindings.diagnostics }
-  const basis = operatorBasis(history, fix)
-  return basis !== null && originalDecisionMatches(history, fix, decision, basis.originalCandidate)
-    ? { ok: true, value: basis }
-    : failure()
+  const basis = resolveCorrectionRootBasis(history, fix)
+  return basis.ok && originalDecisionMatches(history, fix, decision, basis.value.originalCandidate) ? basis : failure()
 }

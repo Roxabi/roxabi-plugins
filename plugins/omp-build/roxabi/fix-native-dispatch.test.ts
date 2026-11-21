@@ -34,7 +34,11 @@ describe('fix native dispatch', () => {
       async announce() {
         active = null
         if (callbacks === null) throw new Error('native callbacks missing')
-        await callbacks.onStop('session-switched', stopped)
+        await callbacks.onStop('session-switched', stopped, {
+          kind: 'interrupted',
+          origin: 'host-stop',
+          proof: 'not-dispatched',
+        })
       },
       async stopOwned() {
         active = null

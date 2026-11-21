@@ -7,6 +7,7 @@ import {
   scopeKey,
   type UwGraphObservation,
   type UwNativeNode,
+  type UwSemanticNode,
   unknownWayfinderLabels,
 } from './uw-graph.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
@@ -32,8 +33,8 @@ function diag(
 
 function checkAcceptedChildren(
   uw: Scope,
-  root: UwNativeNode,
-  nodes: ReadonlyMap<string, UwNativeNode>,
+  root: UwSemanticNode,
+  nodes: ReadonlyMap<string, UwSemanticNode>,
   accepted: readonly AcceptedChildCommitment[] | null,
   diagnostics: UwDiagnostic[],
 ): void {
@@ -71,13 +72,13 @@ function checkAcceptedChildren(
   }
 }
 
-function collectNativeChildren(
+function collectNativeChildren<T extends UwSemanticNode>(
   uw: Scope,
-  root: UwNativeNode,
-  nodes: ReadonlyMap<string, UwNativeNode>,
+  root: T,
+  nodes: ReadonlyMap<string, T>,
   accepted: readonly AcceptedChildCommitment[] | null,
   diagnostics: UwDiagnostic[],
-  children: UwNativeNode[],
+  children: T[],
 ): void {
   for (const scope of root.children) {
     const native = nodes.get(scopeKey(scope))
@@ -121,7 +122,7 @@ export function projectNativeUwChildren(input: {
   if (input.accepted.status === 'refused') return { ok: false, diagnostics: input.accepted.diagnostics }
   return projectCompleteChildren(
     input.uw,
-    input.graph,
+    input.graph.nodes,
     input.accepted.status === 'accepted' ? input.accepted.value.children : null,
   )
 }
@@ -133,7 +134,7 @@ export function projectNativeUwChildrenAgainstCommitments(input: {
   commitments: readonly AcceptedChildCommitment[] | null
 }): NativeUwChildrenProjection {
   if (input.graph.status === 'incomplete') return incompleteGraph(input.uw, input.graph)
-  return projectCompleteChildren(input.uw, input.graph, input.commitments)
+  return projectCompleteChildren(input.uw, input.graph.nodes, input.commitments)
 }
 
 function incompleteGraph(
@@ -148,19 +149,27 @@ function incompleteGraph(
   }
 }
 
-function projectCompleteChildren(
+export function projectSemanticUwChildren<T extends UwSemanticNode>(
   uw: Scope,
-  graph: Extract<UwGraphObservation, { status: 'complete' }>,
+  observed: readonly T[],
   commitments: readonly AcceptedChildCommitment[] | null,
-): NativeUwChildrenProjection {
-  const nodes = new Map<string, UwNativeNode>()
-  for (const node of graph.nodes) nodes.set(scopeKey(node.uw), node)
+): { ok: true; value: readonly T[] } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
+  return projectCompleteChildren(uw, observed, commitments)
+}
+
+function projectCompleteChildren<T extends UwSemanticNode>(
+  uw: Scope,
+  observed: readonly T[],
+  commitments: readonly AcceptedChildCommitment[] | null,
+): { ok: true; value: readonly T[] } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
+  const nodes = new Map<string, T>()
+  for (const node of observed) nodes.set(scopeKey(node.uw), node)
   const root = nodes.get(scopeKey(uw))
   if (root === undefined)
     return { ok: false, diagnostics: [diag(uw, 'graph-incomplete', 'Selected UW is absent', 'children')] }
   const diagnostics: UwDiagnostic[] = []
   checkAcceptedChildren(uw, root, nodes, commitments, diagnostics)
-  const children: UwNativeNode[] = []
+  const children: T[] = []
   collectNativeChildren(uw, root, nodes, commitments, diagnostics, children)
   return diagnostics.length ? { ok: false, diagnostics } : { ok: true, value: children }
 }

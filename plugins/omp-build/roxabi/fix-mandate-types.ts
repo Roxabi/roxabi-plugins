@@ -94,6 +94,7 @@ export type CiCorrectionAdmission = {
   readonly reviews?: number
   readonly remaining?: number
   readonly attributionRecordId: string
+  readonly attributionDigest: string
   readonly candidateGitSHA: string
   readonly uw: { ownSpec: AcceptedOwnSpec; children: readonly AcceptedChildCommitment[] }
   readonly mandateRecordId: string

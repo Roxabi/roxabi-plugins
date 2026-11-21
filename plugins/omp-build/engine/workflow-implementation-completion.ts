@@ -7,8 +7,9 @@ import type { SpecEffective } from './spec-effective-schema.ts'
 import { toDiagnostics } from './uw-diagnostics.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
-import { type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { implementationOutputSchema } from './workflow-output-schema.ts'
 import type { ActionCompletion, WorkflowEvidence } from './workflow-plan.ts'
 import { planMacro } from './workflow-plan-macro.ts'
@@ -154,8 +155,14 @@ export function implementationCompletion(evidence: WorkflowEvidence, mandate: Ma
   const accepted = mandate === null ? null : resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (accepted !== null && !accepted.ok) return { status: 'blocked', evidence: accepted.evidence }
   const action = accepted?.ok && accepted.spec.children.length > 0 ? 'integrate' : 'implement'
-  const receipts = implementationReceipts(evidence.issue, action)
-  const terminal = workflowContextTerminal(evidence.issue, action)
+  const histories = [evidence.issue, ...evidence.causal.histories]
+  const classified = classifyAttempts({ histories, scan: [evidence.issue], actions: [action] })
+  if (!classified.ok) return { status: 'blocked', evidence: classified.diagnostics }
+  const excluded = classified.value.excluded
+  const receipts = implementationReceipts(evidence.issue, action).filter((record) => !excludedReceipt(record, excluded))
+  const gate = interruptionGate(classified)
+  if (gate.kind === 'stop') return gate.completion
+  const terminal = workflowContextTerminal(evidence.issue, action, undefined, excluded)
   if (terminal === 'missing')
     return {
       status: 'blocked',

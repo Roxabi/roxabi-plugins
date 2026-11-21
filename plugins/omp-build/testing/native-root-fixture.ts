@@ -1,11 +1,11 @@
-import { AgentRegistry } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
+import { type AgentRef, AgentRegistry, type AgentRegistryApi } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
 
 const fixtureRefs = new WeakSet<object>()
 const contextRefs = new WeakMap<object, object>()
-const registrations: Array<{ registry: AgentRegistry; id: string; ref: object }> = []
+const registrations: Array<{ registry: AgentRegistryApi; id: string; ref: AgentRef }> = []
 
 export function cleanupNativeRoots(): void {
-  for (const { registry, id, ref } of registrations.splice(0)) registry.unregister(id, ref as never)
+  for (const { registry, id, ref } of registrations.splice(0)) registry.unregister(id, ref)
 }
 
 /** Install the public root presentation used by controller-level integration fixtures. */

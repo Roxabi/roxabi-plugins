@@ -23,12 +23,16 @@ describe('issue-triage/label-flags > writeLabels', () => {
     }) as never)
     vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    const failed = await writeLabels(42, {
-      priority: 'P3 - Low',
-      size: 'S',
-      lane: 'b',
-      status: 'Backlog',
-    })
+    const failed = await writeLabels(
+      42,
+      {
+        priority: 'P3 - Low',
+        size: 'S',
+        lane: 'b',
+        status: 'Backlog',
+      },
+      'Test/test-repo',
+    )
 
     expect(failed).toEqual(['priority', 'size', 'lane', 'status'])
     expect(exitSpy).not.toHaveBeenCalled()

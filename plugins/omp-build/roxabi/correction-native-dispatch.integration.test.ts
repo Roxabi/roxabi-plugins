@@ -139,7 +139,11 @@ describe('correction native dispatch', () => {
       async stopOwned(batch) {
         stops += 1
         active = null
-        await callbacks?.onStop('fix-run-aborted', result(batch, false))
+        await callbacks?.onStop('fix-run-aborted', result(batch, false), {
+          kind: 'interrupted',
+          origin: 'host-stop',
+          proof: 'not-dispatched',
+        })
       },
     }
     const dispatched = await dispatchCorrectionAction(

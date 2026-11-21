@@ -10,6 +10,8 @@ type ActionReceiptPayload = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 type WorkflowBindingPayload = Extract<CanonicalRecord, { kind: 'workflow-binding' }>['payload']
 type ReviewInterruptionPayload = Extract<CanonicalRecord, { kind: 'review-interruption' }>['payload']
 type ReviewReplacementGrantPayload = Extract<CanonicalRecord, { kind: 'review-replacement-grant' }>['payload']
+type FixOwnerPayload = Extract<CanonicalRecord, { kind: 'fix-owner' }>['payload']
+type FixRecoveryPayload = Extract<CanonicalRecord, { kind: 'fix-recovery' }>['payload']
 
 type CauseDispositionPayload = Extract<CanonicalRecord, { kind: 'cause-disposition' }>['payload']
 type CauseOperationPayload = Extract<CanonicalRecord, { kind: 'cause-operation' }>['payload']
@@ -59,6 +61,7 @@ function operatorControlRefs(payload: OperatorControlPayload): ExternalRecordRef
       refs.push(payload.authorization.operation, payload.authorization.binding.identity)
   }
   if (payload.control === 'select-successor') refs.push(payload.successor)
+  if (payload.control === 'resolve-interruption') refs.push(payload.start, payload.result)
   if (payload.control === 'adjust-cause-dependency') {
     for (const reference of payload.proposal.references) if (reference.source === 'record') refs.push(reference.record)
   }
@@ -84,6 +87,84 @@ function actionReceiptRefs(payload: ActionReceiptPayload): ExternalRecordRef[] {
       )
   }
   return refs
+}
+
+function pinnedRef(pin: { identity: ExternalRecordRef }): ExternalRecordRef {
+  const { scope, kind, recordId } = pin.identity
+  return { scope, kind, recordId }
+}
+
+function interruptedRefs(phase: Extract<FixOwnerPayload, { phase: 'settled' }>['interrupted']): ExternalRecordRef[] {
+  const refs: ExternalRecordRef[] = [phase.opened]
+  if (phase.kind === 'publication-prefix') {
+    if (phase.source.state === 'complete') refs.push(pinnedRef(phase.source.record))
+  } else {
+    refs.push(pinnedRef(phase.source), pinnedRef(phase.request))
+    if (phase.kind === 'decided') refs.push(pinnedRef(phase.decision))
+  }
+  return refs
+}
+
+function fixOwnerRefs(payload: FixOwnerPayload): ExternalRecordRef[] {
+  const refs: Array<ExternalRecordRef | null> = []
+  if (payload.phase === 'opened') {
+    refs.push(
+      payload.common.mandate,
+      payload.common.binding,
+      ...payload.common.accepted.versionVector.map((entry) => entry.sourceAccepted),
+    )
+    if (payload.intent.kind === 'fresh-intake') refs.push(payload.intent.afterClose)
+    else
+      refs.push(
+        payload.intent.recovery,
+        pinnedRef(payload.intent.source),
+        pinnedRef(payload.intent.request),
+        pinnedRef(payload.intent.decision),
+      )
+  } else {
+    refs.push(payload.opened, ...interruptedRefs(payload.interrupted))
+    for (const outbound of payload.outbound)
+      if (outbound.publication.state === 'confirmed') refs.push(pinnedRef(outbound.publication.record))
+  }
+  return refs.filter((ref): ref is ExternalRecordRef => ref !== null)
+}
+
+function preparedRecoveryRefs(
+  preparation: Extract<FixRecoveryPayload, { phase: 'adopt-decision' }>['nativePreparation'],
+): ExternalRecordRef[] {
+  if (preparation.kind !== 'prepared') return []
+  const inputs = preparation.inputs
+  const refs = [
+    ...inputs.manifest.acceptedSources.map((entry) => entry.record),
+    ...inputs.manifest.deliveryData.map((entry) => entry.record),
+    ...inputs.stageSources.map((entry) => entry.record),
+  ]
+  for (const entry of inputs.manifest.expandedContext) if (entry.source === 'record') refs.push(entry.record)
+  if (inputs.manifest.subject.kind === 'uw' && inputs.manifest.subject.binding)
+    refs.push(inputs.manifest.subject.binding.record)
+  if (inputs.manifest.spec.kind === 'accepted')
+    refs.push(...inputs.manifest.spec.effective.versionVector.map((entry) => entry.sourceAccepted))
+  return refs
+}
+
+function fixRecoveryRefs(payload: FixRecoveryPayload): ExternalRecordRef[] {
+  const refs: Array<ExternalRecordRef | null> = [
+    payload.binding,
+    payload.mandate,
+    payload.predecessor,
+    payload.opened,
+    payload.settled,
+    pinnedRef(payload.observation.authority.binding),
+    pinnedRef(payload.observation.authority.mandate),
+    ...payload.observation.authority.accepted.versionVector.map((entry) => entry.sourceAccepted),
+  ]
+  refs.push(...interruptedRefs(payload.target))
+  if (payload.phase === 'adopt-decision') refs.push(...preparedRecoveryRefs(payload.nativePreparation))
+  for (const cut of payload.cuts) {
+    refs.push(cut.retiringOpened)
+    for (const member of cut.members) if (member.disposition === 'keep-complete') refs.push(pinnedRef(member.record))
+  }
+  return refs.filter((ref): ref is ExternalRecordRef => ref !== null)
 }
 
 export function scopedRefsOf(record: { kind: Kind; payload: unknown }): ExternalRecordRef[] {
@@ -158,6 +239,10 @@ export function scopedRefsOf(record: { kind: Kind; payload: unknown }): External
       return [(record.payload as ReviewInterruptionPayload).historicalBinding]
     case 'review-replacement-grant':
       return [(record.payload as ReviewReplacementGrantPayload).binding]
+    case 'fix-owner':
+      return fixOwnerRefs(record.payload as FixOwnerPayload)
+    case 'fix-recovery':
+      return fixRecoveryRefs(record.payload as FixRecoveryPayload)
     default:
       return []
   }
@@ -178,7 +263,9 @@ export function partitionScopedRefs(record: Pick<CanonicalRecord, 'kind' | 'payl
 export function workflowInputMeaning(record: CanonicalRecord): Diagnostic | null {
   if (
     !isWorkflowKind(record.kind) &&
-    !['review', 'fix-request', 'correction-result', 'fix-result', 'debt-receipt'].includes(record.kind)
+    !['review', 'fix-request', 'correction-result', 'fix-result', 'debt-receipt', 'fix-owner', 'fix-recovery'].includes(
+      record.kind,
+    )
   )
     return null
   const { sameScope, external } = partitionScopedRefs(record)

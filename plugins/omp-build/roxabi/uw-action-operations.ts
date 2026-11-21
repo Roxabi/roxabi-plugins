@@ -2,6 +2,7 @@ import type { Result } from '../engine/result.ts'
 import type {
   ActionInputs,
   ActionSnapshot,
+  CorrectionRootRef,
   PreparedUwAction,
   ReviewActionProjection,
   SelectedReview,
@@ -33,14 +34,18 @@ export function actionOperationMethods(
       input: UwActionRequest,
       projection?: ReviewActionProjection,
       review?: SelectedReview,
+      correctionRoot?: CorrectionRootRef,
     ): Promise<Result<PreparedUwAction>> =>
-      ports.actions === undefined ? missing() : prepareUwAction(input, ports.actions, projection, review),
+      ports.actions === undefined
+        ? missing()
+        : prepareUwAction(input, ports.actions, projection, review, correctionRoot),
     prepareReviewActions: (input) =>
       ports.actions === undefined ? missing() : prepareReviewActions(input, ports.actions),
     replayActionInputs: (input: {
       reviewed: ActionInputs
       request: UwActionRequest
       reviewedRoot?: SelectedReview['root']
+      correctionRoot?: CorrectionRootRef
     }): Promise<Result<ActionInputs>> =>
       ports.actions === undefined ? missing() : replayUwActionInputs(input, ports.actions),
     verifyAction: (snapshot: ActionSnapshot) => verifyActionSnapshot(snapshot),

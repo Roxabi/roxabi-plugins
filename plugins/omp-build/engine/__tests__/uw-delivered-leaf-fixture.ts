@@ -196,7 +196,8 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
     implementation?.kind !== 'action-receipt' ||
     implementation.payload.action !== 'implement' ||
     implementation.payload.phase !== 'result' ||
-    implementation.payload.structured === null
+    implementation.payload.structured === null ||
+    implementation.payload.structured.outcome === 'missing-context'
   )
     throw new Error('Expected captured implementation result')
   const declaration = implementation.payload.structured.criteria[0]
@@ -242,7 +243,7 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
   const merge = 'f'.repeat(40)
   const reader = leafNativeFacts(uw, number, base, head, merge)
   const histories = [review.issueHistory, review.history, ...parentHistories]
-  const read = await reader.read(uw, histories)
+  const read = await reader.read(uw, histories, 'legacy-succession')
   if (!read.ok) throw new Error(`Native fixture facts unavailable: ${JSON.stringify(read.diagnostics)}`)
   const observation: Extract<UwCompletionObservation, { status: 'complete' }> = {
     status: 'complete',

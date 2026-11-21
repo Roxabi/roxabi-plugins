@@ -254,7 +254,11 @@ describe('authorized criterion delivery admission', () => {
   test('refuses unresolved version-claim and code-link references before admission', async () => {
     const fixture = await deliveredLeaf()
     const { mandate, inputs, implementation: receipt, head } = fixture
-    if (!isImplementResult(receipt) || receipt.payload.structured === null)
+    if (
+      !isImplementResult(receipt) ||
+      receipt.payload.structured === null ||
+      receipt.payload.structured.outcome === 'missing-context'
+    )
       throw new Error('expected a genuinely published implementation result')
     const declaration = receipt.payload.structured.criteria[0]
     if (declaration?.verification !== 'evidence' || !declaration.evidence[0])

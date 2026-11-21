@@ -9,6 +9,7 @@ import {
   reconstructWorkflow,
   shippedProductVersion,
 } from '../dist/contracts.js'
+import { trackPreparationGhOperation } from '../host/preparation-cohort.ts'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { FixActionResult } from './fix-contract.ts'
 import { failure } from './fix-contract.ts'
@@ -24,8 +25,11 @@ import { SUPPORTED_CONFIG_VERSIONS } from './workflow-graph.ts'
 const execFileAsync = promisify(execFile)
 
 export async function githubText(options: GitHubOptions, cwd: string, args: string[]): Promise<string> {
-  if (options.gh) return options.gh(cwd, args)
-  const out = await execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+  const supplied = options.gh
+  if (supplied) return trackPreparationGhOperation(args, () => supplied(cwd, args))
+  const out = await trackPreparationGhOperation(args, () =>
+    execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
+  )
   return String(out.stdout).trim()
 }
 
@@ -121,12 +125,12 @@ export async function authorizeFixAction(
   history: DecodedHistory,
   linked: DecodedHistory | null,
   parents: readonly DecodedHistory[],
-  reviewStep: 'fix' | 'review' | 'land' | 'stop',
+  reviewStep: 'fix-ci',
   liveEvidence: LiveCiEvidence,
   uw: UwRead,
 ): Promise<FixActionResult<readonly string[]>> {
   if (input.target.state !== 'open') return failure('fix-target-closed')
-  if (input.target.kind === 'pull-request' && (input.base === null || input.target.candidateGitSHA === null)) {
+  if (input.base === null || input.target.candidateGitSHA === null) {
     return failure('fix-workflow-refused:unknown-binding')
   }
   const commit = input.target.candidateGitSHA
@@ -218,7 +222,7 @@ async function reconstructAuthorizedFix(
   history: DecodedHistory,
   linked: DecodedHistory | null,
   parents: readonly DecodedHistory[],
-  reviewStep: 'fix' | 'review' | 'land' | 'stop',
+  reviewStep: 'fix-ci',
   liveEvidence: LiveCiEvidence,
   currentFacts: CurrentFixFacts,
   commit: string,
@@ -234,11 +238,11 @@ async function reconstructAuthorizedFix(
     return failure('fix-product-version-unreadable')
   }
   const issue = linked ?? history
-  const pullRequest = linked !== null && input.target.kind === 'pull-request' ? history : null
+  const pullRequest = linked !== null ? history : null
   const composed = composeChantier({ issue, pullRequest, parents, causal: currentFacts.causal })
   if (!composed.ok) return failure('fix-history-incomplete', ...diagnosticCodes(composed.diagnostics))
   const pullRequestFacts =
-    input.target.kind === 'pull-request' && input.base !== null
+    input.base !== null
       ? {
           scope: { repository: input.target.repository, target: input.target.target },
           head: commit,

@@ -1,7 +1,7 @@
 export { createGhIssueWritePorts } from '../issue-triage/skills/shared/adapters/issue-writer.ts'
 export { calculateTier } from '../issue-triage/skills/shared/domain/complexity.ts'
 export { createIssueWriter } from '../issue-triage/skills/shared/domain/issue-write.ts'
-export { decodeHistory, encodeRecord } from './adapters/github/history-codec.ts'
+export { decodeHistory, encodeRecord, projectRecoveryHistories } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
 export { recordOperation } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
@@ -46,6 +46,7 @@ export { createUwDeliveryFactReader } from './adapters/github-workflow/uw-delive
 export { readUwCompletionObservation } from './adapters/github-workflow/uw-observation.ts'
 export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
+export * from './contracts-fix-recovery.ts'
 export * from './contracts-review.ts'
 export * from './contracts-uw.ts'
 export { acceptedMetadataOwner } from './engine/accepted-metadata-owner.ts'
@@ -164,11 +165,25 @@ export {
   type Verdict,
   verdictSchema,
 } from './engine/record-values.ts'
+export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export { actionCompletion } from './engine/workflow-action-completion.ts'
+export {
+  type AttemptClassification,
+  classifyAttempts,
+  type InterruptionGate,
+  interruptionGate,
+  interruptionResolutionCandidate,
+  type ResolutionCandidate,
+  type ResolvableStart,
+  resolvableStarts,
+  startResolution,
+  type UnresolvedAttempt,
+} from './engine/workflow-action-interruption.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
+export { bindingMatchesMandate, bindingPolicy } from './engine/workflow-binding-policy.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
 export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
@@ -182,7 +197,14 @@ export {
   recheckComposedAssessmentDelta,
   recheckComposedParentAcceptance,
 } from './engine/workflow-composed-material-preparation.ts'
-export { bindExternalRef, type MandateRecord, type PauseBinding } from './engine/workflow-control.ts'
+export {
+  bindExternalRef,
+  excludedReceipt,
+  type MandateRecord,
+  receiptStartKey,
+  scopedStartKey,
+  workflowOperationProblem,
+} from './engine/workflow-control.ts'
 export { assessFixMandate } from './engine/workflow-correction-admission.ts'
 export { buildFixOnlyMandate, type FixMandateAssessment } from './engine/workflow-correction-mandate.ts'
 export type { WorkflowCondition, WorkflowGraph, WorkflowGraphAction } from './engine/workflow-graph.ts'
@@ -192,6 +214,26 @@ export {
   workflowGraphActionSchema,
   workflowGraphSchema,
 } from './engine/workflow-graph.ts'
+export {
+  authenticateInterruptedReceiptPair,
+  HOST_INTERRUPTION_MARKER,
+  hostInterruptionDiagnostic,
+  INTERRUPTION_ACTIONS,
+  INTERRUPTION_RESOLUTION_FORMAT,
+  INTERRUPTION_RESOLUTION_PREFIX,
+  type InterruptionAction,
+  type InterruptionResolution,
+  interruptedResult,
+  interruptionResolutionDigest,
+  interruptionResolutionRecordId,
+  isInterruptionAction,
+  isInterruptionResolution,
+  type ResolutionIndex,
+  type ResolutionPayload,
+  type ResolutionProposal,
+  type ResolutionRecord,
+} from './engine/workflow-interruption-proof.ts'
+export { admitInterruptionResolution, resolutionIndex } from './engine/workflow-interruption-resolution.ts'
 export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
 export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
@@ -201,6 +243,12 @@ export {
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
+export {
+  interruptionActionSchema,
+  interruptionExecutorSchema,
+  interruptionRuntimeSchema,
+} from './engine/workflow-operator-control-schema.ts'
+export type { PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { bindImplementationCommand } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'

@@ -7,14 +7,9 @@ import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { BoundWork, ConfigIdentity, MandateUse } from './workflow-binding.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
-import {
-  historyFor,
-  type MandateRecord,
-  mandateScope,
-  outstandingPauseInAuthority,
-  workflowOperationProblem,
-} from './workflow-control.ts'
+import { historyFor, type MandateRecord, mandateScope, workflowOperationProblem } from './workflow-control.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
+import { outstandingPauseInAuthority } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'

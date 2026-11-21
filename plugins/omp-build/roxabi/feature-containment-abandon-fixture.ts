@@ -75,7 +75,10 @@ if (root) {
     uw: operations,
   })
   const read = await operations.readUw(target)
-  if (read.observation.status !== 'complete') throw new Error('Root observation incomplete after abandonment')
+  if (read.observation.status !== 'complete')
+    throw new Error(
+      `Root observation incomplete after abandonment: ${JSON.stringify({ result, diagnostics: read.observation.diagnostics })}`,
+    )
   const history = read.histories.find((entry) => entry.source.scope.target === target.target)
   if (
     !history?.operations.some(

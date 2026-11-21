@@ -5,6 +5,7 @@ import type { FixActionResult, FixIdentity, FixRecord, PreparedFix, RecordPublis
 import { failure, isRecordId } from './fix-contract.ts'
 import { publishNativeContributions, taskSlot } from './fix-contributions-native.ts'
 import { publish, record } from './fix-records.ts'
+import type { RecordInputRef } from './uw-action-contract.ts'
 import type { UwOperations } from './uw-contract.ts'
 
 export type PreparedCorrectionSynthesis = {
@@ -22,12 +23,17 @@ export async function prepareCorrectionSynthesis(
   sourceContributions: readonly FixRecord[],
   task: Omit<NativeTask, 'action'>,
   operations: UwOperations,
+  priorStage: readonly RecordInputRef[],
 ): Promise<FixActionResult<PreparedCorrectionSynthesis>> {
   const sourceContributionIds = sourceContributions.map((record) => record.recordId)
   if (
     sourceContributionIds.length === 0 ||
     sourceContributionIds.some((id) => !isRecordId(id)) ||
-    new Set(sourceContributionIds).size !== sourceContributionIds.length
+    new Set(sourceContributionIds).size !== sourceContributionIds.length ||
+    !sourceContributions.every(
+      (record): record is Extract<FixRecord, { kind: 'contribution' }> =>
+        record.kind === 'contribution' && record.payload.inventoryId === prepared.inventoryId,
+    )
   ) {
     return failure('correction-synthesis-sources-invalid')
   }
@@ -44,10 +50,6 @@ export async function prepareCorrectionSynthesis(
   if (head === null || prepared.target.baseGitSHA === null) return failure('prepare-action-unavailable')
   const pinned = codePin(prepared.target.repository, prepared.target.baseGitSHA, head, head)
   if (!pinned.ok) return failure('code-unobserved')
-  const stageRecords = sourceContributions.flatMap((record) =>
-    record.kind === 'contribution' || record.kind === 'decision' ? [record] : [],
-  )
-  if (stageRecords.length !== sourceContributions.length) return failure('correction-synthesis-sources-invalid')
   const preparedAction = await confirmPreparedAction(
     operations,
     actionRequest({
@@ -55,8 +57,18 @@ export async function prepareCorrectionSynthesis(
       purpose: 'correction',
       subject: prepared.subject,
       code: pinned.code,
-      stageSources: stageRecords.map(recordStageRef),
+      stageSources: [...priorStage, ...sourceContributions.map(recordStageRef)],
     }),
+    undefined,
+    undefined,
+    {
+      inventory: {
+        scope: { repository: prepared.target.repository, target: prepared.target.target },
+        kind: 'review-attempt',
+        recordId: prepared.inventoryId,
+      },
+      requestId: prepared.requestId,
+    },
   )
   if (!preparedAction.ok) return failure('prepare-action-unavailable')
   const attached = deliveryTask({
@@ -108,7 +120,8 @@ export async function prepareCorrectionSynthesis(
       batch: {
         operationId: identity.operationId,
         tasks: {
-          context: 'omp-build correction action. Read only the procedure and the index named on the task.',
+          context:
+            'omp-build correction action. Follow the procedure and role profile; use the indexed snapshot for UW data and normative references.',
           tasks: [attached],
         },
       },

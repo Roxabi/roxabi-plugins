@@ -44,7 +44,7 @@ function reviewIntegrityRefusal(operations) {
   return null
 }
 
-async function currentContinuation(cwd, pr, records, operations, gate, result, ghFn, gitFn) {
+async function currentContinuation(cwd, pr, records, operations, gate, result, ghFn, gitFn, pluginPin) {
   const head = await readHeadRefOid(cwd, pr, ghFn)
   const currentGate = { ...gate, headRefOid: head }
   const base = await resolveLandingBase(cwd, pr, ghFn, gitFn)
@@ -55,13 +55,7 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
       result: { status: 'mandate-refused', reason: 'incomplete', error: 'current landing coordinates are incomplete' },
     }
   }
-  const mandate = await currentLandingMandate(
-    cwd,
-    pr,
-    ghFn,
-    { head, base: base.name, baseTip: base.tip },
-    gitFn ?? gitResult,
-  )
+  const mandate = await currentLandingMandate(cwd, pr, ghFn, { head, base: base.name, baseTip: base.tip }, gitFn)
   if (!mandate.admitted) {
     return {
       policy: 'unarmed',
@@ -75,7 +69,7 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
   }
   const integrity = reviewIntegrityRefusal(operations)
   if (integrity !== null) return { policy: 'unarmed', gate: currentGate, result }
-  const inputFresh = await hasFreshReviewInput(cwd, pr, records, { gh: ghFn, git: gitFn })
+  const inputFresh = await hasFreshReviewInput(cwd, pr, records, { gh: ghFn, git: gitFn, pluginPin })
   const lastHead = await readHeadRefOid(cwd, pr, ghFn)
   const lastGate = { ...gate, headRefOid: lastHead }
   if (!inputFresh || lastHead !== records.head || lastHead !== head)
@@ -85,7 +79,7 @@ async function currentContinuation(cwd, pr, records, operations, gate, result, g
     pr,
     ghFn,
     { head: lastHead, base: base.name, baseTip: base.tip },
-    gitFn ?? gitResult,
+    gitFn,
   )
   const after = await readHeadRefOid(cwd, pr, ghFn)
   const finalGate = { ...gate, headRefOid: after }
@@ -105,7 +99,7 @@ function watchNeedsContinuation(result, policy, gate) {
   return { continuation, retaining }
 }
 
-async function readWatchExit(cwd, pr, code, ghFn, gitFn) {
+async function readWatchExit(cwd, pr, code, ghFn, gitFn, pluginPin) {
   let gate, records, failure
   let policy = watchPolicy(code)
   let result = initialWatchResult(code, pr)
@@ -116,7 +110,17 @@ async function readWatchExit(cwd, pr, code, ghFn, gitFn) {
     if (continuation || retaining) {
       const review = await requiredReviewAdmission(cwd, pr, { gh: ghFn })
       records = review.records
-      const resolved = await currentContinuation(cwd, pr, records, review.operations, gate, result, ghFn, gitFn)
+      const resolved = await currentContinuation(
+        cwd,
+        pr,
+        records,
+        review.operations,
+        gate,
+        result,
+        ghFn,
+        gitFn,
+        pluginPin,
+      )
       gate = resolved.gate ?? gate
       policy = resolved.policy
       if (continuation) result = resolved.result
@@ -157,9 +161,15 @@ async function enforceWatchGate(cwd, pr, watched, ghFn) {
   return { ...watched.result, ...(receipt.disarmed && { disarmed: true }) }
 }
 
-export async function applyCiWatchExit(cwd, pr, code, { gh: ghFn = gh, git: gitFn } = {}) {
-  const watched = await readWatchExit(cwd, pr, code, ghFn, gitFn)
+export async function applyCiWatchExit(
+  cwd,
+  pr,
+  code,
+  { gh: ghFn = gh, git: gitFn = gitResult, stopPublication = 'watch', pluginPin } = {},
+) {
+  const watched = await readWatchExit(cwd, pr, code, ghFn, gitFn, pluginPin)
   const result = await enforceWatchGate(cwd, pr, watched, ghFn)
+  if (stopPublication === 'engine') return result
   const persisted = await persistWatchCiStop(cwd, pr, code, watched, ghFn, gitFn)
   if (persisted.failure) throw persisted.failure
   return result

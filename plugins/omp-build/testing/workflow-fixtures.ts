@@ -120,7 +120,7 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
         lineageHead: null,
         config: { productVersion: context.productVersion, ...(overrides.config ?? context.config) },
         parent: null,
-        antecedent: null,
+        antecedent: overrides.antecedent ?? null,
         ownSpec: spec,
         inheritedOwnSpecRefs: overrides.inheritedOwnSpecRefs ?? [],
         coverage: overrides.coverage === undefined ? coverage : overrides.coverage,

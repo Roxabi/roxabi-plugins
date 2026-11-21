@@ -1,479 +1,245 @@
 ---
 name: cleanup
 disable-model-invocation: true
-argument-hint: '[--all | --report-only | --yes | --scope <#N>]'
-description: OMP-only — clean branches/worktrees/remotes after merge-status verification; sweep stuck labels and orphan CI runs. Offered after land, never automatic.
-version: 0.1.0
+argument-hint: '[--all | --repo <path> | --root <path>] [--scope <#N>] [--report-only] [--force]'
+description: OMP-only — inventory worktrees and remove explicitly selected paths, with an opt-in manual local-data discard mode, while preserving every branch.
+version: 0.4.0
 ---
 
-# Git Cleanup
+# Worktree Cleanup
 
-Let: β := branch | ω := worktree | π := open PR | Π := protected branch (main/master/staging, or deploy/* — a CD production branch is an ancestor of the base by construction, so it always looks merged) | safe(β) ⟺ proven_merged(β) ∧ ¬π(β) | proven_merged(β) := regular_merge(β) ∨ verified_squash(β) | regular_merge(β) := `BASE..β` is empty | verified_squash(β) := gh reports a MERGED PR on β **and** that PR's head SHA is an ancestor of its merge commit | hinted(β) := a commit message on BASE contains `#N` or β's name — **not** a proof, since any commit may type the number | N := scope issue number (∅ if unscoped) | orphan_shell := leftover path under `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`), `<principal>/.claude/worktrees/` (harness-created worktrees), or `<worktree base>/<repo>/<slug>` (the `/feature` root; base is `OMP_WORKTREE_DIR`, else stack.yml `worktree.base`, else `~/.omp/wt`) that is **not** in `git worktree list` | principal := the first `git worktree list` entry, pinned to main/master/staging by `hooks/principal-branch-pre.cjs` and the `tool_call` guard in `omp/index.ts`
+The operator invokes this standalone skill. It may be offered after land, never
+entered automatically or from a review/correction loop.
 
-Safely clean local β, ω, and remote branches with **mandatory merge-status verification** before any deletion. End-of-session sweep also strips stuck pipeline labels from closed PRs, cancels long-queued CI runs, and surfaces **orphan worktree shells** that git no longer tracks.
+## Contract
 
-## Where deletion happens — the whole list
+- Inventory is read-only. Preserve every local and remote branch, including
+  unmerged work. Merge messages and PR labels are not deletion authority.
+- Removal uses the bundled executor, one explicitly selected path at a time.
+  It re-inspects identity, local data, ignored artifacts, locks and observable
+  process usage.
+- Principal/current worktrees, inaccessible filesystem state, nested Git
+  repositories, mounts, index-hidden files, initialized submodules or retained
+  `modules/` data in the worktree Git directory, locks,
+  in-progress Git operations and detected active usage are always kept.
+  Nonempty orphan shells are informational only; empty shells use `rmdir`.
+- Safe mode also keeps tracked changes, genuinely untracked files and
+  unrecognized or sensitive ignored data. Only the explicit manual force mode
+  below can make those local data disposable.
+- Recognized ignored artifacts make an otherwise removable worktree a
+  conditional candidate. It is never selected automatically, and removal
+  deletes those artifacts with the worktree.
+- Branch maintenance, GitHub labels and CI cancellation require separate
+  operator mandates; none belongs to this workflow. No fetch or prune is run.
+- `--yes` is rejected. CLI confirmation arguments name the selected path;
+  they do not prove human consent.
 
-Three steps in this body delete, and no others:
+## Ignored artifacts
 
-| Step | Command | Backstop |
-|------|---------|----------|
-| 5 | `git worktree remove` · `git branch -d` · `git branch -D` | git itself: `-d` refuses an unmerged β, and the remote copy survives the mistake |
-| 5b-execute | `rmdir` on allowlisted `empty_parent`; `rm -rf` only after per-row confirm on content orphans | none — outside git entirely; `--yes` is an allowlist (`--yes-targets` → `rmdir` only) |
-| 6e | `git push origin --delete` | **none** — no unmerged check exists on the remote side, and after it there is no copy left |
+In safe mode, only entries Git already reports as ignored are classified, from
+the same status pass that counts local changes, and each keeps the exact path
+Git reports. Truly untracked (`??`) files and tracked changes keep the worktree.
+Never add ignore rules, delete files or otherwise alter a worktree to make it
+eligible; manual force uses the executor directly, not pre-deletion.
 
-Step 6e is the deletion that ends the work, so the evidence bar is set there and
-the other steps inherit it: only proven_merged(β) reaches `safe_remote`. A hinted
-β is reported as `probably_merged`, is never pre-selected, and never enters a
-`safe_*` list. `analyze-branches.sh` itself deletes nothing — it classifies.
+| Kind | Recognized entries (case-sensitive) |
+|---|---|
+| `dependency` | a `node_modules` or `.venv` directory, or an entry Git lists inside one |
+| `cache` | a `__pycache__`, `.pytest_cache`, `.ruff_cache` or `.cache/trufflehog` directory, or an entry Git lists inside one; a regular `*.tsbuildinfo` file |
+| `build-output` | a `.astro`, `dist` or `test-results` directory that Git itself reports as ignored |
+| `protected` | every other ignored entry: a file Git lists individually inside a build-output directory it does not ignore as a whole, any `.git` path, a file or symlink bearing a directory name, and exposed names matching a partial sensitive-name list (for example `.env*`, private keys, credential files, database dumps) |
 
-## Where this sits — the optional tail
+The sensitive-name list is defense in depth, not a complete detector. When Git
+reports a recognized directory as one entry, it is a **whole subtree** whose
+children Git does not list. Its file contents are never read, so manual
+dependency patches, secrets, local state, exports or a non-Git checkout inside
+it are deleted with it and nothing vouches for their absence. Names do not prove that content can
+be regenerated, so build/test output needs a human content decision.
 
-`/cleanup` is **offered**, never run on its own initiative:
+Before a row with recognized artifacts becomes removable, a metadata-only walk
+checks every recognized entry: names and no-follow file types, never file
+contents, `HEAD` or Git configuration, never following a symlink. On Linux the
+row is kept on a mount point at or below the worktree, a nested `.git` of any
+type, a directory holding `HEAD` next to Git directory names (possible bare
+repository), a special file, a symlink or replaced directory where Git saw a
+directory or regular file, or any observation error. It detects Git metadata
+only, not other version control or unique data. Other platforms keep artifact
+rows. The walk is one non-atomic pass: stop writers and mount changes
+before selection. In safe mode, any `protected` entry or walk finding keeps the
+worktree, and the allowlist has no repository override. The safe token binds
+every reported path and kind, so an entry that appears or vanishes stales the
+selection; changes inside a reported directory do not.
 
-- It is not part of the feature cycle. `/feature` lands an issue and stops. Nothing
-  in the review→fix loop may reach this skill: a loop that deletes branches between
-  review rounds deletes the branch under review.
-- The operator invokes it. No path from `/feature`, `skill://dev-review` or
-  `skill://fix` runs it automatically, and none may be added.
-- `disable-model-invocation: true` omits this skill from the prompt listing on omp —
-  it is **not** a gate. The property that makes this user-only is the lane:
-  `omp/index.ts` exposes `/cleanup` through `registerCommand`, which the model
-  cannot call. `skill://cleanup` and `/skill:cleanup` still reach this body.
+## Manual force mode
 
-## Entry: parse $ARGUMENTS
+Enter this mode only when the operator explicitly asks to abandon local data.
+`inventory --force` is read-only: it assesses registered or detached worktrees
+under that mode and does not select or remove anything. Safe and force tokens
+are not interchangeable. Force does not make orphan shells removable.
 
-At skill entry, before any other action:
+Force may discard tracked/staged edits, genuinely untracked files and all
+ignored data, including sensitive or unrecognized entries such as `.semctx`,
+`.cocoindex_code` or `.deps`. A Git ignore rule is not proof of disposability.
+Present the exact `localEntries` (status, path and any original rename path),
+the exact `ignoredEntries`, and the warning that all their contents are lost.
+The human must select the exact paths and explicitly approve abandoning all
+these local data. Creating or improving this mode is not that approval.
 
-```
-REPORT_ONLY=false
-YES=false
-SCOPE=""
-_next_is_scope=false
-for arg in $ARGUMENTS; do
-  if [ "$_next_is_scope" = true ]; then
-    SCOPE="${arg#\#}"
-    _next_is_scope=false
-    continue
-  fi
-  case "$arg" in
-    --report-only) REPORT_ONLY=true ;;
-    --yes)         YES=true ;;
-    --scope)       _next_is_scope=true ;;
-    --scope=*)     SCOPE="${arg#--scope=}"; SCOPE="${SCOPE#\#}" ;;
-  esac
-done
-```
+Before a force candidate becomes eligible, a Linux metadata-only, no-follow
+walk covers the entire worktree, not just recognized ignored artifacts. It
+keeps nested Git repositories, probable bare repositories, mounts, special
+files, replaced paths and observation errors. All other hard guards from the
+contract remain blocking; an unretained detached HEAD needs a separate branch
+maintenance decision, not a force override.
+The force guard also checks the linked worktree's administrative `modules/`
+entry, even when no submodule gitlink or checkout remains. Any such entry or
+observation error keeps the worktree; its retained repositories are not local
+files covered by discard approval.
 
-`REPORT_ONLY=true` ⇒ **zero mutations** throughout all steps (cron-safe).  
-`YES=true` ⇒ skip confirmation prompts for destructive actions (implies user already consented).  
-If both set: `REPORT_ONLY` wins — no mutations.
-`SCOPE=<N>` ⇒ restrict branch/worktree analysis (Steps 2–6) to issue N only — see below. `SCOPE=""` (default) ⇒ repo-wide, unchanged behavior.
+Force tokens additionally bind the exact Git status, index state and a
+deterministic metadata fingerprint of the worktree, including changes inside
+ignored directories. File payloads are not read. A changed target, mode, status,
+index or observed file state requires a fresh inventory and selection; changed
+data to abandon requires renewed human approval. This is not an atomic lock or
+a content-integrity proof: stop writers and mount changes before selection.
 
-## Instructions
+Git status disables fsmonitor and untracked-cache shortcuts for a fresh data
+list. Force also rechecks observable process usage after the tree walk and
+before mutation. Active usage still blocks; unknown usage still requires its
+separate confirmation.
 
-### 1. Gather State
+For each selected force row requiring `requiresDiscardConfirmation`, the
+executor also requires `--ack-discard-local-data "<path>"`. This path-bound
+acknowledgement covers both ignored and nonignored data; do not also pass
+`--ack-ignored-artifacts` in force mode. Incomplete usage observations still
+require their separate human reply and `--ack-unknown-usage`.
 
-```bash
-T=$(realpath skill://cleanup/gather-state.sh) && bash "$T"
-```
+## 1. Inventory
 
-Emits: `current`, branch list with tracking info, worktree list, **orphan worktree shells** (`---orphan-worktree-shells---` via `scan-orphan-worktree-shells.sh`), open PRs, closed PRs with pipeline labels, and queued/stuck CI runs. Unscoped — always full-repo; Steps 7–8 (label/CI sweeps) and the orphan-shell scan consume gather-state as-is regardless of `--scope` (see Options).
-
-### 2. Analyze Branches
-
-```bash
-# `--report-only` promises zero mutations, and the default path here runs
-# `git fetch --prune origin` — a write to refs/remotes/*. A cron-safe run takes
-# the trade knowingly: a possibly stale mirror (and so a possibly stale BASE)
-# rather than a write. Interactive runs still fetch, because the deletions that
-# follow are priced on a fresh base.
-T=$(realpath skill://cleanup/analyze-branches.sh) || {
-  printf 'REFUSE: cannot resolve skill://cleanup/analyze-branches.sh\n'
-  exit 1
-}
-FETCH_ARG=""
-[ "$REPORT_ONLY" = true ] && FETCH_ARG="--no-fetch"
-
-if [ -n "$SCOPE" ]; then
-  bash "$T" $FETCH_ARG --scope "$SCOPE"
-else
-  bash "$T" $FETCH_ARG
-fi
-```
-
-Use `--json` when you need structured output for scripting. `--no-fetch` is also the flag for tests, or when origin was fetched immediately before.
-
-**Scoping (`--scope <#N>`):** restricts local/remote branches and worktrees to the ones belonging to issue N by an **anchored** issue-number match — the character before the number is start-of-string or `/`/`-`, and the character after is `/`, `-`, `_`, or end (`extract_issue_number()` in `analyze-branches.sh`). So `--scope 19` cannot pick up `feat/319-other`, and `--scope 1` cannot pick up issue #14's branch. Without `--scope`, behavior is unchanged (repo-wide).
-
-The script analyzes ∀ β ∉ {Π, current branch} (∧ β ∈ scope N, if set) with these checks (base branch = `staging` if `origin/staging` exists, else `main` — `detect_base_branch`, sourced by the script from `skills/shared/lib.sh` as `${SCRIPT_DIR}/../shared/lib.sh`; `shared` is a plain directory in this plugin, not a skill, so there is no `skill://` URL that names it):
-
-| Check | Implementation | Verdict |
-|-------|----------------|---------|
-| Merged into base? | `git log --oneline <base>..<branch>` empty | `merge_reason=regular` → **safe to delete** |
-| Squash-merged, verified? | `gh pr list --state all` → `MERGED` on head **and** `git merge-base --is-ancestor <headRefOid> <mergeCommit>` | `merge_reason=squash_pr` → **safe to delete** |
-| Message match only | `git log --grep` on issue# or branch name on base, or a `MERGED` PR whose ancestry could not be shown | `merge_reason=squash_grep` / `squash_pr_unverified` → **`probably_merged`**, never safe, never pre-selected |
-| Has open PR? | Batched `gh pr list` indexed by `headRefName` | **No** — active work |
-| Has worktree? | `git worktree list --porcelain` | Remove worktree first |
-| Commits ahead | `git rev-list --count <base>..<branch>` | Shown on every row — non-zero on a merged row is work pushed *after* the merge |
-| Last commit age | `git log -1 --format="%cr"` | Info only |
-
-**A grep hit is not a merge.** `git log --grep "#50"` matches any commit that
-*mentions* #50 — a plan, a revert, a TODO — so it says nothing about whether this
-β's commits shipped. Treating it as proof is how an unmerged, pushed β reaches
-`git push origin --delete`: git refuses the local `-d`, nothing refuses the
-remote. Hence `merge_reason` travels with every row and the operator approves a
-verdict, not a checkmark.
-
-Emits section markers: `---local-branches---`, `---remote-branches---`, `---worktrees---`, `---safe-local---`, `---safe-remote---`, `---probably-local---`, `---probably-remote---`, plus a human `---summary-table---`. **Analyze-only** — it carries no deletion path at all.
-
-**Protected branches never reach a deletion list.** They are dropped *before*
-classification, so they never enter `local_branches` or the remote listing, and
-therefore can never appear in `safe_local`, `safe_remote`, `probably_local`, or
-`probably_remote`. That set is main/master/staging, plus `deploy/*`: a CD
-production branch (Cloudflare builds `deploy/<branch>`, fast-forwarded from the
-base) is an ancestor of the base by construction, so merge detection always
-calls it merged. The branch checked out in the principal — pinned to
-main/master/staging by the freeze guard — is in that set, so it never enters
-`local_branches`. A branch checked out in the invoking worktree is labelled
-`current` for the same reason.
-
-The script's one write is `git fetch --prune origin` (skipped by `--no-fetch`): it
-drops `refs/remotes/*` entries whose upstream is already gone. That is a mirror
-sync — no branch, local or remote, is removed — and BASE detection reads those refs,
-so a stale mirror would misreport the base.
-
-### 3. Present Summary Table
-
-```
-Git Cleanup Summary
-═══════════════════
-
-Branches:
-  Branch              │ Merged │ Evidence   │ Ahead │ PR    │ Worktree  │ Last Commit  │ Action
-  feat/19-auth        │ ✅ yes │ regular    │ 0     │ —     │ —         │ 3 days ago   │ 🗑 Safe to delete
-  feat/33-i18n        │ ❌ no  │ none       │ 4     │ #42   │ ../repo-33│ 2 hours ago  │ ⚠️ Active work
-  fix/old-bug         │ ✅ yes │ squash_pr  │ 0     │ #38   │ —         │ 2 weeks ago  │ 🗑 Safe to delete
-  feat/50-thing       │ 🔎 hint│ squash_grep│ 1     │ —     │ —         │ 6 days ago   │ 🔎 Probably merged — verify
-  experiment/test     │ ❌ no  │ none       │ 2     │ —     │ —         │ 1 month ago  │ ⚠️ Unmerged
-
-Worktrees:
-  Path                │ Branch        │ Status
-  /home/user/project  │ main          │ Principal (keep)
-  /home/user/rox-33   │ feat/33-i18n  │ Active PR #42
-
-Legend: 🗑 = proven merged, safe to delete · 🔎 = a message matched, nothing is proven —
-verify before deleting · ⚠️ = needs attention · 🔒 = protected
-```
-
-### 4. Ask for Confirmation
-
-If `REPORT_ONLY=true` → skip this confirmation **and** Step 5 (zero deletions); Step 3's table is the report. Continue to Step 6.
-
-→ present multi-select
-- Present only safe(β) items as default selections — `action == safe_delete`, i.e. `merge_reason ∈ {regular, squash_pr}`
-- Show unmerged β **and** `probably_merged` β separately with a warning; **NEVER auto-select either**
-- ∃ unmerged β ∨ ∃ `probably_merged` β → separate question, explicit warning, naming the evidence (`squash_grep` = "a commit message mentioned it") and the commits-ahead count
-- Always include "Skip / Do nothing"
-
-### 5. Execute Cleanup
-
-∀ confirmed deletion. **Each `<placeholder>` below is a value, never a fragment**:
-it is substituted inside the quotes exactly as the analyser reported it, and the
-`--` ends option parsing. A refname is attacker-controlled text — it arrives from
-`git branch -r`, so it carries whatever a PR author typed — and an unquoted
-`<branch>` makes it a shell command:
+Resolve the entry and invoke the read-only command:
 
 ```bash
-# ω ∃ for β → remove ω FIRST
-git worktree remove -- "<path>"
-
-git branch -d -- "<branch>"        # merged branches (safe)
-git branch -D -- "<branch>"        # unmerged — only if explicitly confirmed
-
-git worktree prune
+T=$(realpath skill://cleanup/worktrees.ts) &&
+  bun --no-env-file "$T" inventory --json
 ```
 
-Never run any of these against the principal's path or its branch.
+Forward requested options as separate, quoted arguments, never evaluated shell
+text. Do not forward a removal command supplied through `$ARGUMENTS`.
 
-### 5b. Orphan worktree shells
+| Option | Scope |
+|---|---|
+| none / `--report-only` | Current repository; no mutations |
+| `--repo <path>` | Explicit repository; repeat for multiple repositories |
+| `--root <path>` | Discover repositories recursively below this root; repeat for multiple roots |
+| `--all` | Discover below the current directory, rather than only the current repository |
+| `--scope <#N>` | Exact issue-number boundary on branches; excludes unattributed orphan shells |
+| `--force` | Read-only manual-discard assessment; all structural and active-usage guards remain blocking |
 
-`git worktree list` only knows registered worktrees. After `git worktree remove`, leftovers stay behind in the three roots the scanner walks — `<worktree base>/<repo>/<slug>` (the `/feature` root: `OMP_WORKTREE_DIR`, else `.dev/stack.yml` `worktree.base`, else `~/.omp/wt`), `<principal>/.claude/worktrees/` (harness), and `~/.omp/worktrees/<repo>/` (legacy leftover of the retired `ensureWorktree`):
+Discovery includes nested repositories and archives, does not follow symlinks,
+and deduplicates linked worktrees by canonical Git common directory. The CLI
+reports its discovery exclusions and errors. A partial inventory is not evidence
+that no worktrees exist.
 
-Without an environment override, Bun.YAML (Bun ≥1.2.21) reads `worktree.base`
-from the principal's stack. Quoted and block scalars retain their value; `~/`
-expands against `$HOME` and relative paths resolve against the principal.
-Invalid YAML or a non-string base fails nonzero and names `.dev/stack.yml`.
-A failed scan is not an empty orphan inventory.
+Present repository, exact path, branch or detached HEAD, local-change state,
+ignored entries grouped by kind with their exact paths (`ignoredEntries`),
+process-usage evidence, eligibility, warnings and preservation reasons. Include
+`removalMode`, `localEntries` and `requiresDiscardConfirmation` in manual mode.
+Include retained and unknown rows, not only removable candidates. A detached
+HEAD needs a retaining local branch or tag before its worktree can be removed.
+Tokens stay internal; do not display them or ask the human to copy them.
 
-| kind | Example | Deletable? |
-|------|---------|------------|
-| `empty_parent` | proven-empty real directory, outside any git work tree, no symlink below its trusted anchor | **`--yes` allowlist** — `rmdir` only; never `rm -rf` |
-| `empty_untracked` | empty and untracked under an enclosing work tree (harness / feature orphan, `$HOME` dotfiles) | per-row `rmdir` after confirm — **never** in `--yes-targets` |
-| `unregistered` (content without `.git`) | partial dir (e.g. only `node_modules`) | per-row confirm only — **never** in `--yes-targets` |
-| `unregistered` (`has .git`) | half-removed worktree of **this** repo (gitdir proven ours) | per-row confirm only — **never** in `--yes-targets` |
-| `inside_worktree` / `nested_git` | owned by a work tree (tracks something at/under the path, or rooted at/below it), or a `.git` within depth 4 | **not selectable** |
-| `symlink_root` / `symlink` / `dangling_git` / `not_a_dir` / `unreadable` | symlink between anchor and root (children not listed), symlink child, dangling `.git`, non-directory, not readable/searchable | **not selectable** |
-| `unsafe_name` | path with a byte outside `[A-Za-z0-9._/@+-]`, shown `%q`-escaped (`|` as `\x7c`) | **not selectable** |
+The orphan scanner complements Git's registered-worktree list. It checks the
+configured feature root, `~/.omp/worktrees/<repo>` and the principal's
+`.claude/worktrees`. Nonempty shells need investigation or repair, not deletion.
 
-Source: `gather-state.sh` → `---orphan-worktree-shells---` (`path|kind|detail`). Scope is **this repo only**: a child with `.git` is listed only when its `gitdir:` back-pointer resolves under this repo's absolute `git-common-dir`/worktrees. The principal and its tracked descendants are never offered, except children of an untracked harness or feature root (`.claude/worktrees` / in-principal feature base, each only while `git ls-files` finds nothing tracked there). Anything under a registered worktree, and any child that **contains** the principal or a registered worktree, are skipped. An empty untracked child under those roots is `empty_untracked` (per-row `rmdir`); content is `unregistered` (per-row confirm). Each root is built lexically under a canonical trusted anchor (the principal, `$HOME`, or the configured / default base); a relative `worktree.base` resolves against the principal. Rows carry the lexical scanned entry; matching uses `realpath`.
+On inventory errors, show the failed observation and keep affected candidates.
+`--report-only` stops here, even if a previous message discussed removal.
 
-#### 5b-present
+## 2. Obtain explicit selection
 
-```
-Orphan worktree shells
-══════════════════════
+Offer eligible rows in short numbered batches of ordinary text, each number
+mapped to the exact path displayed beside it, with **nothing preselected**, and
+offer "Keep everything". Do not build large forms. Show retained and unknown
+rows separately as non-selectable.
 
-  Path                                              │ Kind             │ Detail
-  ~/.omp/worktrees/roxabi-plugins                   │ empty_parent     │ empty leftover after worktree remove
-  <principal>/.claude/worktrees/495-optional-tail   │ unregistered     │ content without git registration
-  (none found)
-```
+State the exact effect: remove this worktree directory, preserve all of this
+repository's branch/tag refs and their reachable commits; or remove this
+proven-empty shell. Removing a
+registered worktree also removes its own reflogs. Do not promise preservation of
+reflog-only commits. For a row with `requiresArtifactConfirmation`, list its
+exact ignored entries by kind and warn that their entire contents are deleted
+unread, including any manual dependency patch, secret, state, export,
+build/test evidence or non-Git checkout inside them.
 
-If `REPORT_ONLY=true` → print table and skip deletion. Else → multi-select; always offer "Skip".
+Wait for a genuine human reply identifying the rows. For artifact rows, that
+same reply must also state that the entire listed artifacts of those exact rows
+are disposable, for example: "rows 2 and 5; all their listed artifacts are
+disposable, no dependency patches, checkouts, build evidence or other unique
+data to keep". A row whose
+artifacts are not explicitly confirmed is kept. An earlier request to improve
+this skill, a broad cleanup request, an inventory request, a token or a CLI flag
+is neither consent to remove anything nor artifact approval. A noneligible row
+cannot be overridden. Manual force requires its own fresh force inventory and
+the additional local-data approval described above, not reuse of a safe row.
 
-**Defaults / `--yes` set:** **only** the rows `T=$(realpath skill://cleanup/scan-orphan-worktree-shells.sh) && bash "$T" --yes-targets` emits — an allowlist of `empty_parent` rows (proven-empty real directories, outside any git work tree, no symlink component below the trusted anchor). `empty_untracked` and `unregistered` need per-row confirmation (`rmdir` / `rm -rf`). `inside_worktree`, `nested_git`, `symlink_root`, `symlink`, `dangling_git`, `not_a_dir`, `unreadable`, and `unsafe_name` are **not selectable** — never offered, even per row.
+Process observations are a safety signal, not proof that every agent session is
+idle. Detected active usage always blocks. If observations are incomplete or
+unsupported, show that warning and the available evidence, and obtain an
+additional, separate explicit reply confirming that this exact worktree is no
+longer used despite the incomplete observation. Without that reply, keep the
+path. Stop writers before selection; observations are not an atomic filesystem
+lock.
 
-#### 5b-execute (confirmed only)
+## 3. Execute the selected rows
+
+For each confirmed row, use its repository, exact path and inventory token:
 
 ```bash
-# --yes / defaults — every --yes-targets row:
-rmdir -- "<path>"
-
-# Per-row confirmed `empty_untracked` (never under --yes):
-rmdir -- "<path>"
-
-# Per-row confirmed `unregistered` row only (never under --yes):
-rm -rf -- "<path>"
+bun --no-env-file "$T" remove \
+  --repo "<repository>" --path "<path>" \
+  --expect "<token>" --confirm "<path>" --json
 ```
 
-`<path>` is a value: quoted, after `--`, exactly the path the scanner emitted.
-`--yes` runs **`rmdir` only**: it refuses a non-empty directory, so a row that
-gained content since the scan fails instead of being wiped.
+For a row requiring the additional usage confirmation, append
+`--ack-unknown-usage "<path>"` only after that separate exact confirmation. For
+a row requiring artifact confirmation, append `--ack-ignored-artifacts "<path>"`
+only after the human confirmed that row's artifacts are disposable. Both flags
+are path-bound selection data, not proof of human consent; the executor rejects
+either one when fresh inspection does not require it.
 
-**Safety:** never `rm -rf` a path that still appears in `git worktree list`. Never wipe a worktree root wholesale — only this repo's children. `--yes` uses `--yes-targets` only (`rmdir`). Matches on canonical paths; emits the lexical scanned entry.
-
-### 6. Clean Remote Branches
-
-Use `---remote-branches---` and `---safe-remote---` from Step 2 (`analyze-branches.sh`). Do **not** re-analyze manually.
-
-**CRITICAL for squash merges**: `git branch -r --merged` will NOT detect squash-merged branches, so `analyze-branches.sh` verifies the PR instead: `MERGED` **and** the PR head SHA an ancestor of the merge commit (`merge_reason=squash_pr`). A branch whose only evidence is a `git log --grep` match is `probably_merged`, **not** safe — it never appears in `---safe-remote---`. Post-merge commits on a verified `MERGED` PR β still delete safely, but the row's `Ahead` count is those commits: ¬0 → ask before deleting the remote, because that push is the last copy.
-
-#### 6c. Present remote summary table
-
-```
-Remote Branch Cleanup
-═════════════════════
-
-  Remote Branch                       │ Merged │ Evidence   │ Ahead │ Open PR │ Last Commit  │ Action
-  origin/feat/19-auth                 │ ✅ yes │ regular    │ 0     │ —       │ 5 days ago   │ 🗑 Safe to delete
-  origin/docs/28-coding-standards     │ ✅ yes │ squash_pr  │ 0     │ —       │ 1 week ago   │ 🗑 Safe to delete
-  origin/feat/50-thing                │ 🔎 hint│ squash_grep│ 1     │ —       │ 6 days ago   │ 🔎 Probably merged — verify
-  origin/feat/33-i18n                 │ ❌ no  │ none       │ 4     │ #42     │ 2 hours ago  │ ⚠️ Active work
-  origin/experiment/test              │ ❌ no  │ none       │ 2     │ —       │ 1 month ago  │ ⚠️ Unmerged
-```
-
-#### 6d. Ask for confirmation
-
-If `REPORT_ONLY=true` → skip this confirmation **and** Step 6e (zero remote deletions); Step 6c's table is the report. Continue to Step 7.
-
-→ present multi-select: default-select **only** `---safe-remote---` (proven merged, ¬π); show `---probably-remote---` and unmerged β separately, never pre-selected; **NEVER auto-delete remote β**; always include "Skip / Keep all remote branches".
-
-This is the deletion with no backstop: git refuses `branch -d` on unmerged work,
-nothing refuses `push --delete`, and afterwards no copy remains. A
-`probably_merged` β deleted here is gone on the evidence that someone typed its
-issue number.
-
-#### 6e. Execute remote cleanup
-
-`<branch>` is a value, never a fragment — quoted, after `--`:
+For a manually selected force row, use the token from `inventory --force`:
 
 ```bash
-git push origin --delete -- "<branch>"
+bun --no-env-file "$T" remove --force \
+  --repo "<repository>" --path "<path>" \
+  --expect "<force-token>" --confirm "<path>" \
+  --ack-discard-local-data "<path>" --json
 ```
 
-### 7. Sweep: stuck pipeline labels on closed/merged PRs
+Only include `--ack-discard-local-data` when fresh inspection requires it; the
+executor rejects a missing, mismatched or unnecessary acknowledgement. Include
+the usage acknowledgement separately when required. No CLI flag proves that
+the human actually approved the loss.
 
-Pipeline labels should be removed when a PR is closed or merged. This step identifies and strips them.
+Each placeholder is one quoted argument. The executor re-inspects the candidate
+and refuses stale tokens, path replacement, structural findings, Git operations
+and active usage. Safe mode also refuses non-allowlisted local data. Before
+force or artifact removal it rereads the mount table. Uncertain filesystem state
+cannot be overridden. Safe registered worktrees use ordinary `git worktree
+remove`; explicitly confirmed force rows use exactly one `--force` on that same
+command. Both remove the directory's contents and preserve branch/tag refs.
+Empty orphan shells use `rmdir` only. No raw Git/shell fallback, pre-deletion,
+second `--force` or automatic escalation after a refusal. Re-inventory changed
+candidates and obtain a new selection instead.
 
-#### Pipeline label list
+## 4. Report
 
-This list is free-standing: omp-build ships no second copy to drift against.
-
-```
-PRIORITY_LABELS : P0-critical  P1-high  P2-medium  P3-low
-SIZE_LABELS     : size:S  size:F-lite  size:F-full
-LANE_LABELS     : graph:lane/a1  graph:lane/a2  graph:lane/a3
-                  graph:lane/b
-                  graph:lane/c1  graph:lane/c2  graph:lane/c3
-                  graph:lane/d  graph:lane/e  graph:lane/f
-                  graph:lane/g  graph:lane/h  graph:lane/i
-                  graph:lane/j  graph:lane/k  graph:lane/l
-                  graph:lane/m  graph:lane/n  graph:lane/o
-                  graph:lane/standalone
-STATUS_LABELS   : status:Backlog  status:Analysis  status:Specs
-                  "status:In Progress"  status:Review  status:Done
-PIPELINE_OTHER  : reviewed
-```
-
-All of the above are "pipeline labels" — they should not remain on closed/merged PRs.
-
-#### 7a. Find candidates (from gather-state.sh `---closed-prs-with-labels---` section)
-
-The script emits at most 20 closed PRs. For each, check which labels from the pipeline label list are present.
-
-#### 7b. Present findings
-
-```
-Stuck Labels on Closed PRs
-══════════════════════════
-
-  PR    │ Title (truncated)          │ Labels to remove
-  #123  │ feat: add auth module       │ status:In Progress, P2-medium
-  #117  │ fix: broken build           │ reviewed, status:Review
-  (none found)
-```
-
-If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
-
-#### 7c. Confirm and strip
-
-→ present multi-select
-- Default: strip all listed labels from all listed PRs
-- "Skip / Keep labels as-is" always available
-
-If `YES=true` → proceed without prompt.
-
-For each confirmed PR + label:
-
-```bash
-gh pr edit <number> --remove-label "<label>"
-```
-
-Gracefully handle `gh` permission errors — report which labels could not be removed and continue.
-
-### 8. Sweep: queued/stuck CI runs
-
-#### 8a. Find candidates (from gather-state.sh `---queued-runs---` section)
-
-The script emits at most 30 runs filtered to `queued` or `in_progress` status. Consider a run "stuck" if:
-- status = `queued` and created ≥ 30 min ago, OR
-- status = `in_progress` and created ≥ 60 min ago (use run's `createdAt` field)
-
-#### 8b. Present findings
-
-```
-Queued / Stuck CI Runs
-══════════════════════
-
-  Run ID    │ Workflow              │ Branch              │ Status      │ Age
-  12345678  │ ci.yml                │ feat/old-branch     │ queued      │ 2h 15m
-  12345679  │ release.yml           │ main                │ in_progress │ 75m
-  (none found)
-```
-
-If `REPORT_ONLY=true` → print table and **stop this step** (zero mutations).
-
-#### 8c. Confirm and cancel
-
-→ present multi-select
-- Present stuck runs as candidates; runs on protected branches (main/master/staging, or deploy/*) shown as informational — NEVER auto-cancel
-- "Skip / Cancel none" always available
-
-If `YES=true` → proceed without prompt (still skips protected branches).
-
-For each confirmed run:
-
-```bash
-gh run cancel <run-id> 2>/dev/null || echo "⚠️  Cannot cancel run <run-id> (permission denied or already completed)"
-```
-
-Always degrade gracefully — permission errors are non-fatal; report and continue.
-
-### 9. Final Report
-
-```
-Cleanup Complete
-════════════════
-  Local:
-    ✅ Deleted branch: feat/19-auth
-    ✅ Deleted branch: fix/old-bug
-    ⏭ Skipped: feat/33-i18n (active PR)
-    ⏭ Skipped: experiment/test (unmerged, user chose to keep)
-
-  Orphan shells:
-    ✅ Removed empty parent: ~/.omp/worktrees/roxabi-plugins
-    ⏭ Skipped: (none)
-
-  Remote:
-    ✅ Deleted remote: origin/feat/19-auth
-    ✅ Deleted remote: origin/docs/28-coding-standards
-    ⏭ Skipped remote: origin/feat/33-i18n (active PR #42)
-
-  Labels:
-    ✅ Stripped: #123 — status:In Progress, P2-medium
-    ⏭ Skipped: #117 (user chose to keep)
-
-  CI Runs:
-    ✅ Cancelled: run 12345678 (feat/old-branch, queued 2h 15m)
-    ⏭ Skipped: run 12345679 (main — protected branch)
-
-  Remaining branches: main, feat/33-i18n, experiment/test
-```
-
-If `REPORT_ONLY=true`, prefix the header with `[report-only — no mutations performed]`.
-
-## Options
-
-| Flag | Description |
-|------|-------------|
-| (none) / `--all` | Analyze branches, worktrees, labels, and runs |
-| `--report-only` | Gather and print findings; perform zero mutations (cron-safe) — Step 2 therefore passes `--no-fetch` and reads a possibly stale mirror rather than writing `refs/remotes/*` |
-| `--yes` | Skip confirmation prompts for all destructive actions |
-| `--scope <#N>` | Restrict branch/worktree analysis + cleanup (Steps 2–6) to issue N — anchored match, not a substring search (see Step 2). Steps 7–8 (label/CI sweeps) stay repo-wide — they are end-of-session hygiene, not per-issue. |
-
-## Safety Rules
-
-1. **NEVER delete `main`, `master`, `staging`, or any `deploy/*` branch** — a CD production branch is an ancestor of the base by construction, so it always looks merged
-2. **NEVER delete the current branch**
-3. **NEVER touch the principal worktree or the branch checked out in it**
-4. **NEVER delete a branch with an open PR** unless explicitly confirmed
-5. **NEVER delete an unmerged branch** without a separate, explicit confirmation
-6. **ALWAYS show merge status *and its evidence*** before any deletion — `merge_reason` and commits-ahead on the row, never a bare checkmark
-7. **A message match is not a merge.** Only `regular` and `squash_pr` reach `safe_delete`; `squash_grep` / `squash_pr_unverified` are `probably_merged` — shown, never pre-selected, never in `safe_local`/`safe_remote`
-8. **ALWAYS use `git branch -d`** for merged branches; **`git branch -D` only** when user explicitly confirms unmerged deletion
-9. **Every `<placeholder>` in a deletion command is a value, never a fragment** — quoted and after `--`. Refnames and paths are attacker-controlled text
-10. **ALWAYS remove worktree before deleting its branch**
-11. **NEVER delete remote branches automatically** — always require explicit confirmation per branch
-12. **ALWAYS scan all remote branches** for stale merged branches, not just locally deleted ones
-13. **`--report-only` = zero mutations** — no label edits, no run cancels, no branch deletes, and no `git fetch` (Step 2 runs with `--no-fetch`)
-14. **NEVER auto-cancel runs on protected branches** (main/master/staging, or deploy/*) — show as info only
-15. **Degrade gracefully on `gh` permission errors** — report failure and continue; never abort entire sweep
-
-## Edge Cases
-
-- **Squash merges**: `git branch -d` won't detect squash merges → `analyze-branches.sh` checks the PR: `MERGED` **and** head SHA ancestor of the merge commit. A `git log --oneline --grep` match on β name or issue# is reported as `probably_merged` and requires a human verdict — it matches any commit that merely mentions the number.
-- **Squash merges on remote**: `git branch -r --merged` does NOT detect squash merges → same verified-PR check. Post-merge commits on a verified `MERGED` PR are still safe to delete, and show as `Ahead > 0` so the operator sees what the push would take with it.
-- **Deleted on the strength of a grep**: the failure this ordering exists to prevent — an unmerged, pushed β whose issue number appears in an unrelated commit on BASE, deleted from origin with no copy left. `safe_remote` therefore admits proofs only.
-- **Remote tracking branches**: Step 6 scans **all** remote β independently — always require explicit confirmation.
-- **Stale worktrees**: ω path ∉ disk → `git worktree prune`.
-- **Invoked from inside ω**: the orphan scan anchors its three roots on the **principal** (first `git worktree list` entry) — `<principal>/.claude/worktrees/` by path, the other two by its `basename` and `$principal/.dev/stack.yml` — never on `git rev-parse --show-toplevel`, which inside a linked worktree names the ω itself and would make every scan report zero.
-- **Symlinked `$HOME`**: git records the *resolved* worktree path, the scan root is built from `$HOME`. Compared lexically a live registered ω reads as an orphan and 5b-execute `rm -rf`s it, so `scan-orphan-worktree-shells.sh` matches on canonical paths (`realpath`) and emits the lexical scanned entry.
-- **Orphan shells after remove**: `git worktree remove` does not delete empty parent dirs. Step 5b + `scan-orphan-worktree-shells.sh` cover these.
-
-## Chain Position
-
-- **Phase:** Ship (optional tail)
-- **Predecessor:** — standalone. The operator runs it; nothing chains into it.
-- **Successor:** — none
-- **Class:** standalone. `/feature` may *offer* it after an issue lands; offering is
-  printing a line and stopping. It is never entered from the review→fix loop, where
-  deleting a branch would delete the branch under review.
-
-## Exit
-
-- **Success:** print summary (branches deleted, worktrees pruned, labels stripped, runs cancelled). Stop.
-- **`--report-only`:** print findings report, no mutations. Exit 0.
-- **Failure:** return error to the operator. There is no orchestrator to recover into.
+Report actual removals with the mode and local data discarded alongside,
+refusals and retained paths; explicitly say branches, labels and CI were
+untouched. A failed command is not a successful removal, nor proof that the path
+is untouched: Git removal is not atomic and may leave a partially removed
+directory. Report the observed error and current state; never escalate or retry
+with additional force or raw deletion. No installation refresh or subsequent
+maintenance operation is implied.
 
 $ARGUMENTS

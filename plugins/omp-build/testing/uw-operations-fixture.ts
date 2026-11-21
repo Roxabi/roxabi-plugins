@@ -143,6 +143,9 @@ export function fixture(
       const { parsed, proposed, identity, histories, graph } = await ports.read(uw)
       return { uw, parsed, proposed, identity, histories, graph }
     },
+    resolveInterruption: async () => {
+      throw new Error('unexpected interruption resolution')
+    },
     abandon: async () => {
       throw new Error('unexpected abandonment')
     },

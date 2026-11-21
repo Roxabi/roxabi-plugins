@@ -6,6 +6,7 @@ import {
   branch,
   child,
   fixtureOwnSpec,
+  legacyFixtures,
   type MutateWorld,
   proposal,
   scope,
@@ -17,7 +18,7 @@ import {
 const fixtures = roxabiWorkflowFixtures()
 const parentCwd = '/fixture-worktrees/app/parents/acme-41'
 
-function parentFraming() {
+function parentFraming(legacy = false) {
   const own = specFor(scope, 'Coordinate the bounded child output.')
   const delegated = specFor(child, 'Deliver the bounded child output.')
   const grant = {
@@ -26,7 +27,7 @@ function parentFraming() {
     snapshot: delegated.snapshot,
     tier: 'S' as const,
   }
-  const parent = fixtures.epicMandate(scope, [grant], {
+  const parent = (legacy ? legacyFixtures : fixtures).epicMandate(scope, [grant], {
     recordId: 'parent-original',
     operationId: 'parent-operation',
     ownSpec: own.ownSpec,
@@ -57,7 +58,7 @@ export async function abandonedParent(
   childState: 'unmanaged' | 'active' | 'abandoned' = 'unmanaged',
   mutate?: MutateWorld,
 ) {
-  const frame = parentFraming()
+  const frame = parentFraming(true)
   const abandonment = abandon(frame.parent)
   const records: CanonicalRecord[] = [...frame.records, abandonment]
   if (childState !== 'unmanaged') {

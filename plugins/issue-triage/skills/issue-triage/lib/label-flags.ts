@@ -65,32 +65,32 @@ export function resolveLabelFlags(raw: LabelFlags): LabelFlags {
  * names of the ones that do not. The caller runs its remaining writes, then
  * exits non-zero if this list is non-empty.
  */
-export async function writeLabels(issueNumber: number, flags: LabelFlags): Promise<string[]> {
+export async function writeLabels(issueNumber: number, flags: LabelFlags, repo: string): Promise<string[]> {
   const failed: string[] = []
 
   if (flags.priority) {
-    if (await syncPriorityLabel(issueNumber, flags.priority)) {
+    if (await syncPriorityLabel(issueNumber, flags.priority, repo)) {
       console.log(`Priority=${flags.priority} #${issueNumber}`)
     } else {
       failed.push('priority')
     }
   }
   if (flags.size) {
-    if (await syncSizeLabel(issueNumber, flags.size)) {
+    if (await syncSizeLabel(issueNumber, flags.size, repo)) {
       console.log(`Size=${flags.size} #${issueNumber}`)
     } else {
       failed.push('size')
     }
   }
   if (flags.lane) {
-    if (await syncLaneLabel(issueNumber, flags.lane)) {
+    if (await syncLaneLabel(issueNumber, flags.lane, repo)) {
       console.log(`Lane=${flags.lane} #${issueNumber}`)
     } else {
       failed.push('lane')
     }
   }
   if (flags.status) {
-    if (await syncStatusLabel(issueNumber, flags.status)) {
+    if (await syncStatusLabel(issueNumber, flags.status, repo)) {
       console.log(`Status=${flags.status} #${issueNumber}`)
     } else {
       failed.push('status')

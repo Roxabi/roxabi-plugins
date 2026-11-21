@@ -92,9 +92,15 @@ test('an edited abandon control cannot authorize a successor', async () => {
   const subject = await abandonedLeaf((world) => {
     for (const part of world.parts(world.abandonment)) part.updated_at = '2026-10-28T00:00:00Z'
   })
-  expect(subject.authority.selection.status).toBe('refused')
+  expect(subject.resolution).toMatchObject({
+    kind: 'blocked',
+    reason: 'fix-own-uw-unsettled',
+    diagnostics: expect.arrayContaining([
+      expect.objectContaining({ code: expect.stringContaining('UW home history is incomplete or ambiguous') }),
+    ]),
+  })
   const result = await selectNew(subject)
-  expect(result).toMatchObject({ authority: { selection: { status: 'refused' } }, mandate: null, acceptedSpec: null })
+  expect(result).toEqual(subject.resolution)
   expect(subject.native.writes).toEqual([])
 })
 
@@ -111,8 +117,15 @@ test('an unauthorized later mandate cannot hijack the authenticated antecedent o
   const result = await selectNew(subject)
   expect(result).toMatchObject({
     authority: { selection: { status: 'applicable' } },
-    mandate: { payload: { antecedent: { recordId: subject.original.recordId }, branch } },
+    mandate: {
+      payload: {
+        antecedent: { scope, recordId: subject.original.recordId, kind: 'mandate' },
+        branch,
+      },
+    },
   })
+  if ('kind' in result || result.mandate === null) throw new Error('authenticated successor was not selected')
+  expect(result.mandate.recordId).not.toBe('foreign-last')
 })
 
 test('a proposal changed during bootstrap refuses before successor publication', async () => {

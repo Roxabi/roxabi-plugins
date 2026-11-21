@@ -1,10 +1,10 @@
 ---
 name: feature
 disable-model-invocation: true
-argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N]'
+argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N | resolve-interruption #N [--start <recordId>]]'
 description: >-
   Reference for the installed /feature command: controls, human decisions, and where records live.
-version: 0.1.13
+version: 0.1.14
 ---
 
 # Feature
@@ -21,16 +21,17 @@ Before a GitHub publication, the submitting human or agent reviews every final t
 
 ## Operator controls
 
-`parseFeatureCommand` is the word list. A known transition does not ask again. Every `/uw` verb and host-only route is listed in the plugin README, [UW operator command](../../README.md#uw-operator-command).
+`parseFeatureCommand` is the word list. Routine transitions do not ask again; material and interruption decisions require genuine operator confirmation. Every `/uw` verb and host-only route is listed in the plugin README, [UW operator command](../../README.md#uw-operator-command).
 
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes the first valid mandate, or reuses an applicable one. No routine confirmation. Nonconformant initial selections enter confirmed framing. |
-| `/feature resume <reference>` | Resumes an ordinary confirmed pause. A review-bound or safety stop is not a pause. |
+| `/feature resume <reference>` | Checks the runtime version and effective configuration before resuming a confirmed pause; pinned review requirements remain in force. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the mandate. No automatic renewal. |
 | `/feature new <reference>` | Successor over an intact abandoned or revoked mandate. A nonconformant body is refused as `successor-spec-nonconformant` with parser diagnostics and no write, checkout or bootstrap; `/uw write` is also refused on an inactive mandate, so start again as a new UW with `/feature <text>`. A conformant successor preserves the existing mandate and binding checks. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the context-bound operator UI for the exact authenticated material or unknown proposal. `accept`/`reject` argv is not authority and is refused. `/uw accept-material <reference>` uses the same acceptance chain. |
+| `/feature resolve-interruption <reference> [--start <recordId>]` | Resolves an exact START only with current-process proof that activation was prevented or the batch closed before native admission, a compatible runtime, an own confirmed pause and genuine confirmation. Remains paused; no automatic resume or rollback. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
 Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to confirm the staged proposal. After completed framing, when needed, the human runs `/move <path>`, observes success and presses `ctrl+alt+u` in the fresh destination to attest it; the same UW continues without retyping the command. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Preparing a checkout is not a move or a Mandate. Existing resume and successor controls retain their checkout guards. There is no `/wt`.
@@ -55,6 +56,7 @@ Explicit apply is the operator's own reply, forwarded verbatim:
 
 - Copy an init approval only from the operator's own reply.
 - Material or unknown Spec: wait for the real operator UI on the exact authenticated proposal. The model supplies semantic classification; code still forces mechanical additions, withdrawals, exclusions, tier and accepted-child changes through material control. Editorial continuation requires the authenticated assessment chain.
+- Interruption resolution covers plan, plan review, implementation, integration, Spec assessment and CI attribution only. Closure before admission requires a fenced stop and confirmed terminal RESULT retention; pending, failed or uncertain publication remains blocked. Missing, conflicting or already-admitted dispatch evidence refuses, including after restart. Never substitute human attestation for proof; preserve invalid terminal, context-negative and malformed legacy history as blocking. Resolution proves no native child dispatch, not absence of preparation or root-turn effects.
 - Repeating `/feature <reference>` does not renew an abandoned or revoked mandate. `/feature new <reference>` is the successor command, not automatic renewal.
 - Mid-turn user interrupt (Esc/RPC while an assistant turn is streaming), session switch, and shutdown await the durable pause for a pausable owner. Ordinary idle settle does not. Confirmation is the read-back `pause-confirmed` control. A finished or confirmed-abandoned owner is released and is not paused again. An unconfirmed pause or a spent review bound is not a resumable pause. While only the host-owned CI watch is running with no model turn, Esc/RPC is not a workflow pause — use `/feature pause` or `/feature abandon`.
 - After a confirmed merge, offer `/cleanup`. Offer `/promote` only when `.dev/stack.yml` declares `release.model: staging-train`. Leave both for the operator to invoke.
@@ -70,7 +72,7 @@ The command dispatches the named actions. This file does not run a second loop. 
 | Plan | One read-only architect and adversarial round after criterion-to-code mapping. A blocking finding amends the plan before implementation and spends no PR fix round. `agents/R-workflow-plan.md`; `planAction` in `roxabi/workflow.ts`. |
 | Implementation | Changed-path proof, affected docs, browser check or declared `commands.test_e2e`, task-owned Conventional commits ending `(#N)`. `agents/R-workflow-implement.md`. A model's commit list is a claim; the host binds captured commands and Git lineage. |
 | Review input | `hashReviewInput` prefixes `omp-build:review-input/4` and captures the observed PR inputs and semantic context without producer parts. Canonical grammar and authorized records supply Spec inputs, not priced fences or draft frontmatter. A stored null input is not approval; absent or older input formats refuse with `incompatible-format`. |
-| Review, correction, landing, watch | `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle action. `nextReviewStep` retains PR review/bound policy; `landPr` and `applyCiWatchExit` execute guarded landing/watch actions. Actual landing also requires `requireLandingMandate`. The bound is sticky: a third non-approving review stays spent after a later green, and a third approving review followed by red CI stays spent after later green checks. |
+| Review, correction, landing, watch | `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle action. Feature CI observation and watch exits defer business-stop publication to that decision while retaining safety disarm. Requested changes use ordinary review correction; an approved red head requires CI attribution. `nextReviewStep` retains standalone PR review/bound policy; actual landing requires `requireLandingMandate`. Confirmed bounds remain sticky after later green checks. |
 | Parent UW | `skills/feature/epic-driver.ts` reads the confirmed mandate on the parent issue. The installed command calls `next`, `stop`, `review`, `hook`, `report`, and `control-disarm`. A blocking current final review selects the `final-review-blocking` stop and report, not automatic correction; the review's bound initial cause assessment keeps its verdict blocking even after `/uw adjudicate` or `/uw sister` lift their binding holds, so the parent completes only after a fresh final review of a changed range. A child stop lets independent children continue. The hook runs once at the current base commit; another commit is `hook-stale`. The report heading is `## Epic run`. Merged is not complete before the hook and report are observed. |
 | Worktree bootstrap | `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs `skills/feature/worktree-bootstrap.sh` in the foreground after worktree identity is valid and before dispatch: successor, first mandate, and select/resume/new in a valid worktree. The marker `omp-build-bootstrapped` and lock `omp-build-bootstrap.lock` are environment cache, not business records. The script refuses the principal. `/feature init`, `prepareFeatureCheckout`, `session_start`, and `agent_start` do not run it. Do not shell it out as a second process. |
 
@@ -80,6 +82,6 @@ Wire names `goal-stop` and `goal-report` are `epic-event` payload values. They n
 
 GitHub comments hold the business records. Git holds the code and committed workflow inputs. A confirmed checkpoint is a published record read back, plus the Git facts that bind it. There is no mandatory local business workflow store. Local environment files do exist and are reconstructible: dependency installs, indexes, and the per-git-dir bootstrap marker and lock. They are not authority. An OMP goal, transcript, or local session file is not authority either.
 
-Cannot resume: unpublished commits, a result never published, an action whose effect is uncertain, a pause request without observed disarm, a local-only worktree change. A cold machine does not copy the marker, those caches, or a transcript. Moving machines needs the same operator identity, this plugin, GitHub auth, and the project tools, then `/feature <reference>` in the intended worktree. The environment is rebuilt there, not copied. There is no anti-tamper store and no second database. Comment edit or deletion remains an accepted risk, not a new prerequisite.
+Unpublished commits, a missing result, uncertain effects, an unconfirmed pause and local-only worktree changes do not authorize resume. An eligible START may be resolved only with current-process proof that native dispatch was prevented; confirmation preserves history and leaves the flow paused. Preparation already performed is not rolled back. Ordinary subsequent admission checks the checkout and code. A cold machine does not copy dispatch proof, markers, caches or transcripts. Moving machines needs the same operator identity, this plugin, GitHub auth, and the project tools, then `/feature <reference>` in the intended worktree. There is no anti-tamper store and no second database. Comment edit or deletion remains an accepted risk, not a new prerequisite.
 
 Graph, config, and landing policy: `engine/workflow-reconstruction-admission.ts` (`reconstructWorkflow`), `engine/workflow-landing-admission.ts` (`requireLandingMandate`), `roxabi/workflow-config.ts` (`parseWorkflowOverride`), `roxabi/workflow.ts` (`continueFeature`), and `adapters/github/**`. The only project override of the shipped workflow definition is `review.additional_requirements` in committed `.dev/stack.yml` on `refs/remotes/origin/<base>`: non-empty strings, or none when absent. Existing `landing`, `release`, and `commands` configuration remains in force. `review.graph` and `review.workflow` are refused. There is no `.omp-build/workflow.json`. The list does not override the shipped graph, a review bound, or landing admission.

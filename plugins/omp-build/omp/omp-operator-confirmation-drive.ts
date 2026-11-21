@@ -4,6 +4,7 @@ import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.
 import type { FramingOrigin } from '../roxabi/feature-framing-controller-lease.ts'
 import type { OperatorResult, PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { showOperatorProposal } from './omp-operator-confirmation-dialog.ts'
+import { safeOperatorError } from './omp-operator-confirmation-field.ts'
 import type { OperatorChoice } from './omp-operator-confirmation-input.ts'
 import {
   createSlot,
@@ -17,6 +18,10 @@ import {
 
 function refusal(proposal: PreparedOperatorProposal, code: string, message: string): readonly UwDiagnostic[] {
   const target = proposal.proposal
+  if (target.format === 'omp-build-tooling-pin-activation/1')
+    return [{ code, message, location: { kind: 'repository', repository: target.scope.targetRepository }, related: [] }]
+  if (target.format === 'omp-build-fix-recovery-proposal/1')
+    return [{ code, message, location: { kind: 'native', uw: target.uw, connection: 'state' }, related: [] }]
   if (target.format === 'omp-build-uw-framing/1') {
     const source = target.input.source
     const location =
@@ -131,11 +136,12 @@ async function resumeHeld(
   return true
 }
 
-async function readChoice(drive: ConfirmationDrive<unknown>, slot: Slot): Promise<OperatorChoice | 'failed'> {
+async function readChoice(drive: ConfirmationDrive<unknown>, slot: Slot): Promise<OperatorChoice | { error: string }> {
   try {
     return await showOperatorProposal(drive.ctx, drive.proposal, drive.detail, slot.signal)
-  } catch {
-    return 'failed'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown UI error'
+    return { error: safeOperatorError(message) }
   }
 }
 
@@ -143,9 +149,17 @@ async function confirmationTurn<T>(drive: ConfirmationDrive<T>, slot: Slot): Pro
   if (!stillRoot(drive.ctx, drive.live()) || !here(slot.origin, drive.ctx)) return drive.unavailable(drive.proposal)
   setPortStatus(drive.presenter, drive.port, slot.origin, 'visible')
   const choice = await readChoice(drive, slot)
-  if (choice === 'failed') {
+  if (typeof choice !== 'string') {
+    if (slot.signal.aborted || !drive.live()) return drive.unavailable(drive.proposal)
     drive.failShow()
-    return drive.unavailable(drive.proposal)
+    return {
+      status: 'refused',
+      diagnostics: refusal(
+        drive.proposal,
+        'operator-confirmation-unavailable',
+        `Operator confirmation UI failed: ${choice.error}`,
+      ),
+    }
   }
   if (!stillRoot(drive.ctx, drive.live()) || !here(slot.origin, drive.ctx)) return drive.unavailable(drive.proposal)
   const decision = classifyChoice(

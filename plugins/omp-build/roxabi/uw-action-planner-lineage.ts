@@ -4,6 +4,7 @@ import {
   planDigest,
   planOutputSchema,
   recordsOf,
+  resolutionIndex,
   workflowContextDirectSuccessor,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
@@ -64,11 +65,14 @@ export function plannerLineage<T extends ReceiptRecord>(
   candidates: readonly T[],
   histories: readonly DecodedHistory[],
 ): Result<{ leaf: T; chain: readonly T[] }> {
+  const index = resolutionIndex(histories)
+  if (!index.ok) return actionFailure('action-input-missing', 'Interruption resolution is invalid')
+  const excluded = new Set(index.value.resolved.keys())
   const next = new Map<string, string>()
   for (const candidate of candidates) {
     const history = historyFor({ repository: candidate.repository, target: candidate.target }, histories)
     if (history === null) return actionFailure('record-unreadable', 'Planner negative history is absent')
-    const successor = workflowContextDirectSuccessor(history, candidate)
+    const successor = workflowContextDirectSuccessor(history, candidate, excluded)
     if (successor.status === 'uncertain' || successor.status === 'ambiguous')
       return actionFailure('record-unreadable', 'Planner negative lineage is uncertain or forked')
     if (successor.status === 'successor') {

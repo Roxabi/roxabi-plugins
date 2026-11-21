@@ -113,7 +113,7 @@ it.each([
       source,
       bindingHistory,
       [],
-      'fix',
+      'fix-ci',
       { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
       observed,
     ).finally(() => rmSync(noRepository, { recursive: true, force: true }))

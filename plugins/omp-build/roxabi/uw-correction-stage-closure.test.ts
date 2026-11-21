@@ -195,6 +195,7 @@ describe('correction stage closure', () => {
     expect(
       assertCurrentOutputClosure(
         { ...request, stageSources: [ref(decision), ref(prior.result)] },
+        { subject: sealedSubject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
@@ -203,6 +204,7 @@ describe('correction stage closure', () => {
     expectRefused(
       assertCurrentOutputClosure(
         { ...request, stageSources: [ref(prior.result)] },
+        { subject: sealedSubject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
@@ -215,6 +217,7 @@ describe('correction stage closure', () => {
           subject: { ...sealedSubject, binding: { ...sealedSubject.binding, digest: 'f'.repeat(64) } },
           stageSources: [ref(decision), ref(prior.result)],
         },
+        { subject: sealedSubject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
@@ -228,6 +231,7 @@ describe('correction stage closure', () => {
           subject: { ...request.subject, uw: { ...request.subject.uw, target: 'acme/widgets#99' } },
           stageSources: [ref(decision), ref(prior.result)],
         },
+        { subject: sealedSubject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
@@ -243,6 +247,7 @@ describe('correction stage closure', () => {
     expectRefused(
       assertCurrentOutputClosure(
         { ...currentRequest, stageSources: [ref(decision), ref(current.result)] },
+        { subject: request.subject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
@@ -251,13 +256,20 @@ describe('correction stage closure', () => {
     expectRefused(
       assertCurrentOutputClosure(
         { ...request, actionId: 'prior-action', stageSources: [ref(decision), ref(prior.result)] },
+        { subject: request.subject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
       ),
     )
     expectRefused(
-      assertCurrentOutputClosure(currentRequest, [history], fixtureHostReviewClassCatalogues(), [ref(current.result)]),
+      assertCurrentOutputClosure(
+        currentRequest,
+        { subject: request.subject, correctionRoot: null },
+        [history],
+        fixtureHostReviewClassCatalogues(),
+        [ref(current.result)],
+      ),
     )
   })
 
@@ -273,6 +285,7 @@ describe('correction stage closure', () => {
         expectRefused(
           assertCurrentOutputClosure(
             { ...request, stageSources: record.kind === 'decision' ? [invalid] : [ref(decision), invalid] },
+            { subject: request.subject, correctionRoot: null },
             [history],
             fixtureHostReviewClassCatalogues(),
             [],
@@ -294,6 +307,7 @@ describe('correction stage closure', () => {
       const stageSources = record.kind === 'decision' ? [ref(decision)] : [ref(decision), ref(prior.result)]
       const result = assertCurrentOutputClosure(
         { ...request, stageSources },
+        { subject: request.subject, correctionRoot: null },
         [foreign],
         fixtureHostReviewClassCatalogues(),
         [],
@@ -308,6 +322,7 @@ describe('correction stage closure', () => {
     const unboundHistory = encodedHistory([...records, prior.inventory, unbound])
     const result = assertCurrentOutputClosure(
       { ...request, stageSources: [ref(decision), ref(unbound)] },
+      { subject: request.subject, correctionRoot: null },
       [unboundHistory],
       fixtureHostReviewClassCatalogues(),
       [],
@@ -321,10 +336,83 @@ describe('correction stage closure', () => {
     expectRefused(
       assertCurrentOutputClosure(
         { ...request, purpose: 'review', stageSources: [ref(prior.result)] },
+        { subject: request.subject, correctionRoot: null },
         [history],
         fixtureHostReviewClassCatalogues(),
         [],
       ),
     )
+  })
+})
+
+describe('request-anchored ordinary intake closure', () => {
+  it('admits the complete captured intake only for its host-pinned root and exact head', () => {
+    const { records, request, sealedSubject } = setup()
+    const inventory = records.find((item) => item.kind === 'review-attempt' && item.payload.stage === 'initial')
+    const fix = records.find((item) => item.kind === 'fix-request')
+    const root = records.find((item) => item.kind === 'contribution' && item.payload.content === 'operator-request')
+    if (inventory?.kind !== 'review-attempt' || fix?.kind !== 'fix-request' || root?.kind !== 'contribution')
+      throw new Error('captured-intake-root-missing')
+    const attempt = root.payload.rawAttempts[0]
+    if (!attempt) throw new Error('captured-operator-attempt-missing')
+    const candidate = inventory.payload.candidateGitSHA
+    const branch = 'feature'
+    const binding = {
+      localHead: candidate,
+      expectedRemoteSHA: candidate,
+      localBranch: branch,
+      destinationRef: `refs/heads/${branch}`,
+      publicationRepository: TEST_SCOPE.repository,
+      observed: {
+        localRef: `refs/heads/${branch}`,
+        localHead: candidate,
+        remoteRepository: TEST_SCOPE.repository,
+        target: TEST_SCOPE.target,
+        baseRepository: TEST_SCOPE.repository,
+        pr: { headRefOid: candidate, headRefName: branch, baseRefName: 'main', headRepository: TEST_SCOPE.repository },
+      },
+    }
+    const canonicalRoot = valid({
+      ...root,
+      payload: {
+        ...root.payload,
+        rawAttempts: [
+          { ...attempt, raw: { operatorRequest: {}, candidateGitSHA: candidate, publishBinding: binding } },
+        ],
+      },
+    })
+    const canonicalRecords = records.map((item) => (item.recordId === root.recordId ? canonicalRoot : item))
+    const findings = canonicalRecords.filter(
+      (item) =>
+        item.kind === 'contribution' &&
+        item.payload.inventoryId === inventory.recordId &&
+        item.payload.content === 'findings',
+    )
+    if (findings.length === 0) throw new Error('captured-intake-findings-missing')
+    const history = encodedHistory(canonicalRecords)
+    const stageSources = findings.map(ref)
+    const firstSource = stageSources[0]
+    if (!firstSource) throw new Error('captured-intake-ref-missing')
+    const next = { ...request, subject: sealedSubject, code: { ...request.code, head: candidate }, stageSources }
+    const correctionRoot = {
+      inventory: { scope: TEST_SCOPE, kind: 'review-attempt' as const, recordId: inventory.recordId },
+      requestId: fix.recordId,
+    }
+    const check = (input: UwActionRequest, expectedRoot: typeof correctionRoot | null) =>
+      assertCurrentOutputClosure(
+        input,
+        { subject: sealedSubject, correctionRoot: expectedRoot },
+        [history],
+        fixtureHostReviewClassCatalogues(),
+        [],
+      )
+    expect(check(next, correctionRoot)).toEqual({ ok: true, value: true })
+    expectRefused(check(next, null))
+    expectRefused(check(next, { ...correctionRoot, requestId: 'other-request' }))
+    expectRefused(
+      check(next, { ...correctionRoot, inventory: { ...correctionRoot.inventory, recordId: 'other-root' } }),
+    )
+    expectRefused(check({ ...next, code: { ...next.code, head: 'f'.repeat(40) } }, correctionRoot))
+    expectRefused(check({ ...next, stageSources: [{ ...firstSource, digest: '0'.repeat(64) }] }, correctionRoot))
   })
 })

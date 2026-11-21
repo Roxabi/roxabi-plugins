@@ -11,8 +11,6 @@ export type Facts = {
   labels: string[]
   labelsState: LabelsState
   legacyLabels: string[]
-  hasCcc: boolean
-  hasCodegraph: boolean
   mergeOnGreen: boolean
   hasLanding: boolean
   landingHidesChecks: boolean
@@ -20,8 +18,6 @@ export type Facts = {
   hasWorktree: boolean
   hasPostMerge: boolean
   hasReleaseModel: boolean
-  cccConsent: boolean
-  codegraphConsent: boolean
 }
 
 export type ReadFactsOpts = { gh?: Gh; gitRemoteUrl?: GitRemoteUrl; migrateLabel?: MigrateLabel; parseYaml?: ParseYaml }

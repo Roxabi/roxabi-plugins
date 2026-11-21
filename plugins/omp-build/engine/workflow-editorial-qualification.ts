@@ -3,7 +3,8 @@ import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
-import { workflowContextNegative } from './workflow-context-terminal.ts'
+import { startResolution } from './workflow-action-interruption.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
 import type { SpecAssessment } from './workflow-output-schema.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
 import {
@@ -59,6 +60,20 @@ export function qualifyEditorialCandidate(
   input: EditorialQualificationInput,
 ): EditorialQualification {
   if (!applicableAssessment(record, input.mandateRef, input.applied, input.accepted)) return { status: 'irrelevant' }
+  const resolution = startResolution(input.histories, record.payload.start)
+  if (!resolution.ok)
+    return { status: 'refused', result: { ok: false, reason: 'incomplete', evidence: resolution.diagnostics } }
+  const resolvedResult = resolution.value?.record.payload.result
+  if (
+    resolvedResult !== null &&
+    resolvedResult !== undefined &&
+    sameRef(resolvedResult, {
+      scope: { repository: record.repository, target: record.target },
+      recordId: record.recordId,
+      kind: record.kind,
+    })
+  )
+    return { status: 'irrelevant' }
   const authenticated = authenticatedAssessResult(record, input.histories, input.mandateRef)
   if (!authenticated.ok) return { status: 'refused', result: authenticated }
   if (workflowContextNegative(authenticated.record)) return { status: 'irrelevant' }

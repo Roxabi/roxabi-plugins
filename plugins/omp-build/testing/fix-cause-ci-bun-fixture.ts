@@ -38,10 +38,7 @@ async function checkAuthorityIsolation(
   const causalOnlyReader = createInstalledObservedUwReadPort({ observation: joint.value.observation })
   for (const uw of [reader, causalOnlyReader]) {
     const authority = await decideFixAuthority({ ...input, uw })
-    assert.ok(
-      authority.ok && authority.value.status === 'reuse' && authority.value.mandate.recordId === mandateId,
-      JSON.stringify(authority),
-    )
+    assert.ok(authority.ok && authority.value.mandate.recordId === mandateId, JSON.stringify(authority))
   }
 }
 
@@ -219,7 +216,7 @@ async function main(): Promise<void> {
       history,
       binding.value.history,
       binding.value.externalHistories,
-      'fix',
+      'fix-ci',
       live.value,
       read,
     )

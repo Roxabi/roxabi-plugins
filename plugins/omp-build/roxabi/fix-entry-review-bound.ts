@@ -18,7 +18,7 @@ import { confirmFixContinuation } from './fix-mandate-authority.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
 import { resolveFixOrigin } from './fix-origin.ts'
 import { validateCorrectionOrigin } from './fix-origin-validation.ts'
-import { prepareReviewBoundFix } from './fix-preparation.ts'
+import { prepareReviewBoundFix } from './fix-preparation-review.ts'
 export function confirmedRecord(
   history: DecodedHistory,
   recordId: string,
@@ -45,15 +45,15 @@ export function captureConfirmedFixRequest(
   capture: (request: Extract<FixRecord, { kind: 'fix-request' }>) => void,
 ): RecordPublisher {
   return {
-    publish: async (record) => {
-      const saved = await publisher.publish(record)
+    publish: async (record, canPublish) => {
+      const saved = await publisher.publish(record, canPublish)
       if (saved.ok && record.kind === 'fix-request') capture(record)
       return saved
     },
   }
 }
 
-async function confirmReviewBoundContinuation(
+export async function confirmReviewBoundContinuation(
   review: Extract<CanonicalRecord, { kind: 'review' }>,
   target: FixTarget,
   options: GitHubOptions,
@@ -88,7 +88,7 @@ async function confirmReviewBoundContinuation(
   })
 }
 
-function validateReviewOrigin(
+export function validateReviewOrigin(
   history: DecodedHistory,
   review: Extract<CanonicalRecord, { kind: 'review' }>,
   origin: CauseContext,
@@ -106,7 +106,7 @@ function validateReviewOrigin(
   return { ok: true, value: undefined }
 }
 
-async function loadBoundReview(
+export async function loadBoundReview(
   input: DefaultFixEntry,
   target: FixTarget,
   readHistory: () => Promise<DecodedHistory>,
@@ -156,7 +156,6 @@ export async function runReviewBoundDefaultFix(
   github: GitHubOptions,
   mandate: { recordId: string },
 ): Promise<FixActionResult<FixRecord>> {
-  if (target.kind !== 'pull-request') return fail('review-fix-requires-pull-request')
   try {
     const bound = await loadBoundReview(input, target, readHistory, reviewId, github)
     if (!bound.ok) return bound
@@ -173,6 +172,7 @@ export async function runReviewBoundDefaultFix(
         candidateGitSHA: candidate,
         policy: decision.payload.judgment.policy,
         nativeTasks: [],
+        executionFence: runtime.executionFence,
       },
       resolver,
       captureConfirmedFixRequest(publisher, (record) => {

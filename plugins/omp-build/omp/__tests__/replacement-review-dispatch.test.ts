@@ -55,6 +55,9 @@ const operations = {
   abandon: async () => {
     throw new Error('unexpected-operations')
   },
+  resolveInterruption: async () => {
+    throw new Error('unexpected-operations')
+  },
   prepare: async () => {
     throw new Error('unexpected-operations')
   },

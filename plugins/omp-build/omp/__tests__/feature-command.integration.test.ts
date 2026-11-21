@@ -226,7 +226,7 @@ describe('implementation admission', () => {
     })
 
     expect(deferred.admitted).toBe(false)
-    expect(deferred.reason).toBe(claim.reason)
+    expect(deferred.reason).toBe('implementation-command-unbound')
   })
 
   it('binds the chosen foreground capture across red and green runs of the same command', async () => {

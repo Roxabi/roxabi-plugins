@@ -11,9 +11,11 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
+import type { CorrectionStageContext } from './uw-action-closure.ts'
 import type { RecordInputRef, UwActionRequest } from './uw-action-contract.ts'
 import { matchesRequestedSubject } from './uw-action-subject.ts'
 import { priorCorrectionDecision } from './uw-correction-stage-decision.ts'
+import { requestAnchoredIntake } from './uw-correction-stage-intake.ts'
 
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
 type Inventory = Extract<CanonicalRecord, { kind: 'review-attempt' }>
@@ -64,6 +66,7 @@ function anchoredDecision(
 export function priorCorrectionContribution(
   ref: RecordInputRef,
   request: UwActionRequest,
+  stage: CorrectionStageContext,
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
 ): Result<boolean> {
@@ -111,5 +114,7 @@ export function priorCorrectionContribution(
       record.payload.host.slotId === entry.payload.host.slotId,
   )
   if (peers.length !== 1 || !validSlot(entry, inventory, request)) return { ok: true, value: false }
-  return anchoredDecision(entry, inventory, request, histories, catalogues)
+  return request.stageSources.some((source) => source.record.kind === 'decision')
+    ? anchoredDecision(entry, inventory, request, histories, catalogues)
+    : { ok: true, value: requestAnchoredIntake(entry, inventory, request, stage, history, records) }
 }

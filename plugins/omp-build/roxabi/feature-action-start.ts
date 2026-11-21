@@ -91,31 +91,36 @@ type IntegrationStartPreflight = {
   head: string
 }
 
-async function integrationStartAuthority(input: IntegrationStartPreflight): Promise<boolean> {
+async function integrationStartAuthority(
+  input: IntegrationStartPreflight,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const { loaded, scope, cwd, gh, mandate, uw, prepared } = input
-  if (cwdInhibition(cwd) !== undefined || inhibition(scope) !== undefined) return false
+  if (cwdInhibition(cwd) !== undefined || inhibition(scope) !== undefined)
+    return { ok: false, reason: 'integration-local-inhibition' }
   const options = { ...withRoxabiGitHubPolicy({ cwd, gh }), gh }
   const fresh = await loaded.readComposedWorkflowHistory([scope], options)
-  if (!fresh.ok || !fresh.histories[0]) return false
+  if (!fresh.ok || !fresh.histories[0]) return { ok: false, reason: 'integration-authority-unreadable' }
   const currentHistory = fresh.histories[0]
   const currentMandate = currentHistory.operations.find(
     (operation) => operation.record?.kind === 'mandate' && operation.record.recordId === mandate.recordId,
   )?.record
-  if (currentMandate?.kind !== 'mandate') return false
+  if (currentMandate?.kind !== 'mandate') return { ok: false, reason: 'integration-authority-unreadable' }
   const parents = await explicitParentHistories(loaded, currentMandate, options)
-  if (!parents.ok) return false
+  if (!parents.ok) return { ok: false, reason: 'integration-authority-unreadable' }
   const causal = await readFreshUwCausalContext(scope, [currentHistory, ...parents.parents], options)
-  if (!causal.ok) return false
+  if (!causal.ok) return { ok: false, reason: 'integration-authority-unreadable' }
   const selected = loaded.selectApplicableMandate(currentHistory, parents.parents, causal.value)
   const verified = await uw.verifyAction(prepared.snapshot)
-  return (
-    cwdInhibition(cwd) === undefined &&
-    inhibition(scope) === undefined &&
-    selected.status === 'applicable' &&
-    selected.mandate?.recordId === mandate.recordId &&
-    canonicalValueDigest(selected.mandate) === canonicalValueDigest(mandate) &&
-    verified.ok
+  if (cwdInhibition(cwd) !== undefined || inhibition(scope) !== undefined)
+    return { ok: false, reason: 'integration-local-inhibition' }
+  if (
+    selected.status !== 'applicable' ||
+    selected.mandate?.recordId !== mandate.recordId ||
+    canonicalValueDigest(selected.mandate) !== canonicalValueDigest(mandate) ||
+    !verified.ok
   )
+    return { ok: false, reason: 'integration-authority-withdrawn' }
+  return { ok: true }
 }
 
 async function preflightIntegrationStart(input: IntegrationStartPreflight) {

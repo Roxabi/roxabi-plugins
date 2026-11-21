@@ -5,6 +5,7 @@ import type {
   NativeBatch,
   NativeBatchCallbacks,
   NativeProofBashCall,
+  NativeStopOrigin,
   NativeTaskWireInput,
   Submission,
 } from './contracts'
@@ -52,7 +53,9 @@ export type ActiveBatch = {
   announced: boolean
   announcementDispatched: boolean
   settling: boolean
+  handoffPending: boolean
   continuationClosed: string | null
+  stopOrigin: NativeStopOrigin | null
   contextPublicationOwned: boolean
   retentionFailed: string | null
   childSlots: Map<string, number>
@@ -102,7 +105,9 @@ export function createActiveBatch(
     announced: false,
     announcementDispatched: false,
     settling: false,
+    handoffPending: false,
     continuationClosed: null,
+    stopOrigin: null,
     contextPublicationOwned: false,
     retentionFailed: null,
     childSlots: new Map(),
@@ -151,7 +156,7 @@ export function clearBatchSettleAbort(active: ActiveBatch): void {
   active.abortCleanup = null
 }
 
-/** Track terminal work and release only the matching batch when it settles. */
+/** Retain the exact-batch receipt weakly; release only live ownership when it settles. */
 export function rememberBatchTerminal(
   terminals: WeakMap<NativeBatch, Promise<void>>,
   live: Set<ActiveBatch>,
@@ -160,7 +165,6 @@ export function rememberBatchTerminal(
 ): void {
   terminals.set(batch, terminal)
   const forget = (): void => {
-    if (terminals.get(batch) === terminal) terminals.delete(batch)
     for (const active of live) {
       if (active.batch !== batch) continue
       clearBatchSettleAbort(active)

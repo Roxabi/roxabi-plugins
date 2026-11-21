@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { OperationRead } from '../../engine/history-schema.ts'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
+import { trackPreparationGhOperation } from '../../host/preparation-cohort.ts'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 
@@ -34,85 +34,27 @@ export class GitHubHistoryReadError extends Error {
   }
 }
 
-export type UnclaimedOperation = Omit<OperationRead, 'authority' | 'claimedKinds'> & {
-  parsedKind?: string
-}
-export type ClaimedOperation = Omit<OperationRead, 'authority'>
-export type Frame = {
-  comment: ObservedComment
-  version: string
-  kind: string
-  recordId: string
-  operationId: string
-  part: number
-  total: number
-  data: string
-}
-export type FrameFailure = {
-  comment: ObservedComment
-  operationId: string | null
-  recordId: string | null
-  kind: string | null
-  diagnostic: Diagnostic
-}
-export type LooseHeaderClue = {
-  comment: ObservedComment
-  operationId: string | null
-  recordId: string | null
-  kind: string | null
-}
-
 const execFileAsync = promisify(execFile)
-export const WIRE_PREFIX = '<!-- omp-build-record '
-export const HEADER =
-  /^<!-- omp-build-record v=(1) kind=([a-z][a-z0-9-]*) id=([^\s<>]+) operationId=([^\s<>]+) part=([1-9][0-9]*)\/([1-9][0-9]*) data=([A-Za-z0-9_-]+) -->\n[\s\S]*$/
 export const RECORD_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
-export const encoder = new TextEncoder()
-export const decoder = new TextDecoder('utf-8', { fatal: true })
 
 export function diagnostic(code: string, message: string, detail?: Json): Diagnostic {
   return detail === undefined ? { code, message } : { code, message, detail }
 }
 
-export function utf8(value: string): Uint8Array {
-  return encoder.encode(value)
-}
-
-export function utf8Bytes(value: string): number {
-  return utf8(value).byteLength
-}
-
-export function base64url(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64url')
-}
-
-export function canonicalUtf8(value: string): boolean {
-  try {
-    return decoder.decode(utf8(value)) === value
-  } catch {
-    return false
-  }
-}
-
-export function decodeHeaderIdentifier(value: string): string | null {
-  try {
-    const decoded = decodeURIComponent(value)
-    return decoded.length > 0 && encodeURIComponent(decoded) === value ? decoded : null
-  } catch {
-    return null
-  }
-}
-
 export function defaultGh(cwd: string, args: string[]): Promise<string> {
-  return execFileAsync('gh', args, {
-    cwd,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  }).then(({ stdout }) => String(stdout).trim())
+  return trackPreparationGhOperation(args, () =>
+    execFileAsync('gh', args, {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    }),
+  ).then(({ stdout }) => String(stdout).trim())
 }
 
 export function gh(options: GitHubOptions): Gh {
-  return options.gh ?? defaultGh
+  if (options.gh === undefined) return defaultGh
+  const supplied = options.gh
+  return (cwd, args) => trackPreparationGhOperation(args, () => supplied(cwd, args))
 }
 
 export function targetNumber(scope: Scope): number {

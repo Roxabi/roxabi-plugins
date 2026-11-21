@@ -1,7 +1,8 @@
 import type { Diagnostic } from './record-values.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
-import type { MandateRecord, PauseBinding } from './workflow-control.ts'
+import type { MandateRecord } from './workflow-control.ts'
 import type { MandatePayload } from './workflow-mandate-schema.ts'
+import type { PauseBinding } from './workflow-pause.ts'
 
 export function effectiveMandateRole(
   storedRole: MandatePayload['role'],

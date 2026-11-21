@@ -7,7 +7,7 @@ import {
   confirmStartReadback,
   deliveryBatch,
   deliveryTask,
-  observeHeadCode,
+  observeCleanHeadCode,
   prepareDeliveryAction,
   prepareRefusal,
   uwSubject,
@@ -47,7 +47,7 @@ export async function startPlanReview(
   const planDigest = contracts.planDigest(structured.data)
   const operationId = randomUUID()
   const startId = randomUUID()
-  const code = await observeHeadCode(git, cwd, scope.repository)
+  const code = await observeCleanHeadCode(git, cwd, scope.repository)
   if (!code.ok) return blocks(code.reason)
   const architectId = randomUUID()
   const adversarialId = randomUUID()

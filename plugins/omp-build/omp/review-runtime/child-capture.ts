@@ -104,8 +104,6 @@ export function captureChildResult(
   const proofReference = selectedProofReference(structured, directive)
   const reason = childCompletionReason(child, expectedId, structured, submissions, terminal.reason)
   const commandRuns: CommandRun[] = []
-  const childId = id
-  const actionId = task?.action?.snapshot.actionId
   return {
     id,
     expectedId,
@@ -113,17 +111,10 @@ export function captureChildResult(
     proofEvidence: proofEvidence(directive, proofReference, capture),
     bashCalls: referencedBashCalls(capture, structured),
     commandRuns,
-    ...(childId !== null && actionId !== undefined && commandRuns.length > 0
-      ? {
-          nativeProvenance: nativeProvenance(
-            actionId,
-            childId,
-            submissions.length === 0 ? 0 : submissions.length - 1,
-            commandRuns.map((run) => run.toolCallId),
-          ),
-        }
-      : {}),
     raw: nativeSnapshot(value),
+    ...(value === null || value === undefined
+      ? {}
+      : { sdkTerminal: child?.aborted === true ? ('aborted' as const) : ('returned' as const) }),
     partialText: capture?.partialText ?? null,
     structured,
     usable: reason === null,

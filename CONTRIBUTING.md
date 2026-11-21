@@ -65,10 +65,18 @@ bun run typecheck         # TypeScript — must pass
 bun run test              # Vitest — must pass
 ```
 
-Vitest's integration project compiles the GitHub simulator once into a
-run-owned temporary directory and removes it at teardown. Sandbox fixtures use
-that executable through an integration-only environment variable; standalone
-Bun fixture runs continue to use the simulator source.
+Vitest's integration project compiles the GitHub simulator server and standalone
+executable into a run-owned temporary directory and removes them at teardown.
+Integration test files use a dedicated simulator server through lightweight
+`gh`, pin, and fix-recovery fault clients; the server path relies on Linux
+`/proc`. The `gh` client runs the standalone executable instead for
+comment-barrier calls, calls made while the state lock is held, and hosts
+without `/proc`. A nested `gh` call issued from inside a server request fails
+fast. Standalone Bun fixture runs continue to use the simulator source.
+The pin client also falls back to its compiled standalone executable when
+`/proc` is unavailable or a gate or synchronization call must wait. The
+fault client's release-gate wait remains client-side; its standalone fallback
+is a TypeScript script.
 
 Vitest runs unit and integration files in separate, non-overlapping resource
 groups. Integration uses at most one worker per four available CPUs (minimum
@@ -79,6 +87,17 @@ The allowance covers the full lifecycle workload; it is not a performance
 optimization. Tests taking 30–60 seconds no longer trigger the previous
 timeout alarm. Do not automatically raise the budget again; reassess a tighter
 budget once the full workload demonstrably supports it.
+
+CI plans eight integration shards from Vitest's file list, using cached
+per-file durations only to balance them. The `checks` job runs unit tests and
+the other checks alongside the shards (its steps are sequential); the required
+`ci` job verifies that every listed file ran exactly once with at least one
+passing test. Local `bun run test` still runs both complete projects.
+
+A shard selects its files through literal include globs, so integration test
+paths may contain only ASCII letters and digits, `.`, `_`, `/` and `-`. CI
+planning fails with an explicit error on any other character rather than risk
+a glob that selects the wrong files.
 
 Vitest workers run under Node. The shared setup isolates the SDK's Bun-only
 logging and task-rendering dependencies, while fixture registry and event-bus

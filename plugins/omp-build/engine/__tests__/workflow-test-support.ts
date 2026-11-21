@@ -1,5 +1,12 @@
+import { createHash } from 'node:crypto'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
+import {
+  canonicalJson,
+  configPinDigest,
+  effectiveWorkflowConfig,
+  shippedProductVersion,
+} from '../../roxabi/workflow-config-digest.ts'
 import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
@@ -11,11 +18,11 @@ import type { WorkflowFacts } from '../workflow-reconstruction-types.ts'
 
 const SCOPE: Scope = { repository: 'acme/app', target: 'acme/app#42' }
 const PARENT: Scope = { repository: 'acme/app', target: 'acme/app#7' }
-const DIGEST = 'a'.repeat(64)
+const PRODUCT_VERSION = shippedProductVersion()
 const BODY = 'ship the bounded workflow'
 const GRAPH: WorkflowGraph = {
   version: 1,
-  productVersion: '0.13.0',
+  productVersion: PRODUCT_VERSION,
   configVersion: 'omp-build-workflow/1',
   edgeOrder: 'array',
   nodes: [
@@ -26,10 +33,18 @@ const GRAPH: WorkflowGraph = {
   edges: [{ from: 'frame', to: 'land', when: 'always' }],
   initial: 'land',
 }
+const EFFECTIVE = {
+  ...effectiveWorkflowConfig(PRODUCT_VERSION, []),
+  graph: GRAPH,
+  graphDigest: createHash('sha256')
+    .update(canonicalJson({ version: GRAPH.configVersion, nodes: GRAPH.nodes, edges: GRAPH.edges }))
+    .digest('hex'),
+}
+const DIGEST = configPinDigest(EFFECTIVE)
 const WORKFLOW_CONFIG_VERSION = GRAPH.configVersion
 const syntheticWorkflowFixtures = createWorkflowFixtures({
-  productVersion: '0.13.0',
-  config: { version: WORKFLOW_CONFIG_VERSION, digest: DIGEST, effective: { graph: GRAPH } },
+  productVersion: PRODUCT_VERSION,
+  config: { version: WORKFLOW_CONFIG_VERSION, digest: DIGEST, effective: EFFECTIVE },
   head: null,
   editedAt: '2026-10-21T00:00:00Z',
 })
@@ -207,7 +222,7 @@ function facts(overrides: Partial<WorkflowFacts> = {}): WorkflowFacts {
     merged: false,
     sessionCwd: '/work',
     preparedWorktree: '/work',
-    productVersion: '0.13.0',
+    productVersion: PRODUCT_VERSION,
     configVersion: 'omp-build-workflow/1',
     configDigest: DIGEST,
     supportedConfigVersions: ['omp-build-workflow/1'],

@@ -4,7 +4,6 @@ import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
 await installFixtureSdkSettings(process.argv[3] ?? '')
 const { default: ompBuildExtension } = await import('../omp/index.ts')
-const { createOmpFixPort } = await import('../omp/omp-controller.ts')
 const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
 const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
 const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
@@ -17,9 +16,12 @@ const { observedIncompleteNativeResult } = await import('./feature-recovery-obse
 const { invokeOmpReviewApplyFalsify, invokeOmpReviewLifecycle } = await import('./feature-review-lifecycle.ts')
 const { invokeDispositionBoundary, invokeDispositionPartition } = await import('./fix-disposition-lifecycle.ts')
 const { invokeReviewRace } = await import('./feature-review-races.ts')
+const { invokeClassifiedIngressRace } = await import('./feature-classified-ingress-race.ts')
 const { invokeSuccessiveReviewLineage } = await import('./feature-review-lineage.ts')
 const { invokeRecallFixContinuation } = await import('./feature-review-recall.ts')
 const { invokeReplacementDispatch } = await import('./feature-review-replacement.ts')
+// This fixture imports the SDK only after its settings have been installed above.
+const { invokeOmpLifetime } = await import('./feature-recovery-lifetime.ts')
 
 type Payload = {
   reference: string
@@ -129,6 +131,7 @@ async function invokeWorkflowOperation(operationName: string): Promise<unknown |
 }
 
 async function invokeSdkDriver(operationName: string): Promise<unknown> {
+  const directory = cwd ?? ''
   switch (operationName) {
     case 'omp-feature':
       return invokeOmpBridge(false, false)
@@ -137,44 +140,55 @@ async function invokeSdkDriver(operationName: string): Promise<unknown> {
     case 'omp-unconfirmed-pause':
       return invokeOmpBridge(true)
     case 'omp-lifetime':
-      return invokeOmpLifetime()
+      return invokeOmpLifetime(directory)
     case 'omp-incomplete-native':
-      return invokeOmpIncompleteNative(cwd ?? '')
+    case 'omp-invalid-native':
+      return invokeOmpIncompleteNative(directory, operationName === 'omp-incomplete-native')
     case 'omp-live-interleave':
-      return invokeOmpLiveInterleave(cwd ?? '')
-    case 'omp-review-lifecycle':
-      return invokeOmpReviewLifecycle(
-        cwd ?? '',
-        payload.control === 'pause' ? 'fresh-pause' : payload.control === 'resume' ? 'publication-pause' : 'fix',
-      )
+      return invokeOmpLiveInterleave(directory)
     case 'omp-review-apply-falsify':
-      return invokeOmpReviewApplyFalsify(cwd ?? '')
+      return invokeOmpReviewApplyFalsify(directory)
     case 'omp-review-mixed-dispositions':
-      return invokeOmpReviewApplyFalsify(cwd ?? '', true)
+      return invokeOmpReviewApplyFalsify(directory, true)
     case 'omp-disposition-partition-valid':
-      return invokeDispositionPartition(cwd ?? '', false)
+      return invokeDispositionPartition(directory, false)
     case 'omp-disposition-partition-broken':
-      return invokeDispositionPartition(cwd ?? '', true)
+      return invokeDispositionPartition(directory, true)
     case 'omp-disposition-original-unavailable':
-      return invokeDispositionBoundary(cwd ?? '', 'original-history')
+      return invokeDispositionBoundary(directory, 'original-history')
     case 'omp-disposition-foreign-synthesis':
-      return invokeDispositionBoundary(cwd ?? '', 'foreign-synthesis')
+      return invokeDispositionBoundary(directory, 'foreign-synthesis')
     default:
-      return invokeReviewDriver(operationName)
+      return invokeReviewDriver(operationName, directory)
   }
 }
 
-async function invokeReviewDriver(operationName: string): Promise<unknown> {
+async function invokeReviewDriver(operationName: string, directory: string): Promise<unknown> {
   switch (operationName) {
+    case 'omp-review-lifecycle':
+      return invokeOmpReviewLifecycle(
+        directory,
+        payload.control === 'pause' ? 'fresh-pause' : payload.control === 'resume' ? 'publication-pause' : 'fix',
+      )
     case 'omp-review-lineage':
-      return invokeSuccessiveReviewLineage(cwd ?? '')
+      return invokeSuccessiveReviewLineage(directory)
     case 'omp-review-recall-fix':
-      return invokeRecallFixContinuation(cwd ?? '')
+      return invokeRecallFixContinuation(directory)
     case 'omp-review-replacement-real':
-      return invokeReplacementDispatch(cwd ?? '')
+      return invokeReplacementDispatch(directory)
     case 'omp-review-race-latest':
     case 'omp-review-race-pause':
-      return invokeReviewRace(cwd ?? '', operationName === 'omp-review-race-latest' ? 'latest' : 'pause')
+    case 'omp-review-race-owned-pause':
+      return invokeReviewRace(
+        directory,
+        operationName === 'omp-review-race-latest'
+          ? 'latest'
+          : operationName === 'omp-review-race-owned-pause'
+            ? 'owned-pause'
+            : 'pause',
+      )
+    case 'omp-classified-ingress-race':
+      return invokeClassifiedIngressRace(directory)
     default:
       throw new Error(`unknown operation ${operationName}`)
   }
@@ -201,7 +215,7 @@ async function invokeOmpBridge(
     registerCommand(name, command) {
       commands.set(name, command.handler as Handler)
     },
-    sendUserMessage(message) {
+    async sendUserMessage(message) {
       if (typeof message !== 'string') throw new Error('native-announcement-not-text')
       messages.push(message)
     },
@@ -232,64 +246,6 @@ async function invokeOmpBridge(
     await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
   }
   return { messages, pausePr }
-}
-async function invokeOmpLifetime(): Promise<{
-  activeBeforePause: boolean
-  cloneRetained: boolean
-  activeAfterPause: boolean
-  messages: string[]
-}> {
-  const commands = new Map<string, Handler>()
-  const events = new Map<string, Handler[]>()
-  const messages: string[] = []
-  const api = createExtensionApiStub({
-    on(name, handler) {
-      const registered = events.get(name) ?? []
-      registered.push(handler as Handler)
-      events.set(name, registered)
-    },
-    registerCommand(name, command) {
-      commands.set(name, command.handler as Handler)
-    },
-    sendUserMessage(message) {
-      if (typeof message !== 'string') throw new Error('native-announcement-not-text')
-      messages.push(message)
-    },
-    sendMessage(message) {
-      messages.push(typeof message === 'string' ? message : String(message?.content ?? message))
-    },
-    async exec(): Promise<never> {
-      throw new Error('unexpected-omp-exec')
-    },
-  })
-  const context = {
-    cwd: cwd ?? '',
-    agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
-    model: { contextWindow: 128_000 },
-    sessionManager: { getSessionId: () => 'recovery-lifetime-root' },
-    isIdle: () => true,
-  }
-  provisionNativeRoot(context)
-  ompBuildExtension(api, { principalCwd: () => false })
-  for (const handler of events.get('session_start') ?? []) await handler({ type: 'session_start' }, context)
-  const feature = commands.get('feature')
-  if (feature === undefined) throw new Error('feature-command-unregistered')
-  await feature('#42', context)
-  const port = createOmpFixPort(api)
-  const original = port.active()
-  if (original === null) throw new Error(`feature-batch-not-active: ${JSON.stringify(messages)}`)
-  const activeBeforePause = port.active() === original
-  await port.stopOwned(structuredClone(original), 'clone-must-not-stop')
-  const cloneRetained = port.active() === original
-  for (const handler of events.get('message_end') ?? []) {
-    await handler({ message: { role: 'assistant', stopReason: 'aborted', errorId: 67_108_864 } }, context)
-  }
-  return {
-    activeBeforePause,
-    cloneRetained,
-    activeAfterPause: port.active() === null,
-    messages,
-  }
 }
 
 process.stdout.write(`${JSON.stringify(await invoke(operation ?? ''))}\n`)

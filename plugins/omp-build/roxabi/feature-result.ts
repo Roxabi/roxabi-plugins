@@ -1,49 +1,29 @@
-import { randomUUID } from 'node:crypto'
 import type { Gh } from '../adapters/github/types.ts'
-import type { CriterionDeclaration } from '../engine/criterion-evidence-schema.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import type { ActionReceiptPayload, HostEffectAdmission } from '../engine/workflow-receipt-schema.ts'
-import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import type { HostEffectAdmission } from '../engine/workflow-receipt-schema.ts'
+import type { NativeBatchResult, NativeStop } from '../omp/review-runtime/contracts.ts'
 import { publishNonImplementResult } from './feature-action-result.ts'
 import type { FeatureNativePublication } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { disarmBranchBeforePush } from './feature-disarm.ts'
-import { defaultGh, publishRecord } from './feature-engine.ts'
+import { defaultGh } from './feature-engine.ts'
 import { admitImplementationEvidence } from './feature-implementation-admission.ts'
-import { authorizedImplementationPush } from './feature-implementation-authorization.ts'
+import { implementationEffectAuthority } from './feature-implementation-authorization.ts'
 import { publishImplementationNegative } from './feature-implementation-negative.ts'
-import { claimedToolCallIds, refusedImplementationPayload } from './feature-implementation-receipt.ts'
+import { publishAfterRemoteProof } from './feature-implementation-publication.ts'
+import { claimedToolCallIds } from './feature-implementation-receipt.ts'
+import {
+  checkResultFence,
+  type ImplementationClaims,
+  type RetainedCommit,
+  retainedRefusal,
+  retainImplementationResult,
+} from './feature-implementation-retention.ts'
 import { publishIntegrationResult } from './feature-integration-result.ts'
-import { hasObservedNativeCapture, implementNativeOutcome } from './feature-native-outcome.ts'
 import { proveAuthorizedBranch } from './feature-publication.ts'
 import { bindImplementationResult, type ImplementationResultBinding } from './feature-result-binding.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { defaultGit } from './workflow-checkout.ts'
-
-type ImplementationClaims = {
-  ids: ReadonlySet<string>
-  reason: string | null
-  criteria: readonly CriterionDeclaration[]
-  commands: readonly { toolCallId: string; command: string; exitCode: number }[]
-}
-
-type RetainedCommit = { sha: string; paths?: readonly string[] }
-type PublishedImplementationAdmission = Pick<HostEffectAdmission, 'commits' | 'paths' | 'commands' | 'reason'>
-
-type RetainedCommand = { toolCallId: string; command: string; exitCode: number; cwd: string }
-
-type ImplementationResultPayload = Extract<ActionReceiptPayload, { action: 'implement'; phase: 'result' }>
-
-type RetainedResult = { retained: true } | { retained: false; reason: string }
-
-function retainedRefusal(
-  retained: RetainedResult,
-  reason: string,
-): Extract<FeatureNativePublication, { published: false }> {
-  return retained.retained
-    ? { published: false, retained: true, reason }
-    : { published: false, retained: false, reason }
-}
 
 function implementationPrerequisites(
   complete: boolean,
@@ -60,122 +40,12 @@ function admissionPublication(admission: HostEffectAdmission): { ok: true } | { 
   if (admission.commits.length === 0) return { ok: false, reason: 'implementation-not-remote' }
   return { ok: true }
 }
-async function retainImplementationResult(
-  binding: ImplementationResultBinding,
-  input: { cwd: string; result: NativeBatchResult },
-  claims: ImplementationClaims,
-  reason: string,
-  commits: readonly RetainedCommit[] = [],
-  commands: readonly RetainedCommand[] = [],
-): Promise<RetainedResult> {
-  if (!binding.child || !hasObservedNativeCapture(binding.child))
-    return { retained: false, reason: 'missing-contribution' }
-  const refused = refusedImplementationPayload({
-    child: binding.child,
-    complete: input.result.complete,
-    claimedIds: claims.ids,
-    reason,
-    commits,
-    commands,
-    structuredCommands: claims.commands,
-    modelReason: claims.reason,
-  })
-  const payload: ImplementationResultPayload = {
-    format: 'omp-build-action-receipt/2',
-    phase: 'result',
-    action: 'implement',
-    actionId: input.result.batch.operationId,
-    mandate: binding.mandate,
-    start: { scope: binding.receiptScope, recordId: binding.start.recordId, kind: 'action-receipt' },
-    inputs: binding.start.payload.inputs,
-    exactInputs: binding.exactInputs,
-    native: implementNativeOutcome(binding.child, input.result.complete, claims.ids),
-    admission: { ...refused.admission, commands: [...refused.admission.commands] },
-    structured: { ...refused.structured, commands: [...refused.structured.commands], criteria: [...claims.criteria] },
-    diagnostics: [...refused.diagnostics],
-  }
-  const published = await publishRecord(
-    binding.loaded,
-    binding.history,
-    {
-      repository: binding.receiptScope.repository,
-      target: binding.receiptScope.target,
-      version: 1,
-      recordId: randomUUID(),
-      runId: randomUUID(),
-      operationId: `${input.result.batch.operationId}:result`,
-      kind: 'action-receipt',
-      payload,
-    },
-    binding.gh,
-    input.cwd,
-    binding.publicationParents,
-  )
-  return published.ok ? { retained: true } : { retained: false, reason: published.reason }
-}
 
-async function publishImplementedResult(
-  binding: ImplementationResultBinding,
-  input: { cwd: string; result: NativeBatchResult },
-  claims: ImplementationClaims & { reason: string },
-  admission: PublishedImplementationAdmission,
-  remoteTip: string,
-  child: NonNullable<ImplementationResultBinding['child']>,
-): Promise<FeatureNativePublication> {
-  const published = await publishRecord(
-    binding.loaded,
-    binding.history,
-    {
-      repository: binding.receiptScope.repository,
-      target: binding.receiptScope.target,
-      version: 1,
-      recordId: randomUUID(),
-      runId: randomUUID(),
-      operationId: `${input.result.batch.operationId}:result`,
-      kind: 'action-receipt',
-      payload: {
-        format: 'omp-build-action-receipt/2',
-        phase: 'result',
-        action: 'implement',
-        actionId: input.result.batch.operationId,
-        mandate: binding.mandate,
-        start: { scope: binding.receiptScope, recordId: binding.start.recordId, kind: 'action-receipt' },
-        inputs: binding.start.payload.inputs,
-        exactInputs: binding.exactInputs,
-        native: implementNativeOutcome(child, true, claims.ids),
-        admission: {
-          admitted: true,
-          commits: [...admission.commits],
-          paths: [...admission.paths],
-          commands: [...admission.commands],
-          remoteBranch: binding.branch,
-          remoteTip,
-          published: true,
-          reason: admission.reason,
-        },
-        structured: {
-          outcome: 'implemented',
-          commitSHAs: [...admission.commits],
-          commands: [...claims.commands],
-          criteria: [...claims.criteria],
-          reason: claims.reason,
-        },
-        diagnostics: [],
-      } satisfies ImplementationResultPayload,
-    },
-    binding.gh,
-    input.cwd,
-    binding.publicationParents,
-  )
-  return published.ok
-    ? { published: true, retained: true }
-    : { published: false, retained: false, reason: published.reason }
-}
-
-type FeatureNativeResultInput = {
+export type FeatureNativeResultInput = {
   cwd: string
   result: NativeBatchResult
   start: ScopedRecordRef
+  stop?: NativeStop
   startHead?: string
   git?: GitRunner
   gh?: Gh
@@ -199,20 +69,89 @@ async function publishOtherActionResult(
     : { published: false, retained: false, reason: published.reason }
 }
 
+function stoppedImplementationReason(stop: NativeStop | undefined): string | null {
+  return stop?.kind === 'interrupted'
+    ? 'action-interrupted'
+    : stop?.kind === 'invalid-terminal'
+      ? 'implementation-output-invalid'
+      : null
+}
+
+async function retainRemoteRefusal(
+  binding: ImplementationResultBinding,
+  input: FeatureNativeResultInput,
+  claims: ImplementationClaims,
+  commits: readonly RetainedCommit[],
+  commands: HostEffectAdmission['commands'],
+  remote: { reason: string; confirmedRemote?: { branch: string; tip: string } },
+): Promise<FeatureNativePublication> {
+  const confirmedRemote = remote.confirmedRemote
+  if (remote.reason === 'implementation-start-resolved')
+    return {
+      published: false,
+      retained: false,
+      reason: remote.reason,
+      ...(confirmedRemote === undefined ? {} : { confirmedRemote }),
+    }
+  if (confirmedRemote === undefined) {
+    const retained = await retainImplementationResult(binding, input, claims, remote.reason, commits, commands)
+    return retainedRefusal(retained, remote.reason)
+  }
+  try {
+    const retained = await retainImplementationResult(
+      binding,
+      input,
+      claims,
+      remote.reason,
+      commits,
+      commands,
+      confirmedRemote,
+    )
+    return retainedRefusal(retained, remote.reason, confirmedRemote)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw Object.assign(
+      new Error(`${message} (confirmed remote tip ${confirmedRemote.branch} ${confirmedRemote.tip})`, { cause: error }),
+      { confirmedRemote },
+    )
+  }
+}
+
 export async function publishFeatureNativeResult(input: FeatureNativeResultInput): Promise<FeatureNativePublication> {
+  if (input.stop?.kind === 'completed-after-stop') input = { ...input, result: { ...input.result, complete: true } }
   const gh = input.gh ?? defaultGh()
   const other = await publishOtherActionResult(input, gh)
   if (other !== null) return other
   const git = input.git ?? defaultGit()
   const binding = await bindImplementationResult({ ...input, gh })
   if ('reason' in binding) return { published: false, retained: false, reason: binding.reason }
+  const initialFence = await checkResultFence(binding, input.cwd)
+  if (initialFence !== null) return { published: false, retained: false, reason: initialFence }
   if (binding.child?.contextBlock !== undefined) return publishImplementationNegative(binding, input)
   const claims = claimedToolCallIds(binding.child)
+  const stopReason = stoppedImplementationReason(input.stop)
+  if (stopReason !== null) {
+    const retained = await retainImplementationResult(binding, input, claims, stopReason)
+    return retainedRefusal(retained, stopReason)
+  }
   const prerequisites = implementationPrerequisites(input.result.complete, input.startHead, binding.child)
   if ('reason' in prerequisites) {
     const retained = await retainImplementationResult(binding, input, claims, prerequisites.reason)
     return retainedRefusal(retained, prerequisites.reason)
   }
+  const histories = [binding.history, ...binding.publicationParents]
+  const mandate = histories
+    .flatMap((history) => history.operations)
+    .find(
+      (operation) =>
+        operation.status === 'complete' &&
+        operation.record?.kind === 'mandate' &&
+        operation.record.recordId === binding.mandate.recordId &&
+        operation.record.repository === binding.mandate.scope.repository &&
+        operation.record.target === binding.mandate.scope.target,
+    )?.record
+  if (mandate?.kind !== 'mandate')
+    return { published: false, retained: false, reason: 'implementation-authority-unreadable' }
   const admission = await admitImplementationEvidence({
     cwd: input.cwd,
     startHead: prerequisites.startHead,
@@ -223,7 +162,7 @@ export async function publishFeatureNativeResult(input: FeatureNativeResultInput
       return { stdout: shown.stdout, exitCode: shown.code }
     },
   })
-  const commits = admission.commits.map((sha) => ({ sha }))
+  const commits = admission.commits.map((sha, index) => ({ sha, paths: index === 0 ? admission.paths : [] }))
   const publication = admissionPublication(admission)
   if (!publication.ok) {
     const retained = await retainImplementationResult(
@@ -248,40 +187,20 @@ export async function publishFeatureNativeResult(input: FeatureNativeResultInput
     )
     return retainedRefusal(retained, 'implementation-not-remote')
   }
-  const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, async () => {
-    if (!(await authorizedImplementationPush(binding, input.cwd))) return false
-    if (!(await disarmBranchBeforePush(gh, input.cwd, binding.mandate.scope.repository, binding.branch))) return false
-    return authorizedImplementationPush(binding, input.cwd)
+  const effect = () => implementationEffectAuthority(binding, input.cwd)
+  const remote = await proveAuthorizedBranch(git, input.cwd, binding.branch, tip, {
+    effect,
+    beforePush: async () => {
+      const before = await effect()
+      if (!before.ok) return before
+      if (!(await disarmBranchBeforePush(gh, input.cwd, binding.mandate.scope.repository, binding.branch)))
+        return { ok: false, reason: 'implementation-disarm-unconfirmed' }
+      return effect()
+    },
   })
-  if (!remote.ok) {
-    const retained = await retainImplementationResult(
-      binding,
-      input,
-      claims,
-      remote.reason,
-      commits,
-      admission.commands,
-    )
-    return retainedRefusal(retained, remote.reason)
-  }
-  const reason = claims.reason
-  if (reason === null) {
-    const retained = await retainImplementationResult(
-      binding,
-      input,
-      claims,
-      'implementation-claim-missing',
-      commits,
-      admission.commands,
-    )
-    return retainedRefusal(retained, 'implementation-claim-missing')
-  }
-  return publishImplementedResult(
-    binding,
-    input,
-    { ...claims, reason },
-    admission,
-    remote.remoteTip,
-    prerequisites.child,
-  )
+  if (!remote.ok) return retainRemoteRefusal(binding, input, claims, commits, admission.commands, remote)
+  return publishAfterRemoteProof(binding, input, claims, commits, admission, prerequisites.child, {
+    branch: binding.branch,
+    tip: remote.remoteTip,
+  })
 }

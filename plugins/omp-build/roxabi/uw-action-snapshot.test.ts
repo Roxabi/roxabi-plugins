@@ -5,11 +5,11 @@ import { describe, expect, test } from 'vitest'
 import type { ActionSnapshot } from './uw-action-contract.ts'
 import {
   type ActionSnapshotClaim,
-  createActionSnapshotStore,
   intendedSnapshotDigest,
   sealActionSnapshot,
   verifyActionSnapshot,
 } from './uw-action-snapshot.ts'
+import { createActionSnapshotStore } from './uw-action-snapshot-store.ts'
 
 function claimFor(indexPath: string, location: ActionSnapshot['location']): ActionSnapshotClaim {
   return {

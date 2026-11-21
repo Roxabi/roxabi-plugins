@@ -9,6 +9,7 @@ import { continueFramedFeature, runFeatureCommand } from './omp-feature-command.
 import type { FeatureCommandComposition, FeatureCommandOptions } from './omp-feature-command-host.ts'
 import { installFeatureUwOperationLifecycle } from './omp-feature-composition.ts'
 import { dispatchDefaultFix } from './omp-fix-dispatch'
+import { registerOmpFixRecoveryTool } from './omp-fix-recovery.ts'
 import { type FramingRuntimeOptions, installFeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { dispatchDefaultReview } from './omp-review-dispatch'
 import { registerOmpReviewRecoveryTools } from './omp-review-recovery-tools'
@@ -16,6 +17,7 @@ import { registerSkillCommand } from './omp-skill-command-runtime.ts'
 import { SKILL_COMMANDS } from './omp-skill-commands.ts'
 import { registerUwCommand } from './omp-uw-command.ts'
 import { registerPrepareCheckoutTool } from './prepare-checkout-tool.ts'
+import { registerToolingPinCommand } from './tooling-pin-command.ts'
 
 export type OmpBuildExtensionOptions = FeatureCommandOptions & {
   exists?: (path: string) => boolean
@@ -26,9 +28,9 @@ export type OmpBuildExtensionOptions = FeatureCommandOptions & {
 export function registerOmpCommandsAndTools(
   pi: OmpBuildExtensionApi,
   options: OmpBuildExtensionOptions,
-  interruptOwnedFeatureWork: (reason: string) => Promise<void>,
+  interruptOwnedFeatureWork: FeatureCommandComposition['interruptOwnedFeatureWork'],
 ): void {
-  bindHostPluginPin(options.pluginPin)
+  bindHostPluginPin(pi, options.pluginPin)
   const installRoot = options.installRoot ?? INSTALL_ROOT
   const skillsDir = join(installRoot, 'skills')
   const exists = options.exists ?? existsSync
@@ -54,8 +56,10 @@ export function registerOmpCommandsAndTools(
     },
   })
   registerOmpReviewRecoveryTools(pi, options)
+  registerOmpFixRecoveryTool(pi)
   registerPrepareCheckoutTool(pi)
-  registerUwCommand(pi, options.uwOperations ?? hostUwFactory(options.pluginPin))
+  registerUwCommand(pi, options.uwOperations ?? hostUwFactory())
+  registerToolingPinCommand(pi)
 
   for (const { name, skill = name, description, requires } of SKILL_COMMANDS) {
     if (name === 'feature') {

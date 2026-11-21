@@ -7,6 +7,123 @@ import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
 import { binding, featureMandate, history, must, SCOPE } from './workflow-test-support.ts'
 
+test.each([
+  { version: '0.18.7', branch: 'other', base: 'main', expected: 'bound' },
+  { version: '0.18.7', branch: null, base: 'main', expected: 'bound' },
+  { version: '0.18.8', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.18.8', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.18.8', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.18.9', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.18.9', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.18.9', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.18.9', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.18.10', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.18.10', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.18.10', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.18.10', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.18.11', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.18.11', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.18.11', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.18.11', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.18.12', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: '0.19.0', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.19.0', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.19.0', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.19.0', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.19.1', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.19.1', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.19.1', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.19.1', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.19.2', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.19.2', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.19.2', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.19.2', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.19.3', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.19.3', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.19.3', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.19.3', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.19.4', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: '0.20.0', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.20.0', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.20.0', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.20.0', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.20.1', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.20.1', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.20.1', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.20.1', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.20.2', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: '0.21.0', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.21.0', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.21.0', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.21.0', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.21.1', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.21.1', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.21.1', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.21.1', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.21.2', branch: 'feature/bounded', base: 'main', expected: 'bound' },
+  { version: '0.21.2', branch: 'other', base: 'main', expected: 'conflicting' },
+  { version: '0.21.2', branch: null, base: 'main', expected: 'conflicting' },
+  { version: '0.21.2', branch: 'feature/bounded', base: 'other', expected: 'conflicting' },
+  { version: '0.21.3', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: '0.22.0', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+  { version: 'unknown', branch: 'feature/bounded', base: 'main', expected: 'incompatible-format' },
+])(
+  'binding policy $version refuses only unsupported or non-landable new associations',
+  ({ version, branch, base, expected }) => {
+    const original = featureMandate()
+    const mandate = must(
+      parseRecord({
+        ...original,
+        payload: { ...original.payload, branch, base, config: { ...original.payload.config, productVersion: version } },
+      }),
+    )
+    const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
+    expect(
+      selectWorkflowBinding({
+        pullRequest: pr,
+        histories: [history([mandate]), history([binding(mandate, pr)], pr)],
+        native: { branch: 'feature/bounded', base: 'main' },
+      }).status,
+    ).toBe(expected)
+  },
+)
+
+test('validates a bounded predecessor even when the selected successor matches', () => {
+  const original = featureMandate()
+  const config = { ...original.payload.config, productVersion: '0.18.8' }
+  const predecessor = must(parseRecord({ ...original, payload: { ...original.payload, branch: 'other', config } }))
+  const ref = { scope: SCOPE, recordId: predecessor.recordId, kind: 'mandate' as const }
+  const next = must(
+    parseRecord({
+      ...original,
+      recordId: 'next',
+      operationId: 'next-op',
+      inputs: [...original.inputs, ref.recordId],
+      payload: { ...original.payload, config, antecedent: ref },
+    }),
+  )
+  const successor = { scope: SCOPE, recordId: next.recordId, kind: 'mandate' as const }
+  const control = must(
+    buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'select',
+      runId: 'select',
+      operationId: 'select',
+      kind: 'operator-control',
+      payload: { control: 'select-successor', controlId: 'select', mandate: ref, predecessor: ref, successor },
+    }),
+  )
+  const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
+  expect(
+    selectWorkflowBinding({
+      pullRequest: pr,
+      histories: [history([predecessor, next, control]), history([binding(predecessor, pr), binding(next, pr)], pr)],
+      native: { branch: 'feature/bounded', base: 'main' },
+    }),
+  ).toMatchObject({ status: 'conflicting', diagnostics: [{ code: 'mandate-mismatch' }] })
+})
+
 describe('workflow bound work behavior', () => {
   test('records-only standalone review refuses missing or conflicting binding evidence', () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }

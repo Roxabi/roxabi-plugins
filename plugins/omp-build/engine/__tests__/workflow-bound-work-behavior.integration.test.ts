@@ -285,7 +285,7 @@ describe('workflow bound work behavior', () => {
     const child: Scope = { repository: SCOPE.repository, target: 'acme/app#43' }
     const childBody = strictSpecBody('child C1')
     const childSnapshot = nativeSnapshot(child, childBody)
-    const mandated = fixtures.epicMandate(
+    const unbound = fixtures.epicMandate(
       SCOPE,
       [{ scope: child, snapshot: childSnapshot, specVersion: childSnapshot.spec.version, tier: 'S' }],
       {
@@ -296,6 +296,8 @@ describe('workflow bound work behavior', () => {
         ownSpec: fixtures.ownSpecFromSnapshot(SCOPE, nativeSnapshot(SCOPE, nativeBody)),
       },
     )
+    const mandated = must(parseRecord({ ...unbound, payload: { ...unbound.payload, branch: 'feature/bounded' } }))
+    if (mandated.kind !== 'mandate') throw new Error('Expected a bound epic mandate')
     const accepted = mandateAssessmentState(mandated)
     const content = {
       criteria: accepted.snapshot.spec.criteria,

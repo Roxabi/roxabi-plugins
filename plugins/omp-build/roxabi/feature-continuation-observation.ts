@@ -4,9 +4,10 @@ import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import type { WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
+import { mandatesInHistory } from './feature-context.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
-import { inhibition } from './feature-control.ts'
+import { bindsOwnPause, inhibition } from './feature-control.ts'
 import { assembleChantier, sameDeliveryCoordinates } from './feature-delivery-facts.ts'
 import { isRecord } from './feature-engine.ts'
 import type { FeatureObservation, FreshUwDeliveryAdmission } from './feature-observation-contract.ts'
@@ -157,7 +158,7 @@ async function assembleObservationBase(
   if (!assembled.ok) return { kind: 'blocked', reason: assembled.reason, diagnostics: assembled.diagnostics }
   const { evidence, delivery } = assembled
   const head = delivery?.head ?? null
-  const requirements = mandateRequirements(mandate?.payload.config)
+  const requirements = observationRequirements(selected)
   const effectiveConfig = effectiveWorkflowConfig(context.engine.shippedProductVersion(), requirements)
   const merged = delivery !== null && (await pullRequestMerged(context.gh, context.cwd, delivery.number))
   const current = await observedCurrentRead(selected, uwRead, evidence.causal.observation)
@@ -204,6 +205,22 @@ async function assembleObservationBase(
     },
   }
 }
+function observationRequirements(selected: SelectedFeature): string[] {
+  if (selected.mandate !== null) return mandateRequirements(selected.mandate.payload.config)
+  const { context, selection, history, scope } = selected.authority
+  if (
+    selection.status !== 'refused' ||
+    selection.reason !== 'paused' ||
+    !bindsOwnPause(context.engine, selection, history, scope)
+  ) {
+    return []
+  }
+  const mandate = mandatesInHistory(history).find(
+    (candidate) => candidate.recordId === selection.pause.mandate.recordId,
+  )
+  return mandateRequirements(mandate?.payload.config)
+}
+
 function mandateRequirements(config: unknown): string[] {
   if (!isRecord(config)) return []
   return additionalRequirementsOf(config.effective)

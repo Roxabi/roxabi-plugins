@@ -261,6 +261,7 @@ export function fixtureUwOperations(
     closeLinked: unexpected,
     reopen: unexpected,
     abandon: unexpected,
+    resolveInterruption: unexpected,
     listReports: unexpected,
     adjudicateCause: unexpected,
     createSister: unexpected,

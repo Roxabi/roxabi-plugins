@@ -13,6 +13,7 @@ import type {
   ActionInputManifest,
   ActionInputs,
   ActionSnapshot,
+  CorrectionRootRef,
   PreparedUwAction,
   ResolvedActionInputs,
   ReviewActionProjection,
@@ -68,12 +69,13 @@ async function buildManifest(
   ports: UwActionPorts,
   reviewedFingerprint?: string,
   reviewedRoot?: ReviewRootRef,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<
   Result<{ manifest: ActionInputManifest; verifiedPluginFiles: readonly { path: string; bytes: Uint8Array }[] }>
 > {
   const pin = await ports.plugin.resolveInstalledPluginPin()
   if (!pin.ok) return pin
-  const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot)
+  const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot, correctionRoot)
   if (!facts.ok) return facts
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
@@ -117,9 +119,10 @@ export async function prepareUwAction(
   ports: UwActionPorts,
   projection?: ReviewActionProjection,
   review?: SelectedReview,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<PreparedUwAction>> {
   const scoped = correctionLocalPorts(request, ports)
-  const manifest = await buildManifest(request, scoped, review?.fingerprint, review?.root)
+  const manifest = await buildManifest(request, scoped, review?.fingerprint, review?.root, correctionRoot)
   if (!manifest.ok) return manifest
   const files = await resolveFiles(
     request,
@@ -166,7 +169,12 @@ async function readReplaySources(rebuilt: ActionInputs, ports: UwActionPorts): P
 }
 
 export async function replayUwActionInputs(
-  input: { reviewed: ActionInputs; request: UwActionRequest; reviewedRoot?: ReviewRootRef },
+  input: {
+    reviewed: ActionInputs
+    request: UwActionRequest
+    reviewedRoot?: ReviewRootRef
+    correctionRoot?: CorrectionRootRef
+  },
   ports: UwActionPorts,
 ): Promise<Result<ActionInputs>> {
   const scoped = correctionLocalPorts(input.request, ports)
@@ -180,7 +188,12 @@ export async function replayUwActionInputs(
   if (!expanded.ok) return expanded
   const plugin = await verifyReviewedPlugin(input.reviewed.manifest, scoped)
   if (!plugin.ok) return plugin
-  const facts = await scoped.readCurrentActionFacts(input.request, input.reviewed.fingerprint, input.reviewedRoot)
+  const facts = await scoped.readCurrentActionFacts(
+    input.request,
+    input.reviewed.fingerprint,
+    input.reviewedRoot,
+    input.correctionRoot,
+  )
   if (!facts.ok) return facts
   const rebuilt: ActionInputs = {
     format: ACTION_BINDING_FORMAT,

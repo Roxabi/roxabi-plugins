@@ -97,7 +97,7 @@ function mergeObservedHistories(
   for (const history of [...known, ...observed]) {
     const key = scopeKey(history.source.scope)
     const existing = histories.get(key)
-    if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(history)) {
+    if (existing !== undefined && JSON.stringify(existing.source) !== JSON.stringify(history.source)) {
       return {
         ok: false,
         diagnostics: [

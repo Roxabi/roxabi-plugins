@@ -38,11 +38,22 @@ function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
   return JSON.parse(run.stdout) as {
     active: unknown
     fixRun?: unknown
+    ownerReleasedBeforePost?: boolean
+    driverPendingBeforeRelease?: boolean
+    ownerReleased?: boolean
+    hold?: string
+    seeded?: { precondition: { complete: boolean; action: string; requests: number } }
+    before?: Array<{ kind: string; recordId: string }>
+    after?: Array<{ kind: string; recordId: string }>
+    issueBefore?: Array<{ kind: string; recordId: string }>
+    issueAfter?: Array<{ kind: string; recordId: string }>
     messages: string[]
     precondition: { complete: true; requests: number; action?: string }
-    pause?: { postRefused: boolean; operatorControls: number; ghAvailable: boolean }
+    pause?: { postRefused: boolean; operatorControls: number; ghAvailable: boolean; joinedBeforeRelease: boolean }
+    settlementErrors?: string[]
     summary?: { complete: boolean; reviews: number; action: string; reason: string }
-    records: Array<{ kind: string; recordId: string }>
+    records: Array<{ kind: string; recordId: string; payload: { control?: string } }>
+    issueRecords: Array<{ kind: string; recordId: string; payload: { control?: string } }>
   }
 }
 
@@ -63,7 +74,16 @@ describe('review continuation races', () => {
     await seed(box, cwd)
     const observed = invoke(box, cwd, 'omp-review-race-pause')
     expect(observed.precondition).toEqual({ complete: true, action: 'fix', requests: 0 })
-    expect(observed.pause).toEqual({ postRefused: true, operatorControls: 0, ghAvailable: true })
+    expect(observed.pause).toEqual({
+      postRefused: true,
+      operatorControls: 0,
+      ghAvailable: true,
+      joinedBeforeRelease: true,
+    })
+    expect(observed.settlementErrors).toEqual([
+      'review-stopped:session-stop',
+      'review-stopped:settlement-failed:review-stopped:session-stop',
+    ])
     expect(observed.active).toBeNull()
     expect(observed.fixRun).toBeUndefined()
     expect(observed.records.some((record) => record.kind === 'fix-request')).toBe(false)
@@ -71,4 +91,41 @@ describe('review continuation races', () => {
     const comments = readSim(box).issues['42']?.comments ?? []
     expect(comments.some((comment) => comment.body.includes('operator-control'))).toBe(false)
   })
+
+  it('joins a real owned Fix preflight before publishing a durable pause', async () => {
+    const { box, cwd } = arrange()
+    await seed(box, cwd)
+    const observed = invoke(box, cwd, 'omp-review-race-owned-pause', 60_000)
+    expect(observed.precondition).toEqual({ complete: true, requests: 1 })
+    expect(observed.driverPendingBeforeRelease).toBe(true)
+    expect(observed.ownerReleasedBeforePost).toBe(true)
+    expect(
+      observed.issueRecords.some(
+        (record) => record.kind === 'operator-control' && record.payload.control === 'pause-confirmed',
+      ),
+    ).toBe(true)
+    expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(1)
+    expect(observed.records.some((record) => record.kind === 'fix-result')).toBe(false)
+    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
+  }, 120_000)
+
+  it('holds a direct classified Feature paused during real pre-owner Fix ingress', async () => {
+    const { box, cwd } = arrange()
+    await seed(box, cwd)
+    const observed = invoke(box, cwd, 'omp-classified-ingress-race', 90_000)
+    expect(observed.seeded?.precondition).toEqual({ complete: true, action: 'fix', requests: 0 })
+    expect(observed.hold).toContain('feature-fix-ingress-unjoined')
+    expect(observed.ownerReleased).toBe(true)
+    expect(observed.before?.some((record) => record.kind === 'fix-request')).toBe(false)
+    const correction = (records: Array<{ kind: string; recordId: string }> | undefined) =>
+      records?.filter((record) =>
+        ['fix-request', 'contribution', 'correction-result', 'fix-result', 'operator-control'].includes(record.kind),
+      )
+    expect(correction(observed.after)).toEqual(correction(observed.before))
+    const controlsBefore = observed.issueBefore?.filter((record) => record.kind === 'operator-control')
+    const controlsAfter = observed.issueAfter?.filter((record) => record.kind === 'operator-control')
+    expect(controlsBefore).toEqual([])
+    expect(controlsAfter).toEqual(controlsBefore)
+    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(0)
+  }, 120_000)
 })

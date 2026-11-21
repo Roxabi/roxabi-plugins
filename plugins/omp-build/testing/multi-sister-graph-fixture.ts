@@ -86,8 +86,22 @@ export function sisterGraphTransport(context: {
         baseRefName: pull.base,
         repository: { nameWithOwner: pull.scope.repository },
       })
+    const branch = args.find((arg) => arg.startsWith('branch='))?.slice('branch='.length)
+    const cursor = args.find((arg) => arg.startsWith('cursor='))?.slice('cursor='.length)
+    if (cursor !== undefined && !/^[1-9]\d*$/.test(cursor)) throw new Error('Invalid pull request cursor')
+    const matching = nodes.filter((node) => branch === undefined || node.headRefName === branch)
+    const offset = cursor === undefined ? 0 : Number(cursor)
+    const end = offset + 100
+    const hasNextPage = end < matching.length
     return JSON.stringify({
-      data: { repository: { pullRequests: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } },
+      data: {
+        repository: {
+          pullRequests: {
+            nodes: matching.slice(offset, end),
+            pageInfo: { hasNextPage, endCursor: hasNextPage ? String(end) : null },
+          },
+        },
+      },
     })
   }
   function catalogueObject(args: string[]): string {

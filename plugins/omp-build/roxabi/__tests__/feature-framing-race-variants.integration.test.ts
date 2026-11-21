@@ -94,7 +94,7 @@ async function fixDecision(read: UwRead, gh: Gh, cwd: string) {
       target: {
         ...read.uw,
         number: numberOf(read.uw),
-        kind: 'issue',
+        kind: 'pull-request',
         state: 'open',
         candidateGitSHA: mandate.payload.lineageHead,
         baseGitSHA: mandate.payload.lineageHead,
@@ -106,7 +106,7 @@ async function fixDecision(read: UwRead, gh: Gh, cwd: string) {
     own,
     null,
     [],
-    'fix',
+    'fix-ci',
     { failedChecks: [], evidenceDigest: 'a'.repeat(64), failures: [] },
     read,
   )

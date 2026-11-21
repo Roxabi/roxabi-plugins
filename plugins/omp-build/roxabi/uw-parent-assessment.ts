@@ -3,10 +3,17 @@ import type { Gh } from '../adapters/github/types.ts'
 import { bindExternalRef, type ExternalRecordRef, readComposedWorkflowHistory } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { NativeBatchCallbacks } from '../omp/review-runtime/contracts.ts'
 import { actionRequest, observeHeadCode, uwSubject } from './delivery-action.ts'
 import { sealReceipt } from './feature-action-receipt.ts'
 import { publishNonImplementResult } from './feature-action-result.ts'
 import { loadContracts } from './feature-engine.ts'
+import {
+  claimStartActivation,
+  recordStartActivationFailed,
+  recordStartClosedBeforeAdmission,
+  recordStartNotActivated,
+} from './feature-start-executions.ts'
 import { prepareUwAction } from './uw-action-inputs.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { currentAccountedMandate } from './uw-action-selection.ts'
@@ -64,6 +71,24 @@ async function confirmAssessmentSettlement(
     return
   }
   finish({ ok: true, value: { assessment } })
+}
+
+function claimAssessmentDispatch(
+  input: AssessmentInput,
+  start: ExternalRecordRef & { kind: 'action-receipt' },
+  operationId: string,
+  onAbort: () => void,
+): AssessmentResult | null {
+  if (input.host.signal.aborted) {
+    recordStartNotActivated(start)
+    input.host.signal.removeEventListener('abort', onAbort)
+    return actionFailure('action-input-missing', 'Assessment native run was cancelled')
+  }
+  if (!claimStartActivation(start, operationId)) {
+    input.host.signal.removeEventListener('abort', onAbort)
+    return actionFailure('action-input-missing', 'Assessment START is already observed')
+  }
+  return null
 }
 
 /** Open and settle one real native assess-spec action for the already-prepared creation. */
@@ -136,38 +161,51 @@ export async function assessCreatedChildForParent(input: AssessmentInput): Promi
   }
   const onAbort = () => finish(actionFailure('action-input-missing', 'Assessment native run was cancelled'))
   input.host.signal.addEventListener('abort', onAbort, { once: true })
+  const callbacks: NativeBatchCallbacks = {
+    onComplete: async (result, canContinue) => {
+      if (!canContinue() || input.host.signal.aborted) {
+        onAbort()
+        return
+      }
+      const published = await publishNonImplementResult({ cwd: input.cwd, gh: input.gh, start, result })
+      if (!published.published) {
+        finish(actionFailure('action-input-missing', `Assessment result was not confirmed: ${published.reason}`))
+        return
+      }
+      const assessment = { scope: parent, recordId: published.recordId, kind: 'action-receipt' as const }
+      const fence = input.host.afterSettlement(batch)
+      void fence
+        .then(() =>
+          confirmAssessmentSettlement(input, parent, assessment, start, operationId, canContinue, finish, onAbort),
+        )
+        .catch((error: unknown) =>
+          finish(
+            actionFailure(
+              'action-input-missing',
+              `Assessment settlement failed: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          ),
+        )
+    },
+    onStop: async (reason, result, stop) => {
+      if (stop.kind === 'interrupted' && stop.proof === 'not-dispatched' && result !== null) {
+        try {
+          const published = await publishNonImplementResult({ cwd: input.cwd, gh: input.gh, start, result, stop })
+          if (published.published) recordStartClosedBeforeAdmission(start, batch.operationId)
+        } catch {
+          // A failed or uncertain publication keeps the activated START non-resolvable.
+        }
+      }
+      finish(actionFailure('action-input-missing', `Assessment native run stopped: ${reason}`))
+    },
+  }
   const dispatch = async (): Promise<AssessmentResult> => {
+    const refused = claimAssessmentDispatch(input, start, batch.operationId, onAbort)
+    if (refused !== null) return refused
+    let activated = false
     try {
-      input.host.native.activate(batch, {
-        onComplete: async (result, canContinue) => {
-          if (!canContinue() || input.host.signal.aborted) {
-            onAbort()
-            return
-          }
-          const published = await publishNonImplementResult({ cwd: input.cwd, gh: input.gh, start, result })
-          if (!published.published) {
-            finish(actionFailure('action-input-missing', `Assessment result was not confirmed: ${published.reason}`))
-            return
-          }
-          const assessment = { scope: parent, recordId: published.recordId, kind: 'action-receipt' as const }
-          const fence = input.host.afterSettlement(batch)
-          void fence
-            .then(() =>
-              confirmAssessmentSettlement(input, parent, assessment, start, operationId, canContinue, finish, onAbort),
-            )
-            .catch((error: unknown) =>
-              finish(
-                actionFailure(
-                  'action-input-missing',
-                  `Assessment settlement failed: ${error instanceof Error ? error.message : String(error)}`,
-                ),
-              ),
-            )
-        },
-        onStop: (reason) => {
-          finish(actionFailure('action-input-missing', `Assessment native run stopped: ${reason}`))
-        },
-      })
+      input.host.native.activate(batch, callbacks)
+      activated = true
       input.host.onBatch(batch)
       if (input.host.signal.aborted) {
         void input.host.native.stopOwned(batch, 'assessment-cancelled')
@@ -178,7 +216,8 @@ export async function assessCreatedChildForParent(input: AssessmentInput): Promi
       input.host.onStarted({ creationOperationId: input.core.operationId, assessmentStart: start })
       return await outcome.promise
     } catch (error) {
-      await input.host.native.stopOwned(batch, 'assessment-dispatch-failed').catch(() => undefined)
+      if (activated) await input.host.native.stopOwned(batch, 'assessment-dispatch-failed').catch(() => undefined)
+      else recordStartActivationFailed(start, batch.operationId)
       return actionFailure(
         'action-input-missing',
         `Assessment dispatch failed: ${error instanceof Error ? error.message : String(error)}`,

@@ -5,7 +5,13 @@ import type { Result } from '../engine/result.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import type { ObserveCausalFacts } from './uw-action-basis.ts'
 import { assertCurrentOutputClosure, currentRootOutputRefs, type VerifiedExpansionRoot } from './uw-action-closure.ts'
-import type { ActionInputManifest, CurrentActionFacts, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
+import type {
+  ActionInputManifest,
+  CorrectionRootRef,
+  CurrentActionFacts,
+  ReviewRootRef,
+  UwActionRequest,
+} from './uw-action-contract.ts'
 import { expansionOrigin } from './uw-action-expansion-origin.ts'
 import { type ActionFactSource, readHistories } from './uw-action-observe.ts'
 import { actionFailure } from './uw-action-result.ts'
@@ -20,6 +26,7 @@ async function confirmStandaloneOutputClosure(
   reviewedRoot?: ReviewRootRef,
   root?: VerifiedExpansionRoot,
   observeCausal?: ObserveCausalFacts,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<true>> {
   const history = historyFor(scope, histories)
   if (history === null) return actionFailure('record-unreadable', 'Standalone pull request history is absent')
@@ -28,6 +35,7 @@ async function confirmStandaloneOutputClosure(
     if (!observed.ok) return observed
     return assertCurrentOutputClosure(
       request,
+      { subject: request.subject, correctionRoot: correctionRoot ?? null },
       observed.value.causal.histories,
       observed.value.causal.catalogues,
       [],
@@ -39,7 +47,15 @@ async function confirmStandaloneOutputClosure(
   if (!external.ok) return external
   const completeHistories = [history, ...external.value]
   const catalogues = await loadReviewClassCatalogues({ histories: completeHistories, cwd: source.cwd, gh: source.gh })
-  return assertCurrentOutputClosure(request, completeHistories, catalogues, [], reviewedRoot, root)
+  return assertCurrentOutputClosure(
+    request,
+    { subject: request.subject, correctionRoot: correctionRoot ?? null },
+    completeHistories,
+    catalogues,
+    [],
+    reviewedRoot,
+    root,
+  )
 }
 
 export async function standaloneFacts(
@@ -51,6 +67,7 @@ export async function standaloneFacts(
   histories?: readonly DecodedHistory[],
   reviewedRoot?: ReviewRootRef,
   observeCausal?: ObserveCausalFacts,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'standalone-pr')
     return actionFailure('action-input-missing', 'Standalone subject is absent')
@@ -71,7 +88,11 @@ export async function standaloneFacts(
   const expansion = expansionOrigin(request, read.value, reviewedFingerprint)
   if (!expansion.ok) return expansion
   const root = expansion.value?.root
-  if (root !== undefined || reviewedRoot !== undefined) {
+  if (
+    root !== undefined ||
+    reviewedRoot !== undefined ||
+    (correctionRoot !== undefined && !request.stageSources.some((ref) => ref.record.kind === 'decision'))
+  ) {
     const closed = await confirmStandaloneOutputClosure(
       request,
       request.subject.pullRequest,
@@ -80,6 +101,7 @@ export async function standaloneFacts(
       reviewedRoot,
       root,
       observeCausal,
+      correctionRoot,
     )
     if (!closed.ok) return closed
   }

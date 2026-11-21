@@ -77,8 +77,6 @@ export function baseFacts(): Facts {
     labels: [],
     labelsState: 'ok',
     legacyLabels: [],
-    hasCcc: true,
-    hasCodegraph: true,
     mergeOnGreen: true,
     hasLanding: false,
     landingHidesChecks: false,
@@ -86,7 +84,5 @@ export function baseFacts(): Facts {
     hasWorktree: true,
     hasPostMerge: true,
     hasReleaseModel: true,
-    cccConsent: false,
-    codegraphConsent: false,
   }
 }

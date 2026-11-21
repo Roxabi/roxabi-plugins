@@ -3,10 +3,18 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import { classifyAttempts } from './workflow-action-interruption.ts'
 import { authenticateCapturedWorkFrame } from './workflow-captured-frame.ts'
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './workflow-context-terminal.ts'
-import { type MandateRecord, type ReceiptRecord, workflowOperationProblem } from './workflow-control.ts'
+import {
+  excludedReceipt,
+  type MandateRecord,
+  type ReceiptRecord,
+  receiptStartKey,
+  workflowOperationProblem,
+} from './workflow-control.ts'
+import { authenticateInterruptedReceiptPair } from './workflow-interruption-proof.ts'
 import type { WorkflowEvidence } from './workflow-plan.ts'
 import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
@@ -52,7 +60,8 @@ function validateOperationIdentities(histories: readonly DecodedHistory[]): Resu
   return { ok: true, value: undefined }
 }
 
-function validateStarts(receipts: readonly ReceiptRecord[]): Result<void> {
+/** A resolved START closes with its cited RESULT or with none; every other START needs one unique RESULT. */
+function validateStarts(receipts: readonly ReceiptRecord[], excluded: ReadonlySet<string>): Result<void> {
   for (const start of receipts.filter((record) => record.payload.phase === 'start')) {
     const matching = receipts.filter(
       (record) =>
@@ -60,7 +69,9 @@ function validateStarts(receipts: readonly ReceiptRecord[]): Result<void> {
         record.payload.action === start.payload.action &&
         record.payload.actionId === start.payload.actionId,
     )
-    if (matching.length !== 1) return fail('Captured invocation has no unique result')
+    const resolved = excluded.has(receiptStartKey(start))
+    if (matching.length > 1 || (matching.length === 0 && !resolved))
+      return fail('Captured invocation has no unique result')
   }
   return { ok: true, value: undefined }
 }
@@ -70,8 +81,11 @@ function authenticateInvocation(
   result: ReceiptRecord,
   evidence: WorkflowEvidence,
   replay?: AssessmentReplayContext,
+  resolved = false,
 ): Result<CapturedInvocation> {
-  const pair = authenticateWorkflowReceiptPair(history, result)
+  const pair = resolved
+    ? authenticateInterruptedReceiptPair(history, result)
+    : authenticateWorkflowReceiptPair(history, result)
   if (!pair.ok) return pair
   const payload = result.payload
   if (
@@ -101,9 +115,9 @@ function authenticateInvocation(
   return { ok: true, value: { history, start: pair.value.start, result, frame: frame.value } }
 }
 
-function validateTerminalContexts(history: DecodedHistory): Result<void> {
+function validateTerminalContexts(history: DecodedHistory, excluded: ReadonlySet<string>): Result<void> {
   for (const action of Object.keys(inspected)) {
-    if (workflowContextTerminal(history, action) !== 'clear')
+    if (workflowContextTerminal(history, action, undefined, excluded) !== 'clear')
       return fail('Captured invocation has unresolved negative context')
   }
   return { ok: true, value: undefined }
@@ -120,24 +134,46 @@ export function inventoryCapturedWork(
   if (causal.length) return { ok: false, diagnostics: causal }
   const identities = validateOperationIdentities(histories)
   if (!identities.ok) return identities
+  const attempts = classifyAttempts({
+    histories: [...selected, ...histories],
+    scan: selected,
+    actions: ['plan', 'plan-review', 'implement', 'integrate'],
+  })
+  if (!attempts.ok) return attempts
+  const excluded = attempts.value.excluded
   const invocations: CapturedInvocation[] = []
   for (const history of selected) {
-    const receipts = history.operations.flatMap((operation) =>
-      operation.authority !== 'foreign' &&
-      operation.record?.kind === 'action-receipt' &&
-      inspected[operation.record.payload.action]
-        ? [operation.record]
-        : [],
-    )
-    const starts = validateStarts(receipts)
-    if (!starts.ok) return starts
-    for (const result of receipts.filter((record) => record.payload.phase === 'result')) {
-      const invocation = authenticateInvocation(history, result, evidence, replay)
-      if (!invocation.ok) return invocation
-      invocations.push(invocation.value)
-    }
-    const terminal = validateTerminalContexts(history)
-    if (!terminal.ok) return terminal
+    const captured = inventoryHistory(history, evidence, excluded, replay)
+    if (!captured.ok) return captured
+    invocations.push(...captured.value)
   }
+  return { ok: true, value: invocations }
+}
+
+function inventoryHistory(
+  history: DecodedHistory,
+  evidence: WorkflowEvidence,
+  excluded: ReadonlySet<string>,
+  replay?: AssessmentReplayContext,
+): Result<readonly CapturedInvocation[]> {
+  const receipts = history.operations.flatMap((operation) =>
+    operation.authority !== 'foreign' &&
+    operation.record?.kind === 'action-receipt' &&
+    inspected[operation.record.payload.action]
+      ? [operation.record]
+      : [],
+  )
+  const starts = validateStarts(receipts, excluded)
+  if (!starts.ok) return starts
+  const invocations: CapturedInvocation[] = []
+  for (const result of receipts.filter((record) => record.payload.phase === 'result')) {
+    // A resolved interrupted RESULT is still authenticated, but its output is never interpreted.
+    const resolved = excludedReceipt(result, excluded)
+    const invocation = authenticateInvocation(history, result, evidence, replay, resolved)
+    if (!invocation.ok) return invocation
+    if (!resolved) invocations.push(invocation.value)
+  }
+  const terminal = validateTerminalContexts(history, excluded)
+  if (!terminal.ok) return terminal
   return { ok: true, value: invocations }
 }

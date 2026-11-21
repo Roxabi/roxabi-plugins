@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { PauseBinding } from '../engine/workflow-control.ts'
+import type { PauseBinding } from '../engine/workflow-pause.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { releaseCwdInhibition, releaseInhibition } from './feature-control.ts'

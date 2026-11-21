@@ -64,7 +64,7 @@ describe('qualified parent coordinates', () => {
     const program = path.join(w.root, 'reader.ts')
     writeFileSync(
       program,
-      `import { getParentRef } from ${quoted(pluginPath('issue-triage', 'skills/shared/adapters/github-adapter.ts'))}\nconsole.log(JSON.stringify({parent:await getParentRef(80),topLevel:await getParentRef(81)}))\n`,
+      `import { getParentRef } from ${quoted(pluginPath('issue-triage', 'skills/shared/adapters/github-adapter.ts'))}\nconsole.log(JSON.stringify({parent:await getParentRef(80, 'Acme/app'),topLevel:await getParentRef(81, 'Acme/app')}))\n`,
     )
 
     const ran = await run(`bun --no-env-file ${quoted(program)}`, w.root, w.env)

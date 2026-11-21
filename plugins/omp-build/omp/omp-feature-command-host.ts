@@ -6,12 +6,13 @@ import type {
   FeatureReviewFix,
   FeatureWorkflow,
 } from '../roxabi/feature-contract.ts'
+import { ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
 import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
 import type { FixStart } from '../roxabi/fix-entry-lifecycle.ts'
 import type { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { type OmpBuildExtensionApi, ownedFixRunFor, reportFeatureTerminalStatus } from './omp-controller'
-import type { FeatureOperationReportGuard } from './omp-feature-composition.ts'
+import { type FeatureOperationReportGuard, featureOperationGeneration } from './omp-feature-composition.ts'
 import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from './omp-fix-dispatch'
 import type { FeatureFramingRuntime, FramingCommandBinding } from './omp-framing-runtime.ts'
 import { requestParentCoverage } from './omp-parent-coverage.ts'
@@ -34,7 +35,7 @@ export type FeatureCommandOptions = {
 export type FeatureCommandComposition = Readonly<{
   pi: OmpBuildExtensionApi
   options: FeatureCommandOptions
-  interruptOwnedFeatureWork: (reason: string) => Promise<void>
+  interruptOwnedFeatureWork: NonNullable<FeatureCommandHost['interruptOwnedWork']>
   framing: FeatureFramingRuntime
 }>
 
@@ -64,8 +65,10 @@ async function startInstalledFeatureFix(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
   input: FeatureReviewFix,
+  pluginPin: TrustedHostPluginPin | undefined,
+  current?: () => boolean,
 ): Promise<{ terminal: Promise<FeatureFixTerminal> }> {
-  const started = await dispatchDefaultFix(pi, ctx, '', input)
+  const started = await dispatchDefaultFix(pi, ctx, '', input, { pluginPin, continuationCurrent: current })
   const owned = ownedFixRunFor(pi)
   return owned === undefined
     ? { terminal: Promise.resolve(unownedFeatureFixTerminal(started)) }
@@ -91,19 +94,46 @@ export function createFeatureCommandHost(
   controller: NativeBatchController,
   uw: FeatureCommandHost['uw'],
   report: FeatureOperationReportGuard,
+  pluginPin: TrustedHostPluginPin | undefined,
 ): FeatureCommandHost {
   const { pi, options, interruptOwnedFeatureWork, framing } = composition
   const { ctx } = binding
+  const fixCurrent = (current?: () => boolean) => {
+    const owner = ownedFeatureFor(pi)
+    const generation = featureOperationGeneration(pi)
+    return () =>
+      report.isCurrent() &&
+      featureOperationGeneration(pi) === generation &&
+      ownedFeatureFor(pi) === owner &&
+      !controller.featureContinuationInhibited() &&
+      (current?.() ?? true)
+  }
+  const native = createNativeReviewPort(pi, controller)
   return {
     key: pi,
     cwd: ctx.cwd,
     principal: options.principalCwd?.(ctx.cwd) ?? isInstalledPrincipal(ctx.cwd),
     workflow,
-    native: createNativeReviewPort(pi, controller),
+    native: {
+      ...native,
+      activate(batch, callbacks) {
+        if (!report.isCurrent()) throw new Error('feature operation origin is no longer current')
+        native.activate(batch, callbacks)
+      },
+      async announce(batch) {
+        if (!report.isCurrent()) {
+          await native.stopOwned(batch, 'feature-operation-origin-changed')
+          throw new Error('feature operation origin is no longer current')
+        }
+        await native.announce(batch)
+      },
+    },
     send: async (message) => {
       if (report.isCurrent()) reportFeatureTerminalStatus(pi, message)
     },
-    status: (message) => ctx.ui?.setStatus?.('omp-build-watch', message),
+    status: (message) => {
+      if (report.isCurrent()) ctx.ui?.setStatus?.('omp-build-watch', message)
+    },
     startFraming: (source) => framing.start(binding, source, report.handoff),
     requestParentCoverage: (request) => requestParentCoverage(ctx, request),
     inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
@@ -111,20 +141,31 @@ export function createFeatureCommandHost(
     featureContinuationInhibited: () => controller.featureContinuationInhibited(),
     markFeatureBatch: (batch) => controller.markFeatureBatch(batch),
     ...(uw === undefined ? {} : { uw }),
-    ...(options.pluginPin === undefined ? {} : { pluginPin: options.pluginPin }),
+    ...(pluginPin === undefined ? {} : { pluginPin }),
     interruptOwnedWork: interruptOwnedFeatureWork,
     startReview: (args, onComplete) =>
       dispatchDefaultReview(pi, ctx, args, {
         onComplete,
         prepareReview: options.prepareReview,
+        pluginPin,
         scopedGuard: () => !controller.featureContinuationInhibited(),
       }),
     prepareEpicRangeReview: (review, onComplete) => prepareInstalledEpicRangeReview(pi, review, onComplete),
     exec: (command, args, executionOptions) => pi.exec(command, args, executionOptions),
-    startFix: options.startFeatureFix ?? ((input) => startInstalledFeatureFix(pi, ctx, input)),
-    startAdmittedCiCorrection: async (input) => {
-      const run = await dispatchAdmittedCiCorrection(pi, ctx, input)
-      return { terminal: run.terminal }
+    startFix: async (input, current) => {
+      const featureCurrent = fixCurrent(current)
+      if (!featureCurrent()) throw new Error('feature-fix-continuation-inhibited')
+      const started =
+        options.startFeatureFix === undefined
+          ? await startInstalledFeatureFix(pi, ctx, input, pluginPin, featureCurrent)
+          : await options.startFeatureFix(input)
+      return { terminal: started.terminal, current: featureCurrent }
+    },
+    startAdmittedCiCorrection: async (input, current) => {
+      const featureCurrent = fixCurrent(current)
+      if (!featureCurrent()) throw new Error('feature-fix-continuation-inhibited')
+      const run = await dispatchAdmittedCiCorrection(pi, ctx, input, { pluginPin, continuationCurrent: featureCurrent })
+      return { terminal: run.terminal, current: featureCurrent }
     },
   }
 }

@@ -19,6 +19,8 @@ import {
   unrecognizedWarning,
 } from './omp-operator-confirmation-field.ts'
 import { framingSummary } from './omp-operator-confirmation-framing.ts'
+import { materialLines } from './omp-operator-confirmation-material-summary.ts'
+import { recoveryLines } from './omp-operator-confirmation-recovery-summary.ts'
 import { uwLines } from './omp-operator-confirmation-spec-summary.ts'
 
 type Proposal = PreparedOperatorProposal['proposal']
@@ -36,47 +38,6 @@ function recognizedScope(proposal: object): string {
   if (proposal.target.kind === 'create' && typeof proposal.target.repository === 'string')
     return proposal.target.repository
   return scopeText(proposal.target.uw)
-}
-
-function statementFor(snapshot: unknown, id: string): string {
-  if (!isRecord(snapshot) || !isRecord(snapshot.spec)) return id
-  const items = [
-    ...(Array.isArray(snapshot.spec.criteria) ? snapshot.spec.criteria : []),
-    ...(Array.isArray(snapshot.spec.invariants) ? snapshot.spec.invariants : []),
-  ]
-  for (const item of items) {
-    if (isRecord(item) && item.id === id && typeof item.statement === 'string') return `${id} — ${item.statement}`
-  }
-  return id
-}
-
-function idFacts(lines: string[], prefix: string, ids: unknown, snapshot: unknown): void {
-  if (!Array.isArray(ids)) return
-  for (const id of ids) if (typeof id === 'string') quoted(lines, prefix, statementFor(snapshot, id))
-}
-
-function coverageLines(coverage: unknown, children: unknown): string[] {
-  if (!isRecord(coverage) || !Array.isArray(coverage.assignments)) return []
-  const planned = Array.isArray(children) ? children : []
-  const parent = isRecord(coverage.parent) && isRecord(coverage.parent.uw) ? scopeText(coverage.parent.uw) : ''
-  const lines: string[] = []
-  for (const assignment of coverage.assignments) {
-    if (!isRecord(assignment) || typeof assignment.criterion !== 'string' || !Array.isArray(assignment.children))
-      continue
-    const names = assignment.children
-      .map((child) => {
-        if (!isRecord(child)) return ''
-        if (!('kind' in child)) return scopeText(child)
-        const match = planned.find((item) => isRecord(item) && 'kind' in item && item.operationId === child.operationId)
-        const title =
-          isRecord(match) && isRecord(match.plan) && typeof match.plan.title === 'string' ? match.plan.title : ''
-        return title ? `nouveau / en attente : ${title}` : `nouveau / en attente : ${String(child.operationId ?? '')}`
-      })
-      .filter(Boolean)
-      .join(', ')
-    quoted(lines, 'Couverture parent : ', `${parent} — ${assignment.criterion} → ${names}`)
-  }
-  return lines
 }
 
 function abandonLines(proposal: PreparedUwAbandon['proposal']): string[] {
@@ -111,46 +72,6 @@ function reopenLines(proposal: PreparedUwReopen['proposal']): string[] {
     "La demande n'est pas fermée par cette confirmation.",
     PARTIAL,
   ]
-}
-
-const mechanicalNotes = [
-  ['exclusionsChanged', 'Les exclusions changent.'],
-  ['tierChanged', 'Le niveau change.'],
-  ['childrenChanged', 'Les engagements enfants changent.'],
-  ['inheritanceChanged', "L'héritage change."],
-  ['coverageChanged', 'La couverture parent change.'],
-  ['sectionsOrOrderChanged', "Le texte ou l'ordre des sections change."],
-] as const
-
-function materialFactLines(exact: MaterialAcceptanceProposal['exactInputs']): string[] {
-  const lines: string[] = []
-  const mechanical = exact.mechanical
-  const proposed = exact.proposed
-  const accepted = exact.accepted
-  if (mechanical) {
-    idFacts(lines, 'Critère ajouté : ', mechanical.added, proposed?.snapshot)
-    idFacts(lines, 'Critère retiré : ', mechanical.removed, accepted?.snapshot)
-    idFacts(lines, 'Énoncé modifié : ', mechanical.changedStatements, proposed?.snapshot)
-    lines.push(...mechanicalNotes.filter(([key]) => mechanical[key]).map(([, note]) => note))
-  }
-  if (proposed?.coverage) lines.push(...coverageLines(proposed.coverage, proposed.children))
-  return lines
-}
-
-function materialLines(proposal: MaterialAcceptanceProposal): string[] {
-  const lines = [
-    'Proposition à examiner',
-    asked("Accepter l'évaluation exacte de ", scopeText(proposal.uw)),
-    summaryField('Opération : ', 'accept-material'),
-    summaryField('Cible : ', scopeText(proposal.uw)),
-    summaryField('Classement : ', proposal.classification),
-    summaryField('Évaluation : ', proposal.assessment.recordId),
-  ]
-  const exact = proposal.exactInputs
-  if (exact && typeof exact === 'object') lines.push(...materialFactLines(exact))
-  lines.push("Effet : publier le contrôle d'acceptation exact après revérification, puis relire la chaîne acceptée.")
-  lines.push("Cela n'écrit pas le corps de la demande, ne la ferme pas et n'autorise pas l'atterrissage.", PARTIAL)
-  return lines
 }
 
 function adjustmentLines(proposal: CauseDependencyAdjustmentProposal): string[] {
@@ -210,6 +131,26 @@ function adjudicationLines(proposal: CauseAdjudicationProposal): string[] {
   return lines
 }
 
+function interruptionLines(proposal: Record<string, unknown>): string[] {
+  const lines = [
+    asked('Résoudre l’interruption de ', scopeText(proposal.uw)),
+    summaryField('Action : ', typeof proposal.action === 'string' ? proposal.action : ''),
+    summaryField('Action ID : ', typeof proposal.actionId === 'string' ? proposal.actionId : ''),
+  ]
+  if (isRecord(proposal.start) && typeof proposal.start.recordId === 'string') {
+    lines.push(summaryField('START : ', proposal.start.recordId))
+    lines.push(summaryField('Scope START : ', scopeText(proposal.start.scope)))
+  }
+  if (isRecord(proposal.result) && typeof proposal.result.recordId === 'string') {
+    lines.push(summaryField('RESULT : ', proposal.result.recordId))
+    lines.push(summaryField('Scope RESULT : ', scopeText(proposal.result.scope)))
+  } else lines.push('START orphelin : aucun RESULT.')
+  lines.push('L’hôte a établi que cette action native n’a pas été envoyée aux exécutants.')
+  lines.push('Les préparatifs déjà effectués ne sont pas annulés ; les vérifications ordinaires restent nécessaires.')
+  lines.push('Le flux reste en pause ; aucune reprise automatique.')
+  return lines
+}
+
 function unsupportedLines(proposal: Proposal): string[] {
   return ['Proposition à examiner', unrecognizedWarning(recognizedScope(proposal))]
 }
@@ -237,6 +178,20 @@ function fallbackLines(proposal: Proposal): string[] {
 /** Human decision lines. Technical JSON stays in the dialog details. */
 export function proposalSummary(prepared: PreparedOperatorProposal): string[] {
   const proposal = prepared.proposal
+  const candidate: unknown = proposal
+  if (proposal.format === 'omp-build-fix-recovery-proposal/1') return recoveryLines(proposal)
+  if (proposal.format === 'omp-build-tooling-pin-activation/1')
+    return [
+      'Activer le pin de tooling pour cette session',
+      `Source : ${proposal.plugin.repository}@${proposal.plugin.commit}`,
+      `Installation : ${proposal.plugin.version} ${proposal.installedRoot}`,
+      `Empreinte du package : ${proposal.packageDigest}`,
+      `Dépôt cible : ${proposal.scope.targetRepository}`,
+      `Clone : ${proposal.scope.gitCommonDir}`,
+      `Pin partagé incompatible : ${proposal.shared.repository}@${proposal.shared.commit}`,
+    ]
+  if (isRecord(candidate) && candidate.format === 'omp-build-interruption-resolution/2')
+    return interruptionLines(candidate)
   if (proposal.format === 'omp-build-uw-framing/1') return framingSummary(proposal)
   if (proposal.format === 'omp-build-uw-abandon/1') return abandonLines(proposal)
   if (proposal.format === 'omp-build-uw-reopen/1') return reopenLines(proposal)

@@ -43,8 +43,8 @@ principal_branch() {
     [ -n "$p" ] && git -C "$p" rev-parse --abbrev-ref HEAD 2>/dev/null || true
 }
 
-# Grok repo slug for ~/.grok/worktrees/<slug>/ — owner with non-alphanumerics
-# stripped + "-" + repo (matches cleanup/scan-orphan-worktree-shells.sh).
+# Historical Grok repo slug for ~/.grok/worktrees/<slug>/ — owner with
+# non-alphanumerics stripped + "-" + repo.
 grok_repo_slug() {
     local url owner repo
     url="$(git remote get-url origin 2>/dev/null || true)"

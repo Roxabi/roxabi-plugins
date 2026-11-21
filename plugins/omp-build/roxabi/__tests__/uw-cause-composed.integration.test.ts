@@ -5,9 +5,17 @@ import type { CauseCreationProposal } from '../../engine/cause-disposition-schem
 import type { ExternalRecordRef } from '../../engine/record-references.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import { readComposedMaterialIntent } from '../../engine/workflow-composed-material-intent.ts'
+import { startDispatch } from '../feature-start-executions.ts'
 import type { UwOperations, UwRead } from '../uw-contract.ts'
 import { cleanupComposedScenario, scenario } from './uw-cause-composed-fixture.ts'
 
+it('retains a pre-admission parent assessment stop before marking its START closed', async () => {
+  const run = await scenario(() => true, undefined, undefined, undefined, 'stop-assessment')
+  expect(run.result.status).toBe('partial')
+  expect(run.decisions).toEqual([])
+  expect(run.world.issues.has(43)).toBe(false)
+  expect('assessmentStop' in run && run.assessmentStop).toMatchObject({ kind: 'closed-before-admission' })
+})
 afterEach(cleanupComposedScenario)
 
 function assertCoverageDisplayed(proposal: CauseCreationProposal, display: string) {
@@ -123,6 +131,10 @@ it('accepts a blocking sister and exact parent coverage in one confirmed decisio
     expect(assessment.value.payload.exactInputs).toEqual(consent.exactInputs)
     const start = bindExternalRef(assessment.value.payload.start, parentHistory)
     expect(start.ok).toBe(true)
+    expect(startDispatch(assessment.value.payload.start)).toEqual({
+      kind: 'activated',
+      operationId: assessment.value.payload.actionId,
+    })
   }
   assertConfirmedAssessment()
   expect(intent.value.payload.confirmation.proposalDigest).toBe(intent.value.payload.proposalDigest)

@@ -36,6 +36,7 @@ import {
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import { listInstalledReports } from './uw-installed-reports.ts'
+import { createUwInterruptionResolution } from './uw-interruption-resolution.ts'
 import { createLinkedClosure } from './uw-linked-closure.ts'
 import { createUwOperations } from './uw-operations.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
@@ -110,6 +111,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     abandon: createUwAbandon({ operator: input.operator, reader, github }),
+    resolveInterruption: createUwInterruptionResolution({ operator: input.operator, reader, github }),
     closeLinked: createLinkedClosure({
       github,
       readLanding: (pullRequest) =>

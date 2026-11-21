@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext, ToolSession } from '@oh-my-pi/pi-coding-agent'
-import type { AgentRegistry } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
+import type { AgentRegistryApi } from '@oh-my-pi/pi-coding-agent/registry/agent-registry'
 import type { AgentSession } from '@oh-my-pi/pi-coding-agent/session/agent-session'
 import type { AgentOutputManager } from '@oh-my-pi/pi-coding-agent/task/output-manager'
 import type { Semaphore } from '@oh-my-pi/pi-coding-agent/task/parallel'
@@ -10,9 +10,10 @@ import { executeNativeTask } from './native-task-execution.ts'
 type Root = AgentSession
 type CapturedRoot = {
   root: Root
-  registry: AgentRegistry
+  registry: AgentRegistryApi
   providerSessionId: string
   costGate: Root['costGate'] | undefined
+  lifetime: { agentId: string; registryGeneration: number; sessionId: string; providerSessionId: string } | null
   current: () => boolean
 }
 const rootResources = new WeakMap<
@@ -24,12 +25,17 @@ const rootResources = new WeakMap<
 async function capture(ctx: ExtensionContext): Promise<CapturedRoot | null> {
   if (ctx.agent.kind !== 'main' || ctx.agent.depth !== 0) return null
   const { AgentRegistry } = await import('@oh-my-pi/pi-coding-agent/registry/agent-registry')
+  // Resolve the predicate through the host SDK at the same boundary as its registry.
+  const { isLocalAgentSession } = await import('@oh-my-pi/pi-coding-agent/session/agent-session-handle')
   const registry = AgentRegistry.global()
   const ref = registry.get(ctx.agent.id)
   const root = ref?.session
-  if (!ref || !root || ref.kind !== 'main' || root.modelRegistry !== ctx.modelRegistry) return null
+  if (!ref || !root || ref.kind !== 'main' || !isLocalAgentSession(root) || root.modelRegistry !== ctx.modelRegistry)
+    return null
   const modelRegistry = ctx.modelRegistry
   const registrySessionFile = ref.sessionFile
+  const agentId = ctx.agent.id
+  const registryGeneration = ref.generation
   const sessionId = ctx.sessionManager.getSessionId()
   const providerSessionId = root.agent.sessionId
   if (typeof providerSessionId !== 'string' || providerSessionId.length === 0) return null
@@ -41,6 +47,7 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot | null> {
     ref.session === root &&
     !root.isDisposed &&
     !root.isSessionTransitioning &&
+    ctx.agent.id === agentId &&
     ctx.agent.kind === 'main' &&
     ctx.agent.depth === 0 &&
     ctx.modelRegistry === modelRegistry &&
@@ -54,12 +61,30 @@ async function capture(ctx: ExtensionContext): Promise<CapturedRoot | null> {
     root.sessionManager.getCwd() === cwd &&
     root.agent.sessionId === providerSessionId &&
     root.costGate === costGate
-  return current() ? { root, registry, providerSessionId, costGate, current } : null
+  const lifetime =
+    typeof agentId === 'string' &&
+    agentId.length > 0 &&
+    Number.isSafeInteger(registryGeneration) &&
+    registryGeneration >= 0 &&
+    typeof sessionId === 'string' &&
+    sessionId.length > 0
+      ? { agentId, registryGeneration, sessionId, providerSessionId }
+      : null
+  return current() ? { root, registry, providerSessionId, costGate, current, lifetime } : null
 }
 
 export async function captureNativeRoot(ctx: ExtensionContext): Promise<{ current: () => boolean } | null> {
   const captured = await capture(ctx)
   return captured ? { current: captured.current } : null
+}
+
+/** Exact live root identity; unsupported registry/session observations cannot create an owner. */
+export async function captureNativeRootLifetime(ctx: ExtensionContext): Promise<{
+  current: () => boolean
+  lifetime: NonNullable<CapturedRoot['lifetime']>
+} | null> {
+  const captured = await capture(ctx)
+  return captured?.lifetime ? { current: captured.current, lifetime: captured.lifetime } : null
 }
 
 export type Options = {

@@ -2,10 +2,9 @@ import { effectiveMandateRole } from '../dist/contracts.js'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { NativeSelector, SpecializedDecisions, WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
 import { epicStep } from '../skills/feature/epic-driver.ts'
-import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
+import { disarmGate, type Gate, readGate, type WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
 import { readReviewRecords } from '../skills/feature/workflow-records.js'
-import { nextReviewStep, reviewStep } from '../skills/feature/workflow-review-state.js'
-import { classifyRedCiBeforeDispatch } from './feature-ci-correction.ts'
+import { reviewStep } from '../skills/feature/workflow-review-state.js'
 import { readNativeCiFailureEvidence } from './feature-ci-evidence.ts'
 import type { SelectedFeature } from './feature-continuation-selection.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
@@ -29,25 +28,71 @@ export async function readReviewObservation(
 ): Promise<ReviewObservation | ContinueFeatureResult> {
   const head = delivery?.head ?? null
   const ciWatchStatus = delivery === null ? null : await currentCiWatchStatus(context.gh, context.cwd, delivery.number)
+  const withdrawal = await withdrawRedCiGate(merged, delivery, ciWatchStatus, context, barriers)
+  if (withdrawal !== null) return withdrawal
   const ci = await readRedCiEvidence(merged, delivery, head, ciWatchStatus, context)
   if (isContinuationResult(ci)) return ci
-  const canonicalReview =
-    delivery !== null && head !== null
-      ? await currentReviewStep(context.cwd, delivery.number, head, context.gh, ciWatchStatus === 'red', barriers)
-      : null
+  const canonicalReview = await readCurrentReview(delivery, head, !merged && ciWatchStatus === 'red', context)
+  if (isContinuationResult(canonicalReview)) return canonicalReview
   const review = merged && canonicalReview?.action !== 'stop' ? null : (canonicalReview?.action ?? null)
-  if (!merged && delivery !== null && ciWatchStatus === 'red') {
-    const gated = await classifyRedCiBeforeDispatch(context.cwd, delivery.number, context.gh, context.git, (barrier) =>
-      barriers.push(barrier),
-    )
-    if (gated !== null) return gated
-  }
   return {
     ciWatchStatus,
     failedChecks: ci.failedChecks,
     evidenceDigest: ci.evidenceDigest,
     review,
-    reviewId: review === 'fix' ? (canonicalReview?.reviewId ?? null) : null,
+    reviewId:
+      review === 'fix' || review === 'fix-ci' || canonicalReview?.ciStop ? (canonicalReview?.reviewId ?? null) : null,
+  }
+}
+
+async function withdrawRedCiGate(
+  merged: boolean,
+  delivery: Delivery | null,
+  ciWatchStatus: SpecializedDecisions['ciWatchStatus'],
+  context: SelectedFeature['authority']['context'],
+  barriers: WithdrawalBarrier[],
+): Promise<ContinueFeatureResult | null> {
+  if (merged || delivery === null || ciWatchStatus !== 'red') return null
+  try {
+    let gate: Gate
+    try {
+      gate = await readGate(context.cwd, delivery.number, context.gh)
+    } catch (error) {
+      try {
+        await disarmGate(context.cwd, delivery.number, undefined, context.gh)
+      } catch (disarmError) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)} — and the disarm failed: ${disarmError instanceof Error ? disarmError.message : String(disarmError)}`,
+          { cause: error },
+        )
+      }
+      throw error
+    }
+    const { barrier } = await disarmGate(context.cwd, delivery.number, gate, context.gh)
+    if (barrier) barriers.push(barrier)
+    return null
+  } catch (error) {
+    return {
+      kind: 'blocked',
+      reason: `review-disarm-failed:${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
+async function readCurrentReview(
+  delivery: Delivery | null,
+  head: string | null,
+  ciFailed: boolean,
+  context: SelectedFeature['authority']['context'],
+): Promise<CurrentReviewStep | ContinueFeatureResult | null> {
+  if (delivery === null || head === null) return null
+  try {
+    return await currentReviewStep(context.cwd, delivery.number, head, context.gh, ciFailed)
+  } catch (error) {
+    return {
+      kind: 'blocked',
+      reason: `review-records-unreadable:${error instanceof Error ? error.message : String(error)}`,
+    }
   }
 }
 
@@ -75,8 +120,9 @@ async function readRedCiEvidence(
 }
 
 type CurrentReviewStep = {
-  action: 'review' | 'fix' | 'land' | 'stop' | null
+  action: 'review' | 'fix' | 'fix-ci' | 'land' | 'stop' | null
   reviewId: string | null
+  ciStop: boolean
 }
 
 async function currentReviewStep(
@@ -85,21 +131,21 @@ async function currentReviewStep(
   head: string,
   gh: SelectedFeature['authority']['context']['gh'],
   ciFailed = false,
-  barriers: WithdrawalBarrier[] = [],
 ): Promise<CurrentReviewStep> {
-  if (ciFailed) {
-    try {
-      const step = await nextReviewStep(cwd, number, { ciFailed: true, gh })
-      if (step.barrier) barriers.push(step.barrier)
-      return { action: step.action, reviewId: null }
-    } catch {
-      return { action: 'stop', reviewId: null }
-    }
-  }
   const records = await readReviewRecords(cwd, number, { gh })
-  if (!records.ok) throw new Error(records.diagnostics[0]?.message || 'review-records-unreadable')
-  const step = reviewStep(records.value, { head }).action
-  return { action: step === 'stop' || records.value.head === head ? step : null, reviewId: records.value.reviewId }
+  if (!records.ok) {
+    if (records.spent === true) return { action: 'stop', reviewId: null, ciStop: false }
+    throw new Error(
+      records.diagnostics.map((entry: { message?: string }) => entry.message).join('; ') || 'review-records-unreadable',
+    )
+  }
+  const ordinary = reviewStep(records.value, { head })
+  const step = ciFailed && ordinary.action === 'land' ? reviewStep(records.value, { head, ciFailed: true }) : ordinary
+  return {
+    action: step.action === 'fix' && step.reason === 'ci-failed' ? 'fix-ci' : step.action,
+    reviewId: records.value.reviewId,
+    ciStop: step.action === 'stop' && step.reason === 'ci-failed',
+  }
 }
 
 async function currentCiWatchStatus(

@@ -28,6 +28,7 @@ import { projectFraming } from './feature-framing-controller-project.ts'
 import { readIssueSource } from './feature-framing-controller-proposal.ts'
 import { submitFramingForm } from './feature-framing-controller-submit.ts'
 import { loadFramingProcedures } from './feature-framing-procedures.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import type { OperatorPort } from './uw-contract.ts'
 
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
@@ -106,7 +107,9 @@ export function createFeatureFramingController(host: FeatureFramingControllerHos
   }
 
   async function load(lease: LeaseState): Promise<void> {
-    const procedures = await loadFramingProcedures(host.procedurePorts({ cwd: lease.origin.cwd }))
+    const procedures = await loadFramingProcedures(
+      host.procedurePorts({ cwd: lease.origin.cwd, pluginPin: lease.pluginPin }),
+    )
     if (!stillHere(lease)) return
     if (!procedures.ok)
       return blockLease(
@@ -120,7 +123,7 @@ export function createFeatureFramingController(host: FeatureFramingControllerHos
     if (await bindSource(lease)) openInterview(lease)
   }
 
-  function begin(source: FramingSourceRequest, ctx: ExtensionContext): FramingLease {
+  function begin(source: FramingSourceRequest, ctx: ExtensionContext, pluginPin?: TrustedHostPluginPin): FramingLease {
     const previous = core.current
     if (previous !== null) {
       if (previous.phase.kind !== 'continuing') revokeLease(core, previous, 'framing-replaced')
@@ -153,6 +156,7 @@ export function createFeatureFramingController(host: FeatureFramingControllerHos
       claim,
       origin: captureOrigin(ctx),
       ctx,
+      pluginPin,
       readOnlyOperator,
       repository: source.kind === 'issue' ? source.uw.repository : null,
       phase: { kind: 'loading' },

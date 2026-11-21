@@ -226,10 +226,29 @@ test('accepted retirement survives abandonment and a compatible successor, and c
     antecedent: { scope: uw, recordId: mandate.recordId, kind: 'mandate' },
     ownSpec: fixtures.ownSpecFromSnapshot(uw, retained),
   })
+  const predecessor = { scope: uw, recordId: mandate.recordId, kind: 'mandate' as const }
+  const successorControl = must(
+    buildRecord({
+      version: 1,
+      repository: uw.repository,
+      target: uw.target,
+      recordId: 'select-successor',
+      runId: 'select-successor',
+      operationId: 'select-successor',
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-successor',
+        mandate: predecessor,
+        predecessor,
+        successor: { scope: uw, recordId: successor.recordId, kind: 'mandate' },
+      },
+    }),
+  )
   const successorRead = await createInstalledObservedUwReadPort({
     observation: await observedUwWithoutPullRequests({
       graph: graph(retained),
-      histories: [history([...records, abandon, successor])],
+      histories: [history([...records, abandon, successor, successorControl])],
       catalogues: fixtureHostReviewClassCatalogues(),
     }),
   }).readUw(uw)
@@ -243,7 +262,7 @@ test('accepted retirement survives abandonment and a compatible successor, and c
   const successorReuse = await createInstalledObservedUwReadPort({
     observation: await observedUwWithoutPullRequests({
       graph: graph(original),
-      histories: [history([...records, abandon, successor])],
+      histories: [history([...records, abandon, successor, successorControl])],
       catalogues: fixtureHostReviewClassCatalogues(),
     }),
   }).readUw(uw)

@@ -43,26 +43,27 @@ export async function admitImplementationEvidence(input: {
 }): Promise<HostEffectAdmission> {
   const git = input.git ?? defaultFeatureGit
   const parsed = implementationClaims(hostCompletedStructured(claimSourceChild(input.children)))
-  if (!parsed.ok) return hostAdmission('')
+  if (!parsed.ok) return hostAdmission(parsed.reason)
   const claim = parsed.claim
-  if (claim.outcome !== 'implemented' || claim.commitSHAs.length === 0) return hostAdmission(claim.reason)
+  if (claim.outcome !== 'implemented' || claim.commitSHAs.length === 0)
+    return hostAdmission('implementation-producer-blocked')
   if (!declaredCriteria(claim.criteria)) return hostAdmission('implementation-criterion-missing')
   const commits = await verifyOwnedLineage(input.cwd, input.startHead, claim.commitSHAs, git)
-  if (!commits.ok) return hostAdmission(claim.reason)
+  if (!commits.ok) return hostAdmission(commits.reason)
   const owned = commits.commits.map((commit) => commit.sha)
   const paths = [...new Set(commits.commits.flatMap((commit) => commit.paths))]
   const calls = input.children.flatMap((child) => child.bashCalls ?? [])
   const binding = bindClaimedCommands(claim, calls, input.cwd)
-  if (!binding.ok) return hostAdmission(claim.reason, false, binding.commands, owned, paths)
+  if (!binding.ok) return hostAdmission('implementation-command-unbound', false, binding.commands, owned, paths)
   const runs = input.children.flatMap((child) => child.commandRuns ?? [])
   if (!conservedDeclarations(claim, runs)) {
     return hostAdmission('implementation-evidence-unconserved', false, binding.commands, owned, paths)
   }
   if (!Number.isSafeInteger(input.ticket) || input.ticket <= 0) {
-    return hostAdmission(claim.reason, false, binding.commands, owned, paths)
+    return hostAdmission('implementation-ticket-invalid', false, binding.commands, owned, paths)
   }
   if (!(await verifyTaskOwnedCommitSubjects(input.cwd, commits.commits, input.ticket, git))) {
-    return hostAdmission(claim.reason, false, binding.commands, owned, paths)
+    return hostAdmission('implementation-commit-subject-unowned', false, binding.commands, owned, paths)
   }
   return hostAdmission(claim.reason, true, binding.commands, owned, paths)
 }

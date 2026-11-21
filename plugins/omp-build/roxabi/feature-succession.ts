@@ -14,6 +14,7 @@ import {
   preserveSuccessorBinding,
   recheckSuccessorBinding,
 } from './feature-succession-binding.ts'
+import { publishAndRefreshSuccessor } from './feature-succession-refresh.ts'
 
 export type { Gh } from './feature-succession-binding.ts'
 
@@ -118,40 +119,22 @@ export async function publishSuccessorMandate(input: {
   if (!preparedBinding.ok) return preparedBinding
   const successorId = randomUUID()
   const controlId = randomUUID()
-  const mandatePublished = await publishRecord(
-    input.loaded,
-    input.history,
-    {
-      repository: input.scope.repository,
-      target: input.scope.target,
-      version: 1,
-      recordId: successorId,
-      runId: randomUUID(),
-      operationId: randomUUID(),
-      kind: 'mandate',
-      payload: rolePayload,
-    },
-    input.gh,
-    input.cwd,
-    input.parents,
-  )
-  if (!mandatePublished.ok) return { ok: false, reason: mandatePublished.reason }
-  const refreshed = await input.loaded.readComposedWorkflowHistory([input.scope], { cwd: input.cwd, gh: input.gh })
-  if (!refreshed.ok || !refreshed.histories[0]) return { ok: false, reason: 'successor-unconfirmed' }
+  const refreshed = await publishAndRefreshSuccessor(input, successorId, rolePayload)
+  if (!refreshed.ok) return refreshed
   const beforeControl = await recheckSuccessorBinding(bindingContext, preparedBinding.plan)
   if (!beforeControl.ok) return beforeControl
   const controlPublished = await publishRecord(
     input.loaded,
-    refreshed.histories[0],
+    refreshed.history,
     successorControlRecord(input.scope, antecedent.value.ref, successorId, controlId),
     input.gh,
     input.cwd,
     input.parents,
   )
   if (!controlPublished.ok) return { ok: false, reason: controlPublished.reason }
-  let bindingHistory = refreshed.histories[0]
+  let bindingHistory = refreshed.history
   if (preparedBinding.plan.kind === 'pull-request') {
-    const afterControl = await input.loaded.readComposedWorkflowHistory([input.scope], { cwd: input.cwd, gh: input.gh })
+    const afterControl = await input.loaded.readComposedWorkflowHistory([input.scope], refreshed.readOptions)
     if (!afterControl.ok || !afterControl.histories[0]) return { ok: false, reason: 'successor-unconfirmed' }
     bindingHistory = afterControl.histories[0]
   }

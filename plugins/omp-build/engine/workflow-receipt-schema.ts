@@ -7,9 +7,9 @@ import { integrationOutputSchema } from './uw-integration-schema.ts'
 
 import {
   ciAttributionSchema,
+  deliveryMissingContextSchema,
   implementationOutputSchema,
   planOutputSchema,
-  producerImplementationOutputSchema,
   specAssessmentSchema,
 } from './workflow-output-schema.ts'
 import {
@@ -149,16 +149,13 @@ const planReviewResult = z.strictObject({
 const [implementStart, implementResult] = actionReceipt(
   'implement',
   implementExactSchema,
-  z.union([
-    implementationOutputSchema,
-    producerImplementationOutputSchema.refine((value) => value.outcome === 'blocked' && value.missing !== undefined),
-  ]),
+  z.union([implementationOutputSchema, deliveryMissingContextSchema]),
   mandated,
 )
 const [integrateStart, integrateResult] = actionReceipt(
   'integrate',
   integrationExactSchema,
-  z.union([integrationOutputSchema, missingContextOutputSchema]),
+  z.union([integrationOutputSchema, deliveryMissingContextSchema]),
   mandated,
 )
 const [ciStart, ciResult] = actionReceipt(

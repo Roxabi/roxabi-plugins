@@ -260,7 +260,7 @@ function lastEditedResponse(state: State, query: string, vars: Record<string, st
 }
 
 function specialQueryResponse(state: State, query: string, vars: Record<string, string>): unknown | undefined {
-  if (query === DELIVERY_PULLS) return deliveryPulls(state, vars.cursor)
+  if (query === DELIVERY_PULLS) return deliveryPulls(state, vars.cursor, vars.branch)
   const containment = containmentResponse(state, query, vars, prNode)
   if (containment !== undefined) return containment
   if (query.includes('stateReason') && query.includes('blockedBy') && query.includes('subIssues')) {

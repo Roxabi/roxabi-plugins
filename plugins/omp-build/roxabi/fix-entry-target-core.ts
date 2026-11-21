@@ -1,9 +1,15 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readNativeIssueUpdatedAt } from '../adapters/github-native/issue-state.ts'
+import { trackPreparationGhOperation, trackPreparationOperation } from '../host/preparation-cohort.ts'
 import type { FixActionResult, FixTarget } from './fix-contract.ts'
 
-export const execFileAsync = promisify(execFile)
+export const execFileAsync = new Proxy(promisify(execFile), {
+  apply(target, thisArg, args) {
+    return args[0] === 'git'
+      ? trackPreparationOperation('git', () => Reflect.apply(target, thisArg, args))
+      : trackPreparationGhOperation(args[1], () => Reflect.apply(target, thisArg, args))
+  },
+})
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 export function fail<T>(...diagnostics: string[]): FixActionResult<T> {
   return { ok: false, diagnostics }
@@ -49,7 +55,6 @@ export async function gitResult(
 
 export async function targetEditedAt(cwd: string, gh: Gh, target: FixTarget): Promise<string | null> {
   try {
-    if (target.kind === 'issue') return await readNativeIssueUpdatedAt(cwd, gh, target.number)
     const item = object(JSON.parse(await gh(cwd, ['pr', 'view', String(target.number), '--json', 'updatedAt'])))
     return item !== null && typeof item.updatedAt === 'string' && item.updatedAt.length > 0 ? item.updatedAt : null
   } catch {

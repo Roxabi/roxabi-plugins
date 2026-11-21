@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { promisify } from 'node:util'
-
 import type { Json } from '../dist/contracts.js'
+import { trackPreparationOperation } from '../host/preparation-cohort.ts'
 import { failed, repoRelativePath } from './correction-action'
-import type { CorrectionEffectResult, NativeCorrectionExecutionOptions } from './correction-execution-contract'
-import type { PublishBinding } from './fix-contract'
+import type { CorrectionEffectResult } from './correction-execution-contract'
+import type { PreparedFix, PublishBinding } from './fix-contract'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,7 +30,7 @@ function headRef(ref: string): boolean {
   return /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..') && !ref.endsWith('/')
 }
 
-function remoteRefSHA(stdout: string, ref: string): string | null | undefined {
+export function remoteRefSHA(stdout: string, ref: string): string | null | undefined {
   const lines = stdout.trim() === '' ? [] : stdout.trim().split('\n')
   if (lines.length === 0) return null
   if (lines.length !== 1) return undefined
@@ -47,16 +47,18 @@ function errorMessage(error: unknown): string {
 }
 
 export function createCorrectionGitState(
-  options: Pick<NativeCorrectionExecutionOptions, 'prepared'>,
+  options: { prepared: Pick<PreparedFix, 'cwd' | 'publishBinding' | 'target'> },
   expectedHead: () => string | null,
 ): CorrectionGitState {
   let repositoryChecked: Promise<CorrectionEffectResult<void>> | null = null
   const run = async (args: readonly string[]): Promise<{ stdout: string; stderr: string }> => {
-    const output = await execFileAsync('git', [...args], {
-      cwd: options.prepared.cwd,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    })
+    const output = await trackPreparationOperation('git', () =>
+      execFileAsync('git', [...args], {
+        cwd: options.prepared.cwd,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      }),
+    )
     return { stdout: String(output.stdout), stderr: String(output.stderr) }
   }
   const assertRepository = (): Promise<CorrectionEffectResult<void>> => {
@@ -173,5 +175,3 @@ export function createCorrectionGitState(
   }
   return { run, cleanHead, expectedCleanHead, validatePublishBinding, verifyOwnedCommit }
 }
-
-export { remoteRefSHA }

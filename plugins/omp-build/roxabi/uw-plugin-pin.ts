@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { Result } from '../engine/result.ts'
+import { trackPreparationOperation } from '../host/preparation-cohort.ts'
 import { INSTALL_ROOT } from '../omp/install-root.ts'
 import type { InstalledPluginPin, PluginPinPort, TrustedHostPluginPin } from './uw-action-contract.ts'
-import { actionFailure, isGitSha } from './uw-action-result.ts'
+import { actionFailure, isGitSha, sha256Bytes } from './uw-action-result.ts'
 import { readGitFileBytes } from './uw-git-bytes.ts'
 
 const execFileAsync = promisify(execFile)
@@ -64,6 +65,21 @@ function packageIdentity(installedRoot: string): Result<PackageIdentity> {
     return actionFailure('plugin-pin-unavailable', 'Plugin repository metadata does not name a GitHub directory')
   }
   return { ok: true, value: { version: body.version, repository: match[1], root: source.directory, bytes } }
+}
+
+/** Read-only identity of the installed bytes; this does not approve a pin. */
+export function installedPluginIdentity(installedRoot = INSTALL_ROOT): Result<
+  Readonly<{
+    version: string
+    repository: string
+    root: string
+    packageDigest: string
+  }>
+> {
+  const identity = packageIdentity(installedRoot)
+  if (!identity.ok) return identity
+  const { version, repository, root, bytes } = identity.value
+  return { ok: true, value: { version, repository, root, packageDigest: sha256Bytes(bytes) } }
 }
 
 async function approvedVariable(source: PluginPinSource, repository: string): Promise<Result<string>> {
@@ -153,10 +169,12 @@ export function installedPluginRoot(): string {
 
 export async function variableLooksLikeCommit(cwd: string, repository: string): Promise<boolean> {
   try {
-    const raw = await execFileAsync('gh', ['variable', 'get', VARIABLE, '--repo', repository], {
-      cwd,
-      encoding: 'utf8',
-    })
+    const raw = await trackPreparationOperation('gh-read', () =>
+      execFileAsync('gh', ['variable', 'get', VARIABLE, '--repo', repository], {
+        cwd,
+        encoding: 'utf8',
+      }),
+    )
     return isGitSha(raw.stdout.trim())
   } catch {
     return false

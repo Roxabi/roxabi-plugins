@@ -1,3 +1,4 @@
+import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './action-input.ts'
 import type { PinnedFileRef, RecordInputRef } from './action-input-schema.ts'
 import type { CriterionEvidence, ObservationRef } from './criterion-evidence-schema.ts'
@@ -27,6 +28,7 @@ export function implementationReceiptEligible(record: Receipt): boolean {
     record.payload.action === 'implement' &&
     record.payload.phase === 'result' &&
     record.payload.admission?.admitted === true &&
+    missingContextOf(record.payload.structured) === null &&
     nativeResultValid(record)
   )
 }

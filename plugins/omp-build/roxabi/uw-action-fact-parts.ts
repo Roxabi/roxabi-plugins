@@ -17,6 +17,7 @@ import { causeActionData } from './uw-action-cause-data.ts'
 import type {
   ActionInputManifest,
   ActionSubject,
+  CorrectionRootRef,
   CurrentActionFacts,
   RecordInputRef,
   ReviewRootRef,
@@ -77,6 +78,7 @@ async function finishFacts(
   reviewedFingerprint?: string,
   observation?: EvidenceObservation,
   reviewedRoot?: ReviewRootRef,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   const authenticated = authenticateReviewRoot(request, histories, reviewedFingerprint, reviewedRoot, subject)
   if (!authenticated.ok) return authenticated
@@ -111,6 +113,7 @@ async function finishFacts(
   if (!basis.ok) return basis
   const closed = assertCurrentOutputClosure(
     request,
+    { subject, correctionRoot: correctionRoot ?? null },
     histories,
     catalogues,
     [...acceptedSources, ...deliveryData],
@@ -175,20 +178,23 @@ export async function uwFacts(
   histories?: readonly DecodedHistory[],
   observeCausal?: ObserveCausalFacts,
   reviewedRoot?: ReviewRootRef,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   if (request.subject.kind !== 'uw') return actionFailure('action-input-missing', 'UW subject is absent')
   const subject = request.subject
   const joint = await observeJointCompletion(subject, source, histories, observeCausal)
   if (!joint.ok) return joint
-  const observation = joint.value
+  const rawObservation = joint.value
   const replay =
     request.purpose === 'assess-spec' && reviewedFingerprint !== undefined
       ? { uw: subject.uw, actionId: request.actionId, fingerprint: reviewedFingerprint }
       : undefined
   const uwRead = await createInstalledObservedUwReadPort({
-    observation,
+    observation: rawObservation,
     ...(replay === undefined ? {} : { assessmentReplay: replay }),
   }).readUw(subject.uw)
+  const observation = uwRead.observation
+  if (observation.status !== 'complete') return { ok: false, diagnostics: toDiagnostics(observation.diagnostics) }
   const sameCutHistories = observation.histories
   const bound = bindSubject(request, subject, sameCutHistories, observed)
   if (!bound.ok) return bound
@@ -234,6 +240,7 @@ export async function uwFacts(
     reviewedFingerprint,
     seedEvidenceObservation(completeHistories),
     reviewedRoot,
+    correctionRoot,
   )
 }
 
@@ -242,6 +249,7 @@ export async function readProductionActionFacts(
   source: ActionFactSource,
   reviewedFingerprint?: string,
   reviewedRoot?: ReviewRootRef,
+  correctionRoot?: CorrectionRootRef,
 ): Promise<Result<CurrentActionFacts>> {
   const observed = await observeCode(request, source).catch((error: unknown) =>
     actionFailure('action-code-moved', error instanceof Error ? error.message : 'code observation failed'),
@@ -250,6 +258,26 @@ export async function readProductionActionFacts(
   const config = await configuration(source.cwd, request.code.referenceCommit, source.git)
   if (!config.ok) return config
   if (request.subject.kind === 'standalone-pr')
-    return standaloneFacts(request, source, observed.value, config.value, reviewedFingerprint, undefined, reviewedRoot)
-  return uwFacts(request, source, observed.value, config.value, reviewedFingerprint, undefined, undefined, reviewedRoot)
+    return standaloneFacts(
+      request,
+      source,
+      observed.value,
+      config.value,
+      reviewedFingerprint,
+      undefined,
+      reviewedRoot,
+      undefined,
+      correctionRoot,
+    )
+  return uwFacts(
+    request,
+    source,
+    observed.value,
+    config.value,
+    reviewedFingerprint,
+    undefined,
+    undefined,
+    reviewedRoot,
+    correctionRoot,
+  )
 }

@@ -1,3 +1,4 @@
+import type { NativeSuccessor } from '../omp/review-runtime/contracts.ts'
 import { parseFeatureCommand, runTrustedFeatureInit } from './feature-command.ts'
 import type {
   ContinueFeatureInput,
@@ -5,18 +6,22 @@ import type {
   FeatureCommandHost,
   FeatureFixTerminal,
 } from './feature-contract.ts'
+import { correctionSuccessor } from './feature-correction-successor.ts'
 import { continueWithParentCoverage } from './feature-coverage-continuation.ts'
+import { deliverPrincipalRefusal, preservesFeatureResult, settleStoppedOwner } from './feature-entry-stops.ts'
 import { deliverEpicFinalReview } from './feature-epic-delivery.ts'
 import { announceFeatureBatch } from './feature-host-native.ts'
-import { abortOwnedFeatureWatch, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
+import { ownedFeatureFor, releaseFeatureOwner, rememberFeatureOwner } from './feature-host-ownership.ts'
 import { startInstalledFeatureWatch } from './feature-host-watch.ts'
+import { withFeatureInterruption } from './feature-pause-interruption.ts'
 import {
   featureErrorMessage,
-  featureSessionCwdMessage,
+  featureResultStatus,
   featureStopMessage,
   principalRefusalMessage,
 } from './feature-presentation.ts'
 import { deliverSessionCwd } from './feature-session-cwd.ts'
+import { recordStartNotActivated } from './feature-start-executions.ts'
 
 export async function runInstalledFeatureCommand(args: string, host: FeatureCommandHost): Promise<void> {
   const parsed = parseFeatureCommand(args)
@@ -28,12 +33,6 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     await runTrustedFeatureInit(parsed.args, host)
     return
   }
-  const stopsContinuation = parsed.control === 'pause' || parsed.control === 'abandon'
-  if (stopsContinuation) {
-    abortOwnedFeatureWatch(host.key)
-    host.inhibitFeatureContinuation()
-    await host.interruptOwnedWork?.(parsed.control)
-  }
   const commandInput: ContinueFeatureInput = {
     cwd: host.cwd,
     reference: parsed.reference,
@@ -41,8 +40,13 @@ export async function runInstalledFeatureCommand(args: string, host: FeatureComm
     principal: host.principal,
     ...(host.uw === undefined ? {} : { uw: host.uw }),
     ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
+    ...(parsed.control === 'resolve-interruption'
+      ? { interruption: { ...(parsed.start === undefined ? {} : { start: parsed.start }) } }
+      : {}),
   }
-  await continueFeatureCommand(args, commandInput, host)
+  await withFeatureInterruption(parsed.control, host, (preserveFailure) =>
+    continueFeatureCommand(args, commandInput, host, preserveFailure),
+  )
 }
 
 /** Dispatches the classified source before any delivery-only coverage or principal gate. */
@@ -50,6 +54,7 @@ async function continueFeatureCommand(
   args: string,
   commandInput: ContinueFeatureInput,
   host: FeatureCommandHost,
+  preserveFailure = false,
 ): Promise<void> {
   const control = commandInput.control
   const principalDispatch = host.principal && (control === 'select' || control === 'resume' || control === 'new')
@@ -57,8 +62,12 @@ async function continueFeatureCommand(
   try {
     result = await host.workflow.continueFeature(commandInput)
   } catch (error) {
-    const stop = featureErrorMessage(error)
-    await host.send(principalDispatch ? principalRefusalMessage(host.cwd, stop) : stop)
+    await reportFeatureFailure(host, principalDispatch, error)
+    if (preserveFailure) throw error
+    return
+  }
+  if (control === 'resolve-interruption') {
+    await deliverInterruptionResult(commandInput.reference, result, host)
     return
   }
   if (result.kind === 'framing') {
@@ -79,61 +88,46 @@ async function continueFeatureCommand(
   await deliverFeatureResult(commandInput.reference, result, host)
 }
 
-/**
- * Initial framing is dispatched before this delivery-only gate. A valid move still passes
- * unchanged; the principal checkout refuses every delivery action.
- */
-async function deliverPrincipalRefusal(host: FeatureCommandHost, result: ContinueFeatureResult): Promise<void> {
-  const stop = featureStopMessage(result)
-  if (stop === null && result.kind === 'session-cwd') {
-    await host.send(featureSessionCwdMessage(result.path, result.instruction))
-  } else {
-    await host.send(principalRefusalMessage(host.cwd, stop ?? refusedWork(result)))
+async function reportFeatureFailure(host: FeatureCommandHost, principal: boolean, error: unknown): Promise<void> {
+  const stop = featureErrorMessage(error)
+  try {
+    await host.send(principal ? principalRefusalMessage(host.cwd, stop) : stop)
+  } catch (notification) {
+    throw new AggregateError([error, notification], 'Feature failure and notification failed', { cause: error })
   }
 }
 
-/** Work the principal declines to start, named by kind; any other kind is not a workflow result. */
-function refusedWork(result: ContinueFeatureResult): string {
-  switch (result.kind) {
-    case 'action':
-    case 'watch':
-    case 'review':
-    case 'fix':
-    case 'admitted-ci-correction':
-    case 'epic-final-review':
-      return `workflow-result: ${result.kind}`
-    default:
-      return 'feature-stopped: feature-result-invalid'
-  }
-}
-
-function preservesFeatureResult(result: ContinueFeatureResult): boolean {
-  switch (result.kind) {
-    case 'session-cwd':
-    case 'paused':
-    case 'abandoned':
-    case 'blocked':
-    case 'terminal':
-    case 'operator-decision':
-      return true
-    default:
-      return false
-  }
+async function deliverInterruptionResult(
+  reference: string,
+  result: ContinueFeatureResult,
+  host: FeatureCommandHost,
+): Promise<void> {
+  const message = featureStopMessage(result) ?? 'feature-stopped: interruption-result-invalid'
+  await host.send(
+    result.kind === 'paused' && result.confirmed && result.reason === 'interruption-resolved'
+      ? `${message}\nUW ${reference} remains paused · next: /feature resume ${reference}`
+      : message,
+  )
 }
 
 export async function deliverFeatureResult(
   reference: string,
   result: ContinueFeatureResult,
   host: FeatureCommandHost,
+  current?: () => boolean,
 ): Promise<void> {
   if (result.kind === 'framing') {
     await host.startFraming(result.source, result.source.kind === 'free-text' ? result.source.acceptedArgs : reference)
     return
   }
-  if (host.featureContinuationInhibited() && !preservesFeatureResult(result))
+  if (host.featureContinuationInhibited() && !preservesFeatureResult(result)) {
+    if (result.kind === 'action') recordStartNotActivated(result.start)
     return await host.send('feature-stopped: continuation-inhibited')
+  }
   if (result.kind === 'session-cwd') return deliverSessionCwd(result, host)
   settleStoppedOwner(reference, result, host)
+  if (result.kind === 'blocked' || result.kind === 'paused') host.status(featureResultStatus(reference, result))
+  else if (result.kind === 'terminal' || (result.kind === 'abandoned' && result.confirmed)) host.status(undefined)
   const stop = featureStopMessage(result)
   if (stop !== null) {
     await host.send(stop)
@@ -141,8 +135,8 @@ export async function deliverFeatureResult(
   }
   switch (result.kind) {
     case 'action':
-      await announceFeatureBatch(reference, result.followUp, result.start, host, async (next) =>
-        deliverFeatureResult(reference, next, host),
+      await announceFeatureBatch(reference, result.followUp, result.start, host, async (next, originCurrent) =>
+        deliverFeatureResult(reference, next, host, originCurrent),
       )
       return
     case 'watch':
@@ -150,9 +144,9 @@ export async function deliverFeatureResult(
     case 'review':
       return deliverFeatureReview(reference, result, host)
     case 'fix':
-      return continueAfterFix(reference, result, host)
+      return continueAfterFix(reference, result, host, current)
     case 'admitted-ci-correction':
-      return continueAfterAdmittedCiCorrection(reference, result, host)
+      return continueAfterAdmittedCiCorrection(reference, result, host, current)
     case 'epic-final-review':
       return deliverEpicFinalReview(result, host, continueAfterReview)
     default:
@@ -174,26 +168,6 @@ async function deliverFeatureWatch(
   )
 }
 
-/** Owner bookkeeping a stop leaves behind, a no-op for work; its operator text comes from `featureStopMessage`. */
-function settleStoppedOwner(reference: string, result: ContinueFeatureResult, host: FeatureCommandHost): void {
-  const retained = { reference, cwd: host.cwd, pausable: false }
-  switch (result.kind) {
-    case 'paused':
-      rememberFeatureOwner(host.key, retained)
-      return
-    case 'abandoned':
-      if (result.confirmed === true) releaseFeatureOwner(host.key)
-      else rememberFeatureOwner(host.key, retained)
-      return
-    case 'blocked':
-      rememberFeatureOwner(host.key, retained)
-      return
-    case 'terminal':
-      releaseFeatureOwner(host.key)
-      return
-  }
-}
-
 async function deliverFeatureReview(
   reference: string,
   result: Extract<ContinueFeatureResult, { kind: 'review' }>,
@@ -203,25 +177,42 @@ async function deliverFeatureReview(
     await host.send('feature-stopped: review-unavailable')
     return
   }
-  rememberFeatureOwner(host.key, { reference, cwd: host.cwd, pausable: true })
+  const owner = { reference, cwd: host.cwd, pausable: true }
+  rememberFeatureOwner(host.key, owner)
   try {
-    await host.startReview(String(result.pr), () => continueAfterReview(reference, host))
+    await host.startReview(String(result.pr), (canContinue) =>
+      continueAfterReview(reference, host, () => canContinue() && ownedFeatureFor(host.key) === owner),
+    )
   } catch (error) {
     releaseFeatureOwner(host.key)
     throw error
   }
 }
 
-async function continueAfterReview(reference: string, host: FeatureCommandHost): Promise<void> {
-  if (host.featureContinuationInhibited()) return
+async function continueAfterReview(
+  reference: string,
+  host: FeatureCommandHost,
+  canContinue: () => boolean,
+): Promise<NativeSuccessor | undefined> {
+  const current = () => canContinue() && !host.featureContinuationInhibited()
+  if (!current()) return
   const next = await host.workflow.continueFeature({
     cwd: host.cwd,
     reference,
     control: 'continue',
     principal: false,
+    owned: current,
     ...(host.uw === undefined ? {} : { read: host.uw, uw: host.uw }),
     ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
   })
+  if (!current()) {
+    if (next.kind === 'action') recordStartNotActivated(next.start)
+    return
+  }
+  if (next.kind === 'fix' || next.kind === 'admitted-ci-correction')
+    return correctionSuccessor(next, host, current, (result, guard) =>
+      deliverFeatureResult(reference, result, host, guard),
+    )
   await deliverFeatureResult(reference, next, host)
 }
 
@@ -229,22 +220,29 @@ function observeFeatureTerminal(
   reference: string,
   host: FeatureCommandHost,
   terminal: Promise<FeatureFixTerminal>,
+  current: () => boolean,
 ): void {
+  const owns = () => current() && !host.featureContinuationInhibited()
   void terminal
     .then(async (result) => {
-      if (result.status !== 'complete' || host.featureContinuationInhibited()) return
+      if (result.status !== 'complete' || !owns()) return
       const next = await host.workflow.continueFeature({
         cwd: host.cwd,
         reference,
         control: 'continue',
         principal: false,
+        owned: owns,
         ...(host.uw === undefined ? {} : { read: host.uw, uw: host.uw }),
         ...(host.pluginPin === undefined ? {} : { pluginPin: host.pluginPin }),
       })
-      await deliverFeatureResult(reference, next, host)
+      if (!owns()) {
+        if (next.kind === 'action') recordStartNotActivated(next.start)
+        return
+      }
+      await deliverFeatureResult(reference, next, host, owns)
     })
     .catch(async (error: unknown) => {
-      await host.send(featureErrorMessage(error))
+      if (owns()) await host.send(featureErrorMessage(error))
     })
 }
 
@@ -252,28 +250,33 @@ async function continueAfterFix(
   reference: string,
   fix: Extract<ContinueFeatureResult, { kind: 'fix' }>,
   host: FeatureCommandHost,
+  current?: () => boolean,
 ): Promise<void> {
   if (host.startFix === undefined) {
     await host.send('feature-stopped: fix-unavailable')
     return
   }
-  const run = await host.startFix(fix)
-  observeFeatureTerminal(reference, host, run.terminal)
+  const run = await host.startFix(fix, current)
+  observeFeatureTerminal(reference, host, run.terminal, run.current)
 }
 
 async function continueAfterAdmittedCiCorrection(
   reference: string,
   result: Extract<ContinueFeatureResult, { kind: 'admitted-ci-correction' }>,
   host: FeatureCommandHost,
+  current?: () => boolean,
 ): Promise<void> {
   if (host.startAdmittedCiCorrection === undefined) {
     await host.send('feature-stopped: ci-correction-unavailable')
     return
   }
-  const run = await host.startAdmittedCiCorrection({
-    reference: result.reference,
-    attributionRecordId: result.attributionRecordId,
-    uw: result.uw,
-  })
-  observeFeatureTerminal(reference, host, run.terminal)
+  const run = await host.startAdmittedCiCorrection(
+    {
+      reference: result.reference,
+      attributionRecordId: result.attributionRecordId,
+      uw: result.uw,
+    },
+    current,
+  )
+  observeFeatureTerminal(reference, host, run.terminal, run.current)
 }

@@ -182,6 +182,8 @@ async function successorFixture(classification: 'editorial' | 'material') {
   const produced = records.filter((record) => !priorIds.has(record.recordId))
   const plan = fixturePlan(produced)
   const implementation = fixtureImplementation(produced)
+  if (implementation.payload.structured?.outcome === 'missing-context')
+    throw new Error('Expected implementation output')
   const declaration = implementation.payload.structured?.criteria[0]
   if (declaration?.verification !== 'evidence') throw new Error('Expected captured criterion evidence')
   expect(declaration.target.spec).toEqual(accepted.spec.ref)

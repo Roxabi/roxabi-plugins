@@ -1,10 +1,13 @@
 import { canonicalValueDigest } from './canonical-value.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './workflow-accepted-spec.ts'
+import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './workflow-assessment-child-sources.ts'
-import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
-import { type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import { excludedReceipt, type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
 import { specAssessmentSchema } from './workflow-output-schema.ts'
 import type { WorkflowDecision, WorkflowFacts } from './workflow-reconstruction-types.ts'
 import {
@@ -25,16 +28,58 @@ function matchingAssessments(
   history: DecodedHistory,
   mandate: MandateRecord,
   facts: WorkflowFacts,
+  excluded: ReadonlySet<string>,
 ): AssessResultRecord[] {
   const currentSpec = facts.currentSpec
   if (currentSpec === null) return []
   return recordsOf(history).filter(
     (record): record is AssessResultRecord =>
       isAssessResult(record) &&
-      !(workflowContextNegative(record) && workflowContextTerminal(history, 'assess-spec') === 'clear') &&
+      !excludedReceipt(record, excluded) &&
+      !(
+        workflowContextNegative(record) &&
+        workflowContextTerminal(history, 'assess-spec', undefined, excluded) === 'clear'
+      ) &&
       sameRef(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }) &&
       sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),
   )
+}
+
+/**
+ * An unresolved interrupted assessment of the current proposed state blocks before any result is interpreted;
+ * a resolved one leaves interpretation. Orphan STARTs stay with the assessment completion (uncertain).
+ */
+function assessmentInterruption(
+  history: DecodedHistory,
+  mandate: MandateRecord,
+  facts: WorkflowFacts,
+  histories: readonly DecodedHistory[],
+): { kind: 'stop'; decision: WorkflowDecision } | { kind: 'clear'; excluded: ReadonlySet<string> } {
+  const currentSpec = facts.currentSpec
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+  const classified = classifyAttempts({
+    histories: [history, ...histories],
+    scan: [history],
+    actions: ['assess-spec'],
+    select: (record) =>
+      currentSpec !== null &&
+      record.payload.action === 'assess-spec' &&
+      sameRef(record.payload.mandate, mandateRef) &&
+      sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),
+  })
+  if (!classified.ok)
+    return {
+      kind: 'stop',
+      decision: { status: 'blocked', reason: 'interruption-invalid', evidence: classified.diagnostics },
+    }
+  const interrupted = classified.value.unresolved.filter((attempt) => attempt.kind === 'interrupted')
+  const gate = interruptionGate({ ok: true, value: { excluded: classified.value.excluded, unresolved: interrupted } })
+  if (gate.kind === 'stop')
+    return {
+      kind: 'stop',
+      decision: { status: 'blocked', reason: 'action-interrupted', evidence: gate.completion.evidence },
+    }
+  return { kind: 'clear', excluded: gate.excluded }
 }
 
 export function assessmentDecision(
@@ -43,7 +88,9 @@ export function assessmentDecision(
   facts: WorkflowFacts,
   histories: readonly DecodedHistory[],
 ): WorkflowDecision | null {
-  const assessments = matchingAssessments(history, mandate, facts)
+  const interruption = assessmentInterruption(history, mandate, facts, histories)
+  if (interruption.kind === 'stop') return interruption.decision
+  const assessments = matchingAssessments(history, mandate, facts, interruption.excluded)
   if (assessments.length === 0) return null
   const accepted = resolveAcceptedSpec(mandate, histories)
   if (!accepted.ok) return { status: 'terminal', reason: 'spec-ambiguous', evidence: accepted.evidence }

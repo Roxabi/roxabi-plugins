@@ -87,6 +87,24 @@ describe('feature recovery through the installed OMP bridge', () => {
       mandate: { recordId: 'mandate-feature-1', kind: 'mandate' },
       exactInputs: { mandateId: 'mandate-feature-1', planActionId: 'act-plan-1' },
     })
+    const implementResults = liveHistory.operations.flatMap((operation) => {
+      const record = operation.record
+      return record?.kind === 'action-receipt' &&
+        record.payload.phase === 'result' &&
+        record.payload.action === 'implement'
+        ? [record]
+        : []
+    })
+    expect(implementResults).toHaveLength(1)
+    expect(implementResults[0]?.payload).toMatchObject({
+      start: { scope: SCOPE, recordId: implementStarts[0]?.recordId, kind: 'action-receipt' },
+      diagnostics: [
+        expect.objectContaining({
+          code: 'action-interrupted',
+          detail: expect.objectContaining({ marker: 'omp-build-host-interruption/2', proof: 'not-dispatched' }),
+        }),
+      ],
+    })
     expect(
       liveHistory.operations.filter(
         (operation) => operation.record?.kind === 'action-receipt' && operation.record.payload.action === 'plan',
@@ -115,20 +133,26 @@ describe('feature recovery through the installed OMP bridge', () => {
       'continue',
       { reference: '#42', control: 'resume' },
     )
-    expect(resumedAction).toMatchObject({ kind: 'blocked', reason: 'action-uncertain' })
+    expect(resumedAction).toMatchObject({ kind: 'blocked', reason: 'action-interrupted' })
     expect(
       history(box).operations.some(
         (operation) => operation.record?.kind === 'operator-control' && operation.record.payload.control === 'resume',
       ),
-    ).toBe(true)
+    ).toBe(false)
 
     const afterResume = coldCheckout(box, 'after-resume')
     const afterResumeCalls = readSim(box).calls.length
     expect(
-      invoke<{ kind: string; reason: string }>(box, afterResume, path.join(box.root, 'home-after-resume'), 'continue', {
-        reference: '#42',
-      }),
-    ).toMatchObject({ kind: 'blocked', reason: 'action-uncertain' })
+      invoke<{ kind: string; confirmed: boolean; reason: string }>(
+        box,
+        afterResume,
+        path.join(box.root, 'home-after-resume'),
+        'continue',
+        {
+          reference: '#42',
+        },
+      ),
+    ).toEqual({ kind: 'paused', confirmed: true, reason: 'paused' })
     expect(effectCalls(box, afterResumeCalls)).toEqual([])
   })
 
@@ -262,7 +286,7 @@ describe('feature recovery through the installed OMP bridge', () => {
     expect(results[0]?.payload).toMatchObject({
       actionId: observed.operationId,
       start: { scope: SCOPE, recordId: start?.recordId, kind: 'action-receipt' },
-      admission: { admitted: false, published: false, reason: 'implementation-admission-refused' },
+      admission: { admitted: false, published: false },
     })
   })
 })

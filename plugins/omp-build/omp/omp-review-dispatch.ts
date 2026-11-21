@@ -6,35 +6,30 @@ import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { createPreparedReviewRunner } from '../roxabi/review-entry'
 import type { PreparedReviewInputs, PrepareReviewInputsOptions } from '../roxabi/review-input-contract.ts'
 import { prepareReviewInputs } from '../roxabi/review-pr-inputs.ts'
-import type { ReviewRootRef } from '../roxabi/uw-action-contract.ts'
+import type { ReviewRootRef, TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { validatePreparedReviewInput, validateReviewInput } from '../skills/feature/workflow-review-input.js'
 import { nextReviewStep } from '../skills/feature/workflow-review-state.js'
 import { hostPluginPin } from './host-plugin-pin.ts'
 import { createHostUwOperations } from './host-uw-operations.ts'
 import { createOmpReviewProduct, hasOwnedFixRun, reviewControllerFor } from './omp-controller'
 import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
-import type { NativeExtension } from './review-runtime/contracts.ts'
+import type { NativeExtension, NativeSuccessor } from './review-runtime/contracts.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
 
 async function prepareInstalledEpicRangeReview(
   pi: NativeExtension,
   review: PreparedEpicReview,
-  onComplete: () => Promise<void>,
+  onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
 ): Promise<void> {
-  let completionInvoked = false
   const publisher: ReviewPublisher = {
     authorize: (context, stage) => review.publisher.authorize(context, stage),
     publishInventory: (prepared, canContinue) => review.publisher.publishInventory(prepared, canContinue),
     publishRawContribution: (prepared, child) => review.publisher.publishRawContribution(prepared, child),
-    completeStage: async (prepared, result, contributions, canContinue) => {
-      if (canContinue === undefined) throw new Error('review-continuation-unfenced')
-      const next = await review.publisher.completeStage(prepared, result, contributions, canContinue)
-      if (!canContinue()) return null
-      if (next === null && !completionInvoked) {
-        completionInvoked = true
-        await onComplete()
-      }
-      return next
+    completeStage: (prepared, result, contributions, canContinue) =>
+      review.publisher.completeStage(prepared, result, contributions, canContinue),
+    afterComplete: async (canContinue) => {
+      const successor = await onComplete(canContinue)
+      return typeof successor === 'function' ? successor : undefined
     },
     publishRequiredStop: (context, stop, options) => review.publisher.publishRequiredStop(context, stop, options),
     stop: (context, reason, result) => review.publisher.stop(context, reason, result),
@@ -43,15 +38,17 @@ async function prepareInstalledEpicRangeReview(
 }
 
 type DefaultReviewOptions = {
-  onComplete?: () => Promise<void>
+  onComplete?: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>
   prepareReview?: typeof prepareReviewInputs
   expansion?: PrepareReviewInputsOptions['expansion']
   scopedGuard?: () => boolean
   signal?: AbortSignal
+  pluginPin?: TrustedHostPluginPin
 }
 
 type ReplacementDispatchOptions = {
   validateReview?: typeof validateReviewInput
+  pluginPin?: TrustedHostPluginPin
 }
 
 /**
@@ -92,7 +89,7 @@ async function dispatchPreparedReplacementReview(
       input.pr.number,
       input.pr.head,
       input.capture.input,
-      { pluginPin: hostPluginPin(), reviewedRoot },
+      { pluginPin: options.pluginPin, reviewedRoot },
     )
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
     return { ok: true }
@@ -119,6 +116,7 @@ async function dispatchDefaultReview(
   options: DefaultReviewOptions = {},
 ): Promise<void> {
   const { onComplete, prepareReview = prepareReviewInputs, scopedGuard, expansion, signal } = options
+  const pluginPin = 'pluginPin' in options ? options.pluginPin : await hostPluginPin(pi, ctx)
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const supplied = args.trim()
   if (supplied !== '' && !/^[1-9]\d*$/.test(supplied))
@@ -130,14 +128,14 @@ async function dispatchDefaultReview(
     cwd: ctx.cwd,
     pr: supplied === '' ? undefined : Number(supplied),
     contextWindow,
-    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal })),
-    pluginPin: hostPluginPin(),
+    operations: await createHostUwOperations(ctx, createOperatorConfirmation(ctx, { signal }), pluginPin),
+    pluginPin,
     expansion,
   })
   if (!prepared.ok)
     throw new Error(`review-input-preparation-refused:${prepared.diagnostics.map((item) => item.code).join(',')}`)
   const input = prepared.value
-  const admission = await nextReviewStep(ctx.cwd, input.pr.number, { reviewing: true })
+  const admission = await nextReviewStep(ctx.cwd, input.pr.number, { reviewing: true, pluginPin })
   if (admission.action !== 'review') throw new Error(`review-not-authorized:${admission.action}`)
   const authorize = async (
     stage: 'initial' | 'recall' | 'synthesis',
@@ -151,10 +149,10 @@ async function dispatchDefaultReview(
     const validation =
       stage === 'initial'
         ? await validatePreparedReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.inputSnapshot, {
-            pluginPin: hostPluginPin(),
+            pluginPin,
           })
         : await validateReviewInput(ctx.cwd, input.pr.number, input.pr.head, input.inputSnapshot.fingerprint, {
-            pluginPin: hostPluginPin(),
+            pluginPin,
             reviewedRoot: root,
           })
     if (!validation.ok) return { ok: false, reason: `${stage}:${validation.reason}` }
@@ -165,7 +163,6 @@ async function dispatchDefaultReview(
     { cwd: ctx.cwd, readAuthor: input.automationLogin, writeAuthor: input.automationLogin },
     authorize,
   )
-  let completionInvoked = false
   const publisher: ReviewPublisher =
     onComplete === undefined
       ? runner
@@ -173,15 +170,11 @@ async function dispatchDefaultReview(
           authorize: (context, stage) => runner.authorize(context, stage),
           publishInventory: (prepared, canContinue) => runner.publishInventory(prepared, canContinue),
           publishRawContribution: (prepared, child) => runner.publishRawContribution(prepared, child),
-          completeStage: async (prepared, result, contributions, canContinue) => {
-            if (canContinue === undefined) throw new Error('review-continuation-unfenced')
-            const next = await runner.completeStage(prepared, result, contributions, canContinue)
-            if (!canContinue()) return null
-            if (next === null && !completionInvoked) {
-              completionInvoked = true
-              await onComplete()
-            }
-            return next
+          completeStage: (prepared, result, contributions, canContinue) =>
+            runner.completeStage(prepared, result, contributions, canContinue),
+          afterComplete: async (canContinue) => {
+            const successor = await onComplete(canContinue)
+            return typeof successor === 'function' ? successor : undefined
           },
           publishRequiredStop: () => runner.publishRequiredStop(),
           stop: (context, reason) => runner.stop(context, reason),

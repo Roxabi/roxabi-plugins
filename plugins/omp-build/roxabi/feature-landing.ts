@@ -1,6 +1,7 @@
 import type { Gh } from '../adapters/github/types.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
 import { landPr } from '../skills/feature/workflow-landing.js'
+import type { LandingStatus } from '../skills/feature/workflow-outcome.js'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import type { Contracts, History, Scope } from './feature-engine.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -15,9 +16,6 @@ type Delivery = {
   issueScope: Scope
 }
 
-/** Actual shape read by featureLandOutcome; no coordinator protocol is added. */
-export type NativeLanding = { status: string; watch?: string }
-
 /** Performs landing admission and returns the untouched native landing outcome. */
 export async function landFeature(input: {
   loaded: Contracts
@@ -30,7 +28,7 @@ export async function landFeature(input: {
   cwd: string
   /** Trusted host composition only. Omit for the ordinary published pin. */
   pluginPin?: import('./uw-action-contract.ts').TrustedHostPluginPin
-}): Promise<ContinueFeatureResult | NativeLanding> {
+}): Promise<ContinueFeatureResult | LandingStatus> {
   if (input.delivery === null) return { kind: 'blocked', reason: 'land-requires-pull-request' }
   const selected = input.loaded.selectApplicableMandate(input.history, input.parents, input.causal)
   if (selected.status !== 'applicable' || selected.mandate === null) {

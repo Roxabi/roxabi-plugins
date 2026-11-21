@@ -1,21 +1,32 @@
-import type { GitHubOptions } from '../dist/contracts.js'
-import { decodeHistory, githubScope, readGitHubHistory } from '../dist/contracts.js'
+import type { Destination } from '../contracts.ts'
+import type { GitHubOptions, Scope } from '../dist/contracts.js'
+import { canonicalValueDigest, decodeHistory, githubScope, readGitHubHistory } from '../dist/contracts.js'
+import { trackPreparationGhOperation } from '../host/preparation-cohort.ts'
 import { runAdmittedCiCorrection } from './fix-ci-execution.ts'
 import type {
   FixActionResult,
   FixIdentity,
   FixRecord,
+  FixTarget,
   NativePort,
+  PublishBinding,
   RecordPublisher,
   ReviewAuthority,
+  TargetResolver,
 } from './fix-contract.ts'
 import { createFixDispositionStore } from './fix-disposition-store.ts'
-import { createIdentity, type FixRun, type FixStart } from './fix-entry-lifecycle.ts'
+import { createIssueAliasReadPort } from './fix-entry-issue-alias.ts'
+import { type FixRun, startFixRun } from './fix-entry-lifecycle.ts'
 import { resolvePublishBinding } from './fix-entry-target-binding.ts'
 import { defaultGh, fail, type Gh, gitResult, object } from './fix-entry-target-core.ts'
 import { createResolver } from './fix-entry-target-resolver.ts'
+import type { FixExecutionFence } from './fix-execution-fence.ts'
 import type { CiCorrectionAdmission } from './fix-mandate-types.ts'
 import type { FixWorkflowRuntime } from './fix-native-dispatch.ts'
+import { observeFixOwnerAdmission } from './fix-owner-admission-observation.ts'
+import { acquireFixOwnerLease } from './fix-owner-lease.ts'
+import { openFreshFixOwner } from './fix-owner-opening.ts'
+import { reserveFixOwner } from './fix-records.ts'
 import { withRoxabiGitHubPolicy } from './github-policy'
 import { createGitHubRecordPublisher } from './github-publisher'
 import type { UwOperations, UwReadPort } from './uw-contract.ts'
@@ -32,6 +43,101 @@ export type AdmittedCiCorrectionEntry = {
   github?: GitHubOptions
   gh?: Gh
 }
+async function admitCiOwner(
+  input: AdmittedCiCorrectionEntry,
+  identity: FixIdentity,
+  runtime: FixWorkflowRuntime,
+  fence: FixExecutionFence,
+  target: FixTarget,
+  binding: PublishBinding & { destination: Destination },
+  scope: Scope,
+  github: GitHubOptions,
+  gh: Gh,
+  resolver: TargetResolver,
+): Promise<FixActionResult<void>> {
+  const uw = input.expectedUw.ownSpec.ref.uw
+  const initial = await observeFixOwnerAdmission({
+    uw,
+    pullRequest: scope,
+    destination: binding.destination,
+    intent: 'fresh',
+    github,
+    reader: input.uw,
+  })
+  if (!initial.ok) return initial
+  if (initial.value.admission.status !== 'fresh') return fail('fix-owner-admission-refused')
+  const acquired = await acquireFixOwnerLease({
+    destination: binding.destination,
+    owner: reserveFixOwner(identity, uw),
+    priorNamespace: initial.value.admission.priorNamespace,
+    fence,
+  })
+  if (!acquired.ok) return acquired
+  const refreshedTarget = await resolver.resolveExplicit(target.target)
+  if (!refreshedTarget.ok) return refreshedTarget
+  if (refreshedTarget.value === null || canonicalValueDigest(refreshedTarget.value) !== canonicalValueDigest(target))
+    return fail('fix-target-changed')
+  const refreshedBinding = await resolvePublishBinding(input.cwd, gh, target.repository, refreshedTarget.value)
+  if (!refreshedBinding.ok) return refreshedBinding
+  if (canonicalValueDigest(refreshedBinding.value) !== canonicalValueDigest(binding))
+    return fail('fix-publish-binding-changed')
+  runtime.openOwner = ({ target: preparedTarget, manifest, reservation }) =>
+    openFreshFixOwner({
+      identity,
+      fence,
+      uw,
+      target: preparedTarget,
+      cwd: input.cwd,
+      publishBinding: refreshedBinding.value,
+      reader: input.uw,
+      github,
+      manifest,
+      reservation,
+      afterClose: initial.value.admission.status === 'fresh' ? initial.value.admission.afterClose : null,
+    })
+  return { ok: true, value: undefined }
+}
+
+function createCiPublisher(
+  input: AdmittedCiCorrectionEntry,
+  scope: Scope,
+  github: GitHubOptions,
+  runtime: FixWorkflowRuntime,
+): RecordPublisher {
+  const rawPublisher = createGitHubRecordPublisher(scope, github, null)
+  return {
+    publish: (record, canPublish) => {
+      const publishRecord = async (): Promise<FixActionResult<void>> => {
+        const mayPublish = () => (canPublish?.() ?? true) && (runtime.executionFence?.rootCurrent() ?? true)
+        if (!mayPublish()) return fail('publication-ownership-revoked')
+        const original = input.expectedUw.ownSpec.ref.uw
+        const external =
+          original.repository !== scope.repository || original.target !== scope.target
+            ? [decodeHistory(await readGitHubHistory(original, github))]
+            : []
+        const saved = await rawPublisher.publish(record, external, mayPublish)
+        return saved.ok ? { ok: true, value: undefined } : saved
+      }
+      return runtime.executionFence === undefined
+        ? publishRecord()
+        : runtime.executionFence.trackPublication(record, publishRecord)
+    },
+  }
+}
+
+async function readCiRepository(input: AdmittedCiCorrectionEntry, gh: Gh): Promise<FixActionResult<string>> {
+  const repository = await gitResult(input.cwd, ['remote', 'get-url', 'origin'])
+  if (repository.code !== 0) return fail(`fix-repository-unreadable:${repository.stderr.trim()}`)
+  try {
+    const repo = object(JSON.parse(await gh(input.cwd, ['repo', 'view', '--json', 'nameWithOwner'])))
+    if (repo === null || typeof repo.nameWithOwner !== 'string' || repo.nameWithOwner.length === 0)
+      return fail('fix-repository-unreadable')
+    return { ok: true, value: repo.nameWithOwner }
+  } catch (error) {
+    return fail(`fix-repository-unreadable:${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 export async function runAdmittedCiCorrectionEntry(
   input: AdmittedCiCorrectionEntry,
   identity: FixIdentity,
@@ -39,38 +145,40 @@ export async function runAdmittedCiCorrectionEntry(
 ): Promise<FixActionResult<FixRecord>> {
   if (input.reference.trim().length === 0) return fail('fix-target-required')
   if (input.attributionRecordId.trim().length === 0) return fail('ci-correction-evidence-missing')
-  const gh = input.gh ?? defaultGh
-  const repository = await gitResult(input.cwd, ['remote', 'get-url', 'origin'])
-  if (repository.code !== 0) return fail(`fix-repository-unreadable:${repository.stderr.trim()}`)
-  let canonicalRepository: string
-  try {
-    const repo = object(JSON.parse(await gh(input.cwd, ['repo', 'view', '--json', 'nameWithOwner'])))
-    if (repo === null || typeof repo.nameWithOwner !== 'string' || repo.nameWithOwner.length === 0)
-      return fail('fix-repository-unreadable')
-    canonicalRepository = repo.nameWithOwner
-  } catch (error) {
-    return fail(`fix-repository-unreadable:${error instanceof Error ? error.message : String(error)}`)
-  }
-  const resolver = createResolver(input.cwd, gh, canonicalRepository)
-  const target = await resolver.resolveExplicit(input.reference)
+  const suppliedGh = input.gh
+  const gh: Gh =
+    suppliedGh === undefined ? defaultGh : (cwd, args) => trackPreparationGhOperation(args, () => suppliedGh(cwd, args))
+  const repository = await readCiRepository(input, gh)
+  if (!repository.ok) return repository
+  const github = withRoxabiGitHubPolicy(input.github ?? { cwd: input.cwd, gh })
+  const resolver = createResolver(input.cwd, gh, repository.value, createIssueAliasReadPort(github))
+  const resolved = await resolver.resolveExplicit(input.reference)
+  if (!resolved.ok) return resolved
+  const target = resolved.value
   if (target === null) return fail('fix-target-required')
+  const requested = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#?([1-9][0-9]*)$/.exec(input.reference.trim())
+  if (target.kind !== 'pull-request' || requested === null || target.number !== Number(requested[1]))
+    return fail('ci-correction-target-mismatch')
   const publishBinding = await resolvePublishBinding(input.cwd, gh, target.repository, target)
   if (!publishBinding.ok) return publishBinding
-  const github = withRoxabiGitHubPolicy(input.github ?? { cwd: input.cwd, gh })
   const scope = githubScope(target.repository, target.number)
-  const rawPublisher = createGitHubRecordPublisher(scope, github, null)
-  const publisher: RecordPublisher = {
-    publish: async (record, canPublish) => {
-      const original = input.expectedUw.ownSpec.ref.uw
-      const external =
-        original.repository !== scope.repository || original.target !== scope.target
-          ? [decodeHistory(await readGitHubHistory(original, github))]
-          : []
-      const saved = await rawPublisher.publish(record, external, canPublish)
-      return saved.ok ? { ok: true, value: undefined } : saved
-    },
-  }
+  const publisher = createCiPublisher(input, scope, github, runtime)
   const readHistory = () => readGitHubHistory(scope, github).then(decodeHistory)
+  if (runtime.executionFence !== undefined) {
+    const admitted = await admitCiOwner(
+      input,
+      identity,
+      runtime,
+      runtime.executionFence,
+      target,
+      publishBinding.value,
+      scope,
+      github,
+      gh,
+      resolver,
+    )
+    if (!admitted.ok) return admitted
+  }
   return runAdmittedCiCorrection(
     {
       cwd: input.cwd,
@@ -100,83 +208,9 @@ export async function runAdmittedCiCorrectionEntry(
   )
 }
 export function startAdmittedCiCorrection(input: AdmittedCiCorrectionEntry): FixRun {
-  const identity = createIdentity()
-  const started = Promise.withResolvers<FixStart>()
-  const completed = Promise.withResolvers<FixActionResult<FixRecord>>()
-  const controller = new AbortController()
-  let inhibit: 'pause' | null = null
-  let continueBound: (() => Promise<FixActionResult<void>>) | null = null
-  let stopped = false
-  let startSettled = false
-  let completionSettled = false
-  let activeBatch: Parameters<NativePort['announce']>[0] | null = null
-  const settleStarted = (value: FixStart) => {
-    if (!startSettled) {
-      startSettled = true
-      started.resolve(value)
-    }
-  }
-  const settleCompletion = (value: FixActionResult<FixRecord>) => {
-    if (!completionSettled) {
-      completionSettled = true
-      completed.resolve(value)
-    }
-  }
-  const runtime: FixWorkflowRuntime = {
-    signal: controller.signal,
-    uw: input.operations,
-    onBatch(batch) {
-      activeBatch = batch
-    },
-    onStarted() {
-      if (!stopped) settleStarted({ status: 'accepted', runId: identity.runId, operationId: identity.operationId })
-    },
-    async beforeContinuation() {
-      if (inhibit !== null || controller.signal.aborted) return fail('fix-mandate-refused:unconfirmed')
-      if (continueBound === null) return fail('fix-mandate-authority-unavailable')
-      const allowed = await continueBound()
-      return inhibit !== null || controller.signal.aborted ? fail('fix-mandate-refused:unconfirmed') : allowed
-    },
-    bindContinuation(check) {
-      continueBound = check
-    },
-  }
-  void runAdmittedCiCorrectionEntry(input, identity, runtime)
-    .then((result) => {
-      if (stopped) return
-      settleStarted({ status: 'terminal', result })
-      settleCompletion(result)
-    })
-    .catch((error) => {
-      if (stopped) return
-      const result = fail<FixRecord>(`fix-run-failed:${error instanceof Error ? error.message : String(error)}`)
-      settleStarted({ status: 'terminal', result })
-      settleCompletion(result)
-    })
-  return {
-    runId: identity.runId,
-    operationId: identity.operationId,
-    started: started.promise,
-    completion: completed.promise,
-    terminal: completed.promise.then((result) =>
-      result.ok && result.value.kind === 'fix-result'
-        ? { status: 'complete', recordId: result.value.recordId, kind: 'fix-result' }
-        : { status: 'stopped', diagnostics: result.ok ? ['fix-terminal-not-result'] : result.diagnostics },
-    ),
-    async stop(reason) {
-      if (stopped) return
-      inhibit = 'pause'
-      stopped = true
-      let archival: Promise<void> | null = null
-      try {
-        if (activeBatch !== null) archival = input.native.stopOwned(activeBatch, reason)
-      } finally {
-        controller.abort()
-        const result = fail<FixRecord>(`fix-run-interrupted-cleanup-unproven:${reason}`)
-        settleStarted({ status: 'terminal', result })
-        settleCompletion(result)
-      }
-      if (archival !== null) await archival
-    },
-  }
+  return startFixRun({
+    native: input.native,
+    operations: input.operations,
+    drive: (identity, runtime) => runAdmittedCiCorrectionEntry(input, identity, runtime),
+  })
 }

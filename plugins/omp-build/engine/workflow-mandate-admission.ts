@@ -14,12 +14,12 @@ import {
   mandatesOf,
   refused,
   successorOf,
-  unliftedPause,
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
 import { historyRefusal } from './workflow-mandate-history.ts'
 import { epicParentProblem } from './workflow-parent.ts'
+import { unliftedPause } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 

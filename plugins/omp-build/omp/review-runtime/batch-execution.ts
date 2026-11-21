@@ -1,4 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { admitFixBatch } from '../../roxabi/fix-fence-batches.ts'
 import type { NativeBatch, NativeExecutionObservation, NativeExtension } from './contracts'
 import type { NativeBatchController } from './controller'
 import { captureNativeRoot, executeNativeBatch } from './native-sdk-adapter.ts'
@@ -52,6 +53,7 @@ async function observeExecution(
   } catch (error) {
     observation.errors.push(error instanceof Error ? error.message : String(error))
   }
+  if (signal?.aborted === true) controller.noteExecutionAborted(batch)
   if (!current()) observation.errors.push('native root generation changed')
   try {
     if (!(await taskMaskCurrent(controller, batch)))
@@ -79,21 +81,23 @@ export async function executeOwnedBatch(
     throw new Error('native task mask is unavailable or drifted')
   }
   const rootOwner = await captureNativeRoot(ctx)
-  if (!rootOwner || !controller.admit(batch, toolCallId, ctx, rootOwner.current)) {
+  if (!rootOwner || !admitFixBatch(batch, () => controller.admit(batch, toolCallId, ctx, rootOwner.current))) {
     await controller.stopOwned(batch, 'native-root-or-action-unavailable')
     throw new Error('native root or action unavailable')
   }
+  let compact: ReturnType<NativeBatchController['prepareOwnedResult']>
+  let settlement: Promise<void>
   try {
-    try {
-      const observation = await observeExecution(pi, controller, batch, toolCallId, ctx, signal, rootOwner.current)
-      const compact = controller.prepareOwnedResult(observation, ctx)
-      controller.queueOwnedSettlement(observation)
-      return compact
-    } finally {
-      controller.finishExecution(batch)
-    }
+    const observation = await observeExecution(pi, controller, batch, toolCallId, ctx, signal, rootOwner.current)
+    compact = controller.prepareOwnedResult(observation, ctx)
+    controller.queueOwnedSettlement(observation)
+    settlement = controller.settlementFor(batch)
   } catch (error) {
     await controller.stopOwned(batch, 'native-result-publication-failed')
     throw error
+  } finally {
+    controller.finishExecution(batch)
   }
+  await settlement
+  return compact
 }

@@ -8,8 +8,10 @@ import type { Result } from './result.ts'
 import type { OperatorConfirmationEvidence } from './uw-identity-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
-import { workflowContextNegative, workflowContextTerminal } from './workflow-context-terminal.ts'
-import { type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
+import { classifyAttempts } from './workflow-action-interruption.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import { excludedReceipt, type MandateRecord, mandateScope, recordsOf } from './workflow-control.ts'
 import { evaluateCandidate } from './workflow-material-assessment.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
 import {
@@ -76,6 +78,7 @@ function matchingAssessments(
   input: MaterialAcceptanceInput,
   mandate: ExternalRecordRef,
   accepted: AcceptedOwnSpec,
+  excluded: ReadonlySet<string>,
   requiredAssessment?: ExternalRecordRef,
 ): Result<{
   candidates: Array<{ record: AssessResultRecord; classification: AssessmentClassification }>
@@ -85,7 +88,8 @@ function matchingAssessments(
   let stale = false
   for (const record of records) {
     if (!isCurrentCandidate(record, input, mandate, requiredAssessment)) continue
-    if (supersededContext(record, input, requiredAssessment)) continue
+    if (excludedReceipt(record, excluded)) continue
+    if (supersededContext(record, input, excluded, requiredAssessment)) continue
     const outcome = evaluateCandidate(record, input.histories, mandate, accepted)
     if (!outcome.ok) return outcome
     if (outcome.value.status === 'stale') stale = true
@@ -97,13 +101,14 @@ function matchingAssessments(
 function supersededContext(
   record: AssessResultRecord,
   input: MaterialAcceptanceInput,
+  excluded: ReadonlySet<string>,
   requiredAssessment?: ExternalRecordRef,
 ): boolean {
   if (requiredAssessment !== undefined || !workflowContextNegative(record)) return false
   const home = input.histories.find(
     (history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target,
   )
-  return home !== undefined && workflowContextTerminal(home, 'assess-spec') === 'clear'
+  return home !== undefined && workflowContextTerminal(home, 'assess-spec', undefined, excluded) === 'clear'
 }
 
 function selectMaterialAcceptance(
@@ -127,7 +132,16 @@ function selectMaterialAcceptance(
       'Material acceptance operation ID is already present in mandate history',
     )
   const mandate: ExternalRecordRef = { scope, recordId: input.mandate.recordId, kind: 'mandate' }
-  const matches = matchingAssessments(records, input, mandate, accepted.spec, requiredAssessment)
+  const attempts = classifyAttempts({ histories: input.histories, scan: [home], actions: ['assess-spec'] })
+  if (!attempts.ok) return attempts
+  const matches = matchingAssessments(
+    records,
+    input,
+    mandate,
+    accepted.spec,
+    attempts.value.excluded,
+    requiredAssessment,
+  )
   if (!matches.ok) return matches
   const { candidates, stale } = matches.value
 

@@ -12,52 +12,167 @@ permissions:
   checks: read
   pull-requests: read
 
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.run_attempt == '1' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  ci:
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+  plan:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci-timings/timings.json
+          key: ci-timings-restore-only-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ci-test-timings-
+      - name: List and partition tests
+        id: plan
+        run: |
+          bunx vitest list --filesOnly --json > "$RUNNER_TEMP/test-list.json"
+          matrix=$(bun run tools/ci-test-shards.ts plan "$RUNNER_TEMP/test-list.json" .ci-timings/timings.json "$RUNNER_TEMP/plan/plan.json")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-plan
+          path: ${{ runner.temp }}/plan/plan.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  checks:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
       - name: Verify bun.lock is committed
         run: git ls-files --error-unmatch bun.lock > /dev/null
-      - run: bun install --frozen-lockfile
+      - name: Install dependencies
+        id: install
+        if: ${{ !cancelled() }}
+        run: bun install --frozen-lockfile
       - name: Verify omp-build distribution
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run verify:omp-build-distribution
       - name: Check omp-build quality
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run quality:omp-build
       - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun lint
       - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun typecheck
-      # Install before the gate below, which needs actionlint on PATH.
-      - name: Install actionlint (workflow schema gate)
+      - name: Install actionlint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/actionlint"
           curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
             | tar xz -C "${RUNNER_TEMP}/actionlint" actionlint
           echo "${RUNNER_TEMP}/actionlint" >> "$GITHUB_PATH"
-      # Schema gate for every committed workflow. `actionlint` with no argument
-      # walks .github/workflows itself; passing the directory is an error.
-      # release.yml matters most — it is hand-written and deliberately ungoverned
-      # by a generator or an N11 byte gate (ADR-021), so this is the only thing
-      # standing between a typo and a dead release run.
-      - name: Lint workflows (actionlint)
+      - name: Lint workflows
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: actionlint
-      - name: Test (vitest)
-        run: bun run test
+      - name: Test unit project
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          CI_TEST_REPORT: ${{ runner.temp }}/unit/report.json
+        run: bunx vitest run --project unit --reporter=default --reporter=./tools/vitest-ci-report.ts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: unit
+          path: ${{ runner.temp }}/unit/report.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
       - name: Verify action pins resolve
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun run tools/verify-action-pins.ts
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         with:
           python-version: '3.12'
-      - run: pip install pytest==8.3.5 pyyaml
-      - name: Test (pytest)
+      - name: Install pytest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pip install pytest==8.3.5 pyyaml
+      - name: Test pytest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python3 -m pytest tests/ -v
       - name: Validate plugins
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python3 tools/validate_plugins.py
+
+  integration:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: plan
+    name: integration (${{ matrix.shard }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Record runner hardware
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          echo "cpus=$(nproc)"
+      - name: Test integration shard
+        env:
+          CI_INTEGRATION_FILES: ${{ toJSON(matrix.files) }}
+          CI_TEST_REPORT: ${{ runner.temp }}/integration/report.json
+        run: bunx vitest run --project integration --reporter=default --reporter=./tools/vitest-ci-report.ts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: integration-${{ matrix.shard }}
+          path: ${{ runner.temp }}/integration/report.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  ci:
+    needs: [plan, checks, integration]
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all jobs to succeed
+        env:
+          PLAN: ${{ needs.plan.result }}
+          CHECKS: ${{ needs.checks.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: '[[ "$PLAN" == success && "$CHECKS" == success && "$INTEGRATION" == success ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/reports
+      - name: Verify complete coverage and record timings
+        run: bun run tools/ci-test-shards.ts verify "$RUNNER_TEMP/reports/test-plan/plan.json" "$RUNNER_TEMP/reports" .ci-timings/timings.json
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci-timings/timings.json
+          key: ci-test-timings-${{ github.run_id }}-${{ github.run_attempt }}

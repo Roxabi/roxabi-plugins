@@ -10,6 +10,8 @@ import { continueWithParentCoverage } from '../roxabi/feature-coverage-continuat
 import { deliverFeatureResult, runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
 import { featureErrorMessage } from '../roxabi/feature-presentation.ts'
+import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
+import { hostPluginPin } from './host-plugin-pin.ts'
 import { resolveFeatureUw } from './host-uw-operations.ts'
 import { reportFeatureTerminalStatus, reviewControllerFor } from './omp-controller'
 import {
@@ -72,9 +74,10 @@ async function featureCommandUw(
   operator: CommandOperatorPort,
   options: FeatureCommandComposition['options'],
   control: string,
+  pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<FeatureCommandHost['uw']> {
   if (control === 'pause' || options.featureWorkflow !== undefined) return undefined
-  return resolveFeatureUw(ctx, operator, options.uwOperations, options.pluginPin)
+  return resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin)
 }
 
 async function runClassifiedFeatureCommand(
@@ -86,16 +89,18 @@ async function runClassifiedFeatureCommand(
   controller: NativeBatchController,
   uw: FeatureCommandHost['uw'],
   report: FeatureOperationReportGuard,
+  pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<void> {
   await runInstalledFeatureCommand(
     args,
     createFeatureCommandHost(
       composition,
-      { ctx, operator, originalArgs: args },
+      { ctx, operator, originalArgs: args, pluginPin },
       classifyingWorkflow(workflow, () => settleFeatureUwIntake(composition.pi, operator)),
       controller,
       uw,
       report,
+      pluginPin,
     ),
   )
 }
@@ -113,7 +118,7 @@ export async function runFeatureCommand(
     return
   }
   const operator = createOperatorConfirmation(ctx)
-  operator.progress('/feature')
+  operator.progress(parsed.control === 'init' ? '/feature init' : `/feature ${parsed.reference}`)
   const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
   const report = (message: string) => {
     if (!reporting.isCurrent()) return
@@ -131,15 +136,26 @@ export async function runFeatureCommand(
       }
       // Read-only from here, before any await, until the source is classified.
       beginFeatureUwIntake(pi, operator, ctx)
+      const pluginPin = await hostPluginPin(pi, ctx)
       const workflow = await loadInstalledFeatureWorkflow(report, options)
       if (!ownsFeatureUwOperation(pi, operator)) return
       if (workflow === undefined) {
         cancelFeatureUwOperation(pi, operator)
         return
       }
-      const uw = await featureCommandUw(ctx, operator, options, parsed.control)
+      const uw = await featureCommandUw(ctx, operator, options, parsed.control, pluginPin)
       if (!ownsFeatureUwOperation(pi, operator)) return
-      await runClassifiedFeatureCommand(args, composition, ctx, operator, workflow, controller, uw, reporting)
+      await runClassifiedFeatureCommand(
+        args,
+        composition,
+        ctx,
+        operator,
+        workflow,
+        controller,
+        uw,
+        reporting,
+        pluginPin,
+      )
     } catch (error) {
       canReportFailure = reporting.captureFailure()
       cancelFeatureUwOperation(pi, operator)
@@ -193,11 +209,12 @@ export async function continueFramedFeature(
     }
     const host = createFeatureCommandHost(
       composition,
-      { ctx, operator, originalArgs: null },
+      { ctx, operator, originalArgs: null, pluginPin: continuation.pluginPin },
       workflow,
       controller,
       continuation.uw,
       reporting,
+      continuation.pluginPin,
     )
     const result = await workflow.continueFeature(continuation)
     if (!ownsFeatureUwOperation(pi, operator)) return

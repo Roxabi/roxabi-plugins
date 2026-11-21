@@ -33,15 +33,25 @@ export async function invokeDispositionPartition(cwd: string, broken: boolean): 
     await driver.settle(reviewInitialData)
     const scope = { repository: REVIEW_SCOPE.repository, target: 'acme/app#7' }
     const before = decodeHistory(await readGitHubHistory(scope, { cwd, readAuthor: 'operator' }))
-    await driver.settle((task) => {
-      const judgment = reviewDecision(task.task)
-      if (!broken) return judgment
-      if (!('causes' in judgment) || !Array.isArray(judgment.causes)) throw new Error('review-fixture-cause-missing')
-      const cause = judgment.causes[0]
-      if (cause === null || typeof cause !== 'object' || Array.isArray(cause))
-        throw new Error('review-fixture-cause-missing')
-      return { ...judgment, causes: [{ ...cause, findingIds: ['unknown-finding'] }] }
-    })
+    let settlementError: unknown = null
+    try {
+      await driver.settle((task) => {
+        const judgment = reviewDecision(task.task)
+        if (!broken) return judgment
+        if (!('causes' in judgment) || !Array.isArray(judgment.causes)) throw new Error('review-fixture-cause-missing')
+        const cause = judgment.causes[0]
+        if (cause === null || typeof cause !== 'object' || Array.isArray(cause))
+          throw new Error('review-fixture-cause-missing')
+        return { ...judgment, causes: [{ ...cause, findingIds: ['unknown-finding'] }] }
+      })
+    } catch (error) {
+      if (!broken || !(error instanceof AggregateError)) throw error
+      settlementError = {
+        message: error.message,
+        errors: error.errors.map((item: unknown) => (item instanceof Error ? item.message : String(item))),
+        causeIsPrimary: error.cause === error.errors[0],
+      }
+    }
     const after = decodeHistory(await readGitHubHistory(scope, { cwd, readAuthor: 'operator' }))
     const origin = await reader.readUw(REVIEW_SCOPE)
     return {
@@ -50,6 +60,7 @@ export async function invokeDispositionPartition(cwd: string, broken: boolean): 
       originHistories: origin.histories.map(observeHistory),
       before: observeHistory(before),
       after: observeHistory(after),
+      settlementError,
       diagnostics: driver.diagnostics,
       active: driver.controller.active(),
       fixRun: driver.fixRun() === undefined ? null : { runId: driver.fixRun()?.runId },

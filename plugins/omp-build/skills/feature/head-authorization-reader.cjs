@@ -2,6 +2,8 @@
 const { execFile } = require('node:child_process')
 const { promisify } = require('node:util')
 const core = require('../../vendor/kit-head-authorization/index.cjs')
+const { AUTH_COMMENT_QUERY } = require('../../host/preparation-graphql.cjs')
+const { variablesNext, commentsNext } = require('./head-authorization-pagination.cjs')
 const execFileAsync = promisify(execFile)
 const positive = (value) => Number.isSafeInteger(value) && value > 0
 const sha = (value) => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
@@ -84,33 +86,6 @@ function collectVariables(items, seen, names, variables) {
     if (names.includes(variable.name)) variables[variable.name] = variable.value
   }
 }
-function validateVariablesNext(value, root, page) {
-  const url = new URL(value)
-  if (
-    url.protocol !== 'https:' ||
-    !url.pathname.endsWith(`/${root}/actions/variables`) ||
-    url.searchParams.get('per_page') !== '100' ||
-    url.searchParams.get('page') !== String(page + 1) ||
-    [...url.searchParams.keys()].length !== 2
-  )
-    throw new Error('invalid variables next page')
-}
-function variablesNext(headers, root, page) {
-  const lines = headers.split(/\r?\n/).filter((line) => /^link:/i.test(line))
-  if (lines.length > 1) throw new Error('ambiguous variables pagination')
-  let next = false
-  if (lines.length) {
-    for (const link of lines[0].slice(lines[0].indexOf(':') + 1).split(',')) {
-      const match = link.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/)
-      if (!match) throw new Error('invalid variables pagination link')
-      if (match[2] !== 'next') continue
-      if (next) throw new Error('duplicate variables pagination link')
-      validateVariablesNext(match[1], root, page)
-      next = true
-    }
-  }
-  return next
-}
 async function policyFromRepository({ cwd, gh, repo } = {}) {
   repo = repo || (await resolveRepository({ cwd, gh }))
   const root = route(repo)
@@ -153,8 +128,6 @@ function checkPolicy(policy) {
   )
     throw new Error('invalid authorization policy')
 }
-const query =
-  'query($id: ID!) { node(id: $id) { ... on IssueComment { id fullDatabaseId lastEditedAt repository { fullDatabaseId } pullRequest { fullDatabaseId number } } } }'
 async function readScope({ cwd, gh, root, prNumber, policy }) {
   const repository = await json(cwd, gh, ['api', root])
   const pr = await json(cwd, gh, ['api', `${root}/pulls/${prNumber}`])
@@ -182,30 +155,6 @@ async function readScope({ cwd, gh, root, prNumber, policy }) {
     authorId: pr.user.id,
   }
   return scope
-}
-function commentsNext(headers, root, prNumber, page) {
-  const lines = headers.split(/\r?\n/).filter((line) => /^link:/i.test(line))
-  if (lines.length > 1) throw new Error('ambiguous pagination headers')
-  if (!lines.length) return false
-  const links = lines[0].slice(lines[0].indexOf(':') + 1).split(',')
-  let next = false
-  for (const link of links) {
-    const match = link.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/)
-    if (!match) throw new Error('invalid pagination link')
-    if (match[2] !== 'next') continue
-    if (next) throw new Error('duplicate pagination link')
-    const url = new URL(match[1])
-    if (
-      url.protocol !== 'https:' ||
-      !url.pathname.endsWith(`/${root}/issues/${prNumber}/comments`) ||
-      url.searchParams.get('per_page') !== '100' ||
-      url.searchParams.get('page') !== String(page + 1) ||
-      [...url.searchParams.keys()].length !== 2
-    )
-      throw new Error('invalid next page')
-    next = true
-  }
-  return next
 }
 async function readComments({ cwd, gh, root, prNumber }) {
   const comments = []
@@ -245,7 +194,14 @@ async function commentProofs({ cwd, gh, stream, scope, prNumber }) {
   const proofs = {}
   for (const comment of stream.slice(-2)) {
     if (typeof comment.node_id !== 'string' || !comment.node_id) throw new Error('missing comment node ID')
-    const result = await json(cwd, gh, ['api', 'graphql', '-f', `query=${query}`, '-f', `id=${comment.node_id}`])
+    const result = await json(cwd, gh, [
+      'api',
+      'graphql',
+      '-f',
+      `query=${AUTH_COMMENT_QUERY}`,
+      '-f',
+      `id=${comment.node_id}`,
+    ])
     const node = result.data?.node
     if (
       !node ||

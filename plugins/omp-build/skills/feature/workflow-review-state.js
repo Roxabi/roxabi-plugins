@@ -50,7 +50,7 @@ export function reviewStep(records, { head, ciFailed = false }) {
   return { action: 'review', reason: 'no-verdict', reviews }
 }
 
-export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
+export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh, expectedHead, expectedReviewId } = {}) {
   const history = await readReviewHistory(cwd, pr, ghFn)
   const cited = await readReviewInputHistories(history, { cwd, gh: ghFn })
   if (!cited.ok) throw new Error(`cited-history-unreadable:${cited.diagnostics.map((item) => item.code).join(',')}`)
@@ -62,6 +62,12 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
   const summary = reviewRecords(history, { catalogues, externalHistories: cited.value })
   if (!summary.ok) throw reviewRefusal(summary)
   const gate = await readGate(cwd, pr, ghFn)
+  if (
+    (expectedHead !== undefined && gate.headRefOid !== expectedHead) ||
+    (expectedReviewId !== undefined && summary.value.reviewId !== expectedReviewId)
+  ) {
+    throw new Error('observed CI stop review or head changed')
+  }
   if (!isCommitSha(gate.headRefOid) || summary.value.head !== gate.headRefOid || !approves(summary.value.verdict))
     throw new Error('required CI stop is no longer bound to a current approving review')
   const state = deriveReviewState(
@@ -107,10 +113,10 @@ export async function persistObservedCiStop(cwd, pr, { gh: ghFn = gh } = {}) {
   return true
 }
 
-async function stableArmReview(cwd, number, records, gate, ciFailed, ghFn, gitFn) {
+async function stableArmReview(cwd, number, records, gate, ciFailed, ghFn, gitFn, pluginPin) {
   const base = await resolveLandingBase(cwd, number, ghFn, gitFn)
   if (base.refusal) return { policy: 'unarmed' }
-  const inputFresh = await hasFreshReviewInput(cwd, number, records, { gh: ghFn, git: gitFn })
+  const inputFresh = await hasFreshReviewInput(cwd, number, records, { gh: ghFn, git: gitFn, pluginPin })
   const lastHead = await readHeadRefOid(cwd, number, ghFn)
   const currentGate = { ...gate, headRefOid: lastHead }
   if (!inputFresh || lastHead !== records.head) {
@@ -161,13 +167,13 @@ async function selectReviewStep(cwd, pr, ciFailed, ghFn) {
   return { number, records, gate, step, failure, policy }
 }
 
-async function refreshApprovedReviewArm(cwd, selected, ciFailed, reviewing, ghFn, gitFn) {
+async function refreshApprovedReviewArm(cwd, selected, ciFailed, reviewing, ghFn, gitFn, pluginPin) {
   if (!selected.records || selected.gate?.state !== 'OPEN' || selected.policy === 'unarmed' || reviewing) {
     return selected
   }
   try {
     const records = await requiredReviewRecords(cwd, selected.number, { gh: ghFn })
-    const result = await stableArmReview(cwd, selected.number, records, selected.gate, ciFailed, ghFn, gitFn)
+    const result = await stableArmReview(cwd, selected.number, records, selected.gate, ciFailed, ghFn, gitFn, pluginPin)
     return {
       ...selected,
       records,
@@ -214,13 +220,17 @@ async function enforceSelectedReviewGate(cwd, selected, reviewing, ghFn) {
   return { ...selected.step, ...(receipt.disarmed && { disarmed: true, barrier: receipt.barrier }) }
 }
 
-export async function nextReviewStep(cwd, pr, { ciFailed = false, reviewing = false, gh: ghFn = gh, git: gitFn } = {}) {
+export async function nextReviewStep(
+  cwd,
+  pr,
+  { ciFailed = false, reviewing = false, gh: ghFn = gh, git: gitFn, pluginPin } = {},
+) {
   if (reviewing) {
     const number = await resolveReviewPr(cwd, pr, { gh: ghFn })
     await disarmReviewedBeforePush(cwd, number, { gh: ghFn })
   }
   const selected = await selectReviewStep(cwd, pr, ciFailed, ghFn)
-  const refreshed = await refreshApprovedReviewArm(cwd, selected, ciFailed, reviewing, ghFn, gitFn)
+  const refreshed = await refreshApprovedReviewArm(cwd, selected, ciFailed, reviewing, ghFn, gitFn, pluginPin)
   const result = await enforceSelectedReviewGate(cwd, refreshed, reviewing, ghFn)
   const persisted = await persistSelectedCiStop(cwd, refreshed, ciFailed, ghFn, gitFn)
   if (persisted.failure) throw persisted.failure

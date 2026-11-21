@@ -310,6 +310,14 @@ _Avoid_: a Markdown review protocol, R-dev-review as the skill name, code-review
 The native correction that applies each established `fix-original` cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Every cause receives its evidence-backed disposition; pending blocking causes remain blocking, sisters require exact operator confirmation and reports stay on their original UW. A failed correction retains its decision and execution evidence; it is not silently reported or filed. A correction never lands.
 _Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, automatic issue filing, picking a fix from a finding's solutions
 
+**Correction owner**:
+The accountable holder of an admitted correction attempt. Transferring ownership does not replace its correction request or decision, reset a bound, or establish physical cessation.
+_Avoid_: the request itself, an agent session, a retry allowance, proof that every writer has ended
+
+**Bounded correction recovery**:
+An operator-confirmed transition for an interrupted correction whose owner proves it stopped before native execution or correction-plan entry, with its owned preparation effects accounted for. It can neutrally close a publication or predecision attempt, or transfer an unstarted review-bound request and decision without replacing them.
+_Avoid_: resuming a partly executed plan, post-push completion, a free lock as permission, ordinary task completion as physical cessation
+
 **Root cause**:
 The shared mechanism behind one or more review findings, stated with its one plan: mechanism, fix, failure scenario, restored behaviour, affected paths, proof and findings. Named after the review, before any edit. Its cited necessity, urgency and size determine the cause disposition; a finding label alone does not authorize execution.
 _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions

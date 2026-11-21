@@ -3,7 +3,13 @@ import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Result } from '../engine/result.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
-import type { RecordInputRef, ReviewRootRef, UwActionRequest } from './uw-action-contract.ts'
+import type {
+  ActionSubject,
+  CorrectionRootRef,
+  RecordInputRef,
+  ReviewRootRef,
+  UwActionRequest,
+} from './uw-action-contract.ts'
 import { field, inventoryIdsOf } from './uw-action-record-fields.ts'
 import { actionFailure } from './uw-action-result.ts'
 import { type IntegrationStageObservation, refuseOutsideStage } from './uw-action-stage-closure.ts'
@@ -11,6 +17,7 @@ import { cites } from './uw-record-cites.ts'
 
 /** Only populated by the authenticated contribution resolver, never by the command envelope. */
 export type VerifiedExpansionRoot = { rootAttemptId: string; negativeRef?: RecordInputRef }
+export type CorrectionStageContext = Readonly<{ subject: ActionSubject; correctionRoot: CorrectionRootRef | null }>
 
 function identityKey(repository: string, target: string, kind: string, recordId: string): string {
   return [repository, target, kind, recordId].join('\0')
@@ -217,6 +224,7 @@ function rootedAttempts(
 
 export function assertCurrentOutputClosure(
   request: UwActionRequest,
+  stage: CorrectionStageContext,
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
   normative: readonly RecordInputRef[],
@@ -227,8 +235,8 @@ export function assertCurrentOutputClosure(
   const records = histories.flatMap((history) => recordsOf(history))
   const { roots, inventories, scope } = rootedAttempts(records, request, reviewedRoot, expansionRoot)
   const outputs = ownedOutputs(records, roots, inventories, scope)
-  const stage = refuseOutsideStage(request, outputs, histories, catalogues, integration)
-  if (!stage.ok) return stage
+  const stageResult = refuseOutsideStage(request, stage, outputs, histories, catalogues, integration)
+  if (!stageResult.ok) return stageResult
   const checkedRequest =
     expansionRoot?.negativeRef === undefined
       ? request

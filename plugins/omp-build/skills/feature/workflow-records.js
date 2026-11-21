@@ -1,6 +1,7 @@
 import {
   decodeHistory,
   githubScope,
+  projectRecoveryHistories,
   readGitHubHistory,
   selectedReviewOperations,
   summarizeReviews,
@@ -36,7 +37,10 @@ export async function repositoryScope(cwd, pr, ghFn = gh) {
 }
 
 export function reviewRecords(history, { catalogues, acceptedEvidencePolicyRef = null, externalHistories = [] }) {
-  return summarizeReviews(history, catalogues, acceptedEvidencePolicyRef, externalHistories)
+  const projected = projectRecoveryHistories([history, ...externalHistories])
+  if (!projected.ok) return projected
+  const [current, ...external] = projected.value
+  return summarizeReviews(current, catalogues, acceptedEvidencePolicyRef, external)
 }
 
 async function observedReviewRecords(cwd, pr, { gh: ghFn = gh, acceptedEvidencePolicyRef = null } = {}) {
@@ -57,18 +61,17 @@ async function observedReviewRecords(cwd, pr, { gh: ghFn = gh, acceptedEvidenceP
     error.citedHistory = true
     throw error
   }
+  const projected = projectRecoveryHistories([history, ...cited.value])
+  if (!projected.ok) return { history, result: projected }
+  const [current, ...external] = projected.value
   const catalogues = await loadReviewClassCatalogues({
     histories: [history, ...cited.value],
     cwd,
     gh: ghFn,
   })
   return {
-    history,
-    result: reviewRecords(history, {
-      catalogues,
-      acceptedEvidencePolicyRef,
-      externalHistories: cited.value,
-    }),
+    history: current,
+    result: summarizeReviews(current, catalogues, acceptedEvidencePolicyRef, external),
   }
 }
 

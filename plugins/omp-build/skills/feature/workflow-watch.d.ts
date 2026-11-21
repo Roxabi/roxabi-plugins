@@ -1,3 +1,4 @@
+import type { TrustedHostPluginPin } from '../../roxabi/uw-action-contract.ts'
 import type { Gh, Git } from './review-base.ts'
 
 export type CiWatchStatus =
@@ -23,5 +24,11 @@ export declare function applyCiWatchExit(
   cwd: string,
   pr: number | string,
   code: number,
-  options?: { gh?: Gh; git?: Git; mode?: string },
+  options?: {
+    gh?: Gh
+    git?: Git
+    mode?: string
+    stopPublication?: 'watch' | 'engine'
+    pluginPin?: TrustedHostPluginPin
+  },
 ): Promise<CiWatchExit>

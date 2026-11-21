@@ -66,7 +66,8 @@ export function assessmentPorts(cwd: string, operations: UwOperations, mandate: 
   }
   const installed: UwOperations = {
     ...operations,
-    prepareAction: (request, projection, review) => prepareUwAction(request, ports, projection, review),
+    prepareAction: (request, projection, review, correctionRoot) =>
+      prepareUwAction(request, ports, projection, review, correctionRoot),
     replayActionInputs: (request) => replayUwActionInputs(request, ports),
   }
   return { installed, transport, gitPort }

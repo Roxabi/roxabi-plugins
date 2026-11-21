@@ -1,43 +1,27 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalValueDigest, integrationOutputSchema, missingContextOutputSchema } from '../dist/contracts.js'
+import {
+  canonicalValueDigest,
+  type DeliveryMissingContext,
+  deliveryMissingContextSchema,
+  hostInterruptionDiagnostic,
+  integrationOutputSchema,
+} from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { IntegrationOutput } from '../engine/uw-integration-schema.ts'
-import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
+import type { ActionReceiptPayload } from '../engine/workflow-receipt-schema.ts'
+import type { NativeBatchResult, NativeStop } from '../omp/review-runtime/contracts.ts'
 import { type NonImplementPublication, resolvePublication } from './feature-action-publication-context.ts'
+import { publishTerminalNegative } from './feature-action-terminal-result.ts'
 import { matchesContextNegative } from './feature-context-negative.ts'
 import { publishRecord } from './feature-engine.ts'
-import { bindClaimedCommands, conservedDeclarations } from './feature-implementation-admission.ts'
 import { hostCompletedStructured } from './feature-implementation-receipt.ts'
-import { integrationAuthority } from './feature-integration-authority.ts'
-import { integrationLineage } from './feature-integration-lineage.ts'
-import { IntegrationRefusal, observeIntegration, refuse } from './feature-integration-observation.ts'
-import { implementNativeOutcome, nativeOutcome } from './feature-native-outcome.ts'
-import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
-import { proveAuthorizedPublishedBase } from './feature-publication.ts'
-import { type GitRunner, verifyParentCheckout } from './workflow-checkout.ts'
+import { admitIntegration, type IntegrationAdmission } from './feature-integration-admission.ts'
+import { IntegrationRefusal } from './feature-integration-observation.ts'
+import { implementNativeOutcome, type nativeOutcome } from './feature-native-outcome.ts'
+import type { GitRunner } from './workflow-checkout.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
 const equal = (a: unknown, b: unknown) => canonicalValueDigest(a) === canonicalValueDigest(b)
-
-function integrationMandate(context: NonImplementPublication) {
-  const mandateRef = context.opened.payload.mandate
-  if (!('recordId' in mandateRef)) refuse('integration-mandate-unbound')
-  const mandate = context.history.operations.find(
-    (operation) =>
-      operation.status === 'complete' &&
-      operation.record?.kind === 'mandate' &&
-      operation.record.recordId === mandateRef.recordId,
-  )?.record
-  if (mandate?.kind !== 'mandate' || mandate.payload.branch !== null) refuse('integration-parent-branch-bound')
-  return { mandateRef, mandate }
-}
-
-function integrationCommands(structured: IntegrationOutput, child: NativeBatchResult['children'][number], cwd: string) {
-  const commands = bindClaimedCommands(structured, child.bashCalls ?? [], cwd)
-  if (!commands.ok || !conservedDeclarations(structured, child.commandRuns ?? []))
-    refuse('integration-evidence-unconserved')
-  return commands.commands
-}
 
 function selectContribution(
   result: NativeBatchResult,
@@ -60,70 +44,32 @@ function selectContribution(
   return { child }
 }
 
-type IntegrationPublicationInput = {
+export type IntegrationPublicationInput = {
   cwd: string
   result: NativeBatchResult
   start: ScopedRecordRef
+  stop?: NativeStop
   gh: Gh
   git: GitRunner
 }
 
-type IntegrationAdmission = {
-  admitted: boolean
-  commits: string[]
-  paths: string[]
-  commands: { toolCallId: string; command: string; exitCode: number; cwd: string }[]
-  remoteBranch: string | null
-  remoteTip: string | null
-  published: boolean
-  reason: string
-}
-
-async function admitIntegration(
+function prepareIntegrationContextNegative(
   input: IntegrationPublicationInput,
   context: NonImplementPublication,
   child: NativeBatchResult['children'][number],
-  structured: IntegrationOutput,
 ) {
-  const { manifest, uw, read, accepted, childCommits } = await observeIntegration(input, context.opened, structured)
-  const { mandateRef, mandate } = integrationMandate(context)
-  const anchor = await resolveParentWorktreeAnchor({ subject: uw, read })
-  if (!anchor.ok) refuse(anchor.reason)
-  const checkout = await verifyParentCheckout({ git: input.git, cwd: input.cwd, uw: anchor.anchor })
-  if (!checkout.ok) refuse(checkout.reason)
-  const lineage = await integrationLineage({
-    git: input.git,
-    cwd: input.cwd,
-    base: mandate.payload.base,
-    expectedBase: structured.code.base,
-    initialHead: manifest.code.head,
-    head: structured.code.head,
-    target: uw.target,
-    childCommits,
-  })
-  if (!lineage.ok) refuse(lineage.reason)
-  const commands = integrationCommands(structured, child, input.cwd)
-  const authorized = integrationAuthority(input, context, mandateRef, uw, read, accepted)
-  const publication = await proveAuthorizedPublishedBase(
-    input.git,
-    input.cwd,
-    input.gh,
-    uw.repository,
-    mandate.payload.base,
-    structured.code.head,
-    authorized,
+  if (
+    input.result.canPublishContext?.() !== true ||
+    !matchesContextNegative(child, context.opened.payload.actionId, context.opened.payload.inputs)
   )
-  if (!publication.ok) refuse(publication.reason)
-  return {
-    admitted: true,
-    commits: lineage.commits,
-    paths: lineage.paths,
-    commands,
-    remoteBranch: null,
-    remoteTip: publication.remoteTip,
-    published: true,
-    reason: structured.reason,
-  }
+    return { reason: 'integration-context-binding-mismatch' }
+  const negative = deliveryMissingContextSchema.safeParse(child.structured)
+  if (!negative.success) return { reason: 'integration-output-invalid' }
+  const ids =
+    'commands' in negative.data
+      ? new Set(negative.data.commands.map((command) => command.toolCallId))
+      : new Set<string>()
+  return { structured: negative.data, native: implementNativeOutcome(child, true, ids), admission: null }
 }
 
 async function prepareIntegrationEvidence(
@@ -133,22 +79,12 @@ async function prepareIntegrationEvidence(
 ): Promise<
   | { reason: string }
   | {
-      structured: ReturnType<typeof integrationOutputSchema.parse> | ReturnType<typeof missingContextOutputSchema.parse>
+      structured: IntegrationOutput | DeliveryMissingContext
       native: ReturnType<typeof nativeOutcome>
       admission: IntegrationAdmission | null
     }
 > {
-  const opened = context.opened
-  if (child.contextBlock !== undefined) {
-    if (
-      input.result.canPublishContext?.() !== true ||
-      !matchesContextNegative(child, opened.payload.actionId, opened.payload.inputs)
-    )
-      return { reason: 'integration-context-binding-mismatch' }
-    const negative = missingContextOutputSchema.safeParse(child.structured)
-    if (!negative.success) return { reason: 'integration-output-invalid' }
-    return { structured: negative.data, native: nativeOutcome(child, true), admission: null }
-  }
+  if (child.contextBlock !== undefined) return prepareIntegrationContextNegative(input, context, child)
   if (!input.result.complete || !child.usable) return { reason: 'action-uncertain' }
   const parsed = integrationOutputSchema.safeParse(hostCompletedStructured(child))
   if (!parsed.success) return { reason: 'integration-output-invalid' }
@@ -158,6 +94,8 @@ async function prepareIntegrationEvidence(
     const ids = new Set(structured.commands.map((command) => command.toolCallId))
     return { structured, native: implementNativeOutcome(child, true, ids), admission }
   } catch (error) {
+    if (error instanceof IntegrationRefusal && error.message === 'integration-start-resolved')
+      return { reason: error.message }
     if (!(error instanceof IntegrationRefusal)) throw error
     const ids = new Set(structured.commands.map((command) => command.toolCallId))
     const native = implementNativeOutcome(child, true, ids)
@@ -178,6 +116,59 @@ async function prepareIntegrationEvidence(
   }
 }
 
+async function publishInterruptedIntegration(
+  input: IntegrationPublicationInput,
+  context: NonImplementPublication,
+  opened: Extract<ActionReceiptPayload, { action: 'integrate'; phase: 'start' }>,
+  origin: string,
+) {
+  const finalContext = await resolvePublication(input)
+  if ('reason' in finalContext) return { published: false as const, reason: finalContext.reason }
+  const recordId = randomUUID()
+  const published = await publishRecord(
+    context.loaded,
+    finalContext.history,
+    {
+      repository: context.receiptScope.repository,
+      target: context.receiptScope.target,
+      version: 1,
+      recordId,
+      runId: randomUUID(),
+      operationId: `${input.result.batch.operationId}:result`,
+      kind: 'action-receipt',
+      payload: {
+        format: 'omp-build-action-receipt/2',
+        phase: 'result',
+        action: 'integrate',
+        actionId: opened.actionId,
+        mandate: opened.mandate,
+        start: { scope: context.receiptScope, recordId: context.opened.recordId, kind: 'action-receipt' },
+        inputs: opened.inputs,
+        exactInputs: opened.exactInputs,
+        native: { completion: 'incomplete', strict: 'absent', raw: input.result.children[0]?.raw ?? null },
+        structured: null,
+        admission: null,
+        diagnostics: [hostInterruptionDiagnostic(origin)],
+      },
+    },
+    context.gh,
+    input.cwd,
+    finalContext.publicationParents,
+  )
+  return published.ok ? { published: true as const, recordId } : { published: false as const, reason: published.reason }
+}
+
+function integrationTerminalFailure(result: NativeBatchResult, stop: NativeStop | undefined) {
+  if (result.children.some((child) => child.contextBlock !== undefined)) return null
+  if (stop?.kind === 'invalid-terminal') return { reason: 'integration-output-invalid', strict: 'invalid' as const }
+  if (stop?.kind === 'withheld')
+    return {
+      reason: 'action-uncertain',
+      strict: result.children[0]?.usable ? ('valid' as const) : ('invalid' as const),
+    }
+  return null
+}
+
 /** Admit only actual, pinned child deliveries and host-observed integration effects. */
 export async function publishIntegrationResult(
   input: IntegrationPublicationInput,
@@ -187,11 +178,21 @@ export async function publishIntegrationResult(
   const opened = context.opened
   if (opened.payload.action !== 'integrate' || opened.payload.inputs.manifest.purpose !== 'integrate')
     return { published: false, reason: 'integration-start-unconfirmed' }
+  if (input.stop?.kind === 'interrupted')
+    return publishInterruptedIntegration(input, context, opened.payload, input.stop.origin)
+  const failure = integrationTerminalFailure(input.result, input.stop)
+  if (failure !== null) return publishTerminalNegative(context, input.result, failure.reason, failure.strict)
   const selected = selectContribution(input.result, opened)
   if ('reason' in selected) return { published: false, reason: selected.reason }
   const evidence = await prepareIntegrationEvidence(input, context, selected.child)
-  if ('reason' in evidence) return { published: false, reason: evidence.reason }
+  if ('reason' in evidence) {
+    if (evidence.reason === 'integration-output-invalid' && selected.child.contextBlock === undefined)
+      return publishTerminalNegative(context, input.result, evidence.reason, 'invalid')
+    return { published: false, reason: evidence.reason }
+  }
   const { native, structured, admission } = evidence
+  const finalContext = await resolvePublication(input)
+  if ('reason' in finalContext) return { published: false, reason: finalContext.reason }
   const recordId = randomUUID()
   const published = await publishRecord(
     context.loaded,

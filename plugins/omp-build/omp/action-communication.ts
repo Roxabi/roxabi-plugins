@@ -3,6 +3,17 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { Json } from '../contracts'
+import type { NativeBatch } from './review-runtime/contracts.ts'
+
+/** Business identity comes from the sealed task manifest, not the transport operation id. */
+export function nativeBatchStatus(batch: NativeBatch, phase: string): string {
+  const first = batch.tasks.tasks[0]
+  if (first === undefined) throw new Error('Native batch requires a task')
+  const manifest = first.action.inputs.manifest
+  const subject = manifest.subject.kind === 'uw' ? manifest.subject.uw.target : manifest.subject.pullRequest.target
+  const agents = [...new Set(batch.tasks.tasks.map((task) => task.agent))].join(', ')
+  return `omp-build: ${subject} · ${manifest.purpose} · ${agents} · ${phase}`
+}
 
 export const CREDENTIAL_MODE = 'procedural-fallback' as const
 

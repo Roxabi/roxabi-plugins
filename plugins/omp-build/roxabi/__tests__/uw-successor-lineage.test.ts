@@ -6,6 +6,7 @@ import {
   abandonedLeaf,
   branch,
   fixtureOwnSpec,
+  legacyFixtures,
   scope,
   selectNew,
   successorControl,
@@ -37,7 +38,7 @@ function historicalChain(control: 'trusted' | 'missing' | 'foreign' | 'conflicti
       )
     }
     const makeSuccessor = (recordId: string) =>
-      fixtures.featureMandate(scope, {
+      legacyFixtures.featureMandate(scope, {
         recordId,
         operationId: `operation-${recordId}`,
         ownSpec: fixtureOwnSpec(world.original.payload.ownSpec),

@@ -1,10 +1,11 @@
 import type { BeforeSubagentSpawnEvent, ExtensionContext, SubagentEventPayload } from '@oh-my-pi/pi-coding-agent'
-import type { ActionCommunication } from '../action-communication.ts'
+import { type ActionCommunication, nativeBatchStatus } from '../action-communication.ts'
 import { NativeAnnouncements } from './announcements'
 import { admitNativeBatch } from './batch-admission.ts'
 import { validateNativeBatch } from './batch-validation.ts'
 import { captureSubagentEvent } from './capture'
 import type { NativeBatch, NativeBatchCallbacks, NativeExecutionObservation, NativeTaskWireInput } from './contracts'
+import { type JoinedNativeStop, stopBatches, stopOwnedBatch, throwJoinedStopFailures } from './controller-stop'
 import { rootCurrent, unindexAdmittedChildBatch } from './executed-child-lifecycle.ts'
 import { type HostGitObserver, observeHostGit } from './host-git-observation.ts'
 import {
@@ -14,6 +15,7 @@ import {
   unusableOwnedReplacement,
 } from './result-replacement.ts'
 import { isolatedReceivedSettlement, ownsBatchPresentation, settleStoppedBatch } from './settlement'
+import { handoffReceivedSettlement } from './settlement-handoff.ts'
 import { nativeSpawnRefusal } from './spawn-guard.ts'
 import {
   type ActiveBatch,
@@ -23,7 +25,6 @@ import {
   watchBatchSettleAbort,
 } from './state'
 import { releaseTaskMask } from './task-mask-lease'
-/** Short-lived authority for one sealed, plugin-owned native batch. */
 export class NativeBatchController {
   #active: ActiveBatch | null = null
   #lastActivated: ActiveBatch | null = null
@@ -31,11 +32,20 @@ export class NativeBatchController {
   #observeHostGit: HostGitObserver = observeHostGit
   #terminalByBatch = new WeakMap<NativeBatch, Promise<void>>()
   #live = new Set<ActiveBatch>()
+  #retiredWriters = new WeakSet<ActiveBatch>()
   #ownedActive = new Map<string, ActiveBatch>()
   #rootContext: ExtensionContext | null = null
   #artifactsDir: string | null = null
   #communication: ActionCommunication | null = null
   #announcements = new NativeAnnouncements()
+  constructor(private readonly canActivate: (batch: NativeBatch) => boolean = () => true) {}
+
+  /** Includes detached batches until their actual terminal callbacks have settled. */
+  hasLiveBatchExcept(allowed: (batch: NativeBatch) => boolean): boolean {
+    for (const active of this.#live) if (!this.#retiredWriters.has(active) && !allowed(active.batch)) return true
+    return false
+  }
+
   rootContext(): ExtensionContext | null {
     return this.#rootContext
   }
@@ -61,8 +71,11 @@ export class NativeBatchController {
     this.#observeHostGit = observer
   }
   activate(batch: NativeBatch, callbacks: NativeBatchCallbacks): void {
+    if (!this.canActivate(batch)) throw new Error('fix-run-already-active')
     validateNativeBatch(batch)
+    if (this.#terminalByBatch.has(batch)) throw new Error('native batch already settled')
     if (this.#active) throw new Error('a native batch is already active')
+    const sessionId = this.#rootContext?.sessionManager.getSessionId() ?? null
     this.#active = createActiveBatch(
       batch,
       callbacks,
@@ -73,8 +86,12 @@ export class NativeBatchController {
     this.#active.communication = this.#communication
     this.#live.add(this.#active)
     this.#lastActivated = this.#active
-    this.#lastActivatedSessionId = this.#rootContext?.sessionManager.getSessionId() ?? null
-    this.#communication?.status(`omp-build: native batch ${batch.operationId} active`)
+    this.#lastActivatedSessionId = sessionId
+    try {
+      this.#communication?.status(nativeBatchStatus(batch, 'queued'))
+    } catch {
+      // Status presentation cannot reverse a successfully claimed executor.
+    }
   }
   inactive(): void {
     if (this.#active) {
@@ -87,25 +104,11 @@ export class NativeBatchController {
   }
   /** Fence, conserve, and stop only the caller's current batch. */
   async stopOwned(batch: NativeBatch, reason: string): Promise<void> {
-    const owned = [...this.#live].find((active) => active.batch === batch) ?? null
-    if (owned) owned.contextPublicationOwned = false
-    if (owned && owned.continuationClosed === null) owned.continuationClosed = reason
-    owned?.executionAbort?.abort(reason)
-    try {
-      await releaseTaskMask(this, false, batch)
-    } catch (error) {
-      this.status(`native task mask restoration failed: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (owned !== null && owned.executionDone !== null) {
-      await owned.executionDone
-      const finished = this.#terminalByBatch.get(batch)
-      if (finished !== undefined) await finished
-      return
-    }
-    const terminal = this.#terminalByBatch.get(batch)
-    if (terminal !== undefined) return await terminal
-    if (!owned || owned.settling) return
-    await this.#stopActive(owned, reason)
+    await stopOwnedBatch(this.#stopContext(), batch, reason)
+  }
+  noteExecutionAborted(batch: NativeBatch): void {
+    const owned = [...this.#live].find((active) => active.batch === batch)
+    if (owned && owned.stopOrigin === null) owned.stopOrigin = 'sdk-abort'
   }
   active(): NativeBatch | null {
     return this.#active?.batch ?? null
@@ -146,7 +149,9 @@ export class NativeBatchController {
   }
   /** Bind the genuine owned-tool call to the announced action and root generation. */
   admit(batch: NativeBatch, toolCallId: string, ctx: ExtensionContext, current: () => boolean): boolean {
-    return admitNativeBatch(this, this.#active, this.#ownedActive, batch, toolCallId, ctx, current)
+    const admitted = admitNativeBatch(this, this.#active, this.#ownedActive, batch, toolCallId, ctx, current)
+    if (admitted && this.#active) this.#present(this.#active, 'running')
+    return admitted
   }
   executionSignal(batch: NativeBatch): AbortSignal | null {
     return this.#active?.batch === batch ? (this.#active.executionAbort?.signal ?? null) : null
@@ -218,47 +223,36 @@ export class NativeBatchController {
     const active = this.#active
     if (!active || active.admittedToolCallId !== event.toolCallId) return
     if (this.#terminalByBatch.has(active.batch) || active.settling) return
-    rememberBatchTerminal(
-      this.#terminalByBatch,
-      this.#live,
-      active.batch,
-      isolatedReceivedSettlement(
-        active,
-        event,
-        (current) => this.#detach(current),
-        () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
-      ),
+    const predecessor = isolatedReceivedSettlement(
+      active,
+      event,
+      (current) => this.#detach(current),
+      () => ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext),
     )
+    const terminal = handoffReceivedSettlement(active, predecessor, this.#retiredWriters)
+    rememberBatchTerminal(this.#terminalByBatch, this.#live, active.batch, terminal)
   }
   async receiveResult(event: NativeExecutionObservation): Promise<void> {
     this.queueOwnedSettlement(event)
     await this.ownedSettlement()
   }
   async stop(reason: string): Promise<void> {
-    const targets = new Set(this.#live)
-    if (this.#active) targets.add(this.#active)
-    for (const batch of targets) {
-      batch.contextPublicationOwned = false
-      if (batch.continuationClosed === null) batch.continuationClosed = reason
-      batch.executionAbort?.abort(reason)
+    throwJoinedStopFailures(await this.stopJoined(reason))
+  }
+  async stopJoined(reason: string): Promise<JoinedNativeStop> {
+    return stopBatches(this.#stopContext(), reason)
+  }
+  #stopContext() {
+    return {
+      live: this.#live,
+      active: () => this.#active,
+      terminal: (batch: NativeBatch) => this.#terminalByBatch.get(batch),
+      present: (active: ActiveBatch, phase: string) => this.#present(active, phase),
+      releaseMask: (batch?: NativeBatch) =>
+        batch === undefined ? releaseTaskMask(this) : releaseTaskMask(this, false, batch),
+      status: (message: string) => this.status(message),
+      stopActive: (active: ActiveBatch, reason: string) => this.#stopActive(active, reason),
     }
-    try {
-      await releaseTaskMask(this)
-    } catch (error) {
-      this.status(`native task mask restoration failed: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    const active = this.#active
-    if (!active) return
-    if (active.executionDone !== null) {
-      await active.executionDone
-      const finished = this.#terminalByBatch.get(active.batch)
-      if (finished !== undefined) await finished
-      return
-    }
-    const terminal = this.#terminalByBatch.get(active.batch)
-    if (terminal !== undefined) return await terminal
-    if (active.settling) return
-    await this.#stopActive(active, reason)
   }
   #stopActive(active: ActiveBatch, reason: string): Promise<void> {
     const terminal = settleStoppedBatch(
@@ -276,7 +270,7 @@ export class NativeBatchController {
     // SDK stop hook. Joining it here can deadlock its callbacks.
     if (active === null || active.settling) return
     if (active?.announced && !active.announcementDispatched && active.admittedToolCallId === null) return
-    await this.stop('native-task-diverged-before-dispatch')
+    await this.stopOwned(active.batch, 'native-task-diverged-before-dispatch')
   }
   watchSettleAbort(signal: AbortSignal): void {
     for (const active of this.#live) {
@@ -287,6 +281,14 @@ export class NativeBatchController {
   }
   consumeFollowUp(): NativeBatch | null {
     return this.#announcements.consume(this.#active)
+  }
+  #present(active: ActiveBatch, phase: string): void {
+    if (!ownsBatchPresentation(active, this.#lastActivated, this.#lastActivatedSessionId, this.#rootContext)) return
+    try {
+      active.communication?.status(nativeBatchStatus(active.batch, phase))
+    } catch {
+      // Presentation cannot change executor authority.
+    }
   }
   #detach(active: ActiveBatch): void {
     if (!active.settling) clearBatchSettleAbort(active)

@@ -130,6 +130,20 @@ export function createNativeImplementationTransport(input: NativeTransportInput)
       },
     )
   }
+  function pullIssueResponse(args: readonly string[]): string | undefined {
+    if (args.length !== 2 || args[0] !== 'api' || !state) return undefined
+    const match = new RegExp(`^repos/${repository}/issues/([1-9][0-9]*)$`).exec(args[1] ?? '')
+    if (match === null) return undefined
+    const pr = state.prs[match[1] ?? '']
+    if (pr === undefined) return undefined
+    return JSON.stringify({
+      number: pr.number,
+      state: pr.state === 'OPEN' ? 'open' : 'closed',
+      body: pr.body,
+      user: null,
+      pull_request: {},
+    })
+  }
   let graph = input.graph
   function repositoryResponse(args: readonly string[]): string {
     const reference = args[2]
@@ -155,6 +169,7 @@ export function createNativeImplementationTransport(input: NativeTransportInput)
       () => authorizationResponse(cwd, args),
       () => fixtureCatalogueGhResponse(args) ?? undefined,
       () => identityResponse(args),
+      () => pullIssueResponse(args),
       () => nativeEpicResponse(args, repository, graph, pulls, commits, input.epic),
       () => nativeGraphResponse(args, repository, graph),
       () => comments.response(args),

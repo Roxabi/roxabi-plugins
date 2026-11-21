@@ -288,6 +288,9 @@ function lifecycleFixture() {
       abandon: async () => {
         throw new Error('unexpected-abandon')
       },
+      resolveInterruption: async () => {
+        throw new Error('unexpected-interruption-resolution')
+      },
       prepare: async () => {
         throw new Error('unexpected-prepare')
       },

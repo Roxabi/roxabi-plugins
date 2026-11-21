@@ -8,13 +8,10 @@ import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issu
 // Provide base project config for tests
 process.env.GITHUB_REPO = 'Test/test-repo'
 
-// Only GITHUB_REPO is stubbed. The resolvers are pure and are the contract under
-// test: re-implementing them in a factory let the suite stay green while the real
-// `resolvePriority` regressed (PR #528 review). `vitest.config.ts` sets
-// `env.GITHUB_REPO`, so importing the real module is safe despite the hoist.
+// Keep the pure resolvers real; only the default repository is stubbed.
 vi.mock('../../shared/adapters/config-helpers', async (importOriginal) => ({
   ...(await importOriginal<typeof ConfigHelpers>()),
-  GITHUB_REPO: 'Test/test-repo',
+  detectGitHubRepo: () => 'Test/test-repo',
 }))
 
 vi.mock('../../shared/adapters/github-infra', () => ({
@@ -59,7 +56,7 @@ function setupMocks() {
   vi.clearAllMocks()
   // repo included in key so cross-repo calls return distinguishable node IDs
   mockGetNodeId.mockImplementation(async (num, repo?: string) =>
-    repo ? `node-${repo.replace('/', '-')}-${num}` : `node-${num}`,
+    repo && repo !== 'Test/test-repo' ? `node-${repo.replace('/', '-')}-${num}` : `node-${num}`,
   )
   mockResolveIssueTypeId.mockResolvedValue('type-id-feat')
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -73,12 +70,12 @@ describe('issue-triage/set > field updates', () => {
 
   it('updates size via label', async () => {
     await setIssue(['42', '--size', 'F-lite'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-lite')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-lite', 'Test/test-repo')
   })
 
   it('updates priority via label with alias', async () => {
     await setIssue(['42', '--priority', 'High'])
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P1 - High')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P1 - High', 'Test/test-repo')
   })
 
   it('exits 1 on --status (issues-only model)', async () => {
@@ -131,12 +128,12 @@ describe('issue-triage/set > field updates', () => {
   it('accepts the label spelling the CLI itself writes', async () => {
     // #525's own reproduction: `P3-low` is what `gh issue view` displays.
     await setIssue(['42', '--priority', 'P3-low'])
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P3 - Low')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P3 - Low', 'Test/test-repo')
   })
 
   it('folds case on a lane key instead of rejecting it', async () => {
     await setIssue(['42', '--lane', 'A1'])
-    expect(mockSyncLaneLabel).toHaveBeenCalledWith(42, 'a1')
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(42, 'a1', 'Test/test-repo')
   })
 
   it('exits 1 when a flag is given no value', async () => {
@@ -184,8 +181,8 @@ describe('issue-triage/set > dependencies', () => {
 
   it('adds blocked-by dependency', async () => {
     await setIssue(['42', '--blocked-by', '100'])
-    expect(mockGetNodeId).toHaveBeenCalledWith(42, undefined)
-    expect(mockGetNodeId).toHaveBeenCalledWith(100, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(42, 'Test/test-repo')
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Test/test-repo')
     expect(mockAddBlockedBy).toHaveBeenCalledWith('node-42', 'node-100')
   })
 
@@ -223,9 +220,9 @@ describe('issue-triage/set > dependencies', () => {
 
   it('handles mixed local and cross-repo refs', async () => {
     await setIssue(['42', '--blocked-by', '100, Roxabi/lyra#728, #101'])
-    expect(mockGetNodeId).toHaveBeenCalledWith(100, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Test/test-repo')
     expect(mockGetNodeId).toHaveBeenCalledWith(728, 'Roxabi/lyra')
-    expect(mockGetNodeId).toHaveBeenCalledWith(101, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(101, 'Test/test-repo')
     expect(mockAddBlockedBy).toHaveBeenCalledTimes(3)
   })
 })
@@ -269,14 +266,14 @@ describe('issue-triage/set > combined flags', () => {
 
   it('handles multiple flags at once', async () => {
     await setIssue(['42', '--size', 'F-full', '--priority', 'Urgent', '--blocked-by', '99'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-full')
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P0 - Urgent')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(42, 'F-full', 'Test/test-repo')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P0 - Urgent', 'Test/test-repo')
     expect(mockAddBlockedBy).toHaveBeenCalledTimes(1)
   })
 
   it('strips # prefix from issue numbers', async () => {
     await setIssue(['42', '--blocked-by', '#100'])
-    expect(mockGetNodeId).toHaveBeenCalledWith(100, undefined)
+    expect(mockGetNodeId).toHaveBeenCalledWith(100, 'Test/test-repo')
   })
 })
 
@@ -286,7 +283,7 @@ describe('issue-triage/set > priority label sync', () => {
 
   it('syncs priority label when --priority is provided', async () => {
     await setIssue(['42', '--priority', 'Medium'])
-    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P2 - Medium')
+    expect(mockSyncPriorityLabel).toHaveBeenCalledWith(42, 'P2 - Medium', 'Test/test-repo')
   })
 
   it('does not sync priority label when --priority is not provided', async () => {
@@ -301,7 +298,7 @@ describe('issue-triage/set > --lane flag', () => {
 
   it('updates lane via label', async () => {
     await setIssue(['123', '--lane', 'c1'])
-    expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'c1')
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'c1', 'Test/test-repo')
   })
 
   it('exits with error for an invalid lane key', async () => {
@@ -463,7 +460,7 @@ describe('issue-triage/set > additive regression', () => {
 
   it('--size alone does not call lane or type mutations', async () => {
     await setIssue(['123', '--size', 'S'])
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S', 'Test/test-repo')
     expect(mockSyncLaneLabel).not.toHaveBeenCalled()
     expect(mockUpdateIssueIssueType).not.toHaveBeenCalled()
   })
@@ -509,9 +506,9 @@ describe('issue-triage/set > combined --lane + --type + --size', () => {
   it('applies all three mutations when combined flags provided', async () => {
     await setIssue(['123', '--lane', 'a1', '--type', 'feat', '--size', 'S'])
     // Assert — size label
-    expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S')
+    expect(mockSyncSizeLabel).toHaveBeenCalledWith(123, 'S', 'Test/test-repo')
     // Assert — lane label
-    expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'a1')
+    expect(mockSyncLaneLabel).toHaveBeenCalledWith(123, 'a1', 'Test/test-repo')
     // Assert — type mutation
     expect(mockUpdateIssueIssueType).toHaveBeenCalledWith('node-123', 'type-id-feat')
   })
@@ -551,7 +548,7 @@ describe('issue-triage/set > body replace', () => {
     const logs: string[] = []
     vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
     await setIssue(['42', '--body', 'replaced spec'])
-    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, 'replaced spec', undefined)
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, 'replaced spec', 'Test/test-repo')
     expect(mockUpdateIssueBody).toHaveBeenCalledTimes(1)
     expect(logs).toContain('Body #42')
     expect(mockSyncSizeLabel).not.toHaveBeenCalled()
@@ -561,14 +558,14 @@ describe('issue-triage/set > body replace', () => {
   it('writes file bytes, including shell metacharacters, and last body flag wins', async () => {
     const path = bodyFile('keep $(curl)\n`tick`')
     await setIssue(['42', '--body', 'first', '--body-file', path])
-    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, 'keep $(curl)\n`tick`', undefined)
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, 'keep $(curl)\n`tick`', 'Test/test-repo')
   })
 
   it('clears the body only through --clear-body', async () => {
     const logs: string[] = []
     vi.spyOn(console, 'log').mockImplementation((...args) => logs.push(String(args[0])))
     await setIssue(['42', '--clear-body'])
-    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, '', undefined)
+    expect(mockUpdateIssueBody).toHaveBeenCalledWith(42, '', 'Test/test-repo')
     expect(logs).toContain('Body #42')
   })
 

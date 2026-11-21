@@ -62,6 +62,30 @@ export async function closeLinkedWorld(
   let confirmations = 0
   const effects: string[] = []
   let pullHead = leaf.head
+  const readPulls = (args: string[]) => {
+    const pullsQuery =
+      'query=query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}'
+    if (
+      (args.length === 8 || args.length === 10) &&
+      args[0] === 'api' &&
+      args[1] === 'graphql' &&
+      args[3] === pullsQuery &&
+      args[5] === 'owner=acme' &&
+      args[7] === 'name=app' &&
+      (args.length === 8 || (args[8] === '-f' && args[9]?.startsWith('branch=')))
+    )
+      return JSON.stringify({
+        data: {
+          repository: {
+            pullRequests: page(
+              args.length === 8 || args[9] === 'branch=feat/42-save'
+                ? [{ ...ref(142), headRefName: 'feat/42-save', baseRefName: 'main' }]
+                : [],
+            ),
+          },
+        },
+      })
+  }
   const readGraphAndPulls = (args: string[]) => {
     if (
       args.length === 10 &&
@@ -94,21 +118,7 @@ export async function closeLinkedWorld(
         },
       })
     }
-    const pullsQuery =
-      'query=query($owner:String!,$name:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED]){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}'
-    if (
-      args.length === 8 &&
-      args[0] === 'api' &&
-      args[1] === 'graphql' &&
-      args[3] === pullsQuery &&
-      args[5] === 'owner=acme' &&
-      args[7] === 'name=app'
-    )
-      return JSON.stringify({
-        data: {
-          repository: { pullRequests: page([{ ...ref(142), headRefName: 'feat/42-save', baseRefName: 'main' }]) },
-        },
-      })
+    return readPulls(args)
   }
 
   const writeIssueState = (args: string[]) => {

@@ -1,51 +1,23 @@
-import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import { citedOperationIntegrity, nativeResultValid } from './delivery-eligibility.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { producerOutputValid } from './producer-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
-import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { succeeds } from './workflow-context-lineage.ts'
+import { validPositiveSuccessor, workflowContextNegative } from './workflow-context-output.ts'
 import { authenticatedContextReplayStart, hasUnpairedStart } from './workflow-context-replay.ts'
 import { reviewContextPairValid } from './workflow-context-review.ts'
-import { bindExternalRef, type ReceiptRecord, recordsOf } from './workflow-control.ts'
-import { implementationOutputSchema } from './workflow-output-schema.ts'
+import { bindExternalRef, excludedReceipt, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 
-const outputFor = {
-  frame: 'spec',
-  plan: 'plan',
-  'assess-spec': 'spec-assessment',
-  'attribute-ci': 'ci-attribution',
-  implement: 'delivery-execution',
-  integrate: 'delivery-execution',
-} as const
-
-export function workflowContextNegative(result: ReceiptRecord): boolean {
-  const payload = result.payload
-  if (payload.phase !== 'result') return false
-  if (payload.action === 'plan-review') {
-    return (
-      (producerOutputValid('plan-review', payload.structured) && missingContextOf(payload.structured) !== null) ||
-      payload.contributions.some(
-        (contribution) =>
-          producerOutputValid('plan-review', contribution.structured) &&
-          missingContextOf(contribution.structured) !== null,
-      )
-    )
-  }
-  if (!(payload.action in outputFor)) return false
-  const output = outputFor[payload.action as keyof typeof outputFor]
-  return (
-    (producerOutputValid(output, payload.structured) ||
-      (payload.action === 'implement' && implementationOutputSchema.safeParse(payload.structured).success)) &&
-    missingContextOf(payload.structured) !== null
-  )
-}
-
+/**
+ * Authenticate the unique START/RESULT pair of one invocation. `native: 'unchecked'` is reserved for the
+ * interruption authority, which separately requires a typed interrupted RESULT; every other caller requires a
+ * valid native result.
+ */
 export function authenticateWorkflowReceiptPair(
   history: DecodedHistory,
   result: ReceiptRecord,
+  options: { native: 'valid' | 'unchecked' } = { native: 'valid' },
 ): Result<{ start: ReceiptRecord; result: ReceiptRecord }> {
   const refusal = (): Result<never> => ({
     ok: false,
@@ -55,7 +27,7 @@ export function authenticateWorkflowReceiptPair(
   if (
     payload.phase !== 'result' ||
     !history.source.complete ||
-    !nativeResultValid(result) ||
+    (options.native === 'valid' && !nativeResultValid(result)) ||
     citedOperationIntegrity(history, result.recordId) !== null ||
     (workflowContextNegative(result) && payload.admission !== null)
   )
@@ -126,22 +98,27 @@ function matchingReceipts(
   )
 }
 
-/** Negative results terminalize their start, but only a unique, explicitly linked result supersedes them. */
+/**
+ * Negative results terminalize their start, but only a unique, explicitly linked result supersedes them.
+ * `excluded` holds exact scoped START keys of resolved interrupted attempts; they leave successor selection only.
+ */
 export function workflowContextTerminal(
   history: DecodedHistory,
   action: string,
   contextLeaf?: ReceiptRecord,
+  excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
-  return contextTerminal(history, action, contextLeaf)
+  return contextTerminal(history, action, contextLeaf, undefined, excluded)
 }
 
 /** Observes a pending assessment only for replay; it does not terminalize the negative. */
 export function observeAssessmentContextReplay(
   history: DecodedHistory,
   replayStart: ReceiptRecord,
+  excluded?: ReadonlySet<string>,
 ): 'observed' | 'missing' | 'uncertain' | 'ambiguous' {
   if (!authenticatedContextReplayStart(history, replayStart)) return 'uncertain'
-  const result = contextTerminal(history, 'assess-spec', undefined, replayStart)
+  const result = contextTerminal(history, 'assess-spec', undefined, replayStart, excluded)
   return result === 'clear' ? 'observed' : result
 }
 
@@ -150,9 +127,11 @@ function contextTerminal(
   action: string,
   contextLeaf?: ReceiptRecord,
   replayStart?: ReceiptRecord,
+  excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
   const receipts = recordsOf(history).filter(
-    (record): record is ReceiptRecord => record.kind === 'action-receipt' && record.payload.action === action,
+    (record): record is ReceiptRecord =>
+      record.kind === 'action-receipt' && record.payload.action === action && !excludedReceipt(record, excluded),
   )
   if (
     replayStart !== undefined &&
@@ -166,7 +145,7 @@ function contextTerminal(
   for (const item of negatives) {
     const resolution = resolveContextNegative(history, item, receipts, new Set(), replayStart)
     if (resolution === 'missing' && contextLeaf !== undefined) {
-      const chain = workflowContextChain(history, item)
+      const chain = workflowContextChain(history, item, excluded)
       if (
         chain.status === 'missing' &&
         chain.leaf.recordId === contextLeaf.recordId &&
@@ -182,10 +161,16 @@ function contextTerminal(
 type ContextResolution = 'clear' | 'missing' | 'uncertain' | 'ambiguous'
 
 /** Classify one exact retained negative; `clear` requires its unique authenticated positive lineage. */
-export function workflowContextResolution(history: DecodedHistory, negative: ReceiptRecord): ContextResolution {
+export function workflowContextResolution(
+  history: DecodedHistory,
+  negative: ReceiptRecord,
+  excluded?: ReadonlySet<string>,
+): ContextResolution {
   const receipts = recordsOf(history).filter(
     (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' && record.payload.action === negative.payload.action,
+      record.kind === 'action-receipt' &&
+      record.payload.action === negative.payload.action &&
+      !excludedReceipt(record, excluded),
   )
   const matches = receipts.filter((record) => record.recordId === negative.recordId)
   if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative)) return 'uncertain'
@@ -196,10 +181,13 @@ export function workflowContextResolution(history: DecodedHistory, negative: Rec
 export function workflowContextDirectSuccessor(
   history: DecodedHistory,
   negative: ReceiptRecord,
+  excluded?: ReadonlySet<string>,
 ): { status: 'successor'; record: ReceiptRecord } | { status: 'missing' | 'uncertain' | 'ambiguous' } {
   const receipts = recordsOf(history).filter(
     (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' && record.payload.action === negative.payload.action,
+      record.kind === 'action-receipt' &&
+      record.payload.action === negative.payload.action &&
+      !excludedReceipt(record, excluded),
   )
   const matches = receipts.filter((record) => record.recordId === negative.recordId)
   if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
@@ -219,6 +207,7 @@ export function workflowContextDirectSuccessor(
 export function workflowContextChain(
   history: DecodedHistory,
   negative: ReceiptRecord,
+  excluded?: ReadonlySet<string>,
 ): { status: ContextResolution; negatives: ReceiptRecord[]; leaf: ReceiptRecord } {
   const negatives: ReceiptRecord[] = []
   const seen = new Set<string>()
@@ -227,7 +216,7 @@ export function workflowContextChain(
     if (seen.has(current.recordId)) return { status: 'uncertain', negatives, leaf: current }
     seen.add(current.recordId)
     negatives.push(current)
-    const direct = workflowContextDirectSuccessor(history, current)
+    const direct = workflowContextDirectSuccessor(history, current, excluded)
     if (direct.status !== 'successor') return { status: direct.status, negatives, leaf: current }
     if (!workflowContextNegative(direct.record)) return { status: 'clear', negatives, leaf: current }
     current = direct.record
@@ -253,46 +242,4 @@ function resolveContextNegative(
   if (!paired(history, successor, receipts)) return 'uncertain'
   if (workflowContextNegative(successor)) return resolveContextNegative(history, successor, receipts, seen, replayStart)
   return validPositiveSuccessor(successor) ? 'clear' : 'uncertain'
-}
-
-function validPositiveSuccessor(successor: ReceiptRecord): boolean {
-  const payload = successor.payload
-  if (payload.phase !== 'result') return false
-  if (payload.action === 'plan-review') return positiveReviewSuccessor(payload)
-  if (payload.action === 'implement') {
-    const parsed = implementationOutputSchema.safeParse(payload.structured)
-    return (
-      parsed.success &&
-      parsed.data.outcome === 'implemented' &&
-      payload.admission?.admitted === true &&
-      payload.admission.remoteTip !== null
-    )
-  }
-  if (payload.action === 'integrate')
-    return (
-      integrationOutputSchema.safeParse(payload.structured).success &&
-      payload.admission?.admitted === true &&
-      payload.admission.remoteTip !== null
-    )
-  if (payload.action === 'frame' && payload.structured === null) return true
-  if (!(payload.action in outputFor)) return true
-  const output = outputFor[payload.action as keyof typeof outputFor]
-  return producerOutputValid(output, payload.structured)
-}
-
-function positiveReviewSuccessor(
-  payload: Extract<ReceiptRecord['payload'], { action: 'plan-review'; phase: 'result' }>,
-): boolean {
-  return (
-    payload.slots.every((slot) => {
-      const contributions = payload.contributions.filter((contribution) => contribution.host.slotId === slot.slotId)
-      const contribution = contributions[0]
-      return (
-        contributions.length === 1 &&
-        contribution !== undefined &&
-        producerOutputValid('plan-review', contribution.structured) &&
-        missingContextOf(contribution.structured) === null
-      )
-    }) && payload.contributions.length === payload.slots.length
-  )
 }

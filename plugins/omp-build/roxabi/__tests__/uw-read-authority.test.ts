@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
+import { createUwDeliveryFactReader } from '../../adapters/github-workflow/uw-delivery-facts.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import { type UwGraphObservation, type UwNativeNode, WAYFINDER_LABELS } from '../../engine/uw-graph.ts'
@@ -209,12 +210,37 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     const snapshot = fact(UW)
     const histories = managedHistoryWithForeignCopiedIdentity(UW, snapshot)
     const history = incompleteTrustedIdentity(histories.baseline)
+    const delivery = await createUwDeliveryFactReader({
+      cwd: '/fixture',
+      gh: async () => {
+        throw new Error('Unexpected native read for incomplete history')
+      },
+    }).read(UW, [history])
+    if (delivery.ok) throw new Error('Incomplete trusted identity unexpectedly supplied delivery facts')
+    const diagnostic = delivery.diagnostics[0]
+    if (diagnostic === undefined) throw new Error('Missing delivery refusal diagnostic')
+    expect(delivery.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'legacy-coverage-incomplete',
+        message: 'UW home history is incomplete or ambiguous',
+      }),
+    ])
     const read = await createInstalledObservedUwReadPort({
-      observation: await observedUwWithoutPullRequests({
+      observation: {
+        status: 'incomplete',
+        root: UW,
         graph: graph(UW, snapshot),
         histories: [history],
         catalogues: fixtureHostReviewClassCatalogues(),
-      }),
+        delivery: [delivery.partial.facts],
+        diagnostics: [
+          {
+            ...diagnostic,
+            location: { kind: 'native', uw: UW, connection: 'state' },
+            related: [],
+          },
+        ],
+      },
     }).readUw(UW)
 
     expect(history.operations).toContainEqual(
@@ -228,7 +254,7 @@ describe('createInstalledObservedUwReadPort authority boundary', () => {
     )
     expect(read.accepted).toMatchObject({
       status: 'refused',
-      diagnostics: [expect.objectContaining({ code: 'accepted-unavailable' })],
+      diagnostics: [expect.objectContaining({ code: 'legacy-coverage-incomplete' })],
     })
   })
 

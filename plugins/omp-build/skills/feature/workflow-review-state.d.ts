@@ -1,4 +1,5 @@
 import type { ReviewSummary } from '../../contracts.ts'
+import type { TrustedHostPluginPin } from '../../roxabi/uw-action-contract.ts'
 import type { Gh, Git } from './review-base.ts'
 import type { WithdrawalBarrier } from './workflow-gate.js'
 
@@ -8,7 +9,13 @@ export type ReviewStep =
   | { action: 'land'; reviews: number }
   | { action: 'stop'; reviews: number; reason: 'review-bound' | 'ci-failed'; message: string }
 export type ReviewStepResult = ReviewStep & { disarmed?: true; barrier?: WithdrawalBarrier | null }
-export type ReviewStepOptions = { ciFailed?: boolean; reviewing?: boolean; gh?: Gh; git?: Git }
+export type ReviewStepOptions = {
+  ciFailed?: boolean
+  reviewing?: boolean
+  gh?: Gh
+  git?: Git
+  pluginPin?: TrustedHostPluginPin
+}
 
 export declare const MAX_FIX_ROUNDS: 2
 /** Pure transition from already-read records. No arm, disarm, or publication. */
@@ -16,7 +23,11 @@ export declare function reviewStep(
   records: Pick<ReviewSummary, 'reviews' | 'verdict' | 'head' | 'spent'>,
   at: { head: string | null | undefined; ciFailed?: boolean },
 ): ReviewStep
-export declare function persistObservedCiStop(cwd: string, pr: number | string, deps?: { gh?: Gh }): Promise<boolean>
+export declare function persistObservedCiStop(
+  cwd: string,
+  pr: number | string,
+  deps?: { gh?: Gh; expectedHead?: string; expectedReviewId?: string },
+): Promise<boolean>
 /** Progress selector only. It does not admit landing; landPr and CI allow exits do. */
 export declare function nextReviewStep(
   cwd: string,
