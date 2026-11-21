@@ -27,11 +27,17 @@ commit-msg:
     conventional-commits:
       run: bunx commitlint --edit {1}
 
+# Fast checks only. The integration project runs in the required `ci` check, which
+# the strict up-to-date rule makes run on the proposed merge with current `main`.
 pre-push:
   parallel: true
   commands:
-    test:
-      run: bun run test
+    unit:
+      run: bunx vitest run --project unit
+    lint:
+      run: bun lint
+    typecheck:
+      run: bun typecheck
     trufflehog:
       run: scripts/trufflehog-check.sh
     principal-freeze:

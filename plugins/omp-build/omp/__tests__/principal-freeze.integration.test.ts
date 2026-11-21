@@ -25,9 +25,9 @@ describe('omp-build interceptor > principal freeze', () => {
 
   beforeAll(() => {
     // `git` reads GIT_DIR / GIT_INDEX_FILE from the environment and they beat
-    // `cwd`. Under a git hook (lefthook's pre-push runs this suite) they point
-    // at the outer repo, so the guard's probe would answer about the wrong
-    // repository and the assertion would pass or fail on ambient state.
+    // `cwd`. When the suite runs under a git hook they point at the outer
+    // repo, so the guard's probe would answer about the wrong repository and
+    // the assertion would pass or fail on ambient state.
     for (const [key, value] of Object.entries(process.env)) {
       if (key.startsWith('GIT_') && value !== undefined) {
         gitEnv[key] = value
