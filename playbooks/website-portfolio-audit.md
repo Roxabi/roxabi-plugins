@@ -11,7 +11,7 @@ Ordre : cadrage → inventaire → **pin** → gel du **corpus** → une **fiche
 | Mot | Sens |
 |-----|------|
 | Portefeuille | Ensemble de domaines qu'une même décision peut conserver, différencier, fusionner ou arrêter. |
-| Rôle | `site` (principal ou satellite), `redirect`, `shortener`, `inactif`. Le rôle se prouve par le comportement observé, pas par la forme du nom. |
+| Rôle | `site` (principal ou satellite), `redirect`, `shortener`, `inactif`. Le rôle se prouve par le comportement observé, pas par la forme du nom. Faute de preuve, consigner `indéterminé`. |
 | Hébergeur | Système qui produit la réponse HTTP d'origine. Distinct du proxy DNS. |
 | Pin | Révision exacte : URL distante, branche, SHA. `HEAD` et révision déployée sont deux champs. |
 | Surface | `static`, `form`, `auth`, `functions`. Une propriété peut en cumuler. |
@@ -20,7 +20,7 @@ Ordre : cadrage → inventaire → **pin** → gel du **corpus** → une **fiche
 | Statut | `satisfaisant`, `à corriger`, `critique`, `non mesurable`, `non applicable`. |
 | Disponibilité | `disponible`, `inaccessible`, `non configuré`, `non applicable`. `non configuré` seulement si une source autorisée établit l'absence. Invisible depuis un compte = `inaccessible` pour ce compte. |
 | Proxy-metric | Compteur d'un tableau de bord fournisseur (exemple : visiteurs ou insights Cloudflare). Observation de livraison ou de cache, pas une acquisition organique, pas une faille. |
-| Couverture | Périmètre déclaré. Un échec d'outil la conserve et nomme le blocage. |
+| Couverture | Domaines admis dans le portefeuille, pas l'ensemble des références découvertes. Un échec d'outil ne retire aucun domaine de la couverture. |
 | Contrôleplane | API ou console authentifiée déjà accessible (exemples : Cloudflare, GitHub). Source autorisée, au même titre qu'une page publique ou un export opérateur. Le jeton reste hors dossier. |
 
 **Statut d'axe** = le pire statut applicable de cet axe, hors classification de métrique. **Statut de fiche** = le pire statut d'axe. Un bucket Good / Needs Improvement / Poor ne le rend pas `critique`. Aucune moyenne.
@@ -44,7 +44,7 @@ raw/<UTC>/...
 
 `<slug>` est un identifiant opaque (`d01`), pas un domaine réel recopié dans ce dépôt. Le domaine réel reste dans le dossier privé.
 
-Chaque fichier de `raw/` nomme l'URL ou le chemin source, l'outil, l'heure UTC et le pin. Une query qui porte un jeton est retirée du nom de fichier et du rapport ; le statut note « query retirée ».
+Chaque fichier de `raw/` nomme l'URL ou le chemin source, l'outil, l'heure UTC et le pin, après masquage des secrets. Si une partie de l'URL a été retirée, le statut le précise ; l'URL masquée identifie la preuve sans être présentée comme l'URL mesurée.
 
 ## Règles transverses
 
@@ -53,12 +53,12 @@ Chaque fichier de `raw/` nomme l'URL ou le chemin source, l'outil, l'heure UTC e
 - **Outillage.** Un outil d'audit isolé et épinglé s'installe si une mesure l'exige (Lighthouse local peut exiger son binaire). Les dépendances du produit ne s'installent pas. Le build produit ne se lance pas.
 - **Formulaires.** Champs, `action`, mentions légales et bannière sont lus. Aucun envoi.
 - **Lecture GSC.** Classement, indexation et métriques Search Console : export, ou observation UI authentifiée datée archivée dans `raw/`. Même poids. Sans cette lecture, la mesure est `non mesurable`. Pas de scraping automatisé de SERP pour produire un classement ; GSC, export ou outil SERP déjà autorisé. Les questions GEO suivent strictement le protocole et les interfaces autorisées, dans les conditions du fournisseur, sans contournement de captcha, de quota ou de login.
-- **Secrets.** Type, chemin, commit, au plus quatre derniers caractères. La valeur reste hors dossier. Présent dans le pin ≠ présent dans l'historique ≠ exploitable.
+- **Secrets.** Type, chemin, commit, au plus quatre derniers caractères. Masquer les valeurs avant toute écriture, y compris dans `raw/`, dans les URL, en-têtes, traces, captures et erreurs d'outil. Si une preuve ne peut pas être conservée sans le secret, noter la limite sans conserver l'original. Ne jamais transmettre une URL sensible ou contenant un jeton à un service de mesure tiers. Présent dans le pin ≠ présent dans l'historique ≠ exploitable.
 - **Personnes.** Un WHOIS ou un auteur qui expose une personne physique est consigné par rôle (« registrant », « auteur de commit ») sans nom, e-mail ni téléphone.
 - **Proxy-metric.** La citer seulement comme mesure de livraison. L'acquisition organique se prouve par une lecture GSC ou un analytics segmenté. Une faille se prouve par une preuve de l'axe sécurité.
-- **Échec d'outil.** Consigner outil, erreur, heure, cible. Tenter les voies indépendantes déjà disponibles et proportionnées qui répondent à la même question : autre outil, contrôleplane authentifié, UI datée, artefact public. S'arrêter seulement quand le prérequis est effectivement inaccessible — chaque voie disponible a échoué ou n'existe pas. La ligne reste dans la couverture, statut `non mesurable`, blocages verbatim. `non applicable` n'est pas un substitut d'échec.
+- **Échec d'outil.** Consigner outil, erreur, heure, cible. Tenter les voies indépendantes déjà disponibles et proportionnées qui répondent à la même question : autre outil, contrôleplane authentifié, UI datée, artefact public. S'arrêter seulement quand le prérequis est effectivement inaccessible — chaque voie disponible a échoué ou n'existe pas. La ligne reste dans la couverture, statut `non mesurable`. Garder le texte exact des blocages après masquage des secrets. `non applicable` n'est pas un substitut d'échec.
 - **Pin et arbre sale.** Un clone ou worktree frais reçoit la révision lue. Un checkout local modifié n'est ni relu comme vérité, ni nettoyé, ni commité.
-- **HEAD / prod.** Les deux SHA sont écrits. L'égalité se prouve par un artefact public (SHA dans le HTML, en-tête de release, checksum d'asset publié) correspondant à un objet Git, ou par la metadata de déploiement du contrôleplane authentifié qui lie domaine, SHA et dirty flag (exemple : déploiement Cloudflare). Ces voies se valent. `dirty=true` : le snapshot Git au SHA ne suffit pas à reproduire le déploiement exactement — le consigner, et ne pas traiter ce SHA comme pin reproductible. Sans aucune de ces preuves, la révision déployée est `non mesurable`. L'audit ne lance pas de build produit pour la fabriquer.
+- **HEAD / prod.** Les deux SHA sont écrits. La révision déployée est prouvée par une métadonnée de déploiement authentifiée qui lie domaine, SHA et, s'il existe, dirty flag ; ou par un identifiant de révision servi (SHA dans le HTML, en-tête de release) relié sans ambiguïté au commit Git. Comparer ensuite ce SHA à HEAD. Un checksum d'asset seul prouve une correspondance de cet asset, pas celle du déploiement. `dirty=true` : le snapshot Git au SHA ne suffit pas à reproduire le déploiement exactement — le consigner, et ne pas traiter ce SHA comme pin reproductible. Sans preuve de révision, le SHA déployé est `non mesurable`. L'audit ne lance pas de build produit pour la fabriquer.
 
 ## 1. Cadrage
 
@@ -68,7 +68,7 @@ Créer le dossier et `manifest.md`.
 |-------|--------|
 | Date UTC | Horodatage de début |
 | Opérateur | Rôle, pas un nom de personne |
-| Périmètre semence | Liste fournie. Plancher, pas plafond |
+| Périmètre semence | Liste fournie. Plancher, pas plafond : compléter seulement selon la règle d'admission de l'inventaire |
 | Horizon | Texte de l'opérateur, sinon « non déclaré — hypothèse à valider ». Aucun délai de remplacement |
 | Critères business | Texte de l'opérateur, sinon la liste des critères utilisés plus bas, marqués hypothèse. Aucun chiffre d'affaires, trafic cible ou ROI inventé |
 | Accès | analytics, CRM, Search Console, contrôleplane (Cloudflare, GitHub), coûts, backlinks, dépôts, moteurs GEO, PSI/CrUX : `disponible`, `inaccessible` ou `non configuré`, selon le vocabulaire |
@@ -78,21 +78,24 @@ Créer le dossier et `manifest.md`.
 
 ## 2. Inventaire
 
-Découvrir, puis classer. Sources autorisées : liste opérateur, liens sortants des pages déjà lues, redirections observées, DNS des noms fournis (NS, A/AAAA, CNAME, TXT), chaînes HTTP, contrôleplane authentifié (zones, déploiements, dépôts liés). Un nom absent de ces sources n'est pas ajouté par ressemblance.
+Découvrir les candidats via la liste opérateur, les liens sortants des pages déjà lues, les redirections observées, le DNS des noms fournis (NS, A/AAAA, CNAME, TXT) ou le contrôleplane authentifié (zones, déploiements, dépôts liés). Ne pas ajouter de nom par ressemblance.
 
-Pour chaque domaine, une ligne dans `inventaire.md` :
+Admettre un domaine si l'opérateur l'a déclaré ou confirmé, ou si une source autorisée prouve son appartenance au même portefeuille (ex. alias du déploiement d'un site déjà admis). Consigner cette preuve dans l'inventaire. Un lien, un `Location` ou une présence dans le même compte ne suffit pas. Consigner les autres domaines découverts dans le manifest comme références externes ou candidats à confirmer, sans fiche ni contrôles d'audit. Ne pas suivre automatiquement une redirection au-delà des domaines admis. Une lecture comparative externe explicitement autorisée reste une référence, pas une admission.
+
+Pour chaque domaine admis, une ligne dans `inventaire.md` :
 
 | Colonne | Contenu |
 |---------|---------|
 | slug | `d01`… |
 | domaine | valeur réelle, dossier privé seulement |
-| rôle | un seul rôle primaire |
+| rôle | un seul rôle primaire, ou `indéterminé` avec le blocage |
 | principal | `oui` / `non` / `ambigu` |
 | proxy | fournisseur d'edge si un en-tête ou un CNAME le prouve (exemple : `cf-ray` ou `server: cloudflare`). Sinon `non observé` |
 | hébergeur | origine qui sert le contenu. « Zone sur un proxy » n'est pas un hébergeur. Si l'origine n'est pas prouvée : `inaccessible` |
 | dépôt | URL canonique, ou `inaccessible` |
 | branche / SHA HEAD | du pin, ou `inaccessible` |
-| SHA déployé | preuve HEAD/prod. Metadata contrôleplane domaine+SHA+dirty acceptée. `dirty=true` consigné. Sinon `non mesurable` |
+| SHA déployé | preuve HEAD/prod. `dirty=true` consigné si observé. Sans preuve de révision : `non mesurable` |
+| preuve d'appartenance | déclaration de l'opérateur ou référence à la source autorisée et preuve observée |
 | objectif, audience, offre, conversion | extraits de pages publiques, ou `inaccessible` |
 | mise en ligne | date opérateur, timestamp de déploiement du contrôleplane, ou première capture publique étiquetée comme capture et non comme lancement |
 | propriété | rôle du titulaire. Nom de personne omis |
@@ -108,7 +111,7 @@ Rôles :
 - `shortener` — le service mappe un chemin court vers une URL plus longue. Le hostname court ne suffit pas.
 - `inactif` — ne sert plus l'offre : NXDOMAIN, parking, ou déclaration opérateur corroborée par l'absence de document d'offre. Une page parking reste une surface.
 
-**Fait quand** : chaque domaine découvert a une ligne ; proxy et hébergeur sont deux colonnes ; HEAD et SHA déployé sont deux colonnes ; chaque champ qualitatif a une disponibilité ; la méthode de découverte et son résultat sont dans le manifest. Un rôle n'est pas déduit du seul nom.
+**Fait quand** : chaque domaine admis a une ligne avec sa preuve d'appartenance ; les autres candidats sont notés à part dans le manifest ; proxy et hébergeur sont deux colonnes ; HEAD et SHA déployé sont deux colonnes ; chaque champ qualitatif a une disponibilité ; la méthode de découverte et son résultat sont consignés. Un rôle n'est pas déduit du seul nom.
 
 ## 3. Pin des dépôts
 
@@ -133,7 +136,7 @@ Quinze questions, libellé exact, langue et locale fixées :
 
 Les libellés viennent des sujets visibles (titres, H1, offre). Confiance `faible` si le sujet est seulement implicite. Après la première observation, le corpus ne gagne ni ne perd de question.
 
-**Fait quand** : quinze libellés figés, ou le sous-ensemble marque marqué `non mesurable` avec la raison, et l'heure de gel est écrite.
+**Fait quand** : les quinze identifiants sont fixés ; chaque question a son libellé, sauf les six questions « avec marque » si la marque est inconnue, alors marquées `non mesurable` avec la raison. L'heure de gel est écrite.
 
 ## 5. Fiche — branche `site`
 
@@ -189,7 +192,7 @@ Search Console : AI Overviews et AI Mode sont inclus dans le type Web. Les totau
 
 Moteur inaccessible : chaque cellule de ce moteur est `non mesurable`. Ce n'est pas une absence de citation. Aucune autorité IA unique. Aucune causalité tirée d'une mention.
 
-**Fait quand** : le corpus gelé est celui qui a été mesuré ; chaque question × moteur accessible a `n/N` et des réponses archivées ; chaque moteur inaccessible a un blocage ; les quatre colonnes ne sont pas fusionnées.
+**Fait quand** : le corpus mesuré respecte le gel ; chaque question du gel qui a un libellé × moteur accessible a `n/N` et des réponses archivées ; chaque cellule bloquée faute de marque connue ou de moteur accessible est `non mesurable` avec la raison, sans réponse ni ratio inventé ; les quatre colonnes ne sont pas fusionnées.
 
 ### Sécurité et qualité
 
@@ -217,18 +220,18 @@ Reproductibilité : lockfile présent ou absent est un signal. Sans exécution d
 
 ### Performance
 
-Échantillon, URL finales après redirection, toutes servies par le SHA déployé ou, à défaut, par le même jour d'observation :
+Échantillon, URL finales admises dans le portefeuille après redirection, toutes servies par le SHA déployé ou, à défaut, par le même jour d'observation. Si la chaîne quitte le périmètre, consigner la destination comme référence et ne pas mesurer la page externe.
 
 - accueil ;
 - pages d'acquisition dont la conversion est visible (contact, inscription, achat). Aucune page de ce type : créneau `non applicable` ;
 - au moins une URL par type de template existant dans le pin ou dans les motifs d'URL. Un type sans URL 200 : `non applicable` ;
 - interactions critiques (menu, focus de champ, accordéon) exercées dans un navigateur, sans envoi de formulaire.
 
-Lab : 3 runs mobile et 3 runs desktop, même outil, même URL, même jour, même révision. Consigner les 6 valeurs, la médiane, le min et le max. Un run en échec passe par les voies lab disponibles et proportionnées (PSI, puis Lighthouse local épinglé). Un échec qui reste est un trou `non mesurable`, jamais une valeur comblée. Mobile et desktop ne sont pas mélangés. Si l'écart min–max du médian change de bucket Good / Needs Improvement / Poor, la série est instable et la confiance lab est `faible`.
+Lab : 3 runs mobile et 3 runs desktop, même outil, même URL, même jour, même révision. Consigner les 6 valeurs, la médiane, le min et le max. Si un run échoue, appliquer la règle de choix d'outil ci-dessous ; en cas de changement d'outil, refaire la série sans mélanger les résultats. Un échec qui reste est un trou `non mesurable`, jamais une valeur comblée. Mobile et desktop ne sont pas mélangés. Si l'écart min–max du médian change de bucket Good / Needs Improvement / Poor, la série est instable et la confiance lab est `faible`.
 
-Outil : PSI si accessible, sinon Lighthouse local via l'outillage isolé épinglé, étiqueté `lab local`. PSI lab simule un mobile milieu de gamme bridé et un desktop filaire ; copier le bloc d'environnement (lieu inclus). Le score Lighthouse est consigné et n'est pas un rang.
+Outil : avant toute mesure par un service tiers (PSI ou CrUX), vérifier que la cible est publique et non sensible, y compris après redirection, et reste dans le périmètre. Si elle contient un jeton ou si ces conditions ne peuvent pas être établies, ne pas l'envoyer, même masquée. Pour le lab, utiliser PSI si la cible est admissible et le service accessible ; sinon, utiliser Lighthouse épinglé sans transmettre de secret hors de sa destination autorisée, et étiqueter `lab local`. Si aucune mesure sûre n'est possible, noter `non mesurable`. PSI lab simule un mobile milieu de gamme bridé et un desktop filaire ; copier le bloc d'environnement (lieu inclus). Le score Lighthouse est consigné et n'est pas un rang.
 
-Champ : CrUX, p75, fenêtre 28 jours, URL et origine séparées, mobile et desktop séparés, pour LCP, INP, CLS. Un repli PSI vers l'origine est copié dans la ligne origine, pas dans la ligne URL. Donnée insuffisante = `non mesurable`, pas un succès. Un assessment PSI qui ignore un INP manquant n'est pas repris comme statut INP.
+Champ : CrUX, p75, fenêtre 28 jours, URL et origine séparées, mobile et desktop séparés, pour LCP, INP, CLS. Si la mesure URL n'est pas autorisée, la noter `non mesurable` ; une origine publique et non sensible peut être mesurée séparément. Un repli PSI vers l'origine est copié dans la ligne origine, pas dans la ligne URL. Donnée insuffisante = `non mesurable`, pas un succès. Un assessment PSI qui ignore un INP manquant n'est pas repris comme statut INP.
 
 Seuils champ, p75, [Web Vitals](https://web.dev/articles/vitals) et [PSI](https://developers.google.com/speed/docs/insights/v5/about). Ces colonnes classent la métrique. Elles ne sont pas la gravité du constat, ni le statut d'axe, ni le statut de fiche. Gravité et impact se jugent à part.
 
@@ -250,18 +253,18 @@ Preuve visuelle : capture datée, URL, viewport, dans `raw/`, pour chaque URL é
 
 Même squelette. Les quatre axes existent ; les objets sans document sont `non applicable`, pas omis.
 
-- Inventaire complet, y compris chaîne : chaque saut (URL, status, `Location`, schéma, hôte, chemin, query conservée ou perdue). Une boucle est `critique`. Un saut au-delà du premier est une `observation` à justifier, pas une faute automatique.
+- Inventaire complet des sauts dans le périmètre (URL, status, `Location`, schéma, hôte, chemin, query conservée ou perdue, secrets masqués). À la première destination non admise, consigner le `Location` comme référence et arrêter la chaîne. Une boucle est `critique`. Un saut au-delà du premier est une `observation` à justifier, pas une faute automatique.
 - SEO : le redirect n'est pas un document. Indexabilité de page = `non applicable`. Canonical utile = cible. Classement de l'URL de redirect = `non mesurable` sans lecture GSC, jamais un rang inventé.
 - GEO : `non applicable`, sauf si une réponse archivée cite cette URL — alors mesurer cette citation.
 - Sécurité : TLS du saut, HSTS, cible construite dans le pin (allowlist ou cible fixe). Pas d'injection de paramètre.
 - Performance : TTFB du saut, 3+3 si l'outil le donne. LCP, INP, CLS = `non applicable`.
 
-**Fait quand** : la chaîne est complète et chaque axe a un statut, y compris les `non applicable` justifiés.
+**Fait quand** : la chaîne est complète dans le périmètre ou sa sortie est consignée, et chaque axe a un statut, y compris les `non applicable` justifiés.
 
 ## 7. Fiche — branche `shortener`
 
 - Résoudre les slugs fournis par l'opérateur, liés depuis une page du portefeuille, ou listés par un contrôleplane autorisé. Pas d'énumération.
-- Destination, status, destination dans le portefeuille ou non, schéma `https` ou non.
+- Consigner destination, status, appartenance au portefeuille et schéma `https` ou non. Pour une destination non admise, le `Location` observé suffit : ne pas visiter ni mesurer cette destination.
 - Clics : lecture analytics (export ou UI authentifiée datée), sinon `inaccessible`. Pas de formulaire de stats.
 - SEO : robots et en-têtes. Classement `non applicable` sauf si l'URL courte est une page dans la lecture GSC.
 - GEO : `non applicable`, sauf citation archivée de l'URL courte.
@@ -278,6 +281,12 @@ Même squelette. Les quatre axes existent ; les objets sans document sont `non a
 - Le rôle `inactif` ne décide pas `arrêter` à lui seul.
 
 **Fait quand** : la fiche existe et distingue « pas de surface » de « surface non mesurée ».
+
+## Fiche — rôle `indéterminé`
+
+Conserver le domaine admis dans l'inventaire et créer la fiche standard. Noter ce qui a pu être observé indépendamment du rôle ; attribuer `non mesurable` avec le blocage aux contrôles qui dépendent d'un rôle ou d'une surface non établis. Ne pas déduire `inactif` d'un échec d'accès.
+
+**Fait quand** : les quatre axes ont un statut et la fiche documente ce qui empêche de confirmer le rôle.
 
 ## Fiche
 
@@ -311,7 +320,7 @@ URL, template, raison d'inclusion
 tables SEO, GEO n/N, lab min/médiane/max, CrUX p75 URL et origine
 
 ## Limites
-données tiers manquantes, données commerciales manquantes, blocages verbatim
+données tiers manquantes, données commerciales manquantes, blocages consignés après masquage des secrets
 
 ## Top 5
 cinq actions au plus, chacune citant un id de constat. Moins de cinq si moins de constats actionnables.
@@ -364,12 +373,12 @@ Décision primaire, une par domaine, chacune citant des id de constats ou un man
 | conserver / développer | valeur propre ou rôle principal. Acquisition non mesurable : qualificatif `conditionnelle` ou `expérimentale`, recommandations atteignables conservées |
 | différencier | intentions proches et valeur ou parcours distinct. L'acquisition manquante ne l'interdit pas |
 | fusionner / rediriger | même intention, valeur propre non établie, cible nommée |
-| arrêter | `inactif`, ou absence de public, de besoin et de parcours, avec coût ou risque résiduel prouvé. Un trafic nul plus jeune que l'horizon ne suffit pas |
-| différer faute de preuve | la valeur propre elle-même ne peut pas être lue |
+| arrêter | inactivité établie ou absence établie de public, de besoin et de parcours, **et** coût ou risque résiduel prouvé. Le rôle `inactif` seul ne suffit pas, pas plus qu'un trafic nul sur un site plus jeune que l'horizon |
+| différer faute de preuve | la valeur propre ne peut pas être lue ou une preuve nécessaire à la décision manque |
 
 Une migration éventuelle est une ligne « recommandée, hors mandat ». Elle n'est pas exécutée.
 
-Top 5 portefeuille : cinq actions, id de constat, effort, propriété concernée. Un `critique` figure dans ces cinq ou le texte dit pourquoi il est déjà couvert par une action listée.
+Top 5 portefeuille : jusqu'à cinq actions, avec id de constat, effort et propriété concernée. Donner la priorité aux actions qui traitent les constats `critiques`. Pour tout constat `critique` non cité, indiquer quelle action listée le couvre ou, s'il reste hors du top 5, consigner son id, l'action et la raison de son rang.
 
 Limites finales : recopier chaque `non mesurable` de la couverture. Horizon et critères business non déclarés restent marqués « hypothèse à valider ».
 
