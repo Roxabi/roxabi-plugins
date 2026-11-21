@@ -23,6 +23,9 @@ is_distributed_runtime_path() {
   local relative="${1#plugins/*/}" nested skill
   case "$relative" in
     README.md | GLOSSARY.md | *.test.* | *.spec.*) return 1 ;;
+    # Each Markdown file under commands/ or agents/ is a component at any depth
+    # (commands/docs/labels.md is /plugin:docs:labels), whatever its group is named.
+    commands/*.md | agents/*.md) return 0 ;;
   esac
   nested="$relative"
   # A skills/ directory that holds SKILL.md (at HEAD or the base) is a skill, and its

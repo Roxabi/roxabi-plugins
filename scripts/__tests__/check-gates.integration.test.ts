@@ -627,6 +627,9 @@ describe('check-skill-version.sh', () => {
       ['docs inside an ordinary skill', '', 'skills/my-skill/docs/notes.md', 0],
       ['a test helper with no SKILL.md', '', 'skills/__tests__/helpers.ts', 0],
       ['a tests directory with no SKILL.md', '', 'skills/tests/helpers.ts', 0],
+      ['a command in a group named docs', '', 'commands/docs/labels.md', 1],
+      ['an agent in a group named fixtures', '', 'agents/fixtures/guide.md', 1],
+      ['a test helper under commands', '', 'commands/__tests__/helpers.ts', 0],
     ])('treats %s as exit %i', (_case, existing, file, expected) => {
       const work = fixture()
       if (existing !== '') {
