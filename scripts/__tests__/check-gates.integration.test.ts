@@ -884,6 +884,43 @@ describe('check-skill-version.sh', () => {
       expect(stdout).toContain('foo: distributed runtime changed without version bump (still 1.0.0)')
     })
 
+    // Claude plugins may symlink files inside the repository: the manifest is the link target.
+    function commitSymlinkedManifest(work: string, link: string, targetVersion: string): void {
+      const pluginDir = path.join(work, 'plugins', 'foo')
+      fs.writeFileSync(path.join(pluginDir, 'manifest.json'), JSON.stringify({ version: targetVersion }))
+      fs.rmSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'))
+      fs.symlinkSync(link, path.join(pluginDir, '.claude-plugin', 'plugin.json'))
+      commitSkillChange(work, 'foo', '# skill v2 (symlinked manifest)\n')
+    }
+
+    it.each([
+      ['an unchanged', '1.0.0', 1],
+      ['a bumped', '1.0.1', 0],
+    ])('reads %s version through a symlinked plugin.json', (_case, version, expected) => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      commitSymlinkedManifest(work, '../manifest.json', version)
+
+      const { code, stdout, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(expected)
+      expect(stderr).not.toMatch(/SKIP: foo (has no \.claude-plugin|is SHA-based)/)
+      if (expected === 1) expect(stdout).toContain('(still 1.0.0)')
+    })
+
+    it('exits 1 when plugin.json links outside the repository', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      commitSymlinkedManifest(work, '../../../../outside.json', '1.0.1')
+
+      const { code, stdout } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('foo: cannot resolve HEAD:plugins/foo/.claude-plugin/plugin.json')
+    })
+
     it.each([
       ['does not resolve to a commit', 'no-such-base'],
       ['is set but empty', ''],

@@ -151,29 +151,97 @@ omp_fail() {
   fail=1
 }
 
+# Collapse . and .. in a repository-relative path; fails when it leaves the root.
+repo_path() {
+  local part parts out=()
+  IFS=/ read -ra parts <<<"$1"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      '' | .) ;;
+      ..)
+        [ "${#out[@]}" -gt 0 ] || return 1
+        unset 'out[${#out[@]}-1]'
+        ;;
+      *) out+=("$part") ;;
+    esac
+  done
+  [ "${#out[@]}" -gt 0 ] || return 1
+  (
+    IFS=/
+    printf '%s\n' "${out[*]}"
+  )
+}
+
+# Path that FILE resolves to in the REV tree. Claude plugins may symlink files
+# inside the repository, so relative links are followed component by component,
+# as the worktree read does. Fails on an absolute, escaping or looping link.
+rev_path() {
+  local rev="$1" rest="$2" resolved="" part target hops=0
+  while [ -n "$rest" ]; do
+    part="${rest%%/*}"
+    if [ "$part" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    if [ "$(git ls-tree --full-tree "$rev" -- "${resolved:+$resolved/}$part" | cut -c1-6)" = 120000 ]; then
+      hops=$((hops + 1))
+      [ "$hops" -le 16 ] || return 1
+      target=$(git show "$rev:${resolved:+$resolved/}$part") || return 1
+      case "$target" in /*) return 1 ;; esac
+      rest=$(repo_path "${resolved:+$resolved/}$target${rest:+/$rest}") || return 1
+      resolved=""
+    else
+      resolved="${resolved:+$resolved/}$part"
+    fi
+  done
+  [ -n "$resolved" ] || return 1
+  printf '%s\n' "$resolved"
+}
+
+# FILE's bytes at REV. Exit 1: absent. Exit 2: a symlink on the way does not resolve.
+rev_file() {
+  local resolved
+  resolved=$(rev_path "$1" "$2") || return 2
+  git cat-file -e "$1:$resolved" 2>/dev/null || return 1
+  git show "$1:$resolved"
+}
+
 # Claude manifest of the candidate: the HEAD commit with an explicit base (CI),
-# the worktree file otherwise (pre-push).
+# the worktree file otherwise (pre-push). Same exit codes as rev_file.
 claude_manifest() {
   if [ "$explicit_base" -eq 1 ]; then
-    git show "HEAD:$1" 2>/dev/null
+    rev_file HEAD "$1"
   else
-    cat "$1" 2>/dev/null
+    [ -f "$1" ] || return 1
+    cat "$1"
   fi
+}
+
+unresolvable_link() {
+  echo "$1: cannot resolve $2 — a symlink on its path is absolute, leaves the repository or loops"
+  fail=1
 }
 
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
+  cur_read=0
+  if [ "$have_jq" -eq 1 ]; then
+    manifest=$(claude_manifest "$pj") || cur_read=$?
+  fi
   if [ "$have_jq" -ne 1 ]; then
     echo "SKIP: $p Claude plugin.json check needs jq (not found) — OMP catalogue check still runs" >&2
-  elif ! claude_manifest "$pj" >/dev/null; then
+  elif [ "$cur_read" -eq 1 ]; then
     echo "SKIP: $p has no .claude-plugin/plugin.json — no version gate" >&2
+  elif [ "$cur_read" -ne 0 ]; then
+    unresolvable_link "$p" "HEAD:$pj"
   else
-    cur=$(claude_manifest "$pj" | jq -r '.version // empty' 2>/dev/null || true)
+    cur=$(printf '%s\n' "$manifest" | jq -r '.version // empty' 2>/dev/null || true)
+    base_read=0
+    base_manifest=$(rev_file "$base_rev" "$pj") || base_read=$?
     if [ -z "$cur" ]; then
       echo "SKIP: $p is SHA-based (no .version in $pj) — bump gate inert for this plugin" >&2
+    elif [ "$base_read" -eq 2 ]; then
+      unresolvable_link "$p" "$base_label:$pj"
     else
-      base=$(git show "$base_rev:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
+      base=$(printf '%s\n' "$base_manifest" | jq -r '.version // empty' 2>/dev/null || true)
       if [ "$base" = "$cur" ]; then
         echo "$p: distributed runtime changed without version bump (still $cur) — bump $pj"
         fail=1
