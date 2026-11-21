@@ -117,7 +117,7 @@
       "upstream_branch": "main",
       "criteria_met": ["marketplace_json", "install_mechanism", "maintained_90d", "quality_content", "lt50pct_overlap"],
       "status": "deprecated",
-      "notes": "Deprecated 2026-11-21: repository becomes private as the downstream of go-silex/unkillable-forge; Roxabi publishers install the curated unkillable-forge plugin and configure an explicit Roxabi instance profile; the legacy Cloudflare Pages publisher is retired. Retained as a historical registry record; not in the active curated mirror."
+      "notes": "Deprecated 2026-11-21: repository becomes private as the downstream of go-silex/unkillable-forge; Roxabi publishers install the curated unkillable-forge plugin and configure an explicit Roxabi instance profile. Removing this marketplace does not uninstall existing copies. Retained as a historical registry record; not in the active curated mirror."
     },
     {
       "name": "unkillable-forge",
