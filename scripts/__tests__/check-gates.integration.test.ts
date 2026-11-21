@@ -535,6 +535,72 @@ describe('check-skill-version.sh', () => {
       if (expected === 1) expect(stdout).toContain('not a non-empty single-line string')
     })
 
+    // Claude Code finds the entry through its source, and the install name may differ.
+    it.each([
+      [
+        'a different install name',
+        { plugins: [{ name: 'published', source: './plugins/claude-only', version: '1.0.0' }] },
+      ],
+      ['a trailing slash', { plugins: [{ name: 'claude-only', source: './plugins/claude-only/', version: '1.0.0' }] }],
+      [
+        'a bare name under pluginRoot',
+        {
+          metadata: { pluginRoot: './plugins' },
+          plugins: [{ name: 'published', source: 'claude-only', version: '1.0.0' }],
+        },
+      ],
+    ])('finds the Claude row through its source with %s', (_case, doc) => {
+      const work = fixture()
+      writeClaudeCatalogue(work, JSON.stringify(doc))
+      pushAsMain(work, 'reshape Claude row')
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('(still 1.0.0) — bump .claude-plugin/marketplace.json')
+    })
+
+    it('rejects duplicate Claude rows even when plugin.json supplies the bumped version', () => {
+      const work = fixture('2.0.0')
+      fs.writeFileSync(
+        path.join(work, 'plugins', 'claude-only', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ version: '2.1.0' }),
+      )
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({
+          plugins: [
+            { name: 'claude-only', source: './plugins/claude-only', version: '1.0.0' },
+            { name: 'claude-copy', source: './plugins/claude-only', version: '1.1.0' },
+          ],
+        }),
+      )
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('duplicate plugins[] rows for plugins/claude-only in .claude-plugin/marketplace.json')
+    })
+
+    // A catalogue reached through a symlink is not in the tree under its own path, so
+    // reading it as absent would silently skip the gate.
+    it.each(['directory', 'file'] as const)('rejects a Claude catalogue behind a symlinked %s', (kind) => {
+      const work = fixture()
+      const bytes = claudeCatalogueBytes('claude-only', '1.0.0')
+      fs.rmSync(path.join(work, '.claude-plugin'), { recursive: true })
+      if (kind === 'directory') {
+        fs.mkdirSync(path.join(work, 'claude-config'))
+        fs.writeFileSync(path.join(work, 'claude-config', 'marketplace.json'), bytes)
+        fs.symlinkSync('claude-config', path.join(work, '.claude-plugin'))
+      } else {
+        fs.mkdirSync(path.join(work, '.claude-plugin'))
+        fs.writeFileSync(path.join(work, 'claude-catalogue.json'), bytes)
+        fs.symlinkSync('../claude-catalogue.json', path.join(work, '.claude-plugin', 'marketplace.json'))
+      }
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('.claude-plugin/marketplace.json is a symlink or sits under one')
+    })
+
     it('uses the committed catalogue rather than a dirty bump locally and with an explicit base', () => {
       const work = fixture()
       commitSkillChange(work, 'claude-only', '# changed\n')

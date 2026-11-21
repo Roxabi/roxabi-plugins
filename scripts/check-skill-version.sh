@@ -77,19 +77,28 @@ changed=$(
 mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
 
-# Classify the row named NAME in catalogue PATH at REV: ABSENT (no blob), PARSE,
-# DUPLICATE, NO_ROW, MISSING (row without version), BAD, or VERSION:<v>. SEMVER=1
-# also requires a semver (the OMP cache key); Claude versions are free strings.
+# Classify the row for plugin NAME in catalogue PATH at REV: ABSENT (no blob), LINK
+# (the catalogue or its directory is a symlink), PARSE, DUPLICATE, NO_ROW, MISSING
+# (row without version), BAD, or VERSION:<v>. MODE=omp matches the row by name and
+# requires a semver (the OMP cache key). MODE=claude matches the row whose local
+# source is plugins/NAME, as Claude Code resolves it, and takes a free string.
 # Stream the bytes into the classifier: capturing them in a shell variable strips
 # NUL before Bun.JSON.parse.
 catalog_row_status() {
-  local rev="$1" name="$2" path="$3" semver="$4" status
+  local rev="$1" name="$2" path="$3" mode="$4" status entry
+  for entry in "${path%/*}" "$path"; do
+    if [ "$(git ls-tree "$rev" -- "$entry" | cut -d' ' -f1)" = 120000 ]; then
+      printf 'LINK'
+      return 0
+    fi
+  done
   if ! git cat-file -e "${rev}:${path}" 2>/dev/null; then
     printf 'ABSENT'
     return 0
   fi
-  if ! status=$(git show "${rev}:${path}" | OMP_PLUGIN_NAME="$name" CHECK_SEMVER="$semver" bun -e '
+  if ! status=$(git show "${rev}:${path}" | OMP_PLUGIN_NAME="$name" CATALOG_MODE="$mode" bun -e '
 const name = process.env.OMP_PLUGIN_NAME ?? ""
+const claude = process.env.CATALOG_MODE === "claude"
 const bytes = new Uint8Array(await new Response(Bun.stdin).arrayBuffer())
 const emit = (code) => {
   console.log(code)
@@ -107,12 +116,20 @@ if (doc === null || typeof doc !== "object" || Array.isArray(doc) || !Array.isAr
   emit("PARSE")
 }
 const want = name.toLowerCase()
+const local = (text) => text.replace(/^(\.\/)+/, "").replace(/\/+$/, "")
+const root = typeof doc.metadata?.pluginRoot === "string" ? local(doc.metadata.pluginRoot) : ""
+const isPlugin = (source) => {
+  if (typeof source !== "string") return false
+  if (local(source) === "plugins/" + name) return true
+  // Claude Code resolves a bare name under metadata.pluginRoot.
+  return root !== "" && !source.includes("/") && !source.startsWith(".") && root + "/" + source === "plugins/" + name
+}
 const rows = doc.plugins.filter(
   (row) =>
     row &&
     typeof row === "object" &&
     !Array.isArray(row) &&
-    String(row.name ?? "").toLowerCase() === want,
+    (claude ? isPlugin(row.source) : String(row.name ?? "").toLowerCase() === want),
 )
 if (rows.length > 1) emit("DUPLICATE")
 if (rows.length === 0) emit("NO_ROW")
@@ -121,14 +138,14 @@ if (version === undefined || version === null) emit("MISSING")
 if (typeof version !== "string" || version.length === 0 || /[\r\n]/.test(version)) emit("BAD")
 const semver =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-if (process.env.CHECK_SEMVER === "1" && !semver.test(version)) emit("BAD")
+if (!claude && !semver.test(version)) emit("BAD")
 emit("VERSION:" + version)
 '); then
     printf 'PARSE'
     return 0
   fi
   case "$status" in
-    PARSE | DUPLICATE | MISSING | NO_ROW | BAD | VERSION:*) printf '%s' "$status" ;;
+    LINK | PARSE | DUPLICATE | MISSING | NO_ROW | BAD | VERSION:*) printf '%s' "$status" ;;
     *) printf 'PARSE' ;;
   esac
 }
@@ -223,12 +240,18 @@ unresolvable_link() {
 CLAUDE_CATALOG=.claude-plugin/marketplace.json
 
 claude_row_status() {
-  catalog_row_status "$1" "$2" "$CLAUDE_CATALOG" 0
+  catalog_row_status "$1" "$2" "$CLAUDE_CATALOG" claude
+}
+
+catalogue_link_fail() {
+  echo "$1: $2 is a symlink or sits under one — keep catalogues as regular files"
+  fail=1
 }
 
 claude_catalog_fail() {
   case "$3" in
-    DUPLICATE) echo "$1: duplicate plugins[] rows in $2" ;;
+    LINK) catalogue_link_fail "$1" "$2" ;;
+    DUPLICATE) echo "$1: duplicate plugins[] rows for plugins/$1 in $2" ;;
     BAD) echo "$1: Claude catalogue version is not a non-empty single-line string in $2" ;;
     *) echo "$1: cannot parse $2" ;;
   esac
@@ -238,12 +261,17 @@ claude_catalog_fail() {
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
+  # The Claude catalogue row must be valid whichever source supplies the version.
+  head_row=$(claude_row_status HEAD "$p")
+  case "$head_row" in
+    LINK | PARSE | DUPLICATE | BAD) claude_catalog_fail "$p" "$CLAUDE_CATALOG" "$head_row" ;;
+  esac
   cur_read=0
   if [ "$have_jq" -eq 1 ]; then
     manifest=$(claude_manifest "$pj") || cur_read=$?
   fi
   if [ "$have_jq" -ne 1 ]; then
-    echo "SKIP: $p Claude plugin.json check needs jq (not found) — OMP catalogue check still runs" >&2
+    echo "SKIP: $p Claude version check needs jq (not found) — OMP catalogue check still runs" >&2
   elif [ "$cur_read" -eq 2 ]; then
     unresolvable_link "$p" "HEAD:$pj"
   else
@@ -254,17 +282,15 @@ for p in "${plugins[@]}"; do
     claude_file="$pj"
     if [ -z "$cur" ]; then
       claude_file="$CLAUDE_CATALOG"
-      row=$(claude_row_status HEAD "$p")
-      case "$row" in
-        VERSION:*) cur="${row#VERSION:}" ;;
+      case "$head_row" in
+        VERSION:*) cur="${head_row#VERSION:}" ;;
         ABSENT | NO_ROW | MISSING)
-          if [ "$cur_read" -eq 1 ] && [ "$row" != MISSING ]; then
+          if [ "$cur_read" -eq 1 ] && [ "$head_row" != MISSING ]; then
             echo "SKIP: $p has no Claude manifest or catalogue row — no Claude version gate" >&2
           else
             echo "SKIP: $p takes its Claude version from the commit SHA (no version in plugin.json or $CLAUDE_CATALOG) — Claude bump gate inert" >&2
           fi
           ;;
-        *) claude_catalog_fail "$p" "$CLAUDE_CATALOG" "$row" ;;
       esac
     fi
     if [ -n "$cur" ]; then
@@ -276,11 +302,11 @@ for p in "${plugins[@]}"; do
       else
         base=$(printf '%s\n' "$base_manifest" | jq -r '.version // empty' 2>/dev/null || true)
         if [ -z "$base" ]; then
-          row=$(claude_row_status "$base_rev" "$p")
-          case "$row" in
-            VERSION:*) base="${row#VERSION:}" ;;
+          base_row=$(claude_row_status "$base_rev" "$p")
+          case "$base_row" in
+            VERSION:*) base="${base_row#VERSION:}" ;;
             ABSENT | NO_ROW | MISSING) ;;
-            *) claude_catalog_fail "$p" "$base_label:$CLAUDE_CATALOG" "$row" ;;
+            *) claude_catalog_fail "$p" "$base_label:$CLAUDE_CATALOG" "$base_row" ;;
           esac
         fi
       fi
@@ -293,8 +319,9 @@ for p in "${plugins[@]}"; do
 
   # OMP cache key is the catalogue row of the commit being pushed,
   # not the worktree file and not the document version.
-  cur_status=$(catalog_row_status HEAD "$p" ".omp-plugin/marketplace.json" 1)
+  cur_status=$(catalog_row_status HEAD "$p" ".omp-plugin/marketplace.json" omp)
   case "$cur_status" in
+    LINK) catalogue_link_fail "$p" ".omp-plugin/marketplace.json" ;;
     PARSE) omp_fail "$p" "cannot parse .omp-plugin/marketplace.json" ;;
     DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in .omp-plugin/marketplace.json" ;;
     BAD) omp_fail "$p" "catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
@@ -303,8 +330,9 @@ for p in "${plugins[@]}"; do
       ;;
     VERSION:*)
       cur_omp="${cur_status#VERSION:}"
-      base_status=$(catalog_row_status "$base_rev" "$p" ".omp-plugin/marketplace.json" 1)
+      base_status=$(catalog_row_status "$base_rev" "$p" ".omp-plugin/marketplace.json" omp)
       case "$base_status" in
+        LINK) catalogue_link_fail "$p" "$base_label:.omp-plugin/marketplace.json" ;;
         PARSE) omp_fail "$p" "cannot parse $base_label:.omp-plugin/marketplace.json" ;;
         DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in $base_label:.omp-plugin/marketplace.json" ;;
         BAD) omp_fail "$p" "$base_label catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;

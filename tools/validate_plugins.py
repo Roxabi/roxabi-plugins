@@ -622,31 +622,38 @@ def check_claude_catalog_versions(catalog_path=None, repo_root=None) -> list[str
     if not isinstance(plugins, list):
         return ['failed to parse Claude marketplace.json: plugins is not a list']
 
+    metadata = data.get('metadata') if isinstance(data.get('metadata'), dict) else None
+    plugin_root = metadata.get('pluginRoot') if metadata else None
     errors = []
     for row in plugins:
         if not isinstance(row, dict) or 'version' not in row:
             continue
-        source = row.get('source')
-        if not isinstance(source, str) or not source.startswith('./plugins/'):
-            continue
-        plugin_name = source[len('./plugins/'):]
-        if not plugin_name or plugin_name in ('.', '..') or '/' in plugin_name:
-            continue
-        package_json = repo_root / source / 'package.json'
-        if not package_json.is_file():
-            continue
         name = row.get('name') or '<unnamed>'
-        try:
-            package = json.loads(package_json.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError) as e:
-            errors.append(f'{name}: failed to parse {source}/package.json: {e}')
-            continue
-        package_version = package.get('version') if isinstance(package, dict) else None
-        if row['version'] != package_version:
-            errors.append(
-                f'{name}: Claude catalog version {row["version"]!r} does not match '
-                f'{source}/package.json version {package_version!r}'
-            )
+        # Same spellings Claude Code accepts (./plugins/x, ./plugins/x/, a bare name under
+        # metadata.pluginRoot); the helper also yields pluginRoot itself, not a plugin.
+        for path_text in catalog_row_local_paths(row, metadata):
+            if path_text == plugin_root or '://' in path_text:
+                continue
+            relative = Path(os.path.normpath(_strip_dot_slash(path_text.strip())))
+            if not relative.parts or relative.parts[0] == '..' or relative.is_absolute():
+                continue
+            package_json = repo_root / relative / 'package.json'
+            if not package_json.is_file():
+                continue
+            display = f'{relative.as_posix()}/package.json'
+            try:
+                package = json.loads(package_json.read_text(encoding='utf-8'))
+            except (OSError, json.JSONDecodeError) as e:
+                errors.append(f'{name}: failed to parse {display}: {e}')
+                break
+            package_version = package.get('version') if isinstance(package, dict) else None
+            if row['version'] != package_version:
+                errors.append(
+                    f'{name}: Claude catalog version {row["version"]!r} does not match '
+                    f'{display} version {package_version!r} — with no version in plugin.json, '
+                    f'Claude Code keys its plugin cache on the catalog version'
+                )
+            break
     return errors
 
 
