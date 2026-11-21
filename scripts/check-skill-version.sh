@@ -20,15 +20,27 @@ is_distributed_runtime_path() {
     plugins/*/*) ;;
     *) return 1 ;;
   esac
-  local relative="${1#plugins/*/}" nested
+  local relative="${1#plugins/*/}" nested skill
   case "$relative" in
     README.md | GLOSSARY.md | *.test.* | *.spec.*) return 1 ;;
   esac
-  # The directory under skills/, commands/ or agents/ is a component name: a skill
-  # named docs or tests is runtime. Category directories are matched inside it.
   nested="$relative"
+  # A skills/ directory that holds SKILL.md (at HEAD or the base) is a skill, and its
+  # name is not a category: skills/docs/SKILL.md is runtime. Without SKILL.md, a
+  # category-named directory (skills/__tests__/) stays source-only.
   case "$nested" in
-    skills/*/* | commands/*/* | agents/*/*) nested="${nested#*/*/}" ;;
+    skills/*/*)
+      skill="${nested#skills/}"
+      skill="${skill%%/*}"
+      case "$skill" in
+        docs | test | tests | testing | __tests__ | fixtures | __fixtures__)
+          if git cat-file -e "HEAD:${1%"$relative"}skills/$skill/SKILL.md" 2>/dev/null ||
+            git cat-file -e "$base_rev:${1%"$relative"}skills/$skill/SKILL.md" 2>/dev/null; then
+            nested="${nested#skills/*/}"
+          fi
+          ;;
+      esac
+      ;;
   esac
   case "/$nested" in
     */docs/* | */test/* | */tests/* | */testing/* | */__tests__/* | */fixtures/* | */__fixtures__/*)

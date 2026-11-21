@@ -617,16 +617,24 @@ describe('check-skill-version.sh', () => {
       expect(stdout).toContain('claude-only: distributed runtime changed without version bump (still 1.0.0)')
     })
 
-    // A skill, command group or agent named like a category is runtime; the category
-    // directories inside it are not.
+    // A skills/ directory holding SKILL.md is a skill even when it is named like a
+    // category; without SKILL.md, a category-named directory stays source-only.
     it.each([
-      ['skills/docs/SKILL.md', 1],
-      ['skills/tests/SKILL.md', 1],
-      ['commands/fixtures/run.md', 1],
-      ['skills/my-skill/docs/notes.md', 0],
-      ['skills/docs/tests/case.md', 0],
-    ])('treats %s as exit %i', (file, expected) => {
+      ['a new skill named docs', '', 'skills/docs/SKILL.md', 1],
+      ['a new skill named tests', '', 'skills/tests/SKILL.md', 1],
+      ['a script in an existing docs skill', 'skills/docs/SKILL.md', 'skills/docs/run.sh', 1],
+      ['tests inside an existing docs skill', 'skills/docs/SKILL.md', 'skills/docs/tests/case.md', 0],
+      ['docs inside an ordinary skill', '', 'skills/my-skill/docs/notes.md', 0],
+      ['a test helper with no SKILL.md', '', 'skills/__tests__/helpers.ts', 0],
+      ['a tests directory with no SKILL.md', '', 'skills/tests/helpers.ts', 0],
+    ])('treats %s as exit %i', (_case, existing, file, expected) => {
       const work = fixture()
+      if (existing !== '') {
+        const skill = path.join(work, 'plugins', 'claude-only', existing)
+        fs.mkdirSync(path.dirname(skill), { recursive: true })
+        fs.writeFileSync(skill, '# skill\n')
+        pushAsMain(work, 'existing skill')
+      }
       commitPluginPathChange(work, 'claude-only', file, '# body\n')
       expect(runScriptCapture(CHECK_SKILL_VERSION, work).code).toBe(expected)
     })
