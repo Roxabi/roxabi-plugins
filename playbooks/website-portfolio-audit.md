@@ -125,7 +125,7 @@ Dépôt absent des pages, des en-têtes, de la déclaration opérateur et du con
 
 Écrire `corpus.md` avant toute observation GEO. Marque = chaîne lisible dans le titre, le logo ou `Organization.name` du principal. Si la marque est inconnue, les questions « avec marque » sont `non mesurable` et le gel le dit.
 
-Quinze questions, libellé exact, langue et locale fixées :
+Quinze emplacements fixes, chacun avec un libellé ou un blocage ; langue et locale fixées :
 
 | id | type | marque | nombre |
 |----|------|--------|--------|
@@ -134,9 +134,9 @@ Quinze questions, libellé exact, langue et locale fixées :
 | C1–C3 | commerciale | non | 3 |
 | CM1–CM3 | commerciale | oui | 3 |
 
-Les libellés viennent des sujets visibles (titres, H1, offre). Confiance `faible` si le sujet est seulement implicite. Après la première observation, le corpus ne gagne ni ne perd de question.
+Les libellés viennent des sujets visibles (titres, H1, offre). Confiance `faible` si le sujet est seulement implicite. Si aucun sujet ne permet de formuler une question donnée après lecture des sources autorisées disponibles, conserver son identifiant et la marquer `non mesurable` avec le blocage de source. Distinguer ce blocage d'une marque inconnue. Après la première observation, le corpus ne gagne ni ne perd de question.
 
-**Fait quand** : les quinze identifiants sont fixés ; chaque question a son libellé, sauf les six questions « avec marque » si la marque est inconnue, alors marquées `non mesurable` avec la raison. L'heure de gel est écrite.
+**Fait quand** : les quinze identifiants sont fixés et chacun a soit un libellé, soit le statut `non mesurable` avec sa raison (sujet non observable ou, pour une question avec marque, marque inconnue). L'heure de gel est écrite, même si aucune question n'est mesurable.
 
 ## 5. Fiche — branche `site`
 
@@ -192,7 +192,7 @@ Search Console : AI Overviews et AI Mode sont inclus dans le type Web. Les totau
 
 Moteur inaccessible : chaque cellule de ce moteur est `non mesurable`. Ce n'est pas une absence de citation. Aucune autorité IA unique. Aucune causalité tirée d'une mention.
 
-**Fait quand** : le corpus mesuré respecte le gel ; chaque question du gel qui a un libellé × moteur accessible a `n/N` et des réponses archivées ; chaque cellule bloquée faute de marque connue ou de moteur accessible est `non mesurable` avec la raison, sans réponse ni ratio inventé ; les quatre colonnes ne sont pas fusionnées.
+**Fait quand** : le corpus mesuré respecte le gel ; chaque question du gel qui a un libellé × moteur accessible a `n/N` et des réponses archivées ; chaque cellule bloquée reprend le motif du gel ou de l'accès au moteur et reste `non mesurable`, sans réponse ni ratio inventé ; les quatre colonnes ne sont pas fusionnées.
 
 ### Sécurité et qualité
 
@@ -227,9 +227,9 @@ Reproductibilité : lockfile présent ou absent est un signal. Sans exécution d
 - au moins une URL par type de template existant dans le pin ou dans les motifs d'URL. Un type sans URL 200 : `non applicable` ;
 - interactions critiques (menu, focus de champ, accordéon) exercées dans un navigateur, sans envoi de formulaire.
 
-Lab : 3 runs mobile et 3 runs desktop, même outil, même URL, même jour, même révision. Consigner les 6 valeurs, la médiane, le min et le max. Si un run échoue, appliquer la règle de choix d'outil ci-dessous ; en cas de changement d'outil, refaire la série sans mélanger les résultats. Un échec qui reste est un trou `non mesurable`, jamais une valeur comblée. Mobile et desktop ne sont pas mélangés. Si l'écart min–max du médian change de bucket Good / Needs Improvement / Poor, la série est instable et la confiance lab est `faible`.
+Lab : 3 runs mobile et 3 runs desktop, même outil, même URL, même jour, même révision. Consigner les 6 valeurs, la médiane, le min et le max. En cas de changement d'outil, refaire la série sans mélanger les résultats. Un échec qui reste est un trou `non mesurable`, jamais une valeur comblée. Mobile et desktop ne sont pas mélangés. Si l'écart min–max du médian change de bucket Good / Needs Improvement / Poor, la série est instable et la confiance lab est `faible`.
 
-Outil : avant toute mesure par un service tiers (PSI ou CrUX), vérifier que la cible est publique et non sensible, y compris après redirection, et reste dans le périmètre. Si elle contient un jeton ou si ces conditions ne peuvent pas être établies, ne pas l'envoyer, même masquée. Pour le lab, utiliser PSI si la cible est admissible et le service accessible ; sinon, utiliser Lighthouse épinglé sans transmettre de secret hors de sa destination autorisée, et étiqueter `lab local`. Si aucune mesure sûre n'est possible, noter `non mesurable`. PSI lab simule un mobile milieu de gamme bridé et un desktop filaire ; copier le bloc d'environnement (lieu inclus). Le score Lighthouse est consigné et n'est pas un rang.
+Outil : avant toute mesure par un service tiers (PSI ou CrUX), vérifier que la cible est publique et non sensible, y compris après redirection, et reste dans le périmètre. Si elle contient un jeton ou si ces conditions ne peuvent pas être établies, ne pas l'envoyer, même masquée. Pour le lab, utiliser PSI si la cible est admissible et le service accessible. Si PSI n'est pas utilisable ou si un run PSI échoue, basculer vers Lighthouse épinglé pour la série, sans transmettre de secret hors de sa destination autorisée ; étiqueter `lab local`. Si aucune mesure sûre n'est possible, noter `non mesurable`. PSI lab simule un mobile milieu de gamme bridé et un desktop filaire ; copier le bloc d'environnement (lieu inclus). Le score Lighthouse est consigné et n'est pas un rang.
 
 Champ : CrUX, p75, fenêtre 28 jours, URL et origine séparées, mobile et desktop séparés, pour LCP, INP, CLS. Si la mesure URL n'est pas autorisée, la noter `non mesurable` ; une origine publique et non sensible peut être mesurée séparément. Un repli PSI vers l'origine est copié dans la ligne origine, pas dans la ligne URL. Donnée insuffisante = `non mesurable`, pas un succès. Un assessment PSI qui ignore un INP manquant n'est pas repris comme statut INP.
 
@@ -366,7 +366,7 @@ Valeur propre lisible et acquisition non encore mesurable : décision `condition
 
 Alternative de consolidation : un paragraphe, même si la décision est de conserver. Ce qui fusionnerait, ce qui serait perdu, delta de coût seulement s'il est connu.
 
-Décision primaire, une par domaine, chacune citant des id de constats ou un manque de preuve. Elle peut porter le qualificatif `conditionnelle` ou `expérimentale`.
+Décision primaire, une par domaine, chacune citant un id de constat, une preuve directe de sa fiche, ou un manque de preuve. Elle peut porter le qualificatif `conditionnelle` ou `expérimentale`.
 
 | Décision | Quand |
 |----------|--------|
@@ -378,11 +378,11 @@ Décision primaire, une par domaine, chacune citant des id de constats ou un man
 
 Une migration éventuelle est une ligne « recommandée, hors mandat ». Elle n'est pas exécutée.
 
-Top 5 portefeuille : jusqu'à cinq actions, avec id de constat, effort et propriété concernée. Donner la priorité aux actions qui traitent les constats `critiques`. Pour tout constat `critique` non cité, indiquer quelle action listée le couvre ou, s'il reste hors du top 5, consigner son id, l'action et la raison de son rang.
+Top 5 portefeuille : jusqu'à cinq actions, avec id de constat, effort et propriété concernée. Sans constat actionnable, indiquer « aucune action étayée » sans en inventer. Donner la priorité aux actions qui traitent les constats `critiques`. Pour tout constat `critique` non cité, indiquer quelle action listée le couvre ou, s'il reste hors du top 5, consigner son id, l'action et la raison de son rang.
 
 Limites finales : recopier chaque `non mesurable` de la couverture. Horizon et critères business non déclarés restent marqués « hypothèse à valider ».
 
-**Fait quand** : chaque domaine a une décision primaire ; le test d'utilité est renseigné pour chaque propriété non principale ; aucun chiffre hors preuve ; le top 5 cite des constats ; les manques tiers et commerciaux sont listés.
+**Fait quand** : chaque domaine a une décision primaire étayée ; le test d'utilité est renseigné pour chaque propriété non principale ; aucun chiffre hors preuve ; chaque action du top 5 cite un constat, ou l'absence d'action étayée est explicite ; les manques tiers et commerciaux sont listés.
 
 ## Références
 
