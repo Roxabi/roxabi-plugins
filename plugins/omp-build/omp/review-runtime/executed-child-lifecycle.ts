@@ -115,7 +115,6 @@ export function bindExecutedChild(
   controller: NativeBatchController
   batch: NativeBatch
   index: number
-  model: { provider: string; id: string }
 } | null {
   let owner: NativeBatchController | null = null
   let found: ActiveBatch | null = null
@@ -128,8 +127,7 @@ export function bindExecutedChild(
   if (!owner || !found || found.guardedChildren.has(id)) return null
   const start = found.starts.get(id)
   if (!start) return null
-  const model = found.models[start.index]
-  if (!model) return null
+  if (!found.models[start.index]) return null
   found.guardedChildren.set(id, { sessionId, valid: false, yieldData: null })
-  return { controller: owner, batch: found.batch, index: start.index, model }
+  return { controller: owner, batch: found.batch, index: start.index }
 }

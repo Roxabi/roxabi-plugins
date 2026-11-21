@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.4 (unreleased)
+
+- Keep OMP model fallback in native workflow children. The executed-child guard no longer cancels a child whose model differs from the role's model, so a provider failure falls back through the configured `retry.fallbackChains` instead of costing the action. The role still selects the starting model and a spawn hook still cannot change it; session, root, profile, tools, context, system prompt and yield checks are unchanged.
+- Recognize 0.21.4 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.3 (unreleased)
 
 - Scope authenticated `missing-context` action holds to the mandate that produced them. After explicit abandonment and `/feature new`, an old mandate's negative no longer blocks planning, plan review, implementation or CI attribution; a current-mandate negative still blocks as before. Interruption, orphan and lineage rules are unchanged. Another mandate's negative must still be an authenticated pair, otherwise the action stays uncertain. Spec-assessment negatives are not covered: they still prevent pause/abandon of their mandate and block authentication of that mandate's earlier work.
