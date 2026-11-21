@@ -399,18 +399,25 @@ describe('native SDK adapter policy and authorization', () => {
     expect(sdk.run).not.toHaveBeenCalled()
   })
 
-  it.each([{ provider: 'shadow', id: 'model' }, { provider: 'trusted', id: 'other' }, undefined])(
-    'rejects a hook route resolving to %j',
-    async (model) => {
+  it.each([[['other/model']], [['trusted/model', 'other/backup']]])(
+    'rejects a hook route %j that differs from the role route, fallback included',
+    async (route) => {
       const f = await fixture()
       f.hook.mockResolvedValue({ model: 'alias' })
-      sdk.route.mockReturnValue(['alias/model'])
-      f.resolve.mockReturnValueOnce({ provider: 'trusted', id: 'model' }).mockReturnValueOnce(model)
+      sdk.route.mockReturnValue(route)
       const result = await executeNativeBatch(f.options)
-      expect(result.errors).toEqual([expect.stringContaining('changed the authorized model')])
+      expect(result.errors).toEqual([expect.stringContaining('changed the authorized model route')])
       expect(sdk.run).not.toHaveBeenCalled()
     },
   )
+
+  it('dispatches the role route when a hook restates it', async () => {
+    const f = await fixture()
+    f.hook.mockResolvedValue({ model: 'alias' })
+    sdk.route.mockReturnValue(['trusted/model'])
+    expect((await executeNativeBatch(f.options)).errors).toEqual([])
+    expect(sdk.run).toHaveBeenCalledWith(expect.objectContaining({ modelOverride: ['trusted/model'] }))
+  })
 
   it('preserves partial outcomes and reports failed executor results', async () => {
     const f = await fixture()

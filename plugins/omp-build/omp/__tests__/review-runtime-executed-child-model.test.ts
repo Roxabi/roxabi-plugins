@@ -38,19 +38,28 @@ describe('native child model fallback', () => {
     expect(fixture.onComplete).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps a child whose model falls back mid-run through the next turn, yield and completion', async () => {
-    const fixture = await setup({ authorizedModel: role, childModel: { ...role } })
-    await fixture.start()
-    fixture.child.model.provider = 'fallback'
-    fixture.child.model.id = 'backup-model'
-    await fixture.continueTurn('Reminder 1 of 3.', [fixture.initialMessage, assistant, reminder])
-    expect(fixture.abort).not.toHaveBeenCalled()
-    expect(fixture.runtime.provider).toHaveBeenCalledTimes(2)
-    expect(await fixture.yieldValue()).toBeUndefined()
-    await fixture.terminal()
-    expect(fixture.onStop).not.toHaveBeenCalled()
-    expect(fixture.onComplete).toHaveBeenCalledTimes(1)
-  })
+  it.each(['provider retry', 'next turn'] as const)(
+    'keeps a child whose model falls back mid-run through %s, yield, shutdown and completion',
+    async (path) => {
+      const fixture = await setup({ authorizedModel: role, childModel: { ...role } })
+      await fixture.start()
+      fixture.child.model.provider = 'fallback'
+      fixture.child.model.id = 'backup-model'
+      if (path === 'provider retry') {
+        await fixture.context([fixture.initialMessage])
+        await fixture.provider()
+      } else await fixture.continueTurn('Reminder 1 of 3.', [fixture.initialMessage, assistant, reminder])
+      expect(fixture.abort).not.toHaveBeenCalled()
+      expect(fixture.runtime.provider).toHaveBeenCalledTimes(2)
+      expect(await fixture.yieldValue()).toBeUndefined()
+      fixture.lifecycle({ status: 'completed' })
+      await fixture.childEndpoint.emit('session_shutdown', { type: 'session_shutdown' }, fixture.child)
+      await fixture.terminal()
+      expect(fixture.abort).not.toHaveBeenCalled()
+      expect(fixture.onStop).not.toHaveBeenCalled()
+      expect(fixture.onComplete).toHaveBeenCalledTimes(1)
+    },
+  )
 
   it('completes each root’s own child independently', async () => {
     const secondModel = { provider: 'other', id: 'other-model' }

@@ -2,7 +2,7 @@
 
 ## 0.21.4 (unreleased)
 
-- Keep OMP model fallback in native workflow children. The executed-child guard no longer cancels a child whose model differs from the role's model, so a provider failure falls back through the configured `retry.fallbackChains` instead of costing the action. The role still selects the starting model and a spawn hook still cannot change it; session, root, profile, tools, context, system prompt and yield checks are unchanged.
+- Keep OMP model fallback in native workflow children. The executed-child guard no longer cancels a child whose model differs from the role's model, so a provider failure falls back through the configured `retry.fallbackChains` instead of costing the action. The role still selects the model route; a spawn hook may restate it but no longer replace it, fallback entries included. Session, root, profile, tools, context, system prompt and yield checks are unchanged; with `externalThinking` enabled, a fallback that adds the `think` tool still stops the child.
 - Recognize 0.21.4 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.3 (unreleased)
