@@ -2,7 +2,7 @@
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
 const unquote = (word: string) => word.replaceAll("'\\''", "'")
 
-export type SimClientMode = 'sim' | 'fault'
+export type SimClientMode = 'sim' | 'fault' | 'pin'
 
 export interface SimClient {
   mode: SimClientMode
@@ -12,13 +12,13 @@ export interface SimClient {
   token: string
   /** Per-file directory for staged stdin and release-wait FIFOs. */
   dir: string
-  /** Standalone entry when the server must not serve the call: the simulator binary, or the fault script run by Bun. */
+  /** Standalone entry: a compiled simulator/pin binary, or the fault script run by Bun. */
   fallback: string
 }
 
 /** Bash source of a per-file `gh` client for the simulator server. */
 export function simClientScript(client: SimClient): string {
-  const fallback = client.mode === 'sim' ? quote(client.fallback) : `bun ${quote(client.fallback)}`
+  const fallback = client.mode === 'fault' ? `bun ${quote(client.fallback)}` : quote(client.fallback)
   const stdinTemplate = quote(`${client.dir}/stdin.XXXXXXXX`)
   return `#!/bin/bash
 if [[ \${OMP_GH_SIM_SERVER_REQUEST:-} == 1 ]]; then
@@ -31,7 +31,7 @@ use_standalone=
 for barrier in "\${!GH_SIM_COMMENT_BARRIER_@}"; do
   use_standalone=1
 done
-[[ -z $use_standalone ]] || exec ${fallback} "$@"
+${client.mode === 'pin' ? `[[ -z \${PIN_FEATURE_GATE:-} && -z \${PIN_SYNC_DIR:-} ]] || use_standalone=1\n` : ''}[[ -z $use_standalone ]] || exec ${fallback} "$@"
 stdin_path=
 stderr_path=
 release_path=
@@ -99,7 +99,7 @@ const word = String.raw`'((?:[^']|'\\'')*)'`
 
 /** The client `text` was generated from, when `text` is exactly a generated client; extra or altered lines yield `undefined`. */
 export function readSimClient(text: string): SimClient | undefined {
-  const mode = /"\$stdin_path" '(sim|fault)' >&3/.exec(text)?.[1] as SimClientMode | undefined
+  const mode = /"\$stdin_path" '(sim|fault|pin)' >&3/.exec(text)?.[1] as SimClientMode | undefined
   const port = /\/dev\/tcp\/127\.0\.0\.1\/(\d+);/.exec(text)?.[1]
   const token = /^printf '%s\\0' '([0-9a-f]+)' /m.exec(text)?.[1]
   const dir = new RegExp(`mktemp ${word}`).exec(text)?.[1]?.replace(/\/stdin\.XXXXXXXX$/, '')

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync, readlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { executeFaultCommand } from '../../../../testing/fix-recovery-gh-fault-core.ts'
+import { executePinCommand } from '../../../../testing/isolated-pin-gh-core.ts'
 import { executeSimCommand, type SimCommandResult } from './sim-execution.ts'
 
 const token = process.argv[2]
@@ -49,7 +50,7 @@ function readFields(request: Buffer): string[] {
   return fields
 }
 
-function executeRequest(socket: Bun.Socket<SocketData>, fields: string[], argc: number, mode: 'sim' | 'fault') {
+function executeRequest(socket: Bun.Socket<SocketData>, fields: string[], argc: number, mode: 'sim' | 'fault' | 'pin') {
   try {
     const pid = fields[1]
     const cwd = readlinkSync(`/proc/${pid}/cwd`)
@@ -66,7 +67,8 @@ function executeRequest(socket: Bun.Socket<SocketData>, fields: string[], argc: 
     try {
       process.chdir(cwd)
       process.env = env
-      result = (mode === 'fault' ? executeFaultCommand : executeSimCommand)(fields.slice(3, 3 + argc), {
+      const execute = mode === 'fault' ? executeFaultCommand : mode === 'pin' ? executePinCommand : executeSimCommand
+      result = execute(fields.slice(3, 3 + argc), {
         cwd,
         env,
         pid: Number(pid),
@@ -124,7 +126,7 @@ const server = Bun.listen<SocketData>({
         return
       }
       const mode = fields[4 + argc]
-      if (mode !== 'sim' && mode !== 'fault') {
+      if (mode !== 'sim' && mode !== 'fault' && mode !== 'pin') {
         respond(socket, '1\0!\0-\0')
         return
       }

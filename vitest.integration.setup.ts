@@ -33,12 +33,14 @@ try {
   const fallbacks = {
     sim: inject('ompTestGhStandalonePath'),
     fault: path.resolve(import.meta.dirname, 'plugins/omp-build/testing/fix-recovery-gh-fault.ts'),
+    pin: inject('ompTestPinGhPath'),
   }
-  for (const mode of ['sim', 'fault'] as const) {
-    const client = path.join(dir, mode === 'sim' ? 'gh' : 'gh-fault')
+  for (const mode of ['sim', 'fault', 'pin'] as const) {
+    const client = path.join(dir, mode === 'sim' ? 'gh' : `gh-${mode}`)
     writeFileSync(client, simClientScript({ mode, port, token, dir, fallback: fallbacks[mode] }), { mode: 0o700 })
     if (mode === 'sim') process.env.OMP_TEST_GH_SIMULATOR_PATH = client
-    else process.env.OMP_TEST_GH_FAULT_CLIENT_PATH = client
+    else if (mode === 'fault') process.env.OMP_TEST_GH_FAULT_CLIENT_PATH = client
+    else process.env.OMP_TEST_PIN_GH_CLIENT_PATH = client
   }
   // Fixtures and their child processes can use these without depending on Vitest.
   process.env.OMP_TEST_PIN_GH_PATH = inject('ompTestPinGhPath')
