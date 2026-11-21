@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { SCOPE } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { decide, implementationWorld, observe, planWorld } from '../../testing/workflow-interruption-world.ts'
+import { buildRecord } from '../record-construction.ts'
 import { startResolution } from '../workflow-action-interruption.ts'
+import { implementationCompletion } from '../workflow-implementation-completion.ts'
 import {
   evidenceCodes,
   INTERRUPTED_IMPLEMENTATION_ADMISSION,
@@ -98,6 +100,62 @@ describe('completed results stay on their own paths', () => {
     expect(decision).toMatchObject({ status: 'blocked' })
     expect(evidenceCodes(decision)).toContain('action-context-missing')
     expect(evidenceCodes(decision)).not.toContain('action-interrupted')
+  })
+
+  it('holds implementation context only for the mandate that produced it', async () => {
+    const world = implementationWorld()
+    const negative = withPayload(rejectedImplementResult(world.mandate), {
+      native: { completion: 'completed', strict: 'valid', raw: null },
+      structured: MISSING_CONTEXT,
+      admission: null,
+      diagnostics: [],
+    })
+    const predecessor = { scope: SCOPE, recordId: world.mandate.recordId, kind: 'mandate' as const }
+    const abandoned = buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'abandon-mandate',
+      runId: 'run-1',
+      operationId: 'op-abandon-mandate',
+      kind: 'operator-control',
+      payload: { control: 'abandon', controlId: 'abandon-mandate', mandate: predecessor, predecessor: null },
+    })
+    const successor = buildRecord({
+      ...world.mandate,
+      recordId: 'new-mandate',
+      runId: 'run-2',
+      operationId: 'op-new-mandate',
+      payload: { ...world.mandate.payload, antecedent: predecessor },
+    })
+    if (!abandoned.ok || !successor.ok || successor.value.kind !== 'mandate') throw new Error('Invalid successor')
+    const current = successor.value
+    const currentRef = { scope: SCOPE, recordId: current.recordId, kind: 'mandate' as const }
+    const selected = buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'select-mandate',
+      runId: 'run-2',
+      operationId: 'op-select-mandate',
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-mandate',
+        mandate: currentRef,
+        predecessor,
+        successor: currentRef,
+      },
+    })
+    if (!selected.ok) throw new Error('Invalid successor selection')
+    const issue = world.issue([world.start, negative, abandoned.value, current, selected.value])
+    const observation = await observe(issue)
+    if (observation.status !== 'complete') throw new Error('Expected a complete native observation')
+    const causal = { histories: observation.histories, catalogues: observation.catalogues, observation }
+    const evidence = { issue, pullRequest: null, parents: [], causal }
+    const own = implementationCompletion(evidence, world.mandate)
+    expect(own.evidence.map((entry) => entry.code)).toContain('action-context-missing')
+    const next = implementationCompletion(evidence, current)
+    expect(next.status).toBe('not-started')
+    expect(next.evidence.map((entry) => entry.code)).not.toContain('unconfirmed')
   })
 
   it('keeps a completed invalid plan output uncertain rather than interrupted', async () => {

@@ -5,7 +5,14 @@ import type { CanonicalRecord } from './record-schema.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
 import { assessSpecCompletion } from './workflow-assessment-completion.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
-import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import {
+  excludedReceipt,
+  type MandateRecord,
+  mandateScope,
+  type ReceiptRecord,
+  receiptMandate,
+  recordsOf,
+} from './workflow-control.ts'
 import type { WorkflowGraphAction } from './workflow-graph.ts'
 import { implementationCompletion } from './workflow-implementation-completion.ts'
 import { ciAttributionSchema } from './workflow-output-schema.ts'
@@ -22,7 +29,7 @@ export function actionCompletion(
   mandate: MandateRecord | null,
   facts: WorkflowFacts | null = null,
 ): ActionCompletion {
-  const context = contextCompletion(action, evidence)
+  const context = contextCompletion(action, evidence, mandate)
   if (context !== null) return context
   switch (action) {
     case 'plan':
@@ -44,7 +51,11 @@ export function actionCompletion(
   }
 }
 
-function contextCompletion(action: WorkflowGraphAction, evidence: WorkflowEvidence): ActionCompletion | null {
+function contextCompletion(
+  action: WorkflowGraphAction,
+  evidence: WorkflowEvidence,
+  mandate: MandateRecord | null,
+): ActionCompletion | null {
   if (action !== 'frame' && action !== 'assess-spec' && action !== 'attribute-ci') return null
   const histories = [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
   const classified =
@@ -56,8 +67,9 @@ function contextCompletion(action: WorkflowGraphAction, evidence: WorkflowEviden
           actions: [action],
         })
   if (classified !== null && !classified.ok) return { status: 'blocked', evidence: classified.diagnostics }
+  const mandateRef = receiptMandate(mandate)
   for (const history of histories) {
-    const terminal = workflowContextTerminal(history, action, undefined, classified?.value.excluded)
+    const terminal = workflowContextTerminal(history, action, mandateRef, undefined, classified?.value.excluded)
     if (terminal !== 'clear' && classified !== null) {
       const gate = interruptionGate(classified)
       if (gate.kind === 'stop') return gate.completion

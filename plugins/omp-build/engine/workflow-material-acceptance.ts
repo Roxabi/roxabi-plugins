@@ -108,7 +108,10 @@ function supersededContext(
   const home = input.histories.find(
     (history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target,
   )
-  return home !== undefined && workflowContextTerminal(home, 'assess-spec', undefined, excluded) === 'clear'
+  return (
+    home !== undefined &&
+    workflowContextTerminal(home, 'assess-spec', record.payload.mandate, undefined, excluded) === 'clear'
+  )
 }
 
 function selectMaterialAcceptance(

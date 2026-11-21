@@ -12,7 +12,7 @@ import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { bridgeHarness } from '../../testing/review-runtime-support.ts'
 import { actionInputDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
-import { inspectCapturedWorkForAssessment } from '../workflow-captured-work.ts'
+import { inspectCapturedWorkForAssessment as inspectCaptured } from '../workflow-captured-work.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import type { PlanReview } from '../workflow-output-schema.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
@@ -86,7 +86,7 @@ describe('captured work during material assessment', () => {
       }
       const produced = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
       const current = evidence(produced.read, scenario.leaf, ctx.parentScopes)
-      expect(inspectCapturedWorkForAssessment(current)).toEqual({ ok: true, value: undefined })
+      expect(inspectCaptured(current, scenario.leafMandate)).toEqual({ ok: true, value: undefined })
       expect(planMacro(current, scenario.leafMandate).phase).toBe('eligible')
       expect(produced.slotActions.map((slot) => slot.specialist).sort()).toEqual([
         'R-workflow-plan-adversarial',
@@ -107,7 +107,7 @@ describe('captured work during material assessment', () => {
       }
       const planned = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
       const old = evidence(planned.read, scenario.leaf, ctx.parentScopes)
-      expect(inspectCapturedWorkForAssessment(old).ok).toBe(true)
+      expect(inspectCaptured(old, scenario.leafMandate).ok).toBe(true)
       expect(planMacro(old, scenario.leafMandate).phase).toBe('eligible')
       const changed = await confirmNewParentEngagement({
         world,
@@ -123,7 +123,7 @@ describe('captured work during material assessment', () => {
       expect(resolveOwnSpecAuthority(current.issue, current.parents, current.causal).ok).toBe(true)
       expect(selectApplicableMandate(current.issue, current.parents, current.causal).status).toBe('refused')
       expect(planMacro(current, scenario.leafMandate).phase).not.toBe('eligible')
-      expect(inspectCapturedWorkForAssessment(current)).toEqual({ ok: true, value: undefined })
+      expect(inspectCaptured(current, scenario.leafMandate)).toEqual({ ok: true, value: undefined })
       const next = await continueFeature({
         cwd: world.cwd,
         reference: '202',
@@ -195,7 +195,7 @@ describe('captured work during material assessment', () => {
       }
       const planned = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
       const before = evidence(planned.read, scenario.leaf, ctx.parentScopes)
-      expect(inspectCapturedWorkForAssessment(before).ok).toBe(true)
+      expect(inspectCaptured(before, scenario.leafMandate).ok).toBe(true)
       const implementation = await produceNativeImplementation({
         cwd: world.cwd,
         gh: world.gh,
@@ -223,9 +223,9 @@ describe('captured work during material assessment', () => {
       if (implementation.receipt.payload.action !== 'implement' || implementation.receipt.payload.phase !== 'result')
         throw new Error('Expected the authenticated implementation result')
       expect(implementation.receipt.payload.admission?.admitted).toBe(true)
-      expect(inspectCapturedWorkForAssessment(evidence(implementation.read, scenario.leaf, ctx.parentScopes)).ok).toBe(
-        true,
-      )
+      expect(
+        inspectCaptured(evidence(implementation.read, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok,
+      ).toBe(true)
     })
   })
 
@@ -240,7 +240,7 @@ describe('captured work during material assessment', () => {
       }
       const planned = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
       const before = evidence(planned.read, scenario.leaf, ctx.parentScopes)
-      expect(inspectCapturedWorkForAssessment(before).ok).toBe(true)
+      expect(inspectCaptured(before, scenario.leafMandate).ok).toBe(true)
       const loaded = await loadContracts()
       if ('missing' in loaded) throw new Error(`Missing engine ${loaded.missing}`)
       const opened = await startImplement(
@@ -257,7 +257,7 @@ describe('captured work during material assessment', () => {
       )
       expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'implement' })
       const after = await world.operations.readUw(scenario.leaf)
-      expect(inspectCapturedWorkForAssessment(evidence(after, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+      expect(inspectCaptured(evidence(after, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(false)
     })
   })
 
@@ -276,7 +276,7 @@ describe('captured work during material assessment', () => {
       }
       const produced = await produceNativePlan({ ...ctx, output, reviews: [blocked, clear] })
       const current = evidence(produced.read, scenario.leaf, ctx.parentScopes)
-      expect(inspectCapturedWorkForAssessment(current)).toEqual({ ok: true, value: undefined })
+      expect(inspectCaptured(current, scenario.leafMandate)).toEqual({ ok: true, value: undefined })
       expect(planMacro(current, scenario.leafMandate).phase).toBe('needs-amendment')
     })
   })
@@ -291,9 +291,11 @@ describe('captured work during material assessment', () => {
         parentScopes: [scenario.middle, scenario.root],
       }
       const before = await world.operations.readUw(scenario.leaf)
-      expect(inspectCapturedWorkForAssessment(evidence(before, scenario.leaf, ctx.parentScopes)).ok).toBe(true)
+      expect(inspectCaptured(evidence(before, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(true)
       const opened = await openNativePlanStep(ctx, 'plan')
-      expect(inspectCapturedWorkForAssessment(evidence(opened.after, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+      expect(inspectCaptured(evidence(opened.after, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(
+        false,
+      )
     })
   })
 
@@ -313,7 +315,9 @@ describe('captured work during material assessment', () => {
         { task: task.name, childId: 'plan-child', value: output },
       ])
       expect(completed.published.published, JSON.stringify(completed.published)).toBe(true)
-      expect(inspectCapturedWorkForAssessment(evidence(completed.read, scenario.leaf, ctx.parentScopes)).ok).toBe(true)
+      expect(inspectCaptured(evidence(completed.read, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(
+        true,
+      )
       const review = await openNativePlanStep(ctx, 'plan-review')
       const specialist = review.opened.followUp.tasks.tasks[0]
       if (!specialist) throw new Error('Actual review specialist task missing')
@@ -321,7 +325,9 @@ describe('captured work during material assessment', () => {
         { task: specialist.name, childId: 'one-specialist', value: clear },
       ])
       expect(missing.published.published).toBe(false)
-      expect(inspectCapturedWorkForAssessment(evidence(missing.read, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+      expect(inspectCaptured(evidence(missing.read, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(
+        false,
+      )
     })
   })
 
@@ -341,7 +347,9 @@ describe('captured work during material assessment', () => {
         { task: draftTask.name, childId: 'plan-before-negative', value: output },
       ])
       expect(completed.published.published, JSON.stringify(completed.published)).toBe(true)
-      expect(inspectCapturedWorkForAssessment(evidence(completed.read, scenario.leaf, ctx.parentScopes)).ok).toBe(true)
+      expect(inspectCaptured(evidence(completed.read, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(
+        true,
+      )
       const review = await openNativePlanStep(ctx, 'plan-review')
       const batch = review.opened.followUp
       const [first, second] = batch.tasks.tasks
@@ -416,7 +424,7 @@ describe('captured work during material assessment', () => {
       expect(completedCallback).toBe(false)
       expect(publication, JSON.stringify(publication)).toMatchObject({ published: true })
       const after = await world.operations.readUw(scenario.leaf)
-      expect(inspectCapturedWorkForAssessment(evidence(after, scenario.leaf, ctx.parentScopes)).ok).toBe(false)
+      expect(inspectCaptured(evidence(after, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(false)
     })
   })
 
@@ -433,7 +441,7 @@ describe('captured work during material assessment', () => {
         }
         const produced = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
         const before = evidence(produced.read, scenario.leaf, ctx.parentScopes)
-        expect(inspectCapturedWorkForAssessment(before).ok).toBe(true)
+        expect(inspectCaptured(before, scenario.leafMandate).ok).toBe(true)
         const original = produced.reviewRecord
         if (original.payload.action !== 'plan-review' || original.payload.phase !== 'result')
           throw new Error('Actual plan review RESULT is missing')
@@ -505,7 +513,7 @@ describe('captured work during material assessment', () => {
         }
         const produced = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
         const before = evidence(produced.read, scenario.leaf, ctx.parentScopes)
-        expect(inspectCapturedWorkForAssessment(before).ok).toBe(true)
+        expect(inspectCaptured(before, scenario.leafMandate).ok).toBe(true)
         const original = produced.planStartRecord
         function capturedStart() {
           if (

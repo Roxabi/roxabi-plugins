@@ -331,8 +331,8 @@ test('active assessment replay refuses invalid negative-context successors', () 
   // The mandate's allocation is part of the fixture's authenticated history.
   const base = decode([mandated, prior.start, negative, pending])
   const actual = retainedStart(base, pending.recordId)
-  expect(workflowContextTerminal(base, 'assess-spec')).toBe('uncertain')
-  expect(observeAssessmentContextReplay(base, actual)).toBe('observed')
+  expect(workflowContextTerminal(base, 'assess-spec', actual.payload.mandate)).toBe('uncertain')
+  expect(observeAssessmentContextReplay(base, actual, actual.payload.mandate)).toBe('observed')
   expect(resolveAcceptedSpec(mandated, [base])).toMatchObject({ ok: false })
   expect(resolveAcceptedSpec(mandated, [base], replay)).toMatchObject({ ok: true })
   const stageRef = { ...lineage, record: { ...lineage.record, recordId: 'other-stage' } }
@@ -363,7 +363,11 @@ test('active assessment replay refuses invalid negative-context successors', () 
     }
     const changed = must(buildRecord({ ...pending, payload: { ...pending.payload, inputs: changedInputs } }))
     const issue = decode([mandated, prior.start, negative, changed])
-    const observed = observeAssessmentContextReplay(issue, retainedStart(issue, changed.recordId))
+    const observed = observeAssessmentContextReplay(
+      issue,
+      retainedStart(issue, changed.recordId),
+      pending.payload.mandate,
+    )
     expect(observed, item.name).not.toBe('observed')
     expect(
       resolveAcceptedSpec(mandated, [issue], {
@@ -384,6 +388,8 @@ test('active assessment replay refuses invalid negative-context successors', () 
   const successorStart = must(buildRecord({ ...completed.start, payload: { ...completed.start.payload, inputs } }))
   const successorResult = must(buildRecord({ ...completed.result, payload: { ...completed.result.payload, inputs } }))
   const fork = decode([mandated, prior.start, negative, successorStart, successorResult, pending])
-  expect(observeAssessmentContextReplay(fork, retainedStart(fork, pending.recordId))).toBe('ambiguous')
+  expect(observeAssessmentContextReplay(fork, retainedStart(fork, pending.recordId), pending.payload.mandate)).toBe(
+    'ambiguous',
+  )
   expect(resolveAcceptedSpec(mandated, [fork], replay)).toMatchObject({ ok: false })
 })

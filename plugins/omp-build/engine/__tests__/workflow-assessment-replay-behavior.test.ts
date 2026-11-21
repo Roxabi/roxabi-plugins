@@ -80,9 +80,14 @@ test('observes only a linked authenticated pending expanded-context assessment',
     readBack.payload.phase !== 'start'
   )
     throw new Error('Assessment START was not read back')
-  expect(workflowContextTerminal(issue, 'assess-spec')).toBe('uncertain')
-  expect(observeAssessmentContextReplay(issue, readBack)).toBe('observed')
-  expect(observeAssessmentContextReplay(issue, { ...readBack })).toBe('uncertain')
+  expect(workflowContextTerminal(issue, 'assess-spec', readBack.payload.mandate)).toBe('uncertain')
+  expect(observeAssessmentContextReplay(issue, readBack, readBack.payload.mandate)).toBe('observed')
+  expect(observeAssessmentContextReplay(issue, { ...readBack }, readBack.payload.mandate)).toBe('uncertain')
+  const negativeOnly = history([mandated, prior.start, negative])
+  expect(workflowContextTerminal(negativeOnly, 'assess-spec', negative.payload.mandate)).toBe('missing')
+  expect(
+    workflowContextTerminal(negativeOnly, 'assess-spec', { ...negative.payload.mandate, recordId: 'new-mandate' }),
+  ).toBe('clear')
   expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: false })
   expect(resolveAcceptedSpec(mandated, [issue], replay)).toMatchObject({ ok: true })
   expect(resolveAcceptedSpecAt(mandated, [issue], initial.ref, replay)).toMatchObject({ ok: true })

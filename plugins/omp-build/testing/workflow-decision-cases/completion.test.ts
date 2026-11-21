@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { receiptOf, withPayload } from '../../engine/__tests__/workflow-interruption-support.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
+import { buildRecord } from '../../engine/record-construction.ts'
 import { actionCompletion } from '../../engine/workflow-action-completion.ts'
+import { abandoned } from '../../engine/workflow-control.ts'
 import { planMacro } from '../../engine/workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
 import { observeFixtureNativeWorld } from '../action-input-fixtures.ts'
@@ -62,6 +65,96 @@ async function rootEvidence(issue: DecodedHistory) {
 }
 
 describe('workflow completion decisions', () => {
+  it.each(['plan', 'plan-review'] as const)('holds a %s context negative only for its own mandate', async (action) => {
+    const mandate = nativeDecisionMandate(featureMandate(SCOPE, { body: BODY }))
+    const missing = {
+      outcome: 'missing-context',
+      missing: [
+        { locator: { kind: 'information-request', description: 'Deployment region' }, reason: 'Required', targets: [] },
+      ],
+    }
+    const draft = planDraftRecords(mandate)
+    const digest = publishedPlanDigest()
+    const reviewStart = planReviewStart(mandate, 'act-plan-1', digest)
+    const slotAction = {
+      actionId: 'act-plan-review-1-slot-architect',
+      inputs: reviewStart.payload.inputs,
+    }
+    const slots = [
+      { slotId: 'slot-architect', specialist: 'R-workflow-plan-architect' as const, action: slotAction },
+      { slotId: 'slot-adversarial', specialist: 'R-workflow-plan-adversarial' as const },
+    ]
+    const negativeHost = clearPlanContribution('slot-architect', 'R-workflow-plan-architect')
+    const review = withPayload(
+      planReviewRecord(mandate, 'act-plan-1', digest, [
+        {
+          ...negativeHost,
+          structured: missing,
+          host: { ...negativeHost.host, action: slotAction },
+        },
+        clearPlanContribution('slot-adversarial', 'R-workflow-plan-adversarial'),
+      ]),
+      { slots },
+    )
+    const records =
+      action === 'plan'
+        ? [receiptOf(draft[0]), withPayload(receiptOf(draft[1]), { structured: missing })]
+        : [...draft, withPayload(reviewStart, { slots }), review]
+    const currentEvidence = await rootEvidence(historyFrom([mandate, ...records]))
+    const current = planMacro(currentEvidence, mandate)
+    expect(current.phase).toBe('blocked')
+    expect(current.evidence.map((entry) => entry.code)).toContain('action-context-missing')
+    const predecessor = { scope: SCOPE, recordId: mandate.recordId, kind: 'mandate' as const }
+    const abandonedControl = buildRecord({
+      version: 1,
+      repository: mandate.repository,
+      target: mandate.target,
+      recordId: 'abandon-old-mandate',
+      runId: mandate.runId,
+      operationId: 'op-abandon-old-mandate',
+      kind: 'operator-control',
+      payload: {
+        control: 'abandon',
+        controlId: 'abandon-old-mandate',
+        predecessor: null,
+        mandate: predecessor,
+      },
+    })
+    const successor = buildRecord({
+      ...mandate,
+      recordId: 'new-mandate',
+      runId: 'run-next-mandate',
+      operationId: 'op-new-mandate',
+      payload: { ...mandate.payload, antecedent: predecessor },
+    })
+    if (!abandonedControl.ok || !successor.ok || successor.value.kind !== 'mandate')
+      throw new Error('Expected a canonical abandonment and successor')
+    const nextMandate = successor.value
+    const nextRef = { scope: SCOPE, recordId: nextMandate.recordId, kind: 'mandate' as const }
+    const selected = buildRecord({
+      version: 1,
+      repository: mandate.repository,
+      target: mandate.target,
+      recordId: 'select-next-mandate',
+      runId: nextMandate.runId,
+      operationId: 'op-select-next-mandate',
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-next-mandate',
+        mandate: nextRef,
+        predecessor,
+        successor: nextRef,
+      },
+    })
+    if (!selected.ok) throw new Error('Expected a canonical successor selection')
+    const issue = historyFrom([mandate, ...records, abandonedControl.value, nextMandate, selected.value])
+    expect(abandoned(issue, mandate)).toBe(true)
+    const next = planMacro(await rootEvidence(issue), nextMandate)
+    expect(next.phase).toBe('needs-draft')
+    expect(next.evidence.map((entry) => entry.code)).not.toContain('action-context-missing')
+  })
+
   it('does not treat a bound draft as complete before its review', async () => {
     const mandate = nativeDecisionMandate(featureMandate(SCOPE, { body: BODY }))
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')

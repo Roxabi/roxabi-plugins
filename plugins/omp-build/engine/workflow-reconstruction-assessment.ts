@@ -38,7 +38,7 @@ function matchingAssessments(
       !excludedReceipt(record, excluded) &&
       !(
         workflowContextNegative(record) &&
-        workflowContextTerminal(history, 'assess-spec', undefined, excluded) === 'clear'
+        workflowContextTerminal(history, 'assess-spec', record.payload.mandate, undefined, excluded) === 'clear'
       ) &&
       sameRef(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }) &&
       sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec),

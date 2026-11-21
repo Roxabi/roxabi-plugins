@@ -8985,6 +8985,11 @@ function mandatesOf(history) {
 function mandateScope(record) {
   return { repository: record.repository, target: record.target };
 }
+function receiptMandate(mandate) {
+  if (mandate === null)
+    return { kind: "absent", reason: "pre-mandate" };
+  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+}
 function abandoned(history, mandate) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
   return controlsOf(history).some((record) => record.payload.control === "abandon" && sameRef2(record.payload.mandate, mandateRef));
@@ -11202,7 +11207,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 2)
+  if (minor === 21 && patch <= 3)
     return "bounded";
   return "unknown";
 }
@@ -14510,24 +14515,24 @@ function paired(history, result, _receipts) {
 function matchingReceipts(receipts, result, phase) {
   return receipts.filter((record) => record.payload.phase === phase && record.payload.action === result.payload.action && record.payload.actionId === result.payload.actionId);
 }
-function workflowContextTerminal(history, action, contextLeaf, excluded) {
-  return contextTerminal(history, action, contextLeaf, undefined, excluded);
+function workflowContextTerminal(history, action, mandate, contextLeaf, excluded) {
+  return contextTerminal(history, action, mandate, contextLeaf, undefined, excluded);
 }
-function observeAssessmentContextReplay(history, replayStart, excluded) {
+function observeAssessmentContextReplay(history, replayStart, mandate, excluded) {
   if (!authenticatedContextReplayStart(history, replayStart))
     return "uncertain";
-  const result = contextTerminal(history, "assess-spec", undefined, replayStart, excluded);
+  const result = contextTerminal(history, "assess-spec", mandate, undefined, replayStart, excluded);
   return result === "clear" ? "observed" : result;
 }
-function contextTerminal(history, action, contextLeaf, replayStart, excluded) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && !excludedReceipt(record, excluded));
+function contextTerminal(history, action, mandate, contextLeaf, replayStart, excluded) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) && !excludedReceipt(record, excluded));
   if (replayStart !== undefined && (action !== "assess-spec" || replayStart.payload.action !== "assess-spec" || replayStart.payload.phase !== "start" || !receipts.includes(replayStart)))
     return "uncertain";
   const negatives = receipts.filter(workflowContextNegative);
   for (const item of negatives) {
     const resolution = resolveContextNegative(history, item, receipts, new Set, replayStart);
     if (resolution === "missing" && contextLeaf !== undefined) {
-      const chain = workflowContextChain(history, item, excluded);
+      const chain = workflowContextChain(history, item, mandate, excluded);
       if (chain.status === "missing" && chain.leaf.recordId === contextLeaf.recordId && canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf))
         continue;
     }
@@ -14536,15 +14541,15 @@ function contextTerminal(history, action, contextLeaf, replayStart, excluded) {
   }
   return "clear";
 }
-function workflowContextResolution(history, negative, excluded) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action && !excludedReceipt(record, excluded));
+function workflowContextResolution(history, negative, mandate, excluded) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action && canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) && !excludedReceipt(record, excluded));
   const matches = receipts.filter((record) => record.recordId === negative.recordId);
   if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
     return "uncertain";
   return resolveContextNegative(history, negative, receipts, new Set);
 }
-function workflowContextDirectSuccessor(history, negative, excluded) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action && !excludedReceipt(record, excluded));
+function workflowContextDirectSuccessor(history, negative, mandate, excluded) {
+  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action && canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) && !excludedReceipt(record, excluded));
   const matches = receipts.filter((record) => record.recordId === negative.recordId);
   if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
     return { status: "uncertain" };
@@ -14564,7 +14569,7 @@ function workflowContextDirectSuccessor(history, negative, excluded) {
     return { status: "uncertain" };
   return { status: "successor", record: successor };
 }
-function workflowContextChain(history, negative, excluded) {
+function workflowContextChain(history, negative, mandate, excluded) {
   const negatives = [];
   const seen = new Set;
   let current = negative;
@@ -14573,7 +14578,7 @@ function workflowContextChain(history, negative, excluded) {
       return { status: "uncertain", negatives, leaf: current };
     seen.add(current.recordId);
     negatives.push(current);
-    const direct = workflowContextDirectSuccessor(history, current, excluded);
+    const direct = workflowContextDirectSuccessor(history, current, mandate, excluded);
     if (direct.status !== "successor")
       return { status: direct.status, negatives, leaf: current };
     if (!workflowContextNegative(direct.record))
@@ -17121,7 +17126,7 @@ function confirmedAssessStart(record, home, histories, mandateRef, excluded, rep
 }
 function contextAssessment(home, mandateRef, excluded, replayContext) {
   const replayStart = recordsOf(home).find((record) => record.kind === "action-receipt" && authenticatedReplayStart(record, home, mandateRef, replayContext));
-  const terminal = replayStart === undefined ? workflowContextTerminal(home, "assess-spec", undefined, excluded) : observeAssessmentContextReplay(home, replayStart, excluded);
+  const terminal = replayStart === undefined ? workflowContextTerminal(home, "assess-spec", mandateRef, undefined, excluded) : observeAssessmentContextReplay(home, replayStart, mandateRef, excluded);
   if (terminal === "clear" || terminal === "observed")
     return { ok: true };
   if (terminal === "ambiguous")
@@ -31957,9 +31962,10 @@ function isMatchingAssessment(record, mandateRef, exactInputs) {
 }
 
 // plugins/omp-build/engine/workflow-plan-review-selection.ts
-function reviewContextProblem(history, empty, excluded, contextLeaf) {
+function reviewContextProblem(history, mandate, empty, excluded, contextLeaf) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
   for (const action of ["plan", "plan-review"]) {
-    const terminal = workflowContextTerminal(history, action, contextLeaf, excluded);
+    const terminal = workflowContextTerminal(history, action, mandateRef, contextLeaf, excluded);
     if (terminal === "missing")
       return empty("blocked", [diagnostic2("action-context-missing", `${action} requires expanded context`)]);
     if (terminal === "uncertain")
@@ -31979,7 +31985,7 @@ function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
   if (gate.kind === "stop")
     return { macro: empty(gate.completion.status === "uncertain" ? "uncertain" : "blocked", gate.completion.evidence) };
   const excluded = gate.excluded;
-  const problem = reviewContextProblem(history, empty, excluded, contextLeaf);
+  const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf);
   if (problem !== null)
     return { macro: problem };
   const starts = receiptsFor(history, "plan", "start", excluded);
@@ -32206,8 +32212,9 @@ function macroBlocked(evidence, mandate) {
     return { status: "not-started", evidence: [] };
   return null;
 }
-function hasRejectedResult(receipts) {
-  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record));
+function hasRejectedResult(receipts, mandate) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record) && (!workflowContextNegative(record) || sameRef2(record.payload.mandate, mandateRef)));
 }
 function coveredImplementation(latestRecord, mandate, spec) {
   const latest = latestRecord.payload.action === "integrate" ? integrationOutputSchema.safeParse(latestRecord.payload.structured) : implementationOutputSchema.safeParse(latestRecord.payload.structured);
@@ -32257,7 +32264,7 @@ function mandatedCompletion(evidence, mandate, receipts) {
     return { status: "blocked", evidence: toDiagnostics(effective.diagnostics) };
   const blocked = macroBlocked(evidence, mandate);
   if (blocked !== null) {
-    if (blocked.status === "not-started" && hasRejectedResult(receipts)) {
+    if (blocked.status === "not-started" && hasRejectedResult(receipts, mandate)) {
       return { status: "blocked", evidence: [diagnostic2("unconfirmed", "implement result was not admitted")] };
     }
     return blocked;
@@ -32282,7 +32289,8 @@ function implementationCompletion(evidence, mandate) {
   const gate = interruptionGate(classified);
   if (gate.kind === "stop")
     return gate.completion;
-  const terminal = workflowContextTerminal(evidence.issue, action, undefined, excluded);
+  const mandateRef = receiptMandate(mandate);
+  const terminal = workflowContextTerminal(evidence.issue, action, mandateRef, undefined, excluded);
   if (terminal === "missing")
     return {
       status: "blocked",
@@ -32308,7 +32316,7 @@ function implementationCompletion(evidence, mandate) {
 
 // plugins/omp-build/engine/workflow-action-completion.ts
 function actionCompletion(action, evidence, decisions, mandate, facts = null) {
-  const context = contextCompletion(action, evidence);
+  const context = contextCompletion(action, evidence, mandate);
   if (context !== null)
     return context;
   switch (action) {
@@ -32330,7 +32338,7 @@ function actionCompletion(action, evidence, decisions, mandate, facts = null) {
       return receiptCompletion(evidence.issue, action);
   }
 }
-function contextCompletion(action, evidence) {
+function contextCompletion(action, evidence, mandate) {
   if (action !== "frame" && action !== "assess-spec" && action !== "attribute-ci")
     return null;
   const histories = [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest]];
@@ -32341,8 +32349,9 @@ function contextCompletion(action, evidence) {
   });
   if (classified !== null && !classified.ok)
     return { status: "blocked", evidence: classified.diagnostics };
+  const mandateRef = receiptMandate(mandate);
   for (const history of histories) {
-    const terminal = workflowContextTerminal(history, action, undefined, classified?.value.excluded);
+    const terminal = workflowContextTerminal(history, action, mandateRef, undefined, classified?.value.excluded);
     if (terminal !== "clear" && classified !== null) {
       const gate = interruptionGate(classified);
       if (gate.kind === "stop")
@@ -33175,14 +33184,15 @@ function authenticateInvocation(history, result, evidence, replay, resolved = fa
     return frame;
   return { ok: true, value: { history, start: pair.value.start, result, frame: frame.value } };
 }
-function validateTerminalContexts(history, excluded) {
+function validateTerminalContexts(history, mandate, excluded) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
   for (const action of Object.keys(inspected)) {
-    if (workflowContextTerminal(history, action, undefined, excluded) !== "clear")
+    if (workflowContextTerminal(history, action, mandateRef, undefined, excluded) !== "clear")
       return fail20("Captured invocation has unresolved negative context");
   }
   return { ok: true, value: undefined };
 }
-function inventoryCapturedWork(evidence, replay) {
+function inventoryCapturedWork(evidence, mandate, replay) {
   const histories = evidence.causal.histories;
   const selected = [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest]];
   const causal = workflowCausalDiagnostics([...selected, ...evidence.parents], evidence.causal);
@@ -33201,14 +33211,14 @@ function inventoryCapturedWork(evidence, replay) {
   const excluded = attempts.value.excluded;
   const invocations = [];
   for (const history of selected) {
-    const captured = inventoryHistory(history, evidence, excluded, replay);
+    const captured = inventoryHistory(history, evidence, mandate, excluded, replay);
     if (!captured.ok)
       return captured;
     invocations.push(...captured.value);
   }
   return { ok: true, value: invocations };
 }
-function inventoryHistory(history, evidence, excluded, replay) {
+function inventoryHistory(history, evidence, mandate, excluded, replay) {
   const receipts = history.operations.flatMap((operation) => operation.authority !== "foreign" && operation.record?.kind === "action-receipt" && inspected[operation.record.payload.action] ? [operation.record] : []);
   const starts = validateStarts(receipts, excluded);
   if (!starts.ok)
@@ -33222,15 +33232,15 @@ function inventoryHistory(history, evidence, excluded, replay) {
     if (!resolved)
       invocations.push(invocation.value);
   }
-  const terminal = validateTerminalContexts(history, excluded);
+  const terminal = validateTerminalContexts(history, mandate, excluded);
   if (!terminal.ok)
     return terminal;
   return { ok: true, value: invocations };
 }
 
 // plugins/omp-build/engine/workflow-captured-work.ts
-function inspectCapturedWorkForAssessment(evidence, replay) {
-  const inventory = inventoryCapturedWork(evidence, replay);
+function inspectCapturedWorkForAssessment(evidence, mandate, replay) {
+  const inventory = inventoryCapturedWork(evidence, mandate, replay);
   if (!inventory.ok)
     return inventory;
   const plans = inspectCapturedPlans(inventory.value, evidence.causal.histories, replay);
@@ -33530,7 +33540,7 @@ function supersededContext(record, input, excluded, requiredAssessment) {
   if (requiredAssessment !== undefined || !workflowContextNegative(record))
     return false;
   const home = input.histories.find((history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target);
-  return home !== undefined && workflowContextTerminal(home, "assess-spec", undefined, excluded) === "clear";
+  return home !== undefined && workflowContextTerminal(home, "assess-spec", record.payload.mandate, undefined, excluded) === "clear";
 }
 function selectMaterialAcceptance(input, requiredAssessment) {
   if (!identifierSchema.safeParse(input.operationId).success)
@@ -34282,7 +34292,7 @@ function matchingAssessments2(history, mandate, facts, excluded) {
   const currentSpec = facts.currentSpec;
   if (currentSpec === null)
     return [];
-  return recordsOf(history).filter((record) => isAssessResult(record) && !excludedReceipt(record, excluded) && !(workflowContextNegative(record) && workflowContextTerminal(history, "assess-spec", undefined, excluded) === "clear") && sameRef2(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" }) && sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec));
+  return recordsOf(history).filter((record) => isAssessResult(record) && !excludedReceipt(record, excluded) && !(workflowContextNegative(record) && workflowContextTerminal(history, "assess-spec", record.payload.mandate, undefined, excluded) === "clear") && sameRef2(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" }) && sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec));
 }
 function assessmentInterruption(history, mandate, facts, histories) {
   const currentSpec = facts.currentSpec;
@@ -34607,7 +34617,7 @@ function walkWorkflow(graph, evidence, facts, decisions, mandate) {
       return blocked2("unconfirmed", [
         diagnostic2("unconfirmed", "Assessment does not bind the authenticated own mandate")
       ]);
-    const captured = inspectCapturedWorkForAssessment(evidence);
+    const captured = inspectCapturedWorkForAssessment(evidence, mandate);
     if (!captured.ok)
       return blocked2("unconfirmed", captured.diagnostics);
     const unresolved = unresolvedAssessmentWork(evidence, facts, decisions, mandate);

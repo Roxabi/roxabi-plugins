@@ -132,7 +132,7 @@ function selectAssessmentData(
     )
   )
     return actionFailure('action-input-missing', 'Assessment does not bind the authenticated own mandate')
-  const closure = inspectCapturedWorkForAssessment(evidence, replay)
+  const closure = inspectCapturedWorkForAssessment(evidence, mandate, replay)
   return closure.ok ? { ok: true, value: { refs: [], plannedPaths: [], planActionId: null } } : closure
 }
 

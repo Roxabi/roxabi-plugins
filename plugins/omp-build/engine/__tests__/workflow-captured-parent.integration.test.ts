@@ -68,7 +68,7 @@ describe('captured parent integration during material assessment', () => {
           }
           const planned = await produceNativePlan({ ...ctx, output: parentPlan, reviews: [clear, clear] })
           const before = evidence(planned.read, world.parentScope, [])
-          expect(inspectCapturedWorkForAssessment(before).ok).toBe(true)
+          expect(inspectCapturedWorkForAssessment(before, world.parent).ok).toBe(true)
           const initial = parentCheckout.observe()
           async function assertOpenIntegration() {
             const loaded = await loadContracts()
@@ -87,7 +87,9 @@ describe('captured parent integration during material assessment', () => {
             )
             expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'integrate' })
             const pending = await world.operations.readUw(world.parentScope)
-            expect(inspectCapturedWorkForAssessment(evidence(pending, world.parentScope, [])).ok).toBe(false)
+            expect(inspectCapturedWorkForAssessment(evidence(pending, world.parentScope, []), world.parent).ok).toBe(
+              false,
+            )
           }
           async function assertCompletedIntegration() {
             const produced = await produceParentIntegration(world, parentCheckout, {
@@ -99,9 +101,9 @@ describe('captured parent integration during material assessment', () => {
             if (produced.receipt.payload.action !== 'integrate' || produced.receipt.payload.phase !== 'result')
               throw new Error('Expected the authenticated integration result')
             expect(produced.receipt.payload.admission?.admitted).toBe(true)
-            expect(inspectCapturedWorkForAssessment(evidence(produced.beforeReview, world.parentScope, [])).ok).toBe(
-              true,
-            )
+            expect(
+              inspectCapturedWorkForAssessment(evidence(produced.beforeReview, world.parentScope, []), world.parent).ok,
+            ).toBe(true)
           }
           if (mode === 'open') await assertOpenIntegration()
           else await assertCompletedIntegration()
@@ -169,7 +171,9 @@ describe('captured parent integration during material assessment', () => {
             output: parentPlan,
             reviews: [clear, clear],
           })
-          expect(inspectCapturedWorkForAssessment(evidence(plan.read, world.parentScope, [])).ok).toBe(true)
+          expect(inspectCapturedWorkForAssessment(evidence(plan.read, world.parentScope, []), world.parent).ok).toBe(
+            true,
+          )
           const initial = parentCheckout.observe()
           const integration = await produceParentIntegration(world, parentCheckout, {
             initial,
@@ -182,7 +186,7 @@ describe('captured parent integration during material assessment', () => {
           expect(integration.receipt.payload.admission?.admitted).toBe(true)
           const old = integration.beforeReview
           if (old.accepted.status !== 'accepted') throw new Error('Original Parent acceptance unavailable')
-          expect(inspectCapturedWorkForAssessment(evidence(old, world.parentScope, [])).ok).toBe(true)
+          expect(inspectCapturedWorkForAssessment(evidence(old, world.parentScope, []), world.parent).ok).toBe(true)
           async function readCoverageRequest() {
             const basis = await readAssessmentSpecFacts({ uw: world.parentScope, read: old, coverage: null })
             if (basis.ok || !('coverageRequest' in basis))
@@ -306,7 +310,10 @@ describe('captured parent integration during material assessment', () => {
             resolveOwnSpecAuthority(currentEvidence.issue, currentEvidence.parents, currentEvidence.causal).ok,
           ).toBe(true)
           expect(planMacro(currentEvidence, world.parent).phase).not.toBe('eligible')
-          expect(inspectCapturedWorkForAssessment(currentEvidence)).toEqual({ ok: true, value: undefined })
+          expect(inspectCapturedWorkForAssessment(currentEvidence, world.parent)).toEqual({
+            ok: true,
+            value: undefined,
+          })
         },
         operator,
       )
