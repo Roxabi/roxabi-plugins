@@ -49,6 +49,13 @@ docs(plugins): update voice-me README
 - Link the issue: `Closes #N`
 - One plugin or one logical change per PR
 - CI must be green before merge
+- A change to a plugin's distributed runtime (anything under `plugins/<p>/` except
+  its README, GLOSSARY, docs, tests and fixtures) bumps every version the plugin
+  carries: `.version` in `plugins/<p>/.claude-plugin/plugin.json` when present, and
+  the plugin's row in `.omp-plugin/marketplace.json`, kept equal to its
+  `package.json` version. `scripts/check-skill-version.sh` enforces the bump in the
+  pre-push hook (against `origin/main`) and in the required `ci` check (against the
+  PR's base, so a version that another PR already landed fails too).
 - Merged with a **merge commit** — squash and rebase merges are disabled at the
   repository level, so the option is not offered. A squash rewrites every hash at
   the merge boundary, which phantom-conflicts the next merge.

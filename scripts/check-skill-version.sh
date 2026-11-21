@@ -11,7 +11,7 @@ set -euo pipefail
 #           plugins/<p>/.omp-plugin/plugin.json, not the catalogue document version.
 # A missing version on one surface is a visible SKIP and does not hide the other.
 # Constraints (documented): plugin rename may not fire on the renaming push;
-# requires fetched origin/main.
+# requires fetched origin/main, unless CHECK_SKILL_VERSION_BASE names the base.
 #
 # Plugin root README/GLOSSARY, docs/, and test/fixture paths intentionally do not
 # trigger a bump: they do not change a runtime effect, even if a host copies them.
@@ -30,26 +30,44 @@ is_distributed_runtime_path() {
 }
 
 # Preflight: jq absence skips only the Claude plugin.json branch. The OMP
-# catalogue check always runs. A failed fetch with a local origin/main is not
-# a proven baseline, so the catalogue comparison is unverified and exits 1.
-# origin/main missing entirely stays a visible SKIP (nothing to compare).
+# catalogue check always runs.
+# CHECK_SKILL_VERSION_BASE (CI): compare the HEAD commit with that commit, with
+# no fetch; an empty value or a base that does not resolve fails closed.
+# Otherwise (pre-push): compare with origin/main. A failed fetch with a local
+# origin/main is not a proven baseline, so the catalogue comparison is
+# unverified and exits 1. origin/main missing entirely stays a visible SKIP.
 export GIT_TERMINAL_PROMPT=0
 have_jq=0
 command -v jq >/dev/null 2>&1 && have_jq=1
-fetch_ok=0
-if timeout 30 git fetch origin main --quiet; then
-  fetch_ok=1
-fi
-if ! git rev-parse --verify --quiet origin/main >/dev/null; then
-  echo "SKIP: check-skill-version (origin/main unreachable — cannot compare versions)" >&2
-  exit 0
-fi
-if [ "$fetch_ok" -ne 1 ]; then
-  echo "cannot verify origin/main:.omp-plugin/marketplace.json — fetch failed"
-  exit 1
+explicit_base=0
+if [ -n "${CHECK_SKILL_VERSION_BASE+set}" ]; then
+  explicit_base=1
+  base_label="$CHECK_SKILL_VERSION_BASE"
+  if [ -z "$CHECK_SKILL_VERSION_BASE" ] ||
+    ! base_rev=$(git rev-parse --verify --quiet "${CHECK_SKILL_VERSION_BASE}^{commit}"); then
+    echo "cannot resolve CHECK_SKILL_VERSION_BASE='$CHECK_SKILL_VERSION_BASE' to a commit"
+    exit 1
+  fi
+  diff_range=("$base_rev" HEAD)
+else
+  base_rev=origin/main
+  base_label=origin/main
+  fetch_ok=0
+  if timeout 30 git fetch origin main --quiet; then
+    fetch_ok=1
+  fi
+  if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+    echo "SKIP: check-skill-version (origin/main unreachable — cannot compare versions)" >&2
+    exit 0
+  fi
+  if [ "$fetch_ok" -ne 1 ]; then
+    echo "cannot verify origin/main:.omp-plugin/marketplace.json — fetch failed"
+    exit 1
+  fi
+  diff_range=(origin/main...HEAD)
 fi
 changed=$(
-  git diff --name-only origin/main...HEAD -- 'plugins/*' |
+  git diff --name-only "${diff_range[@]}" -- 'plugins/*' |
     while IFS= read -r path; do
       if is_distributed_runtime_path "$path"; then
         printf '%s\n' "$path"
@@ -133,19 +151,95 @@ omp_fail() {
   fail=1
 }
 
+# FILE's bytes at REV, resolved like a checkout: path components left to right,
+# each symlink replaced by its target before any later "..". Claude plugins may
+# symlink files inside the repository.
+# Exit 1: a component of the requested path is missing (FILE is absent).
+# Exit 2: a symlink is absolute, leaves the tree, loops or dangles, or FILE exists
+# but is not a file.
+rev_file() {
+  local rev="$1" cwd="" part target mode hops=0 linked=0 from_link todo=() parts=()
+  IFS=/ read -ra todo <<<"$2"
+  while [ "${#todo[@]}" -gt 0 ]; do
+    part="${todo[0]}"
+    todo=("${todo[@]:1}")
+    # Components queued from link targets sit at the front of todo: a missing one dangles.
+    from_link=0
+    if [ "$linked" -gt 0 ]; then
+      linked=$((linked - 1))
+      from_link=1
+    fi
+    case "$part" in
+      '' | .) continue ;;
+      ..)
+        [ -n "$cwd" ] || return 2
+        case "$cwd" in */*) cwd="${cwd%/*}" ;; *) cwd="" ;; esac
+        continue
+        ;;
+    esac
+    mode=$(git --literal-pathspecs ls-tree --full-tree "$rev" -- "${cwd:+$cwd/}$part" | cut -c1-6)
+    case "$mode" in
+      120000)
+        hops=$((hops + 1))
+        [ "$hops" -le 40 ] || return 2
+        target=$(git show "$rev:${cwd:+$cwd/}$part") || return 2
+        case "$target" in /*) return 2 ;; esac
+        IFS=/ read -ra parts <<<"$target"
+        todo=("${parts[@]}" "${todo[@]}")
+        linked=$((linked + ${#parts[@]}))
+        ;;
+      040000) cwd="${cwd:+$cwd/}$part" ;;
+      100644 | 100755)
+        [ "${#todo[@]}" -eq 0 ] || return $((1 + from_link))
+        git show "$rev:${cwd:+$cwd/}$part"
+        return
+        ;;
+      '') return $((1 + from_link)) ;;
+      *) return 2 ;;
+    esac
+  done
+  return 2
+}
+
+# Claude manifest of the candidate: the HEAD commit with an explicit base (CI),
+# the worktree file otherwise (pre-push). Same exit codes as rev_file.
+claude_manifest() {
+  if [ "$explicit_base" -eq 1 ]; then
+    rev_file HEAD "$1"
+  else
+    [ -f "$1" ] || return 1
+    cat "$1"
+  fi
+}
+
+unresolvable_link() {
+  echo "$1: cannot resolve $2 — a symlink on its path is absolute, leaves the repository, loops or dangles, or it is not a file"
+  fail=1
+}
+
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
+  cur_read=0
+  if [ "$have_jq" -eq 1 ]; then
+    manifest=$(claude_manifest "$pj") || cur_read=$?
+  fi
   if [ "$have_jq" -ne 1 ]; then
     echo "SKIP: $p Claude plugin.json check needs jq (not found) — OMP catalogue check still runs" >&2
-  elif [ ! -f "$pj" ]; then
+  elif [ "$cur_read" -eq 1 ]; then
     echo "SKIP: $p has no .claude-plugin/plugin.json — no version gate" >&2
+  elif [ "$cur_read" -ne 0 ]; then
+    unresolvable_link "$p" "HEAD:$pj"
   else
-    cur=$(jq -r '.version // empty' "$pj" 2>/dev/null || true)
+    cur=$(printf '%s\n' "$manifest" | jq -r '.version // empty' 2>/dev/null || true)
+    base_read=0
+    base_manifest=$(rev_file "$base_rev" "$pj") || base_read=$?
     if [ -z "$cur" ]; then
       echo "SKIP: $p is SHA-based (no .version in $pj) — bump gate inert for this plugin" >&2
+    elif [ "$base_read" -eq 2 ]; then
+      unresolvable_link "$p" "$base_label:$pj"
     else
-      base=$(git show "origin/main:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
+      base=$(printf '%s\n' "$base_manifest" | jq -r '.version // empty' 2>/dev/null || true)
       if [ "$base" = "$cur" ]; then
         echo "$p: distributed runtime changed without version bump (still $cur) — bump $pj"
         fail=1
@@ -165,11 +259,11 @@ for p in "${plugins[@]}"; do
       ;;
     VERSION:*)
       cur_omp="${cur_status#VERSION:}"
-      base_status=$(omp_row_status origin/main "$p")
+      base_status=$(omp_row_status "$base_rev" "$p")
       case "$base_status" in
-        PARSE) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
-        DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in origin/main:.omp-plugin/marketplace.json" ;;
-        BAD) omp_fail "$p" "origin/main catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
+        PARSE) omp_fail "$p" "cannot parse $base_label:.omp-plugin/marketplace.json" ;;
+        DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in $base_label:.omp-plugin/marketplace.json" ;;
+        BAD) omp_fail "$p" "$base_label catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
         ABSENT | MISSING) ;;
         VERSION:*)
           base_omp="${base_status#VERSION:}"
@@ -180,7 +274,7 @@ for p in "${plugins[@]}"; do
             omp_fail "$p" "catalogue version is not a newer semver OMP will install in .omp-plugin/marketplace.json"
           fi
           ;;
-        *) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
+        *) omp_fail "$p" "cannot parse $base_label:.omp-plugin/marketplace.json" ;;
       esac
       ;;
     *) omp_fail "$p" "cannot parse .omp-plugin/marketplace.json" ;;

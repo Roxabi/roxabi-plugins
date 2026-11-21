@@ -54,11 +54,20 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # HEAD^1 is the base the version gate compares with: the PR base tip on
+          # pull_request (merge ref), the previous main on push, the group's parent on merge_group.
+          fetch-depth: 2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
       - name: Verify bun.lock is committed
         run: git ls-files --error-unmatch bun.lock > /dev/null
+      - name: Check plugin version bumps
+        if: ${{ !cancelled() }}
+        env:
+          CHECK_SKILL_VERSION_BASE: HEAD^1
+        run: bash scripts/check-skill-version.sh
       - name: Install dependencies
         id: install
         if: ${{ !cancelled() }}

@@ -17,7 +17,9 @@ const AI_MARKER = 'CLA' + 'UDE:'
 // ─── Clean env (isolate from outer git context) ───────────────────────────────
 
 const CLEAN_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && k !== 'CHECK_SKILL_VERSION_BASE'),
+  ),
   GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
   GIT_CONFIG_SYSTEM: '/dev/null',
 }
@@ -798,5 +800,218 @@ describe('check-skill-version.sh', () => {
     expect(code).toBe(1)
     expect(stdout).toContain('.omp-plugin/marketplace.json')
     expect(stderr).not.toMatch(/origin\/main unreachable/)
+  })
+
+  describe('with CHECK_SKILL_VERSION_BASE (CI)', () => {
+    const ci = (work: string, base: string) =>
+      runScriptCapture(CHECK_SKILL_VERSION, work, { ...CLEAN_ENV, CHECK_SKILL_VERSION_BASE: base })
+    const head = (work: string) =>
+      execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work, env: CLEAN_ENV, encoding: 'utf8' }).trim()
+
+    function setupFoo(): string {
+      const { work, bare } = setupOriginWithPlugin({
+        pluginName: 'foo',
+        version: '1.0.0',
+        catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+      })
+      workDir = work
+      bareDir = bare
+      return work
+    }
+
+    function commitBump(work: string, version: string, entryVersion: string, skillFile: string): void {
+      fs.writeFileSync(path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json'), JSON.stringify({ version }))
+      bumpCatalogueEntry(work, 'foo', entryVersion)
+      commitPluginPathChange(work, 'foo', `skills/${skillFile}`, `# ${skillFile} ${version}\n`)
+    }
+
+    // The merge ref CI checks out for a pull request: the base tip first, the PR head second.
+    function checkoutMergeRef(work: string, baseTip: string, prHead: string): void {
+      git(`git checkout -q --detach ${baseTip}`, work)
+      git(`git -c user.email=t@t -c user.name=t merge -q --no-ff --no-edit ${prHead}`, work)
+    }
+
+    it('exits 1 for a PR whose bump collides with a version that already landed', () => {
+      const work = setupFoo()
+      const start = head(work)
+      commitBump(work, '1.0.1', '0.7.1', 'my-skill.md')
+      const landed = head(work)
+      git(`git checkout -q --detach ${start}`, work)
+      commitBump(work, '1.0.1', '0.7.1', 'other.md')
+      checkoutMergeRef(work, landed, head(work))
+
+      const { code, stdout } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('foo: distributed runtime changed without version bump (still 1.0.1)')
+      expect(stdout).toContain('(still 0.7.1) — bump .omp-plugin/marketplace.json')
+    })
+
+    it('exits 0 for a PR that bumps both surfaces above its base', () => {
+      const work = setupFoo()
+      const start = head(work)
+      commitBump(work, '1.0.1', '0.7.1', 'my-skill.md')
+      checkoutMergeRef(work, start, head(work))
+
+      expect(ci(work, 'HEAD^1').code).toBe(0)
+    })
+
+    it('compares with the given base even when origin/main is unreachable', () => {
+      const work = setupFoo()
+      commitSkillChange(work, 'foo', '# skill v2 (no bump)\n')
+      git('git remote remove origin', work)
+
+      const { code, stdout, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('(still 1.0.0)')
+      expect(stderr).not.toMatch(/origin\/main unreachable/)
+    })
+
+    it('reads the Claude version from HEAD, not an uncommitted worktree bump', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      commitSkillChange(work, 'foo', '# skill v2 (no bump)\n')
+      fs.writeFileSync(
+        path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ version: '1.0.1' }),
+      )
+
+      const { code, stdout } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('foo: distributed runtime changed without version bump (still 1.0.0)')
+    })
+
+    // Claude plugins may symlink files inside the repository: the manifest is what a checkout reads.
+    function commitLinkedManifest(
+      work: string,
+      link: string,
+      files: Record<string, string>,
+      links: Record<string, string>,
+    ): void {
+      const pluginDir = path.join(work, 'plugins', 'foo')
+      for (const [name, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(pluginDir, name)), { recursive: true })
+        fs.writeFileSync(path.join(pluginDir, name), body)
+      }
+      for (const [name, target] of Object.entries(links)) fs.symlinkSync(target, path.join(pluginDir, name))
+      fs.rmSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'))
+      fs.symlinkSync(link, path.join(pluginDir, '.claude-plugin', 'plugin.json'))
+      commitSkillChange(work, 'foo', '# skill v2 (linked manifest)\n')
+    }
+
+    const v = (version: string) => JSON.stringify({ version })
+    // current -> releases/v1 (tracked), so current/.. is releases/, not the plugin root decoy.
+    const viaCurrent = (intended: string, decoy: string) => ({
+      'releases/v1/keep.txt': 'keep\n',
+      'releases/manifest.json': v(intended),
+      'manifest.json': v(decoy),
+    })
+    const releases = { current: 'releases/v1' }
+    const unresolved = 'foo: cannot resolve HEAD:plugins/foo/.claude-plugin/plugin.json'
+
+    it.each([
+      ['../manifest.json, unchanged', '../manifest.json', { 'manifest.json': v('1.0.0') }, {}, 1, '(still 1.0.0)'],
+      ['../manifest.json, bumped', '../manifest.json', { 'manifest.json': v('1.0.1') }, {}, 0, ''],
+      ['./real.json, unchanged', './real.json', { '.claude-plugin/real.json': v('1.0.0') }, {}, 1, '(still 1.0.0)'],
+      [
+        'current/.., unchanged',
+        '../current/../manifest.json',
+        viaCurrent('1.0.0', '1.0.1'),
+        releases,
+        1,
+        '(still 1.0.0)',
+      ],
+      ['current/.., bumped', '../current/../manifest.json', viaCurrent('1.0.1', '1.0.0'), releases, 0, ''],
+      ['a dangling target', '../missing.json', {}, {}, 1, unresolved],
+      ['a target outside the repository', '../../../../outside.json', {}, {}, 1, unresolved],
+    ])('plugin.json linked through %s', (_case, link, files, links, expected, message) => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      commitLinkedManifest(work, link, files, links)
+
+      const { code, stdout, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(expected)
+      expect(stdout).toContain(message)
+      expect(stderr).not.toMatch(/SKIP: foo (has no \.claude-plugin|is SHA-based)/)
+    })
+
+    it('keeps the visible SKIP when plugin.json is absent', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      fs.rmSync(path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json'))
+      commitSkillChange(work, 'foo', '# skill v2 (manifest removed)\n')
+
+      const { code, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(0)
+      expect(stderr).toContain('SKIP: foo has no .claude-plugin/plugin.json')
+    })
+
+    // .claude-plugin itself is a link: once the directory resolves, plugin.json is an optional leaf.
+    it.each([
+      [
+        'without plugin.json',
+        'config',
+        { 'config/README.md': '# config\n' },
+        0,
+        'SKIP: foo has no .claude-plugin/plugin.json',
+      ],
+      ['with an unchanged plugin.json', 'config', { 'config/plugin.json': v('1.0.0') }, 1, '(still 1.0.0)'],
+      ['to a missing directory', 'nowhere', {}, 1, unresolved],
+    ])('.claude-plugin linked to a directory %s', (_case, link, files, expected, message) => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      const pluginDir = path.join(work, 'plugins', 'foo')
+      fs.rmSync(path.join(pluginDir, '.claude-plugin'), { recursive: true })
+      for (const [name, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(pluginDir, name)), { recursive: true })
+        fs.writeFileSync(path.join(pluginDir, name), body)
+      }
+      fs.symlinkSync(link, path.join(pluginDir, '.claude-plugin'))
+      commitSkillChange(work, 'foo', '# skill v2 (linked config dir)\n')
+
+      const { code, stdout, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(expected)
+      expect(`${stdout}${stderr}`).toContain(message)
+    })
+
+    it('exits 1 when plugin.json exists but is a directory', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      const manifest = path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json')
+      fs.rmSync(manifest)
+      fs.mkdirSync(manifest)
+      fs.writeFileSync(path.join(manifest, 'version'), '1.0.0\n')
+      commitSkillChange(work, 'foo', '# skill v2 (manifest is a directory)\n')
+
+      const { code, stdout } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain(unresolved)
+    })
+
+    it.each([
+      ['does not resolve to a commit', 'no-such-base'],
+      ['is set but empty', ''],
+    ])('exits 1 when the base %s', (_case, base) => {
+      const work = setupFoo()
+      commitSkillChange(work, 'foo', '# skill v2 (no bump)\n')
+      git('git remote remove origin', work)
+
+      const { code, stdout, stderr } = ci(work, base)
+
+      expect(code).toBe(1)
+      expect(stdout).toContain(`cannot resolve CHECK_SKILL_VERSION_BASE='${base}' to a commit`)
+      expect(stderr).not.toMatch(/SKIP/)
+    })
   })
 })
