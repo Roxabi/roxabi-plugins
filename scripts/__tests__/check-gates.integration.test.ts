@@ -630,6 +630,9 @@ describe('check-skill-version.sh', () => {
       ['a command in a group named docs', '', 'commands/docs/labels.md', 1],
       ['an agent in a group named fixtures', '', 'agents/fixtures/guide.md', 1],
       ['a test helper under commands', '', 'commands/__tests__/helpers.ts', 0],
+      ['an agent whose file is named like a spec', '', 'agents/issue.spec.md', 1],
+      ['a skill reference named like a test', '', 'skills/my-skill/api.test.md', 1],
+      ['a unit test beside a skill', '', 'skills/my-skill/lib.test.ts', 0],
     ])('treats %s as exit %i', (_case, existing, file, expected) => {
       const work = fixture()
       if (existing !== '') {
