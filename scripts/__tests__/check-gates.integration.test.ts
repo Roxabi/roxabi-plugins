@@ -617,6 +617,29 @@ describe('check-skill-version.sh', () => {
       expect(stdout).toContain('claude-only: distributed runtime changed without version bump (still 1.0.0)')
     })
 
+    // A skill, command group or agent named like a category is runtime; the category
+    // directories inside it are not.
+    it.each([
+      ['skills/docs/SKILL.md', 1],
+      ['skills/tests/SKILL.md', 1],
+      ['commands/fixtures/run.md', 1],
+      ['skills/my-skill/docs/notes.md', 0],
+      ['skills/docs/tests/case.md', 0],
+    ])('treats %s as exit %i', (file, expected) => {
+      const work = fixture()
+      commitPluginPathChange(work, 'claude-only', file, '# body\n')
+      expect(runScriptCapture(CHECK_SKILL_VERSION, work).code).toBe(expected)
+    })
+
+    it('fails when the changed paths cannot be listed', () => {
+      const work = fixture()
+      git('git checkout -q --orphan unrelated', work)
+      git('git -c user.email=t@t -c user.name=t commit -q -m unrelated', work)
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).not.toBe(0)
+      expect(stderr).toContain('no merge base')
+    })
+
     // A catalogue reached through a symlink is not in the tree under its own path, so
     // reading it as absent would silently skip the gate.
     it.each(['directory', 'file'] as const)('rejects a Claude catalogue behind a symlinked %s', (kind) => {

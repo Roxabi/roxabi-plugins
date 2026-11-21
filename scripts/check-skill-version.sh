@@ -20,9 +20,18 @@ is_distributed_runtime_path() {
     plugins/*/*) ;;
     *) return 1 ;;
   esac
-  local relative="${1#plugins/*/}"
+  local relative="${1#plugins/*/}" nested
   case "$relative" in
-    README.md | GLOSSARY.md | docs/** | */docs/** | test/** | */test/** | tests/** | */tests/** | testing/** | */testing/** | __tests__/** | */__tests__/** | fixtures/** | */fixtures/** | __fixtures__/** | */__fixtures__/** | *.test.* | *.spec.*)
+    README.md | GLOSSARY.md | *.test.* | *.spec.*) return 1 ;;
+  esac
+  # The directory under skills/, commands/ or agents/ is a component name: a skill
+  # named docs or tests is runtime. Category directories are matched inside it.
+  nested="$relative"
+  case "$nested" in
+    skills/*/* | commands/*/* | agents/*/*) nested="${nested#*/*/}" ;;
+  esac
+  case "/$nested" in
+    */docs/* | */test/* | */tests/* | */testing/* | */__tests__/* | */fixtures/* | */__fixtures__/*)
       return 1
       ;;
   esac
@@ -68,15 +77,18 @@ else
 fi
 # -z: otherwise git quotes a non-ASCII path ("plugins/p/r\303\251sum\303\251.md") and
 # the quoted string never matches plugins/<p>/, so the change would go unchecked.
-mapfile -t plugins < <(
+# A plain assignment keeps the pipeline status: a failed diff exits under set -e,
+# where mapfile over a process substitution would report success on no plugins.
+changed=$(
   git diff --name-only -z "${diff_range[@]}" -- 'plugins/*' |
     while IFS= read -r -d '' path; do
       if is_distributed_runtime_path "$path"; then
         path="${path#plugins/}"
         printf '%s\n' "${path%%/*}"
       fi
-    done | sort -u
+    done
 )
+mapfile -t plugins < <(printf '%s\n' "$changed" | sort -u)
 fail=0
 
 # Classify the row named NAME in catalogue PATH at REV: ABSENT (no blob), LINK (the
