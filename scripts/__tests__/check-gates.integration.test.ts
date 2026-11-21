@@ -953,6 +953,52 @@ describe('check-skill-version.sh', () => {
       expect(stderr).toContain('SKIP: foo has no .claude-plugin/plugin.json')
     })
 
+    // .claude-plugin itself is a link: once the directory resolves, plugin.json is an optional leaf.
+    it.each([
+      [
+        'without plugin.json',
+        'config',
+        { 'config/README.md': '# config\n' },
+        0,
+        'SKIP: foo has no .claude-plugin/plugin.json',
+      ],
+      ['with an unchanged plugin.json', 'config', { 'config/plugin.json': v('1.0.0') }, 1, '(still 1.0.0)'],
+      ['to a missing directory', 'nowhere', {}, 1, unresolved],
+    ])('.claude-plugin linked to a directory %s', (_case, link, files, expected, message) => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      const pluginDir = path.join(work, 'plugins', 'foo')
+      fs.rmSync(path.join(pluginDir, '.claude-plugin'), { recursive: true })
+      for (const [name, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(pluginDir, name)), { recursive: true })
+        fs.writeFileSync(path.join(pluginDir, name), body)
+      }
+      fs.symlinkSync(link, path.join(pluginDir, '.claude-plugin'))
+      commitSkillChange(work, 'foo', '# skill v2 (linked config dir)\n')
+
+      const { code, stdout, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(expected)
+      expect(`${stdout}${stderr}`).toContain(message)
+    })
+
+    it('exits 1 when plugin.json exists but is a directory', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      const manifest = path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json')
+      fs.rmSync(manifest)
+      fs.mkdirSync(manifest)
+      fs.writeFileSync(path.join(manifest, 'version'), '1.0.0\n')
+      commitSkillChange(work, 'foo', '# skill v2 (manifest is a directory)\n')
+
+      const { code, stdout } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain(unresolved)
+    })
+
     it.each([
       ['does not resolve to a commit', 'no-such-base'],
       ['is set but empty', ''],

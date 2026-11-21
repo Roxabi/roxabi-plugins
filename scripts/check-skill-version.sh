@@ -154,14 +154,21 @@ omp_fail() {
 # FILE's bytes at REV, resolved like a checkout: path components left to right,
 # each symlink replaced by its target before any later "..". Claude plugins may
 # symlink files inside the repository.
-# Exit 1: FILE is absent and no symlink was followed.
-# Exit 2: a symlink is absolute, leaves the tree, loops or dangles, or FILE is not a file.
+# Exit 1: a component of the requested path is missing (FILE is absent).
+# Exit 2: a symlink is absolute, leaves the tree, loops or dangles, or FILE exists
+# but is not a file.
 rev_file() {
-  local rev="$1" cwd="" part target mode hops=0 todo=() parts=()
+  local rev="$1" cwd="" part target mode hops=0 linked=0 from_link todo=() parts=()
   IFS=/ read -ra todo <<<"$2"
   while [ "${#todo[@]}" -gt 0 ]; do
     part="${todo[0]}"
     todo=("${todo[@]:1}")
+    # Components queued from link targets sit at the front of todo: a missing one dangles.
+    from_link=0
+    if [ "$linked" -gt 0 ]; then
+      linked=$((linked - 1))
+      from_link=1
+    fi
     case "$part" in
       '' | .) continue ;;
       ..)
@@ -179,20 +186,15 @@ rev_file() {
         case "$target" in /*) return 2 ;; esac
         IFS=/ read -ra parts <<<"$target"
         todo=("${parts[@]}" "${todo[@]}")
+        linked=$((linked + ${#parts[@]}))
         ;;
       040000) cwd="${cwd:+$cwd/}$part" ;;
       100644 | 100755)
-        if [ "${#todo[@]}" -gt 0 ]; then
-          [ "$hops" -eq 0 ] && return 1
-          return 2
-        fi
+        [ "${#todo[@]}" -eq 0 ] || return $((1 + from_link))
         git show "$rev:${cwd:+$cwd/}$part"
         return
         ;;
-      '')
-        [ "$hops" -eq 0 ] && return 1
-        return 2
-        ;;
+      '') return $((1 + from_link)) ;;
       *) return 2 ;;
     esac
   done
@@ -211,7 +213,7 @@ claude_manifest() {
 }
 
 unresolvable_link() {
-  echo "$1: cannot resolve $2 — a symlink on its path is absolute, leaves the repository or loops"
+  echo "$1: cannot resolve $2 — a symlink on its path is absolute, leaves the repository, loops or dangles, or it is not a file"
   fail=1
 }
 
