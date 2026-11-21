@@ -799,4 +799,80 @@ describe('check-skill-version.sh', () => {
     expect(stdout).toContain('.omp-plugin/marketplace.json')
     expect(stderr).not.toMatch(/origin\/main unreachable/)
   })
+
+  describe('with CHECK_SKILL_VERSION_BASE (CI)', () => {
+    const ci = (work: string, base: string) =>
+      runScriptCapture(CHECK_SKILL_VERSION, work, { ...CLEAN_ENV, CHECK_SKILL_VERSION_BASE: base })
+    const head = (work: string) =>
+      execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work, env: CLEAN_ENV, encoding: 'utf8' }).trim()
+
+    function setupFoo(): string {
+      const { work, bare } = setupOriginWithPlugin({
+        pluginName: 'foo',
+        version: '1.0.0',
+        catalogue: { documentVersion: '9.9.9', entryVersion: '0.7.0' },
+      })
+      workDir = work
+      bareDir = bare
+      return work
+    }
+
+    function commitBump(work: string, version: string, entryVersion: string, skillFile: string): void {
+      fs.writeFileSync(path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json'), JSON.stringify({ version }))
+      bumpCatalogueEntry(work, 'foo', entryVersion)
+      commitPluginPathChange(work, 'foo', `skills/${skillFile}`, `# ${skillFile} ${version}\n`)
+    }
+
+    // The merge ref CI checks out for a pull request: the base tip first, the PR head second.
+    function checkoutMergeRef(work: string, baseTip: string, prHead: string): void {
+      git(`git checkout -q --detach ${baseTip}`, work)
+      git(`git -c user.email=t@t -c user.name=t merge -q --no-ff --no-edit ${prHead}`, work)
+    }
+
+    it('exits 1 for a PR whose bump collides with a version that already landed', () => {
+      const work = setupFoo()
+      const start = head(work)
+      commitBump(work, '1.0.1', '0.7.1', 'my-skill.md')
+      const landed = head(work)
+      git(`git checkout -q --detach ${start}`, work)
+      commitBump(work, '1.0.1', '0.7.1', 'other.md')
+      checkoutMergeRef(work, landed, head(work))
+
+      const { code, stdout } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('foo: distributed runtime changed without version bump (still 1.0.1)')
+      expect(stdout).toContain('(still 0.7.1) — bump .omp-plugin/marketplace.json')
+    })
+
+    it('exits 0 for a PR that bumps both surfaces above its base', () => {
+      const work = setupFoo()
+      const start = head(work)
+      commitBump(work, '1.0.1', '0.7.1', 'my-skill.md')
+      checkoutMergeRef(work, start, head(work))
+
+      expect(ci(work, 'HEAD^1').code).toBe(0)
+    })
+
+    it('compares with the given base even when origin/main is unreachable', () => {
+      const work = setupFoo()
+      commitSkillChange(work, 'foo', '# skill v2 (no bump)\n')
+      git('git remote remove origin', work)
+
+      const { code, stdout, stderr } = ci(work, 'HEAD^1')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('(still 1.0.0)')
+      expect(stderr).not.toMatch(/origin\/main unreachable/)
+    })
+
+    it('exits 1 when the base does not resolve to a commit', () => {
+      const work = setupFoo()
+
+      const { code, stdout } = ci(work, 'no-such-base')
+
+      expect(code).toBe(1)
+      expect(stdout).toContain('cannot resolve CHECK_SKILL_VERSION_BASE=no-such-base to a commit')
+    })
+  })
 })

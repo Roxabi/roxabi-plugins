@@ -11,7 +11,7 @@ set -euo pipefail
 #           plugins/<p>/.omp-plugin/plugin.json, not the catalogue document version.
 # A missing version on one surface is a visible SKIP and does not hide the other.
 # Constraints (documented): plugin rename may not fire on the renaming push;
-# requires fetched origin/main.
+# requires fetched origin/main, unless CHECK_SKILL_VERSION_BASE names the base.
 #
 # Plugin root README/GLOSSARY, docs/, and test/fixture paths intentionally do not
 # trigger a bump: they do not change a runtime effect, even if a host copies them.
@@ -30,26 +30,41 @@ is_distributed_runtime_path() {
 }
 
 # Preflight: jq absence skips only the Claude plugin.json branch. The OMP
-# catalogue check always runs. A failed fetch with a local origin/main is not
-# a proven baseline, so the catalogue comparison is unverified and exits 1.
-# origin/main missing entirely stays a visible SKIP (nothing to compare).
+# catalogue check always runs.
+# CHECK_SKILL_VERSION_BASE (CI): compare HEAD with that commit, with no fetch;
+# a base that does not resolve to a commit fails closed.
+# Otherwise (pre-push): compare with origin/main. A failed fetch with a local
+# origin/main is not a proven baseline, so the catalogue comparison is
+# unverified and exits 1. origin/main missing entirely stays a visible SKIP.
 export GIT_TERMINAL_PROMPT=0
 have_jq=0
 command -v jq >/dev/null 2>&1 && have_jq=1
-fetch_ok=0
-if timeout 30 git fetch origin main --quiet; then
-  fetch_ok=1
-fi
-if ! git rev-parse --verify --quiet origin/main >/dev/null; then
-  echo "SKIP: check-skill-version (origin/main unreachable — cannot compare versions)" >&2
-  exit 0
-fi
-if [ "$fetch_ok" -ne 1 ]; then
-  echo "cannot verify origin/main:.omp-plugin/marketplace.json — fetch failed"
-  exit 1
+if [ -n "${CHECK_SKILL_VERSION_BASE:-}" ]; then
+  base_label="$CHECK_SKILL_VERSION_BASE"
+  if ! base_rev=$(git rev-parse --verify --quiet "${CHECK_SKILL_VERSION_BASE}^{commit}"); then
+    echo "cannot resolve CHECK_SKILL_VERSION_BASE=$CHECK_SKILL_VERSION_BASE to a commit"
+    exit 1
+  fi
+  diff_range=("$base_rev" HEAD)
+else
+  base_rev=origin/main
+  base_label=origin/main
+  fetch_ok=0
+  if timeout 30 git fetch origin main --quiet; then
+    fetch_ok=1
+  fi
+  if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+    echo "SKIP: check-skill-version (origin/main unreachable — cannot compare versions)" >&2
+    exit 0
+  fi
+  if [ "$fetch_ok" -ne 1 ]; then
+    echo "cannot verify origin/main:.omp-plugin/marketplace.json — fetch failed"
+    exit 1
+  fi
+  diff_range=(origin/main...HEAD)
 fi
 changed=$(
-  git diff --name-only origin/main...HEAD -- 'plugins/*' |
+  git diff --name-only "${diff_range[@]}" -- 'plugins/*' |
     while IFS= read -r path; do
       if is_distributed_runtime_path "$path"; then
         printf '%s\n' "$path"
@@ -145,7 +160,7 @@ for p in "${plugins[@]}"; do
     if [ -z "$cur" ]; then
       echo "SKIP: $p is SHA-based (no .version in $pj) — bump gate inert for this plugin" >&2
     else
-      base=$(git show "origin/main:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
+      base=$(git show "$base_rev:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
       if [ "$base" = "$cur" ]; then
         echo "$p: distributed runtime changed without version bump (still $cur) — bump $pj"
         fail=1
@@ -165,11 +180,11 @@ for p in "${plugins[@]}"; do
       ;;
     VERSION:*)
       cur_omp="${cur_status#VERSION:}"
-      base_status=$(omp_row_status origin/main "$p")
+      base_status=$(omp_row_status "$base_rev" "$p")
       case "$base_status" in
-        PARSE) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
-        DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in origin/main:.omp-plugin/marketplace.json" ;;
-        BAD) omp_fail "$p" "origin/main catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
+        PARSE) omp_fail "$p" "cannot parse $base_label:.omp-plugin/marketplace.json" ;;
+        DUPLICATE) omp_fail "$p" "duplicate plugins[] rows in $base_label:.omp-plugin/marketplace.json" ;;
+        BAD) omp_fail "$p" "$base_label catalogue version is not a single-line semver in .omp-plugin/marketplace.json" ;;
         ABSENT | MISSING) ;;
         VERSION:*)
           base_omp="${base_status#VERSION:}"
@@ -180,7 +195,7 @@ for p in "${plugins[@]}"; do
             omp_fail "$p" "catalogue version is not a newer semver OMP will install in .omp-plugin/marketplace.json"
           fi
           ;;
-        *) omp_fail "$p" "cannot parse origin/main:.omp-plugin/marketplace.json" ;;
+        *) omp_fail "$p" "cannot parse $base_label:.omp-plugin/marketplace.json" ;;
       esac
       ;;
     *) omp_fail "$p" "cannot parse .omp-plugin/marketplace.json" ;;
