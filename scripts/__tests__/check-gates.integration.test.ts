@@ -633,6 +633,7 @@ describe('check-skill-version.sh', () => {
       ['an agent whose file is named like a spec', '', 'agents/issue.spec.md', 1],
       ['a skill reference named like a test', '', 'skills/my-skill/api.test.md', 1],
       ['a unit test beside a skill', '', 'skills/my-skill/lib.test.ts', 0],
+      ['a Vitest snapshot beside a script', '', 'scripts/__snapshots__/gate.integration.test.ts.snap', 0],
       ['the plugin glossary', '', 'GLOSSARY.md', 1],
       ['the plugin README', '', 'README.md', 0],
       ['a template named like a spec', '', 'templates/issue.spec.json', 1],

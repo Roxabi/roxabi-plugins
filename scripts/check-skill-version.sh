@@ -42,7 +42,7 @@ is_distributed_runtime_path() {
       skill="${nested#skills/}"
       skill="${skill%%/*}"
       case "$skill" in
-        docs | test | tests | testing | __tests__ | fixtures | __fixtures__)
+        docs | test | tests | testing | __tests__ | __snapshots__ | fixtures | __fixtures__)
           if git cat-file -e "HEAD:${1%"$relative"}skills/$skill/SKILL.md" 2>/dev/null ||
             git cat-file -e "$base_rev:${1%"$relative"}skills/$skill/SKILL.md" 2>/dev/null; then
             nested="${nested#skills/*/}"
@@ -51,8 +51,9 @@ is_distributed_runtime_path() {
       esac
       ;;
   esac
+  # __snapshots__/ holds Vitest-managed expected output for a colocated test.
   case "/$nested" in
-    */docs/* | */test/* | */tests/* | */testing/* | */__tests__/* | */fixtures/* | */__fixtures__/*)
+    */docs/* | */test/* | */tests/* | */testing/* | */__tests__/* | */__snapshots__/* | */fixtures/* | */__fixtures__/*)
       return 1
       ;;
   esac
