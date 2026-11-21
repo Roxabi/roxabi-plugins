@@ -54,16 +54,16 @@ function file(target: string, name: string, contents = 'fixture data\n'): string
   return full
 }
 
-function command(args: string[]) {
-  return spawnSync('bun', [CLI, ...args, '--json'], {
+function command(args: string[], bunArgs: string[] = []) {
+  return spawnSync('bun', [...bunArgs, CLI, ...args, '--json'], {
     cwd: root,
     env: { ...FIXTURE_ENV, HOME: home },
     encoding: 'utf8',
   })
 }
 
-function row(target: string): Row {
-  const result = command(['inventory', '--repo', repo])
+function row(target: string, bunArgs: string[] = []): Row {
+  const result = command(['inventory', '--repo', repo], bunArgs)
   expect(result.status, result.stderr).toBe(0)
   const report = JSON.parse(result.stdout) as { worktrees: Row[]; errors: unknown[] }
   expect(report.errors).toEqual([])
@@ -72,10 +72,19 @@ function row(target: string): Row {
   return entry as Row
 }
 
-function remove(target: string, entry: Row, extra: string[] = [], usage = true) {
+function remove(target: string, entry: Row, extra: string[] = [], usage = true, bunArgs: string[] = []) {
   const args = ['remove', '--repo', repo, '--path', target, '--expect', entry.token, '--confirm', target]
   if (usage && entry.requiresUsageConfirmation) args.push('--ack-unknown-usage', target)
-  return command([...args, ...extra])
+  return command([...args, ...extra], bunArgs)
+}
+
+// CI runs only on Linux, so the CLI is made to see another platform instead of
+// leaving the refusal path to whoever happens to run the suite elsewhere.
+function nonLinuxHost(): string[] {
+  if (process.platform !== 'linux') return []
+  const preload = path.join(root, 'non-linux-platform.ts')
+  writeFileSync(preload, "Object.defineProperty(process, 'platform', { value: 'darwin' })\n")
+  return ['--preload', preload]
 }
 
 function ack(target: string): string[] {
@@ -132,12 +141,13 @@ describe('ignored artifact cleanup CLI', () => {
     },
   )
 
-  it.skipIf(process.platform === 'linux')('protects recognized artifacts when mount inspection is unsupported', () => {
+  it('protects recognized artifacts when mount inspection is unsupported', () => {
     const target = setup('node_modules/\n')
     const retained = file(target, 'node_modules/pkg/index.js')
-    const entry = row(target)
+    const host = nonLinuxHost()
+    const entry = row(target, host)
     expect(entry.eligible).toBe(false)
-    expect(remove(target, entry, ack(target)).status).not.toBe(0)
+    expect(remove(target, entry, ack(target), true, host).status).not.toBe(0)
     expect(existsSync(retained)).toBe(true)
   })
 
