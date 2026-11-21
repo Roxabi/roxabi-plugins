@@ -651,8 +651,11 @@ def check_claude_catalog_rows(catalog_path=None, repo_root=None) -> list[str]:
             errors.append(f'{name}: Claude catalog version {version!r} must be a non-empty single-line string')
             continue
         source = row.get('source')
-        if not isinstance(source, str):
+        if isinstance(source, dict):
             continue  # remote source object: not a package in this repository
+        if not isinstance(source, str):
+            errors.append(f'{name}: Claude catalog source {source!r} must be a path or a source object')
+            continue
         if source != f'./plugins/{name}':
             errors.append(
                 f'{name}: Claude catalog source {source!r} must be ./plugins/{name} — '

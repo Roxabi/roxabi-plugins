@@ -59,6 +59,12 @@ def test_local_source_must_be_plugins_slash_name(tmp_path, source):
     assert len(errors) == 1 and 'must be ./plugins/example' in errors[0]
 
 
+@pytest.mark.parametrize('fields', [{}, {'source': None}, {'source': []}, {'source': 3}])
+def test_missing_or_malformed_source_is_rejected(tmp_path, fields):
+    errors = _check(tmp_path, [{'name': 'example', 'version': '1.2.3', **fields}], {'example': {'version': '1.2.3'}})
+    assert len(errors) == 1 and 'must be a path or a source object' in errors[0]
+
+
 def test_duplicate_names_are_rejected_case_insensitively(tmp_path):
     rows = [_row(version='1.0.0'), {'name': 'Example', 'source': {'source': 'github', 'repo': 'a/b'}}]
     errors = _check(tmp_path, rows, {'example': {'version': '1.0.0'}})

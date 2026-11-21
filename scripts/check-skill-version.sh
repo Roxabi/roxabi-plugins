@@ -66,15 +66,17 @@ else
   fi
   diff_range=(origin/main...HEAD)
 fi
-changed=$(
-  git diff --name-only "${diff_range[@]}" -- 'plugins/*' |
-    while IFS= read -r path; do
+# -z: otherwise git quotes a non-ASCII path ("plugins/p/r\303\251sum\303\251.md") and
+# the quoted string never matches plugins/<p>/, so the change would go unchecked.
+mapfile -t plugins < <(
+  git diff --name-only -z "${diff_range[@]}" -- 'plugins/*' |
+    while IFS= read -r -d '' path; do
       if is_distributed_runtime_path "$path"; then
-        printf '%s\n' "$path"
+        path="${path#plugins/}"
+        printf '%s\n' "${path%%/*}"
       fi
-    done
+    done | sort -u
 )
-mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
 
 # Classify the row named NAME in catalogue PATH at REV: ABSENT (no blob), LINK (the
@@ -128,8 +130,10 @@ const rows = doc.plugins.filter(
 )
 if (rows.length > 1) emit("DUPLICATE")
 if (rows.length === 0) emit("NO_ROW")
-// A remote row is not this directory: the local plugin has no Claude row of its own.
-if (claude && typeof rows[0].source !== "string") emit("REMOTE")
+// A remote (object) source is another install, not this directory. Anything else is
+// read as the row of this plugin; validate_plugins.py rejects a missing or malformed source.
+const source = rows[0].source
+if (claude && source !== null && typeof source === "object" && !Array.isArray(source)) emit("REMOTE")
 const version = rows[0].version
 if (version === undefined || (version === null && !claude)) emit("MISSING")
 if (typeof version !== "string" || version.length === 0 || /[\r\n]/.test(version)) emit("BAD")

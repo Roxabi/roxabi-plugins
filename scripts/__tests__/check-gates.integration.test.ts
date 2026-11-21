@@ -589,6 +589,34 @@ describe('check-skill-version.sh', () => {
       expect(stderr).toContain('NOTE: claude-only was a remote Claude plugin at origin/main')
     })
 
+    // Only a source object is remote; a missing or malformed source is still this row.
+    it.each([
+      ['missing', {}],
+      ['null', { source: null }],
+      ['an array', { source: [] }],
+    ])('still compares a Claude row whose source is %s', (_case, source) => {
+      const work = fixture()
+      writeClaudeCatalogue(work, JSON.stringify({ plugins: [{ name: 'claude-only', version: '1.0.0', ...source }] }))
+      pushAsMain(work, 'malformed source')
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(1)
+      expect(stdout).toContain('(still 1.0.0) — bump .claude-plugin/marketplace.json')
+    })
+
+    // Git quotes a non-ASCII path by default; a quoted path never matched plugins/<p>/.
+    it.each([
+      ['locally', undefined],
+      ['with an explicit base', 'HEAD^'],
+    ])('sees a runtime file with a non-ASCII name %s', (_case, base) => {
+      const work = fixture()
+      commitPluginPathChange(work, 'claude-only', 'commands/résumé.md', '# new command\n')
+      const env = base === undefined ? undefined : { ...CLEAN_ENV, CHECK_SKILL_VERSION_BASE: base }
+      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work, env)
+      expect(code).toBe(1)
+      expect(stdout).toContain('claude-only: distributed runtime changed without version bump (still 1.0.0)')
+    })
+
     // A catalogue reached through a symlink is not in the tree under its own path, so
     // reading it as absent would silently skip the gate.
     it.each(['directory', 'file'] as const)('rejects a Claude catalogue behind a symlinked %s', (kind) => {
