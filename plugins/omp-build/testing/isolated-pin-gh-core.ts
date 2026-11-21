@@ -7,6 +7,12 @@ import {
   type SimCommandResult,
 } from '../skills/feature/testing/gh-simulator/sim-execution.ts'
 
+/**
+ * Pin dispatch for one `gh` call, with the caller's env and cwd. The compiled fixture and the
+ * per-file server both run it. Failure-only difference: an exception escaping it (missing `PIN_*`
+ * env, unreadable control file, failed git read) exits 1 in both, but the server reports it as
+ * `gh simulator: <error>` instead of Bun's uncaught-exception output.
+ */
 export function executePinCommand(args: string[], input: SimCommandInput): SimCommandResult {
   const { cwd, readStdin } = input
   const env = input.env ?? {}

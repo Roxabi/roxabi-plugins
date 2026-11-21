@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync, type SpawnSyncReturns, spawn, spawnSyn
 import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { base, dispose, openState } from '../skills/feature/testing/gh-simulator/sim-transport-fixture.ts'
+import { base, dispose, openState, pull, saved } from '../skills/feature/testing/gh-simulator/sim-transport-fixture.ts'
 
 function executable(name: 'OMP_TEST_PIN_GH_CLIENT_PATH' | 'OMP_TEST_PIN_GH_PATH'): string {
   const path = process.env[name]
@@ -102,8 +102,9 @@ describe('pin gh server protocol', () => {
   })
 
   for (const mode of ['gate', 'sync'] as const) {
-    it(`keeps other requests responsive while the ${mode} command waits standalone`, async () => {
+    it(`keeps the server responsive while the ${mode} command waits standalone`, async () => {
       const state = openState(base())
+      const other = openState(base())
       const dir = join(state.root, mode)
       mkdirSync(dir)
       execFileSync('mkfifo', [join(dir, 'release')])
@@ -131,7 +132,8 @@ describe('pin gh server protocol', () => {
       try {
         await waitForReady(dir, exit)
         expect(child.exitCode).toBeNull()
-        expect(outcome(invoke(client, variable('acme/app'), state.root, env))).toEqual({
+        // No gate or sync variable: this call goes through the server, so it hangs if the waiting call holds it.
+        expect(outcome(invoke(client, variable('acme/app'), other.root, environment(other.file)))).toEqual({
           status: 0,
           stdout: `${candidate}\n`,
           stderr: '',
@@ -144,18 +146,21 @@ describe('pin gh server protocol', () => {
         await exit.catch(() => undefined)
         releaser?.kill()
         dispose(state.root)
+        dispose(other.root)
       }
     })
   }
 
   it('matches the compiled fixture for simulator fallthrough including stdin and errors', () => {
-    const direct = openState(base())
-    const served = openState(base())
+    const prs = { 10: pull(10, 'feat/a', 'a'.repeat(40)) }
+    const direct = openState(base({ prs }))
+    const served = openState(base({ prs }))
     try {
       const binary = executable('OMP_TEST_PIN_GH_PATH')
       const client = executable('OMP_TEST_PIN_GH_CLIENT_PATH')
+      const body = 'staged body\n\nUnicode: café 🙂\nlast'
       const commands: Array<{ args: string[]; input?: string }> = [
-        { args: ['api', 'graphql', '-f', 'query=@-'], input: 'query { viewer { login } }' },
+        { args: ['pr', 'comment', '10', '--body-file', '-'], input: body },
         { args: ['api', 'unsupported/endpoint'] },
       ]
       for (const { args, input } of commands) {
@@ -163,6 +168,7 @@ describe('pin gh server protocol', () => {
         const actual = invoke(client, args, served.root, environment(served.file), input)
         expect(outcome(actual)).toEqual(outcome(expected))
       }
+      expect(saved(served.file).prs['10'].comments[0].body).toBe(body)
       expect(JSON.parse(readFileSync(served.file, 'utf8'))).toEqual(JSON.parse(readFileSync(direct.file, 'utf8')))
     } finally {
       dispose(direct.root)
