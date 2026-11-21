@@ -608,6 +608,48 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
     return errors
 
 
+def check_claude_catalog_versions(catalog_path=None, repo_root=None) -> list[str]:
+    """Compare declared Claude row versions with existing local plugin packages."""
+    catalog_path = Path(catalog_path) if catalog_path is not None else MARKETPLACE_JSON
+    repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    if not catalog_path.is_file():
+        return [f'Claude marketplace.json not found at {catalog_path}']
+    try:
+        data = json.loads(catalog_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f'failed to parse Claude marketplace.json: {e}']
+    plugins = data.get('plugins') if isinstance(data, dict) else None
+    if not isinstance(plugins, list):
+        return ['failed to parse Claude marketplace.json: plugins is not a list']
+
+    errors = []
+    for row in plugins:
+        if not isinstance(row, dict) or 'version' not in row:
+            continue
+        source = row.get('source')
+        if not isinstance(source, str) or not source.startswith('./plugins/'):
+            continue
+        plugin_name = source[len('./plugins/'):]
+        if not plugin_name or plugin_name in ('.', '..') or '/' in plugin_name:
+            continue
+        package_json = repo_root / source / 'package.json'
+        if not package_json.is_file():
+            continue
+        name = row.get('name') or '<unnamed>'
+        try:
+            package = json.loads(package_json.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as e:
+            errors.append(f'{name}: failed to parse {source}/package.json: {e}')
+            continue
+        package_version = package.get('version') if isinstance(package, dict) else None
+        if row['version'] != package_version:
+            errors.append(
+                f'{name}: Claude catalog version {row["version"]!r} does not match '
+                f'{source}/package.json version {package_version!r}'
+            )
+    return errors
+
+
 def check_claude_catalog_archived_sources(catalog_path=None, repo_root=None) -> list[str]:
     """Claude marketplace rows must not reinstall archived/ sources (Spec A / #805)."""
     return check_catalog_archived_sources(
@@ -658,6 +700,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Curated marketplace projection', check_curated_marketplace_projection),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
         ('OMP catalog versions', check_omp_catalog),
+        ('Claude catalog versions', check_claude_catalog_versions),
         ('Claude catalog archived sources', check_claude_catalog_archived_sources),
     ]
 
