@@ -884,41 +884,73 @@ describe('check-skill-version.sh', () => {
       expect(stdout).toContain('foo: distributed runtime changed without version bump (still 1.0.0)')
     })
 
-    // Claude plugins may symlink files inside the repository: the manifest is the link target.
-    function commitSymlinkedManifest(work: string, link: string, targetVersion: string): void {
+    // Claude plugins may symlink files inside the repository: the manifest is what a checkout reads.
+    function commitLinkedManifest(
+      work: string,
+      link: string,
+      files: Record<string, string>,
+      links: Record<string, string>,
+    ): void {
       const pluginDir = path.join(work, 'plugins', 'foo')
-      fs.writeFileSync(path.join(pluginDir, 'manifest.json'), JSON.stringify({ version: targetVersion }))
+      for (const [name, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(pluginDir, name)), { recursive: true })
+        fs.writeFileSync(path.join(pluginDir, name), body)
+      }
+      for (const [name, target] of Object.entries(links)) fs.symlinkSync(target, path.join(pluginDir, name))
       fs.rmSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'))
       fs.symlinkSync(link, path.join(pluginDir, '.claude-plugin', 'plugin.json'))
-      commitSkillChange(work, 'foo', '# skill v2 (symlinked manifest)\n')
+      commitSkillChange(work, 'foo', '# skill v2 (linked manifest)\n')
     }
 
+    const v = (version: string) => JSON.stringify({ version })
+    // current -> releases/v1 (tracked), so current/.. is releases/, not the plugin root decoy.
+    const viaCurrent = (intended: string, decoy: string) => ({
+      'releases/v1/keep.txt': 'keep\n',
+      'releases/manifest.json': v(intended),
+      'manifest.json': v(decoy),
+    })
+    const releases = { current: 'releases/v1' }
+    const unresolved = 'foo: cannot resolve HEAD:plugins/foo/.claude-plugin/plugin.json'
+
     it.each([
-      ['an unchanged', '1.0.0', 1],
-      ['a bumped', '1.0.1', 0],
-    ])('reads %s version through a symlinked plugin.json', (_case, version, expected) => {
+      ['../manifest.json, unchanged', '../manifest.json', { 'manifest.json': v('1.0.0') }, {}, 1, '(still 1.0.0)'],
+      ['../manifest.json, bumped', '../manifest.json', { 'manifest.json': v('1.0.1') }, {}, 0, ''],
+      ['./real.json, unchanged', './real.json', { '.claude-plugin/real.json': v('1.0.0') }, {}, 1, '(still 1.0.0)'],
+      [
+        'current/.., unchanged',
+        '../current/../manifest.json',
+        viaCurrent('1.0.0', '1.0.1'),
+        releases,
+        1,
+        '(still 1.0.0)',
+      ],
+      ['current/.., bumped', '../current/../manifest.json', viaCurrent('1.0.1', '1.0.0'), releases, 0, ''],
+      ['a dangling target', '../missing.json', {}, {}, 1, unresolved],
+      ['a target outside the repository', '../../../../outside.json', {}, {}, 1, unresolved],
+    ])('plugin.json linked through %s', (_case, link, files, links, expected, message) => {
       const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
       workDir = work
       bareDir = bare
-      commitSymlinkedManifest(work, '../manifest.json', version)
+      commitLinkedManifest(work, link, files, links)
 
       const { code, stdout, stderr } = ci(work, 'HEAD^1')
 
       expect(code).toBe(expected)
+      expect(stdout).toContain(message)
       expect(stderr).not.toMatch(/SKIP: foo (has no \.claude-plugin|is SHA-based)/)
-      if (expected === 1) expect(stdout).toContain('(still 1.0.0)')
     })
 
-    it('exits 1 when plugin.json links outside the repository', () => {
+    it('keeps the visible SKIP when plugin.json is absent', () => {
       const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
       workDir = work
       bareDir = bare
-      commitSymlinkedManifest(work, '../../../../outside.json', '1.0.1')
+      fs.rmSync(path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json'))
+      commitSkillChange(work, 'foo', '# skill v2 (manifest removed)\n')
 
-      const { code, stdout } = ci(work, 'HEAD^1')
+      const { code, stderr } = ci(work, 'HEAD^1')
 
-      expect(code).toBe(1)
-      expect(stdout).toContain('foo: cannot resolve HEAD:plugins/foo/.claude-plugin/plugin.json')
+      expect(code).toBe(0)
+      expect(stderr).toContain('SKIP: foo has no .claude-plugin/plugin.json')
     })
 
     it.each([

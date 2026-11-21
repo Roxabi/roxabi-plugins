@@ -151,56 +151,52 @@ omp_fail() {
   fail=1
 }
 
-# Collapse . and .. in a repository-relative path; fails when it leaves the root.
-repo_path() {
-  local part parts out=()
-  IFS=/ read -ra parts <<<"$1"
-  for part in "${parts[@]}"; do
+# FILE's bytes at REV, resolved like a checkout: path components left to right,
+# each symlink replaced by its target before any later "..". Claude plugins may
+# symlink files inside the repository.
+# Exit 1: FILE is absent and no symlink was followed.
+# Exit 2: a symlink is absolute, leaves the tree, loops or dangles, or FILE is not a file.
+rev_file() {
+  local rev="$1" cwd="" part target mode hops=0 todo=() parts=()
+  IFS=/ read -ra todo <<<"$2"
+  while [ "${#todo[@]}" -gt 0 ]; do
+    part="${todo[0]}"
+    todo=("${todo[@]:1}")
     case "$part" in
-      '' | .) ;;
+      '' | .) continue ;;
       ..)
-        [ "${#out[@]}" -gt 0 ] || return 1
-        unset 'out[${#out[@]}-1]'
+        [ -n "$cwd" ] || return 2
+        case "$cwd" in */*) cwd="${cwd%/*}" ;; *) cwd="" ;; esac
+        continue
         ;;
-      *) out+=("$part") ;;
+    esac
+    mode=$(git --literal-pathspecs ls-tree --full-tree "$rev" -- "${cwd:+$cwd/}$part" | cut -c1-6)
+    case "$mode" in
+      120000)
+        hops=$((hops + 1))
+        [ "$hops" -le 40 ] || return 2
+        target=$(git show "$rev:${cwd:+$cwd/}$part") || return 2
+        case "$target" in /*) return 2 ;; esac
+        IFS=/ read -ra parts <<<"$target"
+        todo=("${parts[@]}" "${todo[@]}")
+        ;;
+      040000) cwd="${cwd:+$cwd/}$part" ;;
+      100644 | 100755)
+        if [ "${#todo[@]}" -gt 0 ]; then
+          [ "$hops" -eq 0 ] && return 1
+          return 2
+        fi
+        git show "$rev:${cwd:+$cwd/}$part"
+        return
+        ;;
+      '')
+        [ "$hops" -eq 0 ] && return 1
+        return 2
+        ;;
+      *) return 2 ;;
     esac
   done
-  [ "${#out[@]}" -gt 0 ] || return 1
-  (
-    IFS=/
-    printf '%s\n' "${out[*]}"
-  )
-}
-
-# Path that FILE resolves to in the REV tree. Claude plugins may symlink files
-# inside the repository, so relative links are followed component by component,
-# as the worktree read does. Fails on an absolute, escaping or looping link.
-rev_path() {
-  local rev="$1" rest="$2" resolved="" part target hops=0
-  while [ -n "$rest" ]; do
-    part="${rest%%/*}"
-    if [ "$part" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
-    if [ "$(git ls-tree --full-tree "$rev" -- "${resolved:+$resolved/}$part" | cut -c1-6)" = 120000 ]; then
-      hops=$((hops + 1))
-      [ "$hops" -le 16 ] || return 1
-      target=$(git show "$rev:${resolved:+$resolved/}$part") || return 1
-      case "$target" in /*) return 1 ;; esac
-      rest=$(repo_path "${resolved:+$resolved/}$target${rest:+/$rest}") || return 1
-      resolved=""
-    else
-      resolved="${resolved:+$resolved/}$part"
-    fi
-  done
-  [ -n "$resolved" ] || return 1
-  printf '%s\n' "$resolved"
-}
-
-# FILE's bytes at REV. Exit 1: absent. Exit 2: a symlink on the way does not resolve.
-rev_file() {
-  local resolved
-  resolved=$(rev_path "$1" "$2") || return 2
-  git cat-file -e "$1:$resolved" 2>/dev/null || return 1
-  git show "$1:$resolved"
+  return 2
 }
 
 # Claude manifest of the candidate: the HEAD commit with an explicit base (CI),
