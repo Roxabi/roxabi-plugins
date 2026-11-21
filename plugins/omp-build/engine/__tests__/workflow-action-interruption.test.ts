@@ -158,6 +158,61 @@ describe('completed results stay on their own paths', () => {
     expect(next.evidence.map((entry) => entry.code)).not.toContain('unconfirmed')
   })
 
+  it('still rejects an old-mandate missing-context implement result with a refused admission', async () => {
+    const world = implementationWorld()
+    const negative = withPayload(rejectedImplementResult(world.mandate), {
+      native: { completion: 'completed', strict: 'valid', raw: null },
+      structured: MISSING_CONTEXT,
+      admission: { ...INTERRUPTED_IMPLEMENTATION_ADMISSION, reason: 'implementation-admission-refused' },
+      diagnostics: [],
+    })
+    const predecessor = { scope: SCOPE, recordId: world.mandate.recordId, kind: 'mandate' as const }
+    const abandoned = buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'abandon-admitted-negative',
+      runId: 'run-1',
+      operationId: 'op-abandon-admitted-negative',
+      kind: 'operator-control',
+      payload: { control: 'abandon', controlId: 'abandon-admitted-negative', mandate: predecessor, predecessor: null },
+    })
+    const successor = buildRecord({
+      ...world.mandate,
+      recordId: 'admitted-new-mandate',
+      runId: 'run-2',
+      operationId: 'op-admitted-new-mandate',
+      payload: { ...world.mandate.payload, antecedent: predecessor },
+    })
+    if (!abandoned.ok || !successor.ok || successor.value.kind !== 'mandate') throw new Error('Invalid successor')
+    const current = successor.value
+    const currentRef = { scope: SCOPE, recordId: current.recordId, kind: 'mandate' as const }
+    const selected = buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'select-admitted-mandate',
+      runId: 'run-2',
+      operationId: 'op-select-admitted-mandate',
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-admitted-mandate',
+        mandate: currentRef,
+        predecessor,
+        successor: currentRef,
+      },
+    })
+    if (!selected.ok) throw new Error('Invalid successor selection')
+    const issue = world.issue([world.start, negative, abandoned.value, current, selected.value])
+    const observation = await observe(issue)
+    if (observation.status !== 'complete') throw new Error('Expected a complete native observation')
+    const causal = { histories: observation.histories, catalogues: observation.catalogues, observation }
+    const evidence = { issue, pullRequest: null, parents: [], causal }
+    const next = implementationCompletion(evidence, current)
+    expect(next.status).toBe('uncertain')
+    expect(next.evidence.map((entry) => entry.code)).toContain('action-uncertain')
+    expect(next.status).not.toBe('not-started')
+  })
+
   it('keeps a completed invalid plan output uncertain rather than interrupted', async () => {
     const world = planWorld()
     const invalid = withPayload(world.result, {

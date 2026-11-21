@@ -14524,8 +14524,14 @@ function observeAssessmentContextReplay(history, replayStart, mandate, excluded)
   const result = contextTerminal(history, "assess-spec", mandate, undefined, replayStart, excluded);
   return result === "clear" ? "observed" : result;
 }
+function otherMandateNegativeUnpaired(history, actionReceipts, scoped) {
+  return actionReceipts.some((record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record, actionReceipts));
+}
 function contextTerminal(history, action, mandate, contextLeaf, replayStart, excluded) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) && !excludedReceipt(record, excluded));
+  const actionReceipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && !excludedReceipt(record, excluded));
+  const receipts = actionReceipts.filter((record) => canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate));
+  if (otherMandateNegativeUnpaired(history, actionReceipts, receipts))
+    return "uncertain";
   if (replayStart !== undefined && (action !== "assess-spec" || replayStart.payload.action !== "assess-spec" || replayStart.payload.phase !== "start" || !receipts.includes(replayStart)))
     return "uncertain";
   const negatives = receipts.filter(workflowContextNegative);

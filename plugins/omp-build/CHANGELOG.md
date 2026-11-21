@@ -2,7 +2,7 @@
 
 ## 0.21.3 (unreleased)
 
-- Scope authenticated `missing-context` action holds to the mandate that produced them. After explicit abandonment and `/feature new`, an old mandate's negative no longer blocks planning, plan review, implementation, Spec assessment or CI attribution; a current-mandate negative still blocks as before. Interruption, orphan and lineage rules are unchanged.
+- Scope authenticated `missing-context` action holds to the mandate that produced them. After explicit abandonment and `/feature new`, an old mandate's negative no longer blocks planning, plan review, implementation, Spec assessment or CI attribution; a current-mandate negative still blocks as before. Interruption, orphan and lineage rules are unchanged. Another mandate's negative must still be an authenticated pair, otherwise the action stays uncertain; a Spec-assessment negative still prevents pause/abandon of its own mandate, because those controls resolve that mandate's accepted Spec.
 - Recognize 0.21.3 under the bounded PR-binding policy while preserving earlier supported versions. This source change does not migrate mandates, activate tooling or authorize recovery.
 
 ## 0.21.2 (unreleased)

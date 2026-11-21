@@ -155,6 +155,74 @@ describe('workflow completion decisions', () => {
     expect(next.evidence.map((entry) => entry.code)).not.toContain('action-context-missing')
   })
 
+  it('keeps a cross-mandate plan negative uncertain when its pair is not authenticated', async () => {
+    const mandate = nativeDecisionMandate(featureMandate(SCOPE, { body: BODY }))
+    const missing = {
+      outcome: 'missing-context',
+      missing: [
+        { locator: { kind: 'information-request', description: 'Deployment region' }, reason: 'Required', targets: [] },
+      ],
+    }
+    const predecessor = { scope: SCOPE, recordId: mandate.recordId, kind: 'mandate' as const }
+    const abandonedControl = buildRecord({
+      version: 1,
+      repository: mandate.repository,
+      target: mandate.target,
+      recordId: 'abandon-cross-mandate',
+      runId: mandate.runId,
+      operationId: 'op-abandon-cross-mandate',
+      kind: 'operator-control',
+      payload: {
+        control: 'abandon',
+        controlId: 'abandon-cross-mandate',
+        predecessor: null,
+        mandate: predecessor,
+      },
+    })
+    const successor = buildRecord({
+      ...mandate,
+      recordId: 'cross-next-mandate',
+      runId: 'run-cross-next-mandate',
+      operationId: 'op-cross-next-mandate',
+      payload: { ...mandate.payload, antecedent: predecessor },
+    })
+    if (!abandonedControl.ok || !successor.ok || successor.value.kind !== 'mandate')
+      throw new Error('Expected a canonical abandonment and successor')
+    const nextMandate = successor.value
+    const nextRef = { scope: SCOPE, recordId: nextMandate.recordId, kind: 'mandate' as const }
+    const selected = buildRecord({
+      version: 1,
+      repository: mandate.repository,
+      target: mandate.target,
+      recordId: 'select-cross-next-mandate',
+      runId: nextMandate.runId,
+      operationId: 'op-select-cross-next-mandate',
+      kind: 'operator-control',
+      payload: {
+        control: 'select-successor',
+        controlId: 'select-cross-next-mandate',
+        mandate: nextRef,
+        predecessor,
+        successor: nextRef,
+      },
+    })
+    if (!selected.ok) throw new Error('Expected a canonical successor selection')
+    const lineage = [mandate, abandonedControl.value, nextMandate, selected.value]
+    const prior = planDraftRecords(mandate)
+    const currentStart = receiptOf(
+      authenticatedPlanFixtures(nextMandate, [historyFrom(lineage)]).workflow.planDraftRecords(nextMandate)[0],
+    )
+    const mismatched = withPayload(receiptOf(prior[1]), {
+      structured: missing,
+      start: { scope: SCOPE, kind: 'action-receipt', recordId: currentStart.recordId },
+    })
+    const issue = historyFrom([...lineage, currentStart, mismatched])
+    const next = planMacro(await rootEvidence(issue), nextMandate)
+    expect(next.phase).toBe('uncertain')
+    expect(next.evidence.map((entry) => entry.code)).toContain('action-uncertain')
+    expect(next.phase).not.toBe('needs-draft')
+  })
+
   it('does not treat a bound draft as complete before its review', async () => {
     const mandate = nativeDecisionMandate(featureMandate(SCOPE, { body: BODY }))
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')

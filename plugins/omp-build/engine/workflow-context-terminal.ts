@@ -124,6 +124,17 @@ export function observeAssessmentContextReplay(
   return result === 'clear' ? 'observed' : result
 }
 
+/** Another mandate's negative no longer blocks, but it must still be an authenticated pair. */
+function otherMandateNegativeUnpaired(
+  history: DecodedHistory,
+  actionReceipts: readonly ReceiptRecord[],
+  scoped: readonly ReceiptRecord[],
+): boolean {
+  return actionReceipts.some(
+    (record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record, actionReceipts),
+  )
+}
+
 function contextTerminal(
   history: DecodedHistory,
   action: string,
@@ -132,13 +143,14 @@ function contextTerminal(
   replayStart?: ReceiptRecord,
   excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
-  const receipts = recordsOf(history).filter(
+  const actionReceipts = recordsOf(history).filter(
     (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' &&
-      record.payload.action === action &&
-      canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) &&
-      !excludedReceipt(record, excluded),
+      record.kind === 'action-receipt' && record.payload.action === action && !excludedReceipt(record, excluded),
   )
+  const receipts = actionReceipts.filter(
+    (record) => canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate),
+  )
+  if (otherMandateNegativeUnpaired(history, actionReceipts, receipts)) return 'uncertain'
   if (
     replayStart !== undefined &&
     (action !== 'assess-spec' ||
