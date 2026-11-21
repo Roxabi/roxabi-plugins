@@ -1110,9 +1110,9 @@ The executable GitHub simulator, the goal-only direct driver/workflow entries, a
 
 Commit and comparison metadata is batched from real Git within each request, retaining exact SHAs, trees, all parents and page order. Range observations and simulator transactions remain fresh; no metadata cache spans requests.
 
-Integration fixtures use a lightweight `gh` client to send commands to a dedicated simulator server per test file; the server is compiled with automatic loading of ambient Bun configuration and `.env` files disabled, and fixtures pass their environment explicitly. The server path is Linux `/proc`-based. A standalone executable serves comment-barrier calls, calls made while the state lock is held, and hosts without `/proc`; a nested `gh` call inside a server request fails fast.
+Integration fixtures use lightweight `gh`, pin, and fix-recovery fault clients to send commands to a dedicated simulator server per test file; the server is compiled with automatic loading of ambient Bun configuration and `.env` files disabled, and fixtures pass their environment explicitly. The server path is Linux `/proc`-based. The `gh` client uses a standalone executable for comment-barrier calls, calls made while the state lock is held, and hosts without `/proc`; a nested `gh` call inside a server request fails fast.
 
-The fix-recovery fault fixture uses the same per-file server through its fault client. The release-gate wait stays client-side, and its standalone fallback is a TypeScript script.
+The pin client uses its compiled standalone executable when `/proc` is unavailable or a gate or synchronization call must wait. The fault client's release-gate wait stays client-side, and its standalone fallback is a TypeScript script.
 
 ### Quality contract
 

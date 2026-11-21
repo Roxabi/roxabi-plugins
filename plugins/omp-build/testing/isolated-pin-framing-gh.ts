@@ -52,7 +52,7 @@ if (create || patch || labels) {
   }
   process.exit(0)
 }
-const pinGh = process.env.OMP_TEST_PIN_GH_PATH
+const pinGh = process.env.OMP_TEST_PIN_GH_CLIENT_PATH ?? process.env.OMP_TEST_PIN_GH_PATH
 if (!pinGh) throw new Error('fixture-pin-gh-missing')
 const delegated = spawnSync(pinGh, args, {
   stdio: 'inherit',

@@ -9,7 +9,7 @@ it('lets an operator activate the target proposal and frame with the installed c
   try {
     const simulator = process.env.OMP_TEST_GH_SIMULATOR_PATH
     if (!simulator) throw new Error('fixture-gh-simulator-missing')
-    const pinGh = process.env.OMP_TEST_PIN_GH_PATH
+    const pinGh = process.env.OMP_TEST_PIN_GH_CLIENT_PATH ?? process.env.OMP_TEST_PIN_GH_PATH
     if (!pinGh) throw new Error('fixture-pin-gh-missing')
     // The canonical simulator materializes a real tooling repository containing the installed bytes.
     execFileSync(simulator, ['variable', 'get', 'OMP_BUILD_TOOLING_SHA', '--repo', 'Roxabi/roxabi-plugins'], {
