@@ -77,11 +77,13 @@ changed=$(
 mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*#\1#p' | sort -u)
 fail=0
 
-# Classify the row for plugin NAME in catalogue PATH at REV: ABSENT (no blob), LINK
-# (the catalogue or its directory is a symlink), PARSE, DUPLICATE, NO_ROW, MISSING
-# (row without version), BAD, or VERSION:<v>. MODE=omp matches the row by name and
-# requires a semver (the OMP cache key). MODE=claude matches the row whose local
-# source is plugins/NAME, as Claude Code resolves it, and takes a free string.
+# Classify the row named NAME in catalogue PATH at REV: ABSENT (no blob), LINK (the
+# catalogue or its directory is a symlink), PARSE, DUPLICATE, NO_ROW, MISSING (row
+# without version), BAD, or VERSION:<v>. Rows match by name in both catalogues:
+# tools/validate_plugins.py requires a local Claude row to be named after its
+# ./plugins/<name> source, so the name is the plugin directory. MODE=omp requires a
+# semver (the OMP cache key). MODE=claude takes a free string, and an explicit null
+# is BAD there because Claude Code refuses to install that row.
 # Stream the bytes into the classifier: capturing them in a shell variable strips
 # NUL before Bun.JSON.parse.
 catalog_row_status() {
@@ -116,25 +118,17 @@ if (doc === null || typeof doc !== "object" || Array.isArray(doc) || !Array.isAr
   emit("PARSE")
 }
 const want = name.toLowerCase()
-const local = (text) => text.replace(/^(\.\/)+/, "").replace(/\/+$/, "")
-const root = typeof doc.metadata?.pluginRoot === "string" ? local(doc.metadata.pluginRoot) : ""
-const isPlugin = (source) => {
-  if (typeof source !== "string") return false
-  if (local(source) === "plugins/" + name) return true
-  // Claude Code resolves a bare name under metadata.pluginRoot.
-  return root !== "" && !source.includes("/") && !source.startsWith(".") && root + "/" + source === "plugins/" + name
-}
 const rows = doc.plugins.filter(
   (row) =>
     row &&
     typeof row === "object" &&
     !Array.isArray(row) &&
-    (claude ? isPlugin(row.source) : String(row.name ?? "").toLowerCase() === want),
+    String(row.name ?? "").toLowerCase() === want,
 )
 if (rows.length > 1) emit("DUPLICATE")
 if (rows.length === 0) emit("NO_ROW")
 const version = rows[0].version
-if (version === undefined || version === null) emit("MISSING")
+if (version === undefined || (version === null && !claude)) emit("MISSING")
 if (typeof version !== "string" || version.length === 0 || /[\r\n]/.test(version)) emit("BAD")
 const semver =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
@@ -251,7 +245,7 @@ catalogue_link_fail() {
 claude_catalog_fail() {
   case "$3" in
     LINK) catalogue_link_fail "$1" "$2" ;;
-    DUPLICATE) echo "$1: duplicate plugins[] rows for plugins/$1 in $2" ;;
+    DUPLICATE) echo "$1: duplicate plugins[] rows named $1 in $2" ;;
     BAD) echo "$1: Claude catalogue version is not a non-empty single-line string in $2" ;;
     *) echo "$1: cannot parse $2" ;;
   esac

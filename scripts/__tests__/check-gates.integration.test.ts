@@ -516,10 +516,11 @@ describe('check-skill-version.sh', () => {
       expect(stdout).toMatch(/duplicate/i)
     })
 
-    // Claude versions are free strings, so a non-semver bump passes; a version that is
-    // not a non-empty single-line string cannot name a cache directory and fails closed.
+    // Claude versions are free strings, so a non-semver bump passes. A version that is
+    // not a non-empty single-line string fails closed; Claude Code refuses an explicit null.
     it.each([
       ['a number', 2, 1],
+      ['an explicit null', null, 1],
       ['an empty string', '', 1],
       ['a multi-line string', '1.1.0\n', 1],
       ['a non-semver string', 'build-42', 0],
@@ -535,30 +536,6 @@ describe('check-skill-version.sh', () => {
       if (expected === 1) expect(stdout).toContain('not a non-empty single-line string')
     })
 
-    // Claude Code finds the entry through its source, and the install name may differ.
-    it.each([
-      [
-        'a different install name',
-        { plugins: [{ name: 'published', source: './plugins/claude-only', version: '1.0.0' }] },
-      ],
-      ['a trailing slash', { plugins: [{ name: 'claude-only', source: './plugins/claude-only/', version: '1.0.0' }] }],
-      [
-        'a bare name under pluginRoot',
-        {
-          metadata: { pluginRoot: './plugins' },
-          plugins: [{ name: 'published', source: 'claude-only', version: '1.0.0' }],
-        },
-      ],
-    ])('finds the Claude row through its source with %s', (_case, doc) => {
-      const work = fixture()
-      writeClaudeCatalogue(work, JSON.stringify(doc))
-      pushAsMain(work, 'reshape Claude row')
-      commitSkillChange(work, 'claude-only', '# changed\n')
-      const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
-      expect(code).toBe(1)
-      expect(stdout).toContain('(still 1.0.0) — bump .claude-plugin/marketplace.json')
-    })
-
     it('rejects duplicate Claude rows even when plugin.json supplies the bumped version', () => {
       const work = fixture('2.0.0')
       fs.writeFileSync(
@@ -570,14 +547,14 @@ describe('check-skill-version.sh', () => {
         JSON.stringify({
           plugins: [
             { name: 'claude-only', source: './plugins/claude-only', version: '1.0.0' },
-            { name: 'claude-copy', source: './plugins/claude-only', version: '1.1.0' },
+            { name: 'claude-only', source: './plugins/claude-copy', version: '1.1.0' },
           ],
         }),
       )
       commitSkillChange(work, 'claude-only', '# changed\n')
       const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
       expect(code).toBe(1)
-      expect(stdout).toContain('duplicate plugins[] rows for plugins/claude-only in .claude-plugin/marketplace.json')
+      expect(stdout).toContain('duplicate plugins[] rows named claude-only in .claude-plugin/marketplace.json')
     })
 
     // A catalogue reached through a symlink is not in the tree under its own path, so

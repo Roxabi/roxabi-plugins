@@ -608,8 +608,16 @@ def check_omp_catalog(catalog_path=None, repo_root=None) -> list[str]:
     return errors
 
 
-def check_claude_catalog_versions(catalog_path=None, repo_root=None) -> list[str]:
-    """Compare declared Claude row versions with existing local plugin packages."""
+def check_claude_catalog_rows(catalog_path=None, repo_root=None) -> list[str]:
+    """Claude rows: unique names, canonical local sources, versions equal to package.json.
+
+    scripts/check-skill-version.sh finds a plugin's Claude row by name, as it does
+    the OMP row. That is sound only while a local row is named after its directory,
+    so a local source must be exactly ./plugins/<name>; Claude Code itself resolves
+    the entry through its source. A row version must be a non-empty string (Claude
+    Code refuses an explicit null) equal to the plugin's package.json version: with
+    no version in plugin.json, Claude Code keys its plugin cache on it.
+    """
     catalog_path = Path(catalog_path) if catalog_path is not None else MARKETPLACE_JSON
     repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
     if not catalog_path.is_file():
@@ -622,38 +630,50 @@ def check_claude_catalog_versions(catalog_path=None, repo_root=None) -> list[str
     if not isinstance(plugins, list):
         return ['failed to parse Claude marketplace.json: plugins is not a list']
 
-    metadata = data.get('metadata') if isinstance(data.get('metadata'), dict) else None
-    plugin_root = metadata.get('pluginRoot') if metadata else None
     errors = []
-    for row in plugins:
-        if not isinstance(row, dict) or 'version' not in row:
+    seen: set[str] = set()
+    for index, row in enumerate(plugins):
+        if not isinstance(row, dict):
+            errors.append(f'Claude catalog plugins[{index}]: entry must be an object')
             continue
-        name = row.get('name') or '<unnamed>'
-        # Same spellings Claude Code accepts (./plugins/x, ./plugins/x/, a bare name under
-        # metadata.pluginRoot); the helper also yields pluginRoot itself, not a plugin.
-        for path_text in catalog_row_local_paths(row, metadata):
-            if path_text == plugin_root or '://' in path_text:
-                continue
-            relative = Path(os.path.normpath(_strip_dot_slash(path_text.strip())))
-            if not relative.parts or relative.parts[0] == '..' or relative.is_absolute():
-                continue
-            package_json = repo_root / relative / 'package.json'
-            if not package_json.is_file():
-                continue
-            display = f'{relative.as_posix()}/package.json'
-            try:
-                package = json.loads(package_json.read_text(encoding='utf-8'))
-            except (OSError, json.JSONDecodeError) as e:
-                errors.append(f'{name}: failed to parse {display}: {e}')
-                break
-            package_version = package.get('version') if isinstance(package, dict) else None
-            if row['version'] != package_version:
-                errors.append(
-                    f'{name}: Claude catalog version {row["version"]!r} does not match '
-                    f'{display} version {package_version!r} — with no version in plugin.json, '
-                    f'Claude Code keys its plugin cache on the catalog version'
-                )
-            break
+        name = row.get('name')
+        if not isinstance(name, str) or not name:
+            errors.append(f'Claude catalog plugins[{index}]: name must be a non-empty string')
+            continue
+        if name.lower() in seen:
+            errors.append(f'{name}: duplicate name in Claude catalog')
+            continue
+        seen.add(name.lower())
+        source = row.get('source')
+        if not isinstance(source, str):
+            continue  # remote source object: not a package in this repository
+        if source != f'./plugins/{name}':
+            errors.append(
+                f'{name}: Claude catalog source {source!r} must be ./plugins/{name} — '
+                f'the version gate finds the row by name'
+            )
+            continue
+        if 'version' not in row:
+            continue
+        version = row['version']
+        if not isinstance(version, str) or not version or '\n' in version or '\r' in version:
+            errors.append(f'{name}: Claude catalog version {version!r} must be a non-empty single-line string')
+            continue
+        package_json = repo_root / 'plugins' / name / 'package.json'
+        if not package_json.is_file():
+            continue
+        try:
+            package = json.loads(package_json.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as e:
+            errors.append(f'{name}: failed to parse plugins/{name}/package.json: {e}')
+            continue
+        package_version = package.get('version') if isinstance(package, dict) else None
+        if version != package_version:
+            errors.append(
+                f'{name}: Claude catalog version {version!r} does not match '
+                f'plugins/{name}/package.json version {package_version!r} — with no version in '
+                f'plugin.json, Claude Code keys its plugin cache on the catalog version'
+            )
     return errors
 
 
@@ -707,7 +727,7 @@ def main(argv: list[str] | None = None) -> int:
         ('Curated marketplace projection', check_curated_marketplace_projection),
         ('Marketplace README catalog', check_marketplace_readme_catalog),
         ('OMP catalog versions', check_omp_catalog),
-        ('Claude catalog versions', check_claude_catalog_versions),
+        ('Claude catalog rows', check_claude_catalog_rows),
         ('Claude catalog archived sources', check_claude_catalog_archived_sources),
     ]
 

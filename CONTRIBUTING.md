@@ -56,7 +56,9 @@ docs(plugins): update voice-me README
   otherwise the version on the plugin's row in `.claude-plugin/marketplace.json`
   when it declares one; with neither, Claude Code tracks the commit SHA and an
   OMP-only plugin has no Claude version at all. For OMP, it is the plugin's row in
-  `.omp-plugin/marketplace.json`. `scripts/check-skill-version.sh` enforces the bump in the
+  `.omp-plugin/marketplace.json`. A local Claude row is named after its directory,
+  with source `./plugins/<p>`, because the gate finds the row by name.
+  `scripts/check-skill-version.sh` enforces the bump in the
   pre-push hook (against `origin/main`) and in the required `ci` check (against the
   PR's base, so a version that another PR already landed fails too).
 - Merged with a **merge commit** — squash and rebase merges are disabled at the
