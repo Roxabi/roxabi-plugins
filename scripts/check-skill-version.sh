@@ -13,8 +13,9 @@ set -euo pipefail
 # Constraints (documented): plugin rename may not fire on the renaming push;
 # requires fetched origin/main, unless CHECK_SKILL_VERSION_BASE names the base.
 #
-# Plugin root README/GLOSSARY, docs/, and test/fixture paths intentionally do not
-# trigger a bump: they do not change a runtime effect, even if a host copies them.
+# Plugin root README, docs/, and test/fixture paths intentionally do not trigger a
+# bump: they do not change a runtime effect, even if a host copies them. GLOSSARY.md
+# is runtime: omp-build pins it as a review input (roxabi/uw-action-plugin-files.ts).
 is_distributed_runtime_path() {
   case "$1" in
     plugins/*/*) ;;
@@ -22,14 +23,15 @@ is_distributed_runtime_path() {
   esac
   local relative="${1#plugins/*/}" nested skill
   case "$relative" in
-    README.md | GLOSSARY.md) return 1 ;;
+    README.md) return 1 ;;
     # Each Markdown file under commands/ or agents/ is a component at any depth
     # (commands/docs/labels.md is /plugin:docs:labels), whatever its group or file is named.
     commands/*.md | agents/*.md) return 0 ;;
-    # Markdown is content a host loads, not test-runner input: agents/issue.spec.md and
-    # skills/x/api.test.md ship. The test/spec filename rule applies to code only.
-    *.md) ;;
-    *.test.* | *.spec.*) return 1 ;;
+  esac
+  # Test-runner files only, by basename: agents/issue.spec.md, templates/issue.spec.json
+  # and anything under an issue.spec.v2/ directory ship.
+  case "${relative##*/}" in
+    *.test.[jt]s | *.test.[jt]sx | *.test.[cm][jt]s | *.spec.[jt]s | *.spec.[jt]sx | *.spec.[cm][jt]s) return 1 ;;
   esac
   nested="$relative"
   # A skills/ directory that holds SKILL.md (at HEAD or the base) is a skill, and its
@@ -96,10 +98,12 @@ else
 fi
 # -z: otherwise git quotes a non-ASCII path ("plugins/p/r\303\251sum\303\251.md") and
 # the quoted string never matches plugins/<p>/, so the change would go unchecked.
+# --no-renames: a rename lists only its destination, so moving commands/x.md to docs/
+# would hide the retired command. Without rename detection both ends are listed.
 # A plain assignment keeps the pipeline status: a failed diff exits under set -e,
 # where mapfile over a process substitution would report success on no plugins.
 changed=$(
-  git diff --name-only -z "${diff_range[@]}" -- 'plugins/*' |
+  git diff --name-only -z --no-renames "${diff_range[@]}" -- 'plugins/*' |
     while IFS= read -r -d '' path; do
       if is_distributed_runtime_path "$path"; then
         path="${path#plugins/}"

@@ -50,7 +50,8 @@ docs(plugins): update voice-me README
 - One plugin or one logical change per PR
 - CI must be green before merge
 - A change to a plugin's distributed runtime (anything under `plugins/<p>/` except
-  its README, GLOSSARY, docs, tests and fixtures) bumps every version the plugin
+  its root README, docs, tests and fixtures; GLOSSARY.md ships, because omp-build pins
+  it as a review input) bumps every version the plugin
   carries, kept equal to its `package.json` version. For Claude Code, that is
   `.version` in `plugins/<p>/.claude-plugin/plugin.json` when it declares one,
   otherwise the version on the plugin's row in `.claude-plugin/marketplace.json`

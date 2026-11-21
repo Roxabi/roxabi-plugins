@@ -633,6 +633,10 @@ describe('check-skill-version.sh', () => {
       ['an agent whose file is named like a spec', '', 'agents/issue.spec.md', 1],
       ['a skill reference named like a test', '', 'skills/my-skill/api.test.md', 1],
       ['a unit test beside a skill', '', 'skills/my-skill/lib.test.ts', 0],
+      ['the plugin glossary', '', 'GLOSSARY.md', 1],
+      ['the plugin README', '', 'README.md', 0],
+      ['a template named like a spec', '', 'templates/issue.spec.json', 1],
+      ['a file under a spec-named directory', '', 'templates/issue.spec.v2/labels.json', 1],
     ])('treats %s as exit %i', (_case, existing, file, expected) => {
       const work = fixture()
       if (existing !== '') {
@@ -643,6 +647,19 @@ describe('check-skill-version.sh', () => {
       }
       commitPluginPathChange(work, 'claude-only', file, '# body\n')
       expect(runScriptCapture(CHECK_SKILL_VERSION, work).code).toBe(expected)
+    })
+
+    // A rename lists only its destination: retiring a command into docs/ must still count.
+    it('sees the source side of a rename', () => {
+      const work = fixture()
+      const command = path.join(work, 'plugins', 'claude-only', 'commands', 'labels.md')
+      fs.mkdirSync(path.dirname(command), { recursive: true })
+      fs.writeFileSync(command, '# labels command\n')
+      pushAsMain(work, 'command at base')
+      fs.mkdirSync(path.join(work, 'plugins', 'claude-only', 'docs'), { recursive: true })
+      git('git mv plugins/claude-only/commands/labels.md plugins/claude-only/docs/labels.md', work)
+      git('git -c user.email=t@t -c user.name=t commit -q -m retire', work)
+      expect(runScriptCapture(CHECK_SKILL_VERSION, work).code).toBe(1)
     })
 
     it('fails when the changed paths cannot be listed', () => {
