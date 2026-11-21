@@ -10,9 +10,8 @@ const LIB = path.resolve(import.meta.dirname, '..', 'lib.sh')
 
 /**
  * Git reads GIT_DIR / GIT_WORK_TREE from the environment and they beat `cwd`.
- * Under a git hook — lefthook runs this suite on pre-push — they point at
- * whatever repository invoked the hook, so a probe would answer about the wrong
- * one (#532).
+ * When the suite runs under a git hook they point at whatever repository
+ * invoked the hook, so a probe would answer about the wrong one (#532).
  */
 function envWithoutGit(): NodeJS.ProcessEnv {
   return {
