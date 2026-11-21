@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
@@ -7,6 +7,7 @@ import {
 } from '../omp/review-runtime/destination-admission-lease.ts'
 import { featureMandate, pullHistory } from './feature-ci-review-fixture.ts'
 import { seedReviewFixture } from './feature-review-fixture.ts'
+import { isRecoveryFaultGh } from './fix-recovery-gh-identity.ts'
 import { createRecoveryTestRoot } from './fix-recovery-real-root.ts'
 import { readSim } from './sandbox/sandbox-repository.ts'
 import type { Box } from './sandbox/sandbox-types.ts'
@@ -16,7 +17,7 @@ if (!mode || !cwd || !rootDir || !stateFile) throw new Error('cold-worker-argume
 const gh = Bun.which('gh')
 if (
   !gh ||
-  realpathSync(gh) !== realpathSync(join(import.meta.dirname, 'fix-recovery-gh-fault.ts')) ||
+  !isRecoveryFaultGh(gh) ||
   process.env.HOME !== rootDir ||
   process.env.GH_CONFIG_DIR !== join(rootDir, 'gh-config') ||
   process.env.GH_SIM_STATE !== stateFile ||
