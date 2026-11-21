@@ -17,7 +17,9 @@ const AI_MARKER = 'CLA' + 'UDE:'
 // ─── Clean env (isolate from outer git context) ───────────────────────────────
 
 const CLEAN_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && k !== 'CHECK_SKILL_VERSION_BASE'),
+  ),
   GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
   GIT_CONFIG_SYSTEM: '/dev/null',
 }
@@ -866,13 +868,35 @@ describe('check-skill-version.sh', () => {
       expect(stderr).not.toMatch(/origin\/main unreachable/)
     })
 
-    it('exits 1 when the base does not resolve to a commit', () => {
-      const work = setupFoo()
+    it('reads the Claude version from HEAD, not an uncommitted worktree bump', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'foo', version: '1.0.0' })
+      workDir = work
+      bareDir = bare
+      commitSkillChange(work, 'foo', '# skill v2 (no bump)\n')
+      fs.writeFileSync(
+        path.join(work, 'plugins', 'foo', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ version: '1.0.1' }),
+      )
 
-      const { code, stdout } = ci(work, 'no-such-base')
+      const { code, stdout } = ci(work, 'HEAD^1')
 
       expect(code).toBe(1)
-      expect(stdout).toContain('cannot resolve CHECK_SKILL_VERSION_BASE=no-such-base to a commit')
+      expect(stdout).toContain('foo: distributed runtime changed without version bump (still 1.0.0)')
+    })
+
+    it.each([
+      ['does not resolve to a commit', 'no-such-base'],
+      ['is set but empty', ''],
+    ])('exits 1 when the base %s', (_case, base) => {
+      const work = setupFoo()
+      commitSkillChange(work, 'foo', '# skill v2 (no bump)\n')
+      git('git remote remove origin', work)
+
+      const { code, stdout, stderr } = ci(work, base)
+
+      expect(code).toBe(1)
+      expect(stdout).toContain(`cannot resolve CHECK_SKILL_VERSION_BASE='${base}' to a commit`)
+      expect(stderr).not.toMatch(/SKIP/)
     })
   })
 })

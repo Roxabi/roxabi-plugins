@@ -31,18 +31,21 @@ is_distributed_runtime_path() {
 
 # Preflight: jq absence skips only the Claude plugin.json branch. The OMP
 # catalogue check always runs.
-# CHECK_SKILL_VERSION_BASE (CI): compare HEAD with that commit, with no fetch;
-# a base that does not resolve to a commit fails closed.
+# CHECK_SKILL_VERSION_BASE (CI): compare the HEAD commit with that commit, with
+# no fetch; an empty value or a base that does not resolve fails closed.
 # Otherwise (pre-push): compare with origin/main. A failed fetch with a local
 # origin/main is not a proven baseline, so the catalogue comparison is
 # unverified and exits 1. origin/main missing entirely stays a visible SKIP.
 export GIT_TERMINAL_PROMPT=0
 have_jq=0
 command -v jq >/dev/null 2>&1 && have_jq=1
-if [ -n "${CHECK_SKILL_VERSION_BASE:-}" ]; then
+explicit_base=0
+if [ -n "${CHECK_SKILL_VERSION_BASE+set}" ]; then
+  explicit_base=1
   base_label="$CHECK_SKILL_VERSION_BASE"
-  if ! base_rev=$(git rev-parse --verify --quiet "${CHECK_SKILL_VERSION_BASE}^{commit}"); then
-    echo "cannot resolve CHECK_SKILL_VERSION_BASE=$CHECK_SKILL_VERSION_BASE to a commit"
+  if [ -z "$CHECK_SKILL_VERSION_BASE" ] ||
+    ! base_rev=$(git rev-parse --verify --quiet "${CHECK_SKILL_VERSION_BASE}^{commit}"); then
+    echo "cannot resolve CHECK_SKILL_VERSION_BASE='$CHECK_SKILL_VERSION_BASE' to a commit"
     exit 1
   fi
   diff_range=("$base_rev" HEAD)
@@ -148,15 +151,25 @@ omp_fail() {
   fail=1
 }
 
+# Claude manifest of the candidate: the HEAD commit with an explicit base (CI),
+# the worktree file otherwise (pre-push).
+claude_manifest() {
+  if [ "$explicit_base" -eq 1 ]; then
+    git show "HEAD:$1" 2>/dev/null
+  else
+    cat "$1" 2>/dev/null
+  fi
+}
+
 for p in "${plugins[@]}"; do
   [ -n "$p" ] || continue
   pj="plugins/$p/.claude-plugin/plugin.json"
   if [ "$have_jq" -ne 1 ]; then
     echo "SKIP: $p Claude plugin.json check needs jq (not found) — OMP catalogue check still runs" >&2
-  elif [ ! -f "$pj" ]; then
+  elif ! claude_manifest "$pj" >/dev/null; then
     echo "SKIP: $p has no .claude-plugin/plugin.json — no version gate" >&2
   else
-    cur=$(jq -r '.version // empty' "$pj" 2>/dev/null || true)
+    cur=$(claude_manifest "$pj" | jq -r '.version // empty' 2>/dev/null || true)
     if [ -z "$cur" ]; then
       echo "SKIP: $p is SHA-based (no .version in $pj) — bump gate inert for this plugin" >&2
     else
