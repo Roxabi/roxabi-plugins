@@ -419,6 +419,15 @@ describe('native SDK adapter policy and authorization', () => {
     expect(sdk.run).toHaveBeenCalledWith(expect.objectContaining({ modelOverride: ['trusted/model'] }))
   })
 
+  it('dispatches the role route when a hook mutates the patterns it was given', async () => {
+    const f = await fixture()
+    f.hook.mockImplementation(async (event: { patterns: string[] }) => {
+      event.patterns.unshift('other/model')
+    })
+    expect((await executeNativeBatch(f.options)).errors).toEqual([])
+    expect(sdk.run).toHaveBeenCalledWith(expect.objectContaining({ modelOverride: ['trusted/model'] }))
+  })
+
   it('preserves partial outcomes and reports failed executor results', async () => {
     const f = await fixture()
     f.options.batch.tasks.tasks.push({ ...f.options.batch.tasks.tasks[0], name: 'two' })

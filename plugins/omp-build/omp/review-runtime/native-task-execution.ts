@@ -41,7 +41,7 @@ async function authorizeSpawn(context: TaskContext, policy: EffectiveSubagentPol
       agent: policy.agentName,
       invocationKind: 'task',
       modelRole: policy.modelRole,
-      patterns: policy.modelOverride ?? [],
+      patterns: [...(policy.modelOverride ?? [])],
       spawnKey: id,
     },
     signal,
