@@ -101,6 +101,13 @@ the other checks alongside the shards (its steps are sequential); the required
 `ci` job verifies that every listed file ran exactly once with at least one
 passing test. Local `bun run test` still runs both complete projects.
 
+The lefthook `pre-push` hook runs fast checks only: the unit project, `bun lint`,
+`bun typecheck`, the secret scan, the principal-branch freeze, the comment
+marker check and the plugin version gate. The integration project runs in the
+required `ci` check. The strict up-to-date rule means it passes on the exact
+head that merges. Run `bunx vitest run --project integration <file>` locally
+when a change touches what an integration file exercises.
+
 A shard selects its files through literal include globs, so integration test
 paths may contain only ASCII letters and digits, `.`, `_`, `/` and `-`. CI
 planning fails with an explicit error on any other character rather than risk
