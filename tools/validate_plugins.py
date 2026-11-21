@@ -644,6 +644,12 @@ def check_claude_catalog_rows(catalog_path=None, repo_root=None) -> list[str]:
             errors.append(f'{name}: duplicate name in Claude catalog')
             continue
         seen.add(name.lower())
+        version = row.get('version')
+        if 'version' in row and (
+            not isinstance(version, str) or not version or '\n' in version or '\r' in version
+        ):
+            errors.append(f'{name}: Claude catalog version {version!r} must be a non-empty single-line string')
+            continue
         source = row.get('source')
         if not isinstance(source, str):
             continue  # remote source object: not a package in this repository
@@ -653,14 +659,13 @@ def check_claude_catalog_rows(catalog_path=None, repo_root=None) -> list[str]:
                 f'the version gate finds the row by name'
             )
             continue
-        if 'version' not in row:
-            continue
-        version = row['version']
-        if not isinstance(version, str) or not version or '\n' in version or '\r' in version:
-            errors.append(f'{name}: Claude catalog version {version!r} must be a non-empty single-line string')
+        # A linked root would publish another directory's files under this name, and the
+        # version gate would only see changes to the link target.
+        if (repo_root / 'plugins' / name).is_symlink():
+            errors.append(f'{name}: plugins/{name} is a symlink — a Claude plugin root must be a directory')
             continue
         package_json = repo_root / 'plugins' / name / 'package.json'
-        if not package_json.is_file():
+        if 'version' not in row or not package_json.is_file():
             continue
         try:
             package = json.loads(package_json.read_text(encoding='utf-8'))

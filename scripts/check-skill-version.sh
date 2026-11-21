@@ -78,12 +78,13 @@ mapfile -t plugins < <(printf '%s\n' "$changed" | sed -nE 's#^plugins/([^/]+)/.*
 fail=0
 
 # Classify the row named NAME in catalogue PATH at REV: ABSENT (no blob), LINK (the
-# catalogue or its directory is a symlink), PARSE, DUPLICATE, NO_ROW, MISSING (row
-# without version), BAD, or VERSION:<v>. Rows match by name in both catalogues:
+# catalogue or its directory is a symlink), PARSE, DUPLICATE, NO_ROW, REMOTE, MISSING
+# (row without version), BAD, or VERSION:<v>. Rows match by name in both catalogues:
 # tools/validate_plugins.py requires a local Claude row to be named after its
 # ./plugins/<name> source, so the name is the plugin directory. MODE=omp requires a
-# semver (the OMP cache key). MODE=claude takes a free string, and an explicit null
-# is BAD there because Claude Code refuses to install that row.
+# semver (the OMP cache key). MODE=claude reports a row with a remote (object)
+# source as REMOTE, takes a free-string version, and treats an explicit null as BAD
+# because Claude Code refuses to install that row.
 # Stream the bytes into the classifier: capturing them in a shell variable strips
 # NUL before Bun.JSON.parse.
 catalog_row_status() {
@@ -127,6 +128,8 @@ const rows = doc.plugins.filter(
 )
 if (rows.length > 1) emit("DUPLICATE")
 if (rows.length === 0) emit("NO_ROW")
+// A remote row is not this directory: the local plugin has no Claude row of its own.
+if (claude && typeof rows[0].source !== "string") emit("REMOTE")
 const version = rows[0].version
 if (version === undefined || (version === null && !claude)) emit("MISSING")
 if (typeof version !== "string" || version.length === 0 || /[\r\n]/.test(version)) emit("BAD")
@@ -139,7 +142,7 @@ emit("VERSION:" + version)
     return 0
   fi
   case "$status" in
-    LINK | PARSE | DUPLICATE | MISSING | NO_ROW | BAD | VERSION:*) printf '%s' "$status" ;;
+    LINK | PARSE | DUPLICATE | MISSING | NO_ROW | REMOTE | BAD | VERSION:*) printf '%s' "$status" ;;
     *) printf 'PARSE' ;;
   esac
 }
@@ -278,9 +281,9 @@ for p in "${plugins[@]}"; do
       claude_file="$CLAUDE_CATALOG"
       case "$head_row" in
         VERSION:*) cur="${head_row#VERSION:}" ;;
-        ABSENT | NO_ROW | MISSING)
+        ABSENT | NO_ROW | REMOTE | MISSING)
           if [ "$cur_read" -eq 1 ] && [ "$head_row" != MISSING ]; then
-            echo "SKIP: $p has no Claude manifest or catalogue row — no Claude version gate" >&2
+            echo "SKIP: $p has no Claude manifest or local catalogue row — no Claude version gate" >&2
           else
             echo "SKIP: $p takes its Claude version from the commit SHA (no version in plugin.json or $CLAUDE_CATALOG) — Claude bump gate inert" >&2
           fi
@@ -300,6 +303,9 @@ for p in "${plugins[@]}"; do
           case "$base_row" in
             VERSION:*) base="${base_row#VERSION:}" ;;
             ABSENT | NO_ROW | MISSING) ;;
+            REMOTE)
+              echo "NOTE: $p was a remote Claude plugin at $base_label; its previous version is outside this repository — set one above it" >&2
+              ;;
             *) claude_catalog_fail "$p" "$base_label:$CLAUDE_CATALOG" "$base_row" ;;
           esac
         fi

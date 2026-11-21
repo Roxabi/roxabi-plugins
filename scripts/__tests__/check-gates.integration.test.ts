@@ -477,7 +477,7 @@ describe('check-skill-version.sh', () => {
       commitSkillChange(work, 'no-surface', '# changed\n')
       const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
       expect(code).toBe(0)
-      expect(stderr).toContain('SKIP: no-surface has no Claude manifest or catalogue row')
+      expect(stderr).toContain('SKIP: no-surface has no Claude manifest or local catalogue row')
     })
 
     it.each(['head', 'base'] as const)('rejects malformed Claude catalogue JSON on %s', (side) => {
@@ -555,6 +555,38 @@ describe('check-skill-version.sh', () => {
       const { code, stdout } = runScriptCapture(CHECK_SKILL_VERSION, work)
       expect(code).toBe(1)
       expect(stdout).toContain('duplicate plugins[] rows named claude-only in .claude-plugin/marketplace.json')
+    })
+
+    // A remote row with the same name is another install, not this directory's Claude row.
+    it('does not ask a local plugin to bump a remote Claude row that shares its name', () => {
+      const { work, bare } = setupOriginWithPlugin({ pluginName: 'claude-only', pluginJson: false })
+      workDir = work
+      bareDir = bare
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({
+          plugins: [{ name: 'claude-only', source: { source: 'github', repo: 'a/b' }, version: '1.0.0' }],
+        }),
+      )
+      pushAsMain(work, 'remote Claude row')
+      commitSkillChange(work, 'claude-only', '# changed\n')
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(0)
+      expect(stderr).toContain('SKIP: claude-only has no Claude manifest or local catalogue row')
+    })
+
+    it('discloses that a vendored plugin was remote at the base', () => {
+      const work = fixture()
+      writeClaudeCatalogue(
+        work,
+        JSON.stringify({ plugins: [{ name: 'claude-only', source: { source: 'github', repo: 'a/b' } }] }),
+      )
+      pushAsMain(work, 'remote at base')
+      writeClaudeCatalogue(work, claudeCatalogueBytes('claude-only', '1.0.0'))
+      commitSkillChange(work, 'claude-only', '# vendored\n')
+      const { code, stderr } = runScriptCapture(CHECK_SKILL_VERSION, work)
+      expect(code).toBe(0)
+      expect(stderr).toContain('NOTE: claude-only was a remote Claude plugin at origin/main')
     })
 
     // A catalogue reached through a symlink is not in the tree under its own path, so
@@ -1195,7 +1227,7 @@ describe('check-skill-version.sh', () => {
       const { code, stderr } = ci(work, 'HEAD^1')
 
       expect(code).toBe(0)
-      expect(stderr).toContain('SKIP: foo has no Claude manifest or catalogue row')
+      expect(stderr).toContain('SKIP: foo has no Claude manifest or local catalogue row')
     })
 
     // .claude-plugin itself is a link: once the directory resolves, plugin.json is an optional leaf.
@@ -1205,7 +1237,7 @@ describe('check-skill-version.sh', () => {
         'config',
         { 'config/README.md': '# config\n' },
         0,
-        'SKIP: foo has no Claude manifest or catalogue row',
+        'SKIP: foo has no Claude manifest or local catalogue row',
       ],
       ['with an unchanged plugin.json', 'config', { 'config/plugin.json': v('1.0.0') }, 1, '(still 1.0.0)'],
       ['to a missing directory', 'nowhere', {}, 1, unresolved],

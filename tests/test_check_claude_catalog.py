@@ -70,6 +70,19 @@ def test_remote_source_is_not_compared_with_a_local_package(tmp_path):
     assert _check(tmp_path, rows, {'example': {'version': '1.0.0'}}) == []
 
 
+def test_remote_row_version_is_still_validated(tmp_path):
+    rows = [{'name': 'example', 'source': {'source': 'github', 'repo': 'a/b'}, 'version': None}]
+    errors = _check(tmp_path, rows, {})
+    assert len(errors) == 1 and 'non-empty single-line string' in errors[0]
+
+
+def test_symlinked_plugin_root_is_rejected(tmp_path):
+    (tmp_path / 'plugins' / 'shared').mkdir(parents=True)
+    (tmp_path / 'plugins' / 'example').symlink_to('shared')
+    errors = _check(tmp_path, [_row(version='1.0.0')], {})
+    assert errors == ['example: plugins/example is a symlink — a Claude plugin root must be a directory']
+
+
 def test_unparsable_package_is_reported(tmp_path):
     errors = _check(tmp_path, [_row(version='1')], {'example': '{'})
     assert len(errors) == 1 and 'failed to parse plugins/example/package.json' in errors[0]
