@@ -33,12 +33,22 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-function listReply(args: string[], linkedResponse: string | Error): GhReply | null {
-  if (args[0] !== 'pr' || args[1] !== 'list') return null
-  if (args.includes('--search')) {
-    if (linkedResponse instanceof Error) throw linkedResponse
+function linkedReply(args: string[], linkedResponse: string | Error, hasNextPage: boolean): GhReply | null {
+  if (args[0] !== 'api' || args[1] !== 'graphql' || !args.some((arg) => arg.includes('query LinkedPullRequests(')))
+    return null
+  if (linkedResponse instanceof Error) throw linkedResponse
+  let nodes: unknown
+  try {
+    nodes = JSON.parse(linkedResponse)
+  } catch {
     return { output: linkedResponse }
   }
+  const linked = { pageInfo: { hasNextPage }, nodes }
+  return { output: JSON.stringify({ data: { repository: { issue: { closedByPullRequestsReferences: linked } } } }) }
+}
+
+function listReply(args: string[]): GhReply | null {
+  if (args[0] !== 'pr' || args[1] !== 'list') return null
   return args.includes('--head') ? { output: JSON.stringify([{ number: 9, state: 'OPEN' }]) } : null
 }
 
@@ -68,7 +78,7 @@ function gateReply(args: string[], gates: Map<number, Gate>): GhReply | null {
   return null
 }
 
-function ghForDiscovery(linkedResponse: string | Error, branch = 'feat/42'): GhFixture {
+function ghForDiscovery(linkedResponse: string | Error, branch = 'feat/42', hasNextPage = false): GhFixture {
   const gates = new Map<number, Gate>([
     [9, { reviewed: true, autoMerge: true }],
     [10, { reviewed: true, autoMerge: true }],
@@ -87,6 +97,8 @@ function ghForDiscovery(linkedResponse: string | Error, branch = 'feat/42'): GhF
     gates,
     comments: (pr) => saved(box.file).prs[String(pr)].comments.map((comment) => comment.body),
     async gh(_cwd, args) {
+      const listed = linkedReply(args, linkedResponse, hasNextPage) ?? listReply(args)
+      if (listed !== null) return listed.output
       if (args[0] === 'api' || (args[0] === 'repo' && args[1] === 'view')) {
         const response = run(box.file, args, box.root)
         if (response.status !== 0) throw new Error(response.stderr)
@@ -95,8 +107,6 @@ function ghForDiscovery(linkedResponse: string | Error, branch = 'feat/42'): GhF
       if (args[0] === 'pr' && args[1] === 'view' && args.includes('headRefName,baseRefName')) {
         return JSON.stringify({ headRefName: branch, baseRefName: 'main' })
       }
-      const listed = listReply(args, linkedResponse)
-      if (listed !== null) return listed.output
       const gated = gateReply(args, gates)
       if (gated !== null) return gated.output
       throw new Error(`unexpected gh call: ${args.join(' ')}`)
@@ -235,6 +245,14 @@ describe('Feature pause disarm discovery', () => {
 
     expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
     expect(result).toMatchObject({ clean: false, evidence: { note: expect.stringMatching(/pull-request-list/) } })
+  })
+
+  it('refuses complete disarm when linked PRs span more than one page', async () => {
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }]), 'feat/42', true)
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
+
+    expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
+    expect(result).toMatchObject({ clean: false, evidence: { note: 'pull-request-list-incomplete' } })
   })
 
   it.each([

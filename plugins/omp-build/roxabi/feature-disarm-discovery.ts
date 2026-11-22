@@ -43,6 +43,56 @@ export function parsePullRequestList(source: 'linked' | 'branch', raw: string): 
   }
 }
 
+// GitHub search has no per-issue `linked:` filter: `linked:issue:N` means "linked to any issue".
+const LINKED_PULL_REQUESTS = `query LinkedPullRequests($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      closedByPullRequestsReferences(first: 100, includeClosedPrs: true) { pageInfo { hasNextPage } nodes { number state } }
+    }
+  }
+}`
+
+function linkedNodes(raw: string): string {
+  const response: unknown = JSON.parse(raw)
+  const data = isRecord(response) && isRecord(response.data) ? response.data : null
+  const repository = data !== null && isRecord(data.repository) ? data.repository : null
+  const issue = repository !== null && isRecord(repository.issue) ? repository.issue : null
+  const linked = issue?.closedByPullRequestsReferences
+  if (!isRecord(linked) || !isRecord(linked.pageInfo) || linked.pageInfo.hasNextPage !== false)
+    throw new Error('linked-pull-requests-incomplete')
+  return JSON.stringify(linked.nodes)
+}
+
+export async function linkedPullRequests(
+  gh: Gh,
+  cwd: string,
+  repository: string,
+  issue: number,
+): Promise<PullRequestList> {
+  const [owner = '', name = ''] = repository.split('/')
+  try {
+    const raw = await gh(cwd, [
+      'api',
+      'graphql',
+      '-f',
+      `query=${LINKED_PULL_REQUESTS}`,
+      '-f',
+      `owner=${owner}`,
+      '-f',
+      `name=${name}`,
+      '-F',
+      `number=${issue}`,
+    ])
+    return parsePullRequestList('linked', linkedNodes(raw))
+  } catch (error) {
+    return {
+      numbers: [],
+      incomplete: true,
+      evidence: { source: 'linked', status: 'failed', error: error instanceof Error ? error.message : 'list-failed' },
+    }
+  }
+}
+
 function unmergedBranchPrNumber(pr: unknown): number | null | undefined {
   if (
     !isRecord(pr) ||

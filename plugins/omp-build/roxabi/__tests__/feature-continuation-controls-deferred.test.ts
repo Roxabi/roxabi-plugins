@@ -13,6 +13,14 @@ const diagnostic = {
   location: { kind: 'repository' as const, repository: scope.repository },
   related: [],
 }
+const noLinkedPullRequests = JSON.stringify({
+  data: { repository: { issue: { closedByPullRequestsReferences: { pageInfo: { hasNextPage: false }, nodes: [] } } } },
+})
+
+/** An empty PR discovery: no linked PR (GraphQL) and no branch PR (`pr list`). */
+async function noPullRequests(_cwd: string, args: string[]): Promise<string> {
+  return args[0] === 'api' ? noLinkedPullRequests : '[]'
+}
 
 function authority(gh: unknown): FeatureAuthority {
   return {
@@ -159,7 +167,7 @@ test('disarm presentation exposes documented reasons but not unrelated evidence 
 })
 
 test('still confirms abandonment after clean disarm discovery', async () => {
-  const gh = vi.fn(async () => '[]')
+  const gh = vi.fn(noPullRequests)
   const target = {
     status: 'issue',
     scope,
@@ -184,9 +192,9 @@ test.each([
   'keeps the local abandon hold only until a confirmed abandonment (%s)',
   async (_label, outcome, ghFails, held) => {
     inhibit(scope, 'abandon')
-    const gh = vi.fn(async () => {
+    const gh = vi.fn(async (cwd: string, args: string[]) => {
       if (ghFails) throw new Error('linked PR discovery unavailable')
-      return '[]'
+      return noPullRequests(cwd, args)
     })
     try {
       const target = {
