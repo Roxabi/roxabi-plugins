@@ -8,7 +8,7 @@ import { toDiagnostics } from './uw-diagnostics.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
-import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   excludedReceipt,
   type MandateRecord,
@@ -75,23 +75,19 @@ function macroBlocked(evidence: WorkflowEvidence, mandate: MandateRecord | null)
   return null
 }
 
-function hasRejectedResult(receipts: readonly ImplementationReceipt[], mandate: MandateRecord): boolean {
+/** Another mandate's rejection is ignored only as an authenticated START/RESULT pair; anything else stays blocking. */
+function hasRejectedResult(
+  receipts: readonly ImplementationReceipt[],
+  mandate: MandateRecord,
+  history: WorkflowEvidence['issue'],
+): boolean {
   const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
   return receipts.some(
     (record) =>
       record.payload.phase === 'result' &&
       isUnadmittedImplementation(record) &&
-      (sameRef(record.payload.mandate, mandateRef) || !pairsWithOwnStart(receipts, record)),
-  )
-}
-
-/** Another mandate's rejection is ignored only beside its own START; a stray RESULT stays blocking. */
-function pairsWithOwnStart(receipts: readonly ImplementationReceipt[], result: ImplementationReceipt): boolean {
-  return receipts.some(
-    (start) =>
-      start.payload.phase === 'start' &&
-      start.payload.actionId === result.payload.actionId &&
-      sameRef(start.payload.mandate, result.payload.mandate),
+      (sameRef(record.payload.mandate, mandateRef) ||
+        !authenticateWorkflowReceiptPair(history, record, { native: 'unchecked' }).ok),
   )
 }
 
@@ -163,7 +159,7 @@ function mandatedCompletion(
   if (!effective.ok) return { status: 'blocked', evidence: toDiagnostics(effective.diagnostics) }
   const blocked = macroBlocked(evidence, mandate)
   if (blocked !== null) {
-    if (blocked.status === 'not-started' && hasRejectedResult(receipts, mandate)) {
+    if (blocked.status === 'not-started' && hasRejectedResult(receipts, mandate, evidence.issue)) {
       return { status: 'blocked', evidence: [diagnostic('unconfirmed', 'implement result was not admitted')] }
     }
     return blocked

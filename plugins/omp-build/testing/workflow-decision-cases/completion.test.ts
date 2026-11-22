@@ -441,12 +441,20 @@ describe('workflow completion decisions', () => {
     expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
   })
 
-  it('keeps a successor blocked by a predecessor rejection paired with another mandate START', async () => {
+  it.each([
+    ['paired with another mandate START', 'crossed'],
+    ['whose sealed inputs differ from its START', 'resealed'],
+  ] as const)('keeps a successor blocked by a predecessor rejection %s', async (_label, variant) => {
     const mandate = nativeDecisionMandate(shippedMandate())
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
     const { nextMandate, records } = succession(mandate)
-    const crossed = [...records, implementStart(nextMandate), rejectedImplementResult(mandate)]
-    const evidence = await rootEvidence(historyFrom([...eligiblePlan(mandate, [historyFrom([mandate])]), ...crossed]))
+    const rejected = rejectedImplementResult(mandate)
+    const exactInputs = { ...(rejected.payload as { exactInputs: object }).exactInputs, planActionId: 'other-plan' }
+    const attempt =
+      variant === 'crossed'
+        ? [...records, implementStart(nextMandate), rejected]
+        : [implementStart(mandate), withPayload(rejected, { exactInputs }), ...records]
+    const evidence = await rootEvidence(historyFrom([...eligiblePlan(mandate, [historyFrom([mandate])]), ...attempt]))
     const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
   })

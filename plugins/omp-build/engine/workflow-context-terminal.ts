@@ -11,7 +11,8 @@ import { bindExternalRef, excludedReceipt, type ReceiptRecord, recordsOf } from 
 
 /**
  * Authenticate the unique START/RESULT pair of one invocation. `native: 'unchecked'` is reserved for the
- * interruption authority, which separately requires a typed interrupted RESULT; every other caller requires a
+ * interruption authority, which separately requires a typed interrupted RESULT, and for setting aside another
+ * mandate's rejected implementation, whose native output is never admitted; every other caller requires a
  * valid native result.
  */
 export function authenticateWorkflowReceiptPair(

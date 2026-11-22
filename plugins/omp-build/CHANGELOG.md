@@ -2,7 +2,7 @@
 
 ## 0.21.5 (unreleased)
 
-- Restart a UW cleanly after explicit abandonment and `/feature new`. A rejected implementation or integration result paired with its own START now blocks only the mandate that produced it, so the new mandate plans instead of stopping on `implement result was not admitted`. A confirmed abandonment with clean PR disarm releases the local `/feature abandon` hold, and `/feature new` releases the session's continuation hold, so `/feature new` in the same OMP session neither stops on `Abandon was inhibited locally but not confirmed` nor leaves its first START unlaunched with `continuation-inhibited`; deferred, refused, partial or disarm-failed abandonments keep the hold.
+- Restart a UW cleanly after explicit abandonment and `/feature new`. A rejected implementation or integration result that forms an authenticated START/RESULT pair now blocks only the mandate that produced it, so the new mandate plans instead of stopping on `implement result was not admitted`. A confirmed abandonment with clean PR disarm releases the local `/feature abandon` hold, and `/feature new` releases the session's continuation hold, so `/feature new` in the same OMP session neither stops on `Abandon was inhibited locally but not confirmed` nor leaves its first START unlaunched with `continuation-inhibited`; deferred, refused, partial or disarm-failed abandonments keep the hold.
 - Recognize 0.21.5 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.4 (unreleased)
