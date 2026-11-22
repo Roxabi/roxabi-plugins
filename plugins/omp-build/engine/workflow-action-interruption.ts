@@ -202,9 +202,10 @@ function mandateAttempt(mandate: MandateRecord): (receipt: ReceiptRecord) => boo
 }
 
 /**
- * Keep only `mandate`'s unresolved attempts, as the admission gate does: a predecessor's interrupted or orphan
- * START stays with that abandoned or superseded mandate instead of stopping its successor. Resolved STARTs stay
- * excluded whatever their mandate; an invalid classification is returned unchanged.
+ * Drop another mandate's interrupted attempts: their typed host stop proves no admitted
+ * effect, and resolution cannot target an abandoned or superseded mandate. Orphan STARTs of any mandate still stop
+ * it, since their child's effects are unknown. Resolved STARTs stay excluded; an invalid classification is returned
+ * unchanged.
  */
 export function ownAttempts(
   classified: Result<AttemptClassification>,
@@ -212,7 +213,7 @@ export function ownAttempts(
 ): Result<AttemptClassification> {
   if (!classified.ok || mandate === null) return classified
   const own = mandateAttempt(mandate)
-  const unresolved = classified.value.unresolved.filter((attempt) => own(attempt.start))
+  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === 'orphan' || own(attempt.start))
   return { ok: true, value: { excluded: classified.value.excluded, unresolved } }
 }
 

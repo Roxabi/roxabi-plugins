@@ -473,6 +473,17 @@ describe('workflow completion decisions', () => {
     },
   )
 
+  it('keeps a successor uncertain over a predecessor orphan plan START', async () => {
+    const mandate = nativeDecisionMandate(shippedMandate())
+    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
+    const { workflow, version } = authenticatedPlanFixtures(mandate, [historyFrom([mandate])])
+    const [start] = pairOf(workflow.planDraftRecords(mandate, 'act-plan-1', version))
+    const { nextMandate, records } = succession(mandate)
+    const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [start, ...records]))
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
+    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
+  })
+
   it.each([
     ['paired with another mandate START', 'crossed'],
     ['whose sealed inputs differ from its START', 'resealed'],

@@ -74,32 +74,15 @@ export function prepareReview(
   const excluded = gate.excluded
   const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf)
   if (problem !== null) return { macro: problem }
-  // A predecessor's START stays with its abandoned or superseded mandate, as in the interruption gate above.
-  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
-  const ownStart = (start: ReceiptRecord) =>
-    'scope' in start.payload.mandate && sameRef(start.payload.mandate, mandateRef)
-  const starts = receiptsFor(history, 'plan', 'start', excluded).filter(ownStart)
+  if (unsettledStart(history, 'plan', mandate, planResults(history, excluded), excluded))
+    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
+  if (unsettledStart(history, 'plan-review', mandate, planReviews(history, excluded), excluded))
+    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
   const results = planResults(history, excluded).filter(
     (record) =>
       planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) &&
       !(producerOutputValid('plan', record.payload.structured) && missingContextOf(record.payload.structured) !== null),
   )
-  if (
-    starts.some(
-      (start) => !planResults(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
-    )
-  ) {
-    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
-  }
-  if (
-    receiptsFor(history, 'plan-review', 'start', excluded)
-      .filter(ownStart)
-      .some(
-        (start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
-      )
-  ) {
-    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
-  }
   const drafts = uniqueAccounted(
     results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null),
     'current plan draft',
@@ -152,6 +135,26 @@ function receiptsFor(
       record.payload.phase === phase &&
       !excludedReceipt(record, excluded),
   )
+}
+
+/**
+ * A START of `mandate` without a valid RESULT leaves the plan uncertain. Another mandate's START is settled by any
+ * RESULT: an interrupted RESULT is not a valid native result, yet it stays with that abandoned or superseded mandate.
+ * An orphan START still leaves the successor uncertain.
+ */
+function unsettledStart(
+  history: DecodedHistory,
+  action: 'plan' | 'plan-review',
+  mandate: MandateRecord,
+  valid: readonly ReceiptRecord[],
+  excluded: ReadonlySet<string>,
+): boolean {
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+  const all = receiptsFor(history, action, 'result', excluded)
+  return receiptsFor(history, action, 'start', excluded).some((start) => {
+    const own = 'scope' in start.payload.mandate && sameRef(start.payload.mandate, mandateRef)
+    return !(own ? valid : all).some((result) => result.payload.actionId === start.payload.actionId)
+  })
 }
 
 function planMatchesMandate(

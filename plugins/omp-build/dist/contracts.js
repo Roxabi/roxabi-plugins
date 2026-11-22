@@ -15151,7 +15151,7 @@ function ownAttempts(classified, mandate) {
   if (!classified.ok || mandate === null)
     return classified;
   const own = mandateAttempt(mandate);
-  const unresolved = classified.value.unresolved.filter((attempt) => own(attempt.start));
+  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === "orphan" || own(attempt.start));
   return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
 }
 function resolvableStarts(histories, mandate) {
@@ -32001,16 +32001,11 @@ function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
   const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf);
   if (problem !== null)
     return { macro: problem };
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const ownStart = (start) => ("scope" in start.payload.mandate) && sameRef2(start.payload.mandate, mandateRef);
-  const starts = receiptsFor(history, "plan", "start", excluded).filter(ownStart);
-  const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
-  if (starts.some((start) => !planResults(history, excluded).some((result) => result.payload.actionId === start.payload.actionId))) {
+  if (unsettledStart(history, "plan", mandate, planResults(history, excluded), excluded))
     return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan start has no result")]) };
-  }
-  if (receiptsFor(history, "plan-review", "start", excluded).filter(ownStart).some((start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId))) {
+  if (unsettledStart(history, "plan-review", mandate, planReviews(history, excluded), excluded))
     return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan review start has no result")]) };
-  }
+  const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
   const drafts = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null), "current plan draft");
   if (!drafts.ok)
     return { macro: empty("blocked", drafts.diagnostics) };
@@ -32044,6 +32039,14 @@ function planReviews(history, excluded) {
 }
 function receiptsFor(history, action, phase, excluded) {
   return recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && record.payload.phase === phase && !excludedReceipt(record, excluded));
+}
+function unsettledStart(history, action, mandate, valid, excluded) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  const all = receiptsFor(history, action, "result", excluded);
+  return receiptsFor(history, action, "start", excluded).some((start) => {
+    const own = "scope" in start.payload.mandate && sameRef2(start.payload.mandate, mandateRef);
+    return !(own ? valid : all).some((result) => result.payload.actionId === start.payload.actionId);
+  });
 }
 function planMatchesMandate(record, mandate, own, effective, histories) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
