@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import type { FeatureAuthority } from '../feature-continuation-admission.ts'
 import { applyFeatureControl } from '../feature-continuation-controls.ts'
+import { inhibit, inhibition, releaseInhibition } from '../feature-control.ts'
 import { featureStopMessage } from '../feature-presentation.ts'
 import type { UwOperations } from '../uw-contract.ts'
 
@@ -172,3 +173,41 @@ test('still confirms abandonment after clean disarm discovery', async () => {
   expect(result).toEqual({ kind: 'abandoned', confirmed: true })
   expect(featureStopMessage(result)).toBe('feature-abandoned')
 })
+
+test.each([
+  ['confirmed', { status: 'abandoned', uw: scope }, false, undefined],
+  ['disarm-failed', { status: 'abandoned', uw: scope }, true, 'abandon'],
+  ['deferred', { status: 'deferred', diagnostics: [diagnostic] }, false, 'abandon'],
+  ['partial', { status: 'partial', uw: scope, diagnostics: [diagnostic] }, false, 'abandon'],
+  ['refused', { status: 'refused', diagnostics: [diagnostic] }, false, 'abandon'],
+] as const)(
+  'keeps the local abandon hold only until a confirmed abandonment (%s)',
+  async (_label, outcome, ghFails, held) => {
+    inhibit(scope, 'abandon')
+    const gh = vi.fn(async () => {
+      if (ghFails) throw new Error('linked PR discovery unavailable')
+      return '[]'
+    })
+    try {
+      const target = {
+        status: 'issue',
+        scope,
+        issue: {
+          repository: 'acme/app',
+          number: 42,
+          state: 'OPEN',
+          author: 'automation',
+          body: '',
+          isPullRequest: false,
+        },
+      } as const
+      const abandon = vi.fn(async () => outcome)
+      await applyFeatureControl('abandon', { ...authority(gh), target }, {
+        abandon,
+      } as unknown as UwOperations)
+      expect(inhibition(scope)).toBe(held)
+    } finally {
+      releaseInhibition(scope)
+    }
+  },
+)

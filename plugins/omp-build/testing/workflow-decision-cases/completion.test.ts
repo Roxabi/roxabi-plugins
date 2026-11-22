@@ -3,7 +3,7 @@ import { receiptOf, withPayload } from '../../engine/__tests__/workflow-interrup
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import { actionCompletion } from '../../engine/workflow-action-completion.ts'
-import { abandoned } from '../../engine/workflow-control.ts'
+import { abandoned, type MandateRecord } from '../../engine/workflow-control.ts'
 import { planMacro } from '../../engine/workflow-plan-macro.ts'
 import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
 import { observeFixtureNativeWorld } from '../action-input-fixtures.ts'
@@ -64,6 +64,55 @@ async function rootEvidence(issue: DecodedHistory) {
   return { issue, pullRequest: null, parents: [], causal }
 }
 
+/** Abandons `mandate` and selects a successor, as `/feature abandon` then `/feature new` publish them. */
+function succession(mandate: MandateRecord) {
+  const predecessor = { scope: SCOPE, recordId: mandate.recordId, kind: 'mandate' as const }
+  const abandonedControl = buildRecord({
+    version: 1,
+    repository: mandate.repository,
+    target: mandate.target,
+    recordId: 'abandon-old-mandate',
+    runId: mandate.runId,
+    operationId: 'op-abandon-old-mandate',
+    kind: 'operator-control',
+    payload: {
+      control: 'abandon',
+      controlId: 'abandon-old-mandate',
+      predecessor: null,
+      mandate: predecessor,
+    },
+  })
+  const successor = buildRecord({
+    ...mandate,
+    recordId: 'new-mandate',
+    runId: 'run-next-mandate',
+    operationId: 'op-new-mandate',
+    payload: { ...mandate.payload, antecedent: predecessor },
+  })
+  if (!abandonedControl.ok || !successor.ok || successor.value.kind !== 'mandate')
+    throw new Error('Expected a canonical abandonment and successor')
+  const nextMandate = successor.value
+  const nextRef = { scope: SCOPE, recordId: nextMandate.recordId, kind: 'mandate' as const }
+  const selected = buildRecord({
+    version: 1,
+    repository: mandate.repository,
+    target: mandate.target,
+    recordId: 'select-next-mandate',
+    runId: nextMandate.runId,
+    operationId: 'op-select-next-mandate',
+    kind: 'operator-control',
+    payload: {
+      control: 'select-successor',
+      controlId: 'select-next-mandate',
+      mandate: nextRef,
+      predecessor,
+      successor: nextRef,
+    },
+  })
+  if (!selected.ok) throw new Error('Expected a canonical successor selection')
+  return { nextMandate, records: [abandonedControl.value, nextMandate, selected.value] }
+}
+
 describe('workflow completion decisions', () => {
   it.each(['plan', 'plan-review'] as const)('holds a %s context negative only for its own mandate', async (action) => {
     const mandate = nativeDecisionMandate(featureMandate(SCOPE, { body: BODY }))
@@ -104,51 +153,8 @@ describe('workflow completion decisions', () => {
     const current = planMacro(currentEvidence, mandate)
     expect(current.phase).toBe('blocked')
     expect(current.evidence.map((entry) => entry.code)).toContain('action-context-missing')
-    const predecessor = { scope: SCOPE, recordId: mandate.recordId, kind: 'mandate' as const }
-    const abandonedControl = buildRecord({
-      version: 1,
-      repository: mandate.repository,
-      target: mandate.target,
-      recordId: 'abandon-old-mandate',
-      runId: mandate.runId,
-      operationId: 'op-abandon-old-mandate',
-      kind: 'operator-control',
-      payload: {
-        control: 'abandon',
-        controlId: 'abandon-old-mandate',
-        predecessor: null,
-        mandate: predecessor,
-      },
-    })
-    const successor = buildRecord({
-      ...mandate,
-      recordId: 'new-mandate',
-      runId: 'run-next-mandate',
-      operationId: 'op-new-mandate',
-      payload: { ...mandate.payload, antecedent: predecessor },
-    })
-    if (!abandonedControl.ok || !successor.ok || successor.value.kind !== 'mandate')
-      throw new Error('Expected a canonical abandonment and successor')
-    const nextMandate = successor.value
-    const nextRef = { scope: SCOPE, recordId: nextMandate.recordId, kind: 'mandate' as const }
-    const selected = buildRecord({
-      version: 1,
-      repository: mandate.repository,
-      target: mandate.target,
-      recordId: 'select-next-mandate',
-      runId: nextMandate.runId,
-      operationId: 'op-select-next-mandate',
-      kind: 'operator-control',
-      payload: {
-        control: 'select-successor',
-        controlId: 'select-next-mandate',
-        mandate: nextRef,
-        predecessor,
-        successor: nextRef,
-      },
-    })
-    if (!selected.ok) throw new Error('Expected a canonical successor selection')
-    const issue = historyFrom([mandate, ...records, abandonedControl.value, nextMandate, selected.value])
+    const { nextMandate, records: succeeded } = succession(mandate)
+    const issue = historyFrom([mandate, ...records, ...succeeded])
     expect(abandoned(issue, mandate)).toBe(true)
     const next = planMacro(await rootEvidence(issue), nextMandate)
     expect(next.phase).toBe('needs-draft')
@@ -418,5 +424,38 @@ describe('workflow completion decisions', () => {
     expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
     expect(rejectedDecision).not.toMatchObject({ status: 'action' })
     expect(actionCompletion('implement', rejected, decisions(), mandate).status).not.toBe('confirmed')
+  })
+
+  it('plans a successor mandate whose predecessor implementation was rejected', async () => {
+    const mandate = nativeDecisionMandate(shippedMandate())
+    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
+    const prior = [
+      ...eligiblePlan(mandate, [historyFrom([mandate])]),
+      implementStart(mandate),
+      rejectedImplementResult(mandate),
+    ]
+    const { nextMandate, records } = succession(mandate)
+    const evidence = await rootEvidence(historyFrom([...prior, ...records]))
+    expect(actionCompletion('implement', evidence, decisions(), mandate).status).toBe('blocked')
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
+    expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
+  })
+
+  it.each([
+    ['paired with another mandate START', 'crossed'],
+    ['whose sealed inputs differ from its START', 'resealed'],
+  ] as const)('keeps a successor blocked by a predecessor rejection %s', async (_label, variant) => {
+    const mandate = nativeDecisionMandate(shippedMandate())
+    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
+    const { nextMandate, records } = succession(mandate)
+    const rejected = rejectedImplementResult(mandate)
+    const exactInputs = { ...(rejected.payload as { exactInputs: object }).exactInputs, planActionId: 'other-plan' }
+    const attempt =
+      variant === 'crossed'
+        ? [...records, implementStart(nextMandate), rejected]
+        : [implementStart(mandate), withPayload(rejected, { exactInputs }), ...records]
+    const evidence = await rootEvidence(historyFrom([...eligiblePlan(mandate, [historyFrom([mandate])]), ...attempt]))
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
+    expect(decision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
   })
 })

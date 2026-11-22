@@ -186,6 +186,32 @@ describe('prepared epic final review delivery', () => {
     ])
   })
 
+  it('starts the successor action after abandon then new in the same session', async () => {
+    const fixture = resultHost(false)
+    const [handed] = handedWork('active')
+    if (handed?.kind !== 'action') throw new Error('action fixture is missing')
+    const action = { ...handed, start: { ...handed.start, recordId: 'successor-start' } }
+    let inhibited = false
+    const value: FeatureCommandHost = {
+      ...fixture.value,
+      workflow: workflow({
+        continueFeature: async (input) =>
+          input.control === 'abandon' ? { kind: 'abandoned', confirmed: true } : action,
+      }),
+      inhibitFeatureContinuation() {
+        inhibited = true
+      },
+      releaseFeatureContinuation() {
+        inhibited = false
+      },
+      featureContinuationInhibited: () => inhibited,
+    }
+    await runInstalledFeatureCommand('abandon #42', value)
+    await runInstalledFeatureCommand('new #42', value)
+    expect(fixture.sent).toEqual(['feature-abandoned'])
+    expect(fixture.starts).toEqual(['action'])
+  })
+
   it('does not continue when final epic publication fails', async () => {
     let continued = false
     const fixture = host(

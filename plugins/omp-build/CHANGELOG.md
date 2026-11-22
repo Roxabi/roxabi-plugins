@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.5 (unreleased)
+
+- Restart a UW cleanly after explicit abandonment and `/feature new`. A rejected implementation or integration result that forms an authenticated START/RESULT pair now blocks only the mandate that produced it, so the new mandate plans instead of stopping on `implement result was not admitted`. A confirmed abandonment with clean PR disarm releases the local `/feature abandon` hold, and `/feature new` releases the session's continuation hold, so `/feature new` in the same OMP session neither stops on `Abandon was inhibited locally but not confirmed` nor leaves its first START unlaunched with `continuation-inhibited`; deferred, refused, partial or disarm-failed abandonments keep the hold.
+- Recognize 0.21.5 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.4 (unreleased)
 
 - Keep OMP model fallback in native workflow children. The executed-child guard no longer cancels a child whose model differs from the role's model, so a provider failure falls back through the configured `retry.fallbackChains` instead of costing the action. The role still selects the model route; a spawn hook may restate it but no longer replace it, fallback entries included. Session, root, profile, tools, context, system prompt and yield checks are unchanged; with `externalThinking` enabled, a fallback that adds the `think` tool still stops the child.

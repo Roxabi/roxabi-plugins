@@ -11207,7 +11207,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 4)
+  if (minor === 21 && patch <= 5)
     return "bounded";
   return "unknown";
 }
@@ -32218,9 +32218,9 @@ function macroBlocked(evidence, mandate) {
     return { status: "not-started", evidence: [] };
   return null;
 }
-function hasRejectedResult(receipts, mandate) {
+function hasRejectedResult(receipts, mandate, history) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record) && (!workflowContextNegative(record) || sameRef2(record.payload.mandate, mandateRef)));
+  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record) && (sameRef2(record.payload.mandate, mandateRef) || !authenticateWorkflowReceiptPair(history, record, { native: "unchecked" }).ok));
 }
 function coveredImplementation(latestRecord, mandate, spec) {
   const latest = latestRecord.payload.action === "integrate" ? integrationOutputSchema.safeParse(latestRecord.payload.structured) : implementationOutputSchema.safeParse(latestRecord.payload.structured);
@@ -32270,7 +32270,7 @@ function mandatedCompletion(evidence, mandate, receipts) {
     return { status: "blocked", evidence: toDiagnostics(effective.diagnostics) };
   const blocked = macroBlocked(evidence, mandate);
   if (blocked !== null) {
-    if (blocked.status === "not-started" && hasRejectedResult(receipts, mandate)) {
+    if (blocked.status === "not-started" && hasRejectedResult(receipts, mandate, evidence.issue)) {
       return { status: "blocked", evidence: [diagnostic2("unconfirmed", "implement result was not admitted")] };
     }
     return blocked;
