@@ -134,8 +134,15 @@ export function toolSetValid(pi: NativeExtension, tools: readonly string[]): boo
   })
 }
 
+/** OMP delivers the child's own background job result as `async-result`; every other custom message stays foreign. */
+function ownJobResult(
+  message: ContextEvent['messages'][number],
+): message is Extract<ContextEvent['messages'][number], { role: 'custom' }> {
+  return message.role === 'custom' && message.customType === 'async-result'
+}
+
 function controlText(message: ContextEvent['messages'][number]): string | null {
-  if (message.role !== 'user' && message.role !== 'developer') return null
+  if (message.role !== 'user' && message.role !== 'developer' && !ownJobResult(message)) return null
   if (message.attribution !== 'agent') return null
   const content = message.content
   if (typeof content === 'string') return content
