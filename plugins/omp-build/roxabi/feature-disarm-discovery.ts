@@ -47,20 +47,29 @@ export function parsePullRequestList(source: 'linked' | 'branch', raw: string): 
 const LINKED_PULL_REQUESTS = `query LinkedPullRequests($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
-      closedByPullRequestsReferences(first: 100, includeClosedPrs: true) { pageInfo { hasNextPage } nodes { number state } }
+      closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
+        pageInfo { hasNextPage }
+        nodes { number state repository { nameWithOwner } }
+      }
     }
   }
 }`
 
-function linkedNodes(raw: string): string {
+/** This repository's closing PRs on the first page; a PR closing it from another repository is not ours to disarm. */
+function linkedPage(raw: string, repository: string): { nodes: unknown[]; more: boolean } {
   const response: unknown = JSON.parse(raw)
   const data = isRecord(response) && isRecord(response.data) ? response.data : null
-  const repository = data !== null && isRecord(data.repository) ? data.repository : null
-  const issue = repository !== null && isRecord(repository.issue) ? repository.issue : null
+  const home = data !== null && isRecord(data.repository) ? data.repository : null
+  const issue = home !== null && isRecord(home.issue) ? home.issue : null
   const linked = issue?.closedByPullRequestsReferences
-  if (!isRecord(linked) || !isRecord(linked.pageInfo) || linked.pageInfo.hasNextPage !== false)
-    throw new Error('linked-pull-requests-incomplete')
-  return JSON.stringify(linked.nodes)
+  if (!isRecord(linked) || !isRecord(linked.pageInfo) || !Array.isArray(linked.nodes))
+    throw new Error('linked-pull-requests-unreadable')
+  const nodes = linked.nodes.flatMap((node) => {
+    const owner = isRecord(node) && isRecord(node.repository) ? node.repository.nameWithOwner : undefined
+    if (typeof owner !== 'string') return [null]
+    return owner === repository ? [node] : []
+  })
+  return { nodes, more: linked.pageInfo.hasNextPage !== false }
 }
 
 export async function linkedPullRequests(
@@ -83,7 +92,10 @@ export async function linkedPullRequests(
       '-F',
       `number=${issue}`,
     ])
-    return parsePullRequestList('linked', linkedNodes(raw))
+    const page = linkedPage(raw, repository)
+    const list = parsePullRequestList('linked', JSON.stringify(page.nodes))
+    if (!page.more) return list
+    return { numbers: list.numbers, incomplete: true, evidence: { source: 'linked', status: 'truncated', list } }
   } catch (error) {
     return {
       numbers: [],

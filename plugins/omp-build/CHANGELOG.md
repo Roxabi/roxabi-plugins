@@ -2,8 +2,8 @@
 
 ## 0.21.6 (unreleased)
 
-- Run native batches on OMP CLI 19.1.0. That release renamed the mounted `xd://` tools to tool commands (`getMountedXdevToolNames` became `getMountedToolCommandNames`), so every native batch stopped before dispatch with `root.getMountedXdevToolNames is not a function`; the native task mask now reads either name.
-- Confirm `/feature abandon` disarm from the issue's own linked PRs. The discovery searched `linked:issue:N`, which GitHub reads as "linked to any issue", so every unmerged PR of the repository failed ownership and no abandonment confirmed a clean disarm; since 0.21.5 that kept the local abandon hold and stopped the following `/feature new`. Discovery now reads the issue's closing PR references, and a further page keeps the disarm unconfirmed.
+- Let native batches pass the task mask on OMP CLI 19.1.0. That release renamed the mounted `xd://` tools to tool commands (`getMountedXdevToolNames` became `getMountedToolCommandNames`), so every native batch stopped before dispatch with `root.getMountedXdevToolNames is not a function`; the native task mask now reads either name. This does not qualify the rest of a native batch on 19.1.0.
+- Confirm `/feature abandon` disarm from the issue's own linked PRs. The discovery searched `linked:issue:N`, which GitHub reads as "linked to any issue", so every unmerged PR of the repository failed ownership and no abandonment confirmed a clean disarm; since 0.21.5 that kept the local abandon hold and stopped the following `/feature new`. Discovery now reads the issue's closing PR references in this repository; PRs on a further page keep the disarm unconfirmed while those already listed are still disarmed.
 - Recognize 0.21.6 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.5 (unreleased)

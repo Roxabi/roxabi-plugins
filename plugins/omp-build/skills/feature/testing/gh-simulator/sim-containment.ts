@@ -5,7 +5,7 @@ type PullNode = (state: State, pr: Pull) => Record<string, unknown>
 function linkedPullsResponse(state: State, number: string | undefined): unknown {
   const nodes = Object.values(state.prs)
     .filter((pr) => pr.closes.includes(Number(number)))
-    .map((pr) => ({ number: pr.number, state: pr.state }))
+    .map((pr) => ({ number: pr.number, state: pr.state, repository: { nameWithOwner: fullName(state) } }))
   return {
     data: { repository: { issue: { closedByPullRequestsReferences: { pageInfo: { hasNextPage: false }, nodes } } } },
   }

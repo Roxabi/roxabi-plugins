@@ -43,7 +43,13 @@ function linkedReply(args: string[], linkedResponse: string | Error, hasNextPage
   } catch {
     return { output: linkedResponse }
   }
-  const linked = { pageInfo: { hasNextPage }, nodes }
+  const home = { nameWithOwner: 'acme/app' }
+  const owned = Array.isArray(nodes)
+    ? nodes.map((node) =>
+        node !== null && typeof node === 'object' && !('repository' in node) ? { ...node, repository: home } : node,
+      )
+    : nodes
+  const linked = { pageInfo: { hasNextPage }, nodes: owned }
   return { output: JSON.stringify({ data: { repository: { issue: { closedByPullRequestsReferences: linked } } } }) }
 }
 
@@ -247,12 +253,21 @@ describe('Feature pause disarm discovery', () => {
     expect(result).toMatchObject({ clean: false, evidence: { note: expect.stringMatching(/pull-request-list/) } })
   })
 
-  it('refuses complete disarm when linked PRs span more than one page', async () => {
+  it('disarms first-page linked PRs but stays unconfirmed when more pages exist', async () => {
     const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }]), 'feat/42', true)
-    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', null, featureAuthority())
 
     expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
     expect(result).toMatchObject({ clean: false, evidence: { note: 'pull-request-list-incomplete' } })
+  })
+
+  it('ignores a linked PR from another repository', async () => {
+    const foreign = { number: 4672, state: 'OPEN', repository: { nameWithOwner: 'other/app' } }
+    const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }, foreign]))
+    const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', null, featureAuthority())
+
+    expect(fixture.gates.get(9)).toEqual({ reviewed: false, autoMerge: false })
+    expect(result).toMatchObject({ clean: true })
   })
 
   it.each([
