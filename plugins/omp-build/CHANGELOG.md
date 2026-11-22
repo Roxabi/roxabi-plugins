@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.8 (unreleased)
+
+- Keep a native child running when its own background job finishes. OMP moves a long `bash` call to a background job and delivers its result to the child as an `async-result` message attributed to the agent. The executed-child guard admitted only user or developer continuations, so it aborted the child's next turn (`Interrupted by user`). Every later prompt was then dropped (`yield reminder dropped before provider dispatch after 4 attempts`), and the implementation RESULT was unadmitted. Native children now run with bash auto-background disabled, so a long command returns its own exit code, which is what command evidence needs. A text-only `async-result` attributed to the agent, from an explicitly asynchronous call, is admitted as a continuation after the first provider turn; its command still cannot ground evidence. Other custom messages, human attribution and image-bearing results stay refused.
+- Recognize 0.21.8 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.7 (unreleased)
 
 - Let a successor mandate plan when its predecessor's plan or plan-review attempt was interrupted. The plan gate counted every unresolved attempt of the issue, so after `/feature abandon` and `/feature new` the abandoned mandate's interrupted pair stopped the new one with `plan attempt was interrupted and awaits an operator resolution`, which `/feature resolve-interruption` cannot clear for an abandoned mandate. The plan, implement, context and CI attribution gates now ignore another mandate's interrupted attempts, whose host stop proves no admitted effect, and the plan start-without-result check accepts another mandate's START when its RESULT authenticates the pair. An orphan START of any mandate, or one whose RESULT does not authenticate it, still leaves the decision uncertain.

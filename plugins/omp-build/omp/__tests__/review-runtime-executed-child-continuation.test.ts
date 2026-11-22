@@ -30,11 +30,23 @@ const steering = {
   steering: true,
   timestamp: 4,
 }
+const jobText =
+  '<system-notice>\nBackground job bg_1 (bun run lint) has completed.\n$ bunx biome check .\n</system-notice>'
+const jobResult = {
+  role: 'custom',
+  customType: 'async-result',
+  content: jobText,
+  display: true,
+  attribution: 'agent',
+  details: { jobs: [{ jobId: 'bg_1' }] },
+  timestamp: 4,
+}
 
 describe('native executed-child continuation guard', () => {
   it.each([
     ['synthetic developer yield reminder', reminder, developer],
     ['agent-attributed user steering', steering.content, steering],
+    ['its own background job result', jobText, jobResult],
   ])('admits a second provider turn and guarded yield after %s', async (_label, text, control) => {
     const fixture = await setup()
     await fixture.start({ retries: 2 })
@@ -57,6 +69,9 @@ describe('native executed-child continuation guard', () => {
     ['human developer', { ...developer, attribution: 'user' }],
     ['unattributed developer', { role: 'developer', content: reminder, synthetic: true, timestamp: 3 }],
     ['unknown developer attribution', { ...developer, attribution: 'unknown' }],
+    ['human background job result', { ...jobResult, attribution: 'user' }],
+    ['other agent-attributed custom message', { ...jobResult, customType: 'irc:incoming' }],
+    ['image-bearing job result', { ...jobResult, content: [{ type: 'image', data: 'AA==', mimeType: 'image/png' }] }],
   ])('refuses %s before another provider, tool or yield', async (_label, control) => {
     const fixture = await setup()
     await fixture.start()

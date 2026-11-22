@@ -85,7 +85,8 @@ async function fixture() {
     getArtifactManager: () => null,
   }
   const hook = vi.fn().mockResolvedValue(undefined)
-  const settings = { rootScoped: true }
+  const childSettings = { rootScoped: true, childScoped: true }
+  const settings = { rootScoped: true, overlay: vi.fn(() => childSettings) }
   const root = {
     sessionManager: manager,
     agent: { sessionId: 'provider-session' },
@@ -147,7 +148,7 @@ async function fixture() {
     current: () => true,
     bindChild,
   } as unknown as Parameters<typeof executeNativeBatch>[0]
-  return { options, ctx, root, ref, settings, hook, resolve, bindChild, policy, agent, pinned, release }
+  return { options, ctx, root, ref, settings, childSettings, hook, resolve, bindChild, policy, agent, pinned, release }
 }
 
 describe('native SDK adapter policy and authorization', () => {
@@ -426,6 +427,13 @@ describe('native SDK adapter policy and authorization', () => {
     })
     expect((await executeNativeBatch(f.options)).errors).toEqual([])
     expect(sdk.run).toHaveBeenCalledWith(expect.objectContaining({ modelOverride: ['trusted/model'] }))
+  })
+
+  it('dispatches the child with bash auto-background disabled', async () => {
+    const f = await fixture()
+    expect((await executeNativeBatch(f.options)).errors).toEqual([])
+    expect(f.settings.overlay).toHaveBeenCalledWith({ 'bash.autoBackground.enabled': false })
+    expect(sdk.run).toHaveBeenCalledWith(expect.objectContaining({ settings: f.childSettings }))
   })
 
   it('preserves partial outcomes and reports failed executor results', async () => {
