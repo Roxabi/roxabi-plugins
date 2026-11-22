@@ -3,7 +3,12 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { epicControlTarget } from '../skills/feature/epic-driver.ts'
 import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.js'
-import { branchPrNumbers, type PullRequestList, parsePullRequestList } from './feature-disarm-discovery.ts'
+import {
+  branchPrNumbers,
+  linkedPullRequests,
+  type PullRequestList,
+  parsePullRequestList,
+} from './feature-disarm-discovery.ts'
 import { authenticateOwnPullRequests, type SelectedMandateAuthority } from './feature-disarm-ownership.ts'
 import { isRecord, type Scope } from './feature-engine.ts'
 import { classifyIssueReference } from './prepare-canonical-checkout.ts'
@@ -11,32 +16,6 @@ import { classifyIssueReference } from './prepare-canonical-checkout.ts'
 export type ControlTarget =
   | { status: 'issue'; scope: Scope; issue: { number: number } }
   | { status: 'pull-request'; scope: Scope; pullRequest: { pr: number } }
-
-async function linkedPullRequests(gh: Gh, cwd: string, repository: string, issue: number): Promise<PullRequestList> {
-  try {
-    const raw = await gh(cwd, [
-      'pr',
-      'list',
-      '--repo',
-      repository,
-      '--state',
-      'all',
-      '--search',
-      `linked:issue:${issue}`,
-      '--limit',
-      '1000',
-      '--json',
-      'number,state',
-    ])
-    return parsePullRequestList('linked', raw)
-  } catch (error) {
-    return {
-      numbers: [],
-      incomplete: true,
-      evidence: { source: 'linked', status: 'failed', error: error instanceof Error ? error.message : 'list-failed' },
-    }
-  }
-}
 
 async function branchPullRequests(gh: Gh, cwd: string, repository: string, branch: string): Promise<PullRequestList> {
   try {
