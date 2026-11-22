@@ -63,15 +63,15 @@ export async function applyFeatureControl(
   if (result.status === 'deferred')
     return { kind: 'blocked', reason: 'operator-confirmation-deferred', diagnostics: result.diagnostics }
   if (result.status !== 'abandoned') return failedAbandonment(result)
-  // The confirmed record now refuses the abandoned mandate; the local hold must not outlive it into `/feature new`.
-  releaseInhibition(scope)
   const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch, {
     loaded: context.engine,
     mandate: mandateRef,
   })
-  return disarmed.clean
-    ? { kind: 'abandoned', confirmed: true }
-    : { kind: 'abandoned', confirmed: false, failure: { phase: 'disarm', evidence: disarmed.evidence } }
+  if (!disarmed.clean)
+    return { kind: 'abandoned', confirmed: false, failure: { phase: 'disarm', evidence: disarmed.evidence } }
+  // The confirmed record now refuses the abandoned mandate; the local hold must not outlive it into `/feature new`.
+  releaseInhibition(scope)
+  return { kind: 'abandoned', confirmed: true }
 }
 
 function ownPausedMandateId(control: 'pause' | 'abandon', authority: FeatureAuthority): string | null {

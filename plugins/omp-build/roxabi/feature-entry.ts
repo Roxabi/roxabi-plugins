@@ -77,7 +77,7 @@ async function continueFeatureCommand(
     )
     return
   }
-  if (control === 'select' || control === 'resume') host.releaseFeatureContinuation()
+  if (control === 'select' || control === 'resume' || control === 'new') host.releaseFeatureContinuation()
   const withCoverage = await continueWithParentCoverage(host, commandInput, result, principalDispatch)
   if (withCoverage === undefined) return
   result = withCoverage

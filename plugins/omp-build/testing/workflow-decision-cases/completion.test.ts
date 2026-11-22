@@ -440,4 +440,14 @@ describe('workflow completion decisions', () => {
     const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
   })
+
+  it('keeps a successor blocked by a predecessor rejection paired with another mandate START', async () => {
+    const mandate = nativeDecisionMandate(shippedMandate())
+    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
+    const { nextMandate, records } = succession(mandate)
+    const crossed = [...records, implementStart(nextMandate), rejectedImplementResult(mandate)]
+    const evidence = await rootEvidence(historyFrom([...eligiblePlan(mandate, [historyFrom([mandate])]), ...crossed]))
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
+    expect(decision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
+  })
 })

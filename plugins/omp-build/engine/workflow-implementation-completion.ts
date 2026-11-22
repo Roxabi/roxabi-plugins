@@ -81,7 +81,17 @@ function hasRejectedResult(receipts: readonly ImplementationReceipt[], mandate: 
     (record) =>
       record.payload.phase === 'result' &&
       isUnadmittedImplementation(record) &&
-      sameRef(record.payload.mandate, mandateRef),
+      (sameRef(record.payload.mandate, mandateRef) || !pairsWithOwnStart(receipts, record)),
+  )
+}
+
+/** Another mandate's rejection is ignored only beside its own START; a stray RESULT stays blocking. */
+function pairsWithOwnStart(receipts: readonly ImplementationReceipt[], result: ImplementationReceipt): boolean {
+  return receipts.some(
+    (start) =>
+      start.payload.phase === 'start' &&
+      start.payload.actionId === result.payload.actionId &&
+      sameRef(start.payload.mandate, result.payload.mandate),
   )
 }
 
