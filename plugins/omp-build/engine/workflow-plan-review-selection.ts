@@ -9,9 +9,9 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
-import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
+import { classifyAttempts, interruptionGate, ownAttempts } from './workflow-action-interruption.ts'
 import { capturedAssessmentSourcesMatch } from './workflow-assessment-child-sources.ts'
-import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './workflow-context-terminal.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { planDigest, planOutputSchema } from './workflow-output-schema.ts'
 import type { PlanMacro, PlanMacroPhase, WorkflowEvidence } from './workflow-plan.ts'
@@ -60,37 +60,29 @@ export function prepareReview(
 ): ReviewContext | { macro: PlanMacro } {
   const history = evidence.issue
   const gate = interruptionGate(
-    classifyAttempts({
-      histories: [history, ...evidence.causal.histories],
-      scan: [history],
-      actions: ['plan', 'plan-review'],
-    }),
+    ownAttempts(
+      classifyAttempts({
+        histories: [history, ...evidence.causal.histories],
+        scan: [history],
+        actions: ['plan', 'plan-review'],
+      }),
+      mandate,
+    ),
   )
   if (gate.kind === 'stop')
     return { macro: empty(gate.completion.status === 'uncertain' ? 'uncertain' : 'blocked', gate.completion.evidence) }
   const excluded = gate.excluded
   const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf)
   if (problem !== null) return { macro: problem }
-  const starts = receiptsFor(history, 'plan', 'start', excluded)
+  if (unsettledStart(history, 'plan', mandate, planResults(history, excluded), excluded))
+    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
+  if (unsettledStart(history, 'plan-review', mandate, planReviews(history, excluded), excluded))
+    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
   const results = planResults(history, excluded).filter(
     (record) =>
       planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) &&
       !(producerOutputValid('plan', record.payload.structured) && missingContextOf(record.payload.structured) !== null),
   )
-  if (
-    starts.some(
-      (start) => !planResults(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
-    )
-  ) {
-    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
-  }
-  if (
-    receiptsFor(history, 'plan-review', 'start', excluded).some(
-      (start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
-    )
-  ) {
-    return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
-  }
   const drafts = uniqueAccounted(
     results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null),
     'current plan draft',
@@ -143,6 +135,32 @@ function receiptsFor(
       record.payload.phase === phase &&
       !excludedReceipt(record, excluded),
   )
+}
+
+/**
+ * A START of `mandate` without a valid RESULT leaves the plan uncertain. Another mandate's START is settled by a RESULT
+ * that authenticates the pair: an interrupted RESULT is not a valid native result, yet it stays with that abandoned or
+ * superseded mandate. An orphan START, or one whose RESULT does not authenticate it, still leaves the successor
+ * uncertain.
+ */
+function unsettledStart(
+  history: DecodedHistory,
+  action: 'plan' | 'plan-review',
+  mandate: MandateRecord,
+  valid: readonly ReceiptRecord[],
+  excluded: ReadonlySet<string>,
+): boolean {
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+  const results = receiptsFor(history, action, 'result', excluded)
+  return receiptsFor(history, action, 'start', excluded).some((start) => {
+    if ('scope' in start.payload.mandate && sameRef(start.payload.mandate, mandateRef))
+      return !valid.some((result) => result.payload.actionId === start.payload.actionId)
+    return !results.some(
+      (result) =>
+        result.payload.actionId === start.payload.actionId &&
+        authenticateWorkflowReceiptPair(history, result, { native: 'unchecked' }).ok,
+    )
+  })
 }
 
 function planMatchesMandate(

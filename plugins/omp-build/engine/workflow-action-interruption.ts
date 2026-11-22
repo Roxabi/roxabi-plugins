@@ -201,6 +201,22 @@ function mandateAttempt(mandate: MandateRecord): (receipt: ReceiptRecord) => boo
   return (receipt) => 'scope' in receipt.payload.mandate && sameRef(receipt.payload.mandate, ref)
 }
 
+/**
+ * Drop another mandate's interrupted attempts: their typed host stop proves no admitted
+ * effect, and resolution cannot target an abandoned or superseded mandate. Orphan STARTs of any mandate still stop
+ * it, since their child's effects are unknown. Resolved STARTs stay excluded; an invalid classification is returned
+ * unchanged.
+ */
+export function ownAttempts(
+  classified: Result<AttemptClassification>,
+  mandate: MandateRecord | null,
+): Result<AttemptClassification> {
+  if (!classified.ok || mandate === null) return classified
+  const own = mandateAttempt(mandate)
+  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === 'orphan' || own(attempt.start))
+  return { ok: true, value: { excluded: classified.value.excluded, unresolved } }
+}
+
 /** Unresolved attempts of one mandate across the supplied histories (issue and pull request). */
 export function resolvableStarts(
   histories: readonly DecodedHistory[],

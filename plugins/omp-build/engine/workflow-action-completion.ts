@@ -2,7 +2,7 @@ import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import { failedCheckEvidenceDigest } from './record-digests.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
+import { classifyAttempts, interruptionGate, ownAttempts } from './workflow-action-interruption.ts'
 import { assessSpecCompletion } from './workflow-assessment-completion.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
@@ -71,7 +71,7 @@ function contextCompletion(
   for (const history of histories) {
     const terminal = workflowContextTerminal(history, action, mandateRef, undefined, classified?.value.excluded)
     if (terminal !== 'clear' && classified !== null) {
-      const gate = interruptionGate(classified)
+      const gate = interruptionGate(ownAttempts(classified, mandate))
       if (gate.kind === 'stop') return gate.completion
     }
     const decision = contextTerminalDecision(action, terminal)
@@ -180,11 +180,14 @@ function ciAttributionCompletion(
 ): ActionCompletion {
   const histories = [evidence.issue, ...(evidence.pullRequest === null ? [] : [evidence.pullRequest])]
   const gate = interruptionGate(
-    classifyAttempts({
-      histories: [...histories, ...evidence.causal.histories],
-      scan: histories,
-      actions: ['attribute-ci'],
-    }),
+    ownAttempts(
+      classifyAttempts({
+        histories: [...histories, ...evidence.causal.histories],
+        scan: histories,
+        actions: ['attribute-ci'],
+      }),
+      mandate,
+    ),
   )
   if (gate.kind === 'stop') return gate.completion
   const receipts = histories.flatMap((history) =>

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { receiptOf, withPayload } from '../../engine/__tests__/workflow-interruption-support.ts'
+import {
+  appendRecords,
+  interruptedResult,
+  pairOf,
+  receiptOf,
+  withPayload,
+} from '../../engine/__tests__/workflow-interruption-support.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import { actionCompletion } from '../../engine/workflow-action-completion.ts'
@@ -439,6 +445,50 @@ describe('workflow completion decisions', () => {
     expect(actionCompletion('implement', evidence, decisions(), mandate).status).toBe('blocked')
     const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
+  })
+
+  it.each(['plan', 'plan-review'] as const)(
+    'plans a successor mandate whose predecessor %s was interrupted',
+    async (action) => {
+      const mandate = nativeDecisionMandate(shippedMandate())
+      if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
+      const { workflow, version } = authenticatedPlanFixtures(mandate, [historyFrom([mandate])])
+      const [start, result] = pairOf(workflow.planDraftRecords(mandate, 'act-plan-1', version))
+      const digest = workflow.publishedPlanDigest()
+      const review = workflow.planReviewRecord(mandate, 'act-plan-1', digest, [], 'act-plan-review-1', version)
+      const prior =
+        action === 'plan'
+          ? [start, interruptedResult(result)]
+          : [
+              start,
+              result,
+              workflow.planReviewStart(mandate, 'act-plan-1', digest, 'act-plan-review-1', version),
+              interruptedResult(receiptOf(review), { contributions: [] }),
+            ]
+      const { nextMandate, records } = succession(mandate)
+      const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [...prior, ...records]))
+      expect(planMacro(evidence, mandate).phase).toBe('blocked')
+      const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
+      expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
+    },
+  )
+
+  it.each([
+    ['an orphan plan START', 'orphan'],
+    ['a plan START whose RESULT does not authenticate it', 'resealed'],
+  ] as const)('keeps a successor uncertain over a predecessor %s', async (_label, variant) => {
+    const mandate = nativeDecisionMandate(shippedMandate())
+    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
+    const { workflow, version } = authenticatedPlanFixtures(mandate, [historyFrom([mandate])])
+    const [start, result] = pairOf(workflow.planDraftRecords(mandate, 'act-plan-1', version))
+    const exact = (result.payload as { exactInputs: { specDigest: string } }).exactInputs
+    const specDigest = exact.specDigest.replace(/.$/, (last) => (last === '0' ? '1' : '0'))
+    const prior =
+      variant === 'orphan' ? [start] : [start, withPayload(result, { exactInputs: { ...exact, specDigest } })]
+    const { nextMandate, records } = succession(mandate)
+    const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [...prior, ...records]))
+    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
+    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
   })
 
   it.each([
