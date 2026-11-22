@@ -11,7 +11,7 @@ import type { SpecEffective } from './spec-effective-schema.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { classifyAttempts, interruptionGate, ownAttempts } from './workflow-action-interruption.ts'
 import { capturedAssessmentSourcesMatch } from './workflow-assessment-child-sources.ts'
-import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './workflow-context-terminal.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 import { planDigest, planOutputSchema } from './workflow-output-schema.ts'
 import type { PlanMacro, PlanMacroPhase, WorkflowEvidence } from './workflow-plan.ts'
@@ -138,9 +138,10 @@ function receiptsFor(
 }
 
 /**
- * A START of `mandate` without a valid RESULT leaves the plan uncertain. Another mandate's START is settled by any
- * RESULT: an interrupted RESULT is not a valid native result, yet it stays with that abandoned or superseded mandate.
- * An orphan START still leaves the successor uncertain.
+ * A START of `mandate` without a valid RESULT leaves the plan uncertain. Another mandate's START is settled by a RESULT
+ * that authenticates the pair: an interrupted RESULT is not a valid native result, yet it stays with that abandoned or
+ * superseded mandate. An orphan START, or one whose RESULT does not authenticate it, still leaves the successor
+ * uncertain.
  */
 function unsettledStart(
   history: DecodedHistory,
@@ -150,10 +151,15 @@ function unsettledStart(
   excluded: ReadonlySet<string>,
 ): boolean {
   const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
-  const all = receiptsFor(history, action, 'result', excluded)
+  const results = receiptsFor(history, action, 'result', excluded)
   return receiptsFor(history, action, 'start', excluded).some((start) => {
-    const own = 'scope' in start.payload.mandate && sameRef(start.payload.mandate, mandateRef)
-    return !(own ? valid : all).some((result) => result.payload.actionId === start.payload.actionId)
+    if ('scope' in start.payload.mandate && sameRef(start.payload.mandate, mandateRef))
+      return !valid.some((result) => result.payload.actionId === start.payload.actionId)
+    return !results.some(
+      (result) =>
+        result.payload.actionId === start.payload.actionId &&
+        authenticateWorkflowReceiptPair(history, result, { native: 'unchecked' }).ok,
+    )
   })
 }
 

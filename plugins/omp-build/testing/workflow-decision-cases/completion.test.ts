@@ -473,13 +473,20 @@ describe('workflow completion decisions', () => {
     },
   )
 
-  it('keeps a successor uncertain over a predecessor orphan plan START', async () => {
+  it.each([
+    ['an orphan plan START', 'orphan'],
+    ['a plan START whose RESULT does not authenticate it', 'resealed'],
+  ] as const)('keeps a successor uncertain over a predecessor %s', async (_label, variant) => {
     const mandate = nativeDecisionMandate(shippedMandate())
     if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
     const { workflow, version } = authenticatedPlanFixtures(mandate, [historyFrom([mandate])])
-    const [start] = pairOf(workflow.planDraftRecords(mandate, 'act-plan-1', version))
+    const [start, result] = pairOf(workflow.planDraftRecords(mandate, 'act-plan-1', version))
+    const exact = (result.payload as { exactInputs: { specDigest: string } }).exactInputs
+    const specDigest = exact.specDigest.replace(/.$/, (last) => (last === '0' ? '1' : '0'))
+    const prior =
+      variant === 'orphan' ? [start] : [start, withPayload(result, { exactInputs: { ...exact, specDigest } })]
     const { nextMandate, records } = succession(mandate)
-    const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [start, ...records]))
+    const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [...prior, ...records]))
     const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
     expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
   })

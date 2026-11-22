@@ -2,7 +2,7 @@
 
 ## 0.21.7 (unreleased)
 
-- Let a successor mandate plan when its predecessor's plan or plan-review attempt was interrupted. The plan gate counted every unresolved attempt of the issue, so after `/feature abandon` and `/feature new` the abandoned mandate's interrupted pair stopped the new one with `plan attempt was interrupted and awaits an operator resolution`, which `/feature resolve-interruption` cannot clear for an abandoned mandate. The plan, implement, context and CI attribution gates now ignore another mandate's interrupted attempts, whose host stop proves no admitted effect, and the plan start-without-result check accepts any RESULT for another mandate's START. An orphan START of any mandate still leaves the decision uncertain.
+- Let a successor mandate plan when its predecessor's plan or plan-review attempt was interrupted. The plan gate counted every unresolved attempt of the issue, so after `/feature abandon` and `/feature new` the abandoned mandate's interrupted pair stopped the new one with `plan attempt was interrupted and awaits an operator resolution`, which `/feature resolve-interruption` cannot clear for an abandoned mandate. The plan, implement, context and CI attribution gates now ignore another mandate's interrupted attempts, whose host stop proves no admitted effect, and the plan start-without-result check accepts another mandate's START when its RESULT authenticates the pair. An orphan START of any mandate, or one whose RESULT does not authenticate it, still leaves the decision uncertain.
 - Recognize 0.21.7 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.6 (unreleased)

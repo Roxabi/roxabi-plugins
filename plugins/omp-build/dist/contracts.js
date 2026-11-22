@@ -32042,10 +32042,11 @@ function receiptsFor(history, action, phase, excluded) {
 }
 function unsettledStart(history, action, mandate, valid, excluded) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const all = receiptsFor(history, action, "result", excluded);
+  const results = receiptsFor(history, action, "result", excluded);
   return receiptsFor(history, action, "start", excluded).some((start) => {
-    const own = "scope" in start.payload.mandate && sameRef2(start.payload.mandate, mandateRef);
-    return !(own ? valid : all).some((result) => result.payload.actionId === start.payload.actionId);
+    if ("scope" in start.payload.mandate && sameRef2(start.payload.mandate, mandateRef))
+      return !valid.some((result) => result.payload.actionId === start.payload.actionId);
+    return !results.some((result) => result.payload.actionId === start.payload.actionId && authenticateWorkflowReceiptPair(history, result, { native: "unchecked" }).ok);
   });
 }
 function planMatchesMandate(record, mandate, own, effective, histories) {
