@@ -7,7 +7,7 @@ import type { SpecEffective } from './spec-effective-schema.ts'
 import { toDiagnostics } from './uw-diagnostics.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
+import { classifyAttempts, interruptionGate, ownAttempts } from './workflow-action-interruption.ts'
 import { authenticateWorkflowReceiptPair, workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   excludedReceipt,
@@ -179,7 +179,7 @@ export function implementationCompletion(evidence: WorkflowEvidence, mandate: Ma
   if (!classified.ok) return { status: 'blocked', evidence: classified.diagnostics }
   const excluded = classified.value.excluded
   const receipts = implementationReceipts(evidence.issue, action).filter((record) => !excludedReceipt(record, excluded))
-  const gate = interruptionGate(classified)
+  const gate = interruptionGate(ownAttempts(classified, mandate))
   if (gate.kind === 'stop') return gate.completion
   const mandateRef = receiptMandate(mandate)
   const terminal = workflowContextTerminal(evidence.issue, action, mandateRef, undefined, excluded)

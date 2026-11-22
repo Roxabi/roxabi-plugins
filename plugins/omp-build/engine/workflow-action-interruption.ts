@@ -201,6 +201,21 @@ function mandateAttempt(mandate: MandateRecord): (receipt: ReceiptRecord) => boo
   return (receipt) => 'scope' in receipt.payload.mandate && sameRef(receipt.payload.mandate, ref)
 }
 
+/**
+ * Keep only `mandate`'s unresolved attempts, as the admission gate does: a predecessor's interrupted or orphan
+ * START stays with that abandoned or superseded mandate instead of stopping its successor. Resolved STARTs stay
+ * excluded whatever their mandate; an invalid classification is returned unchanged.
+ */
+export function ownAttempts(
+  classified: Result<AttemptClassification>,
+  mandate: MandateRecord | null,
+): Result<AttemptClassification> {
+  if (!classified.ok || mandate === null) return classified
+  const own = mandateAttempt(mandate)
+  const unresolved = classified.value.unresolved.filter((attempt) => own(attempt.start))
+  return { ok: true, value: { excluded: classified.value.excluded, unresolved } }
+}
+
 /** Unresolved attempts of one mandate across the supplied histories (issue and pull request). */
 export function resolvableStarts(
   histories: readonly DecodedHistory[],

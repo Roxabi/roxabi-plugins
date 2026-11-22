@@ -9,7 +9,7 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
-import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
+import { classifyAttempts, interruptionGate, ownAttempts } from './workflow-action-interruption.ts'
 import { capturedAssessmentSourcesMatch } from './workflow-assessment-child-sources.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import { excludedReceipt, type MandateRecord, mandateScope, type ReceiptRecord, recordsOf } from './workflow-control.ts'
@@ -60,18 +60,25 @@ export function prepareReview(
 ): ReviewContext | { macro: PlanMacro } {
   const history = evidence.issue
   const gate = interruptionGate(
-    classifyAttempts({
-      histories: [history, ...evidence.causal.histories],
-      scan: [history],
-      actions: ['plan', 'plan-review'],
-    }),
+    ownAttempts(
+      classifyAttempts({
+        histories: [history, ...evidence.causal.histories],
+        scan: [history],
+        actions: ['plan', 'plan-review'],
+      }),
+      mandate,
+    ),
   )
   if (gate.kind === 'stop')
     return { macro: empty(gate.completion.status === 'uncertain' ? 'uncertain' : 'blocked', gate.completion.evidence) }
   const excluded = gate.excluded
   const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf)
   if (problem !== null) return { macro: problem }
-  const starts = receiptsFor(history, 'plan', 'start', excluded)
+  // A predecessor's START stays with its abandoned or superseded mandate, as in the interruption gate above.
+  const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
+  const ownStart = (start: ReceiptRecord) =>
+    'scope' in start.payload.mandate && sameRef(start.payload.mandate, mandateRef)
+  const starts = receiptsFor(history, 'plan', 'start', excluded).filter(ownStart)
   const results = planResults(history, excluded).filter(
     (record) =>
       planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) &&
@@ -85,9 +92,11 @@ export function prepareReview(
     return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
   }
   if (
-    receiptsFor(history, 'plan-review', 'start', excluded).some(
-      (start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
-    )
+    receiptsFor(history, 'plan-review', 'start', excluded)
+      .filter(ownStart)
+      .some(
+        (start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId),
+      )
   ) {
     return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
   }

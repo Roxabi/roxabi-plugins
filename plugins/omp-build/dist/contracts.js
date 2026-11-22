@@ -11207,7 +11207,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 6)
+  if (minor === 21 && patch <= 7)
     return "bounded";
   return "unknown";
 }
@@ -15146,6 +15146,13 @@ function interruptionGate(classified) {
 function mandateAttempt(mandate) {
   const ref = mandateRefOf(mandate);
   return (receipt) => ("scope" in receipt.payload.mandate) && sameRef2(receipt.payload.mandate, ref);
+}
+function ownAttempts(classified, mandate) {
+  if (!classified.ok || mandate === null)
+    return classified;
+  const own = mandateAttempt(mandate);
+  const unresolved = classified.value.unresolved.filter((attempt) => own(attempt.start));
+  return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
 }
 function resolvableStarts(histories, mandate) {
   const scan = histories.filter((history) => receiptsOf(history).some((receipt) => isInterruptionAction(receipt.payload.action)));
@@ -31983,23 +31990,25 @@ function reviewContextProblem(history, mandate, empty, excluded, contextLeaf) {
 }
 function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
   const history = evidence.issue;
-  const gate = interruptionGate(classifyAttempts({
+  const gate = interruptionGate(ownAttempts(classifyAttempts({
     histories: [history, ...evidence.causal.histories],
     scan: [history],
     actions: ["plan", "plan-review"]
-  }));
+  }), mandate));
   if (gate.kind === "stop")
     return { macro: empty(gate.completion.status === "uncertain" ? "uncertain" : "blocked", gate.completion.evidence) };
   const excluded = gate.excluded;
   const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf);
   if (problem !== null)
     return { macro: problem };
-  const starts = receiptsFor(history, "plan", "start", excluded);
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  const ownStart = (start) => ("scope" in start.payload.mandate) && sameRef2(start.payload.mandate, mandateRef);
+  const starts = receiptsFor(history, "plan", "start", excluded).filter(ownStart);
   const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
   if (starts.some((start) => !planResults(history, excluded).some((result) => result.payload.actionId === start.payload.actionId))) {
     return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan start has no result")]) };
   }
-  if (receiptsFor(history, "plan-review", "start", excluded).some((start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId))) {
+  if (receiptsFor(history, "plan-review", "start", excluded).filter(ownStart).some((start) => !planReviews(history, excluded).some((result) => result.payload.actionId === start.payload.actionId))) {
     return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan review start has no result")]) };
   }
   const drafts = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null), "current plan draft");
@@ -32292,7 +32301,7 @@ function implementationCompletion(evidence, mandate) {
     return { status: "blocked", evidence: classified.diagnostics };
   const excluded = classified.value.excluded;
   const receipts = implementationReceipts(evidence.issue, action).filter((record) => !excludedReceipt(record, excluded));
-  const gate = interruptionGate(classified);
+  const gate = interruptionGate(ownAttempts(classified, mandate));
   if (gate.kind === "stop")
     return gate.completion;
   const mandateRef = receiptMandate(mandate);
@@ -32359,7 +32368,7 @@ function contextCompletion(action, evidence, mandate) {
   for (const history of histories) {
     const terminal = workflowContextTerminal(history, action, mandateRef, undefined, classified?.value.excluded);
     if (terminal !== "clear" && classified !== null) {
-      const gate = interruptionGate(classified);
+      const gate = interruptionGate(ownAttempts(classified, mandate));
       if (gate.kind === "stop")
         return gate.completion;
     }
@@ -32447,11 +32456,11 @@ function receiptProgress(history, action) {
 }
 function ciAttributionCompletion(evidence, facts, mandate) {
   const histories = [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest]];
-  const gate = interruptionGate(classifyAttempts({
+  const gate = interruptionGate(ownAttempts(classifyAttempts({
     histories: [...histories, ...evidence.causal.histories],
     scan: histories,
     actions: ["attribute-ci"]
-  }));
+  }), mandate));
   if (gate.kind === "stop")
     return gate.completion;
   const receipts = histories.flatMap((history) => recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === "attribute-ci" && !excludedReceipt(record, gate.excluded)));
