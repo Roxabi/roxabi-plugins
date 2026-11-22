@@ -156,7 +156,9 @@ export async function executeNativeTask(context: TaskContext, task: NativeTask, 
         subagentEventBus: session.subagentEventBus,
         authStorage: session.authStorage,
         modelRegistry: session.modelRegistry,
-        settings: session.settings,
+        // Command evidence needs each bash call's own exit code; an auto-backgrounded call returns only a launch
+        // acknowledgement and delivers its completion later as a message.
+        settings: session.settings.overlay({ 'bash.autoBackground.enabled': false }),
         asyncJobManager: session.asyncJobManager,
         skills: [...root.skills],
         extensionRoots: () => root.effectiveExtensionRoots,

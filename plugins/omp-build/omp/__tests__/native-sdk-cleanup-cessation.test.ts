@@ -71,7 +71,7 @@ function setup() {
     sessionManager: manager,
     modelRegistry: registry,
     agent: { sessionId: 'provider' },
-    settings: {},
+    settings: { overlay: () => ({}) },
     skills: [],
     isDisposed: false,
     isSessionTransitioning: false,
