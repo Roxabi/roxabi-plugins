@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.6 (unreleased)
+
+- Run native batches on OMP CLI 19.1.0. That release renamed the mounted `xd://` tools to tool commands (`getMountedXdevToolNames` became `getMountedToolCommandNames`), so every native batch stopped before dispatch with `root.getMountedXdevToolNames is not a function`; the native task mask now reads either name.
+- Confirm `/feature abandon` disarm from the issue's own linked PRs. The discovery searched `linked:issue:N`, which GitHub reads as "linked to any issue", so every unmerged PR of the repository failed ownership and no abandonment confirmed a clean disarm; since 0.21.5 that kept the local abandon hold and stopped the following `/feature new`. Discovery now reads the issue's closing PR references, and a further page keeps the disarm unconfirmed.
+- Recognize 0.21.6 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.5 (unreleased)
 
 - Restart a UW cleanly after explicit abandonment and `/feature new`. A rejected implementation or integration result that forms an authenticated START/RESULT pair now blocks only the mandate that produced it, so the new mandate plans instead of stopping on `implement result was not admitted`. A confirmed abandonment with clean PR disarm releases the local `/feature abandon` hold, and `/feature new` releases the session's continuation hold, so `/feature new` in the same OMP session neither stops on `Abandon was inhibited locally but not confirmed` nor leaves its first START unlaunched with `continuation-inhibited`; deferred, refused, partial or disarm-failed abandonments keep the hold.

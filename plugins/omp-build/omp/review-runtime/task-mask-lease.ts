@@ -27,10 +27,18 @@ const tails = new WeakMap<NativeBatchController, Promise<void>>()
 const pending = new WeakMap<NativeBatchController, Request>()
 const ownedTool = 'omp_build_execute_native_batch'
 
+// OMP 19.1 renamed the mounted `xd://` tools to tool commands; the development SDK pin still has the old name.
+type MountedToolReaders = { getMountedToolCommandNames?: () => string[]; getMountedXdevToolNames?: () => string[] }
+function mountedTools(root: AgentSession): string[] {
+  const readers = root as unknown as MountedToolReaders
+  if (typeof readers.getMountedToolCommandNames === 'function') return readers.getMountedToolCommandNames()
+  if (typeof readers.getMountedXdevToolNames === 'function') return readers.getMountedXdevToolNames()
+  throw new Error('native task mask root unavailable')
+}
 function surface(root: AgentSession): Surface {
   return {
     enabled: root.getEnabledToolNames(),
-    mounted: root.getMountedXdevToolNames(),
+    mounted: mountedTools(root),
     active: root.getActiveToolNames(),
   }
 }

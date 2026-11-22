@@ -27,7 +27,7 @@ afterEach(() => {
   adapter.capture.mockReset()
 })
 
-function fixture(idle: boolean, taskMounted = false) {
+function fixture(idle: boolean, taskMounted = false, host: 'commands' | 'xdev' = 'commands') {
   const harness = bridgeHarness()
   const prepared = batch(['slot-a'])
   let active = taskMounted ? ['read', owned] : ['read', 'task', owned]
@@ -47,7 +47,9 @@ function fixture(idle: boolean, taskMounted = false) {
     isDisposed: false,
     isSessionTransitioning: false,
     getActiveToolNames: () => [...active],
-    getMountedXdevToolNames: () => [...mounted],
+    ...(host === 'commands'
+      ? { getMountedToolCommandNames: () => [...mounted] }
+      : { getMountedXdevToolNames: () => [...mounted] }),
     getEnabledToolNames: () => [...active, ...mounted],
     runToolRegistryMutation: vi.fn(async (fn: () => Promise<void>) => await fn()),
     setActiveToolPresentation: vi.fn(async (enabled: string[], nextMounted: string[]) => {
@@ -155,6 +157,15 @@ describe('scoped native dispatch tool mask', () => {
     expect(f.sends).toEqual([{ active: ['read', owned], mounted: ['search'] }])
     expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['search'] })
     await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, { ...f.ctx })
+    expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['task', 'search'] })
+  })
+
+  it.each(['commands', 'xdev'] as const)('masks task on a root that names mounted tools by %s', async (host) => {
+    const f = fixture(true, true, host)
+    await f.start()
+    await f.port.announce(f.prepared)
+    expect(f.sends).toEqual([{ active: ['read', owned], mounted: ['search'] }])
+    await f.harness.emitBridge('session_stop', { signal: AbortSignal.abort() }, f.ctx)
     expect(f.surface()).toEqual({ active: ['read', owned], mounted: ['task', 'search'] })
   })
 

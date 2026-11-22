@@ -39,7 +39,7 @@ export function provisionNativeRoot(context: Record<string, unknown>): void {
     isSessionTransitioning: false,
     getEnabledToolNames: () => [...active, ...mounted],
     getActiveToolNames: () => [...active],
-    getMountedXdevToolNames: () => [...mounted],
+    getMountedToolCommandNames: () => [...mounted],
     hasBuiltInTool: (name: string) => name === 'task',
     runToolRegistryMutation: async <T>(fn: () => Promise<T>) => fn(),
     setActiveToolPresentation: async (enabled: string[], nextMounted: string[]) => {

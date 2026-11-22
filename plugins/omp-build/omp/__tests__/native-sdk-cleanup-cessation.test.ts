@@ -76,7 +76,7 @@ function setup() {
     isDisposed: false,
     isSessionTransitioning: false,
     getActiveToolNames: () => [...active],
-    getMountedXdevToolNames: () => [],
+    getMountedToolCommandNames: () => [],
     getEnabledToolNames: () => [...active],
     runToolRegistryMutation: async (fn: () => Promise<void>) => await fn(),
     setActiveToolPresentation: async (names: string[]) => {

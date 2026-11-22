@@ -11,7 +11,7 @@ export function bindingPolicy(mandate: MandateRecord): 'legacy' | 'bounded' | 'u
   if (minor === 18 && patch <= 11) return 'bounded'
   if (minor === 19 && patch <= 3) return 'bounded'
   if (minor === 20 && patch <= 1) return 'bounded'
-  if (minor === 21 && patch <= 5) return 'bounded'
+  if (minor === 21 && patch <= 6) return 'bounded'
   return 'unknown'
 }
 
