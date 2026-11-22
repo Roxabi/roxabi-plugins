@@ -2,7 +2,7 @@ import type { ScopedRecordRef } from '../engine/record-references.ts'
 import { mandatesInHistory } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
-import { bindsOwnPause, publishConfirmedPause } from './feature-control.ts'
+import { bindsOwnPause, publishConfirmedPause, releaseInhibition } from './feature-control.ts'
 import { disarmKnownTarget } from './feature-disarm.ts'
 import { mandateBranch } from './feature-selection.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
@@ -63,6 +63,8 @@ export async function applyFeatureControl(
   if (result.status === 'deferred')
     return { kind: 'blocked', reason: 'operator-confirmation-deferred', diagnostics: result.diagnostics }
   if (result.status !== 'abandoned') return failedAbandonment(result)
+  // The confirmed record now refuses the abandoned mandate; the local hold must not outlive it into `/feature new`.
+  releaseInhibition(scope)
   const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch, {
     loaded: context.engine,
     mandate: mandateRef,

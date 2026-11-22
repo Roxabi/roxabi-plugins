@@ -8,7 +8,6 @@ import { toDiagnostics } from './uw-diagnostics.ts'
 import { integrationOutputSchema } from './uw-integration-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { classifyAttempts, interruptionGate } from './workflow-action-interruption.ts'
-import { workflowContextNegative } from './workflow-context-output.ts'
 import { workflowContextTerminal } from './workflow-context-terminal.ts'
 import {
   excludedReceipt,
@@ -82,7 +81,7 @@ function hasRejectedResult(receipts: readonly ImplementationReceipt[], mandate: 
     (record) =>
       record.payload.phase === 'result' &&
       isUnadmittedImplementation(record) &&
-      (!workflowContextNegative(record) || sameRef(record.payload.mandate, mandateRef)),
+      sameRef(record.payload.mandate, mandateRef),
   )
 }
 

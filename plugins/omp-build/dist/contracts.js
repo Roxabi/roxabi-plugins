@@ -11207,7 +11207,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 4)
+  if (minor === 21 && patch <= 5)
     return "bounded";
   return "unknown";
 }
@@ -32220,7 +32220,7 @@ function macroBlocked(evidence, mandate) {
 }
 function hasRejectedResult(receipts, mandate) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record) && (!workflowContextNegative(record) || sameRef2(record.payload.mandate, mandateRef)));
+  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record) && sameRef2(record.payload.mandate, mandateRef));
 }
 function coveredImplementation(latestRecord, mandate, spec) {
   const latest = latestRecord.payload.action === "integrate" ? integrationOutputSchema.safeParse(latestRecord.payload.structured) : implementationOutputSchema.safeParse(latestRecord.payload.structured);
