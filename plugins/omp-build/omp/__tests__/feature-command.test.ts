@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as contracts from '../../dist/contracts.js'
-import * as prBinding from '../../engine/workflow-pr-binding.ts'
 import type { FeatureAuthority } from '../../roxabi/feature-continuation-admission.ts'
 import * as admission from '../../roxabi/feature-continuation-admission.ts'
 import { applyFeatureControl } from '../../roxabi/feature-continuation-controls.ts'
@@ -154,7 +153,7 @@ describe('installed /feature command', () => {
     vi.spyOn(checkout, 'requireMandateCheckout').mockResolvedValue(null)
     vi.spyOn(contracts, 'resolveSpecEffective').mockReturnValue({ ok: true, value: {} } as never)
     const pr = { number: 34, scope: { ...scope, target: 'acme/widgets#34' }, ...mandate.payload }
-    vi.spyOn(prBinding, 'selectWorkflowBinding').mockReturnValue(
+    vi.spyOn(contracts, 'selectWorkflowBinding').mockReturnValue(
       prState === 'unbound' ? { status: 'absent' } : ({ status: 'bound', mandateRecord: mandate } as never),
     )
     const readPr = vi.spyOn(contracts, 'readNativePullRequestFacts').mockResolvedValue({

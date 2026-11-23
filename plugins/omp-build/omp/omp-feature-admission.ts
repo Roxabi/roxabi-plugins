@@ -1,11 +1,18 @@
 import { isAbsolute } from 'node:path'
-import { canonicalValueDigest, readNativePullRequestFacts, resolveSpecEffective } from '../dist/contracts.js'
-import { resolveAcceptedSpec } from '../engine/workflow-accepted-spec.ts'
-import { classifyAttempts, interruptionGate } from '../engine/workflow-action-interruption.ts'
-import { type MandateRecord, mandateScope, mandatesOf } from '../engine/workflow-control.ts'
-import { INTERRUPTION_ACTIONS } from '../engine/workflow-interruption-proof.ts'
-import { outstandingPauseInAuthority } from '../engine/workflow-pause.ts'
-import { selectWorkflowBinding } from '../engine/workflow-pr-binding.ts'
+import {
+  canonicalValueDigest,
+  classifyAttempts,
+  INTERRUPTION_ACTIONS,
+  interruptionGate,
+  type MandateRecord,
+  mandateScope,
+  mandatesOf,
+  outstandingPauseInAuthority,
+  readNativePullRequestFacts,
+  resolveAcceptedSpec,
+  resolveSpecEffective,
+  selectWorkflowBinding,
+} from '../dist/contracts.js'
 import { type FeatureAuthority, resolveFeatureAuthority } from '../roxabi/feature-continuation-admission.ts'
 import { applyFeatureControl } from '../roxabi/feature-continuation-controls.ts'
 import { resumePausedFeature } from '../roxabi/feature-continuation-dispatch.ts'

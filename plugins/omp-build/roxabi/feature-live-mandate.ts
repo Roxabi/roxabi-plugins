@@ -1,7 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
-import { githubScope } from '../dist/contracts.js'
+import { githubScope, outstandingPauseInAuthority } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import { outstandingPauseInAuthority } from '../engine/workflow-pause.ts'
 import { resolveFeatureAuthority } from './feature-continuation-admission.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 

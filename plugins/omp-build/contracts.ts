@@ -247,7 +247,7 @@ export {
   interruptionExecutorSchema,
   interruptionRuntimeSchema,
 } from './engine/workflow-operator-control-schema.ts'
-export type { PauseBinding } from './engine/workflow-pause.ts'
+export { outstandingPauseInAuthority, type PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
