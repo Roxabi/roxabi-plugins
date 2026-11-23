@@ -41,7 +41,8 @@ export function registerOmpCommandsAndTools(
   pi.registerTool({
     name: 'omp_build_start_review',
     label: 'Start structured review',
-    description: 'Prepare and dispatch the host-authorized native review for one existing pull request.',
+    description:
+      'Prepare and dispatch the native review whose records /fix and the /feature lifecycle consume. For a reviewer-agent review with a verdict line, use /dev-review.',
     parameters: ompBuildStartReviewParametersJsonSchema,
     approval: 'write',
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -67,10 +68,6 @@ export function registerOmpCommandsAndTools(
         description,
         handler: (args, ctx) => runFeatureCommand(args, ctx, features),
       })
-      continue
-    }
-    if (name === 'dev-review') {
-      pi.registerCommand(name, { description, handler: async (args, ctx) => dispatchDefaultReview(pi, ctx, args) })
       continue
     }
     if (name === 'fix') {

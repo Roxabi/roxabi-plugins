@@ -14,7 +14,8 @@ export const SKILL_COMMANDS: readonly SkillCommand[] = [
   },
   {
     name: 'dev-review',
-    description: 'Prepare and dispatch a host-authorized native structured review.',
+    description:
+      'Independent review of an open PR head: reviewer agents, findings on the PR, verdict line when approved.',
     requires: ['dev-review'],
   },
   {
