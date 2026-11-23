@@ -135,9 +135,10 @@ one spec home. An amendment that changes a κ input re-opens the tier — see
 
 **PRs as a request surface: no.**
 
-PRs are the landing surface, not an intake queue: a PR merges on the `reviewed`
-label plus green required checks. External PRs are not triaged as feature
-requests.
+PRs are the landing surface, not an intake queue: a PR merges once its head
+carries the required `ci` and `review` checks; `review` comes from a head-bound
+verdict comment (CONTRIBUTING.md § PR conventions). External PRs are not triaged
+as feature requests.
 
 ## Labels in use
 
