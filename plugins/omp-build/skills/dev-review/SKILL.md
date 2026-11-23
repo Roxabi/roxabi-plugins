@@ -41,7 +41,7 @@ Review the current head of one open pull request with agents other than its auth
 ## 4. Publish on the PR
 
 1. Re-read the PR. If its head is no longer `HEAD` or its base is no longer `BASE`, stop: the review is stale; run `/dev-review` again.
-2. Post one comment (`gh pr comment <PR> --body-file <file>`): `## Review — head <HEAD>`, the reviewers used, the findings (blocking first) with `file:line`, then the verdict. Keep it public-safe: no secrets, private paths, raw logs or client data.
+2. Post one comment (`gh pr comment <PR> --body-file <file>`): first line `## Review — head <HEAD>`, then the reviewers used, the findings (blocking first) with `file:line`, and as last line exactly `Verdict: approve` or `Verdict: request changes`. `/dev-fix` reads this format. Keep it public-safe: no secrets, private paths, raw logs or client data.
 3. On approve, post a second comment whose only line is:
 
    ```text

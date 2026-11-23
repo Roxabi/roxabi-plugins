@@ -13,8 +13,8 @@
 #   - raw_callsites: required when class is set; format: [{file: str, line: int}]
 #
 # Readers:
-#   - skills/dev-review/SKILL.md — the inline class list in the spawn template
-#   - skills/fix/SKILL.md Phase 0 — HALTs when this file is missing or unparseable
+#   - the native review: engine/review-class-catalogue.ts parses it; roxabi/review-assets.ts loads it
+#     and pins it with the other review inputs (retiring with the native runtime, #1037)
 
 version: "1.0.0"
 
