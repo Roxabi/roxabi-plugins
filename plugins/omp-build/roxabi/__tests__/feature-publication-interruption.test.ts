@@ -67,11 +67,11 @@ describe('implementation branch effect authority', () => {
     ['', 'git push: no stderr'],
     [
       "fatal: unable to access 'https://x-access-token:ghs_secret@github.com/o/r.git/': 403",
-      "git push: fatal: unable to access '<url>': 403",
+      "git push: fatal: unable to access '<url>",
     ],
     [
-      'fatal: repository https://example.com/o/r.git?access_token=ghs_secret not found',
-      'git push: fatal: repository <url> not found',
+      "To https://example.com/o/r.git?q='x'&access_token=ghs_secret\n ! [rejected] feat/42-save (fetch first)",
+      'git push: To <url>\n ! [rejected] feat/42-save (fetch first)',
     ],
   ])(
     'distinguishes a failed push from a remote mismatch and reports %j without credentials',
