@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   actionInputDigest,
   type CanonicalRecord,
@@ -10,18 +10,12 @@ import {
   validateFreshDecision,
 } from '../dist/contracts.js'
 import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
-import { landedEpic } from '../skills/feature/testing/epic-driver/epic-driver-landed-fixture.ts'
-import { withEpicNativeFinalReview } from '../skills/feature/testing/epic-driver/epic-driver-native-final-review.ts'
-import { prepareEpicParentReview } from '../skills/feature/testing/epic-driver/epic-driver-parent-review.ts'
-import { cleanupSandbox } from '../skills/feature/testing/epic-driver/epic-driver-sandbox.ts'
-import { committedFixtureProjection } from '../testing/committed-plugin-fixture.ts'
 import { criterionReviewGraph, encodeCriterionRecords } from '../testing/criterion-approval.ts'
 import { graphFromSimulatedIssues, synthesisActionCapture } from '../testing/criterion-dispositions.ts'
-import { criterionEpicReviewGraph } from '../testing/criterion-range-approval.ts'
 import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
 import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixture.ts'
 import { nativeImplementationWorld } from '../testing/native-implementation-world.ts'
-import { acceptedPullRequestReviewGraph, epicReviewGraph } from '../testing/record-graphs.ts'
+import { acceptedPullRequestReviewGraph } from '../testing/record-graphs.ts'
 import { observedComment, operation } from '../testing/record-history.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { eligiblePlan } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
@@ -367,176 +361,6 @@ async function fixture(refuseWrite = false, validCriterion = false) {
   }
   return { graph, input, saved, confirmed, verdicts, getOrigin: () => origin, getTarget: () => target }
 }
-
-describe('same-scope epic disposition readback', () => {
-  afterEach(cleanupSandbox)
-  it.each(['current', 'generic-unpinned'] as const)(
-    'finalizes %s parent range with its own authority',
-    async (scenario) => {
-      const world = await landedEpic()
-      const original = { repository: 'o/r', target: 'o/r#1' }
-      const prepared = await prepareEpicParentReview(world)
-      const { mandate, head, range } = prepared
-      const nativeGraph = prepared.observation.graph
-      const external = prepared.observation.histories.filter((item) => item.source.scope.target !== original.target)
-      const historicalManifest = { ...prepared.inputs.manifest, deliveryData: [] }
-      const historicalInputs = {
-        ...prepared.inputs,
-        manifest: historicalManifest,
-        fingerprint: actionInputDigest(historicalManifest),
-      }
-      const inputs = scenario === 'current' ? prepared.inputs : historicalInputs
-      const graph =
-        scenario === 'current'
-          ? criterionEpicReviewGraph({
-              mandate,
-              inputs: prepared.inputs,
-              head,
-              range,
-              issueRecords: prepared.issueRecords,
-              coverageReferences: prepared.coverageReferences,
-              prefix: 'same-scope-finalization',
-              blocking: true,
-            })
-          : epicReviewGraph({
-              inputs: historicalInputs,
-              head,
-              range,
-              scope: original,
-              prefix: 'same-scope-finalization',
-            })
-      if (inputs.manifest.spec.kind !== 'accepted') throw new Error('accepted fixture required')
-      const effective = inputs.manifest.spec.effective
-      const projection = committedFixtureProjection(import.meta.dirname, inputs)
-      let history = encodeCriterionRecords(
-        graph.records.filter((record) => record.recordId !== graph.decision.recordId && record.kind !== 'review'),
-        original,
-        projection,
-        'operator',
-        external,
-        prepared.history,
-      ).history
-      const identity = {
-        runId: 'same-scope-run',
-        operationId: 'same-scope-operation',
-        nextRecordId: (kind: string) => `same-scope-${kind}`,
-      }
-      const store: FixDispositionStore = {
-        catalogues: async () => projection.catalogues,
-        read: async () => ({ ok: true, value: [history, ...external] }),
-        publish: async (record) => {
-          history = encodeCriterionRecords([record], original, projection, 'operator', external, history).history
-          const operation = history.operations.find((item) => item.recordId === record.recordId)
-          if (operation?.status !== 'complete' || operation.record === null)
-            throw new Error(`disposition-readback-missing:${record.recordId}`)
-          return { status: 'confirmed', operation }
-        },
-      }
-      const child: NativeChildResult = {
-        id: 'synthesis-child',
-        expectedId: 'synthesis',
-        submissions: [],
-        proofEvidence: null,
-        raw: {},
-        partialText: null,
-        structured: graph.decision.payload.judgment,
-        usable: true,
-        reason: null,
-      }
-      const confirmed: string[] = []
-      let dispositionIds: string[] = []
-      let identitySequence = 0
-      await finalizeReview({
-        review: {
-          context: { subject: { kind: 'epic-range', range }, candidateGitSHA: head, input: graph.root.payload.input },
-          policy: { version: 'baseline' },
-          canonicalClasses: [],
-          authorize: async () => ({ ok: true }),
-        },
-        identity: {
-          runId: identity.runId,
-          operationId: identity.operationId,
-          next: (kind) => (kind === 'decision' ? graph.decision.recordId : `same-scope-${kind}-${++identitySequence}`),
-        },
-        scope: original,
-        contributions: [{ id: graph.synthesisContribution.recordId, child }],
-        inventories: [graph.root.recordId, graph.synthesis.recordId],
-        canContinue: () => true,
-        readHistory: async () => history,
-        publish: async (record) => {
-          history = encodeCriterionRecords([record], original, projection, 'operator', external, history).history
-          const operation = history.operations.find((item) => item.recordId === record.recordId)
-          expect(
-            operation?.status,
-            JSON.stringify({
-              recordId: record.recordId,
-              operationId: record.operationId,
-              operation,
-              operations: history.operations,
-              diagnostics: history.diagnostics,
-              sourceDiagnostics: history.source.diagnostics,
-            }),
-          ).toBe('complete')
-        },
-        persistDecision: async (decision) => {
-          const result = await persistCauseDispositions(
-            {
-              causeContext: { original, effective },
-              capture: { kind: 'action', input: synthesisActionCapture(decision, [history, ...external]) },
-              graph: nativeGraph,
-            },
-            { kind: 'decision', decision },
-            identity,
-            store,
-          )
-          if (!result.ok) throw new Error(`review-disposition-refused:${result.diagnostics.join(',')}`)
-          const fresh = validateFreshDecision(
-            decision,
-            history,
-            projection.catalogues,
-            null,
-            external,
-            history,
-            result.value.refs,
-          )
-          expect(fresh).toMatchObject({ ok: true, value: { admissible: true } })
-          dispositionIds = result.value.refs.map((ref) => ref.recordId)
-          return result.value.refs
-        },
-        retainFailedSynthesis: async () => {
-          throw new Error('unexpected failed synthesis')
-        },
-        readExternalHistories: async () => ({ ok: true, value: external }),
-        loadCatalogues: async () => projection.catalogues,
-        onDecisionConfirmed: (id) => {
-          confirmed.push(id)
-        },
-      })
-      expect(dispositionIds).toHaveLength(1)
-      expect(
-        recordsOf(history)
-          .filter((record) => record.kind === 'cause-disposition')
-          .map((record) => record.recordId),
-      ).toEqual(dispositionIds)
-      expect(confirmed).toEqual([graph.decision.recordId])
-      expect(recordsOf(history).some((record) => record.kind === 'review')).toBe(scenario === 'current')
-    },
-  )
-})
-
-it('publishes an independently reviewed empty Parent integration through the production finalizer', async () => {
-  await withEpicNativeFinalReview(async (proof) => {
-    const { base, head, referenceCommit } = proof.input.manifest.code
-    expect(proof.range).toBe(`${base}..${head}`)
-    expect(base).toBe(head)
-    expect(referenceCommit).toBe(head)
-    expect(proof.initialTasks.map((task) => task.agent)).toEqual(
-      expect.arrayContaining(['R-review-spec', 'R-review-adversarial']),
-    )
-    expect(proof.completion).toMatchObject({ state: 'complete', role: 'parent' })
-    expect(proof.input.manifest.deliveryData).toContainEqual({ ...proof.integration, role: 'integration' })
-  })
-})
 
 describe('review decision disposition ingress', () => {
   it('retains the nonblocking report while incomplete criterion admission requests changes', async () => {

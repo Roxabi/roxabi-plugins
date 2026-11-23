@@ -1,4 +1,9 @@
 import { expect, it, vi } from 'vitest'
+import {
+  assessFixture,
+  mandateAssessmentState,
+  proposedAssessmentState,
+} from '../../engine/__tests__/workflow-spec-assessment-support.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { resolvePublication } from '../feature-action-publication-context.ts'
 import { loadContracts } from '../feature-engine.ts'
@@ -15,10 +20,14 @@ it('reports an unavailable causal read as unreadable, not as an invalid resoluti
   const fixtures = roxabiWorkflowFixtures()
   const scope = { repository: 'acme/app', target: 'acme/app#42' }
   const mandate = fixtures.featureMandate(scope)
-  const opened = fixtures.planDraftRecords(mandate)[0]
-  if (opened === undefined) throw new Error('Missing plan START fixture')
+  const accepted = mandateAssessmentState(mandate)
+  const proposed = proposedAssessmentState(accepted, { body: 'Changed proposal' })
+  const { start: opened } = assessFixture(mandate, 'assessment-start', accepted, proposed, 'material', [
+    fixtures.historyFrom([mandate]),
+  ])
   const history = fixtures.historyFrom([mandate, opened])
   const startResolution = vi.fn()
+  if (opened.kind !== 'action-receipt' || opened.payload.phase !== 'start') throw new Error('Missing assessment START')
   const readComposedWorkflowHistory = vi.fn(async (..._args: unknown[]) => ({ ok: true, histories: [history] }))
   vi.mocked(loadContracts).mockResolvedValue({
     readComposedWorkflowHistory,

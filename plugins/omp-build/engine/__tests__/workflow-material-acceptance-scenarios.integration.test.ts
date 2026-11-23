@@ -1,50 +1,23 @@
 import { describe, expect, test } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
-import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { parseRecord } from '../record-construction.ts'
 import { resolveSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
-import type { MandateRecord } from '../workflow-control.ts'
 import {
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from '../workflow-material-acceptance.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import { materialAcceptanceDigest } from '../workflow-spec-assessment.ts'
 import {
   acceptMaterialFixture,
   assessFixture,
   mandateAssessmentState,
-  type ProposedAssessmentState,
   proposedAssessmentState,
 } from './workflow-spec-assessment-support.ts'
-import { BODY, facts, featureMandate, history, must, SCOPE } from './workflow-test-support.ts'
-
-function decisions() {
-  return {
-    reviewStep: null,
-    epicStep: null,
-    epicLand: null,
-    ciWatchStatus: null,
-    publish: { status: 'absent' as const, evidence: [] },
-    landing: { status: 'absent' as const, evidence: [] },
-    watch: { status: 'absent' as const, evidence: [] },
-  }
-}
-
-function currentFacts(mandated: MandateRecord, currentSpec: ProposedAssessmentState) {
-  return facts({
-    productVersion: mandated.payload.config.productVersion,
-    configVersion: mandated.payload.config.version,
-    configDigest: mandated.payload.config.digest,
-    supportedConfigVersions: [mandated.payload.config.version],
-    currentSpec,
-    identityAllocations: mandated.payload.ownSpec.identityAllocations,
-  })
-}
+import { BODY, featureMandate, history, must, SCOPE } from './workflow-test-support.ts'
 
 describe('workflow material acceptance scenarios', () => {
   test.each(['conflicting', 'undetermined'] as const)(
@@ -101,7 +74,7 @@ describe('workflow material acceptance scenarios', () => {
     },
   )
 
-  test('keeps unknown assessments operator-decidable and binds material acceptance to its exact proposal', async () => {
+  test('keeps unknown assessments operator-decidable and binds material acceptance to its exact proposal', () => {
     const initialBody = strictSpecBody(BODY)
     const unknownBody = strictSpecBody('unknown body')
     const original = parseIssueSpecBody({
@@ -144,34 +117,7 @@ describe('workflow material acceptance scenarios', () => {
       [history([mandated])],
     )
     const issue = history([mandated, unknown.start, unknown.result])
-    const causal = await observeFixtureNativeWorld({
-      root: SCOPE,
-      nodes: [
-        {
-          scope: SCOPE,
-          title: 'Bounded workflow',
-          body: unknownBody,
-          updatedAt: '2026-10-21T00:00:00Z',
-          labels: ['size:S'],
-          parent: null,
-          children: [],
-          blockers: [],
-          state: 'OPEN',
-          stateReason: null,
-        },
-      ],
-      histories: [issue],
-      pullRequests: [],
-      commits: [],
-      comparisons: [],
-    })
-    expect(
-      reconstructWorkflow({
-        evidence: { issue, pullRequest: null, parents: [], causal },
-        facts: currentFacts(mandated, unknown.proposed),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'spec-decision-required' })
+    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: true, spec: { ref: initial.ref } })
     const unknownControl = acceptMaterialFixture(mandated, 'accept-unknown', unknown)
     expect(
       resolveAcceptedSpec(mandated, [history([mandated, unknown.start, unknown.result, unknownControl])]),

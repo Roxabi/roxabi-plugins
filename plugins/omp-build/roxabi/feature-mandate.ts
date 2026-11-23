@@ -1,10 +1,10 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:1999-2007,2158-2225
 import { randomUUID } from 'node:crypto'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
-import type { MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import { baseFromStack } from '../skills/feature/epic-ci.ts'
 import { type Contracts, type History, publishRecord, type Scope } from './feature-engine.ts'
 import type { InitialMandateCheckout } from './feature-initial-checkout.ts'
+import type { LeafOwnSpec } from './feature-initial-own-spec.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
 import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
@@ -26,9 +26,7 @@ export async function publishFirstMandate(
   contracts: Contracts,
   history: History,
   scope: Scope,
-  initial: Pick<MandatePayload, 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'> & {
-    parent: ExternalRecordRef | null
-  },
+  initial: LeafOwnSpec & { parent: ExternalRecordRef | null },
   checkout: InitialMandateCheckout,
   git: GitRunner,
   gh: Gh,
@@ -54,7 +52,7 @@ export async function publishFirstMandate(
       operationId: randomUUID(),
       kind: 'mandate',
       payload: {
-        role: checkout.kind === 'parent' ? 'epic' : 'feature',
+        role: 'feature',
         format: 'omp-build-mandate/4',
         branch,
         base,
@@ -69,9 +67,9 @@ export async function publishFirstMandate(
         antecedent: null,
         ownSpec: initial.ownSpec,
         tier: initial.tier,
-        children: initial.children,
+        children: [],
         inheritedOwnSpecRefs: initial.inheritedOwnSpecRefs,
-        coverage: initial.coverage,
+        coverage: null,
         permissions: { landing: true, correct: true },
         run: randomUUID().slice(0, 8),
       },

@@ -1,11 +1,10 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, test } from 'vitest'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
-import { startImplement } from '../../roxabi/feature-action-start.ts'
-import { loadContracts } from '../../roxabi/feature-engine.ts'
-import { publishFeatureNativeResult } from '../../roxabi/feature-result.ts'
+import { publishNonImplementResult } from '../../roxabi/feature-action-result.ts'
 import { readAssessmentSpecFacts } from '../../roxabi/uw-current-facts.ts'
-import { continueFeature } from '../../roxabi/workflow.ts'
+import { openHistoricalAssessment } from '../../testing/native-assessment-history.ts'
+import { openHistoricalDelivery } from '../../testing/native-history-records.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { captureNativePlanBatch } from '../../testing/native-plan-capture.ts'
 import { produceNativePlan } from '../../testing/native-plan-producer.ts'
@@ -71,21 +70,14 @@ describe('captured parent integration during material assessment', () => {
           expect(inspectCapturedWorkForAssessment(before, world.parent).ok).toBe(true)
           const initial = parentCheckout.observe()
           async function assertOpenIntegration() {
-            const loaded = await loadContracts()
-            if ('missing' in loaded) throw new Error(`Missing engine ${loaded.missing}`)
-            const opened = await startImplement(
-              loaded,
-              before,
-              before.issue,
-              world.parentScope,
-              { body: world.parent.payload.ownSpec.snapshot.raw.body },
-              world.git,
-              world.gh,
-              parentCheckout.cwd,
-              world.parent,
-              world.operations,
-            )
-            expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'integrate' })
+            await openHistoricalDelivery({
+              world: planWorld,
+              scope: world.parentScope,
+              mandate: world.parent,
+              read: planned.read,
+              action: 'integrate',
+              code: { repository: world.parentScope.repository, base: base, head: base, referenceCommit: base },
+            })
             const pending = await world.operations.readUw(world.parentScope)
             expect(inspectCapturedWorkForAssessment(evidence(pending, world.parentScope, []), world.parent).ok).toBe(
               false,
@@ -163,7 +155,7 @@ describe('captured parent integration during material assessment', () => {
             resolutions: [],
           }
           const plan = await produceNativePlan({
-            world: { cwd: parentCheckout.cwd, gh: world.gh, git: world.git, operations: world.operations },
+            world: { cwd: parentCheckout.cwd, gh: world.gh, operations: world.operations },
             scope: world.parentScope,
             mandate: world.parent,
             parentScopes: [],
@@ -221,28 +213,15 @@ describe('captured parent integration during material assessment', () => {
           }
           const proposedCoverage = coverageProposal()
           expect(canonicalValueDigest(proposedCoverage)).not.toBe(canonicalValueDigest(old.accepted.value.coverage))
-          async function startAssessment() {
-            const started = await continueFeature({
-              cwd: parentCheckout.cwd,
-              reference: '200',
-              control: 'continue',
-              principal: false,
-              git: world.git,
-              gh: world.gh,
-              uw: world.operations,
-              parentCoverage: proposedCoverage,
-              parentCoverageBasis: request,
-            })
-            if (started.kind !== 'action' || started.node !== 'assess-spec')
-              throw new Error(`Parent metadata assessment did not start: ${JSON.stringify(started)}`)
-            const task = started.followUp.tasks.tasks[0]
-            const operands = task?.action.inputs.manifest.operands
-            if (!task || operands?.action !== 'assess-spec' || operands.origin.kind !== 'native-current')
-              throw new Error('Parent metadata assessment lacks sealed native operands')
-            const exact = operands.exactInputs
-            return { started, task, exact }
-          }
-          const { started, task, exact } = await startAssessment()
+          const started = await openHistoricalAssessment({
+            world: { ...world, cwd: parentCheckout.cwd },
+            scope: world.parentScope,
+            mandate: world.parent,
+            commit: base,
+            coverage: proposedCoverage,
+            basis: request,
+          })
+          const { task, exact } = started
           function assessmentJudgment(): SpecAssessment {
             const constraints = [
               ...acceptedConstraints(exact.accepted.ref, exact.accepted.snapshot.spec, true),
@@ -283,12 +262,11 @@ describe('captured parent integration during material assessment', () => {
               },
               claims: [{ task: task.name, childId: 'parent-coverage-assessment', value: judgment }],
             })
-            const published = await publishFeatureNativeResult({
+            const published = await publishNonImplementResult({
               cwd: parentCheckout.cwd,
               start: started.start,
               result: captured,
               gh: world.gh,
-              git: world.git,
             })
             if (!published.published)
               throw new Error(`Parent metadata publication refused: ${JSON.stringify(published)}`)

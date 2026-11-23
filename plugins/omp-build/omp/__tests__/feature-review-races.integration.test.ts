@@ -4,10 +4,9 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { arrangeReviewFixture, seedReviewFixture } from '../../testing/feature-review-fixture.ts'
-import { readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
-const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
+const RUNNER = path.resolve(import.meta.dirname, 'native-review-integration-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const roots = new Set<string>()
 
@@ -27,7 +26,7 @@ async function seed(...args: Parameters<typeof seedReviewFixture>): Promise<void
 }
 
 function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
-  const run = spawnSync(BUN, [RUNNER, operation, cwd, '{}'], {
+  const run = spawnSync(BUN, [RUNNER, operation, cwd], {
     cwd,
     env: box.env,
     encoding: 'utf8',
@@ -37,10 +36,10 @@ function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout) as {
     active: unknown
-    fixRun?: unknown
     ownerReleasedBeforePost?: boolean
     driverPendingBeforeRelease?: boolean
-    ownerReleased?: boolean
+    refusal?: string
+    ingressHeld?: boolean
     hold?: string
     seeded?: { precondition: { complete: boolean; action: string; requests: number } }
     before?: Array<{ kind: string; recordId: string }>
@@ -49,8 +48,6 @@ function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
     issueAfter?: Array<{ kind: string; recordId: string }>
     messages: string[]
     precondition: { complete: true; requests: number; action?: string }
-    pause?: { postRefused: boolean; operatorControls: number; ghAvailable: boolean; joinedBeforeRelease: boolean }
-    settlementErrors?: string[]
     summary?: { complete: boolean; reviews: number; action: string; reason: string }
     records: Array<{ kind: string; recordId: string; payload: { control?: string } }>
     issueRecords: Array<{ kind: string; recordId: string; payload: { control?: string } }>
@@ -58,45 +55,22 @@ function invoke(box: Box, cwd: string, operation: string, timeout = 30_000) {
 }
 
 describe('review continuation races', () => {
-  it('does not activate a correction after a complete third canonical request-changes review', async () => {
+  it('refuses another native review after three canonical request-changes reviews', async () => {
     const { box, cwd } = arrange()
     await seed(box, cwd)
-    const observed = invoke(box, cwd, 'omp-review-race-latest', 60_000)
-    expect(observed.precondition).toEqual({ complete: true, requests: 1 })
+    const observed = invoke(box, cwd, 'latest', 60_000)
+    expect(observed.refusal).toBe('review-not-authorized:stop')
     expect(observed.summary).toEqual({ complete: true, reviews: 3, action: 'stop', reason: 'review-bound' })
     expect(observed.active).toBeNull()
-    expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(1)
+    expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(0)
     expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
   }, 120_000)
-
-  it('does not start a correction after local pause inhibits a checkout-blocked continuation', async () => {
-    const { box, cwd } = arrange()
-    await seed(box, cwd)
-    const observed = invoke(box, cwd, 'omp-review-race-pause')
-    expect(observed.precondition).toEqual({ complete: true, action: 'fix', requests: 0 })
-    expect(observed.pause).toEqual({
-      postRefused: true,
-      operatorControls: 0,
-      ghAvailable: true,
-      joinedBeforeRelease: true,
-    })
-    expect(observed.settlementErrors).toEqual([
-      'review-stopped:session-stop',
-      'review-stopped:settlement-failed:review-stopped:session-stop',
-    ])
-    expect(observed.active).toBeNull()
-    expect(observed.fixRun).toBeUndefined()
-    expect(observed.records.some((record) => record.kind === 'fix-request')).toBe(false)
-    expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
-    const comments = readSim(box).issues['42']?.comments ?? []
-    expect(comments.some((comment) => comment.body.includes('operator-control'))).toBe(false)
-  })
 
   it('joins a real owned Fix preflight before publishing a durable pause', async () => {
     const { box, cwd } = arrange()
     await seed(box, cwd)
-    const observed = invoke(box, cwd, 'omp-review-race-owned-pause', 60_000)
-    expect(observed.precondition).toEqual({ complete: true, requests: 1 })
+    const observed = invoke(box, cwd, 'owned-pause', 60_000)
+    expect(observed.precondition).toEqual({ complete: true, requests: 0 })
     expect(observed.driverPendingBeforeRelease).toBe(true)
     expect(observed.ownerReleasedBeforePost).toBe(true)
     expect(
@@ -104,18 +78,18 @@ describe('review continuation races', () => {
         (record) => record.kind === 'operator-control' && record.payload.control === 'pause-confirmed',
       ),
     ).toBe(true)
-    expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(1)
+    expect(observed.records.filter((record) => record.kind === 'fix-request')).toHaveLength(0)
     expect(observed.records.some((record) => record.kind === 'fix-result')).toBe(false)
     expect(observed.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))).toHaveLength(2)
   }, 120_000)
 
-  it('holds a direct classified Feature paused during real pre-owner Fix ingress', async () => {
+  it('does not claim a durable pause while real pre-owner Fix ingress is unjoinable', async () => {
     const { box, cwd } = arrange()
     await seed(box, cwd)
-    const observed = invoke(box, cwd, 'omp-classified-ingress-race', 90_000)
+    const observed = invoke(box, cwd, 'classified-ingress', 90_000)
     expect(observed.seeded?.precondition).toEqual({ complete: true, action: 'fix', requests: 0 })
     expect(observed.hold).toContain('feature-fix-ingress-unjoined')
-    expect(observed.ownerReleased).toBe(true)
+    expect(observed.ingressHeld).toBe(true)
     expect(observed.before?.some((record) => record.kind === 'fix-request')).toBe(false)
     const correction = (records: Array<{ kind: string; recordId: string }> | undefined) =>
       records?.filter((record) =>

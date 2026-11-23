@@ -64,7 +64,7 @@ export async function invokeClassifiedIngressRace(cwd: string) {
   const seeded = { precondition }
   const issueBefore = await readReviewHistory(cwd, 42)
   if (!issueBefore.source.complete) throw new Error('issue-history-incomplete-before-ingress')
-  const driver = await createReviewDriver(cwd, 128_000, 'feature', false, true)
+  const driver = await createReviewDriver(cwd, 128_000, 'fix-pr', false, true)
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
   const root = mkdtempSync(path.join(path.dirname(state), 'omp-ingress-gh-'))
@@ -86,7 +86,7 @@ export async function invokeClassifiedIngressRace(cwd: string) {
   let beginning: Promise<void> | undefined
   try {
     const blocked = waitFor(started)
-    beginning = driver.beginFeature()
+    beginning = driver.startFix()
     const state = () =>
       JSON.stringify({
         messages: driver.messages,
@@ -116,10 +116,10 @@ export async function invokeClassifiedIngressRace(cwd: string) {
     const hold = driver.messages.find((message) => message.includes('feature-fix-ingress-unjoined'))
     if (hold === undefined) throw new Error(`explicit-ingress-hold-missing:${JSON.stringify(driver.messages)}`)
     if (!driver.hasFixIngress() || driver.fixRun() !== undefined) throw new Error('ingress-released-before-viewer')
-    writeFileSync(release, 'release\n')
-    await beginning
-    if (driver.hasFixIngress() || driver.fixRun() !== undefined || driver.controller.active() !== null)
-      throw new Error('ingress-activated-owner-after-pause')
+    const messages = [...driver.messages]
+    // The owned ingress subprocess already captured its token; use the reader's token for history.
+    if (originalToken === undefined) delete process.env.GH_TOKEN
+    else process.env.GH_TOKEN = originalToken
     const after = (await history(cwd)).operations.flatMap((item) => (item.record ? [item.record] : []))
     const issueAfter = await readReviewHistory(cwd, 42)
     if (!issueAfter.source.complete) throw new Error('issue-history-incomplete-after-ingress')
@@ -130,12 +130,13 @@ export async function invokeClassifiedIngressRace(cwd: string) {
       after,
       issueBefore: issueBefore.operations.flatMap((item) => (item.record ? [item.record] : [])),
       issueAfter: issueAfter.operations.flatMap((item) => (item.record ? [item.record] : [])),
-      messages: driver.messages,
-      ownerReleased: true,
+      messages,
+      ingressHeld: true,
     }
   } finally {
     writeFileSync(release, 'release\n')
     if (beginning !== undefined) await beginning.catch(() => {})
+    if (driver.fixRun() !== undefined) await driver.pauseFeature()
     await driver.controller.stop('race-cleanup')
     restoreIngressEnvironment(originalPath, originalToken)
     rmSync(root, { recursive: true, force: true })

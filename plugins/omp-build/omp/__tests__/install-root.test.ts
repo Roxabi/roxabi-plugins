@@ -2,11 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { FeatureWorkflow } from '../../roxabi/feature-contract'
-import { rememberFeatureOwner } from '../../roxabi/feature-host-ownership'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
+import { featureCommandContext } from './feature-command-fixture.ts'
 
 const rootContext = {
   cwd: '/repo/feature',
@@ -57,15 +56,6 @@ function installed(options: InstallRootOptions) {
   return { commands, handlers, pi, sent }
 }
 
-function featureWorkflow(): FeatureWorkflow {
-  return {
-    continueFeature: async () => ({ kind: 'blocked', reason: 'fixture' }),
-    consumeWatchExit: async () => ({ kind: 'blocked', reason: 'fixture' }),
-    publishFeatureNativeResult: async () => ({ published: false, retained: false, reason: 'fixture' }),
-    requestFeatureSessionPause: async () => ({ kind: 'paused', confirmed: false, reason: 'fixture' }),
-  }
-}
-
 describe('replaced omp-build install roots', () => {
   it('tells a skill command that its loaded install root was replaced', async () => {
     const installRoot = temporaryInstallRoot()
@@ -104,18 +94,17 @@ describe('replaced omp-build install roots', () => {
     expect(host.sent).toEqual([])
   })
 
-  it('reports the replaced root rather than workflow unavailability for an active feature', async () => {
+  it('reports the replaced root when invoking /feature', async () => {
     const installRoot = temporaryInstallRoot()
     rmSync(installRoot, { recursive: true })
-    const host = installed({ installRoot, featureWorkflow: featureWorkflow() } as InstallRootOptions)
-    rememberFeatureOwner(host.pi, { cwd: rootContext.cwd, reference: '#916', pausable: true })
+    const host = installed({ installRoot })
 
-    await host.handlers.get('session_shutdown')?.({}, rootContext)
+    const context = { ...rootContext, ...featureCommandContext(rootContext.cwd) }
+    await host.commands.get('feature')?.handler('#916', context)
 
     expect(host.sent).toHaveLength(1)
     expect(host.sent[0]).toContain(installRoot)
     expect(host.sent[0]).toMatch(/replaced/i)
     expect(host.sent[0]).toMatch(/restart/i)
-    expect(host.sent[0]).not.toContain('feature-workflow-unavailable')
   })
 })

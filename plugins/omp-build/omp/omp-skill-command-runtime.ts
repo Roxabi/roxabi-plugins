@@ -10,7 +10,7 @@ function stripFrontmatter(markdown: string): string {
   return markdown.slice(end + 5)
 }
 
-async function readSkillBody(
+export async function readSkillBody(
   pi: OmpBuildExtensionApi,
   name: string,
   skillPath: string,
@@ -30,6 +30,20 @@ async function readSkillBody(
     )
     return undefined
   }
+}
+
+export async function sendSkillMessage(
+  pi: OmpBuildExtensionApi,
+  skillDir: string,
+  raw: string,
+  context: string,
+  banner = '',
+): Promise<void> {
+  await pi.sendUserMessage(
+    [banner, stripFrontmatter(raw).trim(), '', `[Skill directory: ${skillDir}]`, context ? `\n${context}` : '']
+      .join('\n')
+      .trim(),
+  )
 }
 
 export function registerSkillCommand(
@@ -52,11 +66,7 @@ export function registerSkillCommand(
       const banner = missing.length
         ? `> **\`/${name}\` is partially installed**: ${missing.map((requiredSkill) => `\`${requiredSkill}\``).join(', ')} — no SKILL.md under ${skillsDir}. Every step of this body that names one of those stops there. Reinstall omp-build.\n`
         : ''
-      const body = stripFrontmatter(raw).trim()
-      const trimmedArgs = args.trim()
-      await pi.sendUserMessage(
-        [banner, body, '', `[Skill directory: ${skillDir}]`, trimmedArgs ? `\n${trimmedArgs}` : ''].join('\n').trim(),
-      )
+      await sendSkillMessage(pi, skillDir, raw, args.trim(), banner)
     },
   })
 }

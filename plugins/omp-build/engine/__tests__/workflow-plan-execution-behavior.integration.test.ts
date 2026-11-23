@@ -8,17 +8,13 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { authenticatedPlanFixtures } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord } from '../record-construction.ts'
-import type { Scope } from '../record-values.ts'
 import { resolveSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
-import type { SpecializedDecisions } from '../workflow-reconstruction-types.ts'
-import { implementationStart } from './workflow-implementation-support.ts'
 import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
-import { binding, facts, history, must, SCOPE } from './workflow-test-support.ts'
+import { history, must, SCOPE } from './workflow-test-support.ts'
 
 async function planEvidence(
   issue: DecodedHistory,
@@ -214,152 +210,6 @@ describe('workflow plan execution behavior', () => {
       draftActionId: 'act-plan-b',
       reviewActionId: 'act-plan-review-b',
     })
-    const workflowFacts = facts({
-      productVersion: mandated.payload.config.productVersion,
-      currentSpec: editorial.proposed,
-      identityAllocations: mandated.payload.ownSpec.identityAllocations,
-      configVersion: mandated.payload.config.version,
-      configDigest: mandated.payload.config.digest,
-      supportedConfigVersions: [mandated.payload.config.version],
-    })
-    const workflowDecisions: SpecializedDecisions = {
-      reviewStep: null,
-      epicStep: null,
-      epicLand: null,
-      ciWatchStatus: null,
-      publish: { status: 'absent', evidence: [] },
-      landing: { status: 'absent', evidence: [] },
-      watch: { status: 'absent', evidence: [] },
-    }
-    const currentReady = history(eligibleRecords)
-    const currentSeed = await planEvidence(currentReady, null, currentBody, [])
-    if (currentSeed.causal.observation.graph.status !== 'complete') throw new Error('Expected complete current graph')
-    const currentWorld = await nativeImplementationWorld({
-      graph: currentSeed.causal.observation.graph,
-      histories: [currentReady],
-      scope: SCOPE,
-      mandate: mandated,
-      author: 'operator',
-      startHead: 'b'.repeat(40),
-      head: 'a'.repeat(40),
-      baseTip: 'b'.repeat(40),
-      remoteTipBefore: 'b'.repeat(40),
-      remoteTipAfter: 'a'.repeat(40),
-      pullRequestsBefore: [],
-      pullRequestsAfter: [],
-      comparisons: [],
-      commits: [
-        {
-          sha: 'b'.repeat(40),
-          parents: [],
-          tree: 'd'.repeat(40),
-          subject: 'fixture base',
-          paths: ['fixture.txt'],
-          config: null,
-        },
-        {
-          sha: 'a'.repeat(40),
-          parents: ['b'.repeat(40)],
-          tree: 'c'.repeat(40),
-          subject: 'feat: implement fixture (#42)',
-          paths: ['fixture.txt'],
-          config: null,
-        },
-      ],
-      branch: 'feature/bounded',
-      command: 'bun test',
-      output: 'PASS',
-    })
-    const currentImplementationStart = recordsOf(currentWorld.history).find(
-      (record) => record.kind === 'action-receipt' && record.recordId === currentWorld.opened.start.recordId,
-    )
-    if (!currentImplementationStart) throw new Error('Expected the published implementation START')
-    const currentImplementation = reconstructWorkflow({
-      evidence: await planEvidence(currentReady, null, currentBody, []),
-      facts: workflowFacts,
-      decisions: workflowDecisions,
-    })
-    expect(currentImplementation).toMatchObject({ status: 'action', action: 'implement' })
-
-    const unmatchedOldStart = implementationStart(mandated, 'act-implement-open', 'act-plan-a')
-    const oldUncertain = reconstructWorkflow({
-      evidence: await planEvidence(
-        history([
-          mandated,
-          editorial.start,
-          editorial.result,
-          oldStart,
-          oldResult,
-          oldReviewStart,
-          oldReview,
-          unmatchedOldStart,
-        ]),
-        null,
-        currentBody,
-        [],
-      ),
-      facts: workflowFacts,
-      decisions: workflowDecisions,
-    })
-    expect(oldUncertain).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-
-    const currentUncertain = reconstructWorkflow({
-      evidence: await planEvidence(history([...eligibleRecords, currentImplementationStart]), null, currentBody, []),
-      facts: workflowFacts,
-      decisions: workflowDecisions,
-    })
-    expect(currentUncertain).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-
-    const published = reconstructWorkflow({
-      evidence: await planEvidence(currentWorld.history, null, currentBody, []),
-      facts: workflowFacts,
-      decisions: workflowDecisions,
-    })
-    expect(published).toMatchObject({ status: 'action', action: 'publish' })
-    const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
-    const boundPull = history([binding(mandated, pull)], pull)
-    const review = reconstructWorkflow({
-      evidence: await planEvidence(
-        currentWorld.history,
-        boundPull,
-        currentBody,
-        [
-          {
-            scope: pull,
-            branch: 'feature/bounded',
-            base: 'main',
-            head: 'a'.repeat(40),
-            baseTip: 'b'.repeat(40),
-            state: 'OPEN',
-            mergeCommit: null,
-            author: 'operator',
-          },
-        ],
-        {
-          commits: [
-            { repository: SCOPE.repository, sha: 'b'.repeat(40), parents: [] },
-            { repository: SCOPE.repository, sha: 'a'.repeat(40), parents: ['b'.repeat(40)] },
-          ],
-          comparisons: [
-            {
-              repository: SCOPE.repository,
-              base: 'b'.repeat(40),
-              head: 'a'.repeat(40),
-              status: 'ahead',
-              commits: ['a'.repeat(40)],
-            },
-          ],
-        },
-      ),
-      facts: {
-        ...workflowFacts,
-        candidateGitSHA: 'a'.repeat(40),
-        pullRequest: { scope: pull, head: 'feature/bounded', base: 'main', associatedIssue: SCOPE },
-      },
-      decisions: { ...workflowDecisions, publish: { status: 'published', evidence: [] } },
-    })
-    expect(review, JSON.stringify(review, null, 2)).toMatchObject({ status: 'action', action: 'review' })
-
     const mandateRef = { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' as const }
     const abandoned = must(
       buildRecord({
@@ -418,23 +268,6 @@ describe('workflow plan execution behavior', () => {
       phase: 'needs-draft',
       draftActionId: null,
     })
-    const [antecedentOpenPlanStart] = workflow.planDraftRecords(mandated, 'act-plan-open', originalVersion)
-    const antecedentUncertain = reconstructWorkflow({
-      evidence: await planEvidence(
-        history([mandated, antecedentOpenPlanStart, abandoned, successor, selectedSuccessor]),
-        null,
-        originalBody,
-        [],
-      ),
-      facts: facts({
-        productVersion: mandated.payload.config.productVersion,
-        configVersion: mandated.payload.config.version,
-        configDigest: mandated.payload.config.digest,
-        supportedConfigVersions: [mandated.payload.config.version],
-      }),
-      decisions: workflowDecisions,
-    })
-    expect(antecedentUncertain).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
 
     const broken = assessFixture(
       mandated,

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { decodeHistory } from '../../../adapters/github/history-codec.ts'
 import { canonicalValueDigest } from '../../../engine/action-input.ts'
 import type { ActionInputs } from '../../../engine/action-input-schema.ts'
@@ -9,11 +8,8 @@ import { resolveSpecEffective } from '../../../engine/spec-effective.ts'
 import type { SpecEffective } from '../../../engine/spec-effective-schema.ts'
 import { resolveAcceptedSpec } from '../../../engine/workflow-accepted-spec.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
-import type { WorkflowGraph } from '../../../engine/workflow-graph.ts'
 import type { PlanOutput } from '../../../engine/workflow-output-schema.ts'
-import type { WorkflowFacts } from '../../../engine/workflow-reconstruction-types.ts'
 import { pinAcceptedSources } from '../../../roxabi/uw-action-observe.ts'
-import { canonicalJson, configPinDigest, effectiveWorkflowConfig } from '../../../roxabi/workflow-config-digest.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
 
 const WORKFLOW_FIXTURES = roxabiWorkflowFixtures()
@@ -41,98 +37,18 @@ export function blank(scope: Scope = SCOPE): DecodedHistory {
   })
 }
 
-export function nodeGraph(action: 'implement' | 'stop' | 'fix' | 'review'): WorkflowGraph {
-  const { config } = fixtureConfig()
-  return {
-    version: 1,
-    productVersion: config.productVersion,
-    configVersion: config.version,
-    edgeOrder: 'array',
-    nodes: [
-      { id: 'ready', action: 'stop' },
-      { id: action, action },
-    ],
-    edges: [{ from: 'ready', to: action, when: 'always' }],
-    initial: 'ready',
-  }
-}
-
-export function graphConfig(action: 'implement' | 'stop' | 'fix' | 'review') {
-  const { config } = fixtureConfig()
-  const graph = nodeGraph(action)
-  const effective = {
-    ...effectiveWorkflowConfig(config.productVersion, []),
-    graph,
-    graphDigest: createHash('sha256')
-      .update(canonicalJson({ version: graph.configVersion, nodes: graph.nodes, edges: graph.edges }))
-      .digest('hex'),
-  }
-  return { version: config.version, digest: configPinDigest(effective), effective }
-}
-
-export function decisions(reviewStep: 'stop' | null = null, ciWatchStatus: 'green' | null = null) {
-  return {
-    reviewStep,
-    epicStep: null,
-    epicLand: null,
-    ciWatchStatus,
-    publish: { status: 'absent' as const, evidence: [] },
-    landing: { status: 'absent' as const, evidence: [] },
-    watch: { status: 'absent' as const, evidence: [] },
-  }
-}
-
-export function facts(
-  mandate: MandateRecord | null,
-  overrides: Partial<Pick<WorkflowFacts, 'sessionCwd'>> = {},
-): WorkflowFacts {
+export function landingConfigFacts(mandate: MandateRecord | null) {
   const config = mandate?.payload.config ?? fixtureConfig().config
   return {
-    currentSpec:
-      mandate === null
-        ? null
-        : {
-            snapshot: mandate.payload.ownSpec.snapshot,
-            tier: mandate.payload.tier,
-            children: mandate.payload.children,
-            inheritedOwnSpecRefs: mandate.payload.inheritedOwnSpecRefs,
-            coverage: mandate.payload.coverage,
-          },
-    identityAllocations: mandate?.payload.ownSpec.identityAllocations ?? null,
-    base: mandate?.payload.base ?? 'main',
-    candidateGitSHA: HEAD,
-    pullRequest: null,
-    merged: false,
-    sessionCwd: overrides.sessionCwd === undefined ? '/tmp/prepared-worktree' : overrides.sessionCwd,
-    preparedWorktree: '/tmp/prepared-worktree',
     productVersion: config.productVersion,
     configVersion: config.version,
     configDigest: config.digest,
     supportedConfigVersions: [config.version],
-    explicitSelection: false,
-    explicitResume: false,
-    successorAntecedent: null,
-    endObligationsMet: false,
-    localInhibit: null,
   }
-}
-
-export function factsForMandate(
-  mandate: MandateRecord,
-  overrides: Partial<Pick<WorkflowFacts, 'sessionCwd'>> = {},
-): WorkflowFacts {
-  return facts(mandate, overrides)
 }
 
 export function shippedMandate(): MandateRecord {
   return WORKFLOW_FIXTURES.featureMandate(SCOPE, { body: BODY })
-}
-
-export function shippedFacts(
-  mandate: MandateRecord,
-  pullRequest: { scope: Scope; head: string; base: string; associatedIssue: Scope | null } | null = null,
-): WorkflowFacts {
-  return { ...factsForMandate(mandate), pullRequest }
 }
 
 export function authenticatedPlanFixtures(

@@ -7,8 +7,10 @@ import { selectWorkflowBinding } from '../../engine/workflow-pr-binding.ts'
 import { selectWorkflowBindingClaims } from '../../engine/workflow-pr-binding-chain.ts'
 import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
-import type { GitHubOptions } from '../github/types.ts'
+import { type GitHubOptions, gh } from '../github/types.ts'
 import { readNativePullRequestFacts } from './native-facts.ts'
+import { pinnedReviewApp } from './review-rule.ts'
+import { object } from './types.ts'
 import type { Candidate } from './uw-delivery-enumeration.ts'
 
 function actionFailure(code: string, message: string): Result<never> {
@@ -130,6 +132,35 @@ async function collectCandidate(
   return { ok: true, value: true }
 }
 
+/** Optional in historical observations; unreadable checks do not erase structured proof. */
+async function readMergedReview(repository: string, base: string, head: string, options: GitHubOptions) {
+  try {
+    const api = (endpoint: string) => gh(options)(options.cwd, ['api', `repos/${repository}/${endpoint}`])
+    const integration = pinnedReviewApp(JSON.parse(await api(`rules/branches/${encodeURIComponent(base)}`)))
+    if (integration === undefined) return undefined
+    const raw = await api(`commits/${head}/check-runs?check_name=review&per_page=100`)
+    const response = object(JSON.parse(raw))
+    if (!Array.isArray(response?.check_runs) || response.total_count !== response.check_runs.length) return undefined
+    for (const entry of response.check_runs) {
+      const check = object(entry)
+      if (
+        check?.name === 'review' &&
+        check.head_sha === head &&
+        object(check.app)?.id === integration &&
+        check.status === 'completed' &&
+        check.conclusion === 'success' &&
+        typeof check.id === 'number' &&
+        Number.isSafeInteger(check.id) &&
+        check.id > 0
+      )
+        return { id: check.id, head }
+    }
+  } catch {
+    // The historical structured-review proof remains independently readable.
+  }
+  return undefined
+}
+
 async function readCandidateNative(
   candidate: Candidate,
   options: GitHubOptions,
@@ -139,6 +170,10 @@ async function readCandidateNative(
     const native = await readNativePullRequestFacts(candidate.scope.repository, number, options)
     if (native.branch !== candidate.branch || native.base !== candidate.base)
       return actionFailure('incomplete', `${candidate.scope.target} changed during delivery observation`)
+    const reviewCheck =
+      native.state === 'MERGED'
+        ? await readMergedReview(candidate.scope.repository, native.base, native.head, options)
+        : undefined
     return {
       ok: true,
       value: {
@@ -149,6 +184,7 @@ async function readCandidateNative(
         baseTip: native.baseTip,
         state: native.state,
         mergeCommit: native.mergeCommit,
+        ...(reviewCheck === undefined ? {} : { reviewCheck }),
       },
     }
   } catch (error) {

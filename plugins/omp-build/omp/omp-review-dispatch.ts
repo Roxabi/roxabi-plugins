@@ -1,6 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { CanonicalRecord } from '../dist/contracts.js'
-import type { PreparedEpicReview } from '../roxabi/epic-range-finalization.ts'
 import type { ReviewPublisher } from '../roxabi/review-contract.ts'
 import { ReviewProduct } from '../roxabi/review-dispatch.ts'
 import { createPreparedReviewRunner } from '../roxabi/review-entry'
@@ -15,27 +14,6 @@ import { createOmpReviewProduct, hasOwnedFixRun, reviewControllerFor } from './o
 import { createOperatorConfirmation } from './omp-operator-confirmation.ts'
 import type { NativeExtension, NativeSuccessor } from './review-runtime/contracts.ts'
 import { createNativeReviewPort } from './review-runtime/port.ts'
-
-async function prepareInstalledEpicRangeReview(
-  pi: NativeExtension,
-  review: PreparedEpicReview,
-  onComplete: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>,
-): Promise<void> {
-  const publisher: ReviewPublisher = {
-    authorize: (context, stage) => review.publisher.authorize(context, stage),
-    publishInventory: (prepared, canContinue) => review.publisher.publishInventory(prepared, canContinue),
-    publishRawContribution: (prepared, child) => review.publisher.publishRawContribution(prepared, child),
-    completeStage: (prepared, result, contributions, canContinue) =>
-      review.publisher.completeStage(prepared, result, contributions, canContinue),
-    afterComplete: async (canContinue) => {
-      const successor = await onComplete(canContinue)
-      return typeof successor === 'function' ? successor : undefined
-    },
-    publishRequiredStop: (context, stop, options) => review.publisher.publishRequiredStop(context, stop, options),
-    stop: (context, reason, result) => review.publisher.stop(context, reason, result),
-  }
-  await createOmpReviewProduct(pi, publisher).prepareEpicRangeReview(review.context, review.prepared)
-}
 
 type DefaultReviewOptions = {
   onComplete?: (canContinue: () => boolean) => Promise<void> | Promise<NativeSuccessor | undefined>
@@ -187,4 +165,4 @@ async function dispatchDefaultReview(
   await product.preparePullRequestReview(runner.context, runner.initialBatch())
 }
 
-export { dispatchDefaultReview, dispatchPreparedReplacementReview, prepareInstalledEpicRangeReview }
+export { dispatchDefaultReview, dispatchPreparedReplacementReview }

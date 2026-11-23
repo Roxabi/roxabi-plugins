@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
 import type { FramingAggregateInput } from '../../engine/uw-framing-schema.ts'
+import { admitFeature as continueFeature } from '../../omp/omp-feature-admission.ts'
 import { dispose } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import {
   closure,
@@ -12,7 +13,6 @@ import {
 } from '../../testing/framing-runtime-fixture.ts'
 import { createInput } from '../../testing/uw-operations-fixture.ts'
 import { buildFramingSourceBinding } from '../uw-framing-prepare.ts'
-import { continueFeature } from '../workflow.ts'
 import { writtenBoundary } from './feature-framing-controller-world.ts'
 
 afterEach(() => {

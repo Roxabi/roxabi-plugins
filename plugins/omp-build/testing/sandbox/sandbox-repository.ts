@@ -17,16 +17,6 @@ export const SIM = path.resolve(
   'gh-simulator',
   'gh-simulator.ts',
 )
-export const WORKFLOW = path.resolve(
-  import.meta.dirname,
-  '..',
-  '..',
-  'skills',
-  'feature',
-  'testing',
-  'goal',
-  'goal-scenario-workflow.ts',
-)
 
 const DATE = '2026-01-01T00:00:00Z'
 const REPOSITORY_URL = 'https://github.com/acme/app.git'

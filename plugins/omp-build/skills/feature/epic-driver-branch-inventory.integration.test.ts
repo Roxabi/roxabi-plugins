@@ -17,7 +17,15 @@ import {
   servePr,
   strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
-import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
+import {
+  cleanupSandbox,
+  disarmControlTarget,
+  git,
+  readControlTarget,
+  sandbox,
+  sandboxOf,
+  writes,
+} from './testing/epic-driver/epic-driver-sandbox.ts'
 
 afterEach(cleanupSandbox)
 
@@ -29,7 +37,7 @@ function snapshot(scope: { repository: string; target: string }, body: string) {
   return parsed.snapshot
 }
 
-function prepareBranchOnly(stopped = false): void {
+function prepareBranchOnly(stopped = false, prState: 'OPEN' | 'CLOSED' = 'OPEN') {
   const { epic, state } = sandbox()
   git(epic, 'switch', '-q', '-c', BRANCH, 'refs/remotes/origin/main')
   git(epic, 'push', '-q', 'origin', BRANCH)
@@ -37,8 +45,9 @@ function prepareBranchOnly(stopped = false): void {
   git(epic, 'switch', '-q', '--detach', 'refs/remotes/origin/main')
 
   const candidate = prNode(11, BRANCH, tip, {
+    state: prState,
     labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
-    autoMergeRequest: { enabledAt: 'x' },
+    autoMergeRequest: prState === 'OPEN' ? { enabledAt: 'x' } : null,
   })
   const node = childNode(2, 'feat(x): first child', { prs: [candidate] })
   const fixtures = roxabiWorkflowFixtures()
@@ -88,118 +97,75 @@ function prepareBranchOnly(stopped = false): void {
         }),
       ]),
     )
-  serveEpic([{ ...node, fixtureComments: comments }], framedRecords(1, [parent]), { mandate: false })
+  serveEpic([{ ...node, fixtureComments: comments }], framedRecords(1, [parent]))
   serveComments(
     11,
     fixtures.framedBodies([binding], ME, [childHistory, parentHistory]).map((body) => ({ body, author: ME })),
   )
-  servePr(11, { state: 'OPEN', labels: ['reviewed'], autoMerge: true })
+  servePr(11, { state: prState, labels: ['reviewed'], autoMerge: prState === 'OPEN' })
   const prFile = path.join(state, 'pr', '11.json')
   const view = JSON.parse(readFileSync(prFile, 'utf8'))
   writeFileSync(prFile, JSON.stringify({ ...view, headRefName: BRANCH, baseRefName: 'main' }))
 
   // Remove only issue-to-PR hints; leave the complete branch query's candidate intact.
-  const epicFile = path.join(state, 'epic.json')
-  const epicData = JSON.parse(readFileSync(epicFile, 'utf8'))
-  const observed = epicData.data.repository.issue.subIssues.nodes[0]
-  observed.closedByPullRequestsReferences.nodes = []
-  observed.timelineItems.nodes = []
-  writeFileSync(epicFile, JSON.stringify(epicData))
   const containmentFile = path.join(state, 'containment-2.json')
   const containment = JSON.parse(readFileSync(containmentFile, 'utf8'))
   containment.data.repository.issue.closedByPullRequestsReferences.nodes = []
   containment.data.repository.issue.timelineItems.nodes = []
   writeFileSync(containmentFile, JSON.stringify(containment))
   expect(JSON.parse(readFileSync(path.join(state, 'branch-prs-2.json'), 'utf8'))).toEqual([candidate])
+  return fixtures.mandateRef(parent)
 }
 
-function expectDisarmed(): void {
-  const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
-  expect(pr).toMatchObject({ state: 'OPEN', labels: [], autoMergeRequest: null })
-  expect(writes()).toEqual(expect.arrayContaining(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed']))
-}
-
-function stops() {
-  return eventPayloads(2).filter((event) => event.event === 'goal-stop')
-}
-
-describe('epic-driver — branch-only child PR inventory', () => {
-  it('disarms the owned branch-only PR before publishing an explicit stop', () => {
-    prepareBranchOnly()
-    expect(stops()).toEqual([])
-    const run = drive(['stop', '--ticket', '2', '--reason', 'timeout'])
+describe('epic control — branch-only child PR inventory', () => {
+  it.each([false, true])('discovers a branch-only child PR with prior stop: %s', (stopped) => {
+    prepareBranchOnly(stopped)
+    const history = eventPayloads(2)
+    expect(history).toEqual(
+      stopped ? [expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'timeout' })] : [],
+    )
+    const run = readControlTarget()
     expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({ ticket: 2, stop: 'timeout', disarmed: { 11: 'disarmed' } })
-    expectDisarmed()
-    expect(writes()).toEqual([
-      'comment 11 <!-- kit-head-authorization:v1 -->',
-      'merge 11 --disable-auto',
-      'edit 11 --remove-label reviewed',
-      expect.stringMatching(/^comment 2 <!-- omp-build-record /),
-    ])
-    expect(stops()).toEqual([expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'timeout' })])
-  })
-
-  it('reconciles a stopped child’s owned branch-only armed PR', () => {
-    prepareBranchOnly(true)
-    const before = stops()
-    expect(before).toEqual([expect.objectContaining({ event: 'goal-stop', run: RUN, reason: 'timeout' })])
-    const run = drive(['next'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json().reconciled).toEqual([{ ticket: 2, pr: 11, disarmed: 'disarmed' }])
-    expectDisarmed()
-    expect(writes()).toEqual([
-      'comment 11 <!-- kit-head-authorization:v1 -->',
-      'merge 11 --disable-auto',
-      'edit 11 --remove-label reviewed',
-    ])
-    expect(stops()).toEqual(before)
-  })
-
-  it('disarms the owned branch-only PR before resuming its branch', () => {
-    prepareBranchOnly()
-    const run = drive(['next'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json(), JSON.stringify(run.json())).toMatchObject({
-      step: { action: 'resume', ticket: 2, branch: BRANCH },
-      disarmed: 'disarmed',
-      reconciled: [],
-    })
-    expectDisarmed()
-    expect(writes()).toEqual([
-      'comment 11 <!-- kit-head-authorization:v1 -->',
-      'merge 11 --disable-auto',
-      'edit 11 --remove-label reviewed',
-    ])
-    expect(stops()).toEqual([])
-    expect(git(sandboxOf().epic, 'branch', '--show-current')).toBe(BRANCH)
-  })
-
-  it('control-disarm discovers and contains the same branch-only candidate', () => {
-    prepareBranchOnly()
-    const run = drive(['control-disarm'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({ failed: [], disarmed: { 11: 'disarmed' } })
-    expectDisarmed()
-    expect(writes()).toEqual([
-      'comment 11 <!-- kit-head-authorization:v1 -->',
-      'merge 11 --disable-auto',
-      'edit 11 --remove-label reviewed',
-    ])
-    expect(stops()).toEqual([])
-  })
-
-  it('starts a genuinely new child without requiring a PR binding', () => {
-    sandbox()
-    serveEpic([childNode(2, 'feat(x): first child')])
-    const run = drive(['next'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json(), JSON.stringify(run.json())).toMatchObject({
-      step: { action: 'start', ticket: 2 },
-      disarmed: null,
-      reconciled: [],
-    })
+    expect(run.json().openPrs).toEqual([{ ticket: 2, pr: 11 }])
     expect(writes()).toEqual([])
-    expect(stops()).toEqual([])
+  })
+
+  it('discovers a closed but unmerged branch-only PR', () => {
+    prepareBranchOnly(false, 'CLOSED')
+    const run = readControlTarget()
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json().openPrs).toEqual([{ ticket: 2, pr: 11 }])
+    expect(writes()).toEqual([])
+  })
+
+  it('withdraws authorization and auto-merge from the stopped child through parent containment', () => {
+    const mandate = prepareBranchOnly(true)
+    const history = eventPayloads(2)
+    const run = disarmControlTarget(mandate)
+    expect(run.code, run.stderr).toBe(0)
+    const result = run.json()
+    expect(result, JSON.stringify(result)).toMatchObject({ clean: true })
+    const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
+    expect(pr).toMatchObject({ state: 'OPEN', labels: [], autoMergeRequest: null })
+    expect(writes()).toEqual([
+      'comment 11 <!-- kit-head-authorization:v1 -->',
+      'merge 11 --disable-auto',
+      'edit 11 --remove-label reviewed',
+    ])
+    expect(eventPayloads(2)).toEqual(history)
+  })
+
+  it('does not claim clean containment when head authorization withdrawal is forbidden', () => {
+    const mandate = prepareBranchOnly(true)
+    writeFileSync(path.join(sandboxOf().state, 'withdraw-forbidden'), '')
+    const run = disarmControlTarget(mandate)
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.json()).toMatchObject({
+      clean: false,
+      evidence: { disarmed: [{ pr: 11, error: 'authorization write not confirmed' }] },
+    })
+    const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
+    expect(pr.autoMergeRequest).not.toBeNull()
+    expect(writes()).toEqual([])
   })
 })

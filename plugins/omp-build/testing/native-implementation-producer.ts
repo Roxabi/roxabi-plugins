@@ -1,15 +1,16 @@
 import type { Gh } from '../adapters/github/types.ts'
+import { completeCriterionDeclarations } from '../engine/criterion-declaration-completion.ts'
 import { criterionTargetSchema } from '../engine/finding-target-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Json, Scope } from '../engine/record-values.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
-import { startImplement } from '../roxabi/feature-action-start.ts'
-import { loadContracts } from '../roxabi/feature-engine.ts'
-import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
+import { implementationOutputSchema } from '../engine/workflow-output-schema.ts'
+import { implementNativeOutcome } from '../roxabi/feature-native-outcome.ts'
 import type { UwOperations, UwRead } from '../roxabi/uw-contract.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { captureNativeTask } from './native-action-capture.ts'
+import { appendNativeReceipt, openHistoricalDelivery } from './native-history-records.ts'
 
 async function observedImplementationCommits(
   git: GitRunner,
@@ -40,39 +41,7 @@ async function observedImplementationCommits(
   return commitSHAs
 }
 
-async function refuseImplementationPublication(
-  operations: UwOperations,
-  scope: Scope,
-  actionId: string,
-  published: unknown,
-): Promise<never> {
-  const read = await operations.readUw(scope)
-  const history = read.histories.find(
-    (entry) => entry.source.scope.repository === scope.repository && entry.source.scope.target === scope.target,
-  )
-  const retained =
-    history === undefined
-      ? []
-      : recordsOf(history).filter(
-          (record) =>
-            record.kind === 'action-receipt' &&
-            record.payload.action === 'implement' &&
-            record.payload.phase === 'result' &&
-            record.payload.actionId === actionId,
-        )
-  throw new Error(
-    `Implementation publication refused: ${JSON.stringify(
-      { published, retained, accepted: read.accepted, identity: read.identity, observation: read.observation },
-      null,
-      2,
-    )}`,
-  )
-}
-
-/**
- * Run the real implementation start, native event capture, admission and result publisher.
- * The caller owns the independent, mutable native/Git world and its observed histories.
- */
+/** Seed implementation history from the declared checkout and captured child evidence. */
 export async function produceNativeImplementation(input: {
   cwd: string
   gh: Gh
@@ -91,39 +60,19 @@ export async function produceNativeImplementation(input: {
 }) {
   if (input.read.observation.status !== 'complete' || input.read.accepted.status !== 'accepted')
     throw new Error('Implementation world lacks complete accepted UW observation')
-  const history = input.read.histories.find(
-    (entry) =>
-      entry.source.scope.repository === input.scope.repository && entry.source.scope.target === input.scope.target,
-  )
-  const native = input.read.graph.nodes.find(
-    (node) => node.uw.repository === input.scope.repository && node.uw.target === input.scope.target,
-  )
-  if (!history || !native) throw new Error('Implementation world lacks its native UW or history')
-  const loaded = await loadContracts()
-  if ('missing' in loaded) throw new Error(`Missing engine ${loaded.missing}`)
-  const opened = await startImplement(
-    loaded,
-    {
-      issue: history,
-      pullRequest: null,
-      parents: [...input.parents],
-      causal: {
-        histories: input.read.observation.histories,
-        catalogues: input.read.observation.catalogues,
-        observation: input.read.observation,
-      },
+  const opened = await openHistoricalDelivery({
+    world: input,
+    scope: input.scope,
+    mandate: input.mandate,
+    read: input.read,
+    action: 'implement',
+    code: {
+      repository: input.scope.repository,
+      base: input.startHead,
+      head: input.startHead,
+      referenceCommit: input.startHead,
     },
-    history,
-    input.scope,
-    { body: native.raw.body },
-    input.git,
-    input.gh,
-    input.cwd,
-    input.mandate,
-    input.operations,
-  )
-  if (opened.kind !== 'action' || opened.node !== 'implement')
-    throw new Error(`Implementation action refused: ${JSON.stringify(opened)}`)
+  })
   const criterion = input.read.accepted.value.snapshot.spec.criteria[0]
   if (!criterion) throw new Error('Implementation fixture requires a criterion')
   const { head, tree } = await input.advance()
@@ -177,16 +126,42 @@ export async function produceNativeImplementation(input: {
     expectedRuns: 1,
     git: { repository: input.scope.repository, commit: head, tree },
   })
-  const published = await publishFeatureNativeResult({
-    cwd: input.cwd,
+  const child = result.children[0]
+  if (!child) throw new Error('Expected captured implementation child')
+  const branch = await input.git(input.cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (branch.code !== 0 || branch.stdout.trim() === 'HEAD') throw new Error('Implementation fixture needs a branch')
+  const remoteBranch = branch.stdout.trim()
+  const pushed = await input.git(input.cwd, ['push', 'origin', `${head}^{commit}:refs/heads/${remoteBranch}`])
+  if (pushed.code !== 0) throw new Error('Could not advance declared fixture branch')
+  const paths = await Promise.all(
+    commitSHAs.map(async (commit) => {
+      const diff = await input.git(input.cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', commit])
+      if (diff.code !== 0) throw new Error(`Fixture paths unavailable: ${commit}`)
+      return diff.stdout.trim().split('\n').filter(Boolean)
+    }),
+  )
+  await appendNativeReceipt(input, input.scope, {
+    ...opened.authority,
+    action: 'implement',
+    phase: 'result',
     start: opened.start,
-    startHead: input.startHead,
-    result,
-    gh: input.gh,
-    git: input.git,
+    structured: implementationOutputSchema.parse({
+      ...claim,
+      criteria: completeCriterionDeclarations(claim.criteria, child),
+    }),
+    native: implementNativeOutcome(child, true, new Set([toolCallId])),
+    admission: {
+      admitted: true,
+      commits: commitSHAs,
+      paths: [...new Set(paths.flat())].sort(),
+      commands: claim.commands.map((command) => ({ ...command, cwd: input.cwd })),
+      remoteBranch,
+      remoteTip: head,
+      published: true,
+      reason: claim.reason,
+    },
+    diagnostics: [],
   })
-  if (!published.published)
-    await refuseImplementationPublication(input.operations, input.scope, opened.followUp.operationId, published)
   const readPublishedImplementation = async () => {
     const after = await input.operations.readUw(input.scope)
     const updated = after.histories.find(

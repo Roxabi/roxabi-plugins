@@ -21,14 +21,9 @@ const cwd = process.argv[2]
 const statePath = process.env.GH_SIM_STATE
 if (!cwd || !statePath) throw new Error('fixture-environment-missing')
 await installFixtureSdkSettings(cwd)
-const driver = await createReviewDriver(cwd, 128_000, 'feature', true)
-let after = driver.messages.length
-const intakeReady = driver.nextBatch(after)
-await driver.settle(() => ({ attribution: 'change', evidence: null }))
-await intakeReady
-after = driver.messages.length
-const synthesisReady = driver.nextBatch(after)
-await driver.settle((task) => reviewInitialData({ ...task, name: 'panel-ci' }))
+const driver = await createReviewDriver(cwd, 128_000, 'fix-pr')
+const synthesisReady = driver.nextBatch(driver.messages.length)
+await driver.settle((task) => reviewInitialData({ ...task, name: 'panel-fixture-intake' }))
 await synthesisReady
 const active = driver.controller.active()
 if (!active) throw new Error('synthesis-batch-missing')

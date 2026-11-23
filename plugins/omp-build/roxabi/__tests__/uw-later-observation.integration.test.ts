@@ -4,7 +4,7 @@ import { assessUwAdmission } from '../../dist/contracts.js'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
 import { deliverCreatedSister } from '../../testing/sister-delivery-fixture.ts'
-import { readFeatureObservation } from '../feature-continuation-observation.ts'
+import { assembleObservationBase } from '../feature-continuation-observation.ts'
 import type { SelectedFeature } from '../feature-continuation-selection.ts'
 import { loadContracts } from '../feature-engine.ts'
 import type { UwRead } from '../uw-contract.ts'
@@ -111,7 +111,6 @@ it.each(['reopened', 'not-planned', 'missing-identity'] as const)(
       acceptedSpec: before.accepted.value,
       mandateRef: { scope: world.context.original, kind: 'mandate', recordId: world.mandate.recordId },
       issue: { title: 'Original', body: world.body, labels: ['size:S'], updatedAt: '2026-10-27T12:00:00Z' },
-      mandatePublished: false,
     }
     if (change === 'reopened') {
       sister.state = 'OPEN'
@@ -132,7 +131,7 @@ it.each(['reopened', 'not-planned', 'missing-identity'] as const)(
     if (change !== 'missing-identity')
       expect(after.completion.completions.get(scopeKey(delivered.scope))).toMatchObject({ state: 'complete' })
     if (change === 'reopened') return
-    const feature = await readFeatureObservation('continue', selected)
+    const feature = await assembleObservationBase(selected)
     const assertBlockedFeature = () => {
       if ('kind' in feature) {
         expect(feature.kind).toBe('blocked')

@@ -8,7 +8,6 @@ import { failedCheckEvidenceDigest } from '../engine/record-digests.ts'
 import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { shippedMandate } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
-import { sealReceipt } from './feature-action-receipt.ts'
 import { dossierIndex, materializeActionFiles } from './uw-action-dossier.ts'
 
 const scope = { repository: 'acme/app', target: 'acme/app#42' }
@@ -74,19 +73,4 @@ test('assessment dossier distinguishes accepted and proposed exact states', asyn
   expect(Buffer.from(dossierIndex(manifest, result.value)).toString('utf8')).toContain(
     'Accepted state and proposed state: action/exact-inputs.json',
   )
-})
-
-test('sealing refuses changed or missing manifest operands before publication', async () => {
-  const inputs = standaloneReviewInputs()
-  for (const manifestOperands of [
-    undefined,
-    { ...operands, exactInputs: { ...operands.exactInputs, candidateGitSHA: 'b'.repeat(40) } },
-  ]) {
-    const input = {
-      action: 'attribute-ci',
-      exactInputs: operands.exactInputs,
-      prepared: { inputs: { ...inputs, manifest: { ...inputs.manifest, operands: manifestOperands } } },
-    } as Parameters<typeof sealReceipt>[0]
-    expect(await sealReceipt(input)).toMatchObject({ kind: 'blocked', reason: 'action-input-changed' })
-  }
 })

@@ -61,18 +61,28 @@ function sameRepositoryPrs(entries, caller) {
   return entries.filter((entry) => entry.isCrossRepository === false)
 }
 
-async function findOpenPr(cwd, head, base, ghFn) {
+function repositoryCandidates(data, base) {
+  if (data.some((entry) => !['OPEN', 'CLOSED', 'MERGED'].includes(entry.state)))
+    throw new Error('openPr: invalid PR discovery response')
+  const open = data.filter((entry) => entry.state === 'OPEN')
+  if (open.length === 1 && open[0].baseRefName !== base)
+    throw Object.assign(new Error('openPr: open PR targets another base'), { reason: 'conflicting-pr' })
+  if (open.length === 0 && data.length !== 0)
+    throw Object.assign(new Error('openPr: branch already has a terminal PR'), { reason: 'conflicting-pr' })
+  return open
+}
+
+export async function findOpenPr(cwd, head, base, ghFn, repository) {
   const raw = await ghFn(cwd, [
     'pr',
     'list',
     '--head',
     head,
-    '--base',
-    base,
-    '--state',
-    'open',
+    ...(repository === undefined
+      ? ['--base', base, '--state', 'open']
+      : ['--repo', repository, '--state', 'all', '--limit', '100']),
     '--json',
-    'number,isCrossRepository',
+    repository === undefined ? 'number,isCrossRepository' : 'number,isCrossRepository,state,baseRefName',
   ])
   let data
   try {
@@ -81,16 +91,34 @@ async function findOpenPr(cwd, head, base, ghFn) {
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned no JSON — ${preview(raw)}`)
   }
   if (!Array.isArray(data)) throw new Error(`openPr: \`gh pr list --head ${head}\` returned no array — ${preview(raw)}`)
+  if (repository !== undefined && data.length >= 100)
+    throw Object.assign(new Error('openPr: too many PR candidates to resolve'), { reason: 'ambiguous-pr' })
   if (data.some((entry) => !Number.isInteger(entry?.number) || entry.number <= 0))
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned an entry with no PR number — ${preview(raw)}`)
-  data = sameRepositoryPrs(data, 'openPr')
-  return data.length === 0 ? null : Math.min(...data.map((entry) => entry.number))
+  const sameRepo = sameRepositoryPrs(data, 'openPr')
+  const candidates = repository === undefined ? sameRepo : repositoryCandidates(sameRepo, base)
+  if (candidates.length > 1)
+    throw Object.assign(new Error('openPr: multiple PR candidates'), { reason: 'ambiguous-pr' })
+  return candidates[0]?.number ?? null
 }
 
-async function bindOpened(cwd, number, ghFn, claim, status) {
-  const binding = await confirmSelectedBinding(cwd, number, ghFn, claim)
-  if (!binding.ok) throw new Error(`openPr: workflow binding refused: ${binding.reason}`)
-  return { number, status }
+async function bindOpened(cwd, number, ghFn, claim, status, confirm) {
+  if (confirm === undefined) {
+    const binding = await confirmSelectedBinding(cwd, number, ghFn, claim)
+    if (!binding.ok) throw new Error(`openPr: workflow binding refused: ${binding.reason}`)
+    return { number, status }
+  }
+  let binding
+  try {
+    binding = await confirm(number)
+  } catch (error) {
+    throw Object.assign(new Error(`openPr: binding for #${number} unconfirmed`, { cause: error }), { pr: number })
+  }
+  if (binding.ok) return { number, status, binding: binding.recordId }
+  const error = new Error(`openPr: workflow binding refused: ${binding.reason}`)
+  if (status === 'existing' && binding.reason === 'binding-conflict')
+    throw Object.assign(error, { reason: binding.reason })
+  throw Object.assign(error, { pr: number })
 }
 
 export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: gitFn = git } = {}) {
@@ -137,21 +165,26 @@ export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: git
   return null
 }
 
-export async function openPr(cwd, { issue, branch, base, title, body } = {}, { gh: ghFn = gh } = {}) {
+export async function openPr(
+  cwd,
+  { issue, branch, base, title, body } = {},
+  { gh: ghFn = gh, repository, beforeCreate, confirm } = {},
+) {
   const number = Number(issue)
   if (!Number.isInteger(number) || number <= 0)
     throw new TypeError(`openPr: issue must be a positive issue number, got ${JSON.stringify(issue)}`)
   const claim = { issue: number, branch: requireField(branch, 'branch'), base: requireField(base, 'base') }
   const prTitle = requireField(title, 'title')
-  const existing = await findOpenPr(cwd, claim.branch, claim.base, ghFn)
-  if (existing !== null) return bindOpened(cwd, existing, ghFn, claim, 'existing')
+  const existing = await findOpenPr(cwd, claim.branch, claim.base, ghFn, repository)
+  if (existing !== null) return bindOpened(cwd, existing, ghFn, claim, 'existing', confirm)
+  await beforeCreate?.()
   let created
   try {
     created = await ghFn(cwd, [
       'api',
       '--method',
       'POST',
-      'repos/{owner}/{repo}/pulls',
+      `repos/${repository ?? '{owner}/{repo}'}/pulls`,
       '-f',
       `head=${claim.branch}`,
       '-f',
@@ -162,8 +195,10 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
       `body=${bodyFor(body, number)}`,
     ])
   } catch (error) {
-    const raced = isDuplicateHeadFailure(error) ? await findOpenPr(cwd, claim.branch, claim.base, ghFn) : null
-    if (raced !== null) return bindOpened(cwd, raced, ghFn, claim, 'existing')
+    const raced = isDuplicateHeadFailure(error)
+      ? await findOpenPr(cwd, claim.branch, claim.base, ghFn, repository)
+      : null
+    if (raced !== null) return bindOpened(cwd, raced, ghFn, claim, 'existing', confirm)
     throw error
   }
   let data
@@ -174,7 +209,7 @@ export async function openPr(cwd, { issue, branch, base, title, body } = {}, { g
   }
   if (!Number.isInteger(data?.number) || data.number <= 0)
     throw new Error(`openPr: \`gh api … pulls\` carried no PR number — ${preview(created)}`)
-  return bindOpened(cwd, data.number, ghFn, claim, 'created')
+  return bindOpened(cwd, data.number, ghFn, claim, 'created', confirm)
 }
 
 function addStringContexts(out, contexts) {

@@ -1,69 +1,33 @@
 import { afterAll, describe, expect, test } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
-import { acceptedActionInputs, observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest } from '../action-input.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
+import { classifyAttempts } from '../workflow-action-interruption.ts'
 import { ACTION_RECEIPT_FORMAT } from '../workflow-receipt-schema.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
-import {
-  appendRecords,
-  evidenceCodes,
-  interruptedResult,
-  interruptionResolution,
-} from './workflow-interruption-support.ts'
-import { BODY, binding, facts, history, mandate, must, pauseControls, SCOPE } from './workflow-test-support.ts'
+import { appendRecords, interruptedResult, interruptionResolution } from './workflow-interruption-support.ts'
+import { BODY, binding, history, mandate, must, pauseControls, SCOPE } from './workflow-test-support.ts'
 
 const git = nativeImplementationGit(42)
 afterAll(() => git.cleanup())
 
 const PR = { repository: 'acme/app', target: 'acme/app#99' }
 const body = strictSpecBody(BODY)
-const decisions = {
-  reviewStep: 'fix-ci' as const,
-  epicStep: null,
-  epicLand: null,
-  ciWatchStatus: 'red' as const,
-  publish: { status: 'not-applicable' as const, evidence: [] },
-  landing: { status: 'not-applicable' as const, evidence: [] },
-  watch: { status: 'not-applicable' as const, evidence: [] },
-}
-
 function attributionMandate() {
   const built = mandate()
   const parsedSpec = parseIssueSpecBody({ uw: SCOPE, raw: rawSource(SCOPE.target, body, '2026-10-21T00:00:00Z') })
   if (parsedSpec.status !== 'conformant') throw new Error('Expected a conformant native Spec')
-  const graph = {
-    version: 1,
-    productVersion: built.payload.config.productVersion,
-    configVersion: built.payload.config.version,
-    edgeOrder: 'array',
-    nodes: [
-      { id: 'ready', action: 'stop' },
-      { id: 'attribute-ci', action: 'attribute-ci' },
-      { id: 'fix', action: 'fix' },
-      { id: 'stop', action: 'stop' },
-    ],
-    edges: [
-      { from: 'ready', to: 'attribute-ci', when: 'ci-red' },
-      { from: 'ready', to: 'fix', when: 'ci-attributed-change' },
-      { from: 'ready', to: 'stop', when: 'ci-attribution-refused' },
-      { from: 'ready', to: 'fix', when: 'review-step-fix' },
-      { from: 'ready', to: 'stop', when: 'review-step-stop' },
-    ],
-    initial: 'ready',
-  }
   const parsed = must(
     parseRecord({
       ...built,
       payload: {
         ...built.payload,
         ownSpec: roxabiWorkflowFixtures().ownSpecFromSnapshot(SCOPE, parsedSpec.snapshot),
-        config: { ...built.payload.config, effective: { graph } },
       },
     }),
   )
@@ -137,105 +101,54 @@ function attributionWorld() {
       },
     }),
   )
-  const decide = async (issue: DecodedHistory, pullRequest: DecodedHistory, explicitResume = false) => {
-    const causal = await observeFixtureNativeWorld({
-      root: SCOPE,
-      nodes: [
-        {
-          scope: SCOPE,
-          title: 'Bounded workflow',
-          body,
-          updatedAt: '2026-10-21T00:00:00Z',
-          labels: ['size:S'],
-          parent: null,
-          children: [],
-          blockers: [],
-          state: 'OPEN',
-          stateReason: null,
-        },
-      ],
-      histories: [issue, pullRequest],
-      pullRequests: [
-        {
-          scope: PR,
-          branch: 'feature/bounded',
-          base: 'main',
-          head: candidate,
-          baseTip: candidate,
-          state: 'OPEN',
-          mergeCommit: null,
-          author: 'operator',
-        },
-      ],
-      commits: [{ repository: SCOPE.repository, sha: candidate, parents: [] }],
-      comparisons: [
-        { repository: SCOPE.repository, base: candidate, head: candidate, status: 'identical', commits: [] },
-      ],
-    })
-    return reconstructWorkflow({
-      evidence: { issue, pullRequest, parents: [], causal },
-      facts: facts({
-        candidateGitSHA: candidate,
-        explicitResume,
-        pullRequest: { scope: PR, head: candidate, base: 'main', associatedIssue: SCOPE },
-        failedChecks: ['test'],
-        evidenceDigest,
-      }),
-      decisions,
-    })
-  }
-  return { mandated, start, interrupted: interruptedResult(completed), decide }
+  const classify = (issue: DecodedHistory, pullRequest: DecodedHistory) =>
+    classifyAttempts({ histories: [issue, pullRequest], scan: [pullRequest], actions: ['attribute-ci'] })
+  return { mandated, start, interrupted: interruptedResult(completed), classify }
 }
 
 describe('interrupted CI attribution', () => {
   test.each([
     ['invalid output', 'attribute-ci-output-invalid', 'invalid'],
     ['withheld execution', 'action-uncertain', 'valid'],
-  ] as const)('does not replay attribution after a retained %s terminal', async (_name, code, strict) => {
+  ] as const)('does not classify retained %s as an interruption', (_name, code, strict) => {
     const world = attributionWorld()
     const terminal = interruptedResult(world.interrupted, {
       native: { completion: 'completed', strict, raw: null },
       diagnostics: [{ code, message: code }],
     })
-    const decision = await world.decide(
+    const attempts = world.classify(
       history([world.mandated]),
       history([binding(world.mandated, PR), world.start, terminal], PR),
     )
-    expect(decision.status).toBe('blocked')
-    expect(decision).not.toMatchObject({ status: 'action', action: 'attribute-ci' })
+    expect(attempts).toMatchObject({ ok: true, value: { unresolved: [] } })
   })
 
-  test('blocks an interrupted attribution instead of rerunning it', async () => {
+  test('classifies an interrupted attribution in PR history', () => {
     const world = attributionWorld()
-    const decision = await world.decide(
+    const attempts = world.classify(
       history([world.mandated]),
       history([binding(world.mandated, PR), world.start, world.interrupted], PR),
     )
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-interrupted' })
-    expect(decision).not.toMatchObject({ status: 'action' })
+    expect(attempts).toMatchObject({
+      ok: true,
+      value: { unresolved: [{ kind: 'interrupted', action: 'attribute-ci' }] },
+    })
   })
 
   test.each(['competing starts', 'competing results'] as const)(
-    'does not rerun or explicitly resume with %s for an interrupted attribution',
-    async (ambiguity) => {
+    'refuses ambiguous interrupted attribution pairing with %s',
+    (ambiguity) => {
       const world = attributionWorld()
       const competing =
         ambiguity === 'competing starts'
           ? must(buildRecord({ ...world.start, recordId: 'ci-start-other', operationId: 'op-ci-start-other' }))
           : must(buildRecord({ ...world.interrupted, recordId: 'ci-result-other', operationId: 'op-ci-result-other' }))
       const pullRequest = history([binding(world.mandated, PR), world.start, world.interrupted, competing], PR)
-      const running = await world.decide(history([world.mandated]), pullRequest)
-      expect(running).toMatchObject({ status: 'blocked' })
-      expect(running).not.toMatchObject({ status: 'action', action: 'attribute-ci' })
-      const pause = pauseControls(world.mandated, `ci-${ambiguity.replace(' ', '-')}`)
-      const paused = history([world.mandated, pause.requested, pause.confirmed])
-      const resume = await world.decide(paused, pullRequest, true)
-      expect(resume).toMatchObject({ status: 'blocked' })
-      expect(resume).not.toMatchObject({ status: 'action', action: 'resume' })
+      expect(world.classify(history([world.mandated]), pullRequest)).toMatchObject({ ok: false })
     },
   )
 
-  test('fails closed on a PR-scoped resolution whose runtime differs from the mandate', async () => {
+  test('fails closed on a PR-scoped resolution whose runtime differs from the mandate', () => {
     const world = attributionWorld()
     const pause = pauseControls(world.mandated, 'attribution-pause')
     const resolution = interruptionResolution({
@@ -248,15 +161,17 @@ describe('interrupted CI attribution', () => {
         runtime: { ...(proposal.runtime as Record<string, unknown>), configDigest: '0'.repeat(64) },
       }),
     })
-    const decision = await world.decide(
+    const attempts = world.classify(
       history([world.mandated, pause.requested, pause.confirmed, pause.resumed]),
       appendRecords(history([binding(world.mandated, PR), world.start, world.interrupted], PR), [resolution]),
     )
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'interruption-invalid' })
-    expect(evidenceCodes(decision)).toContain('interruption-resolution-invalid')
+    expect(attempts).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'interruption-resolution-invalid' })]),
+    })
   })
 
-  test('readmits attribution after a PR-scoped resolution under the mandate pause', async () => {
+  test('excludes attribution after a PR-scoped resolution under the mandate pause', () => {
     const world = attributionWorld()
     const pause = pauseControls(world.mandated, 'attribution-pause')
     const resolution = interruptionResolution({
@@ -268,12 +183,9 @@ describe('interrupted CI attribution', () => {
     const pullRequest = appendRecords(history([binding(world.mandated, PR), world.start, world.interrupted], PR), [
       resolution,
     ])
-    expect(await world.decide(history([world.mandated, pause.requested, pause.confirmed]), pullRequest)).toMatchObject({
-      status: 'paused',
-      confirmed: true,
+    expect(world.classify(history([world.mandated, pause.requested, pause.confirmed]), pullRequest)).toMatchObject({
+      ok: true,
+      value: { unresolved: [] },
     })
-    expect(
-      await world.decide(history([world.mandated, pause.requested, pause.confirmed, pause.resumed]), pullRequest),
-    ).toMatchObject({ status: 'action', action: 'attribute-ci' })
   })
 })

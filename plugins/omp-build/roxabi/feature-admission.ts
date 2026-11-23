@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
-import { bindingMatchesMandate, bindingPolicy } from '../dist/contracts.js'
+import { bindingMatchesMandate, bindingPolicy, selectWorkflowBinding } from '../dist/contracts.js'
 import { explicitParentHistories } from './feature-context.ts'
-import { type Contracts, type History, loadContracts } from './feature-engine.ts'
+import { type Contracts, type History, isRecord, loadContracts } from './feature-engine.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
@@ -24,6 +24,61 @@ function bindingMatches(payload: Record<string, unknown>, mandateId: string, bra
 }
 
 type BindingFailure = { ok: false; reason: string }
+
+export async function readFeaturePr(cwd: string, gh: Gh, repository: string, pr: number) {
+  const raw: unknown = JSON.parse(
+    await gh(cwd, [
+      'pr',
+      'view',
+      String(pr),
+      '--repo',
+      repository,
+      '--json',
+      'number,state,headRefOid,headRefName,baseRefName,mergeCommit,url,isCrossRepository',
+    ]),
+  )
+  if (
+    !isRecord(raw) ||
+    raw.number !== pr ||
+    (raw.state !== 'OPEN' && raw.state !== 'MERGED' && raw.state !== 'CLOSED') ||
+    typeof raw.headRefName !== 'string' ||
+    typeof raw.baseRefName !== 'string' ||
+    typeof raw.headRefOid !== 'string' ||
+    !/^[0-9a-f]{40}$/.test(raw.headRefOid) ||
+    raw.url !== `https://github.com/${repository}/pull/${pr}` ||
+    raw.isCrossRepository !== false
+  )
+    throw new Error('pr-metadata-mismatch')
+  const mergeCommit = isRecord(raw.mergeCommit) ? raw.mergeCommit.oid : null
+  if (raw.state === 'MERGED' && (typeof mergeCommit !== 'string' || !/^[0-9a-f]{40}$/.test(mergeCommit)))
+    throw new Error('pr-merge-unconfirmed')
+  return {
+    state: raw.state,
+    head: raw.headRefOid,
+    branch: raw.headRefName,
+    base: raw.baseRefName,
+    url: raw.url,
+    mergeCommit: typeof mergeCommit === 'string' ? mergeCommit : null,
+  }
+}
+
+type ExactBinding = { repository: string; mandate: string; head: string; live: () => Promise<void> }
+
+async function verifyExactPr(
+  input: { cwd: string; pr: number; branch: string; base: string },
+  gh: Gh,
+  expected: ExactBinding,
+): Promise<void> {
+  await expected.live()
+  const native = await readFeaturePr(input.cwd, gh, expected.repository, input.pr)
+  if (
+    native.state !== 'OPEN' ||
+    native.head !== expected.head ||
+    native.branch !== input.branch ||
+    native.base !== input.base
+  )
+    throw new Error('pr-coordinates-changed')
+}
 
 async function readNativeBindingTarget(
   input: { cwd: string; pr: number; branch: string; base: string },
@@ -120,6 +175,35 @@ function existingBinding(
   return existing ? { ok: true, recordId: existing.recordId } : null
 }
 
+function existingExactBinding(
+  context: Extract<Awaited<ReturnType<typeof readBindingContext>>, { ok: true }>,
+  native: {
+    branch: string
+    base: string
+  },
+) {
+  const selected = selectWorkflowBinding({
+    pullRequest: context.prScope,
+    histories: [context.history, ...context.issueHistory.histories, ...context.parents.parents],
+    native,
+  })
+  if (selected.status === 'absent') return existingBinding(context.history, context.mandate, native.branch, native.base)
+  if (selected.status === 'bound') {
+    const { scope, recordId } = selected.mandate
+    if (
+      scope.repository === context.issueScope.repository &&
+      scope.target === context.issueScope.target &&
+      recordId === context.mandate.recordId
+    )
+      return { ok: true as const, recordId: selected.binding.recordId }
+    return { ok: false as const, reason: 'binding-conflict' }
+  }
+  return {
+    ok: false as const,
+    reason: selected.status === 'conflicting' ? 'binding-conflict' : `binding-${selected.status}`,
+  }
+}
+
 /**
  * Publish the one PR-to-mandate association after native head/base match.
  * A confirmed matching record is reused. A conflict is not replaced.
@@ -131,16 +215,31 @@ export async function confirmWorkflowBinding(input: {
   branch: string
   base: string
   gh?: Gh
+  expected?: ExactBinding
 }): Promise<{ ok: true; recordId: string } | { ok: false; reason: string }> {
   const loaded = await loadContracts()
   if ('missing' in loaded) return { ok: false, reason: `engine-unavailable:${loaded.missing}` }
   const gh = input.gh ?? defaultGh()
-  const native = await readNativeBindingTarget(input, gh)
+  const { expected } = input
+  const verify = () => (expected === undefined ? Promise.resolve() : verifyExactPr(input, gh, expected))
+  await verify()
+  const native =
+    expected === undefined
+      ? await readNativeBindingTarget(input, gh)
+      : { ok: true as const, repository: expected.repository }
   if (!native.ok) return native
   const context = await readBindingContext(loaded, input, gh, native.repository)
   if (!context.ok) return context
-  const existing = existingBinding(context.history, context.mandate, input.branch, input.base)
-  if (existing !== null) return existing
+  if ((expected?.mandate ?? context.mandate.recordId) !== context.mandate.recordId)
+    return { ok: false, reason: 'exact-mandate-not-applicable' }
+  const existing =
+    expected === undefined
+      ? existingBinding(context.history, context.mandate, input.branch, input.base)
+      : existingExactBinding(context, input)
+  if (existing !== null) {
+    if (existing.ok) await verify()
+    return existing
+  }
   const recordId = `workflow-binding:${context.prScope.target}:${context.mandate.recordId}`
   const built = loaded.buildRecord({
     repository: context.prScope.repository,
@@ -157,11 +256,20 @@ export async function confirmWorkflowBinding(input: {
     },
   })
   if (!built.ok) return { ok: false, reason: built.diagnostics.map((item) => item.code).join(',') || 'record-invalid' }
+  const resolveContext = createPublicationContextResolver({ cwd: input.cwd, gh }, null)
   const published = await loaded.publishConfirmedWorkflowRecord(
     built.value,
     { cwd: input.cwd, gh },
-    createPublicationContextResolver({ cwd: input.cwd, gh }, null),
+    expected === undefined
+      ? resolveContext
+      : async (candidate) => {
+          const resolved = await resolveContext(candidate)
+          if (resolved.ok) await verifyExactPr(input, gh, expected)
+          return resolved
+        },
     [...context.issueHistory.histories, ...context.parents.parents],
   )
-  return published.status === 'confirmed' ? { ok: true, recordId } : { ok: false, reason: published.status }
+  if (published.status !== 'confirmed') return { ok: false, reason: published.status }
+  await verify()
+  return { ok: true, recordId }
 }

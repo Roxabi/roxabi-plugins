@@ -3,13 +3,15 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { continueFeature } from '../../roxabi/workflow.ts'
-import { defaultGit } from '../../roxabi/workflow-checkout.ts'
+import * as github from '../../roxabi/feature-engine.ts'
+import type { UwOperations } from '../../roxabi/uw-contract.ts'
 import { normalizationHandoffFixture } from '../../testing/normalization-handoff-fixture.ts'
+import { commandComposition } from './feature-command-fixture.ts'
 
 let root: string | undefined
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined
 })
@@ -42,19 +44,18 @@ it.each([false, true])(
     const readGit = (...args: string[]) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8' })
     const worktrees = readGit('worktree', 'list', '--porcelain')
     const branch = readGit('branch', '--show-current')
-    const result = await continueFeature({
-      cwd,
-      reference: '#910',
-      control: 'select',
-      principal: !linked,
-      git: defaultGit(),
-      gh: fixture.gh,
-      read: fixture.read,
+    vi.spyOn(github, 'defaultGh').mockReturnValue(fixture.gh)
+    const command = commandComposition(cwd, {
+      principalCwd: () => !linked,
+      uwOperations: () => fixture.read as UwOperations,
     })
-    expect(result).toEqual({
-      kind: 'framing',
-      source: { kind: 'issue', uw: { repository: 'fixture/widgets', target: 'fixture/widgets#910' } },
-    })
+    await command.run('#910')
+    expect(command.framing).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      { kind: 'issue', uw: { repository: 'fixture/widgets', target: 'fixture/widgets#910' } },
+      expect.any(Function),
+    )
+    expect(command.sent).toEqual([])
     expect(readGit('worktree', 'list', '--porcelain')).toBe(worktrees)
     expect(readGit('branch', '--show-current')).toBe(branch)
     expect(existsSync(join(root, '.git', 'omp-build-bootstrapped'))).toBe(false)

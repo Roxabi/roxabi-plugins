@@ -2,21 +2,15 @@
 name: ci-watch
 disable-model-invocation: true
 description: Watch every check on a PR head, then the merge, with a deadline the script owns.
-version: 0.1.2
+version: 0.1.4
 ---
 
 # ci-watch
 
-While this host-owned watch is the only work running (no model turn), Esc/RPC does
-not pause or disarm the feature workflow. Use `/feature pause` or `/feature abandon`;
-session switch and shutdown still take the durable pause path.
-
 Watch the PR until it merges or a check fails. The script owns the deadline.
 OMP's bash tool must not: call it with `async: true` and `timeout: 0`.
 
-`landPr` returns a `watch` string that already uses this script's absolute real
-path — run that string as given. For a standalone invocation, resolve the path
-first so `$0` can find `../feature/workflow-readiness.js`:
+Resolve the installed script path first so `$0` can find `../feature/workflow-readiness.js`:
 
 ```bash
 T=$(realpath skill://ci-watch/ci-watch.sh) && bash "$T" <pr>
@@ -34,7 +28,7 @@ its Bun subprocesses through the installed trusted configuration, with automatic
 | Flag | Default | Meaning |
 |---|---|---|
 | `--timeout <n>s\|<n>m` | `30m` | Bounds the check phase and the merge phase together. Deadline → exit 5. |
-| `--merge-mode merge-on-green\|native` | resolved by `readLanding` in `feature/workflow-readiness.js` (the resolver `landPr` uses): `landing.mode` on `origin/<base>`, else `merge-on-green` when that ref has `.github/workflows/merge-on-green.yml`, else `native`. `--base` (from `landPr`) or the PR's `baseRefName` names the ref. | merge-on-green watches authenticated authorization for the current head. native watches `autoMergeRequest`. |
+| `--merge-mode merge-on-green\|native` | resolved by `readLanding` in `feature/workflow-readiness.js`: `landing.mode` on `origin/<base>`, else `merge-on-green` when that ref has `.github/workflows/merge-on-green.yml`, else `native`. `--base` or the PR's `baseRefName` names the ref. | merge-on-green watches authenticated authorization for the current head. native watches `autoMergeRequest`. |
 | `--since YYYY-MM-DDTHH:MM:SSZ` | none | Lower time bound for the evaluate-only probe: it judges only a `merge-on-green` run started at or after it (fractional `started_at` is truncated to the second). Without `--since`, the probe judges the newest non-skipped run of any age. Missing value or another format → exit 70. |
 | `--repo owner/repo` | `gh repo view` | Target repository. |
 | `--interval <seconds>` | `15` | Poll interval. |
@@ -61,7 +55,7 @@ watch, and `GREEN` alone is not proof that any named test ran.
 | 5 | Deadline. Undetermined — re-run to resume. A leading-zero timeout (`09`, `010`) is decimal seconds, not octal. |
 | 6 | Evaluate-only (merge-on-green only). Once checks are green, the newest non-skipped `merge-on-green` check run on the PR head at or after `--since` is inspected until completed. A `kit-ci not configured` or `Manual merge required` annotation requires manual merge; without an annotation, the probe stops. |
 | 7 | Behind. An open PR with `mergeStateStatus` `BEHIND` cannot merge until its branch is updated. This takes precedence over deadline, eligibility and check verdicts. |
-| 70 | Not a check verdict: usage, unknown flag, a value flag without its value, bad mode or timeout, an invalid `landing` in `.dev/stack.yml` (invalid YAML, a mode other than native/merge-on-green, `required_checks` not a list of names), this script not run from its real path (cannot find `../feature/workflow-readiness.js`), missing `gh`/`jq`/`bun`, or a `gh`/`jq` failure. Maps to `watch-failed`; `applyCiWatchExit` in `skills/feature/workflow-watch.js` retains the gate only while currently authorized. Other non-table exits (124/137/143, …) also map to `watch-failed` under that policy. |
+| 70 | Not a check verdict: usage, unknown flag, a value flag without its value, bad mode or timeout, an invalid `landing` in `.dev/stack.yml` (invalid YAML, a mode other than native/merge-on-green, `required_checks` not a list of names), this script not run from its real path (cannot find `../feature/workflow-readiness.js`), missing `gh`/`jq`/`bun`, or a `gh`/`jq` failure. |
 
 ## Classifier
 

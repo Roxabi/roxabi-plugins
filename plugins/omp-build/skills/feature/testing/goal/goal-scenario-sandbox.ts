@@ -12,23 +12,9 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { executeSimCommand } from '../gh-simulator/sim-execution.ts'
-import {
-  A,
-  B,
-  type Box,
-  BRANCH_C,
-  C,
-  CHILD_BODY,
-  EPIC,
-  EPIC_BODY,
-  type Pull,
-  type SimState,
-} from './goal-scenario-domain.ts'
+import { A, B, type Box, BRANCH_C, C, CHILD_BODY, EPIC_BODY, type Pull, type SimState } from './goal-scenario-domain.ts'
 
-const DRIVER = path.resolve(import.meta.dirname, 'goal-scenario-driver-direct.ts')
 const SIM = path.resolve(import.meta.dirname, '..', 'gh-simulator', 'gh-simulator.ts')
-const WORKFLOW = path.resolve(import.meta.dirname, 'goal-scenario-workflow-direct.ts')
-const REAL_BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const REAL_GIT = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
 const REPOSITORY_URL = 'https://github.com/acme/app.git'
 
@@ -113,27 +99,6 @@ export function toolingFixture() {
   if (!/^[0-9a-f]{40}$/.test(commit) || git(cwd, ['rev-parse', 'HEAD']) !== commit)
     throw new Error('Fixture tooling pin does not match its Git checkout')
   return { cwd, commit }
-}
-
-export function callWorkflow<T>(fn: string, cwd: string, payload: object): T {
-  const active = activeBox()
-  const out = spawnSync(REAL_BUN, [WORKFLOW, fn, cwd, JSON.stringify(payload)], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  })
-  if (out.status !== 0) throw new Error(`${fn} failed (${out.status}): ${out.stderr}\n${out.stdout}`)
-  return JSON.parse(out.stdout)
-}
-
-export function runDriver(args: string[], cwd: string): { code: number | null; stdout: string; stderr: string } {
-  const active = activeBox()
-  const out = spawnSync(REAL_BUN, [DRIVER, ...args, '--epic', String(EPIC)], {
-    cwd,
-    env: active.env,
-    encoding: 'utf8',
-  })
-  return { code: out.status, stdout: out.stdout, stderr: out.stderr }
 }
 
 function child(number: number, title: string, blockedBy: number[] = []) {

@@ -24,7 +24,7 @@ function waitFor(file: string, timeout = 10_000): Promise<void> {
 }
 export type GitBarrier = { started: Promise<void>; release(): void; close(): void }
 
-export function gitBarrier(kind: 'preflight' | 'checkout', markerTimeout = 10_000): GitBarrier {
+export function gitBarrier(markerTimeout = 10_000): GitBarrier {
   const state = process.env.GH_SIM_STATE
   if (state === undefined) throw new Error('gh-state-missing')
   const root = mkdtempSync(path.join(path.dirname(state), 'omp-race-git-'))
@@ -32,12 +32,7 @@ export function gitBarrier(kind: 'preflight' | 'checkout', markerTimeout = 10_00
   const release = path.join(root, 'release')
   const once = path.join(root, 'once')
   const real = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
-  const condition =
-    kind === 'preflight'
-      ? '[ "$1" = ls-remote ] && [ "$2" = --refs ]'
-      : '[ "$1" = worktree ] && [ "$2" = list ] && [ "$3" = --porcelain ]'
-  const record = kind === 'preflight' ? 'fix-request' : 'review'
-  const script = `#!/bin/sh\nif ${condition} && grep -q "kind=${record} " "$GH_SIM_STATE" && mkdir "$OMP_RACE_GIT_ONCE" 2>/dev/null; then : > "$OMP_RACE_GIT_STARTED"; deadline=$(( $(date +%s) + 20 )); while [ ! -f "$OMP_RACE_GIT_RELEASE" ]; do [ "$(date +%s)" -lt "$deadline" ] || exit 124; sleep 0.01; done; fi\nexec "$OMP_RACE_REAL_GIT" "$@"\n`
+  const script = `#!/bin/sh\nif [ "$1" = ls-remote ] && [ "$2" = --refs ] && mkdir "$OMP_RACE_GIT_ONCE" 2>/dev/null; then : > "$OMP_RACE_GIT_STARTED"; deadline=$(( $(date +%s) + 20 )); while [ ! -f "$OMP_RACE_GIT_RELEASE" ]; do [ "$(date +%s)" -lt "$deadline" ] || exit 124; sleep 0.01; done; fi\nexec "$OMP_RACE_REAL_GIT" "$@"\n`
   writeFileSync(path.join(root, 'git'), script)
   chmodSync(path.join(root, 'git'), 0o755)
   const before = process.env.PATH

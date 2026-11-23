@@ -20,7 +20,7 @@ type BindingContext = {
   gh: Gh
   cwd: string
   successorScope: Scope
-  branch: string | null
+  branch: string
   base: string
 }
 type Failure = { ok: false; reason: string }
@@ -110,9 +110,7 @@ export async function recheckSuccessorBinding(
 }
 
 async function bindingDestination(context: BindingContext) {
-  return context.branch === null
-    ? { ok: true as const, number: null }
-    : discoverDeliveryPr(context.gh, context.cwd, context.successorScope.repository, context.branch, context.base)
+  return discoverDeliveryPr(context.gh, context.cwd, context.successorScope.repository, context.branch, context.base)
 }
 
 function matchesObserved(prior: NativeDeliveryPullRequest, native: NativePullRequestFacts): boolean {

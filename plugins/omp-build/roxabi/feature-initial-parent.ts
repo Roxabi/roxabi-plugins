@@ -8,15 +8,13 @@ import { prepareRequestedSession } from './feature-selection-session.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwRead } from './uw-contract.ts'
-import type { FeatureCheckoutTarget } from './workflow-checkout.ts'
 
 export async function prepareInitialParentSession(
   authority: FeatureAuthority,
   rootParent: FeatureAuthority['scope'] | null,
-  target: FeatureCheckoutTarget,
   anchor: FeatureAuthority['scope'],
 ): Promise<ContinueFeatureResult | null> {
-  if (rootParent !== null && target.kind === 'branch' && authority.onPrincipal) {
+  if (rootParent !== null && authority.onPrincipal) {
     const prepared = await prepareRequestedSession(authority, { kind: 'parent', uw: anchor })
     if ('kind' in prepared) return prepared
     return { kind: 'blocked', reason: 'session-not-intended-worktree' }

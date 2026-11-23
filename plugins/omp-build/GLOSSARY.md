@@ -30,11 +30,11 @@ A UW whose confirmed Mandate establishes an accepted Spec. A conforming body, al
 _Avoid_: a size label, an issue considered delivered because it is closed
 
 **Terminée**:
-A calculated UW state established by its applicable accepted obligations and authenticated delivery: a merged leaf with satisfied criteria, or a parent with completed accepted children, matching relations, satisfied coverage and direct integration evidence.
+A calculated state backed by authenticated delivery: a merged bound leaf with a successful `review` check on its merged head or admissible historical structured-review proof; a parent also needs completed accepted children, matching relations, coverage and direct integration evidence.
 _Avoid_: native closure, an abandoned UW, the sum of child approvals
 
 **Feature**:
-The delivery of a UW, from framing through merge, driven by `/feature`.
+Leaf UW delivery under a live mandate. `/feature` prepares authority and the worktree; the session composes implementation, independent review and correction, resumes from Git and GitHub facts, and uses guarded delivery effects. Parent delivery is suspended until #1031 slice 6.
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
 **Mandate**:
@@ -46,7 +46,7 @@ Temporary suspension of an otherwise valid Mandate, confirmed only after the app
 _Avoid_: abandonment, a spent bound, stopping the local process
 
 **Session pause**:
-The durable pause a native session stop, switch, or shutdown awaits for a pausable owner. A finished or confirmed-abandoned owner is released and is not paused again.
+The durable pause the retiring native runtime awaited for a pausable owner on session interruption, switch or shutdown. For composed Feature, local interruption does not pause the mandate; use the explicit operator control.
 _Avoid_: a local interrupt, an unconfirmed pause request, a spent review bound
 
 **Abandonment**:
@@ -62,7 +62,7 @@ A confirmed record that pauses, resumes, abandons, names a successor, or records
 _Avoid_: a session goal, an unconfirmed inhibit
 
 **Review interruption**:
-A confirmed neutral terminal for an interrupted initial pull-request review inventory. It preserves the historical root and its inputs; it is not a review verdict, approval, or a fresh attempt.
+A confirmed neutral terminal for an interrupted initial inventory in the retiring native review path. It preserves the original root and inputs; it is not a verdict, approval or fresh attempt.
 _Avoid_: Request changes, Approve, abort-as-verdict, rewriting the historical root
 
 **Replacement grant**:
@@ -74,7 +74,7 @@ The second attempt that names a Replacement grant and the interrupted historical
 _Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
 
 **Action receipt**:
-The confirmed start or result of a semantic, planning, or implementation action that otherwise has no durable product record.
+A confirmed native START or RESULT record for an action. Plan and implementation receipts from the retired Feature graph remain readable history, not a cursor for composed delivery.
 _Avoid_: a review record, a transcript, a local cache
 
 **Workflow binding**:
@@ -86,7 +86,7 @@ The string list at `review.additional_requirements` in committed `.dev/stack.yml
 _Avoid_: `.omp-build/workflow.json`, a working-tree copy, `review.graph`, `review.workflow`
 
 **Confirmed checkpoint**:
-A published result whose complete remote record has been read back and can support resumption. Unpublished work and a still-running agent are not checkpoints.
+A published effect whose remote record or native facts have been read back. Composed Feature uses current Git and GitHub facts rather than a saved workflow checkpoint.
 _Avoid_: a local snapshot, an attempted write, an unconfirmed acknowledgement
 
 **Parent UW mandate**:
@@ -94,15 +94,15 @@ The confirmed mandate on a UW parente: the accepted child UWs, their Spec versio
 _Avoid_: /goal, an autonomy level stored on the issue, one goal per UW
 
 **Run**:
-The run id stored on a Parent UW mandate. It names one delivery pass without authorizing it, resetting a review bound, or joining authority by itself.
+The coordination identifier retained on a Parent UW mandate. It identifies a historical delivery pass without granting authority or resetting a native review bound.
 _Avoid_: Goal run, a /goal line, `run=` in an objective, a counter of attempts
 
 **Arrêt d'UW**:
-A stop confined to one child UW while independent children may continue.
+A historical parent-delivery stop confined to one child UW while independent children could continue.
 _Avoid_: a shared-state stop, a /goal drop, a stop held only in session memory
 
 **Shared-state stop**:
-A failure that makes every remaining child UW unsafe to continue.
+A historical parent-delivery stop that made all remaining children unsafe to continue.
 _Avoid_: an Arrêt d'UW, a /goal, waiting on pending base CI before a child UW
 
 **Spec**:
@@ -178,7 +178,7 @@ An immutable record retaining an untreated cause, or a finding or rule error res
 _Avoid_: an automatically created follow-up issue, global search without an index, a satisfied criterion
 
 **Orchestrateur**:
-The code that assembles action inputs, dispatches agents, submits their returned forms to the engine for verification, and publishes confirmed results.
+In the retiring native runtime, the host that assembles inputs, dispatches agents and publishes their verified forms. Composed Feature uses session instructions and a guarded delivery CLI instead.
 _Avoid_: a LLM, an agent with publication authority, a permission inferred from an agent's credentials
 
 **Instantané**:
@@ -202,13 +202,11 @@ A versioned common record whose payload is the authority for that operation. The
 _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local session store
 
 **UW event**:
-A canonical `epic-event` record on a UW parente or child UW. Payload names include `goal-stop`, `epic-review`, `post-merge`, and `goal-report`; historical `epic-fix` records are decoded for diagnostics only and do not drive facts, stages, or transitions.
+A historical `epic-event` record on a parent or child UW. `goal-stop`, `epic-review`, `post-merge` and `goal-report` remain readable; `epic-fix` is diagnostic only. None restarts parent delivery.
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 
-**Landing admission**:
-The read-only check before `landPr` writes its arms. It admits only when the latest review approves the current head inside an unspent review bound, required CI is not red or unreadable, normative inputs are unchanged, and the selected outputs are authentic. Pending CI may be armed; the merge waits until the required checks pass. Normative inputs are the mandate configuration version and digest, the accepted Spec, and a fresh `omp-build:review-input/4` capture equal to the review binding. Authentic outputs have the expected author and readable, unedited native dates on every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; and on every mandate-chain and workflow-binding part.
-
-Admission also requires the selected UW's full accepted Spec version vector to remain applicable on a fresh, complete common observation, with its required dependencies satisfied by their calculated completion. The selected UW need not already be complete to implement, integrate or review it. Missing or incompatible authority is a refusal, not permission to infer acceptance, migrate a record or renew a mandate.
+**Legacy hosted admission**:
+The structured check used by the separate trusted CI auto-merge gate. It requires authentic approval of the current head, an unspent native review bound, admissible CI, unchanged inputs and applicable UW authority. It is not composed Feature's merge lock.
 
 _Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
 
@@ -221,21 +219,23 @@ Work that satisfies one UW's acceptance criteria inside its matching Worktree.
 _Avoid_: an external `implement` skill as a prerequisite, implementation on the Principal
 
 **Land**:
-The authorized transition from a green review to the repository's merge gate.
-Only an approving latest Review record of the current head lands, and never past a spent Review bound.
-Arming the gate is not evidence that the PR merged.
+The one head-pinned merge of a bound PR through the Feature delivery CLI under the GitHub `review` + `ci` ruleset. The CLI does not arm auto-merge.
 _Avoid_: manual merge while checks run, treating a label as a completed landing
 
+**Finish**:
+The `closeLinked` transition that closes a delivered leaf after the bound merge and its delivery proof are confirmed. The composed proof is a successful `review` check on the merged PR head, not native issue closure.
+_Avoid_: a second merge, a closing keyword, using the base or merge-commit SHA as the reviewed head
+
+**Review verdict check**:
+GitHub's `review` check for an exact PR head, produced from an approved `review-verdict v1` line. A new head needs a new verdict.
+_Avoid_: a `reviewed` label, a green check on a different head, a canonical native review record
+
 **Post-merge hook**:
-The repository's declared command that runs once the UW parente has landed, not after each child UW. This run's `ok` or `skipped` counts only at the current base commit; at another commit the driver stops `hook-stale` and does not run the hook again.
+Historical parent-delivery hook on the integrated base commit, not on each child's merge. Its old result is not live parent delivery authority.
 _Avoid_: a per-child deploy, a release cut, re-running this run's hook on a moved base
 
 **Review bound**:
-At most two automated fixes per PR, one per canonical final review, derived on every read from the automation login's complete `review` records: how many there are, and the latest one. A legacy marker is not a review.
-A fix — after a red review, or after a CI failure on the approved head — is allowed while the PR has at most two records; the fix's push moves the head, so the next step needs a review of it.
-A review past the second that does not approve spends the bound for good: a later green does not lift it, and `landPr` refuses to arm. A CI failure on the head the third review approved is a canonical `stop` and stays spent.
-Every posted review counts, with or without a fix before it. Nothing writes accounting.
-After a stop, resumption is operator-supervised agent processing: the operator explicitly approves revised scope, a diagnostic/correction plan and the continuation checkpoint; agents perform the correction, targeted proof and independent review. A spent PR stays stopped and disarmed, so revised work goes to a superseding PR with a fresh bound while its records remain evidence; fresh review, proof, CI and `landPr` admission still apply.
+The legacy native cap of two automated corrections per PR, derived from complete canonical final review records. A spent bound remains stopped and disarmed; revised scope requires explicit operator supervision and fresh admission on a superseding PR. Composed Feature instead permits two automatic correction rounds per invocation.
 _Avoid_: a ledger, counting fix receipts, resetting a canonical stop, one more automatic retry, raw label or manual-merge bypass
 
 **dev-core snapshot**:
@@ -269,7 +269,7 @@ The standalone tracker plugin creates issues and writes labels and native relati
 _Avoid_: treating standalone issue-triage as omp-build's authority
 
 **Optional tail**:
-`cleanup` after land, plus `promote` for staging-train projects only. Both remain the operator's decision.
+`cleanup` after confirmed `finish`, plus `promote` for staging-train projects only. Both remain the operator's decision.
 _Avoid_: putting them in the review loop
 
 **dev-core**:
@@ -277,7 +277,7 @@ The Claude/Grok factory plugin. Source stays in the marketplace; it is not loade
 _Avoid_: "the plugin" when the host is OMP
 
 **Dark-to-model**:
-A skill that ships in the armed package (`extensions:`) so slash and `skill://` work, with `disable-model-invocation` so the model does not autoload it. omp normalises that key to `hide`: it omits the skill from the prompt listing and gates nothing — `skill://<name>` and `/skill:<name>` still reach the body. A user-only command is `registerCommand`, the lane the model cannot call. Review is also a model tool; correction starts through `/fix` or the Feature review-bound handoff. Neither grants execution authority.
+A skill omitted from the prompt listing by `disable-model-invocation`, but still readable explicitly. The user-only command and retiring native review tool are separate entry points, not authority inferred from reading the skill.
 _Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable), "two gates", slash-only for every product path
 
 **Principal**:
@@ -289,11 +289,11 @@ A durable linked git checkout (ω) that isolates delivery from the Principal. Cr
 _Avoid_: branch; Isolation (ephemeral `task.isolated` sandbox); `/wt`; a session goal
 
 **Parent UW worktree**:
-The one Worktree shared by a UW parente's delivery hierarchy, including nested Parents and their Leaf children, anchored to the outermost Parent. Each Parent retains its own Mandat and delivery obligations without a Parent branch or PR; each Leaf child uses its own branch and PR in that Worktree.
+The linked checkout historically shared by a parent's delivery hierarchy. Nested parents had separate mandates but no separate parent branches or PRs; each leaf used its own branch and PR. Parent delivery is currently suspended.
 _Avoid_: one worktree per child UW, a parent branch, the Principal, Isolation
 
 **Bootstrap**:
-The prepared state of a Parent UW worktree, taken once from what the repository declares, before its first child UW.
+The environment prepared from repository declarations in the canonical Worktree before delivery. It is rebuildable and grants no business authority.
 _Avoid_: a hand-maintained checklist, copying the Principal's uncommitted state
 
 **Init**:
@@ -309,7 +309,7 @@ In-process OMP `tool_call` interceptor (principal freeze, bare `bun test`, secre
 _Avoid_: hook (Claude `hooks.json`), lefthook (commit/push persist law)
 
 **dev-review**:
-The review skill on OMP: reviewer agents chosen by diff (`R-adversarial` floor) review an open PR head, the findings go in one PR comment, and an approved head gets the `review-verdict v1` line. Named `dev-review`, not `R-dev-review`. The native spec → panel → recall → synthesis review stays behind `omp_build_start_review` and the `/feature` review step until #1037 moves them.
+Independent review of an exact open PR head. Reviewer agents leave findings on the PR and emit a verdict line only on approval. `/feature` follows these instructions in-session; the separate native `omp_build_start_review` tool is retiring.
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **dev-fix**:
@@ -317,7 +317,7 @@ The correction skill on OMP: implementer agents fix the findings of the latest `
 _Avoid_: /fix (the retiring native command), fixing without a current review of the head, a self-review
 
 **fix**:
-The native correction behind the retiring `/fix` command and the `/feature` fix step, until #1037 removes them. It applies each established `fix-original` cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Every cause receives its evidence-backed disposition; pending blocking causes remain blocking, sisters require exact operator confirmation and reports stay on their original UW. A failed correction retains its decision and execution evidence; it is not silently reported or filed. A correction never lands.
+The retiring native `/fix` path for evidence-backed per-cause correction and independent falsification. Pending blocking causes stay blocking, sisters require confirmation, and reports stay on their original UW. It never lands and is not invoked by composed Feature.
 _Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, automatic issue filing, picking a fix from a finding's solutions
 
 **Correction owner**:
@@ -325,7 +325,7 @@ The accountable holder of an admitted correction attempt. Transferring ownership
 _Avoid_: the request itself, an agent session, a retry allowance, proof that every writer has ended
 
 **Bounded correction recovery**:
-An operator-confirmed transition for an interrupted correction whose owner proves it stopped before native execution or correction-plan entry, with its owned preparation effects accounted for. It can neutrally close a publication or predecision attempt, or transfer an unstarted review-bound request and decision without replacing them.
+An operator-confirmed transition in the retiring native correction path. It neutrally closes an interrupted pre-entry attempt or transfers an unstarted review-bound request and decision when the owner proves no entry and accounts for its preparation effects.
 _Avoid_: resuming a partly executed plan, post-push completion, a free lock as permission, ordinary task completion as physical cessation
 
 **Root cause**:
@@ -333,7 +333,7 @@ The shared mechanism behind one or more review findings, stated with its one pla
 _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 
 **Review record**:
-The canonical `review` a consumer reads by record identity. It names the decision, the candidate SHA, and the input digest; projection lists source provenance and is not authority. The review bound counts complete final reviews by the automation login's native authorship. `landPr` arms only when that candidate equals the current `headRefOid`. A legacy marker does not arm. Native auto-merge then pins that head with `--match-head-commit`. Merge-on-green remains label-driven: a push by another actor after `reviewed` is applied is not refused by GitHub.
+The canonical `review` of the retiring native path, read by record identity. It names the decision, candidate SHA and input digest; its projection is not authority. Complete authenticated finals count toward the legacy bound and may support historical delivery proof. This is not the composed `review` check.
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:

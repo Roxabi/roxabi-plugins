@@ -1,17 +1,24 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as contracts from '../../dist/contracts.js'
 import type { FeatureAuthority } from '../../roxabi/feature-continuation-admission.ts'
+import * as admission from '../../roxabi/feature-continuation-admission.ts'
 import { applyFeatureControl } from '../../roxabi/feature-continuation-controls.ts'
-import type { FeatureWorkflow } from '../../roxabi/feature-contract'
-import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
+import * as observation from '../../roxabi/feature-continuation-observation.ts'
+import * as selection from '../../roxabi/feature-continuation-selection.ts'
+import type { ContinueFeatureInput, FeatureWorkflow } from '../../roxabi/feature-contract'
+import * as checkout from '../../roxabi/feature-selection.ts'
 import { createUwAbandon } from '../../roxabi/uw-abandon.ts'
 import type { OperatorPort, UwOperations } from '../../roxabi/uw-contract.ts'
+import * as issues from '../../roxabi/uw-spec/index.ts'
 import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
 import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
-import { cleanupFixtureActions, fixtureAction } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
+import { INSTALL_ROOT } from '../install-root.ts'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
-import type { NativeBatch } from '../review-runtime/contracts.ts'
+import { reviewControllerFor } from '../omp-controller'
 
 const root = {
   ...consultableAgentRoot(),
@@ -26,42 +33,11 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  cleanupFixtureActions()
+  vi.restoreAllMocks()
 })
 
-function batch(operationId = 'feature-op'): NativeBatch {
-  return {
-    operationId,
-    tasks: {
-      context: 'feature fixture',
-      tasks: [
-        {
-          name: 'R-workflow-plan',
-          agent: 'R-advisor',
-          task: 'plan',
-          solutionSpace: 'fixed fixture',
-          action: fixtureAction('R-workflow-plan'),
-        },
-      ],
-    },
-  }
-}
-
-function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow & { pauses: string[] } {
-  const pauses: string[] = []
-  return {
-    pauses,
-    continueFeature: async () => ({ kind: 'blocked', reason: 'unconfigured' }),
-    consumeWatchExit: async () => ({ kind: 'blocked', reason: 'watch-unconfigured' }),
-    publishFeatureNativeResult: async () => {
-      throw new Error('unexpected-native-publication')
-    },
-    requestFeatureSessionPause: async (input) => {
-      pauses.push(input.reason)
-      return { kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }
-    },
-    ...impl,
-  }
+function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow {
+  return { continueFeature: async () => ({ kind: 'blocked', reason: 'unconfigured' }), ...impl }
 }
 
 function installed(
@@ -145,31 +121,217 @@ describe('installed /feature command', () => {
     expect(host.sent.join('\n')).not.toContain('disarmed')
   })
 
-  it('announces one prepared batch for a non-principal selection and does not dump the skill', async () => {
-    const prepared = batch()
-    const host = installed({
-      principalCwd: () => false,
-      featureWorkflow: workflow({
-        continueFeature: async () => ({
-          kind: 'action',
-          node: 'fixture',
-          followUp: prepared,
-          start: {
-            scope: { repository: 'acme/widgets', target: 'acme/widgets#12' },
-            recordId: 'action-start-1',
-            kind: 'action-receipt',
-          },
-        }),
-      }),
+  it.each(['unbound', 'open', 'closed'] as const)('composes on entry and re-entry with a %s PR', async (prState) => {
+    const scope = { repository: 'acme/widgets', target: 'acme/widgets#12' }
+    const mandate = {
+      ...scope,
+      recordId: 'mandate-1',
+      payload: { branch: 'feat/12-widgets', base: 'main', parent: null },
+    }
+    const active = { status: 'applicable', mandate }
+    const authority = {
+      context: { git: vi.fn(), cwd: root.cwd },
+      scope,
+      selection: active,
+      onPrincipal: false,
+      identity: { ok: true, sessionTop: root.cwd },
+    } as unknown as FeatureAuthority
+    const current = {
+      snapshot: {
+        spec: { version: 'version-1' },
+        raw: { body: 'Accepted issue body.', bodySha256: 'a'.repeat(64) },
+      },
+      tier: 'S',
+      children: [],
+      inheritedOwnSpecRefs: [],
+      coverage: null,
+    }
+    vi.spyOn(admission, 'resolveFeatureAuthority').mockResolvedValue(authority)
+    const issue = { body: 'An unaccepted edit to the criterion.' }
+    vi.spyOn(selection, 'selectFeatureMandate').mockResolvedValue({
+      authority,
+      issue,
+      number: 12,
+      mandate,
+      acceptedSpec: current,
+    } as unknown as selection.SelectedFeature)
+    vi.spyOn(checkout, 'requireMandateCheckout').mockResolvedValue(null)
+    const source = {
+      uw: { ...scope, target: 'acme/widgets#10' },
+      version: 'parent-version',
+      sourceAccepted: { recordId: 'parent-assessment' },
+    }
+    const own = { uw: scope, version: 'version-1', sourceAccepted: { recordId: 'mandate-1' } }
+    const spec = {
+      version: own.version,
+      criteria: [{ id: 'C1', statement: 'Keep the accepted criterion.' }],
+      invariants: [{ id: 'I1', statement: 'Keep the accepted invariant.' }],
+      exclusions: ['No changes to the renderer.'],
+    }
+    const inherited = (parent: typeof source) => ({
+      invariants: [{ target: { spec: parent, id: 'I2' }, statement: 'Keep the inherited invariant.' }],
+      exclusions: [{ ref: { spec: parent, index: 0 }, statement: 'No public API changes.' }],
     })
+    const resolved = { own, versionVector: [own, source], spec, inherited: inherited(source) }
+    const resolveEffective = vi
+      .spyOn(contracts, 'resolveSpecEffective')
+      .mockReturnValue({ ok: true, value: resolved } as never)
+    const pr = { number: 34, scope: { ...scope, target: 'acme/widgets#34' }, ...mandate.payload }
+    vi.spyOn(contracts, 'selectWorkflowBinding').mockReturnValue(
+      prState === 'unbound' ? { status: 'absent' } : ({ status: 'bound', mandateRecord: mandate } as never),
+    )
+    const readPr = vi.spyOn(contracts, 'readNativePullRequestFacts').mockResolvedValue({
+      state: prState === 'open' ? 'OPEN' : 'CLOSED',
+      branch: pr.branch,
+      base: pr.base,
+    } as never)
+    vi.spyOn(observation, 'assembleObservationBase').mockResolvedValue({
+      facts: { currentSpec: current },
+      evidence: { issue: { source: { scope }, operations: [] }, causal: { histories: [], observation: { graph: {} } } },
+      deliveryAdmission: { admission: { deliverable: { diagnostics: [] } } },
+      delivery: pr,
+    } as unknown as observation.FeatureAdmissionObservation)
+    const exec = vi.fn()
+    const host = installed({ uwOperations: () => ({}) as UwOperations }, exec)
+    const dir = join(INSTALL_ROOT, 'skills', 'feature')
+    const body = readFileSync(join(dir, 'SKILL.md'), 'utf8').split(/^---$/m)[2]?.trim()
+    const message = [
+      body,
+      '',
+      `[Skill directory: ${dir}]`,
+      '',
+      '## Feature context',
+      'repository: acme/widgets',
+      'issue: 12',
+      'mandate: mandate-1',
+      'branch: feat/12-widgets',
+      'base: main',
+      'worktree: /repo/feature',
+      ...(prState === 'open' ? ['pr: 34'] : []),
+      '',
+      '## Accepted Spec',
+      `spec: ${contracts.canonicalValueDigest(resolved)}`,
+      'The live issue body differs from the accepted snapshot.',
+      '',
+      '```json',
+      JSON.stringify(
+        {
+          own,
+          acceptedBodySha256: 'a'.repeat(64),
+          criteria: spec.criteria,
+          invariants: spec.invariants,
+          exclusions: spec.exclusions,
+          inherited: resolved.inherited,
+        },
+        null,
+        2,
+      ),
+      '```',
+    ].join('\n')
     await host.commands.get('feature')?.handler('#12', root)
-    const announced = host.sent.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH'))
-    expect(announced).toHaveLength(1)
-    expect(announced[0]).toContain('omp_build_execute_native_batch')
-    expect(announced[0]).toContain('"batchId"')
-    expect(announced[0]).not.toContain('R-workflow-plan')
-    expect(host.sent.join('\n')).not.toContain('# Feature')
-    expect(host.sent.join('\n')).not.toContain('[Skill directory:')
+    expect(host.sent).toEqual([message])
+    issue.body = current.snapshot.raw.body
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(host.sent).toEqual([
+      message,
+      message.replace('The live issue body differs from the accepted snapshot.\n', ''),
+    ])
+    const recordedDigest = (text: string | undefined) => text?.match(/^spec: ([0-9a-f]{64})$/m)?.[1]
+    const originalDigest = recordedDigest(host.sent[0])
+    expect(originalDigest).toBeDefined()
+    expect(recordedDigest(host.sent[1])).toBe(originalDigest)
+
+    // A new inherited version changes the review scope even when its exposed clauses are unchanged.
+    const updatedParent = { ...source, version: 'parent-version-2' }
+    resolveEffective.mockReturnValue({
+      ok: true,
+      value: { ...resolved, versionVector: [own, updatedParent], inherited: inherited(updatedParent) },
+    } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(recordedDigest(host.sent[2])).toMatch(/^[0-9a-f]{64}$/)
+    expect(recordedDigest(host.sent[2])).not.toBe(originalDigest)
+
+    const updatedOwn = { ...own, version: 'version-2' }
+    current.snapshot.spec.version = updatedOwn.version
+    resolveEffective.mockReturnValue({
+      ok: true,
+      value: {
+        ...resolved,
+        own: updatedOwn,
+        versionVector: [updatedOwn, source],
+        spec: { ...spec, version: updatedOwn.version },
+      },
+    } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(recordedDigest(host.sent[3])).toMatch(/^[0-9a-f]{64}$/)
+    expect(recordedDigest(host.sent[3])).not.toBe(originalDigest)
+
+    // With no inherited clauses, the ancestor version vector alone must change the digest.
+    const withoutClauses = { ...resolved, inherited: { invariants: [], exclusions: [] } }
+    resolveEffective.mockReturnValue({ ok: true, value: withoutClauses } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    resolveEffective.mockReturnValue({
+      ok: true,
+      value: { ...withoutClauses, versionVector: [own, updatedParent] },
+    } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    const vectorBefore = recordedDigest(host.sent[4])
+    const vectorAfter = recordedDigest(host.sent[5])
+    expect(vectorBefore).toMatch(/^[0-9a-f]{64}$/)
+    expect(vectorAfter).toMatch(/^[0-9a-f]{64}$/)
+    expect(vectorAfter).not.toBe(vectorBefore)
+    expect(host.sent[5]).toBe(host.sent[4]?.replace(`spec: ${vectorBefore}`, `spec: ${vectorAfter}`))
+    expect(exec).not.toHaveBeenCalled()
+    expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 6)
+    expect(reviewControllerFor(host.pi).active()).toBeNull()
+  })
+
+  it('stops a native parent before mandate or checkout work', async () => {
+    const scope = { repository: 'acme/widgets', target: 'acme/widgets#12' }
+    const child = { repository: scope.repository, target: 'acme/widgets#13' }
+    const git = vi.fn()
+    const readUw = vi.fn(async () => ({
+      accepted: { status: 'absent' },
+      admission: { aggregate: { status: 'none' } },
+      graph: {
+        status: 'complete',
+        nodes: [
+          { uw: scope, children: [child], labels: [] },
+          { uw: child, children: [], labels: [] },
+        ],
+      },
+    }))
+    const host = installed({
+      uwOperations: () => ({ readUw }) as unknown as UwOperations,
+    })
+    vi.spyOn(admission, 'resolveFeatureAuthority').mockResolvedValue({
+      context: { git, cwd: root.cwd, engine: { resolveOwnSpecAuthority: () => ({ ok: false }) } },
+      scope,
+      target: { status: 'issue' },
+      selection: { status: 'refused', reason: 'missing' },
+    } as unknown as FeatureAuthority)
+    vi.spyOn(issues, 'readSelectionIssueSpec').mockResolvedValue({ title: 'Parent', labels: [] } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(readUw).toHaveBeenCalledOnce()
+    expect(host.sent).toEqual(['Parent /feature delivery is suspended; resumes in slice 6 (#1031).'])
+    expect(git).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['resume #12', 'resume', undefined],
+    ['new #12', 'new', undefined],
+    ['material-decision #12', 'material-decision', undefined],
+    ['resolve-interruption #12 --start start-12', 'resolve-interruption', 'start-12'],
+  ])('routes %s without dispatching native work', async (args, control, start) => {
+    const continueFeature = vi.fn(
+      async (_input: ContinueFeatureInput) => ({ kind: 'blocked', reason: 'fixture-control' }) as const,
+    )
+    const host = installed({ featureWorkflow: workflow({ continueFeature }) })
+    await host.commands.get('feature')?.handler(args, root)
+    expect(continueFeature).toHaveBeenCalledOnce()
+    expect(continueFeature.mock.calls[0]?.[0]).toMatchObject({ control })
+    if (start) expect(continueFeature.mock.calls[0]?.[0]).toMatchObject({ interruption: { start } })
+    expect(host.sent).toEqual(['feature-stopped: fixture-control'])
   })
 
   it('confirms pause only from the product and never prints disarmed for an unconfirmed pause', async () => {
@@ -262,84 +424,14 @@ describe('installed /feature command', () => {
     expect(host.sent).toEqual(['uw-stopped: uw-reference-invalid'])
   })
 
-  it('refuses needs-scope without assisted framing and without dispatching a batch', async () => {
-    let activated = false
-    let announced = false
-
-    const sent: string[] = []
-    await runInstalledFeatureCommand('#12', {
-      key: {},
-      cwd: root.cwd,
-      principal: false,
-      workflow: workflow({
-        continueFeature: async () => ({ kind: 'operator-decision', reason: 'needs-scope' }),
-      }),
-      native: {
-        activate: () => {
-          activated = true
-        },
-        inactive: () => undefined,
-        stopOwned: async () => undefined,
-        announce: async () => {
-          announced = true
-        },
-      },
-      send: async (text) => {
-        sent.push(text)
-      },
-      status: async () => undefined,
-      startFraming: async () => {
-        throw new Error('unexpected-framing')
-      },
-      inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
-      featureContinuationInhibited: () => false,
-      markFeatureBatch: () => undefined,
-      exec: async () => ({ code: 0, killed: false }),
-    })
-    expect(sent).toEqual(['feature-stopped: operator-decision:needs-scope'])
-    expect(activated).toBe(false)
-    expect(announced).toBe(false)
-  })
-
-  it('stops a branch-mismatch refusal without dispatching native work', async () => {
-    let activated = false
-    let announced = false
-    const sent: string[] = []
-    await runInstalledFeatureCommand('#12', {
-      key: {},
-      cwd: root.cwd,
-      principal: false,
-      workflow: workflow({
-        continueFeature: async () => ({ kind: 'blocked', reason: 'branch-mismatch' }),
-      }),
-      native: {
-        activate: () => {
-          activated = true
-        },
-        inactive: () => undefined,
-        stopOwned: async () => undefined,
-        announce: async () => {
-          announced = true
-        },
-      },
-      send: async (message) => {
-        sent.push(message)
-      },
-      status: async () => undefined,
-      startFraming: async () => {
-        throw new Error('unexpected-framing')
-      },
-      inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
-      featureContinuationInhibited: () => false,
-      markFeatureBatch: () => undefined,
-      exec: async () => ({ code: 0, killed: false }),
-    })
-    expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatch(/^feature-stopped:/)
-    expect(activated).toBe(false)
-    expect(announced).toBe(false)
+  it.each([
+    [{ kind: 'operator-decision', reason: 'needs-scope' }, 'operator-decision:needs-scope'],
+    [{ kind: 'blocked', reason: 'branch-mismatch' }, 'branch-mismatch'],
+  ] as const)('stops %j without launching framing or native work', async (result, reason) => {
+    const host = installed({ featureWorkflow: { continueFeature: async () => result } })
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(host.sent).toEqual([`feature-stopped: ${reason}`])
+    expect(reviewControllerFor(host.pi).active()).toBeNull()
   })
 })
 
@@ -349,5 +441,17 @@ describe('installed correction lane', () => {
 
     expect(host.tools.has('omp_build_start_fix')).toBe(false)
     expect(host.commands.has('fix')).toBe(true)
+  })
+
+  it('specifies a publish-only composed resume bound to the same review and PR head', () => {
+    const skill = readFileSync(join(INSTALL_ROOT, 'skills', 'dev-fix', 'SKILL.md'), 'utf8')
+    const resume = skill.split('**Composed resume:**')[1]?.split('\n')[0]
+    expect(resume).toContain('git merge-base --is-ancestor <HEAD> <tip>')
+    expect(resume).toContain('`Review-Id` and `Review-Updated-At` commit trailers match `REVIEW` exactly')
+    expect(resume).toContain('skip planning, editing and committing')
+    const publish = skill.split('## 4. Publish')[1] ?? ''
+    expect(publish).toMatch(
+      /head still `HEAD`[\s\S]*latest review comment by a writer still `REVIEW` with the same `updated_at`[\s\S]*--tip <tip> --from <HEAD> --pr <PR>/,
+    )
   })
 })

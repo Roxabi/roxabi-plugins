@@ -1,0 +1,102 @@
+import { join } from 'node:path'
+import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import type { ContinueFeatureInput, ContinueFeatureResult } from '../roxabi/feature-contract.ts'
+import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
+import {
+  featureResultStatus,
+  featureSessionCwdMessage,
+  featureStopMessage,
+  principalRefusalMessage,
+} from '../roxabi/feature-presentation.ts'
+import { featureSpecDigest } from '../roxabi/feature-spec-digest.ts'
+import { type OmpBuildExtensionApi, reportFeatureTerminalStatus } from './omp-controller'
+import type { Admission, FeatureReady } from './omp-feature-admission.ts'
+import type { FeatureOperationReportGuard } from './omp-feature-composition.ts'
+import type { FeatureFramingRuntime } from './omp-framing-runtime.ts'
+import { sendSkillMessage } from './omp-skill-command-runtime.ts'
+
+export async function deliverAdmission(
+  composition: Readonly<{ pi: OmpBuildExtensionApi; framing: FeatureFramingRuntime; skillsDir: string }>,
+  ctx: ExtensionContext,
+  operator: FramingOperator,
+  input: ContinueFeatureInput,
+  result: Admission,
+  body: string | undefined,
+  guard: FeatureOperationReportGuard,
+  originalArgs: string | null,
+): Promise<void> {
+  const { pi, framing, skillsDir } = composition
+  if (!guard.isCurrent()) return
+  if (result.kind === 'ready') {
+    if (body !== undefined) await sendSkillMessage(pi, join(skillsDir, 'feature'), body, featureContext(result))
+    return
+  }
+  if (result.kind === 'framing' && input.control !== 'resolve-interruption') {
+    await framing.start({ ctx, operator, originalArgs, pluginPin: input.pluginPin }, result.source, guard.handoff)
+    return
+  }
+  reportAdmissionStop(pi, ctx, input, result)
+}
+
+function featureContext(result: FeatureReady): string {
+  const { repository, issue, mandate, branch, base, worktree, pr } = result
+  return [
+    '## Feature context',
+    `repository: ${repository}`,
+    `issue: ${issue}`,
+    `mandate: ${mandate}`,
+    `branch: ${branch}`,
+    `base: ${base}`,
+    `worktree: ${worktree}`,
+    ...(pr === undefined ? [] : [`pr: ${pr}`]),
+    '',
+    acceptedSpecContext(result),
+  ].join('\n')
+}
+
+function acceptedSpecContext({ acceptedSpec, acceptedBodySha256, liveIssueBodyDiffers }: FeatureReady): string {
+  const { own, spec, inherited } = acceptedSpec
+  const { criteria, invariants, exclusions } = spec
+  return [
+    '## Accepted Spec',
+    `spec: ${featureSpecDigest(acceptedSpec)}`,
+    ...(liveIssueBodyDiffers ? ['The live issue body differs from the accepted snapshot.'] : []),
+    '',
+    '```json',
+    JSON.stringify({ own, acceptedBodySha256, criteria, invariants, exclusions, inherited }, null, 2),
+    '```',
+  ].join('\n')
+}
+
+export function deliversSkill(control: ContinueFeatureInput['control']): boolean {
+  return control === 'select' || control === 'resume' || control === 'new'
+}
+
+function reportAdmissionStop(
+  pi: OmpBuildExtensionApi,
+  ctx: ExtensionContext,
+  input: ContinueFeatureInput,
+  result: ContinueFeatureResult,
+): void {
+  if (result.kind === 'blocked' && result.reason === 'parent-delivery-suspended') {
+    reportFeatureTerminalStatus(pi, 'Parent /feature delivery is suspended; resumes in slice 6 (#1031).')
+    return
+  }
+  const stop = featureStopMessage(result)
+  if (result.kind === 'session-cwd' && stop === null) {
+    reportFeatureTerminalStatus(pi, featureSessionCwdMessage(result.path, result.instruction))
+    return
+  }
+  const principalDispatch = input.principal && deliversSkill(input.control)
+  const refusal =
+    input.control === 'resolve-interruption' ? 'interruption-result-invalid' : `workflow-result: ${result.kind}`
+  const message = stop ?? `feature-stopped: ${refusal}`
+  const display =
+    result.kind === 'paused' && result.confirmed && result.reason === 'interruption-resolved'
+      ? `${message}\nUW ${input.reference} remains paused · next: /feature resume ${input.reference}`
+      : message
+  if (result.kind === 'blocked' || result.kind === 'paused') {
+    ctx.ui?.setStatus?.('omp-build-watch', featureResultStatus(input.reference, result))
+  }
+  reportFeatureTerminalStatus(pi, principalDispatch ? principalRefusalMessage(ctx.cwd, display) : display)
+}

@@ -9,19 +9,15 @@ import {
 } from '../engine/__tests__/workflow-interruption-support.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
-import { reconstructWorkflow } from '../engine/workflow-reconstruction-admission.ts'
-import type { WorkflowFacts } from '../engine/workflow-reconstruction-types.ts'
+import { classifyAttempts } from '../engine/workflow-action-interruption.ts'
 import { fixtureReviewClassCatalogues } from './action-input-fixtures.ts'
 import { readDeclaredNativeWorld } from './declared-native-observation.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 import { nativeDecisionBody, nativeDecisionMandate } from './workflow-decision-cases/support/native-decision-spec.ts'
 import {
   authenticatedPlanFixtures,
-  decisions,
   eligiblePlan,
   SCOPE,
-  shippedFacts,
   shippedMandate,
 } from './workflow-decision-cases/support/workflow-decision-fixtures.ts'
 
@@ -55,15 +51,8 @@ export async function observe(issue: DecodedHistory) {
   )
 }
 
-export async function decide(issue: DecodedHistory, mandate: MandateRecord, facts: Partial<WorkflowFacts> = {}) {
-  const observation = await observe(issue)
-  if (observation.status !== 'complete') throw new Error('Expected a complete native observation')
-  const causal = { histories: observation.histories, catalogues: observation.catalogues, observation }
-  return reconstructWorkflow({
-    evidence: { issue, pullRequest: null, parents: [], causal },
-    facts: { ...shippedFacts(mandate), ...facts },
-    decisions: decisions(),
-  })
+export function classifyDeliveryAttempts(issue: DecodedHistory) {
+  return classifyAttempts({ histories: [issue], scan: [issue], actions: ['plan', 'plan-review', 'implement'] })
 }
 
 export function planWorld() {

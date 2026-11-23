@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
-version: 0.4.1
+version: 0.4.5
 ---
 
 # Dev review
@@ -19,7 +19,7 @@ Review the current head of one open pull request with agents other than its auth
    - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
    The change is `git diff <BASE_SHA>...<HEAD>`.
 5. Check out the reviewed tree apart from the current one, without running its hooks: `git -c core.hooksPath=/dev/null worktree add --detach <dir> <HEAD>`. Every source read of the review happens there. Remove it on every exit, a stop included: `git worktree remove --force <dir>`.
-6. Read the linked issue (`Closes #N` / `References #N` in the PR body): its criteria are what the change must meet.
+6. **Composed:** review only the host's `## Accepted Spec` snapshot for the bound issue, including inherited clauses and their source refs. Record its `spec: <digest>` value (64 lowercase hex); if the section or digest is missing or invalid, stop. If you discover a newer accepted own or inherited Spec, stop without publishing review evidence or a verdict: report the accepted change and ask the operator to rerun `/feature` for a new snapshot. A live body edit alone is not evidence of acceptance. Compare `acceptedBodySha256` with the live body hash (`(set -o pipefail; gh api repos/<owner>/<repo>/issues/<N> | jq -erj '.body | strings' | sha256sum)`). Report a mismatch or an unavailable comparison; neither changes the review scope. **Standalone:** read the unambiguous linked issue from the PR body (`Closes #N`, `References #N`, or a `UW #N` line) and use its criteria. The PR body is not proof of binding.
 
 ## 2. Pick the reviewers
 
@@ -30,7 +30,7 @@ Review the current head of one open pull request with agents other than its auth
   - `R-tester`: test changes, or behavior changed without a test;
   - `R-devops`: CI workflows, dependencies, build, configuration.
 - Reviewers are separate read-only agents. The session that wrote the change does not review it.
-- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the issue criteria, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
+- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the requirements from step 1.6, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
 
 ## 3. Consolidate
 
@@ -41,7 +41,7 @@ Review the current head of one open pull request with agents other than its auth
 ## 4. Publish on the PR
 
 1. Re-read the PR. If its head is no longer `HEAD` or its base is no longer `BASE`, stop: the review is stale; run `/dev-review` again.
-2. Post one comment (`gh pr comment <PR> --body-file <file>`): first line `## Review — head <HEAD> base <BASE>`, then the reviewers used, the findings (blocking first) with `file:line`, and as last line exactly `Verdict: approve` or `Verdict: request changes`. `/dev-fix` reads this format. Keep it public-safe: no secrets, private paths, raw logs or client data.
+2. Post one comment (`gh pr comment <PR> --body-file <file>`). First line: `## Review — head <HEAD> base <BASE> spec <digest>` in composed mode, copying the digest from step 1.6; `## Review — head <HEAD> base <BASE>` standalone. Then list the reviewers and findings (blocking first) with `file:line`. The last line is exactly `Verdict: approve` or `Verdict: request changes`. `/dev-fix` reads this format. Keep it public-safe: no secrets, private paths, raw logs or client data.
 3. On approve, post a second comment whose only line is:
 
    ```text

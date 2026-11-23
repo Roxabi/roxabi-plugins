@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { startBootstrap, unbootstrappedWorktree } from '../worktree-entry'
+import { afterEach, describe, expect, it } from 'vitest'
+import { runWorktreeBootstrap } from '../../roxabi/workflow-checkout.ts'
 
 const ENV: NodeJS.ProcessEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
@@ -38,21 +38,12 @@ function fixture(): { repo: string; wt: string; wtGitDir: string } {
 }
 
 describe('worktree bootstrap entry', () => {
-  it('still bootstraps when startBootstrap is called explicitly', async () => {
+  it('bootstraps a linked worktree through the foreground preparation route', async () => {
     const { wt, wtGitDir } = fixture()
-    const worktree = unbootstrappedWorktree(wt)
-    expect(worktree).not.toBeNull()
-    if (worktree === null) throw new Error('fixture must contain an unbootstrapped worktree')
-    startBootstrap(path.resolve(import.meta.dirname, '../../skills/feature/worktree-bootstrap.sh'), worktree)
-
-    await vi.waitFor(() => expect(existsSync(path.join(wtGitDir, 'omp-build-bootstrapped'))).toBe(true), {
-      timeout: 15_000,
-      interval: 50,
-    })
+    const marker = path.join(wtGitDir, 'omp-build-bootstrapped')
+    expect(existsSync(marker)).toBe(false)
+    await expect(runWorktreeBootstrap(wt)).resolves.toEqual({ ok: true })
+    expect(existsSync(marker)).toBe(true)
     expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('REAL=1\n')
-    await vi.waitFor(
-      () => expect(readFileSync(path.join(wtGitDir, 'omp-build-bootstrap.log'), 'utf8').trim()).toBe('bootstrap=done'),
-      { timeout: 15_000, interval: 50 },
-    )
   })
 })

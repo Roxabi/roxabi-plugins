@@ -5,12 +5,9 @@ import {
   sameScope,
 } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import { branchFor } from '../skills/feature/epic-naming.ts'
 import { checkoutTarget } from './feature-checkout-target.ts'
-import type { ContinueFeatureInput, ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
-import { discoverFramingCoverageIntent, resolveFramingCoverageIntent } from './feature-framing-coverage.ts'
-import { initialCoverageBasis } from './feature-initial-coverage.ts'
+import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
 import { resolveBase } from './feature-mandate.ts'
 import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
@@ -23,7 +20,6 @@ import {
   type GitRunner,
   prepareFeatureCheckout,
   sessionWorktreeIdentity,
-  verifyParentCheckout,
 } from './workflow-checkout.ts'
 
 export type FramedHandoffPreparation = Readonly<{
@@ -31,31 +27,14 @@ export type FramedHandoffPreparation = Readonly<{
   root: Scope
   repository: string
   principalTop: string
-  target: FeatureCheckoutTarget
+  target: Extract<FeatureCheckoutTarget, { kind: 'branch' }>
   destination: string
   expectedBase: string
-  coverage: ParentCoverage | null
-  basis: ParentCoverageRequest
+  framingFactsDigest: string
   checkout: CheckoutPreparation
 }>
 
 type Gh = NonNullable<ContinueFeatureInput['gh']>
-
-async function currentPair(
-  root: Scope,
-  read: UwRead,
-): Promise<{ coverage: ParentCoverage | null; basis: ParentCoverageRequest } | ContinueFeatureResult> {
-  const facts = await readCurrentFramingFacts({ uw: root, read })
-  if (!facts.ok) return { kind: 'blocked', reason: 'uw-current-facts-refused', diagnostics: facts.diagnostics }
-  const basis = initialCoverageBasis(root, facts.value.currentSpec)
-  const discovered = discoverFramingCoverageIntent(root, read)
-  if ('kind' in discovered) return discovered
-  if (discovered.intent === null)
-    return basis.children.length === 0
-      ? { coverage: null, basis }
-      : { kind: 'blocked', reason: 'parent-coverage-intent-required', coverageRequest: basis }
-  return resolveFramingCoverageIntent({ uw: root, read, intent: discovered.intent })
-}
 
 function checkWritten(written: WrittenFramingGraph, read: UwRead): ContinueFeatureResult | null {
   const membership = read.admission.aggregate
@@ -103,12 +82,6 @@ export async function prepareFramedFeatureHandoff(input: {
   const { written, read, cwd, git, gh, uw } = input
   const problem = checkWritten(written, read)
   if (problem !== null) return problem
-  if (!(await checkRepository(gh, cwd, written.root.repository)))
-    return { kind: 'blocked', reason: 'repository-mismatch' }
-  const identity = await sessionWorktreeIdentity(git, cwd)
-  if (!identity.ok) return { kind: 'blocked', reason: identity.reason }
-  const base = await resolveBase(git, identity.principalTop)
-  if ('reason' in base) return { kind: 'blocked', reason: base.reason }
   const node = read.graph.nodes.find((entry) => sameScope(entry.uw, written.root))
   if (!node) return { kind: 'blocked', reason: 'graph-root-missing' }
   const number = Number(written.root.target.slice(written.root.target.lastIndexOf('#') + 1))
@@ -119,14 +92,16 @@ export async function prepareFramedFeatureHandoff(input: {
     branch: branchFor({ number, title: node.title, labels: [...node.labels] }),
   })
   if ('kind' in projected) return projected
-  const anchor = await resolveParentWorktreeAnchor({ subject: written.root, read })
-  if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-  const target = projected.target.kind === 'parent' ? { kind: 'parent' as const, uw: anchor.anchor } : projected.target
-  const fresh = await uw.readUw(written.root)
-  const freshProblem = checkWritten(written, fresh)
-  if (freshProblem !== null) return freshProblem
-  const pair = await currentPair(written.root, fresh)
-  if ('kind' in pair) return pair
+  if (projected.target.kind === 'parent') return { kind: 'blocked', reason: 'parent-delivery-suspended' }
+  if (!(await checkRepository(gh, cwd, written.root.repository)))
+    return { kind: 'blocked', reason: 'repository-mismatch' }
+  const identity = await sessionWorktreeIdentity(git, cwd)
+  if (!identity.ok) return { kind: 'blocked', reason: identity.reason }
+  const base = await resolveBase(git, identity.principalTop)
+  if ('reason' in base) return { kind: 'blocked', reason: base.reason }
+  const target = projected.target
+  const facts = await readHandoffFacts(written, await uw.readUw(written.root))
+  if ('kind' in facts) return facts
   let revoked = false
   const guardedGit: GitRunner = async (directory, args) => {
     let live = false
@@ -160,11 +135,25 @@ export async function prepareFramedFeatureHandoff(input: {
       target,
       destination,
       expectedBase: base.base,
-      coverage: pair.coverage,
-      basis: pair.basis,
+      framingFactsDigest: canonicalValueDigest(facts.value),
       checkout,
     }),
   )
+}
+
+async function readHandoffFacts(written: WrittenFramingGraph, read: UwRead) {
+  const problem = checkWritten(written, read)
+  if (problem !== null) return problem
+  const anchor = await resolveParentWorktreeAnchor({ subject: written.root, read })
+  if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason } as const
+  const children = projectNativeUwChildren({ uw: written.root, graph: read.graph, accepted: read.accepted })
+  if (!children.ok)
+    return { kind: 'blocked', reason: 'uw-children-unconfirmed', diagnostics: children.diagnostics } as const
+  if (children.value.length !== 0) return { kind: 'blocked', reason: 'parent-delivery-suspended' } as const
+  const facts = await readCurrentFramingFacts({ uw: written.root, read })
+  return facts.ok
+    ? facts
+    : ({ kind: 'blocked', reason: 'uw-current-facts-refused', diagnostics: facts.diagnostics } as const)
 }
 
 /** Recheck the fresh destination and return the exact ordinary continuation input. */
@@ -186,10 +175,10 @@ export async function verifyFramedFeatureDestination(input: {
   const fresh = await input.uw.readUw(ticket.root)
   const freshProblem = checkWritten(ticket.written, fresh)
   if (freshProblem !== null) return freshProblem
-  const pair = await currentPair(ticket.root, fresh)
-  if ('kind' in pair) return pair
-  if (canonicalValueDigest(pair) !== canonicalValueDigest({ coverage: ticket.coverage, basis: ticket.basis }))
-    return { kind: 'blocked', reason: 'parent-coverage-intent-changed' }
+  const facts = await readCurrentFramingFacts({ uw: ticket.root, read: fresh })
+  if (!facts.ok) return { kind: 'blocked', reason: 'uw-current-facts-refused', diagnostics: facts.diagnostics }
+  if (canonicalValueDigest(facts.value) !== ticket.framingFactsDigest)
+    return { kind: 'blocked', reason: 'framing-handoff-changed' }
   return {
     continuation: {
       cwd,
@@ -200,8 +189,6 @@ export async function verifyFramedFeatureDestination(input: {
       read: input.uw,
       gh,
       git,
-      parentCoverage: pair.coverage,
-      parentCoverageBasis: pair.basis,
       ...(input.pluginPin === undefined ? {} : { pluginPin: input.pluginPin }),
     },
   }
@@ -223,10 +210,6 @@ async function verifyDestinationCheckout(
   const base = await resolveBase(git, identity.principalTop)
   if ('reason' in base || base.base !== ticket.expectedBase)
     return { kind: 'blocked', reason: 'first-mandate-base-changed' }
-  if (ticket.target.kind === 'parent') {
-    const checked = await verifyParentCheckout({ git, cwd, uw: ticket.target.uw })
-    return checked.ok ? null : { kind: 'blocked', reason: checked.reason }
-  }
   const branch = await git(cwd, ['branch', '--show-current'])
   return branch.code === 0 && branch.stdout.trim() === ticket.target.branch
     ? null

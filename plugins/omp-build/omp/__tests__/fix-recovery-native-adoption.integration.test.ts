@@ -70,6 +70,7 @@ it('adopts the real unspent review decision and original request across physical
   expect(setup.review.childProbes.length).toBeGreaterThan(0)
   const marker = join(box.root, 'accepted-review-bound-request')
   const old = invoke('old', {
+    RECOVERY_PRELUDE_REVIEW_ID: setup.review.reviewId,
     FIX_RECOVERY_FAULT_KIND: 'fix-request',
     FIX_RECOVERY_FAULT_BEFORE: '0',
     FIX_RECOVERY_FAULT_MARKER: marker,

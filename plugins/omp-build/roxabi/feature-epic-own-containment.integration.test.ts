@@ -19,8 +19,7 @@ import { git, readSim, sandbox, writeSim } from '../testing/sandbox/sandbox-repo
 import type { Box } from '../testing/sandbox/sandbox-types.ts'
 import { legacyFixtures } from './__tests__/uw-successor-selection-support.ts'
 
-const RUNNER = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
-const ABANDON = path.resolve(import.meta.dirname, './feature-containment-abandon-fixture.ts')
+const CONTROL = path.resolve(import.meta.dirname, './feature-containment-abandon-fixture.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const ROOT = { repository: 'acme/app', target: 'acme/app#42' }
 const CHILD = { repository: 'acme/app', target: 'acme/app#43' }
@@ -61,7 +60,7 @@ function abandonFixtureChild(
   })
   const artifacts = path.join(box.root, 'abandon-artifacts')
   mkdirSync(artifacts, { recursive: true })
-  const run = spawnSync(BUN, [ABANDON, cwd, artifacts], {
+  const run = spawnSync(BUN, [CONTROL, cwd, artifacts], {
     cwd,
     env: box.env,
     encoding: 'utf8',
@@ -243,9 +242,7 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy =
 function control(box: Box, cwd: string, action: 'pause' | 'abandon', confirmedAbandon = false) {
   const home = path.join(box.root, `home-${action}`)
   mkdirSync(home, { recursive: true })
-  const args = confirmedAbandon
-    ? [ABANDON, cwd, home, 'root']
-    : [RUNNER, 'continue', cwd, JSON.stringify({ reference: '#42', control: action })]
+  const args = confirmedAbandon ? [CONTROL, cwd, home, 'root'] : [CONTROL, cwd, home, action]
   const run = spawnSync(BUN, args, {
     cwd,
     env: { ...box.env, HOME: home },

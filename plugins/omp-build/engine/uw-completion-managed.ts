@@ -153,6 +153,7 @@ function finishProof(
     versionVector: effective.versionVector,
     code: proof.value.code,
     sources: proof.value.sources,
+    ...(proof.value.reviewCheck === undefined ? {} : { reviewCheck: proof.value.reviewCheck }),
   }
   completions.set(key, completion)
   context.deliveryAuthorities.set(key, proof.value.authority)

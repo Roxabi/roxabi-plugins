@@ -2,13 +2,13 @@ import path from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { canonicalValueDigest } from '../engine/action-input.ts'
 import { acceptedConstraints, proposedConstraints } from '../engine/workflow-constraint-compatibility.ts'
+import { bindExternalRef, historyFor } from '../engine/workflow-control.ts'
 import type { SpecAssessment } from '../engine/workflow-output-schema.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
-import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
+import { publishNonImplementResult } from '../roxabi/feature-action-result.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
-import { continueFeature } from '../roxabi/workflow.ts'
-import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { captureNativeTask } from './native-action-capture.ts'
+import { openHistoricalAssessment } from './native-assessment-history.ts'
 import { operatorDialogUi, operatorRootContext } from './operator-dialog-ui.ts'
 import { gateGh, setMandateIssue } from './review-gate-arrangement.ts'
 import { git, type ReviewGateFixture } from './review-gate-fixture.ts'
@@ -20,13 +20,6 @@ export async function acceptGateSpecChange(fixture: ReviewGateFixture, body: str
   const gh = gateGh(fixture)
   const cwd = path.join(fixture.root, 'assessment-worktree')
   git(fixture.candidate, ['worktree', 'add', '-q', '-b', 'feat/7-fixture', cwd, fixture.head])
-  const gitPort: GitRunner = async (cwd, args) => {
-    try {
-      return { code: 0, stdout: git(cwd, args), stderr: '' }
-    } catch (error) {
-      return { code: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }
-    }
-  }
   let confirmations = 0
   const operator = createOperatorConfirmation({
     ...operatorRootContext(cwd, { getArtifactsDir: () => fixture.root }),
@@ -52,21 +45,17 @@ export async function acceptGateSpecChange(fixture: ReviewGateFixture, body: str
   if (before.observation.status !== 'complete' || before.accepted.status !== 'accepted')
     throw new Error('Gate accepted version A is unavailable')
   setMandateIssue(fixture, { body, updatedAt: '2026-10-22T00:00:00Z' })
-  const started = await continueFeature({
-    cwd,
-    reference: '42',
-    control: 'continue',
-    principal: false,
-    gh,
-    git: gitPort,
-    uw: operations,
+  const ref = before.accepted.value.chain[0]?.source
+  const history = historyFor(uw, before.histories)
+  const bound = ref && history ? bindExternalRef(ref, history) : null
+  if (!bound?.ok || bound.value.kind !== 'mandate') throw new Error('Gate assessment mandate is unavailable')
+  const started = await openHistoricalAssessment({
+    world: { cwd, gh, operations },
+    scope: uw,
+    mandate: bound.value,
+    commit: fixture.head,
   })
-  if (started.kind !== 'action' || started.node !== 'assess-spec')
-    throw new Error(`Gate assessment did not start: ${JSON.stringify(started)}`)
-  const operands = started.followUp.tasks.tasks[0]?.action.inputs.manifest.operands
-  if (operands?.action !== 'assess-spec' || operands.origin.kind !== 'native-current')
-    throw new Error('Gate assessment inputs are unavailable')
-  const exact = operands.exactInputs
+  const { exact } = started
   if (
     exact.accepted.children.length ||
     exact.proposed.children.length ||
@@ -106,12 +95,11 @@ export async function acceptGateSpecChange(fixture: ReviewGateFixture, body: str
     claim: JSON.parse(JSON.stringify(judgment)),
     git: { repository: uw.repository, commit: head, tree },
   })
-  const publication = await publishFeatureNativeResult({
+  const publication = await publishNonImplementResult({
     cwd,
     start: started.start,
     result: captured,
     gh,
-    git: gitPort,
   })
   if (!publication.published) throw new Error(`Gate assessment publication failed: ${JSON.stringify(publication)}`)
   const accepted = await operations.acceptMaterial(uw)

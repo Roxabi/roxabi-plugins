@@ -13,8 +13,7 @@ import { canonicalSpec, type SpecSnapshot } from '../../engine/uw-spec.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
-import { freshOwnSpec } from '../feature-initial-own-spec.ts'
-import { readCurrentChildrenProjection, readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
+import { readCurrentChildrenProjection, readCurrentFramingFacts, readCurrentOwnSpecFacts } from '../uw-current-facts.ts'
 import { createInstalledObservedUwReadPort } from '../uw-read-port.ts'
 
 const parent: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
@@ -175,7 +174,7 @@ describe('current factual UW projection', () => {
       diagnostics: [expect.objectContaining({ code: 'spec-ledger-incomplete' })],
     })
   })
-  it('requires renewed parent coverage consent when an ancestor materially changes an exclusion', async () => {
+  it('projects the new inherited Spec reference when an ancestor materially changes an exclusion', async () => {
     const ancestor: Scope = { repository: 'acme/payments', target: 'acme/payments#40' }
     const own = snapshot(parent, 'Coordinate the release')
     const descendant = snapshot(child, 'Deploy the reconciler')
@@ -246,23 +245,16 @@ describe('current factual UW projection', () => {
         histories: [changed ? changedHistory : originalHistory, parentHistory, childHistory],
         catalogues: fixtureHostReviewClassCatalogues(),
       })
-      const reader = createInstalledObservedUwReadPort({ observation })
-      return { reader, read: await reader.readUw(parent) }
+      const read = await createInstalledObservedUwReadPort({ observation }).readUw(parent)
+      const facts = await readCurrentFramingFacts({ uw: parent, read })
+      if (!facts.ok) throw new Error(JSON.stringify(facts.diagnostics))
+      return facts.value.currentSpec
     }
     const before = await readWorld(false)
-    const prompt = await freshOwnSpec(parent, before.read, before.reader)
-    expect(prompt).toMatchObject({ kind: 'blocked', reason: 'parent-coverage-intent-required' })
-    if (!('coverageRequest' in prompt) || !prompt.coverageRequest) throw new Error('Expected coverage request')
-    expect(prompt.coverageRequest.inheritedOwnSpecRefs).toHaveLength(1)
-    const coverage = {
-      parent: prompt.coverageRequest.parent,
-      assignments: [{ criterion: 'C1' as const, children: [child] as [Scope] }],
-    }
     const after = await readWorld(true)
-    const continued = await freshOwnSpec(parent, after.read, after.reader, coverage, prompt.coverageRequest)
-    expect(continued).toMatchObject({ kind: 'blocked', reason: 'parent-coverage-intent-changed' })
-    if (!('coverageRequest' in continued) || !continued.coverageRequest) throw new Error('Expected refreshed request')
-    expect(continued.coverageRequest.parent).toEqual(prompt.coverageRequest.parent)
-    expect(continued.coverageRequest.inheritedOwnSpecRefs).not.toEqual(prompt.coverageRequest.inheritedOwnSpecRefs)
+    expect(before.inheritedOwnSpecRefs).toHaveLength(1)
+    expect(after.inheritedOwnSpecRefs).toHaveLength(1)
+    expect(after.inheritedOwnSpecRefs).not.toEqual(before.inheritedOwnSpecRefs)
+    expect(after.snapshot.spec.version).toEqual(before.snapshot.spec.version)
   })
 })

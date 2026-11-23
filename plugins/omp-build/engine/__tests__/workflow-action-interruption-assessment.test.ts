@@ -1,26 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
-import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
-import {
-  appendRecords,
-  evidenceCodes,
-  interruptedResult,
-  interruptionResolution,
-  receiptOf,
-} from './workflow-interruption-support.ts'
-import {
-  assessFixture,
-  currentFacts,
-  decisions,
-  mandateAssessmentState,
-  shippedFeatureMandate,
-} from './workflow-spec-assessment-support.ts'
+import { classifyAttempts } from '../workflow-action-interruption.ts'
+import { appendRecords, interruptedResult, interruptionResolution, receiptOf } from './workflow-interruption-support.ts'
+import { assessFixture, mandateAssessmentState, shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
 import { history, must, pauseControls, SCOPE } from './workflow-test-support.ts'
 
 const workflowFixtures = roxabiWorkflowFixtures()
@@ -43,32 +30,6 @@ function nativeMandate() {
   return record
 }
 
-async function nativeEvidence(issue: DecodedHistory) {
-  const causal = await observeFixtureNativeWorld({
-    root: SCOPE,
-    nodes: [
-      {
-        scope: SCOPE,
-        title: 'Bounded workflow',
-        body: nativeInitialBody,
-        updatedAt: '2026-10-21T00:00:00Z',
-        labels: ['size:F-lite'],
-        parent: null,
-        children: [],
-        blockers: [],
-        state: 'OPEN',
-        stateReason: null,
-      },
-    ],
-    histories: [issue],
-    pullRequests: [],
-    commits: [],
-    comparisons: [],
-  })
-  return { issue, pullRequest: null, parents: [], causal }
-}
-
-/** A tier-only Spec change that requires assess-spec, whose single attempt stopped without output. */
 function interruptedAssessmentWorld() {
   const mandated = nativeMandate()
   const accepted = mandateAssessmentState(mandated)
@@ -88,36 +49,33 @@ function interruptedAssessmentWorld() {
     [history([mandated])],
     { completion: 'incomplete', strict: 'absent' },
   )
-  const decide = async (issue: DecodedHistory) =>
-    reconstructWorkflow({
-      evidence: await nativeEvidence(issue),
-      facts: currentFacts(mandated, assessment.proposed),
-      decisions: decisions(),
-    })
+  const classify = (issue: DecodedHistory) =>
+    classifyAttempts({ histories: [issue], scan: [issue], actions: ['assess-spec'] })
   return {
     mandated,
     start: receiptOf(assessment.start),
     result: interruptedResult(receiptOf(assessment.result)),
-    decide,
+    classify,
   }
 }
 
 describe('interrupted Spec assessment', () => {
-  test('blocks an interrupted assessment as interrupted, not as a terminal Spec ambiguity', async () => {
+  test('recognizes an interrupted assessment as distinct from an orphan', () => {
     const world = interruptedAssessmentWorld()
-    const decision = await world.decide(history([world.mandated, world.start, world.result]))
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-interrupted' })
-    expect(decision).not.toMatchObject({ status: 'terminal' })
-    expect(evidenceCodes(decision)).toContain('action-interrupted')
+    const attempts = world.classify(history([world.mandated, world.start, world.result]))
+    expect(attempts).toMatchObject({
+      ok: true,
+      value: { unresolved: [{ kind: 'interrupted', action: 'assess-spec' }] },
+    })
   })
 
-  test('keeps an orphan assessment START uncertain', async () => {
+  test('recognizes an orphan assessment START', () => {
     const world = interruptedAssessmentWorld()
-    const decision = await world.decide(history([world.mandated, world.start]))
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
+    const attempts = world.classify(history([world.mandated, world.start]))
+    expect(attempts).toMatchObject({ ok: true, value: { unresolved: [{ kind: 'orphan', action: 'assess-spec' }] } })
   })
 
-  test('readmits assessment after a resolved interruption once the pause is lifted', async () => {
+  test('excludes a resolved assessment interruption without advancing authority', () => {
     const world = interruptedAssessmentWorld()
     const pause = pauseControls(world.mandated, 'assessment-pause')
     const resolution = interruptionResolution({
@@ -133,10 +91,10 @@ describe('interrupted Spec assessment', () => {
     const original = resolveAcceptedSpec(world.mandated, [history([world.mandated])])
     expect(original.ok).toBe(true)
     expect(resolveAcceptedSpec(world.mandated, [issue])).toEqual(original)
-    expect(await world.decide(issue)).toMatchObject({ status: 'action', action: 'assess-spec' })
+    expect(world.classify(issue)).toMatchObject({ ok: true, value: { unresolved: [] } })
   })
 
-  test('readmits an assessment after resolving an orphan without advancing accepted authority', async () => {
+  test('excludes a resolved orphan assessment without advancing authority', () => {
     const world = interruptedAssessmentWorld()
     const pause = pauseControls(world.mandated, 'orphan-assessment-pause')
     const resolution = interruptionResolution({
@@ -152,7 +110,7 @@ describe('interrupted Spec assessment', () => {
     const original = resolveAcceptedSpec(world.mandated, [history([world.mandated])])
     expect(original.ok).toBe(true)
     expect(resolveAcceptedSpec(world.mandated, [issue])).toEqual(original)
-    expect(await world.decide(issue)).toMatchObject({ status: 'action', action: 'assess-spec' })
+    expect(world.classify(issue)).toMatchObject({ ok: true, value: { unresolved: [] } })
   })
 
   test('refuses an invalid resolution instead of skipping the interrupted assessment', () => {

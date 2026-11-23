@@ -42,20 +42,17 @@ beforeEach(() => {
 })
 
 describe('completed negatives and unclassified incomplete results', () => {
-  it.each(['plan', 'assess-spec', 'attribute-ci'] as const)(
-    'does not treat an incomplete %s batch without a host stop as an interruption receipt',
-    async (action) => {
-      vi.mocked(resolvePublication).mockResolvedValue({ opened: { payload: { action } } } as never)
-      const published = await publishNonImplementResult({ cwd: '/checkout', start, result: result(false) })
-      expect(published).toEqual({ published: false, reason: 'action-uncertain' })
-      expect(publishRecord).not.toHaveBeenCalled()
-    },
-  )
+  it('does not treat an incomplete assessment without a host stop as an interruption receipt', async () => {
+    vi.mocked(resolvePublication).mockResolvedValue({ opened: { payload: { action: 'assess-spec' } } } as never)
+    const published = await publishNonImplementResult({ cwd: '/checkout', start, result: result(false) })
+    expect(published).toEqual({ published: false, reason: 'action-uncertain' })
+    expect(publishRecord).not.toHaveBeenCalled()
+  })
 })
 
 it('refuses a context negative whose sealed action does not match, rather than treating it as interruption', async () => {
   vi.mocked(resolvePublication).mockResolvedValue({
-    opened: { payload: { action: 'plan', actionId: 'action-1', inputs: {} } },
+    opened: { payload: { action: 'assess-spec', actionId: 'action-1', inputs: {} } },
   } as never)
   const batch = result(false)
   batch.canPublishContext = () => true
@@ -69,71 +66,65 @@ it('refuses a context negative whose sealed action does not match, rather than t
 })
 
 describe('host-interrupted read-only producers', () => {
-  it.each(['plan', 'plan-review', 'assess-spec', 'attribute-ci'] as const)(
-    'retains an incomplete %s receipt from typed host interruption',
-    async (action) => {
-      const slots = action === 'plan-review' ? [{ slotId: 'one' }, { slotId: 'two' }] : undefined
-      const context = {
-        opened: {
-          recordId: start.recordId,
-          payload: {
-            action,
-            actionId: 'action-1',
-            mandate: { scope, recordId: 'mandate-1', kind: 'mandate' },
-            inputs: {},
-            exactInputs: {},
-            ...(slots === undefined ? {} : { slots }),
-          },
+  it('retains an incomplete assessment receipt from typed host interruption', async () => {
+    const context = {
+      opened: {
+        recordId: start.recordId,
+        payload: {
+          action: 'assess-spec',
+          actionId: 'action-1',
+          mandate: { scope, recordId: 'mandate-1', kind: 'mandate' },
+          inputs: {},
+          exactInputs: {},
         },
-        loaded: {},
-        history: {},
-        receiptScope: scope,
-        publicationParents: [],
-        cwd: '/checkout',
-        gh: vi.fn(),
-      }
-      vi.mocked(resolvePublication).mockResolvedValue(context as never)
-      vi.mocked(publishRecord).mockResolvedValue({ ok: true } as never)
-      const batch = result(false)
-      batch.children = []
-      const published = await publishNonImplementResult({
-        cwd: '/checkout',
-        start,
-        result: batch,
-        stop: { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
-      })
-      expect(published.published).toBe(true)
-      expect(publishRecord).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        expect.objectContaining({
-          payload: expect.objectContaining({
-            action,
-            phase: 'result',
-            actionId: 'action-1',
-            start,
-            native: { completion: 'incomplete', strict: 'absent', raw: null },
-            structured: null,
-            admission: null,
-            diagnostics: [
-              expect.objectContaining({
-                code: 'action-interrupted',
-                detail: { marker: 'omp-build-host-interruption/2', origin: 'host-stop', proof: 'not-dispatched' },
-              }),
-            ],
-            ...(slots === undefined ? {} : { slots, contributions: [] }),
-          }),
+      },
+      loaded: {},
+      history: {},
+      receiptScope: scope,
+      publicationParents: [],
+      cwd: '/checkout',
+      gh: vi.fn(),
+    }
+    vi.mocked(resolvePublication).mockResolvedValue(context as never)
+    vi.mocked(publishRecord).mockResolvedValue({ ok: true } as never)
+    const batch = result(false)
+    batch.children = []
+    const published = await publishNonImplementResult({
+      cwd: '/checkout',
+      start,
+      result: batch,
+      stop: { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
+    })
+    expect(published.published).toBe(true)
+    expect(publishRecord).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          action: 'assess-spec',
+          phase: 'result',
+          actionId: 'action-1',
+          start,
+          native: { completion: 'incomplete', strict: 'absent', raw: null },
+          structured: null,
+          admission: null,
+          diagnostics: [
+            expect.objectContaining({
+              code: 'action-interrupted',
+              detail: { marker: 'omp-build-host-interruption/2', origin: 'host-stop', proof: 'not-dispatched' },
+            }),
+          ],
         }),
-        expect.anything(),
-        '/checkout',
-        [],
-      )
-    },
-  )
+      }),
+      expect.anything(),
+      '/checkout',
+      [],
+    )
+  })
 
   it('does not publish a late result if its START resolves during publication', async () => {
     vi.mocked(resolvePublication)
-      .mockResolvedValueOnce({ opened: { payload: { action: 'plan' } } } as never)
+      .mockResolvedValueOnce({ opened: { payload: { action: 'assess-spec' } } } as never)
       .mockResolvedValueOnce({ reason: 'action-start-resolved' } as never)
     const published = await publishNonImplementResult({ cwd: '/checkout', start, result: result(true) })
     expect(published).toEqual({ published: false, reason: 'action-start-resolved' })

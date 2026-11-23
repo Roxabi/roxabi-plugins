@@ -1,24 +1,21 @@
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { parseFeatureCommand, runTrustedFeatureInit } from '../roxabi/feature-command.ts'
 import type {
   ContinueFeatureInput,
-  ContinueFeatureResult,
   FeatureCommandHost,
   FeatureWorkflow,
+  ParsedFeatureCommand,
 } from '../roxabi/feature-contract.ts'
-import { continueWithParentCoverage } from '../roxabi/feature-coverage-continuation.ts'
-import { deliverFeatureResult, runInstalledFeatureCommand } from '../roxabi/feature-entry.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
+import { withFeatureInterruption } from '../roxabi/feature-pause-interruption.ts'
 import { featureErrorMessage } from '../roxabi/feature-presentation.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { hostPluginPin } from './host-plugin-pin.ts'
 import { resolveFeatureUw } from './host-uw-operations.ts'
-import { reportFeatureTerminalStatus, reviewControllerFor } from './omp-controller'
-import {
-  createFeatureCommandHost,
-  type FeatureCommandComposition,
-  loadInstalledFeatureWorkflow,
-} from './omp-feature-command-host.ts'
+import { type OmpBuildExtensionApi, reportFeatureTerminalStatus, reviewControllerFor } from './omp-controller'
+import { admitFeature } from './omp-feature-admission.ts'
 import {
   beginFeatureUwContinuation,
   beginFeatureUwIntake,
@@ -26,32 +23,56 @@ import {
   cancelFeatureUwOperation,
   createFeatureOperationReportGuard,
   type FeatureOperationReportGuard,
-  ownsFeatureUwOperation,
   settleFeatureUwIntake,
 } from './omp-feature-composition.ts'
-import { rootContext } from './omp-feature-session'
+import { deliverAdmission, deliversSkill } from './omp-feature-delivery.ts'
+import { type FeatureWorkInterrupter, rootContext } from './omp-feature-session'
+import type { FeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
 import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
-import type { NativeBatchController } from './review-runtime/controller.ts'
+import { readSkillBody } from './omp-skill-command-runtime.ts'
+import type { UwOperationsFactory } from './omp-uw-command.ts'
 
-/** The intake becomes ordinary once its first classification is not framing, or fails. */
-function classifyingWorkflow(workflow: FeatureWorkflow, settle: () => void): FeatureWorkflow {
-  return {
-    async continueFeature(input) {
-      let result: ContinueFeatureResult
-      try {
-        result = await workflow.continueFeature(input)
-      } catch (error) {
-        settle()
-        throw error
-      }
-      if (result.kind !== 'framing') settle()
-      return result
-    },
-    consumeWatchExit: (input) => workflow.consumeWatchExit(input),
-    publishFeatureNativeResult: (input) => workflow.publishFeatureNativeResult(input),
-    requestFeatureSessionPause: (input) => workflow.requestFeatureSessionPause(input),
+export type FeatureCommandOptions = {
+  uwOperations?: UwOperationsFactory
+  pluginPin?: TrustedHostPluginPin
+  featureWorkflow?: FeatureWorkflow
+  principalCwd?: (cwd: string) => boolean
+}
+
+export type FeatureCommandComposition = Readonly<{
+  pi: OmpBuildExtensionApi
+  options: FeatureCommandOptions
+  interruptOwnedFeatureWork: FeatureWorkInterrupter
+  framing: FeatureFramingRuntime
+}>
+
+type FeatureComposition = FeatureCommandComposition & {
+  installRoot: string
+  skillsDir: string
+  exists: (path: string) => boolean
+}
+
+const requireFromIndex = createRequire(import.meta.url)
+
+function isPrincipal(composition: FeatureComposition, cwd: string): boolean {
+  if (composition.options.principalCwd) return composition.options.principalCwd(cwd)
+  try {
+    const freeze: { isPrincipalCwd?: (cwd: string) => boolean } = requireFromIndex('../hooks/lib/principal-freeze.cjs')
+    return freeze.isPrincipalCwd?.(cwd) === true
+  } catch {
+    return false
   }
+}
+
+async function compositionSkill(composition: FeatureComposition): Promise<string | undefined> {
+  const { pi, skillsDir, installRoot, exists } = composition
+  const body = await readSkillBody(pi, 'feature', join(skillsDir, 'feature', 'SKILL.md'), installRoot, exists)
+  if (body === undefined) return undefined
+  const missing = ['dev-review', 'dev-fix'].filter((name) => !exists(join(skillsDir, name, 'SKILL.md')))
+  if (missing.length === 0) return body
+  reportFeatureTerminalStatus(pi, `/feature: missing installed skill(s) ${missing.join(', ')}. Reinstall omp-build.`)
+  return undefined
 }
 
 async function runPreparedFeatureInit(
@@ -81,36 +102,74 @@ async function featureCommandUw(
 }
 
 async function runClassifiedFeatureCommand(
-  args: string,
-  composition: FeatureCommandComposition,
+  composition: FeatureComposition,
+  ctx: ExtensionContext,
+  operator: FramingOperator,
+  input: ContinueFeatureInput,
+  body: string | undefined,
+  reporting: FeatureOperationReportGuard,
+  originalArgs: string | null,
+): Promise<void> {
+  const { pi, options, interruptOwnedFeatureWork } = composition
+  const controller = reviewControllerFor(pi)
+  const controlHost = {
+    key: pi,
+    inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
+    interruptOwnedWork: interruptOwnedFeatureWork,
+  }
+  await withFeatureInterruption(input.control, controlHost, async () => {
+    const settle = () => settleFeatureUwIntake(pi, operator)
+    const result =
+      options.featureWorkflow === undefined
+        ? await admitFeature(input, settle)
+        : await options.featureWorkflow.continueFeature(input)
+    if (!reporting.isCurrent()) return
+    if (result.kind !== 'framing') {
+      settle()
+      if (deliversSkill(input.control) || input.control === 'continue') controller.releaseFeatureContinuation()
+    }
+    await deliverAdmission(composition, ctx, operator, input, result, body, reporting, originalArgs)
+  })
+}
+
+async function runFeatureEntry(
+  composition: FeatureComposition,
   ctx: ExtensionContext,
   operator: CommandOperatorPort,
-  workflow: FeatureWorkflow,
-  controller: NativeBatchController,
-  uw: FeatureCommandHost['uw'],
-  report: FeatureOperationReportGuard,
-  pluginPin: TrustedHostPluginPin | undefined,
+  parsed: Exclude<Extract<ParsedFeatureCommand, { ok: true }>, { control: 'init' }>,
+  reporting: FeatureOperationReportGuard,
+  args: string,
 ): Promise<void> {
-  await runInstalledFeatureCommand(
-    args,
-    createFeatureCommandHost(
-      composition,
-      { ctx, operator, originalArgs: args, pluginPin },
-      classifyingWorkflow(workflow, () => settleFeatureUwIntake(composition.pi, operator)),
-      controller,
-      uw,
-      report,
-      pluginPin,
-    ),
-  )
+  const { pi, options } = composition
+  // Read-only until the source is classified.
+  beginFeatureUwIntake(pi, operator, ctx)
+  const pluginPin = await hostPluginPin(pi, ctx)
+  if (!reporting.isCurrent()) return
+  const deliver = deliversSkill(parsed.control)
+  const body = deliver ? await compositionSkill(composition) : undefined
+  if (!reporting.isCurrent() || (deliver && body === undefined)) return
+  const uw = await featureCommandUw(ctx, operator, options, parsed.control, pluginPin)
+  if (!reporting.isCurrent()) return
+  const start = parsed.control === 'resolve-interruption' ? parsed.start : undefined
+  const input: ContinueFeatureInput = {
+    cwd: ctx.cwd,
+    reference: parsed.reference,
+    control: parsed.control,
+    principal: isPrincipal(composition, ctx.cwd),
+    owned: reporting.isCurrent,
+    ...(uw === undefined ? {} : { uw }),
+    ...(pluginPin === undefined ? {} : { pluginPin }),
+    ...(start === undefined ? {} : { interruption: { start } }),
+  }
+  await runClassifiedFeatureCommand(composition, ctx, operator, input, body, reporting, args)
 }
 
 export async function runFeatureCommand(
   args: string,
   ctx: ExtensionContext,
-  composition: FeatureCommandComposition,
+  composition: FeatureComposition,
 ): Promise<void> {
-  const { pi, options } = composition
+  const { pi } = composition
   if (!rootContext(ctx)) return
   const parsed = parseFeatureCommand(args)
   if (!parsed.ok) {
@@ -128,34 +187,9 @@ export async function runFeatureCommand(
   let canReportFailure = () => false
   const work = (async () => {
     try {
-      const controller = reviewControllerFor(pi)
-      controller.observeRootContext(ctx)
-      if (parsed.control === 'init') {
-        await runPreparedFeatureInit(pi, operator, parsed.args, ctx, report)
-        return
-      }
-      // Read-only from here, before any await, until the source is classified.
-      beginFeatureUwIntake(pi, operator, ctx)
-      const pluginPin = await hostPluginPin(pi, ctx)
-      const workflow = await loadInstalledFeatureWorkflow(report, options)
-      if (!ownsFeatureUwOperation(pi, operator)) return
-      if (workflow === undefined) {
-        cancelFeatureUwOperation(pi, operator)
-        return
-      }
-      const uw = await featureCommandUw(ctx, operator, options, parsed.control, pluginPin)
-      if (!ownsFeatureUwOperation(pi, operator)) return
-      await runClassifiedFeatureCommand(
-        args,
-        composition,
-        ctx,
-        operator,
-        workflow,
-        controller,
-        uw,
-        reporting,
-        pluginPin,
-      )
+      reviewControllerFor(pi).observeRootContext(ctx)
+      if (parsed.control === 'init') await runPreparedFeatureInit(pi, operator, parsed.args, ctx, report)
+      else await runFeatureEntry(composition, ctx, operator, parsed, reporting, args)
     } catch (error) {
       canReportFailure = reporting.captureFailure()
       cancelFeatureUwOperation(pi, operator)
@@ -187,42 +221,29 @@ export async function runFeatureCommand(
  * The replaced lease is already finalized, so failures are reported here as a terminal stop.
  */
 export async function continueFramedFeature(
-  composition: FeatureCommandComposition,
+  composition: FeatureComposition,
   input: Readonly<{ ctx: ExtensionContext; continuation: ContinueFeatureInput; operator: FramingOperator }>,
 ): Promise<void> {
-  const { pi, options } = composition
+  const { pi } = composition
   const { ctx, continuation, operator } = input
   if (!rootContext(ctx)) throw new Error('framing-continuation-root-required')
   const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
-  const report = (message: string) => {
-    if (reporting.isCurrent()) reportFeatureTerminalStatus(pi, message)
-  }
   beginFeatureUwContinuation(pi, operator, ctx)
   const controller = reviewControllerFor(pi)
   controller.observeRootContext(ctx)
   try {
-    const workflow = await loadInstalledFeatureWorkflow(report, options)
-    if (!ownsFeatureUwOperation(pi, operator)) return
-    if (workflow === undefined) {
-      cancelFeatureUwOperation(pi, operator)
-      return
-    }
-    const host = createFeatureCommandHost(
+    if (!reporting.isCurrent()) return
+    const body = await compositionSkill(composition)
+    if (!reporting.isCurrent() || body === undefined) return
+    await runClassifiedFeatureCommand(
       composition,
-      { ctx, operator, originalArgs: null, pluginPin: continuation.pluginPin },
-      workflow,
-      controller,
-      continuation.uw,
+      ctx,
+      operator,
+      { ...continuation, owned: reporting.isCurrent },
+      body,
       reporting,
-      continuation.pluginPin,
+      null,
     )
-    const result = await workflow.continueFeature(continuation)
-    if (!ownsFeatureUwOperation(pi, operator)) return
-    // The framed `/feature` entry deferred its select release until a non-framing classification.
-    if (result.kind !== 'framing') host.releaseFeatureContinuation()
-    const withCoverage = await continueWithParentCoverage(host, continuation, result, false)
-    if (withCoverage === undefined) return
-    await deliverFeatureResult(continuation.reference, withCoverage, host)
   } catch (error) {
     const canReport = reporting.captureFailure()
     cancelFeatureUwOperation(pi, operator)

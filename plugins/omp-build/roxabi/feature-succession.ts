@@ -4,11 +4,10 @@ import { randomUUID } from 'node:crypto'
 import { resolveAcceptedSpec, sameScope, terminalMandate } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
 import type { NativeDeliveryPullRequest } from '../engine/uw-completion-types.ts'
-import type { UwTier } from '../engine/uw-spec.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
-import type { AcceptedChildCommitment, MandatePayload } from '../engine/workflow-mandate-schema.ts'
 import type { TerminalMandate } from '../engine/workflow-terminal-mandate.ts'
 import { type Contracts, type History, type HistoryRecord, publishRecord, type Scope } from './feature-engine.ts'
+import type { LeafOwnSpec } from './feature-initial-own-spec.ts'
 import {
   prepareSuccessorBinding,
   preserveSuccessorBinding,
@@ -25,21 +24,8 @@ import { WORKFLOW_CONFIG_VERSION } from './workflow-graph.ts'
 import { parseWorkflowOverride } from './workflow-overrides.ts'
 
 type MandateRecord = Extract<HistoryRecord, { kind: 'mandate' }>
-type SuccessorShared = Pick<
-  MandateRecord['payload'],
-  | 'format'
-  | 'branch'
-  | 'base'
-  | 'lineageHead'
-  | 'config'
-  | 'parent'
-  | 'antecedent'
-  | 'ownSpec'
-  | 'tier'
-  | 'children'
-  | 'inheritedOwnSpecRefs'
-  | 'coverage'
->
+type LeafMandate = Exclude<MandateRecord['payload'], { role: 'epic' }>
+type SuccessorShared = Omit<LeafMandate, 'role' | 'run' | 'permissions'>
 
 export type SuccessionBasis = Readonly<{ terminal: TerminalMandate; historical: AcceptedOwnSpec }>
 
@@ -70,38 +56,30 @@ function confirmSuccessorAntecedent(
   return antecedent
 }
 
-function invalidSuccessorRun(payload: ReturnType<typeof successorRolePayload>): boolean {
-  return payload.role === 'epic' && !/^[a-z0-9]{8}$/.test(payload.run)
-}
-
-export async function publishSuccessorMandate(input: {
-  loaded: Contracts
-  history: History
-  scope: Scope
-  basis: SuccessionBasis
-  ownSpec: MandatePayload['ownSpec']
-  tier: UwTier
-  children: AcceptedChildCommitment[]
-  inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
-  coverage: MandatePayload['coverage']
-  git: GitRunner
-  gh: Gh
-  cwd: string
-  parents: readonly History[]
-  target: FeatureCheckoutTarget
-  observedPullRequests: readonly NativeDeliveryPullRequest[]
-}): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function publishSuccessorMandate(
+  input: LeafOwnSpec & {
+    loaded: Contracts
+    history: History
+    scope: Scope
+    basis: SuccessionBasis
+    git: GitRunner
+    gh: Gh
+    cwd: string
+    parents: readonly History[]
+    target: Extract<FeatureCheckoutTarget, { kind: 'branch' }>
+    observedPullRequests: readonly NativeDeliveryPullRequest[]
+  },
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const antecedent = confirmSuccessorAntecedent(input.history, input.scope, input.basis.terminal.ref)
   if (!antecedent.ok) return antecedent
   const productVersion = input.loaded.shippedProductVersion()
   const prior = antecedent.value.mandate.payload
-  const baseAndBranch = { base: prior.base, branch: input.target.kind === 'parent' ? null : input.target.branch }
+  if (prior.role === 'epic' || input.basis.historical.children.length > 0)
+    return { ok: false, reason: 'parent-delivery-suspended' }
+  const baseAndBranch = { base: prior.base, branch: input.target.branch }
   const shared = await successorShared(input, antecedent.value.ref, prior, baseAndBranch, productVersion)
   if (!shared.ok) return shared
   const rolePayload = successorRolePayload(prior, shared.shared)
-  if (invalidSuccessorRun(rolePayload)) {
-    return { ok: false, reason: 'epic-run-unreadable' }
-  }
   const bindingContext = {
     loaded: input.loaded,
     gh: input.gh,
@@ -144,20 +122,10 @@ export async function publishSuccessorMandate(input: {
 }
 
 async function successorShared(
-  input: {
-    loaded: Contracts
-    scope: Scope
-    ownSpec: MandatePayload['ownSpec']
-    tier: UwTier
-    children: AcceptedChildCommitment[]
-    inheritedOwnSpecRefs: MandatePayload['inheritedOwnSpecRefs']
-    coverage: MandatePayload['coverage']
-    git: GitRunner
-    cwd: string
-  },
+  input: LeafOwnSpec & { git: GitRunner; cwd: string },
   antecedent: SuccessorAntecedent,
   prior: MandateRecord['payload'],
-  baseAndBranch: { base: string; branch: string | null },
+  baseAndBranch: { base: string; branch: string },
   productVersion: string,
 ): Promise<{ ok: true; shared: SuccessorShared } | { ok: false; reason: string }> {
   const head = await input.git(input.cwd, ['rev-parse', 'HEAD'])
@@ -179,22 +147,14 @@ async function successorShared(
       antecedent,
       ownSpec: input.ownSpec,
       tier: input.tier,
-      children: input.children,
+      children: [],
       inheritedOwnSpecRefs: input.inheritedOwnSpecRefs,
-      coverage: input.coverage,
+      coverage: null,
     },
   }
 }
 
-function successorRolePayload(prior: MandateRecord['payload'], shared: SuccessorShared): MandateRecord['payload'] {
-  if (prior.role === 'epic') {
-    return {
-      role: 'epic',
-      ...shared,
-      run: prior.run,
-      permissions: prior.permissions,
-    }
-  }
+function successorRolePayload(prior: LeafMandate, shared: SuccessorShared): LeafMandate {
   if (prior.role === 'fix-only') {
     return {
       role: 'fix-only',

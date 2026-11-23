@@ -20,11 +20,11 @@ import { historyFor, mandatesOf } from '../workflow-control.ts'
 import type { SpecAssessment } from '../workflow-output-schema.ts'
 import { ACTION_RECEIPT_FORMAT, type AssessSpecExact } from '../workflow-receipt-schema.ts'
 import { type AssessResultRecord, isAssessResult } from '../workflow-spec-assessment.ts'
-import { buildShippedFeatureMandate, defaultDecisions } from './workflow-assessment-defaults.ts'
+import { buildShippedFeatureMandate } from './workflow-assessment-defaults.ts'
 import { makeProposedAssessmentState } from './workflow-proposed-state-fixture.ts'
 import { assessmentActionInputs } from './workflow-spec-assessment-input-fixtures.ts'
 import { assessmentState, materialControl, materialState } from './workflow-spec-material-support.ts'
-import { facts, must } from './workflow-test-support.ts'
+import { must } from './workflow-test-support.ts'
 
 export type AssessmentState = AssessSpecExact['accepted']
 export type ProposedAssessmentState = AssessSpecExact['proposed']
@@ -267,19 +267,4 @@ const workflowFixtures = roxabiWorkflowFixtures()
 
 export function shippedFeatureMandate(): MandateRecord {
   return buildShippedFeatureMandate(workflowFixtures)
-}
-
-export function decisions() {
-  return defaultDecisions()
-}
-
-export function currentFacts(mandated: MandateRecord, currentSpec: ProposedAssessmentState) {
-  return facts({
-    productVersion: mandated.payload.config.productVersion,
-    configVersion: mandated.payload.config.version,
-    configDigest: mandated.payload.config.digest,
-    supportedConfigVersions: [mandated.payload.config.version],
-    currentSpec,
-    identityAllocations: mandated.payload.ownSpec.identityAllocations,
-  })
 }

@@ -5,25 +5,11 @@ import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { requireLandingMandate } from '../../engine/workflow-landing-admission.ts'
-import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
 import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
-import {
-  type FixtureNativeWorld,
-  fixtureReviewClassCatalogues,
-  observeFixtureNativeWorld,
-} from '../action-input-fixtures.ts'
+import { type FixtureNativeWorld, fixtureReviewClassCatalogues } from '../action-input-fixtures.ts'
 import { readDeclaredNativeWorld } from '../declared-native-observation.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
-import {
-  blank,
-  decisions,
-  EPIC,
-  facts,
-  factsForMandate,
-  graphConfig,
-  PR,
-  SCOPE,
-} from './support/workflow-decision-fixtures.ts'
+import { blank, EPIC, landingConfigFacts, PR, SCOPE } from './support/workflow-decision-fixtures.ts'
 
 const workflow = roxabiWorkflowFixtures()
 const {
@@ -98,7 +84,7 @@ async function landingInput(
   nodes: FixtureNativeWorld['nodes'],
   parentScopes: Scope[],
 ) {
-  const current = facts(mandate)
+  const current = landingConfigFacts(mandate)
   const observation = await readDeclaredNativeWorld(
     {
       root: SCOPE,
@@ -130,18 +116,6 @@ async function landingInput(
     },
     localInhibit: null,
   }
-}
-
-async function decisionEvidence(issue: DecodedHistory) {
-  const causal = await observeFixtureNativeWorld({
-    root: SCOPE,
-    nodes: [rootNode],
-    histories: [issue],
-    pullRequests: [],
-    commits: [],
-    comparisons: [],
-  })
-  return { issue, pullRequest: null, parents: [], causal }
 }
 
 function expectAccounted(history: DecodedHistory): void {
@@ -177,36 +151,6 @@ describe('workflow landing decisions', () => {
   it('refuses a fix-only mandate when the accounted PR binding names it', async () => {
     const mandate = fixOnlyMandate(SCOPE, { body, ownSpec, branch: 'feat/42-save' })
     expect(requireLandingMandate(await boundLanding(mandate, [rootNode], [], []))).toMatchObject({
-      ok: false,
-      reason: 'fix-only',
-    })
-  })
-
-  it('does not refuse review or fix when the same mandate cannot land', async () => {
-    const fix = fixOnlyMandate(SCOPE, { body, ownSpec, branch: 'feat/42-save', config: graphConfig('fix') })
-    const review = fixOnlyMandate(SCOPE, {
-      recordId: 'mandate-review',
-      operationId: 'op-mandate-review',
-      body,
-      branch: 'feat/42-save',
-      ownSpec,
-      config: graphConfig('review'),
-    })
-    expect(
-      reconstructWorkflow({
-        evidence: await decisionEvidence(historyFrom([fix])),
-        facts: factsForMandate(fix),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'action', action: 'fix' })
-    expect(
-      reconstructWorkflow({
-        evidence: await decisionEvidence(historyFrom([review])),
-        facts: factsForMandate(review),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'action', action: 'review' })
-    expect(requireLandingMandate(await boundLanding(fix, [rootNode], [], []))).toMatchObject({
       ok: false,
       reason: 'fix-only',
     })

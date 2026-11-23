@@ -8,10 +8,8 @@ import { fixtureHostReviewClassCatalogues } from '../testing/host-catalogue-fixt
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../testing/uw-completion-observation.ts'
 import { linkedIssueBinding } from './fix-checkpoint-binding.ts'
-import { authorizeFixAction } from './fix-ci-evidence.ts'
 import type { FixTarget } from './fix-contract.ts'
 import { createInstalledObservedUwReadPort } from './uw-read-port.ts'
-import * as checkout from './workflow-checkout.ts'
 
 const UW: Scope = { repository: 'acme/payments', target: 'acme/payments#41' }
 const PR: Scope = { repository: 'acme/payments', target: 'acme/payments#99' }
@@ -145,7 +143,7 @@ afterEach(() => {
 })
 
 describe('fix checkpoint UW delivery admission', () => {
-  it('allows default and CI correction past leaf admission with an unchanged never-accepted wayfinder', async () => {
+  it('allows default correction past leaf admission with an unchanged never-accepted wayfinder', async () => {
     const leaf = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' }, true)
     const read = await leaf.reader.readUw(UW)
     expect(read.accepted).toMatchObject({ status: 'accepted', value: { children: [] } })
@@ -154,57 +152,6 @@ describe('fix checkpoint UW delivery admission', () => {
     vi.spyOn(contracts, 'readWorkflowBinding').mockResolvedValueOnce(leaf.bindingRead)
     const binding = await linkedIssueBinding(pullRequestTarget(), { cwd: '/worktree' }, leaf.reader)
     expect(binding).toMatchObject({ ok: true, value: { currentSpec: { tier: 'S', children: [] } } })
-
-    const git = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'correction config unavailable' }))
-    vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
-    const ci = await authorizeFixAction(
-      {
-        cwd: '/worktree',
-        target: pullRequestTarget(),
-        branch: 'feature/41',
-        base: 'main',
-        options: { cwd: '/worktree' },
-      },
-      leaf.history,
-      null,
-      [],
-      'fix-ci',
-      { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] },
-      read,
-    )
-    expect(ci).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
-    expect(git).toHaveBeenCalledTimes(1)
-  })
-
-  it('refuses CI admission when a claimed complete causal history omits the original UW', async () => {
-    const leaf = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
-    const read = await leaf.reader.readUw(UW)
-    const prHistory = contracts.decodeHistory({ ...leaf.history.source, scope: PR, comments: [] })
-    const git = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'correction config unavailable' }))
-    vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
-    const input = {
-      cwd: '/worktree',
-      target: pullRequestTarget(),
-      branch: 'feature/41',
-      base: 'main',
-      options: { cwd: '/worktree' },
-    }
-    const evidence = { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] }
-    const baseline = await authorizeFixAction(input, leaf.history, null, [], 'fix-ci', evidence, read)
-    expect(baseline).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
-    expect(git).toHaveBeenCalledTimes(1)
-    git.mockClear()
-    const histories = read.histories.filter((history) => history.source.scope.target !== UW.target)
-    const result = await authorizeFixAction(input, prHistory, null, [], 'fix-ci', evidence, {
-      ...read,
-      histories,
-      causalObservation: { status: 'complete', histories, catalogues: read.catalogues },
-    })
-    expect(result).toMatchObject({
-      ok: false,
-      diagnostics: expect.arrayContaining(['fix-own-uw-unsettled']),
-    })
-    expect(git).not.toHaveBeenCalled()
   })
 
   it('refuses default-fix advancement for a CLOSED/NOT_PLANNED blocker while preserving CLOSED/COMPLETED', async () => {
@@ -240,55 +187,5 @@ describe('fix checkpoint UW delivery admission', () => {
     expect(defaultBlocked.diagnostics).toEqual(
       expect.arrayContaining(['fix-own-uw-unsettled', 'blocker-not-completed']),
     )
-  })
-
-  it('refuses CI correction before its config read when the fresh UW graph has a CLOSED/NOT_PLANNED blocker', async () => {
-    const blocked = await fixture({ state: 'CLOSED', stateReason: 'NOT_PLANNED' })
-    const completed = await fixture({ state: 'CLOSED', stateReason: 'COMPLETED' })
-    const blockedRead = await blocked.reader.readUw(UW)
-    const completedRead = await completed.reader.readUw(UW)
-    expect(blockedRead.graph.nodes).toContainEqual(
-      expect.objectContaining({ uw: BLOCKER, native: { state: 'CLOSED', stateReason: 'NOT_PLANNED' } }),
-    )
-    expect(blockedRead.admission).toMatchObject({
-      framed: { ok: true },
-      deliverable: {
-        ok: false,
-        diagnostics: [
-          expect.objectContaining({
-            code: 'blocker-not-completed',
-            location: { kind: 'native', uw: UW, connection: 'blockers' },
-          }),
-        ],
-      },
-    })
-    expect(completedRead.admission).toMatchObject({ framed: { ok: true }, deliverable: { ok: true } })
-
-    const git = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'correction config unavailable' }))
-    vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
-    const input = {
-      cwd: '/worktree',
-      target: pullRequestTarget(),
-      branch: 'feature/41',
-      base: 'main',
-      options: { cwd: '/worktree' },
-    }
-    const liveEvidence = { failedChecks: ['unit'], evidenceDigest: 'c'.repeat(64), failures: [] }
-    const ciCompleted = await authorizeFixAction(
-      input,
-      completed.history,
-      null,
-      [],
-      'fix-ci',
-      liveEvidence,
-      completedRead,
-    )
-    const ciBlocked = await authorizeFixAction(input, blocked.history, null, [], 'fix-ci', liveEvidence, blockedRead)
-
-    expect(ciCompleted).toMatchObject({ ok: false, diagnostics: expect.arrayContaining(['fix-config-unreadable']) })
-    expect(ciBlocked).toMatchObject({ ok: false })
-    if (ciBlocked.ok) throw new Error('expected CI correction delivery refusal')
-    expect(ciBlocked.diagnostics).toEqual(expect.arrayContaining(['fix-own-uw-unsettled', 'blocker-not-completed']))
-    expect(git).toHaveBeenCalledTimes(1)
   })
 })

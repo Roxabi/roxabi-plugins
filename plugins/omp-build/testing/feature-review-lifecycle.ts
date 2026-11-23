@@ -22,7 +22,7 @@ type Data = NativeData
 
 export function reviewInitialData(task: NativeTask): Data {
   if (task.name === 'spec') return { findings: [], specRows: [fixtureSpecRow(task.action)] }
-  if (!task.name.startsWith('panel-')) return { findings: [] }
+  if (task.name !== 'fix-intake' && !task.name.startsWith('panel-')) return { findings: [] }
   const spec = task.action.inputs.manifest.spec
   if (spec.kind !== 'accepted') throw new Error('review-fixture-accepted-criterion-missing')
   const criterion = spec.effective.spec.criteria[0]
@@ -47,7 +47,7 @@ export function reviewInitialData(task: NativeTask): Data {
 }
 
 async function freshPause(driver: ReviewDriver): Promise<object> {
-  await driver.pause()
+  await driver.pauseFeature()
   const stateFile = process.env.GH_SIM_STATE
   if (stateFile === undefined) throw new Error('gh-state-missing')
   return {
@@ -60,6 +60,7 @@ async function freshPause(driver: ReviewDriver): Promise<object> {
 
 async function finishFix(driver: ReviewDriver): Promise<object> {
   await driver.settle((task) => reviewDecision(task.task))
+  await driver.startFix()
   const active = driver.controller.active()
   const fixRun = driver.fixRun()
   const stateFile = process.env.GH_SIM_STATE
@@ -112,19 +113,42 @@ function driverDiagnostic(driver: ReviewDriver | undefined) {
 
 export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): Promise<object> {
   const priorHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim()
-  const driver = await createReviewDriver(cwd)
+  const driver = await createReviewDriver(cwd, 128_000, 'fix-pr')
   let primary: unknown
   let failed = false
   let outcome: object | undefined
-  let stage = 'initial-review'
+  let stage = 'correction-intake'
   const nextStage = (next: string) => {
     stage = next
   }
   const applyTasks: Array<{ agent: string; proof: NativeTask['proofEvidence'] }> = []
   try {
+    const release = driver.fixRelease()
+    if (release === undefined) throw new Error('correction-fixture-owner-missing')
+    const synthesized = driver.fixTransition(driver.messages.length)
+    const earlyTerminal = driver.fixTerminal()
     await driver.settle(mixed ? mixedReviewInitialData : reviewInitialData)
-    nextStage('initial-synthesis')
-    await driver.settle((task) => (mixed ? mixedReviewDecision(task.task) : reviewDecision(task.task)))
+    if ((await synthesized) !== 'next-batch')
+      throw new Error(`correction-intake-refused: ${JSON.stringify(await earlyTerminal)}`)
+    nextStage('correction-synthesis')
+    const applying = driver.fixTransition(driver.messages.length)
+    await driver.settle((task) => {
+      const { format, policy, sourceContributionIds, findings, causes, exclusionClaims, unassignedFindings } = (
+        mixed ? mixedReviewDecision : reviewDecision
+      )(task.task)
+      return {
+        purpose: 'correction',
+        format,
+        policy,
+        sourceContributionIds,
+        findings,
+        causes,
+        exclusionClaims,
+        unassignedFindings,
+      }
+    })
+    if ((await applying) !== 'next-batch')
+      throw new Error(`correction-synthesis-refused: ${JSON.stringify(await earlyTerminal)}`)
     const transition = driver.fixTransition(driver.messages.length)
     const stateFile = process.env.GH_SIM_STATE
     if (stateFile === undefined) throw new Error('gh-state-missing')
@@ -184,7 +208,9 @@ export async function invokeOmpReviewApplyFalsify(cwd: string, mixed = false): P
     )
     if (terminal.status !== 'complete')
       throw new Error(`correction-fixture-terminal-refused: ${JSON.stringify(terminal)}`)
-    nextStage('automatic-final-review-start')
+    nextStage('explicit-final-review-start')
+    await release
+    await driver.startReview()
     await driver.nextBatch(reviewAfter)
     const reviewSnapshots: Array<{ head: string; index: string; fingerprint: string; sourceRecordId: string }> = []
     nextStage('final-review-initial')

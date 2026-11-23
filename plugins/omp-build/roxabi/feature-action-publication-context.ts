@@ -1,32 +1,30 @@
 import type { ScopedRecordRef } from '../engine/record-references.ts'
-import type { WorkflowReceiptAction } from '../engine/workflow-receipt-schema.ts'
 import type { NativeBatchResult } from '../omp/review-runtime/contracts.ts'
-import { type ActionStartReceipt, mandateReference, startedActionReceipt } from './feature-approved-context.ts'
+import { type ActionStartReceipt, startedActionReceipt } from './feature-approved-context.ts'
 import { explicitParentHistories } from './feature-context.ts'
 import { type Contracts, defaultGh, type History, loadContracts } from './feature-engine.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 
 type Gh = (cwd: string, args: string[]) => Promise<string>
-export type NonImplementPublication<A extends WorkflowReceiptAction = WorkflowReceiptAction> = {
+export type NonImplementPublication = {
   loaded: Contracts
   gh: Gh
   history: History
   receiptScope: ScopedRecordRef['scope']
   publicationParents: History[]
-  opened: ActionStartReceipt<A>
+  opened: ActionStartReceipt<'assess-spec'>
   cwd: string
 }
 async function publicationParents(
   loaded: Contracts,
-  opened: ActionStartReceipt,
+  opened: ActionStartReceipt<'assess-spec'>,
   receiptScope: ScopedRecordRef['scope'],
   parents: History[],
   cwd: string,
   gh: Gh,
 ): Promise<History[] | { reason: string }> {
-  const mandate = mandateReference(opened)
-  if (mandate === null) return { reason: 'action-uncertain' }
+  const mandate = opened.payload.mandate
   const mandateRead = await loaded.readComposedWorkflowHistory([mandate.scope], withRoxabiGitHubPolicy({ cwd, gh }))
   if (!mandateRead.ok || !mandateRead.histories[0]) {
     return { reason: mandateRead.ok ? 'incomplete' : mandateRead.reason }
@@ -88,8 +86,7 @@ export async function resolvePublication(input: {
     gh,
   )
   if ('reason' in parents) return parents
-  const mandate = mandateReference(opened)
-  if (mandate === null) return { reason: 'action-uncertain' }
+  const mandate = opened.payload.mandate
   const causal = await readFreshUwCausalContext(mandate.scope, [history, ...parents], { cwd: input.cwd, gh })
   if (!causal.ok) return { reason: 'action-authority-unreadable' }
   const resolution = loaded.startResolution(causal.value.histories, input.start)

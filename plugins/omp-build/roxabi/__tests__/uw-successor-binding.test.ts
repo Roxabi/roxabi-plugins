@@ -10,17 +10,12 @@ import { selectFeatureMandate } from '../feature-continuation-selection.ts'
 import { abandonedParent } from './uw-successor-parent-fixtures.ts'
 import { abandon, abandonedLeaf, branch, retryNew, scope, selectNew } from './uw-successor-selection-support.ts'
 
-const bootstrap = vi.hoisted(() => ({ after: async () => {} }))
 vi.mock('../workflow-checkout.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workflow-checkout.ts')>()),
-  runWorktreeBootstrap: async () => {
-    await bootstrap.after()
-    return { ok: true }
-  },
+  runWorktreeBootstrap: async () => ({ ok: true }),
 }))
 beforeEach(() => {
   vi.stubEnv('OMP_WORKTREE_DIR', '/fixture-worktrees')
-  bootstrap.after = async () => {}
 })
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -279,19 +274,6 @@ test('a foreign binding copy after the selection control cannot veto the authent
     status: 'bound',
     mandate: { scope, recordId: result.mandate.recordId, kind: 'mandate' },
   })
-})
-
-test('bootstrap cannot discard an authenticated Parent own-PR binding before publication', async () => {
-  const subject = await abandonedParent('unmanaged', (world) => {
-    world.github.addPull(70)
-    world.seed(fixtures.workflowBinding(pull, world.original, branch, 'main'))
-  })
-  bootstrap.after = async () => {
-    subject.native.comments.set(70, [])
-  }
-  const result = await selectNew(subject)
-  expect(result).toMatchObject({ kind: 'blocked' })
-  expect(subject.native.writes).toEqual([])
 })
 
 test.each(['mandate', 'operator-control'] as const)(

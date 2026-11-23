@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
 import { readUwCompletionObservation, recordsOf, requireLandingMandate } from '../../dist/contracts.js'
+import { admitFeature as continueFeature } from '../../omp/omp-feature-admission.ts'
 import { dispose } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import {
   closure,
@@ -13,10 +14,8 @@ import {
 } from '../../testing/framing-runtime-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInput } from '../../testing/uw-operations-fixture.ts'
-import { authorizeFixAction } from '../fix-ci-evidence.ts'
 import type { UwRead } from '../uw-contract.ts'
 import { buildFramingSourceBinding } from '../uw-framing-prepare.ts'
-import { continueFeature } from '../workflow.ts'
 import { writtenBoundary } from './feature-framing-controller-world.ts'
 
 afterEach(() => {
@@ -81,35 +80,6 @@ async function landingDecision(read: UwRead, gh: Gh) {
     },
     localInhibit: null,
   })
-}
-
-async function fixDecision(read: UwRead, gh: Gh, cwd: string) {
-  const own = read.histories.find((history) => history.source.scope.target === read.uw.target)
-  const mandate = own && recordsOf(own).find((record) => record.kind === 'mandate')
-  if (!own || !mandate || mandate.kind !== 'mandate' || mandate.payload.lineageHead === null)
-    throw new Error('Expected the actual first Mandate and checkout head')
-  return authorizeFixAction(
-    {
-      cwd,
-      target: {
-        ...read.uw,
-        number: numberOf(read.uw),
-        kind: 'pull-request',
-        state: 'open',
-        candidateGitSHA: mandate.payload.lineageHead,
-        baseGitSHA: mandate.payload.lineageHead,
-      },
-      branch: mandate.payload.branch,
-      base: mandate.payload.base,
-      options: { cwd, gh, readAuthor: 'automation' },
-    },
-    own,
-    null,
-    [],
-    'fix-ci',
-    { failedChecks: [], evidenceDigest: 'a'.repeat(64), failures: [] },
-    read,
-  )
 }
 
 it.each(['changed-spec', 'before-claim'] as const)(
@@ -250,11 +220,6 @@ it.each(['changed-spec', 'before-claim'] as const)(
     if (landing.ok) throw new Error('Expected the real landing caller to refuse')
     expect(landing.reason).toBe('uw-not-deliverable')
     expect(landing.evidence.map((entry) => entry.code)).toContain(heldCode)
-    const fix = await fixDecision(after, native.gh, move.path)
-    expect(fix.ok, JSON.stringify(fix)).toBe(false)
-    if (fix.ok) throw new Error('Expected the real fix caller to refuse')
-    expect(fix.diagnostics).toContain('fix-own-uw-unsettled')
-    expect(fix.diagnostics).toContain(heldCode)
     expect(native.comments.get(numberOf(root))?.some((comment) => comment.body.includes('kind=action-receipt'))).toBe(
       false,
     )
@@ -264,7 +229,7 @@ it.each(['changed-spec', 'before-claim'] as const)(
 )
 
 it.each(['root', 'foundation'] as const)(
-  'a complete %s member reaches plan preparation after its own first Mandate',
+  'a complete %s member reaches feature composition after its own first Mandate',
   async (key) => {
     const boundary = writtenBoundary()
     const native = boundary.native
@@ -294,7 +259,7 @@ it.each(['root', 'foundation'] as const)(
     const input = {
       cwd: boundary.principal,
       reference: member.scope.target,
-      control: 'continue' as const,
+      control: 'select' as const,
       principal: true,
       gh,
       git: boundary.git,
@@ -302,11 +267,11 @@ it.each(['root', 'foundation'] as const)(
     }
     const move = await continueFeature(input)
     if (move.kind !== 'session-cwd') throw new Error(`Expected checkout handoff: ${JSON.stringify(move)}`)
-    const result = await continueFeature({ ...input, cwd: move.path, principal: false })
+    const result = await continueFeature({ ...input, control: 'continue', cwd: move.path, principal: false })
     const after = await continuation.operations.readUw(member.scope)
     expect(after.accepted.status).toBe('accepted')
     expect(after.admission.aggregate).toMatchObject({ status: 'complete', member: key })
-    expect(result).toMatchObject({ kind: 'blocked', reason: 'plugin-pin-unavailable' })
+    expect(result).toMatchObject({ kind: 'ready', worktree: move.path })
     const landing = await landingDecision(after, native.gh)
     expect(landing.ok, JSON.stringify(landing)).toBe(true)
   },

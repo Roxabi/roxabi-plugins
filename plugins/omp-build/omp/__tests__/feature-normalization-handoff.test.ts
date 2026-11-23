@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { continueFeature } from '../../roxabi/workflow.ts'
-import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as github from '../../roxabi/feature-engine.ts'
+import type { UwOperations } from '../../roxabi/uw-contract.ts'
+import * as checkout from '../../roxabi/workflow-checkout.ts'
 import { normalizationHandoffFixture } from '../../testing/normalization-handoff-fixture.ts'
+import * as hostOperations from '../host-uw-operations.ts'
+import { commandComposition } from './feature-command-fixture.ts'
+
+afterEach(() => vi.restoreAllMocks())
 
 const principal = '/principal'
 const intended = '/worktrees/feature-910'
@@ -16,7 +21,7 @@ function selection(cwd: string, missing: 'read' | 'root' | null = null) {
     `worktree ${principal}\nbranch refs/heads/main\n\n` +
     `worktree ${intended}\nbranch refs/heads/${branch}\n\n` +
     `worktree ${other}\nbranch refs/heads/other\n`
-  const git: GitRunner = async (_cwd, args) => {
+  const git: checkout.GitRunner = async (_cwd, args) => {
     calls.push([...args])
     if (args.join(' ') === 'rev-parse --show-toplevel') return { code: 0, stdout: cwd, stderr: '' }
     if (args.join(' ') === 'worktree list --porcelain') return { code: 0, stdout: trees, stderr: '' }
@@ -33,20 +38,15 @@ function selection(cwd: string, missing: 'read' | 'root' | null = null) {
             },
           }
         : native.read
-  return {
-    native,
-    calls,
-    run: () =>
-      continueFeature({
-        cwd,
-        reference: '#910',
-        control: 'select',
-        principal: cwd === principal,
-        git,
-        gh: native.gh,
-        read,
-      }),
-  }
+  vi.spyOn(checkout, 'defaultGit').mockReturnValue(git)
+  vi.spyOn(github, 'defaultGh').mockReturnValue(native.gh)
+  // The missing-UW case exercises the admission fallback before any checkout work.
+  if (missing === 'read') vi.spyOn(hostOperations, 'resolveFeatureUw').mockResolvedValue(undefined as never)
+  const command = commandComposition(cwd, {
+    principalCwd: () => cwd === principal,
+    uwOperations: () => read as UwOperations,
+  })
+  return { native, calls, ...command }
 }
 
 describe('initial issue framing before checkout', () => {
@@ -54,11 +54,13 @@ describe('initial issue framing before checkout', () => {
     'keeps the same unframed issue in framing from %s without preparing delivery',
     async (cwd) => {
       const subject = selection(cwd)
-      const result = await subject.run()
-      expect(result).toEqual({
-        kind: 'framing',
-        source: { kind: 'issue', uw: { repository: 'fixture/widgets', target: 'fixture/widgets#910' } },
-      })
+      await subject.run('#910')
+      expect(subject.framing).toHaveBeenCalledExactlyOnceWith(
+        expect.anything(),
+        { kind: 'issue', uw: { repository: 'fixture/widgets', target: 'fixture/widgets#910' } },
+        expect.any(Function),
+      )
+      expect(subject.sent).toEqual([])
       expect(subject.calls.every((args) => args[0] === 'rev-parse' || args[0] === 'worktree')).toBe(true)
       expect(subject.native.rejected).toEqual([])
     },
@@ -69,7 +71,9 @@ describe('initial issue framing before checkout', () => {
     { missing: 'root' as const, reason: 'graph-root-missing' },
   ])('preserves $reason instead of treating missing native facts as a fresh interview', async ({ missing, reason }) => {
     const subject = selection(principal, missing)
-    expect(await subject.run()).toEqual({ kind: 'blocked', reason })
+    await subject.run('#910')
+    expect(subject.framing).not.toHaveBeenCalled()
+    expect(subject.sent).toEqual([expect.stringContaining(reason)])
     expect(subject.native.rejected).toEqual([])
   })
 })

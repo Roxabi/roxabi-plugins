@@ -14,7 +14,6 @@ import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
 import type { MandateRecord } from '../workflow-control.ts'
 import type { WorkflowGraph } from '../workflow-graph.ts'
-import type { WorkflowFacts } from '../workflow-reconstruction-types.ts'
 
 const SCOPE: Scope = { repository: 'acme/app', target: 'acme/app#42' }
 const PARENT: Scope = { repository: 'acme/app', target: 'acme/app#7' }
@@ -212,27 +211,4 @@ function pauseControls(mandate: MandateRecord, controlId: string) {
   return { requested, confirmed, resumed }
 }
 
-function facts(overrides: Partial<WorkflowFacts> = {}): WorkflowFacts {
-  return {
-    currentSpec: null,
-    identityAllocations: null,
-    base: 'main',
-    candidateGitSHA: null,
-    pullRequest: null,
-    merged: false,
-    sessionCwd: '/work',
-    preparedWorktree: '/work',
-    productVersion: PRODUCT_VERSION,
-    configVersion: 'omp-build-workflow/1',
-    configDigest: DIGEST,
-    supportedConfigVersions: ['omp-build-workflow/1'],
-    explicitSelection: false,
-    explicitResume: false,
-    successorAntecedent: null,
-    endObligationsMet: false,
-    localInhibit: null,
-    ...overrides,
-  }
-}
-
-export { BODY, binding, DIGEST, facts, featureMandate, history, mandate, must, PARENT, pauseControls, SCOPE }
+export { BODY, binding, DIGEST, featureMandate, history, mandate, must, PARENT, pauseControls, SCOPE }

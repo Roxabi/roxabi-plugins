@@ -1,5 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { canonicalValueDigest } from '../engine/action-input.ts'
+import { completeCriterionDeclarations } from '../engine/criterion-declaration-completion.ts'
 import { integrationReceiptEligible } from '../engine/delivery-observation-authentication.ts'
 import { criterionTargetSchema } from '../engine/finding-target-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
@@ -7,13 +8,11 @@ import { scopeKey } from '../engine/uw-graph.ts'
 import { integrationOutputSchema } from '../engine/uw-integration-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { bindExternalRef, historyFor, workflowOperationProblem } from '../engine/workflow-control.ts'
-import { startImplement } from '../roxabi/feature-action-start.ts'
-import type { ContinueFeatureResult } from '../roxabi/feature-contract.ts'
-import { loadContracts } from '../roxabi/feature-engine.ts'
-import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
+import { implementNativeOutcome } from '../roxabi/feature-native-outcome.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { captureNativeTask } from './native-action-capture.ts'
+import { appendNativeReceipt, openHistoricalDelivery } from './native-history-records.ts'
 import type { DeclaredCheckout } from './native-implementation-world.ts'
 
 type World = {
@@ -27,7 +26,7 @@ type World = {
 }
 type Checkout = { cwd: string; checkout(commit: string): void; tree(commit: string): string }
 
-/** Produce and read back the real parent integration while the caller owns the native world. */
+/** Seed and read back historical parent integration against the declared Git observation. */
 export async function produceParentIntegration(
   world: World,
   checkout: Checkout,
@@ -36,7 +35,6 @@ export async function produceParentIntegration(
     candidate: DeclaredCheckout
     command: string
     output: string
-    observeStart?: (opened: ContinueFeatureResult) => void
   },
 ) {
   const cwd = checkout.cwd
@@ -72,77 +70,21 @@ export async function produceParentIntegration(
       )
     return completion
   })
-  const engine = await loadContracts()
-  if ('missing' in engine) throw new Error(`Missing engine ${engine.missing}`)
-  const history = initial.histories.find(
-    (item) =>
-      item.source.scope.target === world.parentScope.target &&
-      item.source.scope.repository === world.parentScope.repository,
-  )
-  if (!history) throw new Error('Parent history missing')
-  const native = initial.observation.graph.nodes.find(
-    (item) => item.uw.target === world.parentScope.target && item.uw.repository === world.parentScope.repository,
-  )
-  if (!native) throw new Error('Parent native observation missing')
-  const graph = initial.observation.graph
-  const ancestorHistories = () => {
-    const parents = []
-    let ancestor = native.parent
-    while (ancestor !== null) {
-      const currentAncestor = ancestor
-      const node = graph.nodes.find(
-        (item) => item.uw.target === currentAncestor.target && item.uw.repository === currentAncestor.repository,
-      )
-      const parent = initial.histories.find(
-        (item) =>
-          item.source.scope.target === currentAncestor.target &&
-          item.source.scope.repository === currentAncestor.repository,
-      )
-      if (!node || !parent) throw new Error('Parent ancestor observation missing')
-      parents.push(parent)
-      ancestor = node.parent
-    }
-    return parents
-  }
-  const parents = ancestorHistories()
-  const opened = await startImplement(
-    engine,
-    {
-      issue: history,
-      pullRequest: null,
-      parents,
-      causal: {
-        histories: initial.observation.histories,
-        catalogues: initial.observation.catalogues,
-        observation: initial.observation,
-      },
+  const { parentScope: scope, parent: mandate } = world
+  const historical = { cwd, gh: world.gh, operations: installed }
+  const opened = await openHistoricalDelivery({
+    world: historical,
+    scope,
+    mandate,
+    read: initial,
+    action: 'integrate',
+    code: {
+      repository: scope.repository,
+      base: facts.initial.baseTip,
+      head: integrationBase,
+      referenceCommit: integrationBase,
     },
-    history,
-    world.parentScope,
-    { body: native.raw.body },
-    world.git,
-    world.gh,
-    cwd,
-    world.parent,
-    installed,
-  )
-  facts.observeStart?.(opened)
-  if (opened.kind !== 'action' || opened.node !== 'integrate')
-    throw new Error(`Parent integrate not opened: ${JSON.stringify(opened)}`)
-  const task = opened.followUp.tasks.tasks[0]
-  if (!task) throw new Error('Missing opened native integration task')
-  const startReadback = await installed.readUw(world.parentScope)
-  const startHistory = historyFor(opened.start.scope, startReadback.histories)
-  if (startHistory === null || !startHistory.source.complete)
-    throw new Error('Integration START history is missing or incomplete')
-  const boundStart = bindExternalRef(opened.start, startHistory)
-  if (
-    !boundStart.ok ||
-    boundStart.value.kind !== 'action-receipt' ||
-    boundStart.value.payload.action !== 'integrate' ||
-    boundStart.value.payload.phase !== 'start'
-  )
-    throw new Error('Integration START is not authenticated')
+  })
   const criteria = accepted.snapshot.spec.criteria
   if (criteria.length === 0) throw new Error('Parent producer requires direct criteria')
   const targets = criteria.map((criterion) =>
@@ -153,7 +95,7 @@ export async function produceParentIntegration(
       id: criterion.id,
     }),
   )
-  const code = { ...boundStart.value.payload.inputs.manifest.code, head: facts.candidate.head }
+  const code = { ...opened.authority.inputs.manifest.code, head: facts.candidate.head }
   const callId = 'integration-test-call'
   const command = facts.command
   const model = {
@@ -202,12 +144,43 @@ export async function produceParentIntegration(
     expectedRuns: 1,
     git: { repository: code.repository, commit: code.head, tree: checkout.tree(code.head) },
   })
-  const published = await publishFeatureNativeResult({ cwd, start: opened.start, result, gh: world.gh, git: world.git })
-  if (!published.published || !('receipt' in published) || !published.receipt)
-    throw new Error(`Integration not published: ${JSON.stringify(published)}`)
-  const receiptRef = published.receipt
-  const startRecord = boundStart.value
-  const startRef = opened.start
+  const child = result.children[0]
+  if (!child) throw new Error('Expected the historical integration capture')
+  const remote = await world.git(cwd, ['ls-remote', 'origin', `refs/heads/${facts.candidate.base}`])
+  const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
+  if (remote.code !== 0 || remoteTip !== code.head) throw new Error('Historical integration candidate is unpublished')
+  const range = await world.git(cwd, ['rev-list', '--first-parent', '--reverse', `${integrationBase}..${code.head}`])
+  if (range.code !== 0) throw new Error('Integration lineage is unavailable')
+  const commits = range.stdout.trim().split(/\s+/).filter(Boolean)
+  const paths = await Promise.all(
+    commits.map(async (commit) => {
+      const diff = await world.git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '-m', commit])
+      if (diff.code !== 0) throw new Error(`Integration paths unavailable: ${commit}`)
+      return diff.stdout.trim().split('\n').filter(Boolean)
+    }),
+  )
+  const { ref: receiptRef } = await appendNativeReceipt(historical, scope, {
+    ...opened.authority,
+    action: 'integrate',
+    phase: 'result',
+    start: opened.start,
+    structured: integrationOutputSchema.parse({
+      ...model,
+      criteria: completeCriterionDeclarations(model.criteria, child),
+    }),
+    native: implementNativeOutcome(child, true, new Set([callId])),
+    admission: {
+      admitted: true,
+      commits,
+      paths: [...new Set(paths.flat())].sort(),
+      commands: model.commands.map((item) => ({ ...item, cwd })),
+      remoteBranch: null,
+      remoteTip,
+      published: true,
+      reason: model.reason,
+    },
+    diagnostics: [],
+  })
   const readIntegratedResult = async () => {
     const beforeReview = await installed.readUw(world.parentScope)
     if (beforeReview.observation.status !== 'complete' || beforeReview.accepted.status !== 'accepted')
@@ -242,9 +215,9 @@ export async function produceParentIntegration(
       remoteTip !== facts.candidate.head ||
       !output.success ||
       canonicalValueDigest(output.data.code) !== canonicalValueDigest(code) ||
-      canonicalValueDigest(payload.inputs) !== canonicalValueDigest(startRecord.payload.inputs) ||
-      canonicalValueDigest(payload.exactInputs) !== canonicalValueDigest(startRecord.payload.exactInputs) ||
-      canonicalValueDigest(payload.start) !== canonicalValueDigest(startRef)
+      canonicalValueDigest(payload.inputs) !== canonicalValueDigest(opened.authority.inputs) ||
+      canonicalValueDigest(payload.exactInputs) !== canonicalValueDigest(opened.authority.exactInputs) ||
+      canonicalValueDigest(payload.start) !== canonicalValueDigest(opened.start)
     )
       throw new Error(
         `Integration retained but not admitted and bound: ${JSON.stringify({ receipt: receipt.payload, remote })}`,
@@ -254,7 +227,7 @@ export async function produceParentIntegration(
   const { beforeReview, receipt, output } = await readIntegratedResult()
   const integrationPin = {
     source: 'record' as const,
-    record: published.receipt,
+    record: receiptRef,
     selector: '/payload/structured/code',
     digest: canonicalValueDigest(output.code),
   }
@@ -266,7 +239,7 @@ export async function produceParentIntegration(
     opened,
     targets,
     code: output.code,
-    integrationRecordId: published.receipt.recordId,
+    integrationRecordId: receiptRef.recordId,
     beforeReview,
     receipt,
     output,

@@ -113,12 +113,11 @@ describe('written framing handoff', () => {
         reference: root.target,
         control: 'continue',
         principal: false,
-        parentCoverage: null,
       }),
     ])
     expect(w.statuses.at(-1)).toBe(`feature-framing: continued ${root.target} at ${destination}`)
     expect(w.controller.view()).toBeNull()
-    expect(w.outcomes).toHaveLength(1)
+    expect(w.outcomes).toEqual([expect.objectContaining({ kind: 'ready', worktree: destination })])
     const accepted = await acceptance(w, boundary, root)
     expect(accepted.status, `fresh installed accepted read: ${JSON.stringify(accepted)}`).toBe('accepted')
     const nativeWrites = boundary.native.writes.length

@@ -13,9 +13,7 @@ export function featureStopMessage(result: ContinueFeatureResult): string | null
     case 'session-cwd':
       return isMoveInstruction(result) ? null : 'feature-stopped: move-instruction-invalid'
     case 'blocked':
-      return result.next === undefined
-        ? featureStoppedWithDiagnostics(result.reason, result.diagnostics)
-        : withDiagnostics(`feature-held: ${result.reason}\nnext: ${result.next}`, result.diagnostics)
+      return featureStoppedWithDiagnostics(result.reason, result.diagnostics)
     case 'operator-decision':
       return `feature-stopped: operator-decision:${result.reason}`
     case 'terminal':
@@ -62,9 +60,7 @@ export function featurePauseMessage(result: Extract<ContinueFeatureResult, { kin
 /** Project an already-decided workflow result without changing its owner. */
 export function featureResultStatus(reference: string, result: ContinueFeatureResult): string | undefined {
   if (result.kind === 'blocked') {
-    return result.next === undefined
-      ? `UW ${reference} · ${result.reason} · next: inspect and resolve`
-      : `UW ${reference} · held: ${result.reason} · next: ${result.next} · session end pauses`
+    return `UW ${reference} · ${result.reason} · next: inspect and resolve`
   }
   if (result.kind === 'paused') {
     return result.confirmed

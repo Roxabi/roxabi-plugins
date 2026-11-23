@@ -18,7 +18,6 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { appendSimIssueComments, readSim, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
-const CONTINUE = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
 const REPLAY = path.resolve(import.meta.dirname, 'feature-operand-replay-runner.ts')
 const roots = new Set<string>()
 
@@ -48,20 +47,29 @@ it('cold replays the owned expanded assessment after an authenticated missing-co
     issue.body = proposed.body
     issue.comments.push(...workflow.framedBodies([mandate], 'operator').map((body) => ({ author: 'operator', body })))
   })
-  const run = spawnSync(BUN, [CONTINUE, 'continue', cwd, JSON.stringify({ reference: '#42', control: 'continue' })], {
+  const run = spawnSync(BUN, [REPLAY, cwd, JSON.stringify(REVIEW_SCOPE), 'prepare'], {
     cwd,
     env: box.env,
     encoding: 'utf8',
   })
-  if (run.status !== 0) throw new Error(`continue failed: ${run.stderr}\n${run.stdout}`)
+  if (run.status !== 0) throw new Error(`assessment preparation failed: ${run.stderr}\n${run.stdout}`)
   const result = JSON.parse(run.stdout) as {
     kind: string
-    node: string
     followUp: { tasks: { tasks: { action: { inputs: ActionInputs; snapshot: { indexPath: string } } }[] } }
   }
-  expect(result).toMatchObject({ kind: 'action', node: 'assess-spec' })
+  expect(result).toMatchObject({
+    kind: 'action',
+    verification: { before: { ok: true }, after: { ok: false } },
+  })
   const action = result.followUp.tasks.tasks[0]?.action
   if (action === undefined) throw new Error('assessment action missing')
+  expect(action.inputs.manifest.operands).toMatchObject({
+    action: 'assess-spec',
+    exactInputs: {
+      accepted: { snapshot: { spec: { criteria: [{ statement: 'preserves the region' }] } } },
+      proposed: { snapshot: { spec: { criteria: [{ statement: 'preserves the region and its timezone' }] } } },
+    },
+  })
   const history = () =>
     decodeHistory({
       scope: REVIEW_SCOPE,

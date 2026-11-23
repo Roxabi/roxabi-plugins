@@ -11,8 +11,6 @@ export async function publishInterruptedResult(
   stop: Extract<NativeStop, { kind: 'interrupted' }>,
 ): Promise<{ published: true; recordId: string } | { published: false; reason: string }> {
   const opened = context.opened
-  if (!['plan', 'plan-review', 'assess-spec', 'attribute-ci'].includes(opened.payload.action))
-    return { published: false, reason: 'action-interruption-unsupported' }
   const start = { scope: context.receiptScope, recordId: opened.recordId, kind: 'action-receipt' as const }
   const fresh = await resolvePublication({ cwd: context.cwd, result, start, gh: context.gh })
   if ('reason' in fresh) return { published: false, reason: fresh.reason }
@@ -26,7 +24,6 @@ export async function publishInterruptedResult(
     start,
     inputs: opened.payload.inputs,
     exactInputs: opened.payload.exactInputs,
-    ...(opened.payload.action === 'plan-review' ? { slots: opened.payload.slots, contributions: [] } : {}),
     native: { completion: 'incomplete', strict: 'absent', raw: result.children[0]?.raw ?? null },
     structured: null,
     admission: null,
@@ -74,7 +71,6 @@ export async function publishTerminalNegative(
     start,
     inputs: opened.payload.inputs,
     exactInputs: opened.payload.exactInputs,
-    ...(opened.payload.action === 'plan-review' ? { slots: opened.payload.slots, contributions: [] } : {}),
     native: {
       completion: child?.sdkTerminal === 'returned' || child?.usable === true ? 'completed' : 'incomplete',
       strict,

@@ -151,6 +151,7 @@ export {
   abandoned,
   historyFor,
   mandateScope,
+  mandatesOf,
   recordsOf,
   successorOf,
   workflowOperationProblem,

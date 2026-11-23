@@ -1,19 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { SCOPE } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
-import { decide, implementationWorld, observe, planWorld } from '../../testing/workflow-interruption-world.ts'
-import { buildRecord } from '../record-construction.ts'
-import { startResolution } from '../workflow-action-interruption.ts'
-import { implementationCompletion } from '../workflow-implementation-completion.ts'
 import {
-  evidenceCodes,
-  INTERRUPTED_IMPLEMENTATION_ADMISSION,
-  interruptedResult,
-  interruptionResolution,
-  withPayload,
-} from './workflow-interruption-support.ts'
-
-const { rejectedImplementResult } = roxabiWorkflowFixtures()
+  classifyDeliveryAttempts,
+  implementationWorld,
+  observe,
+  planWorld,
+} from '../../testing/workflow-interruption-world.ts'
+import { startResolution } from '../workflow-action-interruption.ts'
+import { unliftedPause } from '../workflow-pause.ts'
+import { interruptedResult, interruptionResolution, withPayload } from './workflow-interruption-support.ts'
 
 const ADOPTED_HEAD = 'c'.repeat(40)
 const MISSING_CONTEXT = {
@@ -28,14 +23,15 @@ const MISSING_CONTEXT = {
 }
 
 describe('honest incomplete native results', () => {
-  it('blocks an interrupted plan attempt instead of reporting an unpaired START', async () => {
+  it('recognizes an interrupted plan attempt instead of reporting an orphan START', () => {
     const world = planWorld()
-    const decision = await decide(world.issue([world.start, world.interrupted]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-interrupted' })
-    expect(evidenceCodes(decision)).toContain('action-interrupted')
+    expect(classifyDeliveryAttempts(world.issue([world.start, world.interrupted]))).toMatchObject({
+      ok: true,
+      value: { unresolved: [{ kind: 'interrupted', action: 'plan' }] },
+    })
   })
 
-  it('blocks an interrupted plan review instead of opening another review', async () => {
+  it('recognizes an interrupted plan review', () => {
     const world = planWorld()
     const { workflow, version } = world.authenticated
     const digest = workflow.publishedPlanDigest()
@@ -44,195 +40,31 @@ describe('honest incomplete native results', () => {
       workflow.planReviewRecord(world.mandate, 'act-plan-1', digest, [], 'act-plan-review-1', version),
       { contributions: [] },
     )
-    const decision = await decide(world.issue([world.start, world.result, reviewStart, reviewResult]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-interrupted' })
+    expect(classifyDeliveryAttempts(world.issue([world.start, world.result, reviewStart, reviewResult]))).toMatchObject(
+      { ok: true, value: { unresolved: [{ kind: 'interrupted', action: 'plan-review' }] } },
+    )
   })
 
-  it('blocks an interrupted implementation instead of treating it as a substantive refusal', async () => {
+  it('recognizes an interrupted implementation', () => {
     const world = implementationWorld()
-    const decision = await decide(world.issue([world.start, world.interrupted]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-interrupted' })
-    expect(evidenceCodes(decision)).toContain('action-interrupted')
+    expect(classifyDeliveryAttempts(world.issue([world.start, world.interrupted]))).toMatchObject({
+      ok: true,
+      value: { unresolved: [{ kind: 'interrupted', action: 'implement' }] },
+    })
   })
 })
 
 describe('orphan START before resolution', () => {
-  it('keeps an orphan plan START uncertain', async () => {
+  it('recognizes an orphan plan START', () => {
     const world = planWorld()
-    const decision = await decide(world.issue([world.start]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-  })
-
-  it.each([
-    { name: 'orphan', result: false, reason: 'action-uncertain' },
-    { name: 'interrupted', result: true, reason: 'action-interrupted' },
-  ])('refuses an explicit resume while an $name attempt is unresolved', async ({ result, reason }) => {
-    const world = planWorld()
-    const attempt = result ? [world.start, world.interrupted] : [world.start]
-    const issue = world.issue([...attempt, ...world.paused])
-    expect(await decide(issue, world.mandate)).toMatchObject({ status: 'paused', confirmed: true })
-    const decision = await decide(issue, world.mandate, { explicitResume: true })
-    expect(decision).toMatchObject({ status: 'blocked', reason })
-    expect(decision).not.toMatchObject({ status: 'action' })
-  })
-
-  it('applies the configuration guard before the unresolved-attempt refusal', async () => {
-    const world = planWorld()
-    const decision = await decide(world.issue([world.start, ...world.paused]), world.mandate, {
-      explicitResume: true,
-      productVersion: '0.0.0',
+    expect(classifyDeliveryAttempts(world.issue([world.start]))).toMatchObject({
+      ok: true,
+      value: { unresolved: [{ kind: 'orphan', action: 'plan' }] },
     })
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'config-drift' })
-  })
-
-  it('still resumes explicitly when no attempt is unresolved', async () => {
-    const world = planWorld()
-    const decision = await decide(world.issue(world.paused), world.mandate, { explicitResume: true })
-    expect(decision).toMatchObject({ status: 'action', action: 'resume', mandateId: world.mandate.recordId })
   })
 })
 
 describe('completed results stay on their own paths', () => {
-  it('keeps a completed missing-context plan negative terminal for context', async () => {
-    const world = planWorld()
-    const negative = withPayload(world.result, { structured: MISSING_CONTEXT })
-    const decision = await decide(world.issue([world.start, negative]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked' })
-    expect(evidenceCodes(decision)).toContain('action-context-missing')
-    expect(evidenceCodes(decision)).not.toContain('action-interrupted')
-  })
-
-  it('holds implementation context only for the mandate that produced it', async () => {
-    const world = implementationWorld()
-    const negative = withPayload(rejectedImplementResult(world.mandate), {
-      native: { completion: 'completed', strict: 'valid', raw: null },
-      structured: MISSING_CONTEXT,
-      admission: null,
-      diagnostics: [],
-    })
-    const predecessor = { scope: SCOPE, recordId: world.mandate.recordId, kind: 'mandate' as const }
-    const abandoned = buildRecord({
-      ...SCOPE,
-      version: 1,
-      recordId: 'abandon-mandate',
-      runId: 'run-1',
-      operationId: 'op-abandon-mandate',
-      kind: 'operator-control',
-      payload: { control: 'abandon', controlId: 'abandon-mandate', mandate: predecessor, predecessor: null },
-    })
-    const successor = buildRecord({
-      ...world.mandate,
-      recordId: 'new-mandate',
-      runId: 'run-2',
-      operationId: 'op-new-mandate',
-      payload: { ...world.mandate.payload, antecedent: predecessor },
-    })
-    if (!abandoned.ok || !successor.ok || successor.value.kind !== 'mandate') throw new Error('Invalid successor')
-    const current = successor.value
-    const currentRef = { scope: SCOPE, recordId: current.recordId, kind: 'mandate' as const }
-    const selected = buildRecord({
-      ...SCOPE,
-      version: 1,
-      recordId: 'select-mandate',
-      runId: 'run-2',
-      operationId: 'op-select-mandate',
-      kind: 'operator-control',
-      payload: {
-        control: 'select-successor',
-        controlId: 'select-mandate',
-        mandate: currentRef,
-        predecessor,
-        successor: currentRef,
-      },
-    })
-    if (!selected.ok) throw new Error('Invalid successor selection')
-    const issue = world.issue([world.start, negative, abandoned.value, current, selected.value])
-    const observation = await observe(issue)
-    if (observation.status !== 'complete') throw new Error('Expected a complete native observation')
-    const causal = { histories: observation.histories, catalogues: observation.catalogues, observation }
-    const evidence = { issue, pullRequest: null, parents: [], causal }
-    const own = implementationCompletion(evidence, world.mandate)
-    expect(own.evidence.map((entry) => entry.code)).toContain('action-context-missing')
-    const next = implementationCompletion(evidence, current)
-    expect(next.status).toBe('not-started')
-    expect(next.evidence.map((entry) => entry.code)).not.toContain('unconfirmed')
-  })
-
-  it('still rejects an old-mandate missing-context implement result with a refused admission', async () => {
-    const world = implementationWorld()
-    const negative = withPayload(rejectedImplementResult(world.mandate), {
-      native: { completion: 'completed', strict: 'valid', raw: null },
-      structured: MISSING_CONTEXT,
-      admission: { ...INTERRUPTED_IMPLEMENTATION_ADMISSION, reason: 'implementation-admission-refused' },
-      diagnostics: [],
-    })
-    const predecessor = { scope: SCOPE, recordId: world.mandate.recordId, kind: 'mandate' as const }
-    const abandoned = buildRecord({
-      ...SCOPE,
-      version: 1,
-      recordId: 'abandon-admitted-negative',
-      runId: 'run-1',
-      operationId: 'op-abandon-admitted-negative',
-      kind: 'operator-control',
-      payload: { control: 'abandon', controlId: 'abandon-admitted-negative', mandate: predecessor, predecessor: null },
-    })
-    const successor = buildRecord({
-      ...world.mandate,
-      recordId: 'admitted-new-mandate',
-      runId: 'run-2',
-      operationId: 'op-admitted-new-mandate',
-      payload: { ...world.mandate.payload, antecedent: predecessor },
-    })
-    if (!abandoned.ok || !successor.ok || successor.value.kind !== 'mandate') throw new Error('Invalid successor')
-    const current = successor.value
-    const currentRef = { scope: SCOPE, recordId: current.recordId, kind: 'mandate' as const }
-    const selected = buildRecord({
-      ...SCOPE,
-      version: 1,
-      recordId: 'select-admitted-mandate',
-      runId: 'run-2',
-      operationId: 'op-select-admitted-mandate',
-      kind: 'operator-control',
-      payload: {
-        control: 'select-successor',
-        controlId: 'select-admitted-mandate',
-        mandate: currentRef,
-        predecessor,
-        successor: currentRef,
-      },
-    })
-    if (!selected.ok) throw new Error('Invalid successor selection')
-    const issue = world.issue([world.start, negative, abandoned.value, current, selected.value])
-    const observation = await observe(issue)
-    if (observation.status !== 'complete') throw new Error('Expected a complete native observation')
-    const causal = { histories: observation.histories, catalogues: observation.catalogues, observation }
-    const evidence = { issue, pullRequest: null, parents: [], causal }
-    const next = implementationCompletion(evidence, current)
-    expect(next.status).toBe('uncertain')
-    expect(next.evidence.map((entry) => entry.code)).toContain('action-uncertain')
-    expect(next.status).not.toBe('not-started')
-  })
-
-  it('keeps a completed invalid plan output uncertain rather than interrupted', async () => {
-    const world = planWorld()
-    const invalid = withPayload(world.result, {
-      native: { completion: 'completed', strict: 'invalid', raw: null },
-      structured: null,
-    })
-    const decision = await decide(world.issue([world.start, invalid]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-  })
-
-  it('keeps a completed legacy implementation refusal substantive', async () => {
-    const world = implementationWorld()
-    const legacy = withPayload(rejectedImplementResult(world.mandate), {
-      admission: { ...INTERRUPTED_IMPLEMENTATION_ADMISSION, reason: 'implementation-admission-refused' },
-    })
-    const decision = await decide(world.issue([world.start, legacy]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
-    expect(evidenceCodes(decision)).not.toContain('action-interrupted')
-  })
-
   it.each([
     {
       name: 'missing-context negative',
@@ -250,7 +82,7 @@ describe('completed results stay on their own paths', () => {
           structured: null,
         }),
     },
-  ])('refuses a resolution that reinterprets a $name', async ({ result }) => {
+  ])('refuses a resolution that reinterprets a $name', ({ result }) => {
     const world = planWorld()
     const completed = result(world)
     const resolution = interruptionResolution({
@@ -259,17 +91,17 @@ describe('completed results stay on their own paths', () => {
       start: world.start,
       result: completed,
     })
-    const decision = await decide(
-      world.issue([world.start, completed, ...world.paused, resolution, world.resume]),
-      world.mandate,
-    )
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'interruption-invalid' })
-    expect(evidenceCodes(decision)).toContain('interruption-resolution-invalid')
+    expect(
+      classifyDeliveryAttempts(world.issue([world.start, completed, ...world.paused, resolution, world.resume])),
+    ).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'interruption-resolution-invalid' })]),
+    })
   })
 })
 
 describe('neutral operator resolution', () => {
-  it('readmits the plan only after the confirmed pause is lifted', async () => {
+  it('excludes a resolved attempt without lifting the confirmed pause', () => {
     const world = planWorld()
     const resolution = interruptionResolution({
       mandate: world.mandate,
@@ -278,22 +110,13 @@ describe('neutral operator resolution', () => {
       result: world.interrupted,
     })
     const attempt = [world.start, world.interrupted, ...world.paused, resolution]
-    expect(await decide(world.issue(attempt), world.mandate)).toMatchObject({
-      status: 'paused',
-      confirmed: true,
-      mandateId: world.mandate.recordId,
-    })
-    expect(await decide(world.issue(attempt), world.mandate, { explicitResume: true })).toMatchObject({
-      status: 'action',
-      action: 'resume',
-    })
-    expect(await decide(world.issue([...attempt, world.resume]), world.mandate)).toMatchObject({
-      status: 'action',
-      action: 'plan',
-    })
+    const paused = world.issue(attempt)
+    expect(unliftedPause(paused, world.mandate)?.recordId).toBe(world.pause.recordId)
+    expect(classifyDeliveryAttempts(paused)).toMatchObject({ ok: true, value: { unresolved: [] } })
+    expect(unliftedPause(world.issue([...attempt, world.resume]), world.mandate)).toBeNull()
   })
 
-  it('resolves an orphan START whose RESULT is truly absent', async () => {
+  it('resolves an orphan START whose RESULT is truly absent', () => {
     const world = planWorld()
     const resolution = interruptionResolution({
       mandate: world.mandate,
@@ -301,8 +124,9 @@ describe('neutral operator resolution', () => {
       start: world.start,
       result: null,
     })
-    const decision = await decide(world.issue([world.start, ...world.paused, resolution, world.resume]), world.mandate)
-    expect(decision).toMatchObject({ status: 'action', action: 'plan' })
+    expect(
+      classifyDeliveryAttempts(world.issue([world.start, ...world.paused, resolution, world.resume])),
+    ).toMatchObject({ ok: true, value: { unresolved: [] } })
   })
 
   it.each([
@@ -423,9 +247,10 @@ describe('neutral operator resolution', () => {
         startResolution([issue], { scope: SCOPE, recordId: world.start.recordId, kind: 'action-receipt' }).ok,
       ).toBe(false)
     } else {
-      const decision = await decide(issue, world.mandate)
-      expect(decision).toMatchObject({ status: 'blocked', reason: 'interruption-invalid' })
-      expect(evidenceCodes(decision)).toContain('interruption-resolution-invalid')
+      expect(classifyDeliveryAttempts(issue)).toMatchObject({
+        ok: false,
+        diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'interruption-resolution-invalid' })]),
+      })
     }
   })
 
@@ -446,7 +271,7 @@ describe('neutral operator resolution', () => {
         withPayload(world.start, {}, 'act-plan-1-start-replayed'),
       ],
     },
-  ])('never progresses past ambiguous pairing: $name', async ({ records }) => {
+  ])('refuses a resolution with ambiguous pairing: $name', ({ records }) => {
     const world = planWorld()
     const resolution = interruptionResolution({
       mandate: world.mandate,
@@ -454,11 +279,8 @@ describe('neutral operator resolution', () => {
       start: world.start,
       result: world.interrupted,
     })
-    const decision = await decide(
-      world.issue([...records(world), ...world.paused, resolution, world.resume]),
-      world.mandate,
-    )
-    expect(decision).toMatchObject({ status: 'blocked' })
-    expect(decision).not.toMatchObject({ status: 'action' })
+    expect(
+      classifyDeliveryAttempts(world.issue([...records(world), ...world.paused, resolution, world.resume])),
+    ).toMatchObject({ ok: false })
   })
 })

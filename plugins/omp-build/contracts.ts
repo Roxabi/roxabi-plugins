@@ -168,7 +168,6 @@ export {
 export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
-export { actionCompletion } from './engine/workflow-action-completion.ts'
 export {
   type AttemptClassification,
   classifyAttempts,
@@ -248,21 +247,11 @@ export {
   interruptionExecutorSchema,
   interruptionRuntimeSchema,
 } from './engine/workflow-operator-control-schema.ts'
-export type { PauseBinding } from './engine/workflow-pause.ts'
+export { outstandingPauseInAuthority, type PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
-export { bindImplementationCommand } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
 export { selectWorkflowBindingClaims } from './engine/workflow-pr-binding-chain.ts'
-export { reconstructWorkflow } from './engine/workflow-reconstruction-admission.ts'
-export type {
-  NativeSelector,
-  NativeSelectorStatus,
-  SpecializedDecisions,
-  WorkflowBlockReason,
-  WorkflowDecision,
-  WorkflowFacts,
-} from './engine/workflow-reconstruction-types.ts'
 export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'
 export {
   isAssessResult,

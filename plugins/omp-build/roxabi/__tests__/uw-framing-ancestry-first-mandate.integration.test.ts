@@ -19,9 +19,10 @@ import {
 } from '../../testing/framing-runtime-fixture.ts'
 import { sisterSpecWorld } from '../../testing/multi-sister-spec-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
+import { resolveFeatureAuthority } from '../feature-continuation-admission.ts'
+import { selectFeatureMandate } from '../feature-continuation-selection.ts'
 import type { UwOperations } from '../uw-contract.ts'
 import { buildFramingSourceBinding } from '../uw-framing-prepare.ts'
-import { continueFeature } from '../workflow.ts'
 import { answeredQuestion, begun, codes as formCodes, submit } from './feature-framing-controller-drivers.ts'
 import { world, writtenBoundary } from './feature-framing-controller-world.ts'
 
@@ -65,7 +66,7 @@ function github(native: ReturnType<typeof nativeGitHub>): Gh {
   }
 }
 
-it('frames the unmandated Parent and native child through feature before the Parent first Mandate', async () => {
+it('frames an unmandated Parent and native child without starting Parent delivery', async () => {
   const base = writtenBoundary()
   const native = nativeGitHub({ 41: { title: 'Request queue' }, 42: { title: 'Queue storage', parent: 41 } })
   const boundary = { ...base, native }
@@ -76,7 +77,7 @@ it('frames the unmandated Parent and native child through feature before the Par
   if (!refused.ok) expect(codes(refused.diagnostics)).toContain('framing-ancestor-unqualified')
   expect(framing.confirmations()).toBe(0)
   expect(native.writes).toEqual([])
-  const selection = await continueFeature({
+  const authority = await resolveFeatureAuthority({
     cwd: boundary.principal,
     reference: scope(41).target,
     control: 'select',
@@ -85,7 +86,9 @@ it('frames the unmandated Parent and native child through feature before the Par
     git: boundary.git,
     uw: framing.operations,
   })
-  expect(selection).toEqual({ kind: 'framing', source: { kind: 'issue', uw: scope(41) } })
+  if ('kind' in authority) throw new Error(JSON.stringify(authority))
+  const selection = await selectFeatureMandate('select', undefined, authority, framing.operations)
+  expect(selection).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
   const input = await existingRootAggregate(framing.operations)
   const w = world({ written: boundary })
   await begun(w, { kind: 'issue', uw: scope(41) })
@@ -141,29 +144,16 @@ it('frames the unmandated Parent and native child through feature before the Par
   w.runtime.idle = true
   w.runtime.answers.push(true)
   await w.controller.act(w.ctx())
-  const move = w.controller.view()?.pendingMove
-  if (!move) throw new Error(`Expected Parent framing handoff: ${w.statuses.at(-1)}`)
-  expect(move.root).toEqual(scope(41))
+  expect(w.controller.view()?.pendingMove ?? null).toBeNull()
   expect((await framing.operations.readUw(scope(41))).admission.aggregate.status).toBe('complete')
   expect((await framing.operations.readUw(scope(42))).admission.aggregate.status).toBe('complete')
   expect((await framing.operations.readUw(scope(42))).accepted.status).toBe('absent')
   expect(native.issues.get(42)?.parent).toBe(41)
-  w.location.cwd = move.destination
-  w.runtime.answers.push(true)
-  await w.controller.act(w.ctx())
-  expect(w.continued).toEqual([expect.objectContaining({ reference: scope(41).target, control: 'continue' })])
-  // The confirmed coverage is consumed by the first Mandate: no second coverage request follows it.
-  expect(w.outcomes).not.toContainEqual(expect.objectContaining({ reason: expect.stringMatching(/^parent-coverage/) }))
-  // The next ordinary Parent stop is the epic driver, which this fixture gives no driver effects.
-  expect(w.outcomes).toContainEqual(expect.objectContaining({ kind: 'blocked', reason: 'epic-step-failed' }))
+  expect(w.continued).toEqual([])
   const parent = await framing.operations.readUw(scope(41))
-  if (parent.accepted.status !== 'accepted') throw new Error('Expected the Parent first Mandate')
-  expect(parent.accepted.value.coverage?.assignments.flatMap((assignment) => assignment.children)).toContainEqual(
-    scope(42),
-  )
-  expect((await framing.operations.readUw(scope(42))).accepted.status).toBe('absent')
+  expect(parent.accepted.status).toBe('absent')
   const own = parent.histories.find((history) => history.source.scope.target === scope(41).target)
-  expect(own && recordsOf(own).some((record) => record.kind === 'mandate')).toBe(true)
+  expect(own ? recordsOf(own).filter((record) => record.kind === 'mandate') : []).toEqual([])
 })
 
 /** Fixture-scoped ancestor acceptance matches the child's real, independently planned spec and tier. */
@@ -283,13 +273,18 @@ it('carries the matching accepted ancestor into the child first Mandate', async 
     git: boundary.git,
     uw: operations,
   }
-  const move = await continueFeature(continuation)
-  if (move.kind !== 'session-cwd') throw new Error(`Expected Parent checkout handoff: ${JSON.stringify(move)}`)
+  const initial = await resolveFeatureAuthority(continuation)
+  if ('kind' in initial) throw new Error(JSON.stringify(initial))
+  const move = await selectFeatureMandate('continue', undefined, initial, operations)
+  if (!('kind' in move) || move.kind !== 'session-cwd')
+    throw new Error(`Expected Parent checkout handoff: ${JSON.stringify(move)}`)
   // Model the operator selecting the child's branch inside the canonical Parent worktree.
   const checkout = await boundary.git(move.path, ['checkout', '-b', 'feat/42-request-queue'])
   expect(checkout.code, checkout.stderr).toBe(0)
-  const result = await continueFeature({ ...continuation, cwd: move.path, principal: false })
-  expect(result).toMatchObject({ kind: 'blocked', reason: 'plugin-pin-unavailable' })
+  const resumed = await resolveFeatureAuthority({ ...continuation, cwd: move.path, principal: false })
+  if ('kind' in resumed) throw new Error(JSON.stringify(resumed))
+  const result = await selectFeatureMandate('continue', undefined, resumed, operations)
+  expect(result).toMatchObject({ authority: { selection: { status: 'applicable' } } })
   const after = await operations.readUw(scope(42))
   expect(after.accepted.status).toBe('accepted')
   const own = after.histories.find((history) => history.source.scope.target === scope(42).target)

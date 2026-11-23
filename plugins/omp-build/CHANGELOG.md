@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.13 (unreleased)
+
+- `/feature` composes the skills instead of running the native graph (#1037). The command keeps issue resolution, framing, the operator controls, mandate selection and the worktree; it then loads `skills/feature/SKILL.md` with a `## Feature context` block (repository, issue, mandate, branch, base, worktree, bound PR). The agent plans, implements with the agents it chooses, follows `/dev-review` and `/dev-fix` (two correction rounds per run), and resumes from Git and GitHub facts: no plan or implementation receipts, no engine-launched child.
+- `skills/feature/feature-cli.ts` holds the engine locks the instructions call, each after re-reading the live mandate: `push` (exact tip, lease on the expected remote head, no tags, verified push URL), `open-pr` (one PR, confirmed `workflow-binding`; several candidates refuse), `land` (one `gh pr merge --match-head-commit`, only when the base's rules require the `review` check), `finish` (closes the UW). Composed `/dev-fix` pushes through `push`.
+- UW completion accepts a merged bound leaf whose merged head has a successful `review` check; historical structured-review proof stays readable.
+- `/feature` on a parent issue stops: parent delivery is suspended until slice 6 of #1031. The native feature graph code it no longer reaches is deleted.
+- `/dev-review` also finds the issue from the `UW #N` line.
+- Recognize 0.21.13 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.12 (unreleased)
 
 - Add `/dev-fix`, the instructions that replace `/fix`. The command loads `skills/dev-fix/SKILL.md`: on an open PR into the default branch whose latest complete review comment by a writer (`## Review — head <sha> base <branch>` … `Verdict: …`) covers the current head and base, implementer agents fix its findings and the failing checks on the PR branch, behavior fixes come with a falsified test, the exact tip is pushed through `origin`, re-verified as the PR's repository just before, with a lease on the reviewed head (`--force-with-lease=refs/heads/<branch>:<head> origin <tip>^{commit}:refs/heads/<branch>`, no tags), after re-reading the PR state, base and unedited review, and a `## Fixes — head <tip>` comment maps each finding; the next step is `/dev-review`. Without an open PR or a current review it stops. Run standalone, it is authorized by the operator who runs it. `/dev-review` writes that review header and `Verdict:` line and names `/dev-fix` as its request-changes step.

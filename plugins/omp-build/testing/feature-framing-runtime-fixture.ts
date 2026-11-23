@@ -145,14 +145,7 @@ export function toolInfo(name: string, source: string, path: string): ToolInfo {
 }
 
 export function workflow(continueFeature: FeatureWorkflow['continueFeature']): FeatureWorkflow {
-  return {
-    continueFeature,
-    consumeWatchExit: async () => ({ kind: 'blocked', reason: 'unexpected-watch' }),
-    publishFeatureNativeResult: async () => {
-      throw new Error('unexpected-native-publication')
-    },
-    requestFeatureSessionPause: async () => ({ kind: 'paused', confirmed: false, reason: 'unexpected-pause' }),
-  }
+  return { continueFeature }
 }
 
 /** The installed extension, driven only through what it registers on the public API. */

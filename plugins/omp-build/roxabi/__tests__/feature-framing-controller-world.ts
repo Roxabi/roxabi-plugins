@@ -4,19 +4,19 @@ import { fileURLToPath } from 'node:url'
 import type { ExtensionContext, SessionEntry } from '@oh-my-pi/pi-coding-agent'
 import { vi } from 'vitest'
 import { FRAMING_PROCEDURE_FILES, type FramingStage } from '../../engine/framing-context-schema.ts'
+import { admitFeature } from '../../omp/omp-feature-admission.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { sandbox, git as sandboxGit } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { nativeGitHub } from '../../testing/framing-native-github.ts'
 import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { fixture } from '../../testing/uw-operations-fixture.ts'
-import type { ContinueFeatureInput, ContinueFeatureResult } from '../feature-contract.ts'
+import type { ContinueFeatureInput } from '../feature-contract.ts'
 import { type FeatureFramingControllerHost, FRAMING_SUBMIT_TOOL } from '../feature-framing-contract.ts'
 import { createFeatureFramingController } from '../feature-framing-controller.ts'
 import { createFramingPublicationPorts } from '../uw-framing-ports.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 import { createUwOperations } from '../uw-operations.ts'
-import { continueFeature as continueInstalledFeature } from '../workflow.ts'
 import type { GitRunner } from '../workflow-checkout.ts'
 
 export const PLUGIN_ROOT = fileURLToPath(new URL('../../', import.meta.url))
@@ -167,7 +167,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
   const statuses: string[] = []
   const sent: { content: unknown; options: unknown }[] = []
   const continued: ContinueFeatureInput[] = []
-  const outcomes: ContinueFeatureResult[] = []
+  const outcomes: Awaited<ReturnType<typeof admitFeature>>[] = []
   let generation = 0
   let occupant: { revoke(reason: string): void } | null = null
   const unexpectedGh = async (_cwd: string, args: string[]): Promise<string> => {
@@ -234,7 +234,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     continueFeature: async ({ continuation }) => {
       if (!options.written) throw new Error('unexpected continuation')
       continued.push(continuation)
-      outcomes.push(await continueInstalledFeature(continuation))
+      outcomes.push(await admitFeature(continuation))
     },
   }
   const controller = createFeatureFramingController(host)

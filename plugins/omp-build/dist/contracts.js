@@ -8985,11 +8985,6 @@ function mandatesOf(history) {
 function mandateScope(record) {
   return { repository: record.repository, target: record.target };
 }
-function receiptMandate(mandate) {
-  if (mandate === null)
-    return { kind: "absent", reason: "pre-mandate" };
-  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-}
 function abandoned(history, mandate) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
   return controlsOf(history).some((record) => record.payload.control === "abandon" && sameRef2(record.payload.mandate, mandateRef));
@@ -11207,7 +11202,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 12)
+  if (minor === 21 && patch <= 13)
     return "bounded";
   return "unknown";
 }
@@ -26963,6 +26958,28 @@ function deliveryCoverage(home) {
   return { ok: true, branches, uncovered: false };
 }
 
+// plugins/omp-build/adapters/github-workflow/review-rule.ts
+function pinnedReviewApp(rules) {
+  if (!Array.isArray(rules))
+    return;
+  const ids = new Set;
+  for (const entry of rules) {
+    const rule = object5(entry);
+    if (rule?.type !== "required_status_checks")
+      continue;
+    const checks = object5(rule.parameters)?.required_status_checks;
+    if (!Array.isArray(checks))
+      continue;
+    for (const entry of checks) {
+      const check = object5(entry);
+      const id = check?.integration_id;
+      if (check?.context === "review" && typeof id === "number" && Number.isSafeInteger(id) && id > 0)
+        ids.add(id);
+    }
+  }
+  return ids.size === 1 ? ids.values().next().value : undefined;
+}
+
 // plugins/omp-build/adapters/github-workflow/uw-delivery-candidates.ts
 function actionFailure(code, message) {
   return { ok: false, diagnostics: [{ code, message }] };
@@ -27058,12 +27075,31 @@ async function collectCandidate(candidate, uw, options, loaded, kept) {
     kept.push(home);
   return { ok: true, value: true };
 }
+async function readMergedReview(repository, base, head, options) {
+  try {
+    const api = (endpoint) => gh(options)(options.cwd, ["api", `repos/${repository}/${endpoint}`]);
+    const integration = pinnedReviewApp(JSON.parse(await api(`rules/branches/${encodeURIComponent(base)}`)));
+    if (integration === undefined)
+      return;
+    const raw = await api(`commits/${head}/check-runs?check_name=review&per_page=100`);
+    const response = object5(JSON.parse(raw));
+    if (!Array.isArray(response?.check_runs) || response.total_count !== response.check_runs.length)
+      return;
+    for (const entry of response.check_runs) {
+      const check = object5(entry);
+      if (check?.name === "review" && check.head_sha === head && object5(check.app)?.id === integration && check.status === "completed" && check.conclusion === "success" && typeof check.id === "number" && Number.isSafeInteger(check.id) && check.id > 0)
+        return { id: check.id, head };
+    }
+  } catch {}
+  return;
+}
 async function readCandidateNative(candidate, options) {
   try {
     const number = Number(candidate.scope.target.slice(candidate.scope.target.lastIndexOf("#") + 1));
     const native = await readNativePullRequestFacts(candidate.scope.repository, number, options);
     if (native.branch !== candidate.branch || native.base !== candidate.base)
       return actionFailure("incomplete", `${candidate.scope.target} changed during delivery observation`);
+    const reviewCheck = native.state === "MERGED" ? await readMergedReview(candidate.scope.repository, native.base, native.head, options) : undefined;
     return {
       ok: true,
       value: {
@@ -27073,7 +27109,8 @@ async function readCandidateNative(candidate, options) {
         head: native.head,
         baseTip: native.baseTip,
         state: native.state,
-        mergeCommit: native.mergeCommit
+        mergeCommit: native.mergeCommit,
+        ...reviewCheck === undefined ? {} : { reviewCheck }
       }
     };
   } catch (error) {
@@ -28875,6 +28912,33 @@ function assessLeaf(observation, uw, accepted, effective, index) {
   if (!bound.ok)
     return bound;
   const { native, binding } = bound.value;
+  const expected = recordRef(binding.binding);
+  const authenticated = authenticatedDeliveryRecord(observation, expected);
+  if (!authenticated.ok)
+    return authenticated;
+  const facts = deliveryFactsFor(observation.delivery, uw);
+  if (facts === null)
+    return deliveryFailure(uw, "delivery-facts-ambiguous", "No unique complete binding-scoped delivery fact set");
+  const historical = assessStructuredLeaf(observation, uw, effective, native, binding, facts, index);
+  if (historical.ok || native.reviewCheck?.head !== native.head)
+    return historical;
+  const base = facts.commits.find((commit) => commit.code.repository === uw.repository && commit.code.commit === native.mergeCommit)?.parents[0];
+  if (base === undefined)
+    return historical;
+  const code = { repository: uw.repository, base, head: native.head, referenceCommit: base };
+  if (!actualMergedLineage(facts, native, code, index))
+    return historical;
+  return {
+    ok: true,
+    value: {
+      code,
+      sources: [expected, binding.mandate],
+      authority: [expected],
+      reviewCheck: native.reviewCheck
+    }
+  };
+}
+function assessStructuredLeaf(observation, uw, effective, native, binding, facts, index) {
   const selected = selectDeliveryReview(observation, uw, native.pullRequest, effective, "pull-request");
   if (!selected.ok)
     return selected;
@@ -28882,12 +28946,6 @@ function assessLeaf(observation, uw, accepted, effective, index) {
   const expected = recordRef(binding.binding);
   if (subject.kind !== "uw" || subject.pullRequest === null || !equalScope(subject.pullRequest, native.pullRequest) || subject.binding === null || !sameRef2(subject.binding.record, expected) || subject.binding.selector !== "/payload" || subject.binding.digest !== canonicalValueDigest(binding.binding.payload))
     return deliveryFailure(uw, "delivery-binding-mismatch", "Final review does not use the current actual PR binding");
-  const authenticated = authenticatedDeliveryRecord(observation, expected);
-  if (!authenticated.ok)
-    return authenticated;
-  const facts = deliveryFactsFor(observation.delivery, uw);
-  if (facts === null)
-    return deliveryFailure(uw, "delivery-facts-ambiguous", "No unique complete binding-scoped delivery fact set");
   const code = selected.value.inputs.manifest.code;
   if (!actualMergedLineage(facts, native, code, index))
     return deliveryFailure(uw, "delivery-not-merged", "Actual bound merge identity and observed commit parents do not prove this reviewed delivery");
@@ -30882,7 +30940,8 @@ function finishProof(context, basis, spec, effective, completedChildren) {
     spec: spec.ref,
     versionVector: effective.versionVector,
     code: proof.value.code,
-    sources: proof.value.sources
+    sources: proof.value.sources,
+    ...proof.value.reviewCheck === undefined ? {} : { reviewCheck: proof.value.reviewCheck }
   };
   completions.set(key, completion);
   context.deliveryAuthorities.set(key, proof.value.authority);
@@ -31894,614 +31953,6 @@ function historicalChildCandidates(mandates, prior, histories, assessmentReplay)
   }
   return candidates;
 }
-
-// plugins/omp-build/engine/workflow-assessment-completion.ts
-function assessSpecCompletion(evidence, facts, mandate) {
-  if (facts === null || mandate === null || facts.currentSpec === null || facts.identityAllocations === null) {
-    return { status: "not-started", evidence: [] };
-  }
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories);
-  if (!accepted.ok)
-    return { status: "uncertain", evidence: accepted.evidence };
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const childOwnSources = capturedChildOwnSources({
-    ref: accepted.spec.ref,
-    snapshot: accepted.spec.snapshot,
-    tier: accepted.spec.tier,
-    children: accepted.spec.children,
-    inheritedOwnSpecRefs: accepted.spec.inheritedOwnSpecRefs,
-    coverage: accepted.spec.coverage
-  }, facts.currentSpec, evidence.causal.histories, []);
-  if (childOwnSources === null)
-    return {
-      status: "uncertain",
-      evidence: [diagnostic2("incomplete", "Current child own authorities cannot be captured")]
-    };
-  const exactInputs = {
-    format: "omp-build-spec-assessment/3",
-    accepted: {
-      ref: accepted.spec.ref,
-      snapshot: accepted.spec.snapshot,
-      tier: accepted.spec.tier,
-      children: accepted.spec.children,
-      inheritedOwnSpecRefs: accepted.spec.inheritedOwnSpecRefs,
-      coverage: accepted.spec.coverage
-    },
-    proposed: facts.currentSpec,
-    childOwnSources: childOwnSources.childOwnSources,
-    attachedChildren: [],
-    attachedWayfinders: [],
-    identityAllocations: facts.identityAllocations,
-    mechanical: mechanicalSpecDelta({
-      snapshot: accepted.spec.snapshot,
-      tier: accepted.spec.tier,
-      children: accepted.spec.children,
-      inheritedOwnSpecRefs: accepted.spec.inheritedOwnSpecRefs,
-      coverage: accepted.spec.coverage
-    }, facts.currentSpec)
-  };
-  const gate = interruptionGate(classifyAttempts({
-    histories: [evidence.issue, ...evidence.causal.histories],
-    scan: [evidence.issue],
-    actions: ["assess-spec"],
-    select: (record) => isMatchingAssessment(record, mandateRef, exactInputs)
-  }));
-  if (gate.kind === "stop")
-    return gate.completion;
-  const receipts = recordsOf(evidence.issue).filter((record) => isMatchingAssessment(record, mandateRef, exactInputs) && record.kind === "action-receipt" && !excludedReceipt(record, gate.excluded));
-  const negativeIds = new Set(receipts.filter(workflowContextNegative).map((record) => record.payload.actionId));
-  const starts = receipts.filter((record) => record.payload.phase === "start" && !negativeIds.has(record.payload.actionId));
-  const results = receipts.filter((record) => isAssessResult(record) && !negativeIds.has(record.payload.actionId));
-  if (starts.length === 0 && results.length === 0)
-    return { status: "not-started", evidence: [] };
-  if (starts.length !== 1 || results.length !== 1) {
-    return {
-      status: "uncertain",
-      evidence: [diagnostic2("unconfirmed", "Current spec assessment is not uniquely paired")]
-    };
-  }
-  const result = results[0];
-  if (result === undefined) {
-    return { status: "uncertain", evidence: [diagnostic2("unconfirmed", "Current spec assessment is missing")] };
-  }
-  const authenticated = authenticatedAssessResult(result, evidence.causal.histories, mandateRef);
-  return authenticated.ok ? { status: "confirmed", evidence: [] } : { status: "uncertain", evidence: authenticated.evidence };
-}
-function isMatchingAssessment(record, mandateRef, exactInputs) {
-  if (record.kind !== "action-receipt" || record.payload.action !== "assess-spec" || !sameRef2(record.payload.mandate, mandateRef))
-    return false;
-  const inputs = record.payload.exactInputs;
-  return inputs.format === exactInputs.format && sameAssessedState(inputs.accepted, exactInputs.accepted) && sameCurrentAssessedState(inputs.proposed, exactInputs.proposed) && JSON.stringify(inputs.attachedChildren) === JSON.stringify(exactInputs.attachedChildren) && JSON.stringify(inputs.attachedWayfinders) === JSON.stringify(exactInputs.attachedWayfinders) && JSON.stringify(inputs.childOwnSources) === JSON.stringify(exactInputs.childOwnSources) && JSON.stringify(inputs.identityAllocations) === JSON.stringify(exactInputs.identityAllocations) && JSON.stringify(inputs.mechanical) === JSON.stringify(exactInputs.mechanical);
-}
-
-// plugins/omp-build/engine/workflow-plan-review-selection.ts
-function reviewContextProblem(history, mandate, empty, excluded, contextLeaf) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  for (const action of ["plan", "plan-review"]) {
-    const terminal = workflowContextTerminal(history, action, mandateRef, contextLeaf, excluded);
-    if (terminal === "missing")
-      return empty("blocked", [diagnostic2("action-context-missing", `${action} requires expanded context`)]);
-    if (terminal === "uncertain")
-      return empty("uncertain", [diagnostic2("action-uncertain", `${action} context result is not authenticated`)]);
-    if (terminal === "ambiguous")
-      return empty("blocked", [diagnostic2("ambiguous", `${action} context result has competing successors`)]);
-  }
-  return null;
-}
-function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
-  const history = evidence.issue;
-  const gate = interruptionGate(ownAttempts(classifyAttempts({
-    histories: [history, ...evidence.causal.histories],
-    scan: [history],
-    actions: ["plan", "plan-review"]
-  }), mandate));
-  if (gate.kind === "stop")
-    return { macro: empty(gate.completion.status === "uncertain" ? "uncertain" : "blocked", gate.completion.evidence) };
-  const excluded = gate.excluded;
-  const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf);
-  if (problem !== null)
-    return { macro: problem };
-  if (unsettledStart(history, "plan", mandate, planResults(history, excluded), excluded))
-    return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan start has no result")]) };
-  if (unsettledStart(history, "plan-review", mandate, planReviews(history, excluded), excluded))
-    return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan review start has no result")]) };
-  const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
-  const drafts = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null), "current plan draft");
-  if (!drafts.ok)
-    return { macro: empty("blocked", drafts.diagnostics) };
-  const latest = drafts.value;
-  if (latest === null) {
-    return { macro: empty("needs-draft", [diagnostic2("needs-draft", "no plan result is bound to the mandate spec")]) };
-  }
-  const parsedPlan = planOutputSchema.safeParse(latest.payload.structured);
-  if (!parsedPlan.success)
-    return { macro: empty("blocked", [diagnostic2("malformed", "plan result is not a plan")]) };
-  const coverage = assessPlanCoverage({ spec: accepted, plan: parsedPlan.data });
-  if (!coverage.ok)
-    return { macro: empty("blocked", coverage.diagnostics) };
-  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data), excluded);
-  if (!review.ok)
-    return { macro: empty("blocked", review.diagnostics) };
-  if (review.value === null) {
-    return {
-      macro: empty("needs-review", [diagnostic2("needs-review", "plan has no matching review")], {
-        draftActionId: latest.payload.actionId
-      })
-    };
-  }
-  return { latest, review: review.value, results, accepted };
-}
-function planResults(history, excluded) {
-  return receiptsFor(history, "plan", "result", excluded).filter((record) => record.payload.action === "plan" && record.payload.phase === "result" && nativeResultValid(record));
-}
-function planReviews(history, excluded) {
-  return receiptsFor(history, "plan-review", "result", excluded).filter((record) => record.payload.action === "plan-review" && record.payload.phase === "result" && nativeResultValid(record));
-}
-function receiptsFor(history, action, phase, excluded) {
-  return recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && record.payload.phase === phase && !excludedReceipt(record, excluded));
-}
-function unsettledStart(history, action, mandate, valid, excluded) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const results = receiptsFor(history, action, "result", excluded);
-  return receiptsFor(history, action, "start", excluded).some((start) => {
-    if ("scope" in start.payload.mandate && sameRef2(start.payload.mandate, mandateRef))
-      return !valid.some((result) => result.payload.actionId === start.payload.actionId);
-    return !results.some((result) => result.payload.actionId === start.payload.actionId && authenticateWorkflowReceiptPair(history, result, { native: "unchecked" }).ok);
-  });
-}
-function planMatchesMandate(record, mandate, own, effective, histories) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const manifest = record.payload.inputs.manifest;
-  return sameRef2(record.payload.mandate, mandateRef) && record.payload.exactInputs.specDigest === effective.own.version && manifest.spec.kind === "accepted" && canonicalValueDigest(manifest.spec.effective) === canonicalValueDigest(effective) && capturedAssessmentSourcesMatch({ childOwnSources: [], sourceRefs: own.sourceRefs }, manifest.acceptedSources, histories);
-}
-function matchingReview(history, mandate, latest, digest, excluded) {
-  return uniqueAccounted(planReviews(history, excluded).filter((record) => !record.payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null) && record.payload.exactInputs.planDigest === digest && record.payload.exactInputs.mandateId === mandate.recordId && record.payload.exactInputs.draftActionId === latest.payload.actionId), "plan review");
-}
-
-// plugins/omp-build/engine/workflow-plan-macro.ts
-function planMacro(evidence, mandate, options) {
-  const empty = emptyMacro(mandate, null);
-  if (mandate === null)
-    return empty("blocked", [diagnostic2("mandate-absent", "plan macro has no mandate")]);
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories, options?.assessmentReplay);
-  if (!accepted.ok)
-    return empty("blocked", accepted.evidence);
-  const effective = resolveSpecEffective({
-    mode: "current",
-    own: accepted.spec.ref,
-    histories: evidence.causal.histories,
-    graph: evidence.causal.observation.graph
-  });
-  if (!effective.ok)
-    return empty("blocked", toDiagnostics(effective.diagnostics));
-  const acceptedEmpty = emptyMacro(mandate, effective.value.own.version);
-  const reviewContext = prepareReview(evidence, mandate, accepted.spec, effective.value, acceptedEmpty, options?.contextLeaf);
-  if ("macro" in reviewContext)
-    return reviewContext.macro;
-  return evaluateReview(reviewContext, acceptedEmpty);
-}
-function emptyMacro(mandate, specDigest) {
-  return (phase, evidence, extra = {}) => ({
-    phase,
-    mandateId: mandate?.recordId ?? null,
-    specDigest,
-    draftActionId: null,
-    reviewActionId: null,
-    amendmentActionId: null,
-    blockers: [],
-    evidence,
-    ...extra
-  });
-}
-function evaluateReview(context, empty) {
-  const { latest, review, results } = context;
-  const identity = { draftActionId: latest.payload.actionId, reviewActionId: review.payload.actionId };
-  const judgment = assessBoundPlanReview(review, context.accepted);
-  if (!judgment.ok)
-    return empty("blocked", judgment.diagnostics, identity);
-  const refs = { refs: judgment.value.blockers };
-  if (judgment.value.clear)
-    return empty("eligible", [], identity);
-  const amendments = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === review.payload.actionId), "plan amendment");
-  if (!amendments.ok)
-    return empty("blocked", amendments.diagnostics, identity);
-  const amendment = amendments.value;
-  if (amendment === null) {
-    return empty("needs-amendment", [diagnostic2("needs-amendment", "blocking review has no amendment")], {
-      ...identity,
-      blockers: refs.refs
-    });
-  }
-  const valid = assessBoundPlanAmendment(amendment, context.accepted, refs.refs);
-  if (!valid.ok)
-    return empty("blocked", valid.diagnostics, {
-      amendmentActionId: amendment.payload.actionId,
-      blockers: refs.refs
-    });
-  return empty("eligible", [], { ...identity, amendmentActionId: amendment.payload.actionId, blockers: refs.refs });
-}
-function reviewSlotStatus(review) {
-  const declaredSlots = new Set(review.payload.slots.map((slot) => slot.slotId));
-  const coveredSlots = new Set;
-  for (const contribution of review.payload.contributions) {
-    const parsed = planReviewSchema.safeParse(contribution.structured);
-    if (!parsed.success || contribution.host.slotId === null || !declaredSlots.has(contribution.host.slotId))
-      return "invalid";
-    coveredSlots.add(contribution.host.slotId);
-  }
-  return [...declaredSlots].some((slotId) => !coveredSlots.has(slotId)) ? "missing" : "valid";
-}
-function reviewBlockerRefs(review, acceptedIds) {
-  const refs = [];
-  for (const contribution of review.payload.contributions) {
-    const parsed = planReviewSchema.safeParse(contribution.structured);
-    if (!parsed.success)
-      return { ok: false, evidence: [diagnostic2("ambiguous", "specialist plan review is not a unique review")] };
-    if (parsed.data.outcome !== "blocking")
-      continue;
-    if (contribution.host.slotId === null)
-      return { ok: false, evidence: [diagnostic2("malformed", "blocking review has no slot")] };
-    for (const blocker of parsed.data.blockers) {
-      if (!acceptedIds.has(blocker.criterionId)) {
-        return {
-          ok: false,
-          evidence: [diagnostic2("unknown-reference", `Plan blocker cites unknown criterion ${blocker.criterionId}`)]
-        };
-      }
-      refs.push({
-        sourceId: contribution.host.childId ?? contribution.host.slotId,
-        slotId: contribution.host.slotId,
-        blockerId: blocker.id
-      });
-    }
-  }
-  return { ok: true, refs };
-}
-function sameBlockerSet(left, right) {
-  return left.length === right.length && left.every((item) => right.some((other) => item.sourceId === other.sourceId && item.slotId === other.slotId && item.blockerId === other.blockerId));
-}
-function assessBoundPlanReview(review, accepted) {
-  const specialists = new Set(review.payload.slots.map((slot) => slot.specialist));
-  if (PLAN_REVIEW_SPECIALISTS.some((name) => !specialists.has(name)))
-    return {
-      ok: false,
-      diagnostics: [diagnostic2("missing-contribution", "plan review does not declare both specialists")]
-    };
-  const status = reviewSlotStatus(review);
-  if (status !== "valid")
-    return {
-      ok: false,
-      diagnostics: [
-        diagnostic2("missing-contribution", status === "missing" ? "plan review slot has no review" : "plan review contribution is not a review")
-      ]
-    };
-  const refs = reviewBlockerRefs(review, new Set(accepted.spec.criteria.map((item) => item.id)));
-  if (!refs.ok)
-    return { ok: false, diagnostics: refs.evidence };
-  const clear = review.payload.contributions.length > 0 && review.payload.contributions.every((contribution) => {
-    const parsed = planReviewSchema.safeParse(contribution.structured);
-    return parsed.success && parsed.data.outcome === "clear";
-  });
-  return { ok: true, value: { clear, blockers: refs.refs } };
-}
-function assessBoundPlanAmendment(amendment, accepted, blockers) {
-  const parsed = planOutputSchema.safeParse(amendment.payload.structured);
-  if (!parsed.success)
-    return { ok: false, diagnostics: [diagnostic2("malformed", "amendment is not a plan")] };
-  if (!sameBlockerSet(amendment.payload.exactInputs.requiredBlockers, blockers) || !sameBlockerSet(parsed.data.resolutions.map((resolution) => resolution.blocker), blockers))
-    return {
-      ok: false,
-      diagnostics: [diagnostic2("missing-contribution", "amendment resolutions do not cover the review refs")]
-    };
-  const coverage = assessPlanCoverage({ spec: accepted, plan: parsed.data });
-  return coverage.ok ? { ok: true, value: parsed.data } : coverage;
-}
-
-// plugins/omp-build/engine/workflow-implementation-completion.ts
-function implementationReceipts(history, action) {
-  return recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action);
-}
-function unpairedStart(receipts) {
-  const starts = receipts.filter((record) => record.payload.phase === "start");
-  const results = receipts.filter((record) => record.payload.phase === "result");
-  return starts.some((start) => !results.some((result) => result.payload.actionId === start.payload.actionId));
-}
-function isUnadmittedImplementation(record) {
-  if (record.payload.phase !== "result" || record.payload.admission?.admitted !== true)
-    return true;
-  if (record.payload.action === "integrate")
-    return !integrationOutputSchema.safeParse(record.payload.structured).success;
-  const parsed = implementationOutputSchema.safeParse(record.payload.structured);
-  return !parsed.success || parsed.data.outcome !== "implemented";
-}
-function sameMandate(record, mandateRef, mandateId) {
-  return sameRef2(record.payload.mandate, mandateRef) && record.payload.exactInputs.mandateId === mandateId;
-}
-function implementationForPlan(receipts, mandate, planActionId) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  return receipts.filter((record) => sameMandate(record, mandateRef, mandate.recordId) && record.payload.exactInputs.planActionId === planActionId);
-}
-function macroBlocked(evidence, mandate) {
-  const macro = planMacro(evidence, mandate);
-  if (macro.phase === "blocked")
-    return { status: "blocked", evidence: macro.evidence };
-  if (macro.phase === "uncertain")
-    return { status: "uncertain", evidence: macro.evidence };
-  if (macro.phase !== "eligible")
-    return { status: "not-started", evidence: [] };
-  return null;
-}
-function hasRejectedResult(receipts, mandate, history) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  return receipts.some((record) => record.payload.phase === "result" && isUnadmittedImplementation(record) && (sameRef2(record.payload.mandate, mandateRef) || !authenticateWorkflowReceiptPair(history, record, { native: "unchecked" }).ok));
-}
-function coveredImplementation(latestRecord, mandate, spec) {
-  const latest = latestRecord.payload.action === "integrate" ? integrationOutputSchema.safeParse(latestRecord.payload.structured) : implementationOutputSchema.safeParse(latestRecord.payload.structured);
-  if (!latest.success || latest.data.outcome !== "implemented" && latest.data.outcome !== "integrated") {
-    return { status: "blocked", evidence: [diagnostic2("unconfirmed", "implement result was not admitted")] };
-  }
-  const commit = latestRecord.payload.admission?.remoteTip;
-  if (commit == null) {
-    return { status: "blocked", evidence: [diagnostic2("unconfirmed", "implement result has no admitted remote tip")] };
-  }
-  const covered = assessCriterionDeclarations({
-    spec,
-    code: { repository: mandate.repository, commit },
-    declarations: latest.data.criteria
-  });
-  if (!covered.ok)
-    return { status: "blocked", evidence: covered.diagnostics };
-  return { status: "confirmed", evidence: [] };
-}
-function admittedResult(mandate, receipts, planActionId, spec, history) {
-  const selectedReceipts = implementationForPlan(receipts, mandate, planActionId);
-  const starts = selectedReceipts.filter((record) => record.payload.phase === "start");
-  const results = selectedReceipts.filter((record) => record.payload.phase === "result");
-  if (starts.length === 0 && results.length === 0)
-    return { status: "not-started", evidence: [] };
-  const implemented = results.filter((record) => !isUnadmittedImplementation(record) && record.payload.admission?.remoteTip != null);
-  const paired = implemented.filter((result) => result.payload.action !== "integrate" || integrationReceiptEligible(result) && integrationStartPaired(history, result));
-  const selected = uniqueAccounted(paired, "current implementation");
-  if (!selected.ok)
-    return { status: "blocked", evidence: selected.diagnostics };
-  if (selected.value === null) {
-    return { status: "blocked", evidence: [diagnostic2("unconfirmed", "implement result was not admitted")] };
-  }
-  return coveredImplementation(selected.value, mandate, spec);
-}
-function mandatedCompletion(evidence, mandate, receipts) {
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories);
-  if (!accepted.ok)
-    return { status: "blocked", evidence: accepted.evidence };
-  const effective = resolveSpecEffective({
-    mode: "current",
-    own: accepted.spec.ref,
-    histories: evidence.causal.histories,
-    graph: evidence.causal.observation.graph
-  });
-  if (!effective.ok)
-    return { status: "blocked", evidence: toDiagnostics(effective.diagnostics) };
-  const blocked = macroBlocked(evidence, mandate);
-  if (blocked !== null) {
-    if (blocked.status === "not-started" && hasRejectedResult(receipts, mandate, evidence.issue)) {
-      return { status: "blocked", evidence: [diagnostic2("unconfirmed", "implement result was not admitted")] };
-    }
-    return blocked;
-  }
-  const macro = planMacro(evidence, mandate);
-  const planActionId = macro.amendmentActionId ?? macro.draftActionId;
-  if (planActionId === null)
-    return { status: "not-started", evidence: [] };
-  return admittedResult(mandate, receipts, planActionId, effective.value, evidence.issue);
-}
-function implementationCompletion(evidence, mandate) {
-  const accepted = mandate === null ? null : resolveAcceptedSpec(mandate, evidence.causal.histories);
-  if (accepted !== null && !accepted.ok)
-    return { status: "blocked", evidence: accepted.evidence };
-  const action = accepted?.ok && accepted.spec.children.length > 0 ? "integrate" : "implement";
-  const histories = [evidence.issue, ...evidence.causal.histories];
-  const classified = classifyAttempts({ histories, scan: [evidence.issue], actions: [action] });
-  if (!classified.ok)
-    return { status: "blocked", evidence: classified.diagnostics };
-  const excluded = classified.value.excluded;
-  const receipts = implementationReceipts(evidence.issue, action).filter((record) => !excludedReceipt(record, excluded));
-  const gate = interruptionGate(ownAttempts(classified, mandate));
-  if (gate.kind === "stop")
-    return gate.completion;
-  const mandateRef = receiptMandate(mandate);
-  const terminal = workflowContextTerminal(evidence.issue, action, mandateRef, undefined, excluded);
-  if (terminal === "missing")
-    return {
-      status: "blocked",
-      evidence: [diagnostic2("action-context-missing", "implement requires expanded context")]
-    };
-  if (terminal === "uncertain")
-    return {
-      status: "uncertain",
-      evidence: [diagnostic2("action-uncertain", "implement context result is not authenticated")]
-    };
-  if (terminal === "ambiguous")
-    return {
-      status: "blocked",
-      evidence: [diagnostic2("ambiguous", "implement context result has competing successors")]
-    };
-  if (unpairedStart(receipts)) {
-    return { status: "uncertain", evidence: [diagnostic2("action-uncertain", "implement start has no result")] };
-  }
-  if (mandate === null)
-    return macroBlocked(evidence, mandate) ?? { status: "not-started", evidence: [] };
-  return mandatedCompletion(evidence, mandate, receipts);
-}
-
-// plugins/omp-build/engine/workflow-action-completion.ts
-function actionCompletion(action, evidence, decisions, mandate, facts = null) {
-  const context = contextCompletion(action, evidence, mandate);
-  if (context !== null)
-    return context;
-  switch (action) {
-    case "plan":
-      return planCompletion(evidence, mandate);
-    case "implement":
-      return implementationCompletion(evidence, mandate);
-    case "assess-spec":
-      return assessSpecCompletion(evidence, facts, mandate);
-    case "attribute-ci":
-      return ciAttributionCompletion(evidence, facts, mandate);
-    case "publish":
-      return selectedCompletion(decisions.publish);
-    case "land":
-      return selectedCompletion(decisions.landing);
-    case "watch":
-      return selectedCompletion(decisions.watch);
-    default:
-      return receiptCompletion(evidence.issue, action);
-  }
-}
-function contextCompletion(action, evidence, mandate) {
-  if (action !== "frame" && action !== "assess-spec" && action !== "attribute-ci")
-    return null;
-  const histories = [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest]];
-  const classified = action === "frame" ? null : classifyAttempts({
-    histories: [...histories, ...evidence.causal.histories],
-    scan: histories,
-    actions: [action]
-  });
-  if (classified !== null && !classified.ok)
-    return { status: "blocked", evidence: classified.diagnostics };
-  const mandateRef = receiptMandate(mandate);
-  for (const history of histories) {
-    const terminal = workflowContextTerminal(history, action, mandateRef, undefined, classified?.value.excluded);
-    if (terminal !== "clear" && classified !== null) {
-      const gate = interruptionGate(ownAttempts(classified, mandate));
-      if (gate.kind === "stop")
-        return gate.completion;
-    }
-    const decision = contextTerminalDecision(action, terminal);
-    if (decision !== null)
-      return decision;
-  }
-  return null;
-}
-function contextTerminalDecision(action, terminal) {
-  if (terminal === "missing")
-    return {
-      status: "blocked",
-      evidence: [diagnostic2("action-context-missing", `${action} requires expanded context`)]
-    };
-  if (terminal === "uncertain")
-    return {
-      status: "uncertain",
-      evidence: [diagnostic2("action-uncertain", `${action} context result is not authenticated`)]
-    };
-  if (terminal === "ambiguous")
-    return {
-      status: "blocked",
-      evidence: [diagnostic2("ambiguous", `${action} context result has competing successors`)]
-    };
-  return null;
-}
-function boundCiAttribution(histories, facts, mandate) {
-  const digest = facts.evidenceDigest;
-  if (mandate === null || facts.pullRequest === null || facts.candidateGitSHA === null || digest == null || !/^[0-9a-f]{64}$/.test(digest)) {
-    return { change: false, refused: false };
-  }
-  const classified = classifyAttempts({ histories, scan: histories, actions: ["attribute-ci"] });
-  if (!classified.ok)
-    return { change: false, refused: false };
-  let change = false;
-  let refused = false;
-  for (const record of histories.flatMap(recordsOf)) {
-    if (record.kind === "action-receipt" && excludedReceipt(record, classified.value.excluded))
-      continue;
-    const attribution = ciAttribution(record, facts, mandate, digest);
-    if (attribution === "change")
-      change = true;
-    if (attribution === "refused")
-      refused = true;
-  }
-  return { change, refused };
-}
-function planCompletion(evidence, mandate) {
-  const macro = planMacro(evidence, mandate);
-  if (macro.phase === "eligible")
-    return { status: "confirmed", evidence: macro.evidence };
-  if (macro.phase === "blocked")
-    return { status: "blocked", evidence: macro.evidence };
-  if (macro.phase === "uncertain")
-    return { status: "uncertain", evidence: macro.evidence };
-  return { status: "not-started", evidence: macro.evidence };
-}
-function selectedCompletion(selector) {
-  if (selector.status === "published" || selector.status === "not-applicable") {
-    return { status: "confirmed", evidence: selector.evidence };
-  }
-  if (selector.status === "uncertain")
-    return { status: "uncertain", evidence: selector.evidence };
-  if (selector.status === "failed")
-    return { status: "blocked", evidence: selector.evidence };
-  return { status: "not-started", evidence: selector.evidence };
-}
-function receiptCompletion(history, action) {
-  const progress = receiptProgress(history, action);
-  if (progress === "uncertain") {
-    return { status: "uncertain", evidence: [diagnostic2("action-uncertain", `${action} started without a result`)] };
-  }
-  return { status: progress === "confirmed" ? "confirmed" : "not-started", evidence: [] };
-}
-function receiptProgress(history, action) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action);
-  const starts = receipts.filter((record) => record.payload.phase === "start");
-  const results = receipts.filter((record) => record.payload.phase === "result");
-  if (starts.length === 0 && results.length === 0)
-    return "not-started";
-  if (starts.some((start) => !results.some((result) => result.payload.actionId === start.payload.actionId)))
-    return "uncertain";
-  return results.length > 0 ? "confirmed" : "uncertain";
-}
-function ciAttributionCompletion(evidence, facts, mandate) {
-  const histories = [evidence.issue, ...evidence.pullRequest === null ? [] : [evidence.pullRequest]];
-  const gate = interruptionGate(ownAttempts(classifyAttempts({
-    histories: [...histories, ...evidence.causal.histories],
-    scan: histories,
-    actions: ["attribute-ci"]
-  }), mandate));
-  if (gate.kind === "stop")
-    return gate.completion;
-  const receipts = histories.flatMap((history) => recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === "attribute-ci" && !excludedReceipt(record, gate.excluded)));
-  const starts = receipts.filter((record) => record.payload.phase === "start");
-  const results = receipts.filter((record) => record.payload.phase === "result");
-  if (starts.some((start) => !results.some((result) => result.payload.actionId === start.payload.actionId))) {
-    return { status: "uncertain", evidence: [diagnostic2("action-uncertain", "CI attribution start has no result")] };
-  }
-  if (facts === null || mandate === null || facts.pullRequest === null || facts.candidateGitSHA === null || facts.evidenceDigest == null) {
-    return { status: "not-started", evidence: [] };
-  }
-  for (const record of results) {
-    const payload = record.payload;
-    if (payload.phase === "result" && payload.action === "attribute-ci" && payload.structured === null && payload.diagnostics.some(({ code }) => code === "attribute-ci-output-invalid" || code === "action-uncertain") && ciInputsMatch(payload, facts, mandate, facts.evidenceDigest))
-      return { status: "blocked", evidence: payload.diagnostics };
-  }
-  const bound = boundCiAttribution(histories, facts, mandate);
-  return bound.change || bound.refused ? { status: "confirmed", evidence: [] } : { status: "not-started", evidence: [] };
-}
-function ciAttribution(record, facts, mandate, digest) {
-  if (record.kind !== "action-receipt" || record.payload.action !== "attribute-ci" || record.payload.phase !== "result")
-    return null;
-  if (!ciInputsMatch(record.payload, facts, mandate, digest))
-    return null;
-  const parsed = ciAttributionSchema.safeParse(record.payload.structured);
-  if (!parsed.success)
-    return null;
-  return parsed.data.attribution === "change" ? "change" : "refused";
-}
-function ciInputsMatch(payload, facts, mandate, digest) {
-  if (payload.mandate.recordId !== mandate.recordId || payload.mandate.kind !== "mandate")
-    return false;
-  if (!equalScope(payload.mandate.scope, mandateScope(mandate)))
-    return false;
-  const inputs = payload.exactInputs;
-  return inputs.candidateGitSHA === facts.candidateGitSHA && facts.pullRequest !== null && equalScope(inputs.scope, facts.pullRequest.scope) && inputs.evidenceDigest === digest && failedCheckEvidenceDigest(inputs) === digest;
-}
 // plugins/omp-build/engine/workflow-bound-work-resolution.ts
 function configIdentityOf(mandate) {
   const effective = mandate.payload.config.effective;
@@ -32913,6 +32364,229 @@ function inspectPlanSpecialists(item, payload, draft, histories, replay) {
   if (!actions.ok)
     return actions;
   return inspectContributions(payload);
+}
+
+// plugins/omp-build/engine/workflow-plan-review-selection.ts
+function reviewContextProblem(history, mandate, empty, excluded, contextLeaf) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  for (const action of ["plan", "plan-review"]) {
+    const terminal = workflowContextTerminal(history, action, mandateRef, contextLeaf, excluded);
+    if (terminal === "missing")
+      return empty("blocked", [diagnostic2("action-context-missing", `${action} requires expanded context`)]);
+    if (terminal === "uncertain")
+      return empty("uncertain", [diagnostic2("action-uncertain", `${action} context result is not authenticated`)]);
+    if (terminal === "ambiguous")
+      return empty("blocked", [diagnostic2("ambiguous", `${action} context result has competing successors`)]);
+  }
+  return null;
+}
+function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
+  const history = evidence.issue;
+  const gate = interruptionGate(ownAttempts(classifyAttempts({
+    histories: [history, ...evidence.causal.histories],
+    scan: [history],
+    actions: ["plan", "plan-review"]
+  }), mandate));
+  if (gate.kind === "stop")
+    return { macro: empty(gate.completion.status === "uncertain" ? "uncertain" : "blocked", gate.completion.evidence) };
+  const excluded = gate.excluded;
+  const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf);
+  if (problem !== null)
+    return { macro: problem };
+  if (unsettledStart(history, "plan", mandate, planResults(history, excluded), excluded))
+    return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan start has no result")]) };
+  if (unsettledStart(history, "plan-review", mandate, planReviews(history, excluded), excluded))
+    return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan review start has no result")]) };
+  const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
+  const drafts = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null), "current plan draft");
+  if (!drafts.ok)
+    return { macro: empty("blocked", drafts.diagnostics) };
+  const latest = drafts.value;
+  if (latest === null) {
+    return { macro: empty("needs-draft", [diagnostic2("needs-draft", "no plan result is bound to the mandate spec")]) };
+  }
+  const parsedPlan = planOutputSchema.safeParse(latest.payload.structured);
+  if (!parsedPlan.success)
+    return { macro: empty("blocked", [diagnostic2("malformed", "plan result is not a plan")]) };
+  const coverage = assessPlanCoverage({ spec: accepted, plan: parsedPlan.data });
+  if (!coverage.ok)
+    return { macro: empty("blocked", coverage.diagnostics) };
+  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data), excluded);
+  if (!review.ok)
+    return { macro: empty("blocked", review.diagnostics) };
+  if (review.value === null) {
+    return {
+      macro: empty("needs-review", [diagnostic2("needs-review", "plan has no matching review")], {
+        draftActionId: latest.payload.actionId
+      })
+    };
+  }
+  return { latest, review: review.value, results, accepted };
+}
+function planResults(history, excluded) {
+  return receiptsFor(history, "plan", "result", excluded).filter((record) => record.payload.action === "plan" && record.payload.phase === "result" && nativeResultValid(record));
+}
+function planReviews(history, excluded) {
+  return receiptsFor(history, "plan-review", "result", excluded).filter((record) => record.payload.action === "plan-review" && record.payload.phase === "result" && nativeResultValid(record));
+}
+function receiptsFor(history, action, phase, excluded) {
+  return recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && record.payload.phase === phase && !excludedReceipt(record, excluded));
+}
+function unsettledStart(history, action, mandate, valid, excluded) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  const results = receiptsFor(history, action, "result", excluded);
+  return receiptsFor(history, action, "start", excluded).some((start) => {
+    if ("scope" in start.payload.mandate && sameRef2(start.payload.mandate, mandateRef))
+      return !valid.some((result) => result.payload.actionId === start.payload.actionId);
+    return !results.some((result) => result.payload.actionId === start.payload.actionId && authenticateWorkflowReceiptPair(history, result, { native: "unchecked" }).ok);
+  });
+}
+function planMatchesMandate(record, mandate, own, effective, histories) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  const manifest = record.payload.inputs.manifest;
+  return sameRef2(record.payload.mandate, mandateRef) && record.payload.exactInputs.specDigest === effective.own.version && manifest.spec.kind === "accepted" && canonicalValueDigest(manifest.spec.effective) === canonicalValueDigest(effective) && capturedAssessmentSourcesMatch({ childOwnSources: [], sourceRefs: own.sourceRefs }, manifest.acceptedSources, histories);
+}
+function matchingReview(history, mandate, latest, digest, excluded) {
+  return uniqueAccounted(planReviews(history, excluded).filter((record) => !record.payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null) && record.payload.exactInputs.planDigest === digest && record.payload.exactInputs.mandateId === mandate.recordId && record.payload.exactInputs.draftActionId === latest.payload.actionId), "plan review");
+}
+
+// plugins/omp-build/engine/workflow-plan-macro.ts
+function planMacro(evidence, mandate, options) {
+  const empty = emptyMacro(mandate, null);
+  if (mandate === null)
+    return empty("blocked", [diagnostic2("mandate-absent", "plan macro has no mandate")]);
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories, options?.assessmentReplay);
+  if (!accepted.ok)
+    return empty("blocked", accepted.evidence);
+  const effective = resolveSpecEffective({
+    mode: "current",
+    own: accepted.spec.ref,
+    histories: evidence.causal.histories,
+    graph: evidence.causal.observation.graph
+  });
+  if (!effective.ok)
+    return empty("blocked", toDiagnostics(effective.diagnostics));
+  const acceptedEmpty = emptyMacro(mandate, effective.value.own.version);
+  const reviewContext = prepareReview(evidence, mandate, accepted.spec, effective.value, acceptedEmpty, options?.contextLeaf);
+  if ("macro" in reviewContext)
+    return reviewContext.macro;
+  return evaluateReview(reviewContext, acceptedEmpty);
+}
+function emptyMacro(mandate, specDigest) {
+  return (phase, evidence, extra = {}) => ({
+    phase,
+    mandateId: mandate?.recordId ?? null,
+    specDigest,
+    draftActionId: null,
+    reviewActionId: null,
+    amendmentActionId: null,
+    blockers: [],
+    evidence,
+    ...extra
+  });
+}
+function evaluateReview(context, empty) {
+  const { latest, review, results } = context;
+  const identity = { draftActionId: latest.payload.actionId, reviewActionId: review.payload.actionId };
+  const judgment = assessBoundPlanReview(review, context.accepted);
+  if (!judgment.ok)
+    return empty("blocked", judgment.diagnostics, identity);
+  const refs = { refs: judgment.value.blockers };
+  if (judgment.value.clear)
+    return empty("eligible", [], identity);
+  const amendments = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === review.payload.actionId), "plan amendment");
+  if (!amendments.ok)
+    return empty("blocked", amendments.diagnostics, identity);
+  const amendment = amendments.value;
+  if (amendment === null) {
+    return empty("needs-amendment", [diagnostic2("needs-amendment", "blocking review has no amendment")], {
+      ...identity,
+      blockers: refs.refs
+    });
+  }
+  const valid = assessBoundPlanAmendment(amendment, context.accepted, refs.refs);
+  if (!valid.ok)
+    return empty("blocked", valid.diagnostics, {
+      amendmentActionId: amendment.payload.actionId,
+      blockers: refs.refs
+    });
+  return empty("eligible", [], { ...identity, amendmentActionId: amendment.payload.actionId, blockers: refs.refs });
+}
+function reviewSlotStatus(review) {
+  const declaredSlots = new Set(review.payload.slots.map((slot) => slot.slotId));
+  const coveredSlots = new Set;
+  for (const contribution of review.payload.contributions) {
+    const parsed = planReviewSchema.safeParse(contribution.structured);
+    if (!parsed.success || contribution.host.slotId === null || !declaredSlots.has(contribution.host.slotId))
+      return "invalid";
+    coveredSlots.add(contribution.host.slotId);
+  }
+  return [...declaredSlots].some((slotId) => !coveredSlots.has(slotId)) ? "missing" : "valid";
+}
+function reviewBlockerRefs(review, acceptedIds) {
+  const refs = [];
+  for (const contribution of review.payload.contributions) {
+    const parsed = planReviewSchema.safeParse(contribution.structured);
+    if (!parsed.success)
+      return { ok: false, evidence: [diagnostic2("ambiguous", "specialist plan review is not a unique review")] };
+    if (parsed.data.outcome !== "blocking")
+      continue;
+    if (contribution.host.slotId === null)
+      return { ok: false, evidence: [diagnostic2("malformed", "blocking review has no slot")] };
+    for (const blocker of parsed.data.blockers) {
+      if (!acceptedIds.has(blocker.criterionId)) {
+        return {
+          ok: false,
+          evidence: [diagnostic2("unknown-reference", `Plan blocker cites unknown criterion ${blocker.criterionId}`)]
+        };
+      }
+      refs.push({
+        sourceId: contribution.host.childId ?? contribution.host.slotId,
+        slotId: contribution.host.slotId,
+        blockerId: blocker.id
+      });
+    }
+  }
+  return { ok: true, refs };
+}
+function sameBlockerSet(left, right) {
+  return left.length === right.length && left.every((item) => right.some((other) => item.sourceId === other.sourceId && item.slotId === other.slotId && item.blockerId === other.blockerId));
+}
+function assessBoundPlanReview(review, accepted) {
+  const specialists = new Set(review.payload.slots.map((slot) => slot.specialist));
+  if (PLAN_REVIEW_SPECIALISTS.some((name) => !specialists.has(name)))
+    return {
+      ok: false,
+      diagnostics: [diagnostic2("missing-contribution", "plan review does not declare both specialists")]
+    };
+  const status = reviewSlotStatus(review);
+  if (status !== "valid")
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic2("missing-contribution", status === "missing" ? "plan review slot has no review" : "plan review contribution is not a review")
+      ]
+    };
+  const refs = reviewBlockerRefs(review, new Set(accepted.spec.criteria.map((item) => item.id)));
+  if (!refs.ok)
+    return { ok: false, diagnostics: refs.evidence };
+  const clear = review.payload.contributions.length > 0 && review.payload.contributions.every((contribution) => {
+    const parsed = planReviewSchema.safeParse(contribution.structured);
+    return parsed.success && parsed.data.outcome === "clear";
+  });
+  return { ok: true, value: { clear, blockers: refs.refs } };
+}
+function assessBoundPlanAmendment(amendment, accepted, blockers) {
+  const parsed = planOutputSchema.safeParse(amendment.payload.structured);
+  if (!parsed.success)
+    return { ok: false, diagnostics: [diagnostic2("malformed", "amendment is not a plan")] };
+  if (!sameBlockerSet(amendment.payload.exactInputs.requiredBlockers, blockers) || !sameBlockerSet(parsed.data.resolutions.map((resolution) => resolution.blocker), blockers))
+    return {
+      ok: false,
+      diagnostics: [diagnostic2("missing-contribution", "amendment resolutions do not cover the review refs")]
+    };
+  const coverage = assessPlanCoverage({ spec: accepted, plan: parsed.data });
+  return coverage.ok ? { ok: true, value: parsed.data } : coverage;
 }
 
 // plugins/omp-build/engine/workflow-captured-plan.ts
@@ -34283,560 +33957,6 @@ function requireLandingMandate(input) {
 function effectiveMandateRole(storedRole, accepted) {
   return storedRole === "fix-only" ? "fix-only" : accepted.children.length > 0 ? "epic" : "feature";
 }
-// plugins/omp-build/engine/workflow-plan.ts
-function bindImplementationCommand(captures, claim) {
-  const matches = captures.filter((capture) => capture.toolCallId === claim.toolCallId);
-  const selected = matches[0];
-  if (matches.length === 0 || selected === undefined)
-    return fail([diagnostic2("missing", "implementation command was not captured")]);
-  if (matches.length > 1)
-    return fail([diagnostic2("ambiguous", "implementation command id is repeated")]);
-  if (selected.command !== claim.command || selected.exitCode !== claim.exitCode || selected.cwd !== claim.cwd) {
-    return fail([diagnostic2("mismatch", "implementation command text, exit, or cwd does not match the capture")]);
-  }
-  return {
-    ok: true,
-    value: {
-      toolCallId: selected.toolCallId,
-      command: selected.command,
-      exitCode: selected.exitCode
-    }
-  };
-}
-// plugins/omp-build/engine/workflow-reconstruction-assessment.ts
-function specDecisionRequired(code, message) {
-  return { status: "blocked", reason: "spec-decision-required", evidence: [diagnostic2(code, message)] };
-}
-function matchingAssessments2(history, mandate, facts, excluded) {
-  const currentSpec = facts.currentSpec;
-  if (currentSpec === null)
-    return [];
-  return recordsOf(history).filter((record) => isAssessResult(record) && !excludedReceipt(record, excluded) && !(workflowContextNegative(record) && workflowContextTerminal(history, "assess-spec", record.payload.mandate, undefined, excluded) === "clear") && sameRef2(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" }) && sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec));
-}
-function assessmentInterruption(history, mandate, facts, histories) {
-  const currentSpec = facts.currentSpec;
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const classified = classifyAttempts({
-    histories: [history, ...histories],
-    scan: [history],
-    actions: ["assess-spec"],
-    select: (record) => currentSpec !== null && record.payload.action === "assess-spec" && sameRef2(record.payload.mandate, mandateRef) && sameCurrentAssessedState(record.payload.exactInputs.proposed, currentSpec)
-  });
-  if (!classified.ok)
-    return {
-      kind: "stop",
-      decision: { status: "blocked", reason: "interruption-invalid", evidence: classified.diagnostics }
-    };
-  const interrupted = classified.value.unresolved.filter((attempt) => attempt.kind === "interrupted");
-  const gate = interruptionGate({ ok: true, value: { excluded: classified.value.excluded, unresolved: interrupted } });
-  if (gate.kind === "stop")
-    return {
-      kind: "stop",
-      decision: { status: "blocked", reason: "action-interrupted", evidence: gate.completion.evidence }
-    };
-  return { kind: "clear", excluded: gate.excluded };
-}
-function assessmentDecision(history, mandate, facts, histories) {
-  const interruption = assessmentInterruption(history, mandate, facts, histories);
-  if (interruption.kind === "stop")
-    return interruption.decision;
-  const assessments = matchingAssessments2(history, mandate, facts, interruption.excluded);
-  if (assessments.length === 0)
-    return null;
-  const accepted = resolveAcceptedSpec(mandate, histories);
-  if (!accepted.ok)
-    return { status: "terminal", reason: "spec-ambiguous", evidence: accepted.evidence };
-  const qualified = assessments.filter((assessment) => sameAssessedState(assessment.payload.exactInputs.accepted, {
-    ref: accepted.spec.ref,
-    snapshot: accepted.spec.snapshot,
-    tier: accepted.spec.tier,
-    children: accepted.spec.children,
-    inheritedOwnSpecRefs: accepted.spec.inheritedOwnSpecRefs,
-    coverage: accepted.spec.coverage
-  }));
-  if (qualified.length > 1) {
-    return {
-      status: "terminal",
-      reason: "spec-ambiguous",
-      evidence: [diagnostic2("spec-ambiguous", "Competing assessments match the active Spec pair")]
-    };
-  }
-  const assessment = qualified[0];
-  return assessment === undefined ? null : authenticatedAssessmentDecision(assessment, mandate, histories);
-}
-function authenticatedAssessmentDecision(assessment, mandate, histories) {
-  const authenticated = authenticatedAssessResult(assessment, histories, {
-    scope: mandateScope(mandate),
-    recordId: mandate.recordId,
-    kind: "mandate"
-  });
-  if (!authenticated.ok)
-    return { status: "terminal", reason: "spec-ambiguous", evidence: authenticated.evidence };
-  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured);
-  if (!parsed.success) {
-    return {
-      status: "terminal",
-      reason: "spec-ambiguous",
-      evidence: [diagnostic2("spec-ambiguous", "Spec assessment result is malformed")]
-    };
-  }
-  if (parsed.data.compatibility.state !== "consistent")
-    return specDecisionRequired("constraint-compatibility-unresolved", `Constraint compatibility is ${parsed.data.compatibility.state}`);
-  const compatibilityProblem = checkAuthenticatedSpecCompatibility(authenticated.record, parsed.data, histories, mandate);
-  if (compatibilityProblem !== null)
-    return specDecisionRequired("constraint-compatibility-unresolved", compatibilityProblem);
-  const exact = authenticated.record.payload.exactInputs;
-  const currentChildren = capturedChildOwnSources(exact.accepted, exact.proposed, histories, exact.attachedChildren);
-  if (currentChildren === null || canonicalValueDigest(currentChildren.childOwnSources) !== canonicalValueDigest(exact.childOwnSources) || !capturedAssessmentSourcesMatch(currentChildren, authenticated.record.payload.inputs.manifest.acceptedSources, histories))
-    return specDecisionRequired("assessment-child-sources-stale", "Current child own authorities differ from the captured assessment");
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
-  if (isMechanical(mechanical) || parsed.data.classification === "unknown" || parsed.data.classification === "material") {
-    return specDecisionRequired("spec-decision-required", parsed.data.classification === "unknown" ? "Authenticated Spec assessment requires an operator decision" : "Material spec change has no operator decision");
-  }
-  return null;
-}
-
-// plugins/omp-build/engine/workflow-session.ts
-function sessionEvidence(facts) {
-  const path = facts.preparedWorktree ?? "";
-  return [diagnostic2("session-cwd", "Session cwd is not the prepared worktree", { path, instruction: `/move ${path}` })];
-}
-function sessionReady(facts) {
-  return facts.sessionCwd !== null && facts.preparedWorktree !== null && facts.sessionCwd === facts.preparedWorktree;
-}
-
-// plugins/omp-build/engine/workflow-action-state.ts
-function planConfirmed(history, mandate, causal) {
-  return planMacro({ issue: history, pullRequest: null, parents: [], causal }, mandate).phase === "eligible";
-}
-function implementConfirmed(history, mandate, causal) {
-  return implementationCompletion({ issue: history, pullRequest: null, parents: [], causal }, mandate).status === "confirmed";
-}
-function prePrStartsAbsent(history) {
-  return !recordsOf(history).some((record) => record.kind === "action-receipt" && (record.payload.action === "plan" || record.payload.action === "plan-review" || record.payload.action === "implement" || record.payload.action === "integrate"));
-}
-function adoptedOrConfirmed(history, mandate, causal) {
-  return prePrStartsAbsent(history) || implementConfirmed(history, mandate, causal);
-}
-function workflowBound(mandate, history, pullRequest, facts) {
-  if (mandate === null || facts.pullRequest === null || pullRequest === null)
-    return false;
-  const selected = selectWorkflowBinding({
-    pullRequest: facts.pullRequest.scope,
-    histories: [history, pullRequest],
-    native: { branch: facts.pullRequest.head, base: facts.pullRequest.base }
-  });
-  return selected.status === "bound" && selected.mandateRecord.recordId === mandate.recordId;
-}
-var INTERRUPTION_INVALID_CODES = new Set(["interruption-resolution-invalid"]);
-function completionBlockReason(completion) {
-  const code = completion.evidence[0]?.code;
-  if (code === "action-interrupted")
-    return "action-interrupted";
-  if (code !== undefined && INTERRUPTION_INVALID_CODES.has(code))
-    return "interruption-invalid";
-  if (code === "missing-contribution" || code === "missing-history" || code === "unconfirmed" || code === "action-uncertain")
-    return code;
-  return "unconfirmed";
-}
-
-// plugins/omp-build/engine/workflow-condition-evaluation.ts
-function conditionHolds(when, history, facts, decisions, mandate, pullRequest, causal) {
-  switch (when) {
-    case "always":
-      return true;
-    case "no-mandate":
-      return mandate === null;
-    case "mandate-ready":
-      return mandate !== null;
-    case "spec-differs":
-      return specMatches(false, facts, mandate, causal);
-    case "spec-settled":
-      return specMatches(true, facts, mandate, causal);
-    case "plan-confirmed":
-      return planConfirmed(history, mandate, causal);
-    case "implement-confirmed":
-      return implementConfirmed(history, mandate, causal);
-    case "pr-open":
-      return pullRequestIsOpen(history, facts, mandate, pullRequest, causal);
-    case "review-step-review":
-      return decisions.reviewStep === "review";
-    case "review-step-fix":
-      return decisions.reviewStep === "fix";
-    case "review-step-land":
-      return decisions.reviewStep === "land" && workflowBound(mandate, history, pullRequest, facts);
-    case "review-step-stop":
-      return decisions.reviewStep === "stop";
-    case "fix-confirmed":
-      return recordsOf(history).some((record) => record.kind === "fix-result");
-    case "ci-red":
-    case "ci-attributed-change":
-    case "ci-attribution-refused":
-      return ciConditionHolds(when, history, facts, decisions, mandate, pullRequest);
-    case "merged":
-      return facts.merged;
-    case "end-obligations-met":
-      return facts.endObligationsMet;
-    case "epic-start":
-      return decisions.epicStep === "start";
-    case "epic-resume":
-      return decisions.epicStep === "resume";
-    case "epic-stop":
-      return decisions.epicStep === "stop";
-    case "epic-final-review":
-      return decisions.epicStep === "final-review";
-    case "epic-post-merge":
-      return decisions.epicStep === "post-merge";
-    case "epic-complete":
-      return decisions.epicStep === "complete";
-    case "epic-drop":
-      return decisions.epicStep === "drop";
-    default:
-      return null;
-  }
-}
-function specMatches(settled, facts, mandate, causal) {
-  if (mandate === null || facts.currentSpec === null)
-    return false;
-  const accepted = resolveAcceptedSpec(mandate, causal.histories);
-  if (!accepted.ok)
-    return false;
-  const effective = settled ? resolveSpecEffective({
-    mode: "current",
-    own: accepted.spec.ref,
-    histories: causal.histories,
-    graph: causal.observation.graph
-  }) : resolveSpecEffective({
-    mode: "historical",
-    own: accepted.spec.ref,
-    versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
-    histories: causal.histories
-  });
-  if (!effective.ok)
-    return false;
-  const same = facts.currentSpec.snapshot.spec.version === accepted.spec.snapshot.spec.version && facts.currentSpec.tier === accepted.spec.tier && sameChildren(facts.currentSpec.children, accepted.spec.children) && canonicalValueDigest(facts.currentSpec.inheritedOwnSpecRefs) === canonicalValueDigest(accepted.spec.inheritedOwnSpecRefs) && canonicalValueDigest(facts.currentSpec.coverage) === canonicalValueDigest(accepted.spec.coverage);
-  return settled ? same : !same;
-}
-function sameChildren(current, accepted) {
-  if (current.length !== accepted.length)
-    return false;
-  for (let index = 0;index < current.length; index += 1) {
-    const left = current[index];
-    const right = accepted[index];
-    if (left === undefined || "kind" in left || right === undefined || left.scope.repository !== right.scope.repository || left.scope.target !== right.scope.target || left.specVersion !== right.specVersion || left.tier !== right.tier)
-      return false;
-  }
-  return true;
-}
-function pullRequestIsOpen(history, facts, mandate, pullRequest, causal) {
-  return facts.pullRequest !== null && workflowBound(mandate, history, pullRequest, facts) && adoptedOrConfirmed(history, mandate, causal);
-}
-function ciConditionHolds(when, history, facts, decisions, mandate, pullRequest) {
-  if (decisions.ciWatchStatus !== "red" || decisions.reviewStep !== "fix-ci")
-    return false;
-  const bound = boundCiAttribution([history, ...pullRequest === null ? [] : [pullRequest]], facts, mandate);
-  if (when === "ci-red")
-    return !bound.change && !bound.refused;
-  return when === "ci-attributed-change" ? bound.change : bound.refused;
-}
-
-// plugins/omp-build/engine/workflow-conditions.ts
-function unresolvedWork(evidence, facts, decisions, mandate) {
-  return firstUnresolved(["plan", "implement", "assess-spec", "attribute-ci", "fix", "review"], evidence, facts, decisions, mandate);
-}
-function unresolvedAssessmentWork(evidence, facts, decisions, mandate) {
-  return firstUnresolved(["assess-spec", "attribute-ci", "fix", "review"], evidence, facts, decisions, mandate);
-}
-function firstUnresolved(actions, evidence, facts, decisions, mandate) {
-  for (const action of actions) {
-    const completion = actionCompletion(action, evidence, decisions, mandate, facts);
-    if (completion.status === "uncertain" || completion.status === "blocked")
-      return completion;
-  }
-  return null;
-}
-
-// plugins/omp-build/engine/workflow-walk-step.ts
-function blocked(reason, evidence) {
-  return { status: "blocked", reason, evidence };
-}
-function terminalDecision(node, history, facts, decisions, mandate, pullRequest, causal) {
-  if (node.action === "stop" && conditionHolds("ci-attribution-refused", history, facts, decisions, mandate, pullRequest, causal) === true) {
-    return {
-      status: "terminal",
-      reason: "ci-attribution-refused",
-      evidence: [diagnostic2("ci-attribution-refused", "CI attribution refused correction")]
-    };
-  }
-  if (node.action === "stop" && decisions.reviewStep === "stop")
-    return { status: "terminal", reason: "bound-stop", evidence: [diagnostic2("bound-stop", "Review bound is spent")] };
-  if (node.action !== "done")
-    return null;
-  return facts.endObligationsMet ? { status: "terminal", reason: "done", evidence: [] } : blocked("unknown-outcome", [diagnostic2("unknown-outcome", "Merged work still has end obligations")]);
-}
-function nextNode(graph, current, node, history, facts, decisions, mandate, pullRequest, causal) {
-  const matching = graph.edges.filter((edge) => edge.from === current && conditionHolds(edge.when, history, facts, decisions, mandate, pullRequest, causal) === true);
-  const exclusive = [
-    ["spec-differs", "spec-settled"],
-    ["review-step-review", "review-step-fix", "review-step-land", "review-step-stop"],
-    ["ci-red", "ci-attributed-change", "ci-attribution-refused"],
-    ["epic-start", "epic-resume", "epic-stop", "epic-final-review", "epic-post-merge", "epic-complete", "epic-drop"]
-  ].some((group) => matching.filter((edge) => group.includes(edge.when)).length > 1);
-  if (exclusive)
-    return blocked("ambiguous-transition", [
-      diagnostic2("ambiguous-transition", `Node ${current} has exclusive conditions both true`)
-    ]);
-  const next = matching[0];
-  if (next !== undefined)
-    return next.to;
-  if ((node.action === "land" || node.action === "watch") && mandate.payload.permissions.landing === false)
-    return blocked("fix-only", [diagnostic2("fix-only", "Fix-only mandate cannot land")]);
-  return blocked("unknown-outcome", [diagnostic2("unknown-outcome", `Node ${current} has no matching edge`)]);
-}
-function walkWorkflowStep(graph, nodes, current, enteredByTransition, evidence, facts, decisions, mandate) {
-  const node = nodes.get(current);
-  if (node === undefined)
-    return blocked("unsupported-graph", [diagnostic2("unsupported-graph", "Workflow node is missing")]);
-  const completion = actionCompletion(node.action, evidence, decisions, mandate, facts);
-  if (completion.status === "uncertain")
-    return blocked("action-uncertain", completion.evidence);
-  if (completion.status === "blocked")
-    return blocked(completionBlockReason(completion), completion.evidence);
-  const terminal = terminalDecision(node, evidence.issue, facts, decisions, mandate, evidence.pullRequest, evidence.causal);
-  if (terminal !== null)
-    return terminal;
-  const next = nextNode(graph, current, node, evidence.issue, facts, decisions, mandate, evidence.pullRequest, evidence.causal);
-  if (enteredByTransition && typeof next !== "string" && next.status === "blocked" && next.reason === "unknown-outcome" && completion.status === "not-started")
-    return {
-      status: "action",
-      action: node.action,
-      nodeId: node.id,
-      mandateId: mandate.recordId,
-      evidence: completion.evidence
-    };
-  return next;
-}
-
-// plugins/omp-build/engine/workflow-walk.ts
-function blocked2(reason, evidence) {
-  return { status: "blocked", reason, evidence };
-}
-function walkWorkflow(graph, evidence, facts, decisions, mandate) {
-  const candidate = walkGraph(graph, evidence, facts, decisions, mandate);
-  if (candidate.status === "action" && candidate.action === "assess-spec" && conditionHolds("spec-differs", evidence.issue, facts, decisions, mandate, evidence.pullRequest, evidence.causal) === true) {
-    const control = resolveOwnSpecAuthority(evidence.issue, evidence.causal.histories.filter((history) => history !== evidence.issue), evidence.causal);
-    if (!control.ok)
-      return blocked2("unconfirmed", control.diagnostics);
-    const ref = (record) => ({
-      scope: { repository: record.repository, target: record.target },
-      kind: "mandate",
-      recordId: record.recordId
-    });
-    if (!sameRef2(ref(control.value.mandate), ref(mandate)))
-      return blocked2("unconfirmed", [
-        diagnostic2("unconfirmed", "Assessment does not bind the authenticated own mandate")
-      ]);
-    const captured = inspectCapturedWorkForAssessment(evidence, mandate);
-    if (!captured.ok)
-      return blocked2("unconfirmed", captured.diagnostics);
-    const unresolved = unresolvedAssessmentWork(evidence, facts, decisions, mandate);
-    return unresolved === null ? candidate : blocked2(completionBlockReason(unresolved), unresolved.evidence);
-  }
-  const unresolved = unresolvedWork(evidence, facts, decisions, mandate);
-  return unresolved === null ? candidate : blocked2(completionBlockReason(unresolved), unresolved.evidence);
-}
-function walkGraph(graph, evidence, facts, decisions, mandate) {
-  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
-  let current = graph.initial;
-  let enteredByTransition = false;
-  const visited = new Set;
-  for (let guard = 0;guard < graph.nodes.length + 1; guard += 1) {
-    if (visited.has(current))
-      return blocked2("cycle", [diagnostic2("cycle", "Workflow traversal repeated a node")]);
-    visited.add(current);
-    const next = walkWorkflowStep(graph, nodes, current, enteredByTransition, evidence, facts, decisions, mandate);
-    if (typeof next !== "string")
-      return next;
-    current = next;
-    enteredByTransition = true;
-  }
-  return blocked2("cycle", [diagnostic2("cycle", "Workflow traversal did not finish")]);
-}
-
-// plugins/omp-build/engine/workflow-reconstruction-admission.ts
-function blocked3(reason, evidence) {
-  return { status: "blocked", reason, evidence };
-}
-function historyProblemDecision(history) {
-  const problem = workflowOperationProblem(history);
-  if (problem === "ambiguous")
-    return blocked3("ambiguous-transition", [diagnostic2("ambiguous", "Workflow history conflicts")]);
-  if (problem === "incompatible-format")
-    return blocked3(problem, [diagnostic2(problem, "Workflow history uses an incompatible format")]);
-  if (problem === "unconfirmed" || problem === "incomplete")
-    return blocked3("incomplete", [diagnostic2(problem, "Workflow history is not complete")]);
-  return null;
-}
-function missingMandateDecision(facts) {
-  if (!facts.explicitSelection)
-    return blocked3("mandate-absent", [diagnostic2("mandate-absent", "No mandate exists and selection was not explicit")]);
-  if (!sessionReady(facts))
-    return blocked3("session-cwd", sessionEvidence(facts));
-  return { status: "action", action: "frame", nodeId: null, mandateId: null, evidence: [] };
-}
-function inactiveMandateDecision(reason, history, facts, evidence) {
-  if (facts.explicitSelection)
-    return blocked3("successor-required", [
-      diagnostic2("successor-required", "Explicit selection cannot mint a mandate over a revoked one")
-    ]);
-  if (reason === "abandoned") {
-    return {
-      status: "abandoned",
-      mandateId: mandatesOf(history).find((record) => abandoned(history, record))?.recordId ?? "unknown",
-      evidence
-    };
-  }
-  return blocked3("successor-required", evidence);
-}
-function pausedInterruptionDecision(mandate, history, externalHistories, causal) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const gate = interruptionGate(classifyAttempts({
-    histories: [history, ...externalHistories, ...causal.histories],
-    scan: [history, ...externalHistories],
-    actions: INTERRUPTION_ACTIONS,
-    select: (receipt) => ("scope" in receipt.payload.mandate) && sameRef2(receipt.payload.mandate, mandateRef)
-  }));
-  if (gate.kind === "clear")
-    return null;
-  const evidence = gate.completion.evidence;
-  if (gate.completion.status === "uncertain")
-    return blocked3("action-uncertain", evidence);
-  return blocked3(evidence[0]?.code === "action-interrupted" ? "action-interrupted" : "interruption-invalid", evidence);
-}
-function pausedMandateDecision(selection, history, externalHistories, causal, facts) {
-  const ownPause = equalScope(selection.pause.mandate.scope, history.source.scope);
-  if (ownPause && (facts.explicitSelection || facts.explicitResume) && sessionReady(facts)) {
-    const mandate = mandatesOf(history).find((record) => record.recordId === selection.pause.mandate.recordId);
-    if (mandate === undefined)
-      return blocked3("missing-history", [diagnostic2("missing-history", "Paused mandate is unavailable")]);
-    const configuration = configurationDecision(mandate, facts);
-    if (configuration !== null)
-      return configuration;
-    const interruption = pausedInterruptionDecision(mandate, history, externalHistories, causal);
-    if (interruption !== null)
-      return interruption;
-    return {
-      status: "action",
-      action: "resume",
-      nodeId: null,
-      mandateId: selection.pause.mandate.recordId,
-      evidence: [],
-      pause: selection.pause
-    };
-  }
-  return {
-    status: "paused",
-    mandateId: selection.pause.mandate.recordId,
-    confirmed: true,
-    evidence: selection.evidence,
-    pause: selection.pause
-  };
-}
-function refusalDecision(selection) {
-  const code = selection.evidence[0]?.code;
-  if (code === "config-drift")
-    return blocked3("config-drift", selection.evidence);
-  if (code === "unsupported-graph")
-    return blocked3("unsupported-graph", selection.evidence);
-  if (code === "missing-history" || code === "incomplete")
-    return blocked3("missing-history", selection.evidence);
-  if (selection.reason === "incompatible-format")
-    return blocked3(selection.reason, selection.evidence);
-  if (selection.reason === "incompatible" || selection.reason === "unsafe" || selection.reason === "materially-changed")
-    return blocked3("unsafe-authority", selection.evidence);
-  return blocked3(selection.reason === "unsupported" ? "unsupported-config" : "unconfirmed", selection.evidence);
-}
-function selectedMandate2(history, externalHistories, causal, facts) {
-  const own = resolveOwnSpecAuthority(history, externalHistories, causal);
-  if (own.ok)
-    return { mandate: own.value.mandate };
-  const selection = selectApplicableMandate(history, externalHistories, causal);
-  if (selection.status === "applicable")
-    return { mandate: selection.mandate };
-  if (selection.reason === "missing")
-    return missingMandateDecision(facts);
-  if (selection.reason === "abandoned" || selection.reason === "revoked")
-    return inactiveMandateDecision(selection.reason, history, facts, selection.evidence);
-  if (selection.reason === "paused")
-    return pausedMandateDecision(selection, history, externalHistories, causal, facts);
-  return refusalDecision(selection);
-}
-function localAuthorityDecision(mandate, history, externalHistories, facts) {
-  if (facts.localInhibit === "pause" && confirmedPause(history, mandate) === null)
-    return blocked3("pause-unconfirmed", [
-      diagnostic2("pause-unconfirmed", "Pause was inhibited locally but not confirmed")
-    ]);
-  if (facts.localInhibit === "abandon" && !abandoned(history, mandate))
-    return blocked3("unconfirmed", [diagnostic2("unconfirmed", "Abandon was inhibited locally but not confirmed")]);
-  if (outstandingPauseRequest(history, mandate) !== null)
-    return blocked3("pause-unconfirmed", [diagnostic2("pause-unconfirmed", "Pause was requested and not confirmed")]);
-  const outstandingPause = outstandingPauseInAuthority(mandate, [history, ...externalHistories]);
-  if (outstandingPause !== null)
-    return blocked3("pause-unconfirmed", [outstandingPause]);
-  return configurationDecision(mandate, facts);
-}
-function configurationDecision(mandate, facts) {
-  if (facts.productVersion !== mandate.payload.config.productVersion)
-    return blocked3("config-drift", [diagnostic2("config-drift", "Host product version differs from the mandate")]);
-  if (!facts.supportedConfigVersions.includes(mandate.payload.config.version))
-    return blocked3("unsupported-config", [diagnostic2("unsupported-config", "Mandate config version is not supported")]);
-  if (facts.configDigest !== mandate.payload.config.digest)
-    return blocked3("config-drift", [diagnostic2("config-drift", "Host config digest differs from the mandate")]);
-  return null;
-}
-function bindingDecision(decision, input, history, externalHistories, mandate) {
-  if (decision.status !== "action" || decision.action !== "land" && decision.action !== "review" && decision.action !== "watch" || input.facts.pullRequest === null)
-    return null;
-  const selected = selectWorkflowBinding({
-    pullRequest: input.facts.pullRequest.scope,
-    histories: [history, ...externalHistories],
-    native: { branch: input.facts.pullRequest.head, base: input.facts.pullRequest.base }
-  });
-  if (selected.status === "bound" && selected.mandateRecord.recordId === mandate.recordId)
-    return null;
-  return blocked3("unknown-binding", selected.status === "bound" ? [diagnostic2("unknown-binding", "Workflow binding does not name the active mandate")] : selected.status === "absent" ? [diagnostic2("missing", "No workflow binding exists on the pull request")] : selected.diagnostics);
-}
-function reconstructWorkflow(input) {
-  const history = input.evidence.issue;
-  const externalHistories = [input.evidence.pullRequest, ...input.evidence.parents].filter((item) => item !== null);
-  const historyProblem = historyProblemDecision(history);
-  if (historyProblem !== null)
-    return historyProblem;
-  const drift = workflowCausalDiagnostics([history, ...externalHistories], input.evidence.causal);
-  if (drift.length)
-    return blocked3("missing-history", drift);
-  const selected = selectedMandate2(history, externalHistories, input.evidence.causal, input.facts);
-  if (!("mandate" in selected))
-    return selected;
-  const local = localAuthorityDecision(selected.mandate, history, externalHistories, input.facts);
-  if (local !== null)
-    return local;
-  if (!sessionReady(input.facts))
-    return blocked3("session-cwd", sessionEvidence(input.facts));
-  const assessment = assessmentDecision(history, selected.mandate, input.facts, input.evidence.causal.histories);
-  if (assessment !== null)
-    return assessment;
-  const graph = executableGraph(selected.mandate);
-  if (!graph.ok)
-    return blocked3("unsupported-graph", graph.diagnostics);
-  const decision = walkWorkflow(graph.value, input.evidence, input.facts, input.decisions, selected.mandate);
-  if (decision.status === "action" && decision.action === "assess-spec")
-    return decision;
-  const delivery = selectApplicableMandate(history, externalHistories, input.evidence.causal);
-  if (delivery.status !== "applicable")
-    return refusalDecision(delivery);
-  return bindingDecision(decision, input, history, externalHistories, selected.mandate) ?? decision;
-}
 // plugins/omp-build/omp/tool-schemas.ts
 var ompBuildStartReviewParametersSchema = strictObject({ pr: number2().int().positive().optional() });
 var ompBuildRecoveryPrParametersSchema = strictObject({ pr: number2().int().positive() });
@@ -35060,7 +34180,6 @@ export {
   acceptedChildCommitmentSchema,
   acceptedMetadataOwner,
   accounted,
-  actionCompletion,
   actionEnvelopeSchema,
   actionInputDigest,
   actionInputManifestSchema,
@@ -35099,7 +34218,6 @@ export {
   authenticatedAssessResult,
   authorizeReviewContextSuccessor,
   bindExternalRef,
-  bindImplementationCommand,
   bindingMatchesMandate,
   bindingPolicy,
   boundFramingCoverageIntentSchema,
@@ -35308,6 +34426,7 @@ export {
   makeFixRecoveryObservation,
   mandatePayloadSchema,
   mandateScope,
+  mandatesOf,
   matchesCompletePin,
   materialAcceptanceDigest,
   mechanicalSpecDelta,
@@ -35338,6 +34457,7 @@ export {
   operatorControlPayloadSchema,
   originalFindingSchema,
   outboundOperationSchema,
+  outstandingPauseInAuthority,
   outstandingPauseRequest,
   ownerCommonSchema,
   parentAdditionObservationSchema,
@@ -35422,7 +34542,6 @@ export {
   recheckComposedParentAcceptance,
   recheckMaterialAcceptance,
   reconstructFramingRegistry,
-  reconstructWorkflow,
   recordInputRefSchema,
   recordIntegrity,
   recordOperation,

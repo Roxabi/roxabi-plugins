@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process'
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -22,15 +21,10 @@ import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import { isAssessResult } from '../../engine/workflow-spec-assessment.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { landedEpic } from './testing/epic-driver/epic-driver-landed-fixture.ts'
-import { installEpicBlocker } from './testing/epic-driver/epic-driver-native.ts'
 import { expectCompleteEpicObservation } from './testing/epic-driver/epic-driver-observation.ts'
 import {
   childNode,
-  epicDecisionHistory,
-  eventPayloads,
   framedRecords,
-  issueComments,
   ME,
   prNode,
   RUN,
@@ -40,7 +34,14 @@ import {
   servePr,
   strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
-import { cleanupSandbox, drive, git, sandbox, sandboxOf, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
+import {
+  cleanupSandbox,
+  git,
+  readControlTarget,
+  sandbox,
+  sandboxOf,
+  writes,
+} from './testing/epic-driver/epic-driver-sandbox.ts'
 import { addForeignMandateClaim } from './testing/epic-driver/epic-driver-serve.ts'
 
 afterEach(cleanupSandbox)
@@ -180,7 +181,6 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false, histo
       },
     ],
     framedRecords(1, [parent]),
-    { mandate: false },
   )
   if (foreignParent) serveComments(4, framedRecords(4, [owner]))
   serveComments(
@@ -198,10 +198,6 @@ function prepareArmedChild(change: Change | 'none', foreignParent = false, histo
     const parent = JSON.parse(readFileSync(parentPath, 'utf8'))
     parent.data.repository.issue.subIssues.nodes = []
     writeFileSync(parentPath, JSON.stringify(parent))
-    const dashboardPath = path.join(state, 'epic.json')
-    const dashboard = JSON.parse(readFileSync(dashboardPath, 'utf8'))
-    dashboard.data.repository.issue.subIssues.nodes = []
-    writeFileSync(dashboardPath, JSON.stringify(dashboard))
   }
   writeFileSync(childPath, JSON.stringify(child))
 }
@@ -245,143 +241,94 @@ function editChildMandateComment(): void {
   )
 }
 
-function expectDisarmed(): void {
-  const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
-  expect(pr.autoMergeRequest).toBeNull()
-  expect(pr.labels).toEqual([])
-  expect(writes()).toEqual(expect.arrayContaining(['merge 11 --disable-auto', 'edit 11 --remove-label reviewed']))
+function expectDiscovered(ticket: number): void {
+  const result = readControlTarget()
+  expect(result.code, result.stderr).toBe(0)
+  expect(result.json().openPrs).toEqual([{ ticket, pr: 11 }])
+  expect(writes()).toEqual([])
 }
 
 describe('epic-driver — accepted child containment after topology drift', () => {
-  it('control-disarm contains the bound child when topology is unchanged', () => {
+  it('discovers the bound child when topology is unchanged', () => {
     prepareArmedChild('none')
-    const run = drive(['control-disarm'])
-    expect(run.code, run.stderr).toBe(0)
-    expectDisarmed()
-    expect(run.json()).toMatchObject({ failed: [] })
+    expectDiscovered(2)
   })
 
   it.each(([1, 2] as const).flatMap((home) => (['legacy', 'copy'] as const).map((claim) => ({ home, claim }))))(
-    'control-disarm contains the accepted child despite foreign $claim on home $home',
+    'discovers the accepted child despite foreign $claim on home $home',
     ({ home, claim }) => {
       prepareArmedChild('none')
       addForeignMandateClaim(home, claim)
-      const run = drive(['control-disarm'])
-      expect(run.code, run.stderr).toBe(0)
-      expect(run.json()).toMatchObject({ failed: [] })
-      expectDisarmed()
+      expectDiscovered(2)
     },
   )
 
-  it.each(['control', 'drop'])('%s cannot claim clean containment after the child mandate was edited', (action) => {
+  it('refuses containment after the child mandate was edited', () => {
     prepareArmedChild('removed')
     clearIssuePrLinks()
     editChildMandateComment()
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
-    expect(run.code !== 0 || (action === 'control' && run.json().failed.length > 0), run.stderr).toBe(true)
+    expect(readControlTarget().code).not.toBe(0)
     expect(writes()).toEqual([])
     const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
     expect(pr.autoMergeRequest).not.toBeNull()
     expect(pr.labels).toContainEqual({ name: 'reviewed' })
   })
 
-  it.each(['control', 'drop'])('%s permits a complete empty child history with no PR', (action) => {
+  it('permits a complete empty child history with no PR', () => {
     prepareArmedChild('removed')
     clearIssuePrLinks()
     serveComments(2, [])
     writeFileSync(path.join(sandboxOf().state, 'branch-prs-2.json'), '[]')
     unlinkSync(path.join(sandboxOf().state, 'pr', '11.json'))
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
+    const run = readControlTarget()
     expect(run.code, run.stderr).toBe(0)
-    if (action === 'control') expect(run.json()).toMatchObject({ failed: [], disarmed: {} })
-    else expect(eventPayloads(1)).toContainEqual(expect.objectContaining({ event: 'goal-report', outcome: 'drop' }))
+    expect(run.json().openPrs).toEqual([])
+    expect(writes()).toEqual([])
   })
 
-  it.each(['control', 'drop'])('%s contains the bound child that was originally an Epic', async (action) => {
+  it('discovers the bound child that was originally an Epic', async () => {
     prepareArmedChild('removed', false, true)
     clearIssuePrLinks()
-    if (action === 'control') await expectCompleteEpicObservation()
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
-    expect(run.code, run.stderr).toBe(0)
-    expectDisarmed()
+    await expectCompleteEpicObservation()
+    expectDiscovered(2)
   })
 
-  it.each(['control', 'drop'])('%s does not disarm a candidate bound to a different parent mandate', (action) => {
+  it('refuses a candidate bound to a different parent mandate', () => {
     prepareArmedChild('none', true)
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
-    expect(run.code !== 0 || (action === 'control' && run.json().failed.length > 0)).toBe(true)
+    expect(readControlTarget().code).not.toBe(0)
     expect(writes()).toEqual([])
     const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
     expect(pr.autoMergeRequest).not.toBeNull()
     expect(pr.labels).toContainEqual({ name: 'reviewed' })
   })
 
-  it.each(['control', 'drop'])(
-    '%s does not claim clean containment when an accepted removed child is inaccessible',
-    (action) => {
-      prepareArmedChild('removed')
-      unlinkSync(path.join(sandboxOf().state, 'uw-2.json'))
-      const run = drive(
-        action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-      )
-      expect(run.code !== 0 || (action === 'control' && run.json().failed.length > 0)).toBe(true)
-      expect(writes()).toEqual([])
-    },
-  )
-
-  it.each<{ action: 'control' | 'drop'; change: Change }>([
-    { action: 'control', change: 'wayfinder' },
-    { action: 'control', change: 'removed' },
-    { action: 'drop', change: 'wayfinder' },
-    { action: 'drop', change: 'removed' },
-  ])('$action recovers a bound $change child PR without issue links', ({ action, change }) => {
-    prepareArmedChild(change)
-    clearIssuePrLinks()
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
-    expect(run.code, run.stderr).toBe(0)
-    expectDisarmed()
+  it('refuses containment when an accepted removed child is inaccessible', () => {
+    prepareArmedChild('removed')
+    unlinkSync(path.join(sandboxOf().state, 'uw-2.json'))
+    expect(readControlTarget().code).not.toBe(0)
+    expect(writes()).toEqual([])
   })
 
-  it.each(['control', 'drop'])('%s remains unconfirmed when branch discovery is unavailable', (action) => {
+  it.each<Change>(['wayfinder', 'removed'])('recovers a bound %s child PR without issue links', (change) => {
+    prepareArmedChild(change)
+    clearIssuePrLinks()
+    expectDiscovered(2)
+  })
+
+  it('remains unconfirmed when branch discovery is unavailable', () => {
     prepareArmedChild('removed')
     clearIssuePrLinks()
     writeFileSync(path.join(sandboxOf().state, 'branch-unavailable'), '')
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
-    expect(run.code).not.toBe(0)
+    expect(readControlTarget().code).not.toBe(0)
     expect(writes()).toEqual([])
     const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
     expect(pr.autoMergeRequest).not.toBeNull()
     expect(pr.labels).toContainEqual({ name: 'reviewed' })
   })
 
-  it.each<Change>(['wayfinder', 'removed'])('control-disarm contains the accepted %s child', (change) => {
+  it.each<Change>(['wayfinder', 'removed'])('discovers the accepted %s child', (change) => {
     prepareArmedChild(change)
-    const run = drive(['control-disarm'])
-    expect(run.code, run.stderr).toBe(0)
-    expectDisarmed()
-    expect(run.json()).toMatchObject({ failed: [] })
-  })
-
-  it.each<Change>(['wayfinder', 'removed'])('drop contains the accepted %s child before reporting', (change) => {
-    prepareArmedChild(change)
-    const run = drive(['report', '--outcome', 'drop', '--reason', 'driver-error'])
-    expect(run.code, run.stderr).toBe(0)
-    expectDisarmed()
-    expect(eventPayloads(1)).toContainEqual(
-      expect.objectContaining({ event: 'goal-report', outcome: 'drop', run: RUN }),
-    )
+    expectDiscovered(2)
   })
 })
 
@@ -450,7 +397,7 @@ function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent'): void {
     labels: { nodes: [{ name: 'reviewed' }], pageInfo: { hasNextPage: false } },
     autoMergeRequest: { enabledAt: 'x' },
   })
-  serveEpic(role === 'leaf' ? [] : [child], framedRecords(1, records), { mandate: false })
+  serveEpic(role === 'leaf' ? [] : [child], framedRecords(1, records))
   if (role !== 'leaf') serveComments(2, [])
   serveComments(
     11,
@@ -479,110 +426,37 @@ function prepareArmedOwnPr(role: 'leaf' | 'accepted-parent'): void {
 }
 
 describe('epic-driver — own bound PR containment', () => {
-  it('control-disarm contains an authenticated normal leaf own PR', () => {
+  it('discovers an authenticated normal leaf own PR', () => {
     prepareArmedOwnPr('leaf')
-    const run = drive(['control-disarm'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({ failed: [] })
-    expectDisarmed()
+    expectDiscovered(1)
   })
 
-  it.each(['control', 'drop'])('%s contains the retained own PR after a leaf accepts a child', async (action) => {
+  it('discovers the retained own PR after a leaf accepts a child', async () => {
     prepareArmedOwnPr('accepted-parent')
-    if (action === 'control') await expectCompleteEpicObservation()
-    const run = drive(
-      action === 'control' ? ['control-disarm'] : ['report', '--outcome', 'drop', '--reason', 'driver-error'],
-    )
-    expect(run.code, run.stderr).toBe(0)
-    expectDisarmed()
-    if (action === 'control') expect(run.json()).toMatchObject({ failed: [] })
-    else
-      expect(eventPayloads(1)).toContainEqual(
-        expect.objectContaining({ event: 'goal-report', outcome: 'drop', run: RUN }),
-      )
+    await expectCompleteEpicObservation()
+    expectDiscovered(1)
   })
 
-  it('control-disarm contains an own PR bound before its mandate accepted children', () => {
-    prepareArmedOwnPr('accepted-parent')
-    const run = drive(['control-disarm'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({ failed: [] })
-    expectDisarmed()
-  })
-
-  it.each(['legacy', 'copy'] as const)('control-disarm contains the own PR despite a foreign %s claim', (claim) => {
+  it.each(['legacy', 'copy'] as const)('discovers the own PR despite a foreign %s claim', (claim) => {
     prepareArmedOwnPr('accepted-parent')
     addForeignMandateClaim(1, claim)
-    const run = drive(['control-disarm'])
-    expect(run.code, run.stderr).toBe(0)
-    expect(run.json()).toMatchObject({ failed: [] })
-    expectDisarmed()
+    expectDiscovered(1)
   })
 
-  it.each(['leaf', 'accepted-parent'] as const)(
-    'control-disarm refuses an edited %s home without disarming',
-    (role) => {
-      prepareArmedOwnPr(role)
-      const file = path.join(sandboxOf().state, 'comments-1.json')
-      const comments = JSON.parse(readFileSync(file, 'utf8'))
-      const mandate = comments.find((entry: { body: string }) => entry.body.includes('kind=mandate '))
-      if (!mandate) throw new Error('missing root mandate fixture')
-      mandate.updated_at = '2026-10-21T10:00:01Z'
-      writeFileSync(file, JSON.stringify(comments))
+  it.each(['leaf', 'accepted-parent'] as const)('refuses containment for an edited %s home', (role) => {
+    prepareArmedOwnPr(role)
+    const file = path.join(sandboxOf().state, 'comments-1.json')
+    const comments = JSON.parse(readFileSync(file, 'utf8'))
+    const mandate = comments.find((entry: { body: string }) => entry.body.includes('kind=mandate '))
+    if (!mandate) throw new Error('missing root mandate fixture')
+    mandate.updated_at = '2026-10-21T10:00:01Z'
+    writeFileSync(file, JSON.stringify(comments))
 
-      const run = drive(['control-disarm'])
-      expect(run.code).not.toBe(0)
-      const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
-      expect(pr.autoMergeRequest).not.toBeNull()
-      expect(pr.labels).toContainEqual({ name: 'reviewed' })
-      expect(writes().filter((entry) => entry.startsWith('merge 11 ') || entry.startsWith('edit 11 '))).toEqual([])
-      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(comments)
-    },
-  )
-})
-
-async function prepareFinalReview(blocking: boolean): Promise<string> {
-  const world = await landedEpic({ 'delivered.txt': 'delivered\n' })
-  installEpicBlocker()
-  const { range, comments: history } = await epicDecisionHistory(blocking, !blocking, world)
-  serveComments(1, [...issueComments(1), ...(blocking ? history : history.slice(0, -1))])
-  writeFileSync(path.join(sandboxOf().state, 'writes.log'), '')
-  return range
-}
-
-function changeParent(change: 'blocker' | 'tier'): void {
-  const file = path.join(sandboxOf().state, 'uw-1.json')
-  const parent = JSON.parse(readFileSync(file, 'utf8'))
-  if (change === 'blocker')
-    parent.data.repository.issue.blockedBy.nodes = [{ number: 3, repository: { nameWithOwner: 'o/r' } }]
-  else parent.data.repository.issue.labels.nodes = []
-  writeFileSync(file, JSON.stringify(parent))
-}
-
-function reviewRequest() {
-  const { epic, env } = sandboxOf()
-  const modulePath = path.join(import.meta.dirname, 'epic-driver.ts')
-  const script = `import { epicFinalReviewRequest } from ${JSON.stringify(modulePath)}; try { console.log(JSON.stringify(await epicFinalReviewRequest(${JSON.stringify(epic)}, 1))) } catch (e) { console.error(String(e)); process.exit(2) }`
-  return spawnSync('bun', ['-e', script], { cwd: epic, env, encoding: 'utf8' })
-}
-
-describe('epic-driver — fresh admission before final review advancement', () => {
-  it.each<'blocker' | 'tier'>(['blocker', 'tier'])(
-    'refuses a fresh final-review request after parent %s drift',
-    async (change) => {
-      await prepareFinalReview(false)
-      changeParent(change)
-      const run = reviewRequest()
-      expect(run.status, run.stderr).toBe(2)
-      expect(writes()).toEqual([])
-    },
-  )
-
-  it('authorizes a fresh final-review request for the unchanged accepted parent', async () => {
-    const range = await prepareFinalReview(false)
-    const run = reviewRequest()
-    expect(run.status, run.stderr).toBe(0)
-    expect(JSON.parse(run.stdout)).toMatchObject({ target: 'o/r#1', range })
-    expect(writes()).toEqual([])
+    expect(readControlTarget().code).not.toBe(0)
+    const pr = JSON.parse(readFileSync(path.join(sandboxOf().state, 'pr', '11.json'), 'utf8'))
+    expect(pr.autoMergeRequest).not.toBeNull()
+    expect(pr.labels).toContainEqual({ name: 'reviewed' })
+    expect(writes().filter((entry) => entry.startsWith('merge 11 ') || entry.startsWith('edit 11 '))).toEqual([])
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(comments)
   })
 })

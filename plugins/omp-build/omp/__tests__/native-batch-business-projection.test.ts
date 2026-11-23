@@ -123,7 +123,7 @@ describe('native batch business projection on the root status line', () => {
     const status = statusLine()
     const context = { ...root, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, context)
-    const review = projected(uwBatch('plan-review', ['R-workflow-plan-architect', 'R-workflow-plan-adversarial']))
+    const review = projected(uwBatch('review', ['R-review-adversarial', 'R-review-spec']))
 
     harness.controller.activate(review.batch, idle())
 
@@ -137,13 +137,13 @@ describe('native batch business projection on the root status line', () => {
     const status = statusLine()
     const context = { ...root, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, context)
-    const plan = projected(uwBatch('plan', ['R-workflow-plan']))
-    harness.controller.activate(plan.batch, idle())
+    const correction = projected(uwBatch('correction', ['R-review-fix-intake']))
+    harness.controller.activate(correction.batch, idle())
     expect(status.everRunning()).toBe(false)
 
-    expect(await harness.admitBatch(plan.batch, 'task-call', context)).toBe(true)
+    expect(await harness.admitBatch(correction.batch, 'task-call', context)).toBe(true)
 
-    expectBusinessIdentity(status.last(), plan)
+    expectBusinessIdentity(status.last(), correction)
     expect(status.last()).toMatch(RUNNING)
     expect(status.last()).not.toMatch(QUEUED)
   })
@@ -153,13 +153,13 @@ describe('native batch business projection on the root status line', () => {
     const status = statusLine()
     const context = { ...root, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, context)
-    const plan = projected(uwBatch('plan', ['R-workflow-plan']))
-    harness.controller.activate(plan.batch, idle())
+    const correction = projected(uwBatch('correction', ['R-review-fix-intake']))
+    harness.controller.activate(correction.batch, idle())
 
-    await harness.controller.stopOwned(plan.batch, 'owner-stop')
+    await harness.controller.stopOwned(correction.batch, 'owner-stop')
 
     const withdrawn = status.last()
-    expectBusinessIdentity(withdrawn, plan)
+    expectBusinessIdentity(withdrawn, correction)
     expect(withdrawn).toMatch(WITHDRAWN)
     expect(withdrawn).not.toMatch(NO_BUSINESS_EFFECT)
     expect(withdrawn).not.toMatch(WORKFLOW_SUCCESS)
@@ -171,21 +171,21 @@ describe('native batch business projection on the root status line', () => {
     const status = statusLine()
     const context = { ...root, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, context)
-    const plan = projected(uwBatch('plan', ['R-workflow-plan']))
+    const correction = projected(uwBatch('correction', ['R-review-fix-intake']))
     const onStop = vi.fn(async () => undefined)
-    harness.controller.activate(plan.batch, { onComplete: async () => undefined, onStop })
-    expect(await harness.admitBatch(plan.batch, 'task-call', context)).toBe(true)
+    harness.controller.activate(correction.batch, { onComplete: async () => undefined, onStop })
+    expect(await harness.admitBatch(correction.batch, 'task-call', context)).toBe(true)
 
-    const stopping = harness.controller.stopOwned(plan.batch, 'owner-stop')
+    const stopping = harness.controller.stopOwned(correction.batch, 'owner-stop')
     await vi.waitFor(() => expect(status.last()).toMatch(STOPPING))
     const settling = status.last()
-    expectBusinessIdentity(settling, plan)
+    expectBusinessIdentity(settling, correction)
     expect(settling).not.toMatch(NOTHING_RUNNING)
     await harness.settleBatch(abortedExecution())
     await stopping
 
     const stopped = status.last()
-    expectBusinessIdentity(stopped, plan)
+    expectBusinessIdentity(stopped, correction)
     expect(onStop).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ complete: false }), {
       kind: 'unattributed',
       origin: 'host-stop',
@@ -224,7 +224,7 @@ describe('native batch business projection on the root status line', () => {
     const status = statusLine()
     const context = { ...root, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, context)
-    const older = projected(uwBatch('plan', ['R-workflow-plan']))
+    const older = projected(uwBatch('correction', ['R-review-fix-intake']))
     const newer = projected(batch(['slot-b']))
     const gate = Promise.withResolvers<void>()
     let entered = false
@@ -245,7 +245,7 @@ describe('native batch business projection on the root status line', () => {
     const current = status.last()
     expectBusinessIdentity(current, newer)
     expect(current).toMatch(QUEUED)
-    expect(current).not.toContain('R-workflow-plan')
+    expect(current).not.toContain('R-review-fix-intake')
   })
 
   it('writes no phase of an old-session batch into a new root session', async () => {
@@ -253,14 +253,14 @@ describe('native batch business projection on the root status line', () => {
     const status = statusLine()
     const first = { ...root, sessionManager: { getSessionId: () => 'first' }, ui: { setStatus: status.set } }
     await harness.emitBridge('session_start', { type: 'session_start' }, first)
-    const plan = projected(uwBatch('plan', ['R-workflow-plan']))
-    harness.controller.activate(plan.batch, idle())
-    expect(await harness.admitBatch(plan.batch, 'task-call', first)).toBe(true)
+    const correction = projected(uwBatch('correction', ['R-review-fix-intake']))
+    harness.controller.activate(correction.batch, idle())
+    expect(await harness.admitBatch(correction.batch, 'task-call', first)).toBe(true)
     const second = { ...first, sessionManager: { getSessionId: () => 'second' } }
     await harness.emitBridge('session_start', { type: 'session_start' }, second)
     const switched = status.writes.length
 
-    const stopping = harness.controller.stopOwned(plan.batch, 'owner-stop')
+    const stopping = harness.controller.stopOwned(correction.batch, 'owner-stop')
     await harness.settleBatch(abortedExecution())
     await stopping
 

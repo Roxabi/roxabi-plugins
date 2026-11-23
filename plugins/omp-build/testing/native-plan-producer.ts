@@ -1,117 +1,124 @@
-import { canonicalValueDigest } from '../engine/action-input.ts'
-import type { DecodedHistory } from '../engine/history-schema.ts'
+import { randomUUID } from 'node:crypto'
+import { missingContextOutputSchema } from '../engine/action-context.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
-import { bindExternalRef, recordsOf } from '../engine/workflow-control.ts'
+import type { MandateRecord, ReceiptRecord } from '../engine/workflow-control.ts'
 import { type PlanOutput, type PlanReview, planDigest, planOutputSchema } from '../engine/workflow-output-schema.ts'
+import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
+import type { NativeBatch, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
 import type { HostGitIdentity } from '../omp/review-runtime/host-git-observation.ts'
-import { loadContracts } from '../roxabi/feature-engine.ts'
-import { planAction } from '../roxabi/feature-plan-start.ts'
-import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
-import type { withNativeImplementationWorld } from './native-implementation-world.ts'
+import { deliveryBatch, deliveryTask } from '../roxabi/delivery-action.ts'
+import { nativeOutcome } from '../roxabi/feature-native-outcome.ts'
+import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
+import type { UwRead } from '../roxabi/uw-contract.ts'
+import {
+  appendNativeReceipt,
+  type HistoryWorld,
+  historicalPlan,
+  prepareHistoricalAction,
+} from './native-history-records.ts'
 import { captureNativePlanBatch } from './native-plan-capture.ts'
 
-type World = Pick<
-  Parameters<Parameters<typeof withNativeImplementationWorld>[1]>[0],
-  'cwd' | 'gh' | 'git' | 'operations'
->
 type Context = {
-  world: World
+  world: HistoryWorld
   scope: Scope
   mandate: MandateRecord
   parentScopes: readonly Scope[]
   git: HostGitIdentity
 }
-
-function requireUnplannedHistory(issue: DecodedHistory) {
-  if (
-    recordsOf(issue).some(
-      (record) =>
-        record.kind === 'action-receipt' &&
-        (record.payload.action === 'plan' || record.payload.action === 'plan-review'),
-    )
-  )
-    throw new Error('Native planning producer requires a genuinely unplanned initial history')
+type StartRef = { scope: Scope; recordId: string; kind: 'action-receipt' }
+type OpenedPlanStep = {
+  opened: { start: StartRef; followUp: NativeBatch }
+  start: StartRef
+  startRecord: ReceiptRecord
+  before: UwRead
+  after: UwRead
 }
 
-async function observe(input: Context) {
-  const head = await input.world.git(input.world.cwd, ['rev-parse', '--verify', 'HEAD^{commit}'])
-  const tree = await input.world.git(input.world.cwd, ['rev-parse', '--verify', 'HEAD^{tree}'])
-  if (
-    input.git.repository !== input.scope.repository ||
-    head.code !== 0 ||
-    tree.code !== 0 ||
-    head.stdout.trim() !== input.git.commit ||
-    tree.stdout.trim() !== input.git.tree
-  )
-    throw new Error('Native plan capture identity does not match the independently observed checkout')
-  const read = await input.world.operations.readUw(input.scope)
-  if (read.observation.status !== 'complete' || read.accepted.status !== 'accepted')
-    throw new Error(`Native planning requires an accepted complete observation: ${JSON.stringify(read.observation)}`)
-  const find = (scope: Scope) =>
-    read.histories.find(
-      (history) => history.source.scope.repository === scope.repository && history.source.scope.target === scope.target,
-    )
-  const issue = find(input.scope)
-  const parents = input.parentScopes.map((scope) => {
-    const history = find(scope)
-    if (!history) throw new Error(`Native planning ancestor is unavailable: ${scope.target}`)
-    return history
-  })
-  if (!issue) throw new Error('Native planning issue history is unavailable')
-  return {
-    read,
-    issue,
-    parents,
-    evidence: {
-      issue,
-      pullRequest: null,
-      parents,
-      causal: {
-        histories: read.observation.histories,
-        catalogues: read.observation.catalogues,
-        observation: read.observation,
+/** Seed a historical START using the action input read path, not the retired plan driver. */
+export async function openNativePlanStep(input: Context, action: 'plan' | 'plan-review'): Promise<OpenedPlanStep> {
+  const { world, scope, mandate } = input
+  const before = await world.operations.readUw(scope)
+  const macro = historicalPlan(before, scope, mandate)
+  const actionId = randomUUID()
+  const commit = input.git.commit
+  const code = { repository: scope.repository, base: commit, head: commit, referenceCommit: commit }
+  const prepare = (id: string) => prepareHistoricalAction(world, scope, { actionId: id, purpose: action, code })
+  const task = (name: string, agent: string, prepared: PreparedUwAction) =>
+    deliveryTask({
+      name,
+      agent,
+      prepared,
+      procedure: 'Fixture judgment',
+      solutionSpace: 'historical plan evidence',
+    })
+  const authority = { actionId, mandate: { scope, recordId: mandate.recordId, kind: 'mandate' as const } }
+  const specDigest = macro.specDigest
+  if (specDigest === null) throw new Error('Historical plan has no authenticated Spec')
+  const seed = async () => {
+    if (action === 'plan') {
+      const prepared = await prepare(actionId)
+      const start = await appendNativeReceipt(world, scope, {
+        ...authority,
+        action,
+        phase: 'start',
+        inputs: prepared.inputs,
+        exactInputs: { mandateId: mandate.recordId, specDigest, amendsReviewActionId: null, requiredBlockers: [] },
+      })
+      return { start, tasks: [task('R-workflow-plan', 'R-workflow-plan', prepared)] }
+    }
+    if (macro.phase !== 'needs-review' || !macro.draftActionId) throw new Error('Historical review needs a draft')
+    const plan = before.histories
+      .flatMap((history) => history.operations)
+      .find(
+        ({ record }) =>
+          record?.kind === 'action-receipt' &&
+          record.payload.action === 'plan' &&
+          record.payload.phase === 'result' &&
+          record.payload.actionId === macro.draftActionId,
+      )?.record
+    if (plan?.kind !== 'action-receipt' || plan.payload.action !== 'plan' || plan.payload.phase !== 'result')
+      throw new Error('Historical plan result is unavailable')
+    const architect = await prepare(randomUUID())
+    const adversarial = await prepare(randomUUID())
+    const slots: PlanReviewSlot[] = [
+      {
+        slotId: 'architect',
+        specialist: 'R-workflow-plan-architect',
+        action: { actionId: architect.snapshot.actionId, inputs: architect.inputs },
       },
-    },
+      {
+        slotId: 'adversarial',
+        specialist: 'R-workflow-plan-adversarial',
+        action: { actionId: adversarial.snapshot.actionId, inputs: adversarial.inputs },
+      },
+    ]
+    const tasks = [
+      task('architect', 'R-workflow-plan-architect', architect),
+      task('adversarial', 'R-workflow-plan-adversarial', adversarial),
+    ]
+    const start = await appendNativeReceipt(world, scope, {
+      ...authority,
+      action,
+      phase: 'start',
+      inputs: architect.inputs,
+      slots,
+      exactInputs: {
+        mandateId: mandate.recordId,
+        specDigest,
+        draftActionId: macro.draftActionId,
+        planDigest: planDigest(planOutputSchema.parse(plan.payload.structured)),
+      },
+    })
+    return { start, tasks }
   }
+  const { start, tasks } = await seed()
+  const opened = { start: start.ref, followUp: deliveryBatch(actionId, tasks) }
+  return { opened, start: start.ref, startRecord: start.record, before, after: await world.operations.readUw(scope) }
 }
 
-/** Open the real current plan transition from the actual complete UW observation. */
-export async function openNativePlanStep(input: Context, expected: 'plan' | 'plan-review') {
-  const before = await observe(input)
-  const contracts = await loadContracts()
-  if ('missing' in contracts) throw new Error(`Missing engine ${contracts.missing}`)
-  const opened = await planAction(
-    contracts,
-    before.evidence,
-    before.issue,
-    input.world.gh,
-    input.world.cwd,
-    input.scope,
-    input.mandate,
-    input.world.operations,
-    input.world.git,
-  )
-  if (opened.kind !== 'action' || opened.node !== expected)
-    throw new Error(`Native ${expected} START refused: ${JSON.stringify(opened)}`)
-  const after = await observe(input)
-  const bound = bindExternalRef(opened.start, after.issue)
-  if (
-    !bound.ok ||
-    bound.value.kind !== 'action-receipt' ||
-    bound.value.payload.action !== expected ||
-    bound.value.payload.phase !== 'start'
-  )
-    throw new Error(`Native ${expected} START not authenticated after readback: ${JSON.stringify(bound)}`)
-  return { opened, start: opened.start, startRecord: bound.value, before: before.read, after: after.read }
-}
-
-type Opened = Awaited<ReturnType<typeof openNativePlanStep>>
-
-/** Publish only actually captured tasks; a missing specialist produces a refused incomplete batch. */
 export async function publishNativePlanStep(
   input: Context,
-  step: Opened,
+  step: OpenedPlanStep,
   claims: readonly { task: string; childId: string; value: PlanOutput | PlanReview }[],
 ) {
   const result = await captureNativePlanBatch({
@@ -120,107 +127,119 @@ export async function publishNativePlanStep(
     git: input.git,
     claims,
   })
-  const published = await publishFeatureNativeResult({
-    cwd: input.world.cwd,
-    start: step.start,
-    result,
-    gh: input.world.gh,
-    git: input.world.git,
-  })
-  if (!published.published) return { published, result, read: await input.world.operations.readUw(input.scope) }
-  if (!('receipt' in published) || !published.receipt)
-    throw new Error('Native plan publication did not return a scoped receipt')
-  const after = await observe(input)
-  const bound = bindExternalRef(published.receipt, after.issue)
-  if (
-    !bound.ok ||
-    bound.value.kind !== 'action-receipt' ||
-    bound.value.payload.phase !== 'result' ||
-    bound.value.payload.action !== step.startRecord.payload.action ||
-    bound.value.payload.actionId !== step.startRecord.payload.actionId ||
-    canonicalValueDigest(bound.value.payload.start) !== canonicalValueDigest(step.start) ||
-    canonicalValueDigest(bound.value.payload.inputs) !== canonicalValueDigest(step.startRecord.payload.inputs) ||
-    canonicalValueDigest(bound.value.payload.exactInputs) !== canonicalValueDigest(step.startRecord.payload.exactInputs)
-  )
-    throw new Error(`Native plan RESULT not authenticated after readback: ${JSON.stringify(bound)}`)
-  return { published, result, read: after.read, receipt: published.receipt, record: bound.value }
+  return retainHistoricalPlanResult(input, step, result)
 }
 
-/** Persist one actual draft and two independently captured specialist judgments. */
+export async function retainHistoricalPlanResult(input: Context, step: OpenedPlanStep, result: NativeBatchResult) {
+  const { payload } = step.startRecord
+  const { world, scope } = input
+  const negative = result.children.find((item) => item.contextBlock !== undefined)
+  const child = negative ?? result.children[0]
+  if ((!result.complete && !negative) || !child)
+    return {
+      published: { published: false, reason: 'action-uncertain' } as const,
+      result,
+      read: await world.operations.readUw(scope),
+    }
+  const common = {
+    phase: 'result' as const,
+    start: step.start,
+    native: nativeOutcome(child, true),
+    admission: null,
+    diagnostics: [],
+  }
+  if (payload.phase !== 'start') throw new Error('Historical planner does not have a START')
+  const saved =
+    payload.action === 'plan'
+      ? await appendNativeReceipt(world, scope, {
+          ...payload,
+          ...common,
+          structured: negative
+            ? missingContextOutputSchema.parse(negative.structured)
+            : planOutputSchema.parse(child.structured),
+        })
+      : payload.action === 'plan-review'
+        ? await appendNativeReceipt(world, scope, {
+            ...payload,
+            ...common,
+            structured: negative ? missingContextOutputSchema.parse(negative.structured) : null,
+            contributions: payload.slots.flatMap(({ slotId, specialist, action }) => {
+              const captured = result.children.find((item) => item.expectedId === slotId)
+              if (!captured && negative) return []
+              if (!captured || !action) throw new Error(`Unbound fixture specialist ${slotId}`)
+              return [
+                {
+                  content: 'action-result',
+                  inventoryId: null,
+                  host: {
+                    origin: 'native',
+                    phase: null,
+                    role: specialist,
+                    slotId,
+                    chunk: null,
+                    childId: captured.id,
+                    action,
+                  },
+                  rawAttempts: captured.submissions,
+                  native: nativeOutcome(captured, true),
+                  structured: captured.structured,
+                  findings: null,
+                },
+              ]
+            }),
+          })
+        : undefined
+  if (!saved) throw new Error('Historical planner has the wrong action')
+  return {
+    published: { published: true } as const,
+    result,
+    read: await world.operations.readUw(scope),
+    receipt: saved.ref,
+    record: saved.record,
+  }
+}
+
 export async function produceNativePlan(
   input: Context & { output: PlanOutput; reviews: readonly [PlanReview, PlanReview] },
 ) {
-  const initial = await observe(input)
-  requireUnplannedHistory(initial.issue)
   const draft = await openNativePlanStep(input, 'plan')
-  const planTask = draft.opened.followUp.tasks.tasks[0]
-  if (!planTask || draft.opened.followUp.tasks.tasks.length !== 1)
-    throw new Error('Native plan draft task is ambiguous')
+  const [planner] = draft.opened.followUp.tasks.tasks
+  if (!planner) throw new Error('Historical plan task is unavailable')
   const plan = await publishNativePlanStep(input, draft, [
-    { task: planTask.name, childId: 'native-plan', value: input.output },
+    { task: planner.name, childId: 'native-plan', value: input.output },
   ])
-  if (!plan.published.published || !('record' in plan) || !plan.record || !('receipt' in plan) || !plan.receipt)
-    throw new Error(`Native plan publication refused: ${JSON.stringify(plan.published)}`)
-  if (plan.record.payload.action !== 'plan' || plan.record.payload.phase !== 'result')
-    throw new Error('Readback is not the native plan result')
-  const persistedPlan = planOutputSchema.safeParse(plan.record.payload.structured)
-  if (!persistedPlan.success || canonicalValueDigest(persistedPlan.data) !== canonicalValueDigest(input.output))
-    throw new Error('Native plan output differs from its captured claim')
+  if (!plan.published.published || !plan.record || !plan.receipt)
+    throw new Error('Historical plan result was not seeded')
   const review = await openNativePlanStep(input, 'plan-review')
-  if (review.startRecord.payload.action !== 'plan-review' || review.startRecord.payload.phase !== 'start')
-    throw new Error('Native plan review START lacks slots')
-  const slots = review.startRecord.payload.slots
-  if (slots.length !== 2) throw new Error('Native plan review did not declare both specialist slots')
-  const slotActions = slots.map((slot) => {
-    if (!slot.action) throw new Error(`Native plan review slot ${slot.slotId} lacks its sealed action`)
-    return { slotId: slot.slotId, specialist: slot.specialist, action: slot.action }
-  })
-  if (review.startRecord.payload.exactInputs.planDigest !== planDigest(persistedPlan.data))
-    throw new Error('Native plan review is not bound to the persisted plan output')
-  const reviewTasks = review.opened.followUp.tasks.tasks
-  if (reviewTasks.length !== 2) throw new Error('Native plan review task count is wrong')
   const reviewed = await publishNativePlanStep(
     input,
     review,
-    reviewTasks.map((task, index) => {
+    review.opened.followUp.tasks.tasks.map(({ name }, index) => {
       const value = input.reviews[index]
-      if (value === undefined) throw new Error('Native plan review task lacks its specialist judgment')
-      return { task: task.name, childId: `native-plan-review-${task.name}`, value }
+      if (!value) throw new Error(`Missing historical judgment ${name}`)
+      return { task: name, childId: `native-plan-review-${name}`, value }
     }),
   )
-  const verifyReview = () => {
-    if (
-      !reviewed.published.published ||
-      !('record' in reviewed) ||
-      !reviewed.record ||
-      !('receipt' in reviewed) ||
-      !reviewed.receipt
-    )
-      throw new Error(`Native plan review publication refused: ${JSON.stringify(reviewed.published)}`)
-    if (
-      reviewed.record.payload.action !== 'plan-review' ||
-      reviewed.record.payload.phase !== 'result' ||
-      reviewed.record.payload.contributions.length !== slots.length ||
-      reviewed.record.payload.contributions.some(
-        (contribution) => contribution.host.childId === null || contribution.rawAttempts.length === 0,
-      )
-    )
-      throw new Error('Native plan review did not retain both actual specialist submissions')
-    return { receipt: reviewed.receipt, record: reviewed.record, read: reviewed.read }
-  }
-  const verifiedReview = verifyReview()
+  if (!reviewed.published.published || !reviewed.record || !reviewed.receipt)
+    throw new Error('Historical review result was not seeded')
+  const { payload } = review.startRecord
+  if (payload.action !== 'plan-review' || payload.phase !== 'start')
+    throw new Error('Historical review START is unavailable')
   return {
-    initial: initial.read,
+    initial: draft.before,
     planStart: draft.start,
     planStartRecord: draft.startRecord,
     planResult: plan.receipt,
     planRecord: plan.record,
     reviewStart: review.start,
     reviewStartRecord: review.startRecord,
-    reviewResult: verifiedReview.receipt,
-    reviewRecord: verifiedReview.record,
-    slotActions,
-    planDigest: planDigest(persistedPlan.data),
-    read: verifiedReview.read,
+    reviewResult: reviewed.receipt,
+    reviewRecord: reviewed.record,
+    planDigest: planDigest(input.output),
+    slotActions: payload.slots.map((slot) => {
+      if (!slot.action) throw new Error(`Unbound historical specialist ${slot.slotId}`)
+      return { ...slot, action: slot.action }
+    }),
+    read: reviewed.read,
   }
 }

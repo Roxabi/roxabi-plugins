@@ -2,16 +2,14 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { SelectedMandateAuthority } from '../../../../roxabi/feature-disarm-ownership.ts'
 import { epicRuntime } from './epic-driver-gh-stub.ts'
 
-/**
- * The driver's I/O shell, end to end: a real git repository (a bare origin, the
- * Principal clone, a detached epic worktree) and a stub `gh` that serves canned
- * GraphQL and records every write. Each case asserts what the driver did to git
- * and what it wrote to GitHub, in order.
- */
-
-const DRIVER = path.resolve(import.meta.dirname, '..', '..', 'epic-driver.ts')
+// Real Git checkout and a stub `gh` that serves histories and records writes.
+const CONTROL = path.resolve(import.meta.dirname, '..', '..', 'epic-driver-control.ts')
+const CONTRACTS = path.resolve(import.meta.dirname, '..', '..', '..', '..', 'dist', 'contracts.js')
+const FEATURE_DISARM = path.resolve(import.meta.dirname, '..', '..', '..', '..', 'roxabi', 'feature-disarm.ts')
+const RUNTIME = path.resolve(import.meta.dirname, '..', '..', 'epic-driver-runtime.ts')
 
 export type Sandbox = {
   root: string
@@ -95,20 +93,30 @@ export function writes(): string[] {
   }
 }
 
-export function drive(args: string[], { cwd = sandboxOf().epic, epic = 1 } = {}) {
-  const { env } = sandboxOf()
+function runContainment(script: string) {
+  const { epic: cwd, env } = sandboxOf()
   const { bun } = epicRuntime()
-  const command = env.DRIVER_STRACE ? ['strace', '-f', '-e', 'trace=openat,write', '-o', env.DRIVER_STRACE, bun] : [bun]
-  const out = spawnSync(command[0], [...command.slice(1), DRIVER, ...args, '--epic', String(epic)], {
-    cwd,
-    env,
-    encoding: 'utf8',
-  })
-  return { code: out.status, stdout: out.stdout, stderr: out.stderr, json: () => JSON.parse(out.stdout) }
+  const out = spawnSync(bun, ['--no-env-file', '--no-install', '-e', script], { cwd, env, encoding: 'utf8' })
+  return { code: out.status, stderr: out.stderr, json: () => JSON.parse(out.stdout) }
 }
 
-export function detail(text: string): string[] {
-  const file = path.join(sandboxOf().root, 'detail.txt')
-  writeFileSync(file, text)
-  return ['--detail-file', file]
+export function readControlTarget() {
+  return runContainment(`
+    import { readEpicControlTarget } from ${JSON.stringify(CONTROL)}
+    console.log(JSON.stringify(await readEpicControlTarget(process.cwd(), 1)))
+  `)
+}
+
+export function disarmControlTarget(mandate: SelectedMandateAuthority['mandate']) {
+  return runContainment(`
+    import * as loaded from ${JSON.stringify(CONTRACTS)}
+    import { disarmKnownTarget } from ${JSON.stringify(FEATURE_DISARM)}
+    import { gh } from ${JSON.stringify(RUNTIME)}
+    const result = await disarmKnownTarget(async (cwd, args) => gh(cwd, args), process.cwd(), {
+      status: 'issue',
+      scope: { repository: 'o/r', target: 'o/r#1' },
+      issue: { number: 1 },
+    }, 'epic', null, { loaded, mandate: ${JSON.stringify(mandate)} })
+    console.log(JSON.stringify(result))
+  `)
 }

@@ -12,9 +12,10 @@ import {
   numberOf,
   prepare,
 } from '../../testing/framing-runtime-fixture.ts'
+import { resolveFeatureAuthority } from '../feature-continuation-admission.ts'
+import { selectFeatureMandate } from '../feature-continuation-selection.ts'
 import { freshOwnSpec } from '../feature-initial-own-spec.ts'
 import type { UwOperations } from '../uw-contract.ts'
-import { continueFeature } from '../workflow.ts'
 import { writtenBoundary } from './feature-framing-controller-world.ts'
 
 afterEach(() => {
@@ -59,7 +60,10 @@ async function checkFresh(
   if (kind === 'publish-result') {
     if (outcome === 'landed') {
       expect(read.admission.aggregate).toMatchObject({ status: 'complete' })
-      expect(await freshOwnSpec(subject, read, operations)).not.toHaveProperty('kind')
+      expect(await freshOwnSpec(subject, read, operations)).toEqual({
+        kind: 'blocked',
+        reason: 'parent-delivery-suspended',
+      })
     } else {
       expect(read.admission.aggregate).toMatchObject({ status: 'held', code: 'framing-aggregate-incomplete' })
       expect(await freshOwnSpec(subject, read, operations)).toMatchObject({
@@ -78,7 +82,7 @@ async function checkFresh(
     return
   }
   expect(read.admission.aggregate.status).toBe('none')
-  const selected = await continueFeature({
+  const authority = await resolveFeatureAuthority({
     cwd: boundary.principal,
     reference: subject.target,
     control: 'select',
@@ -87,11 +91,13 @@ async function checkFresh(
     git: boundary.git,
     uw: operations,
   })
+  const selected =
+    'kind' in authority ? authority : await selectFeatureMandate('select', undefined, authority, operations)
   if (kind === 'publish-binding') {
     expect(codes(read.admission.framed.diagnostics)).toContain('spec-id-unallocated')
     expect(selected).toMatchObject({ kind: 'blocked', reason: 'spec-id-unallocated' })
   } else {
-    expect(selected).toEqual({ kind: 'framing', source: { kind: 'issue', uw: subject } })
+    expect(selected).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
   }
 }
 
