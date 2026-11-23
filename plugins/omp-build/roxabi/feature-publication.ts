@@ -1,24 +1,10 @@
 import type { GitRunner } from './workflow-checkout.ts'
 
-/** True when a push URL itself carries a credential: userinfo (beyond an `ssh://` user name) or a query. */
-function carriesCredential(url: string): boolean {
-  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)/i.exec(url)
-  if (match === null) return false
-  const at = match[2].lastIndexOf('@')
-  const userinfo = at < 0 ? '' : match[2].slice(0, at)
-  return url.includes('?') || userinfo.includes(':') || (userinfo !== '' && match[1].toLowerCase() !== 'ssh')
-}
-
 /**
- * git may echo a push URL with any credential it carries, and no masking of that text is reliable. When a
- * push URL of `origin` carries a credential, or cannot be read, the message is withheld; otherwise it is
- * returned whole. scp-like and local URLs carry none.
+ * git's stderr is returned whole. It can echo a credential (a credential-bearing push URL, curl tracing);
+ * accepted: the session's agent sees the same text when it runs git itself (operator decision, #1035).
  */
-async function pushDiagnostic(git: GitRunner, cwd: string, stderr: string): Promise<string> {
-  const configured = await git(cwd, ['remote', 'get-url', '--push', '--all', 'origin'])
-  if (configured.code !== 0) return 'git push: stderr withheld (push URL unreadable)'
-  if (configured.stdout.split('\n').some((url) => carriesCredential(url.trim())))
-    return 'git push: stderr withheld (a push URL of origin carries a credential)'
+function pushDiagnostic(stderr: string): string {
   return `git push: ${stderr.trim() || 'no stderr'}`
 }
 
@@ -67,7 +53,7 @@ export async function proveAuthorizedBranch(
   // `^{commit}` cannot name a ref, so a local branch named like the SHA cannot shadow it.
   const pushed = await git(cwd, ['push', 'origin', `${tip}^{commit}:refs/heads/${branch}`])
   if (pushed.code !== 0)
-    return { ok: false, reason: 'implementation-push-failed', detail: await pushDiagnostic(git, cwd, pushed.stderr) }
+    return { ok: false, reason: 'implementation-push-failed', detail: pushDiagnostic(pushed.stderr) }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
   if (remote.code !== 0 || remoteTip !== tip) return { ok: false, reason: 'implementation-remote-unconfirmed' }
