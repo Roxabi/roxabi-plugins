@@ -4,26 +4,53 @@ import { sha256Bytes } from '../roxabi/uw-action-result.ts'
 import { boundInput } from './review-gate-arrangement.ts'
 import { git, type ReviewGateFixture } from './review-gate-fixture.ts'
 
-/** A committed pre-3c catalogue with a profile that the current gate checkout no longer installs. */
+// The producer's ordered nativeReviewProfiles roster at cf03b9c4, independent of the verifier.
+const PROFILES = [
+  'adversarial',
+  'security-auditor',
+  'architect',
+  'devops',
+  'tester',
+  'spec',
+  'synthesis',
+  'fix-intake',
+  'fix-synthesis',
+  'fix-apply',
+  'fix-falsify',
+  'recall',
+] as const
+
+/** A committed pre-3c catalogue with all twelve retired review profiles. */
 export function historicalGateInput(
   fixture: ReviewGateFixture,
-  fault?: 'bad profile digest' | 'stale repository references',
+  fault?: 'bad profile digest' | 'stale repository references' | 'incomplete historical inventory',
 ) {
   const root = 'plugins/omp-build'
-  const profile = `${root}/agents/R-review-spec.md`
   const packageFile = `${root}/package.json`
-  const profileFile = path.join(fixture.tools, profile)
-  if (existsSync(profileFile)) throw new Error('retired review profile is installed in the current gate')
   const pkgBytes = `${JSON.stringify({ ...JSON.parse(readFileSync(path.join(fixture.tools, packageFile), 'utf8')), version: '0.21.14' })}\n`
-  const profileBytes = '---\nname: R-review-spec\n---\nReview the supplied Spec.\n'
   git(fixture.tools, ['switch', '-q', '--detach', fixture.pin])
   writeFileSync(path.join(fixture.tools, packageFile), pkgBytes)
-  writeFileSync(profileFile, profileBytes)
-  git(fixture.tools, ['add', packageFile, profile])
+  const profiles = PROFILES.map((profile) => {
+    const name = `R-review-${profile}`
+    const file = `${root}/agents/${name}.md`
+    const bytes = `---\nname: ${name}\n---\nReview the supplied input.\n`
+    const installed = path.join(fixture.tools, file)
+    if (existsSync(installed)) throw new Error(`${file} is installed in the current gate`)
+    writeFileSync(installed, bytes)
+    const digest =
+      fault === 'bad profile digest' && profile === 'spec' ? '0'.repeat(64) : sha256Bytes(Buffer.from(bytes))
+    return { path: file, digest }
+  })
+  git(fixture.tools, ['add', packageFile, ...profiles.map((profile) => profile.path)])
   git(fixture.tools, ['commit', '-qm', 'pre-3c review tooling'])
   const commit = git(fixture.tools, ['rev-parse', 'HEAD'])
   git(fixture.tools, ['switch', '-q', 'main'])
-  if (existsSync(profileFile)) throw new Error('historical review profile leaked into the current gate')
+  for (const profile of profiles) {
+    if (existsSync(path.join(fixture.tools, profile.path)))
+      throw new Error(`${profile.path} leaked into the current gate`)
+  }
+  // The omitted profile still exists at the pinned commit; every listed digest is valid.
+  if (fault === 'incomplete historical inventory') profiles.pop()
 
   return boundInput(fixture, (manifest) => {
     const { repository, files } = manifest.plugin
@@ -37,13 +64,7 @@ export function historicalGateInput(
           commit,
           digest: ref.path === packageFile ? sha256Bytes(Buffer.from(pkgBytes)) : ref.digest,
         })),
-        {
-          source: 'git-file',
-          repository,
-          commit,
-          path: profile,
-          digest: fault === 'bad profile digest' ? '0'.repeat(64) : sha256Bytes(Buffer.from(profileBytes)),
-        },
+        ...profiles.map((profile) => ({ source: 'git-file' as const, repository, commit, ...profile })),
       ],
     }
     if (fault === 'stale repository references') manifest.repositoryReferences = []

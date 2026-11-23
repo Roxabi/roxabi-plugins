@@ -20,7 +20,7 @@ import type {
 } from './uw-action-contract.ts'
 import { dossierIndex, materializeActionFiles, repositorySealPath } from './uw-action-dossier.ts'
 import { acceptCurrentManifest, verifyExpandedContext, verifyReviewedPlugin } from './uw-action-expanded.ts'
-import { verifiedPluginFiles } from './uw-action-plugin-files.ts'
+import { verifiedPluginFiles, verifyReviewPluginInventory } from './uw-action-plugin-files.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 import { sealActionSnapshot } from './uw-action-snapshot.ts'
 import { correctionLocalPorts } from './uw-correction-local-ports.ts'
@@ -49,26 +49,27 @@ async function resolveFiles(
   return { ok: true, value: files }
 }
 
-async function installedActionPlugin(ports: UwActionPorts) {
-  const pin = await ports.plugin.resolveInstalledPluginPin()
-  if (!pin.ok) return pin
-  const plugin = await verifiedPluginFiles(ports, pin.value)
-  if (!plugin.ok) return plugin
-  return { ok: true as const, value: { pin: { ...pin.value, files: plugin.value.refs }, files: plugin.value.files } }
-}
-
 async function buildManifest(
   request: UwActionRequest,
   ports: UwActionPorts,
-  plugin: ActionInputManifest['plugin'],
   reviewedFingerprint?: string,
   reviewedRoot?: ReviewRootRef,
   correctionRoot?: CorrectionRootRef,
-): Promise<Result<ActionInputManifest>> {
+  reviewedPlugin?: ActionInputManifest['plugin'],
+): Promise<Result<{ manifest: ActionInputManifest; pluginFiles: readonly { path: string; bytes: Uint8Array }[] }>> {
+  const pin = await ports.plugin.resolveInstalledPluginPin()
+  if (!pin.ok) return pin
   const facts = await ports.readCurrentActionFacts(request, reviewedFingerprint, reviewedRoot, correctionRoot)
   if (!facts.ok) return facts
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
+  const plugin = await verifiedPluginFiles(ports, pin.value)
+  if (!plugin.ok) return plugin
+  const installed = { ...pin.value, files: plugin.value.refs }
+  if (reviewedPlugin !== undefined) {
+    const verified = await verifyReviewPluginInventory(reviewedPlugin, installed, ports)
+    if (!verified.ok) return verified
+  }
   const draft: ActionInputManifest = {
     format: ACTION_INPUT_FORMAT,
     purpose: request.purpose,
@@ -78,7 +79,7 @@ async function buildManifest(
     acceptedSources: facts.value.acceptedSources,
     deliveryData: facts.value.deliveryData,
     repositoryReferences: references.value,
-    plugin,
+    plugin: reviewedPlugin ?? installed,
     configuration: facts.value.configuration,
     ...(facts.value.operands === undefined ? {} : { operands: facts.value.operands }),
     expandedContext: [...request.expandedContext],
@@ -96,7 +97,8 @@ async function buildManifest(
   }
   const validated = validateActionInputs(inputs)
   if (!validated.ok) return { ok: false, diagnostics: validated.diagnostics }
-  return acceptCurrentManifest(request, ports, validated.value.manifest, facts.value.currentOutputs)
+  const accepted = await acceptCurrentManifest(request, ports, validated.value.manifest, facts.value.currentOutputs)
+  return accepted.ok ? { ok: true, value: { manifest: accepted.value, pluginFiles: plugin.value.files } } : accepted
 }
 
 export async function prepareUwAction(
@@ -106,18 +108,10 @@ export async function prepareUwAction(
   correctionRoot?: CorrectionRootRef,
 ): Promise<Result<PreparedUwAction>> {
   const scoped = correctionLocalPorts(request, ports)
-  const plugin = await installedActionPlugin(scoped)
-  if (!plugin.ok) return plugin
-  const manifest = await buildManifest(
-    request,
-    scoped,
-    plugin.value.pin,
-    review?.fingerprint,
-    review?.root,
-    correctionRoot,
-  )
-  if (!manifest.ok) return manifest
-  const files = await resolveFiles(request, scoped, manifest.value, plugin.value.files)
+  const built = await buildManifest(request, scoped, review?.fingerprint, review?.root, correctionRoot)
+  if (!built.ok) return built
+  const { manifest, pluginFiles } = built.value
+  const files = await resolveFiles(request, scoped, manifest, pluginFiles)
   if (!files.ok) return files
   const placed = await ports.snapshots.create({ actionId: request.actionId, files: files.value })
   if (!placed.ok) return placed
@@ -125,7 +119,7 @@ export async function prepareUwAction(
     {
       id: placed.value.indexPath,
       actionId: request.actionId,
-      manifestDigest: actionInputDigest(manifest.value),
+      manifestDigest: actionInputDigest(manifest),
       indexPath: placed.value.indexPath,
       location: placed.value.location,
     },
@@ -134,7 +128,7 @@ export async function prepareUwAction(
   if (!sealed.ok) return sealed
   const inputs: ActionInputs = {
     format: ACTION_BINDING_FORMAT,
-    manifest: manifest.value,
+    manifest,
     fingerprint: sealed.value.manifestDigest,
     stageSources: [...request.stageSources],
   }
@@ -250,36 +244,24 @@ export async function currentActionFingerprint(
   ports: UwActionPorts,
   review?: StoredReview,
 ): Promise<Result<string>> {
-  // The current tooling installation still has to match its trusted pin; it does not identify
-  // the tooling that produced an existing review.
-  const installed = await installedActionPlugin(ports)
-  if (!installed.ok) return installed
   if (review === undefined) {
-    const manifest = await buildManifest(request, ports, installed.value.pin)
-    return manifest.ok ? { ok: true, value: actionInputDigest(manifest.value) } : manifest
+    const built = await buildManifest(request, ports)
+    return built.ok ? { ok: true, value: actionInputDigest(built.value.manifest) } : built
   }
   const selected = selectStoredReview(review)
   if (!selected.ok) return selected
   const { inputs, root } = selected.value
-  const historical = inputs.manifest.plugin
-  if (historical.repository !== installed.value.pin.repository || historical.root !== installed.value.pin.root)
-    return actionFailure(
-      'review-input-changed',
-      'Reviewed tooling is not from the installed plugin repository and root',
-    )
-  // When the two pins are identical the installed-file check above already verified every blob.
-  if (canonicalValueDigest(historical) !== canonicalValueDigest(installed.value.pin)) {
-    const verified = await verifyReviewedPlugin(inputs.manifest, ports)
-    if (!verified.ok) return verified
-  }
+  // The current install must still match its trusted pin. Only after verifying the selected
+  // review's complete inventory can that attempt's different tooling pin be used.
   // Only the tooling pin and explicitly reviewed context are historical. Rediscover repository refs
   // and rebuild all candidate facts from the current request before comparing the fingerprint.
-  const manifest = await buildManifest(
+  const built = await buildManifest(
     { ...request, stageSources: inputs.stageSources, expandedContext: inputs.manifest.expandedContext },
     ports,
-    historical,
     review.fingerprint,
     root,
+    undefined,
+    inputs.manifest.plugin,
   )
-  return manifest.ok ? { ok: true, value: actionInputDigest(manifest.value) } : manifest
+  return built.ok ? { ok: true, value: actionInputDigest(built.value.manifest) } : built
 }

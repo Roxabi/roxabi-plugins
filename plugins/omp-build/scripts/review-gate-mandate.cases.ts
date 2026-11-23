@@ -240,31 +240,33 @@ export function registerReviewGateMandateCases(): void {
       expect(JSON.parse(result.stdout)).toMatchObject({ allowed: false })
     })
 
-    it.each(['bad profile digest', 'stale repository references'] as const)(
-      'refuses a pre-3c review with %s',
-      async (fault) => {
-        const fixture = setupReviewGateFixture()
-        await seedMandate(fixture)
-        const input = await historicalGateInput(fixture, fault)
-        publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
+    it.each([
+      ['bad profile digest', 'R-review-spec.md'],
+      ['stale repository references', 'review inputs changed'],
+      ['incomplete historical inventory', 'exact ordered native review inventory'],
+      ['incomplete current-commit inventory', 'exactly match the installed inventory'],
+    ] as const)('refuses a review with %s', async (fault, error) => {
+      const fixture = setupReviewGateFixture()
+      await seedMandate(fixture)
+      const input =
+        fault === 'incomplete current-commit inventory'
+          ? await boundInput(fixture, (manifest) => {
+              manifest.plugin.files.pop()
+            })
+          : await historicalGateInput(fixture, fault)
+      publish(fixture, cleanReview(fixture, fixture.head, 'one', input), 'SUCCESS')
 
-        const result = runReviewGate(fixture)
+      const result = runReviewGate(fixture)
 
-        expect(result.status).toBe(1)
-        expect(result.stderr).toBe('')
-        expect(JSON.parse(result.stdout)).toMatchObject({
-          ok: false,
-          allowed: false,
-          ...(fault === 'stale repository references' ? { reason: 'review-input-changed' } : {}),
-          detail: {
-            error:
-              fault === 'bad profile digest'
-                ? expect.stringContaining('R-review-spec.md')
-                : expect.stringContaining('review inputs changed'),
-          },
-        })
-      },
-    )
+      expect(result.status).toBe(1)
+      expect(result.stderr).toBe('')
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        ok: false,
+        allowed: false,
+        ...(fault === 'bad profile digest' ? {} : { reason: 'review-input-changed' }),
+        detail: { error: expect.stringContaining(error) },
+      })
+    })
 
     it('refuses pending CI when the current canonical review requests changes', async () => {
       const fixture = setupReviewGateFixture()
