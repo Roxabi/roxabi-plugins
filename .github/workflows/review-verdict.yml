@@ -102,9 +102,12 @@ jobs:
             -f "output[summary]=Approved by @$COMMENTER. Evidence: $evidence. Verdict: $COMMENT_URL" >/dev/null
           echo "review check posted on $head"
 
+      # Refuses when the first PR commit is not Dependabot's; carry-forward must
+      # still run then, so a failure here only withholds the automatic approval.
       - name: Dependabot metadata
         id: dependabot
         if: github.event_name == 'pull_request_target' && github.event.pull_request.user.login == 'dependabot[bot]'
+        continue-on-error: true
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98
         with:
           github-token: ${{ github.token }}
@@ -116,7 +119,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
-          UPDATE_TYPE: ${{ steps.dependabot.outputs.update-type }}
+          UPDATE_TYPE: ${{ steps.dependabot.outcome == 'success' && steps.dependabot.outputs.update-type || 'unknown' }}
         run: |
           set -euo pipefail
           post() {
