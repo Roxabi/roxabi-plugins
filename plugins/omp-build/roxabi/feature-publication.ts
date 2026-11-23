@@ -27,7 +27,8 @@ export async function proveAuthorizedBranch(
     beforePush: () => Promise<{ ok: true } | { ok: false; reason: string }>
   },
 ): Promise<
-  { ok: true; remoteTip: string } | { ok: false; reason: string; confirmedRemote?: { branch: string; tip: string } }
+  | { ok: true; remoteTip: string }
+  | { ok: false; reason: string; detail?: string; confirmedRemote?: { branch: string; tip: string } }
 > {
   const current = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (current.code !== 0 || current.stdout.trim() !== branch)
@@ -40,8 +41,9 @@ export async function proveAuthorizedBranch(
     return authorizeObservedTip(branch, observedTip, () => authority.effect())
   const authorized = await authority.beforePush()
   if (!authorized.ok) return authorized
-  const pushed = await git(cwd, ['push', 'origin', `HEAD:refs/heads/${branch}`])
-  if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed' }
+  // The verified SHA, not `HEAD`: a checkout moved after the check above cannot be published here.
+  const pushed = await git(cwd, ['push', 'origin', `${tip}:refs/heads/${branch}`])
+  if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed', detail: pushed.stderr.trim() }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
   if (remote.code !== 0 || remoteTip !== tip) return { ok: false, reason: 'implementation-remote-unconfirmed' }

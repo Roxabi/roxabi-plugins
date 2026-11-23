@@ -62,13 +62,21 @@ describe('implementation branch effect authority', () => {
     expect(calls.some(([command]) => command === 'push')).toBe(false)
   })
 
-  it('distinguishes a failed push from a confirmed remote mismatch', async () => {
+  it('distinguishes a failed push from a confirmed remote mismatch and keeps git stderr', async () => {
     const { git, calls } = branchGit('b'.repeat(40), 1)
     const allowed = async () => ({ ok: true as const })
     const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
 
-    expect(result).toEqual({ ok: false, reason: 'implementation-push-failed' })
+    expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail: 'connection lost' })
     expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
+  })
+
+  it('pushes the verified tip, never the symbolic HEAD', async () => {
+    const { git, calls } = branchGit('b'.repeat(40))
+    const allowed = async () => ({ ok: true as const })
+    await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
+
+    expect(calls.filter(([command]) => command === 'push')).toEqual([['push', 'origin', `${tip}:refs/heads/${branch}`]])
   })
 
   it('distinguishes an unconfirmed remote tip after a successful push', async () => {

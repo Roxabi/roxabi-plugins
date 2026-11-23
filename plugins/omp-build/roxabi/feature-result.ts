@@ -83,7 +83,7 @@ async function retainRemoteRefusal(
   claims: ImplementationClaims,
   commits: readonly RetainedCommit[],
   commands: HostEffectAdmission['commands'],
-  remote: { reason: string; confirmedRemote?: { branch: string; tip: string } },
+  remote: { reason: string; detail?: string; confirmedRemote?: { branch: string; tip: string } },
 ): Promise<FeatureNativePublication> {
   const confirmedRemote = remote.confirmedRemote
   if (remote.reason === 'implementation-start-resolved')
@@ -94,8 +94,10 @@ async function retainRemoteRefusal(
       ...(confirmedRemote === undefined ? {} : { confirmedRemote }),
     }
   if (confirmedRemote === undefined) {
+    // The record keeps the reason code; git's stderr goes to the operator only.
     const retained = await retainImplementationResult(binding, input, claims, remote.reason, commits, commands)
-    return retainedRefusal(retained, remote.reason)
+    const refusal = retainedRefusal(retained, remote.reason)
+    return remote.detail ? { ...refusal, detail: remote.detail } : refusal
   }
   try {
     const retained = await retainImplementationResult(

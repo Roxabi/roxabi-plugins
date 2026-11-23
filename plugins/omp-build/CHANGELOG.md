@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.10 (unreleased)
+
+- Push the verified implementation tip and show git's stderr when that push is rejected. `/feature` checked that `HEAD` was the verified tip, then pushed `HEAD:refs/heads/<branch>`, so a checkout moved in between could publish another commit; it now pushes `<tip>:refs/heads/<branch>`. A rejected push stopped with `feature-stopped: implementation-push-failed` and dropped git's message; the notification now ends with `· git: <stderr>`. The RESULT record keeps the reason code only.
+- Recognize 0.21.10 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.9 (unreleased)
 
 - Prune obsolete omp-build agent and distribution outputs after a successful in-place build. Fresh output builds remain isolated and verification remains read-only.

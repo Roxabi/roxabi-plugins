@@ -141,10 +141,18 @@ export type FeatureNativePublication =
       published: false
       retained: true
       reason: string
+      /** Operator-facing only (e.g. git's stderr); never published in a record. */
+      detail?: string
       receipt?: ScopedRecordRef
       confirmedRemote?: { branch: string; tip: string }
     }
-  | { published: false; retained: false; reason: string; confirmedRemote?: { branch: string; tip: string } }
+  | {
+      published: false
+      retained: false
+      reason: string
+      detail?: string
+      confirmedRemote?: { branch: string; tip: string }
+    }
 
 export type FeatureWorkflow = {
   continueFeature(input: ContinueFeatureInput): Promise<ContinueFeatureResult>
