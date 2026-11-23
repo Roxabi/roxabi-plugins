@@ -93,6 +93,11 @@ export function outputTree(root: string) {
       }
       checkRoots(false)
       for (const path of roots) visit(path)
+      // On a case-insensitive filesystem a stale spelling can alias a produced output; never report success without it.
+      for (const path of written) {
+        if (!lstatSync(join(root, path), { throwIfNoEntry: false })?.isFile())
+          throw new Error(`omp-build prune removed a produced output: ${path}`)
+      }
     },
   }
 }

@@ -229,4 +229,15 @@ describe('omp-build producer', () => {
     expect(readFileSync(later, 'utf8')).toBe(later)
     expect(snapshot(root, new Set(['plugins/omp-build/agents', 'plugins/omp-build/dist']))).toEqual(outside)
   })
+
+  it('fails when pruning a stale alias removes a produced output', () => {
+    put(join(plugin, 'agents', '.04-case-alias'), 'stale alias')
+    assertFailure(
+      capture(['tools/__tests__/omp-build-producer-prune-fault.ts'], root),
+      'omp-build prune removed a produced output: dist/contracts.d.ts',
+    )
+    const rebuilt = build()
+    expect(rebuilt.status, rebuilt.stderr).toBe(0)
+    expect(existsSync(join(plugin, 'dist', 'contracts.d.ts'))).toBe(true)
+  })
 })
