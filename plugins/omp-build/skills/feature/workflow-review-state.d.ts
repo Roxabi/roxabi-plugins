@@ -1,4 +1,3 @@
-import type { ReviewSummary } from '../../contracts.ts'
 import type { TrustedHostPluginPin } from '../../roxabi/uw-action-contract.ts'
 import type { Gh, Git } from './review-base.ts'
 import type { WithdrawalBarrier } from './workflow-gate.js'
@@ -18,11 +17,6 @@ export type ReviewStepOptions = {
 }
 
 export declare const MAX_FIX_ROUNDS: 2
-/** Pure transition from already-read records. No arm, disarm, or publication. */
-export declare function reviewStep(
-  records: Pick<ReviewSummary, 'reviews' | 'verdict' | 'head' | 'spent'>,
-  at: { head: string | null | undefined; ciFailed?: boolean },
-): ReviewStep
 export declare function persistObservedCiStop(
   cwd: string,
   pr: number | string,

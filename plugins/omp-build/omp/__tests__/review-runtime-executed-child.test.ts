@@ -66,10 +66,9 @@ describe('native executed-child contract', () => {
       'mcp__codegraph_codegraph_codegraph_explore',
       'mcp__context7_query_docs',
       'mcp__context7_resolve_library_id',
-      'omp_build_start_review',
-      'omp_build_terminalize_interrupted_review',
-      'omp_build_grant_review_replacement',
-      'omp_build_replace_interrupted_review',
+      'omp_build_execute_native_batch',
+      'omp_build_framing_submit',
+      'omp_build_prepare_checkout',
     ]
     const registry = capturedTools.map((name, index) => ({
       name,

@@ -62,15 +62,15 @@ A confirmed record that pauses, resumes, abandons, names a successor, or records
 _Avoid_: a session goal, an unconfirmed inhibit
 
 **Review interruption**:
-A confirmed neutral terminal for an interrupted initial inventory in the retiring native review path. It preserves the original root and inputs; it is not a verdict, approval or fresh attempt.
+A historical record that ends an interrupted initial review inventory without a verdict. It preserves the original root and inputs.
 _Avoid_: Request changes, Approve, abort-as-verdict, rewriting the historical root
 
 **Replacement grant**:
-A separate, one-use authorization to run one linked replacement review after a Review interruption. Issuing it does not start tasks; a confirmed linked replacement inventory consumes it. Repeating terminalization or republication does not refill it.
+A historical record authorizing one linked replacement review after a Review interruption. Only a confirmed linked inventory consumes the grant.
 _Avoid_: a new Review bound, erasing historical attempts, automatic third recovery
 
 **Replacement review**:
-The second attempt that names a Replacement grant and the interrupted historical root. Its completed final is an ordinary review for accounting; an incomplete replacement stops and needs a new human checkpoint.
+A historical review attempt linked to a Replacement grant and the interrupted root. Only a completed final counts toward the legacy Review bound.
 _Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
 
 **Action receipt**:
@@ -277,8 +277,8 @@ The Claude/Grok factory plugin. Source stays in the marketplace; it is not loade
 _Avoid_: "the plugin" when the host is OMP
 
 **Dark-to-model**:
-A skill omitted from the prompt listing by `disable-model-invocation`, but still readable explicitly. The user-only command and retiring native review tool are separate entry points, not authority inferred from reading the skill.
-_Avoid_: unloaded, hidden, Isolation-dark (that last one is not invocable), "two gates", slash-only for every product path
+A skill omitted from the prompt listing by `disable-model-invocation`, but still readable explicitly. Reading a skill grants no authority.
+_Avoid_: unloaded, unavailable
 
 **Principal**:
 The first `git worktree list --porcelain` worktree. Read-only exploration and tracker framing can start here; feature file edits belong in a matching Worktree.
@@ -309,31 +309,27 @@ In-process OMP `tool_call` interceptor (principal freeze, bare `bun test`, secre
 _Avoid_: hook (Claude `hooks.json`), lefthook (commit/push persist law)
 
 **dev-review**:
-Independent review of an exact open PR head. Reviewer agents leave findings on the PR and emit a verdict line only on approval. `/feature` follows these instructions in-session; the separate native `omp_build_start_review` tool is retiring.
+Independent review of an exact open PR head. Reviewer agents leave findings on the PR and emit a verdict line only on approval. `/feature` follows these instructions in-session.
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **dev-fix**:
-The correction skill on OMP: implementer agents fix the findings of the latest `/dev-review` on an open PR head, the exact tip is pushed, and the next step is `/dev-review`. It never reviews its own work, posts a verdict or merges. It replaces `/fix`, which is retiring.
-_Avoid_: /fix (the retiring native command), fixing without a current review of the head, a self-review
-
-**fix**:
-The retiring native `/fix` path for evidence-backed per-cause correction and independent falsification. Pending blocking causes stay blocking, sisters require confirmation, and reports stay on their original UW. It never lands and is not invoked by composed Feature.
-_Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, automatic issue filing, picking a fix from a finding's solutions
+The correction skill on OMP: implementer agents fix the latest `/dev-review` findings and failing checks on an open PR head, push the exact tip, then hand off to `/dev-review`. Correction never posts a verdict or merges.
+_Avoid_: fixing without a current review of the head, a self-review
 
 **Correction owner**:
-The accountable holder of an admitted correction attempt. Transferring ownership does not replace its correction request or decision, reset a bound, or establish physical cessation.
+The accountable holder named in a historical `fix-owner` record. A transfer does not replace the request or decision or reset a bound.
 _Avoid_: the request itself, an agent session, a retry allowance, proof that every writer has ended
 
 **Bounded correction recovery**:
-An operator-confirmed transition in the retiring native correction path. It neutrally closes an interrupted pre-entry attempt or transfers an unstarted review-bound request and decision when the owner proves no entry and accounts for its preparation effects.
-_Avoid_: resuming a partly executed plan, post-push completion, a free lock as permission, ordinary task completion as physical cessation
+A historical `fix-recovery` record of operator-confirmed neutral closure before entry or transfer of an unstarted request with its unchanged decision. It does not authorize a new attempt.
+_Avoid_: a resumed patch, post-push completion, a free lock as permission
 
 **Root cause**:
 The shared mechanism behind one or more review findings, stated with its one plan: mechanism, fix, failure scenario, restored behaviour, affected paths, proof and findings. Named after the review, before any edit. Its cited necessity, urgency and size determine the cause disposition; a finding label alone does not authorize execution.
 _Avoid_: the finding itself, a class slug alone, a file, a menu of solutions
 
 **Review record**:
-The canonical `review` of the retiring native path, read by record identity. It names the decision, candidate SHA and input digest; its projection is not authority. Complete authenticated finals count toward the legacy bound and may support historical delivery proof. This is not the composed `review` check.
+The historical canonical `review` payload, read by record identity. It names the decision, candidate SHA and input digest. Complete authenticated finals count toward the legacy bound and may support historical delivery proof; they are not the composed `review` check.
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:

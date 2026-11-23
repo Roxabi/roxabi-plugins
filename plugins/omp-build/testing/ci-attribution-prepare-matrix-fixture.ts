@@ -12,7 +12,8 @@ import type { RecordInputRef, UwActionRequest } from '../roxabi/uw-action-contra
 import { pullHistory, setFailedCi } from './feature-ci-review-fixture.ts'
 import { arrangeReviewFixture, REVIEW_BRANCH, seedReviewFixture } from './feature-review-fixture.ts'
 import { isolatedPinSandbox } from './isolated-pin-sandbox.ts'
-import { readSim } from './sandbox/sandbox-repository.ts'
+import { historicalRecordFrames } from './record-history.ts'
+import { readSim, writeSim } from './sandbox/sandbox-repository.ts'
 import type { Box, SimState } from './sandbox/sandbox-types.ts'
 
 const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -60,12 +61,19 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
     },
   )
   expect(prefix.status, `${prefix.stderr}\n${prefix.stdout}`).toBe(0)
-  const captured = JSON.parse(prefix.stdout) as { intake: ActionInputs }
-  const intake = captured.intake
-  const subject = intake.manifest.subject
-  if (subject.kind !== 'uw' || !subject.binding || !subject.pullRequest) throw new Error('bound-intake-subject-missing')
-  const ref = intake.stageSources[0]
-  if (!ref || intake.stageSources.length !== 1) throw new Error('attribution-ref-missing')
+  const { records, ref } = JSON.parse(prefix.stdout) as { records: CanonicalRecord[]; ref: RecordInputRef }
+  const bodies = records.flatMap((record) => historicalRecordFrames(record, 'Historical attribution matrix evidence'))
+  writeSim(box, (state) => {
+    const pull = state.prs['7']
+    if (!pull) throw new Error('matrix-pull-missing')
+    let id = state.nextCommentId ?? 0
+    const timestamp = '2026-10-22T12:01:00Z'
+    for (const body of bodies) {
+      id += 1
+      pull.comments.push({ id, author: state.viewer, body, createdAt: timestamp, updatedAt: timestamp })
+    }
+    state.nextCommentId = id
+  })
   const history = pullHistory(box)
   const op = history.operations.find((item) => item.recordId === ref.record.recordId)
   const receipt = op?.record
@@ -76,11 +84,13 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
     receipt.payload.action !== 'attribute-ci'
   )
     throw new Error('attribution-result-missing')
+  const subject = receipt.payload.inputs.manifest.subject
+  if (subject.kind !== 'uw' || !subject.binding || !subject.pullRequest)
+    throw new Error('bound-attribution-subject-missing')
   const binding = history.operations.find((item) => item.recordId === subject.binding?.record.recordId)?.record
   if (binding?.kind !== 'workflow-binding') throw new Error('workflow-binding-missing')
   expect(accounted(history, receipt)).toBe(true)
   expect(accounted(history, binding)).toBe(true)
-  expect(receipt.payload.inputs.manifest.subject).toEqual(subject)
   expect(receipt.payload.mandate).toEqual(binding.payload.mandate)
   expect(ref.digest).toBe(canonicalValueDigest(receipt.payload))
   const baseline = readSim(box)
@@ -106,10 +116,12 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
     }
     return JSON.parse(result.stdout) as { ok: boolean; inputs?: ActionInputs; diagnostics?: { code: string }[] }
   }
-  const good = run(intake.manifest.code, [ref])
+  const good = run(code, [ref])
   expect(good.ok, JSON.stringify(good)).toBe(true)
-  expect(good.inputs?.manifest.subject).toEqual(subject)
-  expect(good.inputs?.stageSources).toEqual([ref])
+  const intake = good.inputs
+  if (!intake) throw new Error('attribution-intake-inputs-missing')
+  expect(intake.manifest.subject).toEqual(subject)
+  expect(intake.stageSources).toEqual([ref])
   const refused = (
     name: string,
     code: UwActionRequest['code'],

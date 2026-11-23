@@ -1,6 +1,5 @@
 export { graphqlVariables } from './adapters/github-workflow/client.ts'
 export {
-  type ContextActionBinding,
   contextNegativeBindingSchema,
   type MissingContextItem,
   type MissingContextOutput,
@@ -53,18 +52,15 @@ export {
   type CriterionReviewInput,
   evidenceDigest,
 } from './engine/criterion-admission.ts'
-export { completeCriterionDeclarations } from './engine/criterion-declaration-completion.ts'
 export {
   type CodeVersion,
   type CommandOutput,
   type CommandRun,
   CRITERION_EVIDENCE_FORMAT,
-  type CriterionDeclaration,
   type CriterionEvidence,
   codeVersionSchema,
   commandOutputSchema,
   commandRunSchema,
-  criterionDeclarationSchema,
   criterionEvidenceSchema,
   type EvidenceProvenance,
   type EvidenceRef,
@@ -112,15 +108,9 @@ export {
   unframedParserSchema,
 } from './engine/issue-spec-analysis-schema.ts'
 export { producerOutputValid } from './engine/producer-schema.ts'
-export { sameOwnSpecRef } from './engine/record-diagnostics.ts'
 export { gitObjectIdSchema } from './engine/record-references.ts'
 export { accounted, resolvedOutputValid } from './engine/review-context-authentication.ts'
-export {
-  authorizeReviewContextSuccessor,
-  directReviewContextSuccessors,
-  reviewActionId,
-  reviewInventoryHasContextNegative,
-} from './engine/review-context-lineage.ts'
+export { directReviewContextSuccessors } from './engine/review-context-lineage.ts'
 export { repoRelativePathSchema } from './engine/schema-primitives.ts'
 export { resolveSpecEffective, type SpecEffectiveRequest } from './engine/spec-effective.ts'
 export { SPEC_EFFECTIVE_FORMAT, type SpecEffective, specEffectiveSchema } from './engine/spec-effective-schema.ts'
@@ -137,7 +127,6 @@ export { type IntegrationOutput, integrationOutputSchema } from './engine/uw-int
 export {
   type ActionOperands,
   type AssessmentProposalOrigin,
-  type AssessSpecExact,
   actionOperandsSchema,
   assessmentProposalOriginSchema,
   type CiExact,
@@ -163,10 +152,7 @@ export type {
   MaterialAuthorization,
 } from './engine/workflow-mandate-schema.ts'
 export {
-  type AcceptedChildCommitment,
   acceptedChildCommitmentSchema,
-  type MandatePayload,
-  mandatePayloadSchema,
   parentCoverageSchema,
   validParentCoverage,
   type WorkflowBindingPayload,

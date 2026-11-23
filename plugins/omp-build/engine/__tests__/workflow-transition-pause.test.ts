@@ -4,10 +4,9 @@ import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
 import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
-import { assessFixMandate } from '../workflow-correction-admission.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { unliftedPause } from '../workflow-pause.ts'
-import { binding, history, mandate, must, PARENT, pauseControls, SCOPE } from './workflow-test-support.ts'
+import { binding, history, must, PARENT, pauseControls, SCOPE } from './workflow-test-support.ts'
 import {
   childCommitment,
   featureMandate,
@@ -156,21 +155,6 @@ describe('workflow transition pause behavior', () => {
         causal: fixtureCausal([standaloneHistory]),
       }),
     ).toEqual({ status: 'standalone', binding: 'absent' })
-
-    const standaloneFix = mandate()
-    const standalonePause = pauseControls(standaloneFix, 'standalone-fix-pause')
-    expect(
-      assessFixMandate({
-        target: { scope: pr, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [SCOPE],
-        history: history([binding(standaloneFix, pr)], pr),
-        linkedIssueHistory: history([standaloneFix, standalonePause.requested]),
-        causal: await nativeCausal(
-          [history([binding(standaloneFix, pr)], pr), history([standaloneFix, standalonePause.requested])],
-          [rootNode],
-        ),
-      }),
-    ).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
   })
 
   test('keeps parent pause cycles active for a child with a current accepted grant', async () => {

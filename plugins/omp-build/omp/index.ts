@@ -5,9 +5,9 @@ import { installOmpToolGuards } from './omp-tool-guards'
 
 export default function ompBuildExtension(pi: OmpBuildExtensionApi, options: OmpBuildExtensionOptions = {}): void {
   // Slash commands are user-only: `registerCommand` is the slash lane and the
-  // model cannot reach a command. `registerTool` registers the model-reachable
-  // review entry point, whose product admission still decides whether any work
-  // starts. A body's `disable-model-invocation` is not a second gate — omp
+  // model cannot reach a command. `registerTool` registers model-reachable
+  // tools, each with its own admission checks. A body's
+  // `disable-model-invocation` is not a second gate — omp
   // normalises it to `hide`, which omits the skill from the
   // prompt listing while `skill://<name>` and `/skill:<name>` still reach it
   // (measured on omp 18.2.9).

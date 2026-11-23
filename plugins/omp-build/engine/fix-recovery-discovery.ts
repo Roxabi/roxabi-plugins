@@ -35,7 +35,6 @@ export type HistoricalDiscoveryInput = Readonly<{
   graph: UwSemanticGraph
   opened: OpenedRef
 }>
-export type SelectedCurrentInput = FixRecoveryDiscoveryInput & Readonly<{ opened: OpenedRef }>
 
 export type FixRecoveryRead =
   | { status: 'none' }
@@ -61,7 +60,7 @@ export function fixRecoveryDiscoveryScopes(records: readonly CanonicalRecord[]):
   return [...scopes.values()]
 }
 
-type DiscoveryInput = FixRecoveryDiscoveryInput | HistoricalDiscoveryInput | SelectedCurrentInput
+type DiscoveryInput = FixRecoveryDiscoveryInput | HistoricalDiscoveryInput
 
 function duplicateOpenings(ownerRecords: readonly CanonicalRecord[]): boolean {
   const openingKeys = new Set<string>()
@@ -277,11 +276,6 @@ function discoverSnapshot(input: DiscoveryInput): FixRecoveryRead {
 }
 
 export function discoverFixRecovery(input: FixRecoveryDiscoveryInput): FixRecoveryRead {
-  return discoverSnapshot(input)
-}
-
-/** Caller must first authenticate the complete owner lineage that selects this opening. */
-export function discoverSelectedRecoveryOwner(input: SelectedCurrentInput): FixRecoveryRead {
   return discoverSnapshot(input)
 }
 

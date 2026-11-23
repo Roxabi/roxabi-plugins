@@ -1,7 +1,13 @@
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
-import type { FixActionResult } from './fix-contract.ts'
 import type { UwRead } from './uw-contract.ts'
+
+/** Reasons are shown to the operator, never published as stable codes. */
+export type CausalResult<T> = { ok: true; value: T } | { ok: false; diagnostics: string[]; reasons?: readonly string[] }
+
+export function causalFailure(...diagnostics: string[]): Extract<CausalResult<never>, { ok: false }> {
+  return { ok: false, diagnostics }
+}
 
 const SHOWN_REASONS = 3
 const REASON_LENGTH = 400
@@ -30,7 +36,7 @@ export function observationReasons(observation: UwRead['observation']): string[]
  * the read's own reasons, so a failed GitHub read is named instead of flattened to a code.
  */
 export function causalRefusal(
-  causal: Extract<FixActionResult<unknown>, { ok: false }>,
+  causal: Extract<CausalResult<unknown>, { ok: false }>,
   fallback = 'causal-history-unavailable',
 ): { reason: string; diagnostics: Diagnostic[] } {
   const lines = [...causal.diagnostics.slice(1), ...(causal.reasons ?? [])]

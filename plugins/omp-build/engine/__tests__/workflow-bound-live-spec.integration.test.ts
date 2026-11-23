@@ -1,6 +1,5 @@
 import { afterAll, expect, test } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { boundCorrection } from '../../roxabi/fix-mandate-resolution.ts'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context.ts'
 import { readCurrentOwnSpecFacts } from '../../roxabi/uw-current-facts.ts'
 import { createInstalledObservedUwReadPort } from '../../roxabi/uw-read-port.ts'
@@ -36,7 +35,7 @@ function nativeMandate(record: ReturnType<typeof featureMandate>) {
   return parsed
 }
 
-test('keeps bound review and correction settled after a stable native presentation edit', async () => {
+test('keeps bound review settled after a stable native presentation edit', async () => {
   const mandated = nativeMandate(featureMandate())
   const pr: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
   const histories = [history([mandated]), history([binding(mandated, pr)], pr)]
@@ -88,24 +87,9 @@ test('keeps bound review and correction settled after a stable native presentati
     histories,
     native,
   }
-  const correction = {
-    target: {
-      ...pr,
-      number: 99,
-      kind: 'pull-request' as const,
-      state: 'open' as const,
-      candidateGitSHA: git.p0,
-      baseGitSHA: git.p0,
-    },
-    ...native,
-  }
   expect(resolveBoundWork({ ...input, causal: initial, currentSpec: initialFacts.value.currentSpec })).toMatchObject({
     status: 'applicable',
     drift: 'settled',
-  })
-  expect(boundCorrection(correction, histories, initialFacts.value.currentSpec, initial)).toMatchObject({
-    ok: true,
-    value: { status: 'applicable', recordId: mandated.recordId },
   })
   const editorialBody = `${acceptedBody}\n`
   const editorial = await observe(editorialBody, 'S')
@@ -161,14 +145,6 @@ test('keeps bound review and correction settled after a stable native presentati
     drift: 'settled',
     acceptedSpec: { snapshot: mandated.payload.ownSpec.snapshot },
   })
-  expect.soft(boundCorrection(correction, histories, current, editorial)).toMatchObject({
-    ok: true,
-    value: {
-      status: 'applicable',
-      recordId: mandated.recordId,
-      acceptedSpec: { snapshot: mandated.payload.ownSpec.snapshot },
-    },
-  })
   const materialBody = acceptedBody.replace(BODY, `${BODY} materially changed`)
   expect(materialBody).not.toBe(acceptedBody)
   const materialSnapshot = nativeSnapshot(SCOPE, materialBody)
@@ -181,9 +157,6 @@ test('keeps bound review and correction settled after a stable native presentati
       currentSpec: { ...current, snapshot: materialSnapshot },
     }),
   ).toMatchObject({ status: 'applicable', drift: 'differs' })
-  expect(boundCorrection(correction, histories, { ...current, snapshot: materialSnapshot }, material)).toMatchObject({
-    ok: false,
-  })
   const tierChanged = await observe(acceptedBody, 'F-lite')
   expect(
     resolveBoundWork({
@@ -192,7 +165,4 @@ test('keeps bound review and correction settled after a stable native presentati
       currentSpec: { ...initialFacts.value.currentSpec, tier: 'F-lite' },
     }),
   ).toMatchObject({ status: 'applicable', drift: 'differs' })
-  expect(
-    boundCorrection(correction, histories, { ...initialFacts.value.currentSpec, tier: 'F-lite' }, tierChanged),
-  ).toMatchObject({ ok: false })
 })

@@ -1,9 +1,5 @@
 import { canonicalValueDigest } from './action-input.ts'
-import type {
-  FixRecoveryDiscoveryInput,
-  HistoricalDiscoveryInput,
-  SelectedCurrentInput,
-} from './fix-recovery-discovery.ts'
+import type { FixRecoveryDiscoveryInput, HistoricalDiscoveryInput } from './fix-recovery-discovery.ts'
 import { asOpenedRef, type OwnerPair } from './fix-recovery-discovery-records.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
@@ -23,7 +19,7 @@ import { confirmedAccountedMandate } from './workflow-pr-binding.ts'
 import { resolveBindingChain } from './workflow-pr-binding-chain.ts'
 
 const refuse = (message: string) => diagnostic('unconfirmed', message)
-type DiscoveryInput = FixRecoveryDiscoveryInput | HistoricalDiscoveryInput | SelectedCurrentInput
+type DiscoveryInput = FixRecoveryDiscoveryInput | HistoricalDiscoveryInput
 type OwnerCommon = OwnerPair['opened']['payload']['common']
 
 function authenticateAnchors(pair: OwnerPair, home: DecodedHistory): Diagnostic | null {
@@ -193,7 +189,7 @@ function authenticatePauseAuthority(mandate: MandateRecord, histories: readonly 
 }
 
 export function authenticateSourceBasis(
-  input: FixRecoveryDiscoveryInput | HistoricalDiscoveryInput | SelectedCurrentInput,
+  input: DiscoveryInput,
   pair: OwnerPair,
   histories: readonly DecodedHistory[],
 ): Diagnostic | null {

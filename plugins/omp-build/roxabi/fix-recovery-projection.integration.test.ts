@@ -19,8 +19,8 @@ it('projects a confirmed publication close without erasing late retired fragment
   roots.add(box.root)
   await seedReviewFixture(box, cwd)
   const runner = path.resolve(import.meta.dirname, '../testing/fix-recovery-prefix-reader.ts')
-  const read = (mode?: 'control') => {
-    const run = spawnSync(BUN, [runner, cwd, ...(mode ? [mode] : [])], {
+  const read = () => {
+    const run = spawnSync(BUN, [runner, cwd], {
       cwd,
       env: box.env,
       encoding: 'utf8',
@@ -47,13 +47,7 @@ it('projects a confirmed publication close without erasing late retired fragment
     ]),
   )
 
-  // Core prepares and binds this external simulation to its exact observed proposal. It is not live host/UI proof.
-  const control = read('control')
-  expect(control).toMatchObject({
-    kind: 'fix-recovery',
-    payload: { phase: 'close-publication', opened: fixture.opened, settled: fixture.settled },
-  })
-  const controlBodies = fixture.frame(control)
+  const controlBodies = await fixture.frameClose()
   writeSim(box, (state) => {
     const pr = state.prs['7']
     if (!pr) throw new Error('fixture-pr-missing')

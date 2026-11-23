@@ -1,21 +1,12 @@
 import { expect, it } from 'vitest'
 import { nativeComment, wire } from '../../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../../adapters/github/types.ts'
-import { rawSource } from '../../adapters/github-native/uw-spec.ts'
-import {
-  readComposedWorkflowHistory,
-  recordsOf,
-  summarizeReviews,
-  validateCauseDispositionRecords,
-} from '../../dist/contracts.js'
+import { recordsOf, summarizeReviews, validateCauseDispositionRecords } from '../../dist/contracts.js'
 import { sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
-import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { operation as observedOperation } from '../../testing/record-history.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { persistCauseDispositions } from '../fix-disposition-execution.ts'
-import type { FixDispositionStore } from '../fix-disposition-store.ts'
 import { readReviewInputHistories } from '../uw-input-readers.ts'
 
 it('loads a confirmed sister identity through the review input causal closure', async () => {
@@ -58,75 +49,6 @@ it('loads a confirmed sister identity through the review input causal closure', 
       catalogues: fixtureHostReviewClassCatalogues(),
     }),
   ).toEqual([])
-  if (graph.inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted origin')
-  const effective = graph.inputs.manifest.spec.effective
-  const date = '2026-10-27T12:00:00.000Z'
-  const sister = { repository: original.repository, target: 'acme/app#43' }
-  const nativeGraph = {
-    status: 'complete' as const,
-    root: original,
-    observedAt: date,
-    nodes: [
-      {
-        uw: original,
-        title: 'Save region',
-        raw: rawSource(original.target, 'Save the selected region', date),
-        updatedAt: date,
-        labels: ['size:S'],
-        wayfinderLabels: [],
-        parent: null,
-        children: [],
-        blockers: [sister],
-        native: { state: 'OPEN' as const, stateReason: null },
-      },
-      {
-        uw: sister,
-        title: 'Repair persistence',
-        raw: rawSource(sister.target, 'Repair region persistence separately', date),
-        updatedAt: date,
-        labels: ['size:S'],
-        wayfinderLabels: [],
-        parent: null,
-        children: [],
-        blockers: [],
-        native: { state: 'OPEN' as const, stateReason: null },
-      },
-    ],
-  }
-  const store: FixDispositionStore = {
-    async catalogues() {
-      return fixtureHostReviewClassCatalogues()
-    },
-    async read(scopes) {
-      const loaded = await readComposedWorkflowHistory(scopes, { cwd: '/fixture', gh, readAuthor: 'automation' })
-      return loaded.ok ? { ok: true, value: loaded.histories } : { ok: false, diagnostics: loaded.diagnostics }
-    },
-    async publish() {
-      throw new Error('existing disposition must be reused')
-    },
-  }
-  const persist = () =>
-    persistCauseDispositions(
-      {
-        causeContext: { original, effective },
-        graph: nativeGraph,
-        capture: { kind: 'action', input: synthesisActionCapture(graph.decision, [source.history]) },
-      },
-      { kind: 'decision', decision: graph.decision },
-      { runId: 'next-run', operationId: 'next-op', nextRecordId: () => 'unused' },
-      store,
-    )
-  const next = await persist()
-  expect(next.ok, JSON.stringify(next)).toBe(true)
-  if (!next.ok) throw new Error('next correction refused')
-  expect(next.value.refs.map((ref) => ref.recordId)).toContain(held.recordId)
-  comments.set(43, [])
-  const missing = await persist()
-  expect(missing.ok).toBe(false)
-  comments.set(43, [nativeComment(10, wire({ ...identity, operationId: 'forged-operation' }))])
-  const forged = await persist()
-  expect(forged.ok).toBe(false)
-
   // The primary observation belongs to review accounting, not the strict
   // external closure. Its incomplete status must survive dependency loading.
   comments.set(43, [nativeComment(10, wire(identity))])

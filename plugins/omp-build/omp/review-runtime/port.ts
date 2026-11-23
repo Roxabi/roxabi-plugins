@@ -36,10 +36,11 @@ export function hiddenControlMessage(input: NativeTaskWireInput): HiddenControlM
 export function createNativeReviewPort(
   pi: NativeExtension,
   controller: NativeBatchController,
-): Pick<NativeBatchController, 'activate' | 'inactive' | 'stopOwned'> & {
+): Pick<NativeBatchController, 'active' | 'activate' | 'inactive' | 'stopOwned'> & {
   announce(batch: NativeBatch): Promise<void>
 } {
   return {
+    active: controller.active.bind(controller),
     activate: controller.activate.bind(controller),
     inactive: controller.inactive.bind(controller),
     stopOwned: controller.stopOwned.bind(controller),

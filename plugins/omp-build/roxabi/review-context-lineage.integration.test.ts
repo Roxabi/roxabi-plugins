@@ -5,43 +5,23 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
-import { encodeParts } from '../adapters/github/history-encoder.ts'
 import type { MissingContextOutput } from '../engine/action-context.ts'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import {
-  authorizeReviewContextSuccessor,
-  reviewActionId,
-  reviewContextLineage,
-  reviewInventoryHasContextNegative,
-} from '../engine/review-context-lineage.ts'
-import type { NativeChildResult } from '../omp/review-runtime/contracts.ts'
-import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { reviewContextLineage } from '../engine/review-context-lineage.ts'
+import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import { committedFixtureInputs } from '../testing/committed-plugin-fixture.ts'
-import { NATIVE_AUTHOR, TEST_HEAD, TEST_SCOPE } from '../testing/record-builders.ts'
-import { finalReview } from '../testing/record-decisions.ts'
-import { observedComment } from '../testing/record-history.ts'
+import { NATIVE_AUTHOR, reviewRoot, submission, TEST_HEAD, TEST_SCOPE } from '../testing/record-builders.ts'
+import { contribution, finalReview } from '../testing/record-decisions.ts'
+import { historicalRecordFrames, observedComment } from '../testing/record-history.ts'
 import { toolingGh } from '../testing/review-gate-tooling-gh.ts'
-import { resolveNegativeContribution } from './uw-context-negative-contribution.ts'
-
-const published = vi.hoisted((): CanonicalRecord[] => [])
-vi.mock('./github-publisher', () => ({
-  createGitHubRecordPublisher: () => ({
-    publish: async (record: CanonicalRecord) => {
-      published.push(record)
-      return { ok: true as const }
-    },
-  }),
-}))
-
-import { CanonicalReviewRunner, type PreparedReviewInputs } from './review-runner.ts'
 import { readProductionActionFactsBatch } from './uw-action-batch-facts.ts'
 import type { UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
 import * as actionObserve from './uw-action-observe.ts'
 import { actionOperationMethods } from './uw-action-operations.ts'
 import { sha256Bytes } from './uw-action-result.ts'
-import { sealActionSnapshot } from './uw-action-snapshot.ts'
+import { resolveNegativeContribution } from './uw-context-negative-contribution.ts'
 import { createProductionInputPorts } from './uw-input-readers.ts'
 
 const directories: string[] = []
@@ -49,7 +29,6 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
-type Root = Extract<CanonicalRecord, { kind: 'review-attempt' }>
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
 const negative: MissingContextOutput = {
   outcome: 'missing-context',
@@ -59,13 +38,11 @@ const negative: MissingContextOutput = {
 }
 
 function history(records: CanonicalRecord[]) {
-  const comments = records.flatMap((record) => {
-    const encoded = encodeParts(record, '', 65536)
-    if (!encoded.ok) throw new Error(JSON.stringify(encoded.diagnostics))
-    return encoded.value.map((body) =>
+  const comments = records.flatMap((record) =>
+    historicalRecordFrames(record).map((body) =>
       observedComment({ locator: `comment-${record.recordId}`, nativeId: record.recordId, body }),
-    )
-  })
+    ),
+  )
   return decodeHistory({
     scope: TEST_SCOPE,
     expectedAuthor: NATIVE_AUTHOR,
@@ -99,102 +76,37 @@ function expanded(inputs: ActionInputs, entry: Contribution, path: string): Acti
   return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
 }
 
-async function nativeRoot(inputs: ActionInputs, id: string, data: typeof negative | { findings: never[] }) {
-  const actions = new Proxy(
-    {},
-    {
-      get: (_target, slot: string) => {
-        const directory = mkdtempSync(join(tmpdir(), 'review-lineage-'))
-        directories.push(directory)
-        const bytes = new Uint8Array()
-        const indexPath = join(directory, 'index.md')
-        writeFileSync(indexPath, bytes)
-        const sealed = sealActionSnapshot(
-          {
-            id: `snapshot-${id}-${slot}`,
-            actionId: reviewActionId(TEST_HEAD, slot, inputs.manifest.expandedContext),
-            manifestDigest: inputs.fingerprint,
-            indexPath,
-            location: 'local',
-          },
-          [{ path: 'index.md', bytes }],
-        )
-        if (!sealed.ok) throw new Error(JSON.stringify(sealed.diagnostics))
-        return { inputs, snapshot: sealed.value }
-      },
-    },
-  )
-  const input: PreparedReviewInputs = {
-    context: {
-      ...TEST_SCOPE,
-      number: 42,
-      candidateGitSHA: TEST_HEAD,
-      input: null,
-      runId: `run-${id}`,
-      operationId: `operation-${id}`,
-      subject: { kind: 'pull-request' },
-    },
-    pr: { base: 'main', baseGitSHA: '2'.repeat(40) },
-    chunks: [
+function historicalReview(inputs: ActionInputs, id: string, data: typeof negative | { findings: never[] }) {
+  const slotId = 'panel-0'
+  const action = { actionId: `${id}:${slotId}`, inputs }
+  const root = reviewRoot({
+    id: `review-${id}`,
+    head: inputs.manifest.code.head,
+    inputSnapshot: inputs,
+    tier: 'F-lite',
+    slots: [
       {
-        index: 0,
-        delta: ['src/widget.ts'],
-        diff: '@@ -1 +1 @@\n-old\n+new',
-        files: [{ path: 'src/widget.ts', text: 'export const widget = true\n', deleted: false, binary: false }],
-        digest: 'widget change',
+        slotId,
+        phase: 'panel',
+        role: 'R-adversarial',
+        chunk: 0,
+        required: true,
+        output: 'findings',
+        classId: null,
+        sourceFindingIds: [],
+        action,
       },
     ],
-    contextWindow: 200000,
-    roster: {
-      delta: ['src/widget.ts'],
-      tier: 'F-lite',
-      chunks: 1,
-      axialAdr: false,
-      stackPaths: { frontendPath: 'apps/web', sharedUi: '', backendPath: 'apps/api' },
-      config: { maxAgents: 5, axialOverride: 'default', overrides: {}, warnings: [] },
-    },
-    config: { canonicalClasses: ['missing-input-validation'], chunker: 'chunker.py', digest: 'digest.py' },
-    policy: { version: 'baseline' },
-    semantic: { spec: 'spec', panel: 'panel', synthesis: 'synthesis' },
-    observedEvidence: {
-      reviewInput: null,
-      candidate: { head: TEST_HEAD, base: '2'.repeat(40) },
-      pullRequest: null,
-      stack: { candidate: null, base: null },
-      resolvedSpec: null,
-    },
-    inputSnapshot: inputs,
-    canonicalClasses: ['missing-input-validation'],
-    actions,
-    operations: fixtureUwOperations(),
-    authorize: async () => ({ ok: true }),
-  }
-  const runner = new CanonicalReviewRunner(input, {
-    cwd: '/fixture',
-    readAuthor: NATIVE_AUTHOR,
-    writerLogin: NATIVE_AUTHOR,
-    gh: async () => '[]',
   })
-  const prepared = runner.initialBatch()
-  const root = prepared.inventory as Root
-  const slot = root.payload.slots.find((item) => item.output === 'findings')
-  if (slot === undefined || slot.action === undefined) throw new Error('expected bound native findings slot')
-  const child: NativeChildResult = {
-    id: `child-${id}`,
-    expectedId: slot.slotId,
-    submissions: [{ attemptIndex: 0, data, raw: { structuredOutput: { data } }, partialText: null }],
-    proofEvidence: null,
-    raw: { id: `child-${id}`, status: 'completed' },
-    partialText: null,
+  const entry = contribution({
+    id: `contribution-${id}`,
+    inventoryId: root.recordId,
+    slotId,
     structured: data,
-    usable: true,
-    reason: null,
-    ...(data === negative ? { contextBlock: { missing: negative.missing, action: slot.action } } : {}),
-  }
-  published.length = 0
-  await runner.publishRawContribution(prepared, child)
-  const entry = published.find((record): record is Contribution => record.kind === 'contribution')
-  if (entry === undefined) throw new Error('expected native contribution')
+    findings: 'outcome' in data ? null : data.findings,
+    rawAttempts: [submission({ structuredOutput: { data } })],
+  })
+  if ('outcome' in data) entry.payload.host.action = action
   return { root, entry }
 }
 
@@ -204,15 +116,13 @@ function lineage(records: CanonicalRecord[]) {
 }
 
 describe('authenticated review context lineage', () => {
-  it('accepts a linear negative A → negative B → positive C while preserving both negative refs', async () => {
-    const a = await nativeRoot(standaloneReviewInputs(), 'a', negative)
+  it('accepts a linear negative A → negative B → positive C while preserving both negative refs', () => {
+    const a = historicalReview(standaloneReviewInputs(), 'a', negative)
     const bInputs = expanded(standaloneReviewInputs(), a.entry, 'region.txt')
-    const b = await nativeRoot(bInputs, 'b', negative)
+    const b = historicalReview(bInputs, 'b', negative)
     const beforeC = history([a.root, a.entry, b.root, b.entry])
     const cInputs = expanded(bInputs, b.entry, 'policy.txt')
-    const c = await nativeRoot(cInputs, 'c', { findings: [] })
-    expect(authorizeReviewContextSuccessor(history([a.root, a.entry]), b.root)).toBe(true)
-    expect(authorizeReviewContextSuccessor(beforeC, c.root)).toBe(true)
+    const c = historicalReview(cInputs, 'c', { findings: [] })
     const request = {
       actionId: 'next-review-action',
       purpose: 'review' as const,
@@ -243,14 +153,12 @@ describe('authenticated review context lineage', () => {
     const result = lineage([a.root, a.entry, b.root, b.entry, c.root, c.entry])
     expect(result.diagnostics).toEqual([])
     expect(result.superseded).toEqual(new Set([a.root.recordId, b.root.recordId]))
-    expect(reviewInventoryHasContextNegative(beforeC, [a.root.recordId])).toBe(true)
   })
 
-  it('continues authenticated context expansion despite a foreign copied contribution identity', async () => {
+  it('continues authenticated context expansion despite a foreign copied contribution identity', () => {
     const inputs = standaloneReviewInputs()
-    const a = await nativeRoot(inputs, 'collision-a', negative)
+    const a = historicalReview(inputs, 'collision-a', negative)
     const bInputs = expanded(inputs, a.entry, 'region.txt')
-    const b = await nativeRoot(bInputs, 'collision-b', negative)
     const authentic = history([a.root, a.entry])
     const foreign = observedComment({
       locator: 'foreign-collision',
@@ -262,7 +170,6 @@ describe('authenticated review context lineage', () => {
     expect(noisy.operations).toEqual(
       expect.arrayContaining([expect.objectContaining({ authority: 'foreign', operationId: a.entry.operationId })]),
     )
-    expect(authorizeReviewContextSuccessor(noisy, b.root)).toBe(true)
     const request = {
       actionId: 'expanded-review',
       purpose: 'review' as const,
@@ -281,12 +188,13 @@ describe('authenticated review context lineage', () => {
         comment.locator === `comment-${a.entry.recordId}` ? { ...comment, updatedAt: '2026-10-21T10:00:01Z' } : comment,
       ),
     })
-    expect(authorizeReviewContextSuccessor(edited, b.root)).toBe(false)
+    expect(edited.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'record-edited' })]))
+    expect(resolveNegativeContribution(request, [edited])).toEqual({ ok: true, value: null })
   })
 
-  it('treats an authenticated review negative as ordinary context for correction', async () => {
+  it('treats an authenticated review negative as ordinary context for correction', () => {
     const inputs = standaloneReviewInputs()
-    const a = await nativeRoot(inputs, 'cross-purpose', negative)
+    const a = historicalReview(inputs, 'cross-purpose', negative)
     const context = expanded(inputs, a.entry, 'region.txt')
     expect(
       resolveNegativeContribution(
@@ -303,11 +211,10 @@ describe('authenticated review context lineage', () => {
     ).toEqual({ ok: true, value: null })
   })
 
-  it('refuses a late final on a negative root even after a successor exists', async () => {
-    const a = await nativeRoot(standaloneReviewInputs(), 'late-a', negative)
-    const b = await nativeRoot(expanded(standaloneReviewInputs(), a.entry, 'region.txt'), 'late-b', negative)
+  it('refuses a late final on a negative root even after a successor exists', () => {
+    const a = historicalReview(standaloneReviewInputs(), 'late-a', negative)
+    const b = historicalReview(expanded(standaloneReviewInputs(), a.entry, 'region.txt'), 'late-b', negative)
     const records = [a.root, a.entry, b.root, b.entry]
-    expect(reviewInventoryHasContextNegative(history(records), [a.root.recordId])).toBe(true)
     const late = finalReview({ id: 'late-final', inventoryIds: [a.root.recordId] })
     expect(lineage([...records, late]).diagnostics).toEqual(
       expect.arrayContaining([
@@ -319,11 +226,10 @@ describe('authenticated review context lineage', () => {
     )
   })
 
-  it('refuses two distinct children of the same authenticated negative', async () => {
-    const a = await nativeRoot(standaloneReviewInputs(), 'fork-a', negative)
-    const b = await nativeRoot(expanded(standaloneReviewInputs(), a.entry, 'one.txt'), 'fork-b', negative)
-    const c = await nativeRoot(expanded(standaloneReviewInputs(), a.entry, 'two.txt'), 'fork-c', negative)
-    expect(authorizeReviewContextSuccessor(history([a.root, a.entry, b.root, b.entry]), c.root)).toBe(false)
+  it('refuses two distinct children of the same authenticated negative', () => {
+    const a = historicalReview(standaloneReviewInputs(), 'fork-a', negative)
+    const b = historicalReview(expanded(standaloneReviewInputs(), a.entry, 'one.txt'), 'fork-b', negative)
+    const c = historicalReview(expanded(standaloneReviewInputs(), a.entry, 'two.txt'), 'fork-c', negative)
     expect(lineage([a.root, a.entry, b.root, b.entry, c.root, c.entry]).diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'duplicate-reference' })]),
     )
@@ -332,15 +238,13 @@ describe('authenticated review context lineage', () => {
 
 it('bulk selected records validate each sibling and observe later history changes', async () => {
   const inputs = standaloneReviewInputs()
-  const a = await nativeRoot(inputs, 'bulk-a', negative)
-  const b = await nativeRoot(inputs, 'bulk-b', negative)
+  const a = historicalReview(inputs, 'bulk-a', negative)
+  const b = historicalReview(inputs, 'bulk-b', negative)
   let records: CanonicalRecord[] = [a.root, a.entry, b.entry]
   let foreign = true
   const gh = async () => {
     const comments = records.flatMap((record) => {
-      const encoded = encodeParts(record, '', 65536)
-      if (!encoded.ok) throw new Error(JSON.stringify(encoded.diagnostics))
-      return encoded.value.map((body, index) => ({
+      return historicalRecordFrames(record).map((body, index) => ({
         id: `${record.recordId}-${index}`,
         user: { login: record.recordId === b.entry.recordId && foreign ? 'foreign-user' : NATIVE_AUTHOR },
         body,
@@ -378,7 +282,7 @@ it('production batch fact selection refuses a second action colliding with an au
   const tools = fileURLToPath(new URL('../../../', import.meta.url))
   const commit = execFileSync('git', ['-C', tools, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
   const inputs = committedFixtureInputs(tools, standaloneReviewInputs(TEST_SCOPE, TEST_HEAD), commit)
-  const initial = await nativeRoot(inputs, 'batch-collision', negative)
+  const initial = historicalReview(inputs, 'batch-collision', negative)
   const expandedInputs = expanded(inputs, initial.entry, 'region.txt')
   const decoded = history([initial.root, initial.entry])
   const slot = initial.root.payload.slots.find((item) => item.action !== undefined)
@@ -513,7 +417,7 @@ it('production preparation materializes an authenticated native negative for rev
     expect(changed.ok).toBe(false)
     if (!changed.ok) expect(changed.diagnostics[0]?.code).toBe('plugin-pin-mismatch')
     installedBytes = pluginBytes
-    const root = await nativeRoot(initial.value.inputs, 'materialized-negative', negative)
+    const root = historicalReview(initial.value.inputs, 'materialized-negative', negative)
     currentHistory = history([root.root, root.entry])
     const nativeOperation = currentHistory.operations.find(
       (operation) => operation.record?.recordId === root.entry.recordId,

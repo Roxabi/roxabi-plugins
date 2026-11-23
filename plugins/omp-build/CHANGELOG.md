@@ -1,10 +1,15 @@
 # Changelog
 
+## 0.21.14 (unreleased)
+
+- Remove the native correction and review entry points that `/feature`'s composition replaced (#1037): the `/fix` command, the `omp_build_start_review` tool and the recovery tools `omp_build_terminalize_interrupted_review`, `omp_build_grant_review_replacement`, `omp_build_replace_interrupted_review`, `omp_build_recover_interrupted_fix`. Corrections go through `/dev-fix`, reviews through `/dev-review`. The code only they reached is deleted; historical review and fix records stay readable. The native review runtime, `omp_build_execute_native_batch` and the generated profiles go in the next step.
+- Recognize 0.21.14 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.13 (unreleased)
 
-- `/feature` composes the skills instead of running the native graph (#1037). The command keeps issue resolution, framing, the operator controls, mandate selection and the worktree; it then loads `skills/feature/SKILL.md` with a `## Feature context` block (repository, issue, mandate, branch, base, worktree, bound PR). The agent plans, implements with the agents it chooses, follows `/dev-review` and `/dev-fix` (two correction rounds per run), and resumes from Git and GitHub facts: no plan or implementation receipts, no engine-launched child.
-- `skills/feature/feature-cli.ts` holds the engine locks the instructions call, each after re-reading the live mandate: `push` (exact tip, lease on the expected remote head, no tags, verified push URL), `open-pr` (one PR, confirmed `workflow-binding`; several candidates refuse), `land` (one `gh pr merge --match-head-commit`, only when the base's rules require the `review` check), `finish` (closes the UW). Composed `/dev-fix` pushes through `push`.
-- UW completion accepts a merged bound leaf whose merged head has a successful `review` check; historical structured-review proof stays readable.
+- `/feature` composes the skills instead of running the native graph (#1037). The command keeps issue resolution, framing, the operator controls, mandate selection and the worktree; it then loads `skills/feature/SKILL.md` with a `## Feature context` block (repository, issue, mandate, branch, base, worktree, bound PR) and an `## Accepted Spec` section carrying a `spec` digest. The agent plans, implements with the agents it chooses, follows `/dev-review` and `/dev-fix` (two correction rounds per run), and resumes from Git and GitHub facts: no plan or implementation receipts, no engine-launched child. Delivery serves the default branch only.
+- `skills/feature/feature-cli.ts` holds the engine locks the instructions call, each after re-reading the live mandate and the leaf status: `push` (exact tip, lease on the expected remote head, no tags, explicit GitHub push URL), `open-pr` (one PR, confirmed `workflow-binding`; several open candidates or only a closed PR refuse), `land --spec` (one `gh pr merge --match-head-commit`, only when the base's rules pin `review` to one App, no merge queue, and the accepted Spec digest is still current), `finish` (closes the UW). Composed `/dev-fix` pushes through `push`; composed `/dev-review` writes the Spec digest in its evidence header.
+- UW completion accepts a merged bound leaf whose merged head has a successful `review` check from the App the base rules pin; historical structured-review proof stays readable.
 - `/feature` on a parent issue stops: parent delivery is suspended until slice 6 of #1031. The native feature graph code it no longer reaches is deleted.
 - `/dev-review` also finds the issue from the `UW #N` line.
 - Recognize 0.21.13 under the bounded PR-binding policy while preserving earlier supported versions.

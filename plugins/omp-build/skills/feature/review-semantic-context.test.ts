@@ -1,10 +1,6 @@
-/**
- * The shared semantic slot. The model prompt and `hashReviewInput` must use
- * this exact string; pause, resume, and control stay out of it.
- */
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { confirmedReviewSemanticContext, reviewSemanticCanon } from '../../roxabi/review-semantic-canon'
+import { confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon'
 
 function digest(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')
@@ -13,9 +9,17 @@ function digest(body: string): string {
 const body = 'accepted spec'
 const bodyDigest = digest(body)
 
-describe('reviewSemanticCanon', () => {
-  it('encodes a complete no-tracker review as an explicit null, not an omitted field', () => {
-    expect(reviewSemanticCanon({ mode: 'standalone', discoveredSpec: null })).toBe(JSON.stringify(['standalone', null]))
+describe('confirmedReviewSemanticContext', () => {
+  it('projects a complete no-tracker review with explicit null context', () => {
+    expect(
+      confirmedReviewSemanticContext({
+        mode: 'standalone',
+        binding: null,
+        acceptedSpec: null,
+        currentSpec: null,
+        effectiveConfig: null,
+      }),
+    ).toEqual({ mode: 'standalone', discoveredSpec: null })
   })
 
   it('encodes a discovered spec as raw reference, body, and digest', () => {
@@ -31,8 +35,6 @@ describe('reviewSemanticCanon', () => {
       mode: 'standalone',
       discoveredSpec: { reference: 'acme/app#9', body, digest: bodyDigest },
     })
-    if ('ok' in projected) return
-    expect(reviewSemanticCanon(projected)).toBe(JSON.stringify(['standalone', 'acme/app#9', body, bodyDigest]))
   })
 
   it('refuses a missing digest instead of inventing one', () => {
@@ -82,7 +84,7 @@ describe('reviewSemanticCanon', () => {
     ).toMatchObject({ ok: false, error: expect.stringMatching(/external record identity/) })
   })
 
-  it('places the accepted body and requirements as raw strings, and source refs as identity tuples', () => {
+  it('preserves the accepted body, requirements, and source identities', () => {
     const projected = confirmedReviewSemanticContext({
       mode: 'bound',
       binding: { recordId: 'bind-1', scope: { repository: 'acme/app', target: 'acme/app#12' } },
@@ -106,28 +108,16 @@ describe('reviewSemanticCanon', () => {
       additionalRequirements: ['keep the gate'],
       effectiveConfig: { productVersion: '1.0.0', version: 'v1', digest: 'a'.repeat(64), serialized: '{}' },
     })
-    expect('ok' in projected).toBe(false)
-    if ('ok' in projected) return
-    const canon = reviewSemanticCanon(projected)
-    expect(canon).toBe(
-      JSON.stringify([
-        'bound',
-        'bind-1',
-        'acme/app',
-        'acme/app#12',
-        'acme/app#9',
-        body,
-        bodyDigest,
-        [['mandate', 'm1', 'acme/app', 'acme/app#9', bodyDigest]],
-        [['acme/app', 'acme/app#9', 'm1', 'mandate']],
-        ['keep the gate'],
-        '1.0.0',
-        'v1',
-        'a'.repeat(64),
-        '{}',
-      ]),
-    )
-    expect(reviewSemanticCanon(projected)).toContain('bound')
+    expect(projected).toMatchObject({
+      mode: 'bound',
+      bindingId: 'bind-1',
+      scope: { repository: 'acme/app', target: 'acme/app#12' },
+      acceptedSpec: { reference: 'acme/app#9', body, digest: bodyDigest },
+      chain: [['mandate', 'm1', 'acme/app', 'acme/app#9', bodyDigest]],
+      sourceRefs: [['acme/app', 'acme/app#9', 'm1', 'mandate']],
+      requirements: ['keep the gate'],
+      config: { productVersion: '1.0.0', version: 'v1', digest: 'a'.repeat(64), serialized: '{}' },
+    })
   })
 })
 
@@ -162,11 +152,11 @@ describe('no-producer semantic binding', () => {
     return projected
   }
 
-  it('changes the display canon when the accepted Spec or config changes', () => {
+  it('preserves changes to the accepted Spec and effective config', () => {
     const current = bound('accepted spec', '{}')
     const changed = bound('changed spec', '{}')
     const configured = bound('accepted spec', '{"gate":true}')
-    expect(reviewSemanticCanon(current)).not.toBe(reviewSemanticCanon(changed))
-    expect(reviewSemanticCanon(current)).not.toBe(reviewSemanticCanon(configured))
+    expect(current).not.toEqual(changed)
+    expect(current).not.toEqual(configured)
   })
 })

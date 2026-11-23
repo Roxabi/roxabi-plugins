@@ -15,9 +15,7 @@ import type { Scope } from './record-values.ts'
 import type { Result } from './result.ts'
 import { bindExternalRef } from './workflow-control.ts'
 
-type CloseProposal = Extract<FixRecoveryProposal, { phase: 'close-publication' | 'close-predecision' }>
 type Control = Extract<CanonicalRecord, { kind: 'fix-recovery' }>
-export type ReplayedFixRecoveryClose = Readonly<{ control: Control; proposal: CloseProposal; digest: string }>
 export type ReplayedFixRecoveryControl = Readonly<{ control: Control; proposal: FixRecoveryProposal; digest: string }>
 const fail = (message: string): Result<never> => ({ ok: false, diagnostics: [diagnostic('unconfirmed', message)] })
 type Operation = DecodedHistory['operations'][number]
@@ -113,7 +111,7 @@ function collectHistoryLineage(
   }
   return { ok: true, value: undefined }
 }
-export function authenticatedLineage(
+function authenticatedLineage(
   histories: readonly DecodedHistory[],
   uw: Scope,
   seen: ReadonlySet<string>,
@@ -128,7 +126,7 @@ export function authenticatedLineage(
   )
 }
 
-export function unclosedLineage(histories: readonly DecodedHistory[], uw: Scope, seen: ReadonlySet<string>) {
+function unclosedLineage(histories: readonly DecodedHistory[], uw: Scope, seen: ReadonlySet<string>) {
   const lineage = authenticatedLineage(histories, uw, seen)
   if (!lineage.ok) return lineage
   const links = lineage.value.links
@@ -156,10 +154,6 @@ export function unclosedLineage(histories: readonly DecodedHistory[], uw: Scope,
   }
 }
 
-/** Internal lineage fact selection, never an execution grant. */
-export function selectUnclosedRecoveryOwner(histories: readonly DecodedHistory[], uw: Scope) {
-  return unclosedLineage(histories, uw, new Set())
-}
 function matchesLineage(
   lineage: Result<{ opened: OpenedRef; predecessor: RecoveryRef | null }>,
   proposal: FixRecoveryProposal,
@@ -187,18 +181,6 @@ export function validateProspectiveFixRecoveryControl(input: {
   const inspected = inspectProspectiveControls(input, proposal)
   if (!inspected.ok) return inspected
   return { ok: true, value: proposal }
-}
-
-/** Historical membership only; never a live continuation grant. */
-export function replayFixRecoveryClose(input: {
-  control: Control
-  histories: readonly DecodedHistory[]
-}): Result<ReplayedFixRecoveryClose> {
-  const replayed = replayCloseInternal(input, new Set())
-  if (!replayed.ok) return replayed
-  return replayed.value.proposal.phase === 'adopt-decision'
-    ? fail('Decision adoption is not a close control')
-    : { ok: true, value: { ...replayed.value, proposal: replayed.value.proposal } }
 }
 
 export function replayFixRecoveryControl(input: {

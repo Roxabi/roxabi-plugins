@@ -1,11 +1,10 @@
 import type { History } from '../../engine/history-schema.ts'
-import { parseRecord } from '../../engine/record-construction.ts'
+import { buildRecord, parseRecord } from '../../engine/record-construction.ts'
 import { specDigest } from '../../engine/record-digests.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
 import { canonicalSpec } from '../../engine/uw-spec.ts'
-import { buildFixOnlyMandate } from '../../engine/workflow-correction-mandate.ts'
 import { githubScope } from '../github/transport.ts'
 import type { Gh } from '../github/types.ts'
 
@@ -112,61 +111,69 @@ export function issueMandate(
 ): CanonicalRecord {
   if (parent !== null && parent.kind !== 'mandate') throw new Error('fixture parent must be a mandate')
   return mustRecord(
-    buildFixOnlyMandate({
-      scope,
+    buildRecord({
+      kind: 'mandate',
+      version: 1,
+      ...scope,
       recordId,
       runId: 'run-1',
       operationId: `op-${recordId}`,
-      branch: 'feat/7-work',
-      base: 'main',
-      lineageHead: null,
-      productVersion: '0.11.0',
-      ownSpec: fixtureOwnSpec(scope),
-      tier: 'F-lite',
-      children: [],
-      inheritedOwnSpecRefs:
-        parent === null
-          ? []
-          : [
-              {
-                uw: parent.payload.ownSpec.uw,
-                version: parent.payload.ownSpec.version,
-                sourceAccepted: {
-                  scope: { repository: parent.repository, target: parent.target },
-                  recordId: parent.recordId,
-                  kind: 'mandate',
+      payload: {
+        role: 'fix-only',
+        format: 'omp-build-mandate/4',
+        branch: 'feat/7-work',
+        base: 'main',
+        lineageHead: null,
+        run: null,
+        ownSpec: fixtureOwnSpec(scope),
+        tier: 'F-lite',
+        children: [],
+        inheritedOwnSpecRefs:
+          parent === null
+            ? []
+            : [
+                {
+                  uw: parent.payload.ownSpec.uw,
+                  version: parent.payload.ownSpec.version,
+                  sourceAccepted: {
+                    scope: { repository: parent.repository, target: parent.target },
+                    recordId: parent.recordId,
+                    kind: 'mandate',
+                  },
                 },
-              },
-              ...parent.payload.inheritedOwnSpecRefs,
-            ],
-      coverage: null,
-      config: {
-        version: 'catalogue-1',
-        digest: 'a'.repeat(64),
-        effective: {
-          graph: {
-            version: 1,
-            productVersion: '0.11.0',
-            configVersion: 'catalogue-1',
-            edgeOrder: 'array',
-            nodes: [
-              { id: 'frame', action: 'frame' },
-              { id: 'land', action: 'land' },
-            ],
-            edges: [{ from: 'frame', to: 'land', when: 'always' }],
-            initial: 'land',
+                ...parent.payload.inheritedOwnSpecRefs,
+              ],
+        coverage: null,
+        permissions: { landing: false, correct: true },
+        config: {
+          productVersion: '0.11.0',
+          version: 'catalogue-1',
+          digest: 'a'.repeat(64),
+          effective: {
+            graph: {
+              version: 1,
+              productVersion: '0.11.0',
+              configVersion: 'catalogue-1',
+              edgeOrder: 'array',
+              nodes: [
+                { id: 'frame', action: 'frame' },
+                { id: 'land', action: 'land' },
+              ],
+              edges: [{ from: 'frame', to: 'land', when: 'always' }],
+              initial: 'land',
+            },
           },
         },
+        parent:
+          parent === null
+            ? null
+            : {
+                scope: { repository: parent.repository, target: parent.target },
+                recordId: parent.recordId,
+                kind: 'mandate',
+              },
+        antecedent: null,
       },
-      parent:
-        parent === null
-          ? null
-          : {
-              scope: { repository: parent.repository, target: parent.target },
-              recordId: parent.recordId,
-              kind: 'mandate',
-            },
-      antecedent: null,
     }),
   )
 }

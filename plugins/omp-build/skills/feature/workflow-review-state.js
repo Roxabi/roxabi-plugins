@@ -34,7 +34,7 @@ function fixStep(reviews, reason) {
   return { action: 'fix', reviews, remaining: MAX_FIX_ROUNDS - reviews, ...(reason ? { reason } : {}) }
 }
 
-export function reviewStep(records, { head, ciFailed = false }) {
+function reviewStep(records, { head, ciFailed = false }) {
   const { reviews } = records
   if (reviewBoundStopped(records)) return stopStep('review-bound', reviews)
   const current = isCommitSha(head) && records.head === head

@@ -3,7 +3,7 @@ name: promote
 disable-model-invocation: true
 argument-hint: '[--dry-run | --skip-preview | --finalize]'
 description: OMP-only — promote staging→main. Pre-flight, version, changelog, PR, tag. Offered after land, never automatic.
-version: 0.1.0
+version: 0.1.1
 ---
 
 # Promote
@@ -552,7 +552,7 @@ every touched file on the next staging→main promote — it already bit
 `roxabi-plugins` once, for 46 files. Merge commits preserve the commit/tag topology
 Step 9's derivation reads, including the `<component>/vX.Y.Z` tag format.
 
-Branch topology: `staging` is the default branch and every feature/fix targets it;
+Branch topology: `staging` is the default branch and every feature or fix PR targets it;
 `main` is promote-only and is reached exclusively through this skill.
 
 Enforce it in the promoted repo's branch protection: `allowed_merge_methods = ["merge"]`.

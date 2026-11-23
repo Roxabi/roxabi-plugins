@@ -1,7 +1,18 @@
+import { encodeParts } from '../adapters/github/history-encoder.ts'
 import type { DecodedHistory, OperationRead } from '../engine/history-schema.ts'
+import { parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
 import { NATIVE_AUTHOR, TEST_SCOPE } from './record-builders.ts'
+
+/** Seed immutable history bytes without authorizing a new publication. */
+export function historicalRecordFrames(record: CanonicalRecord, projection = ''): string[] {
+  const canonical = parseRecord(record)
+  if (!canonical.ok) throw new Error(JSON.stringify(canonical.diagnostics))
+  const encoded = encodeParts(canonical.value, projection, 65_536)
+  if (!encoded.ok) throw new Error(JSON.stringify(encoded.diagnostics))
+  return encoded.value
+}
 
 export function observedComment(overrides: Partial<ObservedComment> = {}): ObservedComment {
   const createdAt = overrides.createdAt ?? '2026-10-21T10:00:00Z'

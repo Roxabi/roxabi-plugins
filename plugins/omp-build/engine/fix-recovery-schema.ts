@@ -48,7 +48,6 @@ export const rootLifetimeSchema = z.strictObject({
   sessionId: identifierSchema,
   providerSessionId: identifierSchema,
 })
-export type RootLifetime = z.infer<typeof rootLifetimeSchema>
 
 export const latchNamespaceSchema = z.strictObject({
   protocol: z.literal('omp-build-execution/v1'),
@@ -83,7 +82,7 @@ export const admissionDescriptorSchema = z.strictObject({
   ]),
 })
 export type AdmissionDescriptor = z.infer<typeof admissionDescriptorSchema>
-export const fixOwnerHostSchema = z
+const fixOwnerHostSchema = z
   .discriminatedUnion('kind', [
     z.strictObject({
       kind: z.literal('ordinary-only'),
@@ -122,7 +121,6 @@ export const fixOwnerHostSchema = z
         message: 'Qualified namespace must agree with process and observed admission namespace',
       })
   })
-export type FixOwnerHost = z.infer<typeof fixOwnerHostSchema>
 
 export const pluginConfigurationSchema = z.strictObject({
   version: z.string().min(1),

@@ -28,6 +28,7 @@ function checkCanonicalCases(input: MatrixSetup): CiOperands {
   ])
   const decision = history.operations.find((item) => item.record?.kind === 'decision')?.record
   if (decision?.kind !== 'decision') throw new Error('decision-missing')
+  expect(accounted(history, decision)).toBe(true)
   refused('post-decision attribution', intake.manifest.code, [
     ref,
     {

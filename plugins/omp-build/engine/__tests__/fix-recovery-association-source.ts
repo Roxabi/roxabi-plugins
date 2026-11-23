@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
-import { capturedSubmission } from '../../roxabi/fix-contract.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Scope } from '../record-values.ts'
@@ -68,30 +67,35 @@ export function associationSource(input: {
         inventoryId: null,
         host: { origin: 'operator', phase: 'fix', role: 'operator', slotId: null, chunk: null, childId: null },
         rawAttempts: [
-          capturedSubmission({
-            operatorRequest: { request: 'Correct the review findings' },
-            candidateGitSHA: head,
-            publishBinding: {
-              publicationRepository: pullRequest.repository,
-              localBranch: 'feat/42-save',
-              destinationRef: 'refs/heads/feat/42-save',
-              localHead: head,
-              expectedRemoteSHA: head,
-              observed: {
-                target: pullRequest.target,
-                baseRepository: pullRequest.repository,
-                localRef: 'refs/heads/feat/42-save',
+          {
+            attemptIndex: 0,
+            data: null,
+            partialText: null,
+            raw: {
+              operatorRequest: { request: 'Correct the review findings' },
+              candidateGitSHA: head,
+              publishBinding: {
+                publicationRepository: pullRequest.repository,
+                localBranch: 'feat/42-save',
+                destinationRef: 'refs/heads/feat/42-save',
                 localHead: head,
-                remoteRepository: pullRequest.repository,
-                pr: {
-                  headRefOid: head,
-                  headRefName: 'feat/42-save',
-                  baseRefName: 'main',
-                  headRepository: pullRequest.repository,
+                expectedRemoteSHA: head,
+                observed: {
+                  target: pullRequest.target,
+                  baseRepository: pullRequest.repository,
+                  localRef: 'refs/heads/feat/42-save',
+                  localHead: head,
+                  remoteRepository: pullRequest.repository,
+                  pr: {
+                    headRefOid: head,
+                    headRefName: 'feat/42-save',
+                    baseRefName: 'main',
+                    headRepository: pullRequest.repository,
+                  },
                 },
               },
             },
-          }),
+          },
         ],
         native: null,
         structured: null,

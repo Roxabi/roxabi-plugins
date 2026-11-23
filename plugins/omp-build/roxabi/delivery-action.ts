@@ -81,36 +81,8 @@ export function actionRequest(input: {
   }
 }
 
-export function recordStageRef(record: {
-  repository: string
-  target: string
-  kind: 'decision' | 'contribution'
-  recordId: string
-  payload: unknown
-}): RecordInputRef {
-  return {
-    source: 'record',
-    record: {
-      scope: { repository: record.repository, target: record.target },
-      kind: record.kind,
-      recordId: record.recordId,
-    },
-    selector: '/payload',
-    digest: canonicalValueDigest(record.payload),
-  }
-}
-
 export function uwSubject(uw: Scope, pullRequest: Scope | null): Extract<ActionSubject, { kind: 'uw' }> {
   return { kind: 'uw', uw, pullRequest, binding: null }
-}
-
-/** Bound UW only. A pull-request scope is never requested as a UW mandate. */
-export function correctionSubject(target: Scope, uw: Scope | undefined, pullRequest: Scope | null): ActionSubject {
-  const samePullRequest =
-    pullRequest !== null &&
-    (uw === undefined || (uw.repository === pullRequest.repository && uw.target === pullRequest.target))
-  if (samePullRequest) return { kind: 'standalone-pr', pullRequest }
-  return uwSubject(uw ?? target, pullRequest)
 }
 
 export async function prepareDeliveryAction(
@@ -121,10 +93,6 @@ export async function prepareDeliveryAction(
   correctionRoot?: CorrectionRootRef,
 ): Promise<Result<PreparedUwAction, Diagnostic>> {
   return operations.prepareAction(request, projection, review, correctionRoot)
-}
-
-export function prepareRefusal(diagnostics: readonly Diagnostic[]): string {
-  return diagnostics[0]?.code ?? 'prepare-action-unavailable'
 }
 
 export function readActionInputs(value: unknown): ActionInputs | null {
@@ -174,16 +142,6 @@ export async function observeCleanHeadCode(
   } catch {
     return { ok: false, reason: 'code-unobserved' }
   }
-}
-
-export function codePin(
-  repository: string,
-  base: string,
-  head: string,
-  referenceCommit: string,
-): { ok: true; code: DeliveryCode } | { ok: false; reason: 'code-unobserved' } {
-  if (![base, head, referenceCommit].every((sha) => SHA.test(sha))) return { ok: false, reason: 'code-unobserved' }
-  return { ok: true, code: { repository, base, head, referenceCommit } }
 }
 
 export function preMandateMandate(): PreMandateAuthority {

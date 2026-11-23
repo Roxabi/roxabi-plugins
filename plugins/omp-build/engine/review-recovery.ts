@@ -5,13 +5,6 @@ import type { Result } from './result.ts'
 import { trustedRecoveryRecords } from './review-recovery-history.ts'
 import { type InitialPullRequestReviewInventory, isInitialPullRequestReviewInventory } from './review-schema.ts'
 
-export {
-  confirmHistoricalReviewInputMatch,
-  type HistoricalReviewAssociation,
-  historicalReviewAssociations,
-  proveHistoricalReviewAssociation,
-} from './review-recovery-association.ts'
-
 type ReviewRoot = Extract<CanonicalRecord, { kind: 'review-attempt' }>
 type ReviewInterruption = Extract<CanonicalRecord, { kind: 'review-interruption' }>
 type PullRequestReviewRoot = ReviewRoot & { payload: InitialPullRequestReviewInventory }
@@ -116,22 +109,6 @@ function validateReplacement(
   )
     return `Replacement inventory ${replacement.recordId} does not exactly consume ${grant.recordId}`
   return null
-}
-
-/** Select the sole unfinished historical initial pull-request root that may receive a terminal. */
-export function interruptiblePullRequestRoot(history: DecodedHistory): PullRequestReviewRoot | null {
-  const trusted = trustedRecoveryRecords(history)
-  if (!trusted.ok) return null
-  const records = trusted.value
-  const candidates = records.filter(
-    (record): record is PullRequestReviewRoot =>
-      isInitialPullRequestRoot(record) &&
-      !completedReview(records, record.recordId) &&
-      !records.some(
-        (candidate) => candidate.kind === 'review-interruption' && candidate.payload.rootAttemptId === record.recordId,
-      ),
-  )
-  return candidates.length === 1 ? candidates[0] : null
 }
 
 /** Read the explicit recovery path without treating a terminal or grant as ordinary review progress. */

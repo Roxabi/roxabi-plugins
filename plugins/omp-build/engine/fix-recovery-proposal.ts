@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { canonicalValueDigest } from './action-input.ts'
 import {
   type FixRecoveryObservation,
@@ -8,56 +7,12 @@ import {
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
-import { scopeKey, type UwGraphObservation, validateUwGraph } from './uw-graph.ts'
 
-/** Projects only a validated native graph; these facts alone grant no authority. */
-export function fixRecoveryGraphFacts(graph: UwGraphObservation): Result<FixRecoveryObservation['graph']> {
-  if (graph.status !== 'complete' || !validateUwGraph(graph).ok)
-    return { ok: false, diagnostics: [diagnostic('unconfirmed', 'Recovery native graph is incomplete or invalid')] }
-  const distinct = (values: readonly string[]) => new Set(values).size === values.length
-  if (
-    !distinct(graph.nodes.map((node) => scopeKey(node.uw))) ||
-    graph.nodes.some(
-      (node) =>
-        createHash('sha256').update(node.raw.body, 'utf8').digest('hex') !== node.raw.bodySha256 ||
-        !distinct(node.labels) ||
-        !distinct(node.wayfinderLabels) ||
-        !distinct(node.children.map(scopeKey)) ||
-        !distinct(node.blockers.map(scopeKey)),
-    )
-  )
-    return {
-      ok: false,
-      diagnostics: [diagnostic('unconfirmed', 'Recovery native graph has a mismatched body or duplicate set member')],
-    }
-  const scope = (value: { repository: string; target: string }) => ({
-    repository: value.repository,
-    target: value.target,
-  })
-  const compareScopes = (a: { repository: string; target: string }, b: { repository: string; target: string }) =>
-    scopeKey(a) < scopeKey(b) ? -1 : scopeKey(a) > scopeKey(b) ? 1 : 0
-  const scopes = (values: readonly { repository: string; target: string }[]) => values.map(scope).sort(compareScopes)
-  const nodes = graph.nodes
-    .map((node) => ({
-      uw: scope(node.uw),
-      title: node.title,
-      raw: { reference: node.raw.reference, body: node.raw.body, bodySha256: node.raw.bodySha256 },
-      labels: [...node.labels].sort(),
-      wayfinderLabels: [...node.wayfinderLabels].sort(),
-      parent: node.parent === null ? null : scope(node.parent),
-      children: scopes(node.children),
-      blockers: scopes(node.blockers),
-      native: { ...node.native },
-    }))
-    .sort((a, b) => compareScopes(a.uw, b.uw))
-  return { ok: true, value: { root: scope(graph.root), nodes } }
-}
-
-export function fixRecoveryObservationDigest(observation: FixRecoveryObservation): string {
+function fixRecoveryObservationDigest(observation: FixRecoveryObservation): string {
   return canonicalValueDigest(observation)
 }
 
-export function fixRecoveryProposalDigest(proposal: FixRecoveryProposal): string {
+function fixRecoveryProposalDigest(proposal: FixRecoveryProposal): string {
   return canonicalValueDigest(proposal)
 }
 

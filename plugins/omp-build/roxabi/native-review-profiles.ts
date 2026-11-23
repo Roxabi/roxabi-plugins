@@ -219,10 +219,3 @@ export const nativePanelProfileByRole: Readonly<Record<string, string>> = {
   'R-devops': 'R-review-devops',
   'R-tester': 'R-review-tester',
 }
-
-export const nativeFixProfileByAction = {
-  intake: 'R-review-fix-intake',
-  synthesis: 'R-review-fix-synthesis',
-  apply: 'R-review-fix-apply',
-  falsify: 'R-review-fix-falsify',
-} as const

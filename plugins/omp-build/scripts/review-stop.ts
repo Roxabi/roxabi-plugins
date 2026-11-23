@@ -15,8 +15,6 @@ import {
 import { ROXABI_STOP_AUTHOR, withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
 import { createPublicationContextResolver } from '../roxabi/publication-context.ts'
 import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
-import type { ReviewContext } from '../roxabi/review-contract.ts'
-import { persistRequiredReviewStop } from '../roxabi/review-dispatch.ts'
 import { readReviewInputHistories } from '../roxabi/uw-input-readers.ts'
 import type { Gh } from '../skills/feature/review-base.ts'
 
@@ -133,41 +131,23 @@ async function main(): Promise<void> {
   )
     throw new Error('fresh review state no longer matches observed ci-failed stop')
   const operationId = `ci-stop-${requiredStop.reviewId}`
-  const context: ReviewContext = {
-    operationId,
+  const built = buildRecord({
+    ...scope,
+    version: 1,
+    recordId: operationId,
     runId: `ci-${args.runId}`,
-    repository: args.repository,
-    target: scope.target,
-    candidateGitSHA: args.head,
-    input: summary.value.input,
-    subject: { kind: 'pull-request' },
-  }
-  const result = await persistRequiredReviewStop(context, requiredStop, {
-    async authorize() {
-      return { ok: true }
-    },
-    async publishRequiredStop() {
-      const draft = {
-        ...scope,
-        version: 1,
-        recordId: operationId,
-        runId: context.runId,
-        operationId,
-        kind: 'stop',
-        payload: requiredStop,
-      } as const
-      const built = buildRecord(draft)
-      if (!built.ok) return { ok: false, reason: 'invalid-stop-record' }
-      const published = await publishGitHubRecord(
-        built.value,
-        withRoxabiGitHubPolicy({ cwd, gh: scopedGh, readAuthor: args.automationLogin, writerLogin: STOP_AUTHOR }),
-        createPublicationContextResolver({ cwd, gh: scopedGh, readAuthor: args.automationLogin }, null),
-        cited.value,
-      )
-      return published.status === 'confirmed' ? { ok: true } : { ok: false, reason: published.status }
-    },
+    operationId,
+    kind: 'stop',
+    payload: requiredStop,
   })
-  if (!result.ok) throw new Error(`stop publication refused: ${result.reason}`)
+  if (!built.ok) throw new Error('stop publication refused: invalid-stop-record')
+  const published = await publishGitHubRecord(
+    built.value,
+    withRoxabiGitHubPolicy({ cwd, gh: scopedGh, readAuthor: args.automationLogin, writerLogin: STOP_AUTHOR }),
+    createPublicationContextResolver({ cwd, gh: scopedGh, readAuthor: args.automationLogin }, null),
+    cited.value,
+  )
+  if (published.status !== 'confirmed') throw new Error(`stop publication refused: ${published.status}`)
   process.stdout.write(`${JSON.stringify({ ok: true, stop: requiredStop })}\n`)
 }
 

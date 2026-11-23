@@ -436,11 +436,17 @@ describe('installed /feature command', () => {
 })
 
 describe('installed correction lane', () => {
-  it('registers no correction tool while retaining the /fix command', () => {
+  it('keeps the composed commands and unregisters the native review and correction entry points', () => {
     const host = installed({})
 
-    expect(host.tools.has('omp_build_start_fix')).toBe(false)
-    expect(host.commands.has('fix')).toBe(true)
+    expect(host.commands.has('fix')).toBe(false)
+    expect(host.commands.has('dev-review')).toBe(true)
+    expect(host.commands.has('dev-fix')).toBe(true)
+    expect([...host.tools.keys()].sort()).toEqual([
+      'omp_build_execute_native_batch',
+      'omp_build_framing_submit',
+      'omp_build_prepare_checkout',
+    ])
   })
 
   it('specifies a publish-only composed resume bound to the same review and PR head', () => {

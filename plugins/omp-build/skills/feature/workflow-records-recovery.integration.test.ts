@@ -1,13 +1,11 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
-import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { arrangeReviewFixture, seedReviewFixture } from '../../testing/feature-review-fixture.ts'
 import { seedFixRecoveryPrefix } from '../../testing/fix-recovery-prefix-fixture.ts'
 import { writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import { readReviewRecords } from './workflow-records.js'
 
-const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const roots = new Set<string>()
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
@@ -19,18 +17,13 @@ it('projects only an authenticated neutral close before hosted review admission'
   roots.add(box.root)
   await seedReviewFixture(box, cwd)
   const fixture = await seedFixRecoveryPrefix(box, cwd)
-  const runner = path.resolve(import.meta.dirname, '../../testing/fix-recovery-prefix-reader.ts')
-  const run = spawnSync(bun, [runner, cwd, 'control'], { cwd, env: box.env, encoding: 'utf8', timeout: 55_000 })
-  expect(run.status, `${run.stderr}\n${run.stdout}`).toBe(0)
-  const control = JSON.parse(run.stdout)
-  expect(control).toMatchObject({ kind: 'fix-recovery', payload: { phase: 'close-publication' } })
   const post = (body: string) =>
     execFileSync('gh', ['api', '--method', 'POST', 'repos/acme/app/issues/7/comments', '-f', `body=${body}`], {
       cwd,
       env: box.env,
       encoding: 'utf8',
     })
-  for (const body of fixture.frame(control)) post(body)
+  for (const body of await fixture.frameClose()) post(body)
   const gh = async (dir: string, args: string[]) =>
     execFileSync('gh', args, { cwd: dir, env: box.env, encoding: 'utf8' })
   const closed = await readReviewRecords(cwd, 7, { gh })

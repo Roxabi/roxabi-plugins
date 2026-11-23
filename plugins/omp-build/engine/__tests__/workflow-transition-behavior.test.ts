@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import { parseRecord } from '../record-construction.ts'
-import { assessFixMandate } from '../workflow-correction-admission.ts'
 import type { WorkflowGraph } from '../workflow-graph.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
-import { binding, history, mandate, must, PARENT, SCOPE } from './workflow-test-support.ts'
+import { binding, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
 import {
   childCommitment,
   featureMandate,
@@ -180,36 +179,5 @@ describe('workflow transition behavior', () => {
         ),
       ),
     ).toMatchObject({ ok: false, reason: 'paused' })
-    expect(
-      assessFixMandate({
-        target: { scope: pr, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [],
-        history: history([], pr),
-        linkedIssueHistory: null,
-        causal: await nativeCausal([history([mandate()]), history([], pr)], [rootNode]),
-      }),
-    ).toMatchObject({
-      status: 'refused',
-      reason: 'unknown-binding',
-      evidence: [expect.objectContaining({ code: 'fix-own-uw-required' })],
-    })
-    expect(
-      assessFixMandate({
-        target: { scope: pr, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [],
-        history: history([], pr),
-        linkedIssueHistory: null,
-        causal: await nativeCausal([history([]), history([], pr)], [rootNode]),
-      }),
-    ).toMatchObject({ status: 'refused', reason: 'unknown-binding' })
-    expect(
-      assessFixMandate({
-        target: { scope: pr, kind: 'pull-request', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [SCOPE],
-        history: history([], pr),
-        linkedIssueHistory: null,
-        causal: await nativeCausal([history([feature]), history([], pr)], [rootNode]),
-      }),
-    ).toMatchObject({ status: 'refused', reason: 'unknown-binding' })
   })
 })

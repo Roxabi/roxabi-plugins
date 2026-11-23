@@ -17,7 +17,7 @@ import type { ReviewIssueSpec } from './uw-spec'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 
-export type ReviewSemanticContext =
+type ReviewSemanticContext =
   | {
       mode: 'standalone'
       binding: null
@@ -76,7 +76,7 @@ function standaloneContext(currentSpec: ReviewIssueSpec | null): Result<ReviewSe
 }
 
 /** Published review-input/4 source view; accepted authority remains the engine snapshot. */
-export function reviewAcceptedSpecView(
+function reviewAcceptedSpecView(
   accepted: AcceptedOwnSpec,
 ): Extract<ReviewSemanticContext, { mode: 'bound' }>['acceptedSpec'] {
   const { raw } = accepted.snapshot

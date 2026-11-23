@@ -2,11 +2,8 @@ import { type GitHubOptions, readUwCompletionObservation } from '../dist/contrac
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { WorkflowCausalContext } from '../engine/workflow-plan.ts'
-import type { WithdrawalBarrier } from '../skills/feature/workflow-gate.js'
-import { observationReasons, reasonLine } from './causal-refusal.ts'
+import { type CausalResult, causalFailure, observationReasons, reasonLine } from './causal-refusal.ts'
 import { defaultGh } from './feature-engine.ts'
-import type { FixActionResult } from './fix-contract.ts'
-import { failure } from './fix-contract.ts'
 import {
   type HistoryDifference,
   type HistoryEntry,
@@ -20,73 +17,12 @@ import { createInstalledUwReadPort } from './uw-read-port.ts'
 
 export type FixUwCausalContext = WorkflowCausalContext
 
-function matchesWithdrawalBarrier(
-  comment: DecodedHistory['source']['comments'][number] | undefined,
-  barrier: WithdrawalBarrier | undefined,
-  scope: DecodedHistory['source']['scope'],
-): boolean {
-  return (
-    barrier !== undefined &&
-    comment !== undefined &&
-    barrier.record.kind === 'withdraw' &&
-    `${scope.repository}#${barrier.record.pullRequest}` === scope.target &&
-    comment.nativeId === String(barrier.id) &&
-    comment.body === barrier.body &&
-    comment.createdAt === barrier.createdAt
-  )
-}
-
-function matchesWithdrawalHistory(
-  previous: DecodedHistory,
-  current: DecodedHistory,
-  scope: DecodedHistory['source']['scope'],
-  barriers: readonly WithdrawalBarrier[],
-): boolean {
-  const comments = current.source.comments
-  const oldComments = previous.source.comments
-  if (comments.length !== oldComments.length + barriers.length) return false
-  for (let index = 0; index < barriers.length; index++) {
-    if (!matchesWithdrawalBarrier(comments[oldComments.length + index], barriers[index], scope)) return false
-  }
-  const withoutBarriers = {
-    ...current,
-    source: { ...current.source, comments: comments.slice(0, oldComments.length) },
-  }
-  return JSON.stringify(previous) === JSON.stringify(withoutBarriers)
-}
-
-/** Validate a native reread across our own confirmed withdrawal writes, without accepting other drift. */
-export function reconcileWithdrawalHistories(
-  before: readonly DecodedHistory[],
-  after: readonly DecodedHistory[],
-  scope: DecodedHistory['source']['scope'],
-  barriers: readonly WithdrawalBarrier[],
-): FixActionResult<readonly DecodedHistory[]> {
-  const key = (history: DecodedHistory) => `${history.source.scope.repository}\0${history.source.scope.target}`
-  const target = `${scope.repository}\0${scope.target}`
-  const next = new Map(after.map((history) => [key(history), history]))
-  if (next.size !== after.length || new Set(before.map(key)).size !== before.length || before.length !== after.length)
-    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
-  for (const previous of before) {
-    const current = next.get(key(previous))
-    if (current === undefined || !previous.source.complete || !current.source.complete)
-      return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
-    const matches =
-      key(previous) === target
-        ? matchesWithdrawalHistory(previous, current, scope, barriers)
-        : JSON.stringify(previous) === JSON.stringify(current)
-    if (!matches) return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
-  }
-  if (barriers.length > 0 && !before.some((history) => key(history) === target))
-    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
-  return { ok: true, value: after }
-}
 function mergeObservedHistory(
   history: DecodedHistory,
   cohort: string,
   histories: Map<string, HistoryEntry>,
   different: HistoryDifference[],
-): FixActionResult<true> {
+): CausalResult<true> {
   const scope = history.source.scope
   const key = `${scope.repository}\0${scope.target}`
   const previous = histories.get(key)
@@ -104,7 +40,7 @@ function mergeObservedHistory(
 export function mergeFixUwHistories(
   observed: readonly DecodedHistory[],
   current: readonly DecodedHistory[],
-): FixActionResult<readonly DecodedHistory[]> {
+): CausalResult<readonly DecodedHistory[]> {
   const histories = new Map<string, HistoryEntry>()
   const different: HistoryDifference[] = []
   for (const cohort of [
@@ -124,7 +60,7 @@ export function mergeFixUwHistories(
 }
 
 /** The refusal codes are unchanged; the observation's own reasons ride along when it has any. */
-function unsettled(codes: readonly string[], reasons: readonly string[]): FixActionResult<never> {
+function unsettled(codes: readonly string[], reasons: readonly string[]): CausalResult<never> {
   const diagnostics = ['fix-own-uw-unsettled', ...codes]
   return reasons.length === 0 ? { ok: false, diagnostics } : { ok: false, diagnostics, reasons }
 }
@@ -134,7 +70,7 @@ export async function composeObservedUwCausalContext(
   read: UwRead,
   selected: readonly DecodedHistory[],
   options: GitHubOptions,
-): Promise<FixActionResult<WorkflowCausalContext>> {
+): Promise<CausalResult<WorkflowCausalContext>> {
   if (
     read.causalObservation?.status !== 'complete' ||
     read.causalObservation.histories !== read.histories ||
@@ -159,11 +95,11 @@ export async function composeObservedUwCausalContext(
       history.source.stopAuthor !== policy.stopAuthor ||
       (policy.readAuthor !== undefined && history.source.expectedAuthor !== policy.readAuthor)
     )
-      return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
+      return causalFailure('fix-own-uw-unsettled', 'fix-history-observation-drift')
     scopes.add(key)
     if (scope.repository === read.uw.repository && scope.target === read.uw.target) own = true
   }
-  if (!own) return failure('fix-own-uw-unsettled', 'fix-causal-own-history-missing')
+  if (!own) return causalFailure('fix-own-uw-unsettled', 'fix-causal-own-history-missing')
   const merged = mergeFixUwHistories(read.histories, selected)
   if (!merged.ok) return merged
   if (merged.value.length === read.histories.length)
@@ -179,7 +115,7 @@ export async function readFreshUwCausalContext(
   scope: Scope,
   selected: readonly DecodedHistory[],
   options: GitHubOptions,
-): Promise<FixActionResult<FixUwCausalContext>> {
+): Promise<CausalResult<FixUwCausalContext>> {
   try {
     const read = await createInstalledUwReadPort({
       cwd: options.cwd,
@@ -193,53 +129,11 @@ export async function readFreshUwCausalContext(
   }
 }
 
-export async function extendObservedUwCausalContext(
-  previous: WorkflowCausalContext,
-  selected: readonly DecodedHistory[],
-  options: GitHubOptions,
-): Promise<FixActionResult<WorkflowCausalContext>> {
-  if (!coherentContext(previous)) return failure('fix-own-uw-unsettled', 'fix-causal-observation-unavailable')
-  const merged = mergeFixUwHistories(previous.histories, selected)
-  if (!merged.ok) return merged
-  if (merged.value.length === previous.histories.length) return { ok: true, value: previous }
-  return collectJointUwCausalContext(previous.observation.root, merged.value, options)
-}
-
-function coherentContext(context: WorkflowCausalContext): boolean {
-  return (
-    context.observation?.status === 'complete' &&
-    context.histories === context.observation.histories &&
-    context.catalogues === context.observation.catalogues
-  )
-}
-
-/** A confirmed append explains history drift, never a change to retained native or delivery facts. */
-export function reconcileWithdrawalContexts(
-  before: WorkflowCausalContext,
-  after: WorkflowCausalContext,
-  scope: DecodedHistory['source']['scope'],
-  barriers: readonly WithdrawalBarrier[],
-): FixActionResult<WorkflowCausalContext> {
-  if (!coherentContext(before) || !coherentContext(after))
-    return failure('fix-own-uw-unsettled', 'fix-causal-observation-unavailable')
-  const histories = reconcileWithdrawalHistories(before.histories, after.histories, scope, barriers)
-  if (!histories.ok) return histories
-  const { observedAt: _beforeTime, ...beforeGraph } = before.observation.graph
-  const { observedAt: _afterTime, ...afterGraph } = after.observation.graph
-  if (
-    JSON.stringify(before.observation.root) !== JSON.stringify(after.observation.root) ||
-    JSON.stringify(beforeGraph) !== JSON.stringify(afterGraph) ||
-    JSON.stringify(before.observation.delivery) !== JSON.stringify(after.observation.delivery)
-  )
-    return failure('fix-own-uw-unsettled', 'fix-history-observation-drift')
-  return { ok: true, value: after }
-}
-
 async function collectJointUwCausalContext(
   root: Scope,
   histories: readonly DecodedHistory[],
   options: GitHubOptions,
-): Promise<FixActionResult<WorkflowCausalContext>> {
+): Promise<CausalResult<WorkflowCausalContext>> {
   const policy = withRoxabiGitHubPolicy(options)
   const observation = await readUwCompletionObservation(
     root,
