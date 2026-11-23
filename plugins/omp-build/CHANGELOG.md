@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.12 (unreleased)
+
+- Add `/dev-fix`, the instructions that replace `/fix`. The command loads `skills/dev-fix/SKILL.md`: on an open PR into the default branch whose latest complete review comment by a writer (`## Review — head <sha> base <branch>` … `Verdict: …`) covers the current head and base, implementer agents fix its findings and the failing checks on the PR branch, behavior fixes come with a falsified test, the exact tip is pushed through `origin`, re-verified as the PR's repository just before, with a lease on the reviewed head (`--force-with-lease=refs/heads/<branch>:<head> origin <tip>^{commit}:refs/heads/<branch>`, no tags), after re-reading the PR state, base and unedited review, and a `## Fixes — head <tip>` comment maps each finding; the next step is `/dev-review`. Without an open PR or a current review it stops. Run standalone, it is authorized by the operator who runs it. `/dev-review` writes that review header and `Verdict:` line and names `/dev-fix` as its request-changes step.
+- `/fix` stays the native correction command, marked retiring: it goes with the native runtime when `/feature` moves (#1037). `skills/fix/` (its unused reference body and the falsification guide that the native falsify profile does not read) is deleted.
+- Recognize 0.21.12 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.11 (unreleased)
 
 - `/dev-review` becomes instructions instead of a native dispatch. The command loads `skills/dev-review/SKILL.md`: bind an open PR that targets the default branch, its head and base, fetched from the PR's own repository; review in a detached worktree at that head; spawn read-only reviewer agents (`R-adversarial` always, `R-architect`, `R-security-auditor`, `R-tester` or `R-devops` by diff) and approve only when every one completed and no blocking finding remains; re-check head and base, post one findings comment and, when the head is approved, the `review-verdict v1 head=<sha> approve evidence=<url>` line that the `PR_Main` ruleset requires as `review`. Without an open PR it stops. The native review stays behind `omp_build_start_review` and the `/feature` review step until they move (#1037); the test driver starts it through that tool.
