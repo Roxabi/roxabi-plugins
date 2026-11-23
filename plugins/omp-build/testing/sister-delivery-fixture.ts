@@ -167,12 +167,8 @@ async function deliverInWorld(
   })
   const operations = {
     ...world.operations,
-    prepareAction: (
-      request: Parameters<typeof world.operations.prepareAction>[0],
-      projectionArg?: Parameters<typeof world.operations.prepareAction>[1],
-      review?: Parameters<typeof world.operations.prepareAction>[2],
-      correctionRoot?: Parameters<typeof world.operations.prepareAction>[3],
-    ) => prepareUwAction(request, ports, projectionArg, review, correctionRoot),
+    prepareAction: (...[request, review, correctionRoot]: Parameters<typeof world.operations.prepareAction>) =>
+      prepareUwAction(request, ports, review, correctionRoot),
     replayActionInputs: (request: Parameters<typeof world.operations.replayActionInputs>[0]) =>
       replayUwActionInputs(request, ports),
   }

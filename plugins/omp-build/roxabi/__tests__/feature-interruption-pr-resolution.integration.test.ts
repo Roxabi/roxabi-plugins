@@ -1,25 +1,16 @@
 import { afterEach, expect, it } from 'vitest'
-import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { interruptionResolution } from '../../engine/__tests__/workflow-interruption-support.ts'
 import { actionInputDigest } from '../../engine/action-input.ts'
-import { buildRecord } from '../../engine/record-construction.ts'
+import { buildRecord, parseRecord } from '../../engine/record-construction.ts'
 import { failedCheckEvidenceDigest } from '../../engine/record-digests.ts'
-import { scopedRecordRefSchema } from '../../engine/record-references.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
-import {
-  interruptionResolutionDigest,
-  interruptionResolutionRecordId,
-} from '../../engine/workflow-interruption-proof.ts'
+import { interruptionResolutionRecordId } from '../../engine/workflow-interruption-proof.ts'
 import { ACTION_RECEIPT_FORMAT } from '../../engine/workflow-receipt-schema.ts'
 import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import {
-  controls,
-  type Outcome,
-  type Prompt,
   pauseRecords,
   post,
-  proposalOf,
-  resolve,
-  runtimeOf,
+  readHistoricalResolution,
   sandboxMandate,
   type World,
 } from '../../testing/feature-interruption-resolution-fixture.ts'
@@ -27,12 +18,11 @@ import { cleanupFeatureRecoveryRoots, featureFixture, SCOPE } from '../../testin
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { readSim, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 
-const FORMAT = 'omp-build-interruption-resolution/2'
 const TIMEOUT = 180_000
 const fixtures = roxabiWorkflowFixtures()
 afterEach(cleanupFeatureRecoveryRoots)
-/** An orphan attribute-ci START on a real simulated PR, bound to the paused issue mandate. */
-function ciOrphan(): World & { pull: typeof SCOPE } {
+/** A historical attribute-ci resolution on a real simulated PR, bound to its paused issue mandate. */
+function ciResolution(): World & { pull: typeof SCOPE; resolution: CanonicalRecord } {
   const { box } = featureFixture('start', { malformedDisarmPr: true })
   const mandate = sandboxMandate(box)
   const head = box.sha.main
@@ -66,9 +56,23 @@ function ciOrphan(): World & { pull: typeof SCOPE } {
     },
   })
   if (!built.ok || built.value.kind !== 'action-receipt') throw new Error('invalid CI START fixture')
-  const issueRecords = [mandate, ...pauseRecords(mandate)]
+  const [pauseRequest, pause] = pauseRecords(mandate)
+  if (pauseRequest === undefined || pause === undefined) throw new Error('missing pause fixture')
+  const issueRecords = [mandate, pauseRequest, pause]
+  const historical = parseRecord(
+    interruptionResolution({
+      mandate,
+      pause,
+      start: built.value,
+      result: null,
+      recordId: interruptionResolutionRecordId(built.value.recordId),
+    }),
+  )
+  if (!historical.ok) throw new Error(JSON.stringify(historical))
   const binding = fixtures.workflowBinding(pull, mandate, mandate.payload.branch, mandate.payload.base)
-  const prBodies = fixtures.framedBodies([binding, built.value], 'operator', [fixtures.historyFrom(issueRecords)])
+  const prBodies = fixtures.framedBodies([binding, built.value, historical.value], 'operator', [
+    fixtures.historyFrom(issueRecords),
+  ])
   post(box, issueRecords)
   writeSim(box, (state) => {
     const pr = state.prs['9']
@@ -78,112 +82,30 @@ function ciOrphan(): World & { pull: typeof SCOPE } {
     pr.body = 'Closes #42'
     pr.comments = prBodies.map((body) => ({ author: 'operator', body }))
   })
-  return { box, mandate, start: built.value, pull }
+  return { box, mandate, start: built.value, pull, resolution: historical.value }
 }
-it(
-  'publishes and authenticates a non-dispatched PR attribute-ci resolution through installed UW and GitHub',
-  () => {
-    const world = ciOrphan()
-    const before = readSim(world.box)
-    const outcome = resolve(world, 'ci-cross-scope', {
-      startTarget: world.pull.target,
-      mandateId: world.mandate.recordId,
-    }) as Outcome & {
-      dialog: string
-      confirmations: number
-      dispatch: { kind: string } | null
-      before: { status: string; starts: Array<{ scope: typeof SCOPE; recordId: string }> }
-      readback: {
-        status: string
-        admitted: {
-          ok: boolean
-          value?: { record: CanonicalRecord; start: CanonicalRecord; pause: CanonicalRecord } | null
-        }
-        selection: { status: string; reason?: string } | null
-        starts: Array<{ scope: typeof SCOPE; recordId: string }>
-      }
-    }
 
-    expect(outcome.result).toMatchObject({
-      status: 'resolved',
-      start: { scope: world.pull, recordId: world.start.recordId },
-    })
-    expect(outcome.confirmations).toBe(1)
-    expect(outcome.dialog).toContain(world.start.recordId)
-    expect(outcome.before.status).toBe('complete')
-    expect(outcome.before.starts).toContainEqual({ scope: world.pull, recordId: world.start.recordId })
-    expect(outcome.dispatch).toEqual({ kind: 'not-activated' })
-    expect(outcome.prompts).toHaveLength(1)
-    const prompt = outcome.prompts[0] as Prompt
-    expect(prompt.proposal).toMatchObject({
-      format: FORMAT,
-      action: 'attribute-ci',
-      actionId: 'act-ci-1',
-      mandate: { scope: SCOPE, recordId: world.mandate.recordId },
-      start: { scope: world.pull, recordId: world.start.recordId },
-      executor: { kind: 'not-dispatched' },
-      result: null,
-      runtime: runtimeOf(world.mandate),
-    })
-    expect(outcome.readback.status).toBe('complete')
-    expect(outcome.readback.selection).toMatchObject({ status: 'refused', reason: 'paused' })
-    expect(outcome.readback.starts).toEqual(outcome.before.starts)
-    expect(outcome.readback.admitted.ok).toBe(true)
-    const admitted = outcome.readback.admitted.value
-    if (!admitted) throw new Error('installed GitHub readback did not authenticate the CI resolution')
-    expect(admitted.start).toEqual(world.start)
-    expect(admitted.pause).toMatchObject({ payload: { control: 'pause-confirmed', disarm: { observed: true } } })
-    expect(admitted.record).toMatchObject({
-      recordId: interruptionResolutionRecordId(world.start.recordId),
-      payload: {
-        start: { scope: world.pull, recordId: world.start.recordId },
-        proposalDigest: prompt.digest,
-        confirmation: {
-          route: 'omp-native-command',
-          operationId: prompt.proposal.operationId,
-          proposalDigest: prompt.digest,
+it(
+  'authenticates a historical PR attribute-ci resolution without changing the paused mandate',
+  () => {
+    const world = ciResolution()
+    const before = readSim(world.box)
+    expect(readHistoricalResolution(world)).toMatchObject({
+      selection: { status: 'refused', reason: 'paused' },
+      resolution: {
+        ok: true,
+        value: {
+          start: world.start,
+          pause: { payload: { control: 'pause-confirmed', disarm: { observed: true } } },
+          record: world.resolution,
         },
       },
     })
-    expect(interruptionResolutionDigest(proposalOf(admitted.record))).toBe(prompt.digest)
-    const parsedResolution = scopedRecordRefSchema.safeParse(outcome.result.resolution)
-    if (!parsedResolution.success) throw new Error('resolution is not a canonical scoped record reference')
-    const selected = parsedResolution.data
-    expect(selected).toEqual({
-      kind: 'operator-control',
-      scope: { repository: admitted.record.repository, target: admitted.record.target },
-      recordId: admitted.record.recordId,
-    })
     const after = readSim(world.box)
-    const home =
-      selected.scope.target === SCOPE.target
-        ? after.issues['42']
-        : selected.scope.target === world.pull.target
-          ? after.prs['9']
-          : null
-    if (!home) throw new Error(`unexpected selected resolution home ${selected.scope.target}`)
-    const decoded = decodeHistory({
-      scope: selected.scope,
-      expectedAuthor: 'operator',
-      stopAuthor: null,
-      complete: true,
-      diagnostics: [],
-      comments: home.comments.map((comment, index) => ({
-        locator: `${selected.scope.target}:comment:${index + 1}`,
-        nativeId: String(index + 1),
-        body: comment.body,
-        author: comment.author,
-        createdAt: comment.createdAt ?? null,
-        updatedAt: comment.updatedAt ?? null,
-      })),
-    })
-    expect(decoded.operations.filter((operation) => operation.record?.recordId === selected.recordId)).toMatchObject([
-      { status: 'complete', authority: 'accounted', record: admitted.record },
-    ])
-    const beforeCount = (before.issues['42']?.comments.length ?? 0) + (before.prs['9']?.comments.length ?? 0)
-    const afterCount = (after.issues['42']?.comments.length ?? 0) + (after.prs['9']?.comments.length ?? 0)
-    expect(afterCount).toBeGreaterThan(beforeCount)
-    expect(controls(world.box)).not.toContain('resume')
+    const authored = (comments: (typeof before.issues)[string]['comments'] | undefined) =>
+      comments?.map(({ author, body }) => ({ author, body }))
+    expect(authored(after.issues['42']?.comments)).toEqual(authored(before.issues['42']?.comments))
+    expect(authored(after.prs['9']?.comments)).toEqual(authored(before.prs['9']?.comments))
   },
   TIMEOUT,
 )

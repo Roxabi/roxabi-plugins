@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { Result } from '../engine/result.ts'
-import { currentPreparationCohort, trackPreparationSyncOperation } from '../host/preparation-cohort.ts'
 import type { ActionSnapshot, ActionSnapshotStore } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
 
@@ -11,15 +10,11 @@ function linkedWorktreeGitDir(cwd: string): string | null {
   try {
     const gitDir = resolve(
       cwd,
-      trackPreparationSyncOperation('git', () =>
-        execFileSync('git', ['-C', cwd, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }),
-      ).trim(),
+      execFileSync('git', ['-C', cwd, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).trim(),
     )
     const common = resolve(
       cwd,
-      trackPreparationSyncOperation('git', () =>
-        execFileSync('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }),
-      ).trim(),
+      execFileSync('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim(),
     )
     return gitDir === common ? null : gitDir
   } catch {
@@ -34,10 +29,9 @@ function placementRoot(input: {
   if (input.artifactsDir) {
     const root = join(input.artifactsDir, 'local', 'omp-build', 'actions')
     try {
-      trackPreparationSyncOperation('snapshot', () => mkdirSync(root, { recursive: true, mode: 0o755 }))
+      mkdirSync(root, { recursive: true, mode: 0o755 })
       return { ok: true, value: { root, location: 'local' } }
     } catch {
-      currentPreparationCohort()?.unknown('snapshot-placement-partial')
       // Fall through to the linked worktree git dir. Never the principal .git.
     }
   }
@@ -50,9 +44,8 @@ function placementRoot(input: {
   }
   const root = join(gitDir, 'omp-build', 'actions')
   try {
-    trackPreparationSyncOperation('snapshot', () => mkdirSync(root, { recursive: true, mode: 0o755 }))
+    mkdirSync(root, { recursive: true, mode: 0o755 })
   } catch (error) {
-    currentPreparationCohort()?.unknown('snapshot-placement-partial')
     return actionFailure(
       'snapshot-placement-unavailable',
       error instanceof Error ? error.message : 'worktree git dir is not writable',
@@ -77,12 +70,9 @@ export function createActionSnapshotStore(input: { artifactsDir?: string | null;
       const id = randomBytes(16).toString('hex')
       const directory = join(placed.value.root, `${id}-${request.actionId.replace(/[^a-z0-9-]/gi, '')}`)
       try {
-        trackPreparationSyncOperation('snapshot', () => {
-          mkdirSync(directory, { recursive: true, mode: 0o755 })
-          writeTree(directory, request.files)
-        })
+        mkdirSync(directory, { recursive: true, mode: 0o755 })
+        writeTree(directory, request.files)
       } catch (error) {
-        currentPreparationCohort()?.unknown('snapshot-write-partial')
         return actionFailure(
           'snapshot-placement-unavailable',
           error instanceof Error ? error.message : 'snapshot write failed',

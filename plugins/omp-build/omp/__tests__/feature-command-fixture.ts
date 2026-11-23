@@ -22,11 +22,7 @@ export function featureCommandContext(cwd: string) {
   }
 }
 
-export function commandComposition(
-  cwd: string,
-  options: FeatureCommandComposition['options'],
-  interruptOwnedFeatureWork: FeatureCommandComposition['interruptOwnedFeatureWork'] = async () => ({ failures: [] }),
-) {
+export function commandComposition(cwd: string, options: FeatureCommandComposition['options']) {
   const sent: string[] = []
   const framing = vi.fn<FeatureCommandComposition['framing']['start']>(async () => undefined)
   const pi = createExtensionApiStub({
@@ -48,7 +44,6 @@ export function commandComposition(
         installRoot: INSTALL_ROOT,
         skillsDir: join(INSTALL_ROOT, 'skills'),
         exists: existsSync,
-        interruptOwnedFeatureWork,
         framing: { start: framing },
       }),
   }

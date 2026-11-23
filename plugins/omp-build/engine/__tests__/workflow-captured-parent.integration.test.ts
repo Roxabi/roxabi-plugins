@@ -1,12 +1,10 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, test } from 'vitest'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
-import { publishNonImplementResult } from '../../roxabi/feature-action-result.ts'
 import { readAssessmentSpecFacts } from '../../roxabi/uw-current-facts.ts'
-import { openHistoricalAssessment } from '../../testing/native-assessment-history.ts'
+import { appendHistoricalAssessment, openHistoricalAssessment } from '../../testing/native-assessment-history.ts'
 import { openHistoricalDelivery } from '../../testing/native-history-records.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
-import { captureNativePlanBatch } from '../../testing/native-plan-capture.ts'
 import { produceNativePlan } from '../../testing/native-plan-producer.ts'
 import { operatorDialogUi, operatorRootContext } from '../../testing/operator-dialog-ui.ts'
 import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
@@ -221,7 +219,7 @@ describe('captured parent integration during material assessment', () => {
             coverage: proposedCoverage,
             basis: request,
           })
-          const { task, exact } = started
+          const { exact } = started
           function assessmentJudgment(): SpecAssessment {
             const constraints = [
               ...acceptedConstraints(exact.accepted.ref, exact.accepted.snapshot.spec, true),
@@ -252,24 +250,13 @@ describe('captured parent integration during material assessment', () => {
           }
           const judgment = assessmentJudgment()
           async function publishAndAccept() {
-            const captured = await captureNativePlanBatch({
-              batch: started.followUp,
-              cwd: parentCheckout.cwd,
-              git: {
-                repository: world.parentScope.repository,
-                commit: base,
-                tree: parentCheckout.tree(base),
-              },
-              claims: [{ task: task.name, childId: 'parent-coverage-assessment', value: judgment }],
-            })
-            const published = await publishNonImplementResult({
-              cwd: parentCheckout.cwd,
-              start: started.start,
-              result: captured,
-              gh: world.gh,
-            })
-            if (!published.published)
-              throw new Error(`Parent metadata publication refused: ${JSON.stringify(published)}`)
+            await appendHistoricalAssessment(
+              { ...world, cwd: parentCheckout.cwd },
+              world.parentScope,
+              started,
+              'parent-coverage-assessment',
+              judgment,
+            )
             const accepted = await world.operations.acceptMaterial(world.parentScope)
             if (accepted.status !== 'accepted')
               throw new Error(`Parent metadata confirmation refused: ${JSON.stringify(accepted)}`)

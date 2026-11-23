@@ -5,10 +5,8 @@ import { canonicalSpec } from '../engine/uw-spec.ts'
 import { criterionIdSchema } from '../engine/uw-spec-schema.ts'
 import { acceptedConstraints, proposedConstraints } from '../engine/workflow-constraint-compatibility.ts'
 import type { SpecAssessment } from '../engine/workflow-output-schema.ts'
-import { publishNonImplementResult } from '../roxabi/feature-action-result.ts'
 import { readAssessmentSpecFacts } from '../roxabi/uw-current-facts.ts'
-import { openHistoricalAssessment } from './native-assessment-history.ts'
-import { captureNativePlanBatch } from './native-plan-capture.ts'
+import { appendHistoricalAssessment, openHistoricalAssessment } from './native-assessment-history.ts'
 import type { withUnplannedInheritedWorld } from './native-unplanned-inherited-world.ts'
 
 type ScenarioWorld = Parameters<Parameters<typeof withUnplannedInheritedWorld>[1]>[0]
@@ -17,7 +15,6 @@ type ScenarioWorld = Parameters<Parameters<typeof withUnplannedInheritedWorld>[1
 export async function confirmNewParentEngagement(
   input: ScenarioWorld & {
     commit: string
-    tree: string
     statement: string
   },
 ) {
@@ -65,15 +62,15 @@ export async function confirmNewParentEngagement(
     coverage,
     basis: pending.coverageRequest,
   })
-  const { task } = started
-  const operands = task.action.inputs.manifest.operands
+  const { prepared } = started
+  const operands = prepared.inputs.manifest.operands
   if (operands?.action !== 'assess-spec') throw new Error('Parent assessment lacks sealed operands')
-  const inputs = task.action.inputs
+  const inputs = prepared.inputs
   const manifest = inputs.manifest
   const replay = await world.operations.replayActionInputs({
     reviewed: inputs,
     request: {
-      actionId: task.action.snapshot.actionId,
+      actionId: prepared.snapshot.actionId,
       purpose: manifest.purpose,
       subject: manifest.subject,
       code: manifest.code,
@@ -136,19 +133,13 @@ export async function confirmNewParentEngagement(
       reason: 'The observed parent and child constraints are compatible.',
     },
   }
-  const captured = await captureNativePlanBatch({
-    batch: started.followUp,
-    cwd: world.cwd,
-    git: { repository: scenario.middle.repository, commit: input.commit, tree: input.tree },
-    claims: [{ task: task.name, childId: 'parent-engagement-assessment', value: judgment }],
-  })
-  const published = await publishNonImplementResult({
-    cwd: world.cwd,
-    start: started.start,
-    result: captured,
-    gh: world.gh,
-  })
-  if (!published.published) throw new Error(`Parent assessment publication refused: ${JSON.stringify(published)}`)
+  const result = await appendHistoricalAssessment(
+    world,
+    scenario.middle,
+    started,
+    'parent-engagement-assessment',
+    judgment,
+  )
   const accepted = await world.operations.acceptMaterial(scenario.middle)
   if (accepted.status !== 'accepted')
     throw new Error(`Parent commitment confirmation refused: ${JSON.stringify(accepted)}`)
@@ -160,5 +151,5 @@ export async function confirmNewParentEngagement(
     baseTip: input.commit,
     remoteTip: input.commit,
   })
-  return { body, content: content.value, assessment: started, published, accepted: accepted.value }
+  return { body, content: content.value, assessment: started, result, accepted: accepted.value }
 }

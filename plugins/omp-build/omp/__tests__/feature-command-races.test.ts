@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FeatureWorkflow } from '../../roxabi/feature-contract'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
-import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import ompBuildExtension from '../index'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
@@ -55,7 +54,6 @@ function installed(options: OmpBuildExtensionOptions) {
       sent.push(typeof message === 'string' ? message : String(message?.content ?? message))
     },
   })
-  provisionNativeRoot(root)
   const origin = { sessionId: root.sessionManager.getSessionId(), cwd: root.cwd }
   const context = {
     ...root,

@@ -134,12 +134,11 @@ export async function publishConfirmedPause(input: PausePublicationInput): Promi
 async function publishPause(input: PausePublicationInput): Promise<PausedContinuation> {
   const admission = await admitPausePublication(input)
   if ('kind' in admission) return admission
-  const { history, parents } = admission
+  const { parents } = admission
   const controlId = randomUUID()
   const requestedId = randomUUID()
   const requested = await publishRecord(
     input.loaded,
-    history,
     {
       repository: input.scope.repository,
       target: input.scope.target,
@@ -173,7 +172,6 @@ async function publishPause(input: PausePublicationInput): Promise<PausedContinu
   }
   await publishRecord(
     input.loaded,
-    refreshed.histories[0],
     {
       repository: input.scope.repository,
       target: input.scope.target,
@@ -202,7 +200,7 @@ async function publishPause(input: PausePublicationInput): Promise<PausedContinu
 
 async function admitPausePublication(
   input: PausePublicationInput,
-): Promise<{ history: History; parents: readonly History[] } | PausedContinuation> {
+): Promise<{ parents: readonly History[] } | PausedContinuation> {
   const fresh = await input.loaded.readComposedWorkflowHistory([input.scope], input.options)
   if (!fresh.ok || fresh.histories[0] === undefined) {
     return { kind: 'paused', confirmed: false, reason: 'pause-uncertain' }
@@ -226,5 +224,5 @@ async function admitPausePublication(
   ) {
     return { kind: 'paused', confirmed: false, reason: 'pause-uncertain' }
   }
-  return { history, parents: parentResult.parents }
+  return { parents: parentResult.parents }
 }

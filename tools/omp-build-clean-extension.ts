@@ -66,7 +66,7 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
       registerCommand(name) { commands.push(name) },
       registerTool({ name }) { tools.push(name) },
     })
-    if (tools.sort().join(',') !== 'omp_build_execute_native_batch,omp_build_framing_submit,omp_build_prepare_checkout') {
+    if (tools.sort().join(',') !== 'omp_build_framing_submit,omp_build_prepare_checkout') {
       throw new Error('unexpected installed tool roster: ' + tools)
     }
     if (commands.includes('fix') || !commands.includes('uw') || !commands.includes('feature')) {

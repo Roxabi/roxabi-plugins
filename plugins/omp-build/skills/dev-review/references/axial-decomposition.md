@@ -30,15 +30,7 @@ Optional Q5: **Revisit trigger** (default: sibling-fix rate > 3/week ∨ 6-month
 
 - ADR with `axial: true` in frontmatter → **canonical marker** (grep-discoverable)
 - No YAML pointer needed — `grep -rli "^axial: true" docs/architecture/adr/` finds it in O(N) ADR files (<50 in practice)
-- Downstream consumers read the ADR directly: the live review panel, project lint, and sibling-rate detection. Retired factory routes are not consumers.
-
-## Why the decision used to be forced at init
-
-The factory `/init` route is retired. Do not invoke it. The historical reason the decision was forced there: once scaffolding lands, the axis is implicit in the code structure, and changing it costs a refactor. Forcing the decision at that moment made it:
-
-- **Defendable** — written rationale, not folklore
-- **Revisitable** — superseded, not lost
-- **Visible** — surfaces the design choice that would otherwise stay invisible (the 1st of 4 N×M angles morts)
+- Reviewers locate and read the ADR directly.
 
 ## Reason categories
 
@@ -62,18 +54,16 @@ Reject vague answers. Push the user toward one of:
 
 If a concern X appears in 3+ sibling dirs, it's no longer a coincidence — it's a duplication. Promote it to a shared primitive along the **primary axis**.
 
-## Dispatch asymmetry (intentional)
+## When to request axial review
 
-Design review and `dev-review` (prose label `/R-dev-review`, not a command) both recruit **R-architect axial mode** (same durable agent, extra prompt — not a second manifest), with different conditions:
+The session can brief `R-architect` in axial mode for a design or code review:
 
 | Skill | Trigger | Nature |
 |-------|---------|--------|
 | Design review | the proposal adds an adapter, integration, or target, or touches an infrastructure boundary | **Semantic/intent** — reviews design proposals |
 | `dev-review` | the diff touches infrastructure, adapters, domains, or stages, and a unique `axial: true` ADR exists | **Structural** — reviews actual file changes |
 
-Create or supersede the axial ADR through the project's own ADR process. Do not invoke retired `/R-adr` or `/R-dev-init` routes.
-
-This asymmetry is intentional. A proposal may touch infrastructure without adding an adapter. In that case the axial concern may be irrelevant at design review, then become relevant if the diff shows structural drift. Design review catches intent-level N×M violations; `dev-review` catches implementation-level ones.
+Create or supersede the axial ADR through the project's own ADR process. Design review checks intent; `dev-review` looks for structural drift in the changed code.
 
 ## Boundaries
 

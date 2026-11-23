@@ -13,6 +13,7 @@ it.each(['intact', 'missing-identity', 'forged-identity', 'missing-source'] as c
     const first = await world.operations.createSister(world.request(0))
     expect(first.status, JSON.stringify(first)).toBe('created')
     expect(world.confirmations()).toBe(1)
+    expect(world.issues.get(43)?.parent).toBeNull()
     expect(world.issues.get(42)?.blockers).toContain(43)
     const github = withRoxabiGitHubPolicy({ cwd: '/fixture', gh: world.gh, readAuthor: 'automation' })
     const sister = await readComposedWorkflowHistory([{ repository: 'acme/app', target: 'acme/app#43' }], github)

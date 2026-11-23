@@ -4,7 +4,6 @@ import { contextOf, installed, session, workflow } from '../../testing/feature-f
 
 const NOTHING_RUNNING =
   /\bnothing (?:is |was )?(?:running|executing|in progress)\b|\bno executor (?:is )?(?:running|active)\b/i
-const WORKFLOW_SUCCESS = /\b(?:success(?:ful(?:ly)?)?|succeeded|passed|approved|done|completed?)\b/i
 
 const UW_REF = 'acme/widgets#42'
 
@@ -66,14 +65,6 @@ describe('feature business projection', () => {
       expect(surface ?? '').not.toMatch(NOTHING_RUNNING)
   })
 
-  it('does not claim an executor is idle when an interruption resolution is busy', async () => {
-    const recorded = recording({ kind: 'blocked', reason: 'interruption-owner-busy' })
-    await recorded.run(`resolve-interruption ${UW_REF} --start start-42`)
-    expect(recorded.statuses.at(-1)).toContain('interruption-owner-busy')
-    for (const surface of [...recorded.messages, ...recorded.statuses])
-      expect(surface ?? '').not.toMatch(NOTHING_RUNNING)
-  })
-
   it('distinguishes done from a final stop', async () => {
     const done = recording({ kind: 'terminal', reason: 'done' })
     const finalStop = recording({ kind: 'terminal', reason: 'review-bound' })
@@ -81,21 +72,5 @@ describe('feature business projection', () => {
     await finalStop.run()
     expect(done.messages).toEqual(['feature-done: done'])
     expect(finalStop.messages).toEqual(['feature-stopped: review-bound'])
-  })
-
-  it('keeps a confirmed interruption resolution a pause that still needs an explicit resume', async () => {
-    const recorded = recording({ kind: 'paused', confirmed: true, reason: 'interruption-resolved' })
-    await recorded.run(`resolve-interruption ${UW_REF} --start start-42`)
-    expect(recorded.messages).toHaveLength(1)
-    expect(recorded.messages[0]).toContain('interruption-resolved')
-    expect(recorded.messages[0]).toMatch(/\bpause/i)
-    expect(recorded.messages[0]).not.toMatch(WORKFLOW_SUCCESS)
-    const status = recorded.statuses.at(-1)
-    expect(status).toContain(UW_REF)
-    expect(status).toMatch(/\bpaused\b/i)
-    expect(status).toContain('interruption-resolved')
-    expect(status).toContain(`/feature resume ${UW_REF}`)
-    expect(status).not.toMatch(WORKFLOW_SUCCESS)
-    expect(status).not.toMatch(/\bresumed\b/i)
   })
 })

@@ -124,6 +124,11 @@ function historicalReport() {
   return built.value
 }
 
+function preflightRefusal(parentState: string): string | null {
+  if (parentState === 'active') return 'Parent /uw promote-report delivery is suspended; resumes in slice 6 (#1031).'
+  return parentState === 'indeterminate' ? 'cause-parent-indeterminate' : null
+}
+
 it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)(
   'uses the installed parent guard during promotion: %s',
   async (parentState) => {
@@ -299,9 +304,10 @@ it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)
       create,
       reason: 'Promote the retained report into separately scoped work',
     })
-    if (parentState === 'active' || parentState === 'indeterminate') {
+    const refusal = preflightRefusal(parentState)
+    if (refusal !== null) {
       expect(result.status, JSON.stringify(result)).toBe('refused')
-      expect(JSON.stringify(result)).toContain(`cause-parent-${parentState}`)
+      expect(JSON.stringify(result)).toContain(refusal)
       expect(confirmations).toBe(0)
       expect(creates).toBe(0)
       expect(patches).toBe(0)

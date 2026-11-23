@@ -84,22 +84,35 @@ it('rejects promotion to a foreign parent while creating the otherwise identical
   expect(foreign.world.comments.get(42)?.length).toBe(originalComments)
 })
 
-it('promotes a report with a promotion receipt, never a debt receipt', async () => {
-  const { world, create, report } = await promotionWorld()
-  const result = await world.operations.promoteReport({
-    report,
-    create,
-    reason: 'This report merits a separately scoped UW',
-  })
-  expect(result.status, JSON.stringify(result)).toBe('created')
-  expect(world.confirmations()).toBe(1)
-  const github = withRoxabiGitHubPolicy({ cwd: '/fixture', gh: world.gh, readAuthor: 'automation' })
-  const read = await readComposedWorkflowHistory([world.context.original], github)
-  expect(read.ok, JSON.stringify(read)).toBe(true)
-  if (!read.ok || !read.histories[0]) throw new Error('promoted report history unavailable')
-  const kinds = recordsOf(read.histories[0]).map((record) => record.kind)
-  expect(kinds).toContain('cause-operation')
-  expect(kinds).toContain('report-promotion')
-  expect(kinds).not.toContain('debt-receipt')
-  expect(world.comments.get(43)?.some((comment) => comment.body.includes('kind=spec-identity'))).toBe(true)
-})
+it.each([null, 41])(
+  'promotes a report with parent %s and a promotion receipt, never a debt receipt',
+  async (parent) => {
+    const { world, create, report } = await promotionWorld()
+    const result = await world.operations.promoteReport({
+      report,
+      create: {
+        ...create,
+        writes: {
+          ...create.writes,
+          relations: {
+            ...create.writes.relations,
+            parent: parent === null ? null : { repository: 'acme/app', number: parent },
+          },
+        },
+      },
+      reason: 'This report merits a separately scoped UW',
+    })
+    expect(result.status, JSON.stringify(result)).toBe('created')
+    expect(world.confirmations()).toBe(1)
+    expect(world.issues.get(43)?.parent).toBe(parent)
+    const github = withRoxabiGitHubPolicy({ cwd: '/fixture', gh: world.gh, readAuthor: 'automation' })
+    const read = await readComposedWorkflowHistory([world.context.original], github)
+    expect(read.ok, JSON.stringify(read)).toBe(true)
+    if (!read.ok || !read.histories[0]) throw new Error('promoted report history unavailable')
+    const kinds = recordsOf(read.histories[0]).map((record) => record.kind)
+    expect(kinds).toContain('cause-operation')
+    expect(kinds).toContain('report-promotion')
+    expect(kinds).not.toContain('debt-receipt')
+    expect(world.comments.get(43)?.some((comment) => comment.body.includes('kind=spec-identity'))).toBe(true)
+  },
+)

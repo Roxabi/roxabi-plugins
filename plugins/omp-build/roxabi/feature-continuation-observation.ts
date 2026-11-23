@@ -99,11 +99,11 @@ async function observedCurrentRead(
 export async function assembleObservationBase(
   selected: SelectedFeature,
 ): Promise<FeatureAdmissionObservation | ContinueFeatureResult> {
-  const { authority, mandate, acceptedSpec } = selected
+  const { authority, mandate } = selected
   const { context, target, history } = authority
   const uwRead = await readObservationUw(selected)
   if (uwRead !== null && 'kind' in uwRead) return uwRead
-  const assembled = await assembleChantier(context.engine, target, history, mandate, acceptedSpec, uwRead, {
+  const assembled = await assembleChantier(context.engine, target, history, mandate, uwRead, {
     cwd: context.cwd,
     gh: context.gh,
   })

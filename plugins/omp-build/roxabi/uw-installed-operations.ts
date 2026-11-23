@@ -13,15 +13,12 @@ import {
   resolveSpecEffective,
   viewer,
 } from '../dist/contracts.js'
-import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
-import type { NativeBatch } from '../omp/review-runtime/contracts.ts'
-import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { createUwAbandon } from './uw-abandon.ts'
-import type { TrustedHostPluginPin, UwActionPorts } from './uw-action-contract.ts'
+import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import { createCauseAdjudication } from './uw-cause-adjudication.ts'
 import { createCauseAdjustment } from './uw-cause-adjustment.ts'
 import { createCauseCreation } from './uw-cause-creation.ts'
@@ -29,38 +26,15 @@ import { guardedCauseWriter } from './uw-cause-guard.ts'
 import type { CreatedUwReadPort, OperatorPort, UwOperations } from './uw-contract.ts'
 import { createFramingPublicationPorts } from './uw-framing-ports.ts'
 import { createIdentityPublisher } from './uw-identity-publication.ts'
-import {
-  createProductionActionPorts,
-  createProductionDeliveryPorts,
-  type ProductionReaderOptions,
-} from './uw-input-readers.ts'
+import { createProductionActionPorts, createProductionDeliveryPorts } from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import { listInstalledReports } from './uw-installed-reports.ts'
-import { createUwInterruptionResolution } from './uw-interruption-resolution.ts'
 import { createLinkedClosure } from './uw-linked-closure.ts'
 import { createUwOperations } from './uw-operations.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
 import { guardParentInsertions, parentInsertionGuard } from './uw-parent-insertion.ts'
 import { createInstalledUwReadPort, readCreatedUw } from './uw-read-port.ts'
-import type { GitRunner } from './workflow-checkout.ts'
-
-/** Context-owned native execution capability; absent in noninteractive consumers. */
-export type UwNativeHost = {
-  native: Pick<NativeBatchController, 'active' | 'activate' | 'stopOwned'> & {
-    announce(batch: NativeBatch): Promise<void>
-  }
-  actionReaders: Readonly<{ git: GitRunner; createPorts(options: ProductionReaderOptions): UwActionPorts }>
-  signal: AbortSignal
-  onBatch(batch: NativeBatch): void
-  /** Call from settlement callback; the returned fence resolves after settlement and exact mask release. */
-  afterSettlement(batch: NativeBatch): Promise<void>
-  onStarted(input: {
-    creationOperationId: string
-    assessmentStart: ExternalRecordRef & { kind: 'action-receipt' }
-  }): void
-}
-
 export type InstalledUwOperationsOptions = {
   cwd: string
   operator: OperatorPort
@@ -69,7 +43,6 @@ export type InstalledUwOperationsOptions = {
   readAuthor?: string
   pluginPin?: TrustedHostPluginPin
   artifactsDir?: string | null
-  nativeHost?: UwNativeHost
 }
 
 function scopeOf(issue: IssueRef): Scope {
@@ -114,7 +87,6 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
     abandon: createUwAbandon({ operator: input.operator, reader, github }),
-    resolveInterruption: createUwInterruptionResolution({ operator: input.operator, reader, github }),
     closeLinked: createLinkedClosure({
       github,
       readLanding: (pullRequest) =>
@@ -149,17 +121,9 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
           nativeReader: createdReader,
           github,
           operator: input.operator,
-          nativeHost: input.nativeHost,
-          actionOptions,
           prepare: backend.prepare,
           commit: backend.commit,
-          guardedWriter: (beforeEffect, composedParent) =>
-            guardedCauseWriter(
-              issuePorts,
-              createIssueWriter,
-              beforeEffect,
-              composedParent === null ? undefined : { parent: composedParent, addChild: rawIssuePorts.addChild },
-            ),
+          guardedWriter: (beforeEffect) => guardedCauseWriter(issuePorts, createIssueWriter, beforeEffect),
         }),
       }
     },

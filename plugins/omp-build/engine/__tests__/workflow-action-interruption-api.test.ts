@@ -8,7 +8,7 @@ import type { ActionInputManifest } from '../action-input-schema.ts'
 import { implementationReceiptEligible, integrationReceiptEligible } from '../delivery-observation-authentication.ts'
 import { producerOutputValid } from '../producer-schema.ts'
 import { parseRecord } from '../record-construction.ts'
-import { classifyAttempts, interruptionResolutionCandidate, startResolution } from '../workflow-action-interruption.ts'
+import { classifyAttempts, startResolution } from '../workflow-action-interruption.ts'
 import { workflowContextNegative } from '../workflow-context-output.ts'
 import type { MandateRecord, ReceiptRecord } from '../workflow-control.ts'
 import { interruptedResult as isInterruptedResult } from '../workflow-interruption-proof.ts'
@@ -393,7 +393,7 @@ describe('integration interruption resolution', () => {
   })
 })
 
-describe('start resolution and candidate', () => {
+describe('historical start resolution', () => {
   function implementationAttempt() {
     const world = pausedWorld()
     const start = implementStart(world.mandate)
@@ -422,33 +422,5 @@ describe('start resolution and candidate', () => {
       forged,
     ])
     expect(startResolution([invalid], refOf(world.start)).ok).toBe(false)
-  })
-
-  it('proposes an implementation interruption only under an unlifted pause', () => {
-    const world = implementationAttempt()
-    const paused = appendRecords(historyFrom([world.mandate]), [world.start, world.result, world.request, world.pause])
-    const candidate = interruptionResolutionCandidate({
-      histories: [paused],
-      mandate: world.mandate,
-      start: refOf(world.start),
-    })
-    expect(candidate).toMatchObject({
-      ok: true,
-      value: {
-        action: 'implement',
-        result: { recordId: world.result.recordId },
-        pause: { recordId: world.pause.recordId },
-      },
-    })
-    const resumed = appendRecords(historyFrom([world.mandate]), [
-      world.start,
-      world.result,
-      world.request,
-      world.pause,
-      world.resume,
-    ])
-    expect(
-      interruptionResolutionCandidate({ histories: [resumed], mandate: world.mandate, start: refOf(world.start) }).ok,
-    ).toBe(false)
   })
 })

@@ -220,9 +220,7 @@ export function currentFeatureFraming(pi: OmpBuildExtensionApi): FramingControll
   return occupant?.kind === 'framing' ? occupant.controller : null
 }
 
-/** The root extension instance admits only read-only tools during intake/framing, including no new task spawns.
- * Subagents and background jobs started earlier are not gated by this instance.
- */
+/** This root admits only read-only tools during intake/framing; earlier jobs are unaffected. */
 export function featureOperationReadOnly(pi: OmpBuildExtensionApi): boolean {
   const kind = operationSlots.get(pi)?.occupant?.kind
   return kind === 'intake' || kind === 'framing'
@@ -286,6 +284,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
   })
   pi.on('session_switch', (_event, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
+    ctx.ui?.setStatus?.('omp-build-watch', undefined)
     invalidateActivation(pi)
     const occupant = currentOccupant(pi)
     // Only a written aggregate awaiting the human-observed `/move` survives, in the same session.

@@ -2,8 +2,6 @@ import { createHash } from 'node:crypto'
 import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { Result } from '../engine/result.ts'
-import { trackPreparationSyncOperation } from '../host/preparation-cohort.ts'
-import { registerHostActionHandle } from '../omp/review-runtime/action-registry.ts'
 import type { ActionSnapshot } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
 
@@ -12,8 +10,6 @@ type SealedEntry = {
   readonly kind: 'file' | 'directory' | 'symlink' | 'other'
   readonly bytes: Uint8Array | null
 }
-
-const baselines = new WeakMap<ActionSnapshot, readonly SealedEntry[]>()
 
 function treeDigest(entries: readonly SealedEntry[]): string {
   const hash = createHash('sha256')
@@ -53,10 +49,10 @@ function sealEntries(files: readonly { path: string; bytes: Uint8Array }[]): rea
   for (const file of files) {
     const parts = file.path.split('/')
     for (let index = 1; index < parts.length; index += 1) directories.add(parts.slice(0, index).join('/'))
-    entries.push({ path: file.path, kind: 'file', bytes: new Uint8Array(file.bytes) })
+    entries.push({ path: file.path, kind: 'file', bytes: file.bytes })
   }
   for (const path of directories) entries.push({ path, kind: 'directory', bytes: null })
-  return Object.freeze(entries.map((entry) => Object.freeze(entry)))
+  return entries
 }
 
 function snapshotRoot(directory: string): Result<true> {
@@ -81,69 +77,12 @@ function observedTree(directory: string): Result<{ path: string; kind: SealedEnt
   }
 }
 
-function compareSealedFile(
-  directory: string,
-  entry: { path: string; kind: SealedEntry['kind'] },
-  sealed: SealedEntry | undefined,
-): Result<true> {
-  if (sealed === undefined || sealed.kind !== entry.kind)
-    return actionFailure('snapshot-mutated', `Snapshot entry kind changed: ${entry.path}`)
-  if (sealed.kind !== 'file' || sealed.bytes === null) return { ok: true, value: true }
-  try {
-    const disk = readFileSync(join(directory, entry.path))
-    if (Buffer.compare(disk, Buffer.from(sealed.bytes)) !== 0)
-      return actionFailure('snapshot-mutated', `Snapshot bytes changed: ${entry.path}`)
-  } catch (error) {
-    return actionFailure(
-      'snapshot-unreadable',
-      error instanceof Error ? error.message : `snapshot file is unreadable: ${entry.path}`,
-    )
-  }
-  return { ok: true, value: true }
-}
-
-function compareSealedTree(
-  directory: string,
-  observed: readonly { path: string; kind: SealedEntry['kind'] }[],
-  expected: ReadonlyMap<string, SealedEntry>,
-): Result<true> {
-  if (observed.length !== expected.size)
-    return actionFailure('snapshot-mutated', 'Snapshot tree added, deleted, or renamed an entry')
-  for (const entry of observed) {
-    const compared = compareSealedFile(directory, entry, expected.get(entry.path))
-    if (!compared.ok) return compared
-  }
-  return { ok: true, value: true }
-}
-
-export function verifyActionSnapshot(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>> {
-  const baseline = baselines.get(snapshot)
-  if (baseline === undefined)
-    return Promise.resolve(
-      actionFailure('action-handle-unregistered', 'The action snapshot is not a registered host handle'),
-    )
-  const directory = dirname(snapshot.indexPath)
-  const root = trackPreparationSyncOperation('snapshot', () => snapshotRoot(directory))
-  if (!root.ok) return Promise.resolve(root)
-  const observed = trackPreparationSyncOperation('snapshot', () => observedTree(directory))
-  if (!observed.ok) return Promise.resolve(observed)
-  const compared = trackPreparationSyncOperation('snapshot', () =>
-    compareSealedTree(directory, observed.value, new Map(baseline.map((entry) => [entry.path, entry]))),
-  )
-  if (!compared.ok) return Promise.resolve(compared)
-  return Promise.resolve({ ok: true, value: snapshot })
-}
-
 export type ActionSnapshotClaim = {
   readonly id: string
   readonly actionId: string
   readonly manifestDigest: string
   readonly indexPath: string
   readonly location: ActionSnapshot['location']
-}
-
-export function intendedSnapshotDigest(files: readonly { path: string; bytes: Uint8Array }[]): string {
-  return treeDigest(sealEntries(files))
 }
 
 function matchIntendedEntry(
@@ -193,26 +132,16 @@ export function sealActionSnapshot(
   const directory = dirname(claim.indexPath)
   const intended = sealEntries(files)
   try {
-    const root = trackPreparationSyncOperation('snapshot', () => snapshotRoot(directory))
+    const root = snapshotRoot(directory)
     if (!root.ok) return root
-    const observed = trackPreparationSyncOperation('snapshot', () => observedTree(directory))
+    const observed = observedTree(directory)
     if (!observed.ok) return observed
-    const matched = trackPreparationSyncOperation('snapshot', () =>
-      matchIntendedTree(directory, observed.value, intended),
-    )
+    const matched = matchIntendedTree(directory, observed.value, intended)
     if (!matched.ok) return matched
   } catch (error) {
     return actionFailure('snapshot-unreadable', error instanceof Error ? error.message : 'snapshot seal failed')
   }
-  const sealed = Object.freeze(
-    intended.map((entry) =>
-      Object.freeze({ ...entry, bytes: entry.bytes === null ? null : Uint8Array.from(entry.bytes) }),
-    ),
-  )
-  const handle = sealedHandle(claim, sealed)
-  baselines.set(handle, sealed)
-  registerHostActionHandle(handle, (registered) => verifyActionSnapshot(registered))
-  return { ok: true, value: handle }
+  return { ok: true, value: sealedHandle(claim, intended) }
 }
 
 export function snapshotOutsideRoot(indexPath: string, root: string): boolean {

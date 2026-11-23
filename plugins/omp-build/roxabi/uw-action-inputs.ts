@@ -8,39 +8,29 @@ import {
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Result } from '../engine/result.ts'
-import { registerHostActionBinding } from '../omp/review-runtime/action-registry.ts'
 import type {
   ActionInputManifest,
   ActionInputs,
-  ActionSnapshot,
   CorrectionRootRef,
   PreparedUwAction,
-  ResolvedActionInputs,
-  ReviewActionProjection,
   ReviewRootRef,
   SelectedReview,
   UwActionPorts,
   UwActionRequest,
 } from './uw-action-contract.ts'
-import { materializeActionFiles } from './uw-action-dossier.ts'
+import { dossierIndex, materializeActionFiles, repositorySealPath } from './uw-action-dossier.ts'
 import { acceptCurrentManifest, verifyExpandedContext, verifyReviewedPlugin } from './uw-action-expanded.ts'
 import { verifiedPluginFiles } from './uw-action-plugin-files.ts'
-import { projectionFiles, repositorySealPath, sealedIndex } from './uw-action-projection.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
-import { sealActionSnapshot, verifyActionSnapshot } from './uw-action-snapshot.ts'
+import { sealActionSnapshot } from './uw-action-snapshot.ts'
 import { correctionLocalPorts } from './uw-correction-local-ports.ts'
 import { selectedReviewInputs, selectedReviewRoot } from './uw-selected-review.ts'
-
-function text(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('utf8')
-}
 
 async function resolveFiles(
   request: UwActionRequest,
   ports: UwActionPorts,
   manifest: ActionInputManifest,
   verifiedPluginFiles: readonly { path: string; bytes: Uint8Array }[],
-  projection?: ReviewActionProjection,
 ): Promise<Result<readonly { path: string; bytes: Uint8Array }[]>> {
   const materialized = await materializeActionFiles(ports, manifest, request.stageSources)
   if (!materialized.ok) return materialized
@@ -54,13 +44,8 @@ async function resolveFiles(
       return actionFailure('action-input-stale', `Repository reference digest changed: ${ref.path}`)
     files.push({ path: repositorySealPath(ref, used), bytes: bytes.value })
   }
-  if (projection !== undefined) {
-    const projected = await projectionFiles(ports, manifest, projection)
-    if (!projected.ok) return projected
-    files.push(...projected.value)
-  }
   files.push({ path: 'manifest.json', bytes: Buffer.from(JSON.stringify(manifest), 'utf8') })
-  files.push({ path: 'index.md', bytes: sealedIndex(manifest, files, projection) })
+  files.push({ path: 'index.md', bytes: dossierIndex(manifest, files) })
   return { ok: true, value: files }
 }
 
@@ -79,7 +64,7 @@ async function buildManifest(
   if (!facts.ok) return facts
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) return references
-  const plugin = await verifiedPluginFiles(request, ports, pin.value)
+  const plugin = await verifiedPluginFiles(ports, pin.value)
   if (!plugin.ok) return plugin
   const draft: ActionInputManifest = {
     format: ACTION_INPUT_FORMAT,
@@ -117,20 +102,13 @@ async function buildManifest(
 export async function prepareUwAction(
   request: UwActionRequest,
   ports: UwActionPorts,
-  projection?: ReviewActionProjection,
   review?: SelectedReview,
   correctionRoot?: CorrectionRootRef,
 ): Promise<Result<PreparedUwAction>> {
   const scoped = correctionLocalPorts(request, ports)
   const manifest = await buildManifest(request, scoped, review?.fingerprint, review?.root, correctionRoot)
   if (!manifest.ok) return manifest
-  const files = await resolveFiles(
-    request,
-    scoped,
-    manifest.value.manifest,
-    manifest.value.verifiedPluginFiles,
-    projection,
-  )
+  const files = await resolveFiles(request, scoped, manifest.value.manifest, manifest.value.verifiedPluginFiles)
   if (!files.ok) return files
   const placed = await ports.snapshots.create({ actionId: request.actionId, files: files.value })
   if (!placed.ok) return placed
@@ -151,7 +129,6 @@ export async function prepareUwAction(
     fingerprint: sealed.value.manifestDigest,
     stageSources: [...request.stageSources],
   }
-  registerHostActionBinding(sealed.value, inputs)
   return { ok: true, value: { inputs, snapshot: sealed.value } }
 }
 
@@ -284,17 +261,3 @@ export async function currentActionFingerprint(
   const manifest = await buildManifest(request, ports, reviewedFingerprint, reviewedRoot)
   return manifest.ok ? { ok: true, value: actionInputDigest(manifest.value.manifest) } : manifest
 }
-
-export async function verifyPreparedSnapshot(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>> {
-  return verifyActionSnapshot(snapshot)
-}
-
-export function snapshotPreview(files: readonly { path: string; bytes: Uint8Array }[]): string {
-  return files.map((file) => `${file.path} ${file.bytes.byteLength}`).join('\n')
-}
-
-export function manifestText(bytes: Uint8Array): string {
-  return text(bytes)
-}
-
-export type { ResolvedActionInputs }

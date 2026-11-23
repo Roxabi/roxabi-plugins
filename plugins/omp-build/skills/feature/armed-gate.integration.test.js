@@ -3,10 +3,10 @@ import { buildRecord } from '../../dist/contracts.js'
 import { actionInputDigest } from '../../engine/action-input.ts'
 import { fixtureCatalogueGhResponse, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
+import { disarmReviewedBeforePush } from './landing-foundation.js'
 import { AUTHOR, gateGh, HEADS, PR, reviewHistory, SCOPE, WORKTREE } from './review-record-fixture.js'
 import { readGate } from './workflow-gate.js'
 import { requiredReviewRecords } from './workflow-records.js'
-import { nextReviewStep } from './workflow-review-state.js'
 
 beforeEach(() => {
   vi.stubEnv('HEAD_AUTH_REPOSITORY_ID', '1')
@@ -26,11 +26,8 @@ describe('durable review stop', () => {
     ])
     const { gh, state } = gateGh(history, { head: HEADS[2], armed: true })
     expect((await readGate(WORKTREE, PR, gh)).authorization.allowed).toBe(true)
-    await expect(nextReviewStep(WORKTREE, PR, { gh })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'review-bound',
-      disarmed: true,
-    })
+    await expect(requiredReviewRecords(WORKTREE, PR, { gh })).resolves.toMatchObject({ reviews: 4, spent: true })
+    await expect(disarmReviewedBeforePush(WORKTREE, PR, { gh })).resolves.toEqual({ disarmed: true })
     expect(state.label).toBe(false)
     expect(state.auto).toBe(false)
     expect((await readGate(WORKTREE, PR, gh)).authorization.allowed).toBe(false)
@@ -52,27 +49,9 @@ describe('durable review stop', () => {
       }
       return fixture.gh(cwd, args)
     }
-    await expect(nextReviewStep(WORKTREE, PR, { gh })).rejects.toThrow()
+    await expect(requiredReviewRecords(WORKTREE, PR, { gh })).resolves.toMatchObject({ spent: true })
+    await expect(disarmReviewedBeforePush(WORKTREE, PR, { gh })).rejects.toThrow()
     expect((await readGate(WORKTREE, PR, fixture.gh)).authorization.allowed).toBe(true)
-  })
-
-  it('persists a third current approval plus observed CI red before disarming', async () => {
-    const history = reviewHistory([
-      { head: HEADS[0], verdict: 'Approve (clean)' },
-      { head: HEADS[1], verdict: 'Approve (clean)' },
-      { head: HEADS[2], verdict: 'Approve (clean)' },
-    ])
-    const { gh, git, state } = gateGh(history, { head: HEADS[2], armed: true })
-    await expect(nextReviewStep(WORKTREE, PR, { gh, git, ciFailed: true })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'ci-failed',
-      disarmed: true,
-    })
-    expect(state).toEqual({ head: HEADS[2], label: false, auto: false })
-    await expect(nextReviewStep(WORKTREE, PR, { gh, git })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'review-bound',
-    })
   })
 
   it('keeps a proven bound when a newer review operation is incomplete', async () => {
@@ -90,11 +69,10 @@ describe('durable review stop', () => {
       body: '<!-- omp-build-record v=1 kind=review id=review-partial operationId=op-review-partial part=1/2 data=e30 -->\n',
     })
     const { gh, state } = gateGh(history, { head: HEADS[2], armed: true })
-    await expect(nextReviewStep(WORKTREE, PR, { gh })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'review-bound',
-      disarmed: true,
+    await expect(requiredReviewRecords(WORKTREE, PR, { gh })).rejects.toMatchObject({
+      reviewRecords: { ok: false, spent: true },
     })
+    await expect(disarmReviewedBeforePush(WORKTREE, PR, { gh })).resolves.toEqual({ disarmed: true })
     expect(state).toEqual({ head: HEADS[2], label: false, auto: false })
   })
 
@@ -175,11 +153,7 @@ describe('durable review stop', () => {
     expect(refusal.reviewRecords.diagnostics.map((item) => item.code)).toEqual(
       expect.arrayContaining(['incomplete', 'github-read-failed']),
     )
-    await expect(nextReviewStep(WORKTREE, PR, { gh })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'review-bound',
-      disarmed: true,
-    })
+    await expect(disarmReviewedBeforePush(WORKTREE, PR, { gh })).resolves.toEqual({ disarmed: true })
     expect(gate.state).toEqual({ head: HEADS[2], label: false, auto: false })
   })
 
@@ -190,9 +164,6 @@ describe('durable review stop', () => {
       { head: HEADS[2], verdict: 'Request changes' },
     ])
     const { gh } = gateGh(history, { head: HEADS[3], armed: false })
-    await expect(nextReviewStep(WORKTREE, PR, { gh })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'review-bound',
-    })
+    await expect(requiredReviewRecords(WORKTREE, PR, { gh })).resolves.toMatchObject({ reviews: 3, spent: true })
   })
 })

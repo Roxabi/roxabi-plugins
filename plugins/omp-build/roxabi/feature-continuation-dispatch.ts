@@ -42,7 +42,6 @@ export async function resumePausedFeature(input: {
   }
   const published = await publishRecord(
     context.engine,
-    observation.evidence.issue,
     {
       repository: scope.repository,
       target: scope.target,

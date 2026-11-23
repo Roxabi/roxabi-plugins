@@ -31,18 +31,13 @@ import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.
 import type { NormalizationDecision } from '../engine/uw-normalization-schema.ts'
 import type { SpecDraft, SpecRawSource, UwTier } from '../engine/uw-spec.ts'
 import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
-import type { ResolutionCandidate } from '../engine/workflow-action-interruption.ts'
-import type { ResolutionProposal } from '../engine/workflow-interruption-proof.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
 import type {
   ActionInputs,
-  ActionSnapshot,
   CorrectionRootRef,
   PreparedToolingPinActivation,
   PreparedUwAction,
-  ReviewActionBatch,
-  ReviewActionProjection,
   SelectedReview,
   UwActionRequest,
 } from './uw-action-contract.ts'
@@ -118,31 +113,6 @@ export type PreparedUwAbandon = {
   digest: string
 }
 
-export type InterruptionResolutionObservation = {
-  runtime: ResolutionProposal['runtime']
-}
-export type ResolveInterruptionRequest = {
-  mandate: ExternalRecordRef & { kind: 'mandate' }
-  start: ExternalRecordRef & { kind: 'action-receipt' }
-  observe(candidate: ResolutionCandidate): Promise<Result<InterruptionResolutionObservation, UwDiagnostic>>
-}
-export type PreparedInterruptionResolution = {
-  proposal: ResolutionProposal & {
-    format: 'omp-build-interruption-resolution/2'
-    operationId: string
-    uw: Scope
-    historyDigest: string
-  }
-  digest: string
-}
-export type InterruptionResolutionResult =
-  | {
-      status: 'resolved'
-      start: ExternalRecordRef & { kind: 'action-receipt' }
-      resolution: ExternalRecordRef & { kind: 'operator-control' }
-    }
-  | Extract<UwOperationResult, { status: 'refused' | 'deferred' | 'partial' | 'uncertain' }>
-
 export type OperatorResult<T> =
   | { status: 'confirmed'; value: T }
   | { status: 'refused'; diagnostics: readonly UwDiagnostic[] }
@@ -153,7 +123,6 @@ export type PreparedOperatorProposal =
   | PreparedCauseDependencyAdjustment
   | PreparedUwReopen
   | PreparedUwAbandon
-  | PreparedInterruptionResolution
   | PreparedFramingProposal
   | PreparedToolingPinActivation
   | PreparedFixRecovery
@@ -242,21 +211,17 @@ export interface UwOperations extends UwReadPort {
   create(input: UwCreateInput): Promise<UwOperationResult>
   reopen(uw: Scope): Promise<UwOperationResult>
   abandon(uw: Scope, expectedMandate?: ExternalRecordRef & { kind: 'mandate' }): Promise<UwOperationResult>
-  resolveInterruption(request: ResolveInterruptionRequest): Promise<InterruptionResolutionResult>
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
   prepareAction(
     input: UwActionRequest,
-    projection?: ReviewActionProjection,
     review?: SelectedReview,
     correctionRoot?: CorrectionRootRef,
   ): Promise<Result<PreparedUwAction>>
-  prepareReviewActions(input: ReviewActionBatch): Promise<Result<readonly PreparedUwAction[]>>
   replayActionInputs(input: {
     reviewed: ActionInputs
     request: UwActionRequest
     reviewedRoot?: SelectedReview['root']
     correctionRoot?: CorrectionRootRef
   }): Promise<Result<ActionInputs>>
-  verifyAction(snapshot: ActionSnapshot): Promise<Result<ActionSnapshot>>
   readDelivery(uw: Scope): Promise<UwResult<UwDeliveryRead>>
 }

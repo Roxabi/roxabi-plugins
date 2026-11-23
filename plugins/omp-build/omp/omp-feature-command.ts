@@ -9,12 +9,11 @@ import type {
   ParsedFeatureCommand,
 } from '../roxabi/feature-contract.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
-import { withFeatureInterruption } from '../roxabi/feature-pause-interruption.ts'
 import { featureErrorMessage } from '../roxabi/feature-presentation.ts'
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { hostPluginPin } from './host-plugin-pin.ts'
 import { resolveFeatureUw } from './host-uw-operations.ts'
-import { type OmpBuildExtensionApi, reportFeatureTerminalStatus, reviewControllerFor } from './omp-controller'
+import { type OmpBuildExtensionApi, reportFeatureTerminalStatus } from './omp-controller'
 import { admitFeature } from './omp-feature-admission.ts'
 import {
   beginFeatureUwContinuation,
@@ -26,7 +25,7 @@ import {
   settleFeatureUwIntake,
 } from './omp-feature-composition.ts'
 import { deliverAdmission, deliversSkill } from './omp-feature-delivery.ts'
-import { type FeatureWorkInterrupter, rootContext } from './omp-feature-session'
+import { rootContext } from './omp-feature-session'
 import type { FeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
 import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
@@ -43,7 +42,6 @@ export type FeatureCommandOptions = {
 export type FeatureCommandComposition = Readonly<{
   pi: OmpBuildExtensionApi
   options: FeatureCommandOptions
-  interruptOwnedFeatureWork: FeatureWorkInterrupter
   framing: FeatureFramingRuntime
 }>
 
@@ -110,33 +108,22 @@ async function runClassifiedFeatureCommand(
   reporting: FeatureOperationReportGuard,
   originalArgs: string | null,
 ): Promise<void> {
-  const { pi, options, interruptOwnedFeatureWork } = composition
-  const controller = reviewControllerFor(pi)
-  const controlHost = {
-    key: pi,
-    inhibitFeatureContinuation: () => controller.inhibitFeatureContinuation(),
-    interruptOwnedWork: interruptOwnedFeatureWork,
-  }
-  await withFeatureInterruption(input.control, controlHost, async () => {
-    const settle = () => settleFeatureUwIntake(pi, operator)
-    const result =
-      options.featureWorkflow === undefined
-        ? await admitFeature(input, settle)
-        : await options.featureWorkflow.continueFeature(input)
-    if (!reporting.isCurrent()) return
-    if (result.kind !== 'framing') {
-      settle()
-      if (deliversSkill(input.control) || input.control === 'continue') controller.releaseFeatureContinuation()
-    }
-    await deliverAdmission(composition, ctx, operator, input, result, body, reporting, originalArgs)
-  })
+  const { pi, options } = composition
+  const settle = () => settleFeatureUwIntake(pi, operator)
+  const result =
+    options.featureWorkflow === undefined
+      ? await admitFeature(input, settle)
+      : await options.featureWorkflow.continueFeature(input)
+  if (!reporting.isCurrent()) return
+  if (result.kind !== 'framing') settle()
+  await deliverAdmission(composition, ctx, operator, input, result, body, reporting, originalArgs)
 }
 
 async function runFeatureEntry(
   composition: FeatureComposition,
   ctx: ExtensionContext,
   operator: CommandOperatorPort,
-  parsed: Exclude<Extract<ParsedFeatureCommand, { ok: true }>, { control: 'init' }>,
+  parsed: Extract<ParsedFeatureCommand, { ok: true; control: ContinueFeatureInput['control'] }>,
   reporting: FeatureOperationReportGuard,
   args: string,
 ): Promise<void> {
@@ -150,7 +137,6 @@ async function runFeatureEntry(
   if (!reporting.isCurrent() || (deliver && body === undefined)) return
   const uw = await featureCommandUw(ctx, operator, options, parsed.control, pluginPin)
   if (!reporting.isCurrent()) return
-  const start = parsed.control === 'resolve-interruption' ? parsed.start : undefined
   const input: ContinueFeatureInput = {
     cwd: ctx.cwd,
     reference: parsed.reference,
@@ -159,7 +145,6 @@ async function runFeatureEntry(
     owned: reporting.isCurrent,
     ...(uw === undefined ? {} : { uw }),
     ...(pluginPin === undefined ? {} : { pluginPin }),
-    ...(start === undefined ? {} : { interruption: { start } }),
   }
   await runClassifiedFeatureCommand(composition, ctx, operator, input, body, reporting, args)
 }
@@ -176,6 +161,13 @@ export async function runFeatureCommand(
     reportFeatureTerminalStatus(pi, `feature-stopped: ${parsed.reason}`)
     return
   }
+  if (parsed.control === 'resolve-interruption') {
+    reportFeatureTerminalStatus(
+      pi,
+      `feature-stopped: interruption-dispatch-unproven. Native dispatch cannot be verified. To replace the paused mandate, run /feature abandon ${parsed.reference}, then /feature new ${parsed.reference} once abandonment is confirmed.`,
+    )
+    return
+  }
   const operator = createOperatorConfirmation(ctx)
   operator.progress(parsed.control === 'init' ? '/feature init' : `/feature ${parsed.reference}`)
   const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
@@ -187,7 +179,6 @@ export async function runFeatureCommand(
   let canReportFailure = () => false
   const work = (async () => {
     try {
-      reviewControllerFor(pi).observeRootContext(ctx)
       if (parsed.control === 'init') await runPreparedFeatureInit(pi, operator, parsed.args, ctx, report)
       else await runFeatureEntry(composition, ctx, operator, parsed, reporting, args)
     } catch (error) {
@@ -229,8 +220,6 @@ export async function continueFramedFeature(
   if (!rootContext(ctx)) throw new Error('framing-continuation-root-required')
   const reporting = createFeatureOperationReportGuard(pi, ctx, operator)
   beginFeatureUwContinuation(pi, operator, ctx)
-  const controller = reviewControllerFor(pi)
-  controller.observeRootContext(ctx)
   try {
     if (!reporting.isCurrent()) return
     const body = await compositionSkill(composition)

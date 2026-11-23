@@ -12,7 +12,6 @@ import type { Json } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
 import type { ActionOperands } from '../engine/workflow-action-operands.ts'
 import type { FramingOrigin } from './feature-framing-controller-lease.ts'
-import type { PreparedReviewChunk } from './review-input-contract.ts'
 
 export type {
   ActionInputManifest,
@@ -77,18 +76,6 @@ export type UwActionRequest = {
   stageSources: readonly RecordInputRef[]
   expandedContext: readonly (RecordInputRef | PinnedFileRef)[]
   operands?: ActionOperands
-}
-
-/** Host-only local view. Excluded from the canonical manifest hash; included in the seal. */
-export type ReviewActionProjection = Readonly<{
-  taskName: string
-  assignedChunk: number | null
-  contextWindow: number
-  chunks: readonly PreparedReviewChunk[]
-}>
-
-export type ReviewActionBatch = {
-  actions: readonly { role: string; request: UwActionRequest; projection: ReviewActionProjection }[]
 }
 
 export type CurrentActionFacts = {

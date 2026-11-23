@@ -42,7 +42,6 @@ export type IdentityPublicationResult =
 
 export type UwOperationsPorts = {
   abandon: UwOperations['abandon']
-  resolveInterruption: UwOperations['resolveInterruption']
   closeLinked: UwOperations['closeLinked']
   read(uw: Scope): Promise<UwRead>
   readCreated(uw: Scope): Promise<CreatedUwRead>
@@ -170,7 +169,6 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
     listReports: ports.listReports,
     closeLinked: ports.closeLinked,
     abandon: ports.abandon,
-    resolveInterruption: ports.resolveInterruption,
     adjustCauseDependency: ports.adjustCauseDependency,
     ...causes,
     async prepare(input) {

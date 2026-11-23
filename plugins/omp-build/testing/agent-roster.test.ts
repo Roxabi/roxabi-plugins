@@ -62,6 +62,18 @@ describe('omp-build agent roster', () => {
       })),
   ]
 
+  it('ships exactly the seven authored agents', () => {
+    expect(agents.map(({ name }) => name).sort()).toEqual([
+      'R-adversarial',
+      'R-advisor',
+      'R-architect',
+      'R-devops',
+      'R-security-auditor',
+      'R-tester',
+      'elon',
+    ])
+  })
+
   it('names the file after the agent', () => {
     for (const agent of agents) expect(agent.file).toBe(`${agent.name}.md`)
   })

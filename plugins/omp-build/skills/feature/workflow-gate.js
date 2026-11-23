@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { currentPreparationCohort, withPreparationAttribution } from '../../host/preparation-cohort.ts'
 import authorization from './head-authorization.cjs'
 
 import { errorText, gh, preview } from './workflow-runtime.js'
@@ -124,7 +123,7 @@ async function confirmGateDisarmed(cwd, pr, ghFn, detail, barrier) {
   return back
 }
 
-async function disarmGateObserved(cwd, pr, gate, ghFn, observation) {
+export async function disarmGate(cwd, pr, gate, ghFn) {
   if (gate?.state === 'MERGED') throw new Error(`disarmGate: PR ${pr} merged while being disarmed`)
   const policy = await authorization.policyFromRepository({ cwd, gh: ghFn })
   const barrier =
@@ -138,62 +137,12 @@ async function disarmGateObserved(cwd, pr, gate, ghFn, observation) {
           operationId: randomUUID(),
           reason: 'native lifecycle disarm',
         })
-  if (!gate) {
-    observation?.cohort.unknown('host-disarm-readback-unavailable')
-    return { barrier }
-  }
+  if (!gate) return { barrier }
   const failures = gate.state === 'CLOSED' ? [] : await revokeGateArming(cwd, pr, ghFn, gateArming(gate))
   const detail = failures.length ? ` (${failures.join('; ')})` : ''
-  const back = await confirmGateDisarmed(cwd, pr, ghFn, detail, barrier)
-  if (observation) {
-    let after = null
-    try {
-      after = await authorization.resolveRepository({ cwd, gh: ghFn })
-    } catch {
-      observation.cohort.unknown('host-disarm-repository-unreadable')
-    }
-    const before = observation.repository
-    if (
-      before &&
-      after &&
-      before.owner === after.owner &&
-      before.repo === after.repo &&
-      Number.isSafeInteger(Number(pr)) &&
-      Number(pr) > 0 &&
-      isCommitSha(gate.headRefOid) &&
-      gate.headRefOid === back.headRefOid &&
-      (barrier === null || (Number.isSafeInteger(barrier.id) && barrier.id > 0))
-    ) {
-      observation.cohort.confirmDisarm({
-        attribution: observation.attribution,
-        repository: `${before.owner}/${before.repo}`,
-        pr: Number(pr),
-        head: gate.headRefOid,
-        authorizationReceiptId: barrier?.id ?? null,
-      })
-    } else {
-      observation.cohort.unknown('host-disarm-binding-uncertain')
-    }
-  }
+  await confirmGateDisarmed(cwd, pr, ghFn, detail, barrier)
   return { barrier }
 }
-
-export async function disarmGate(cwd, pr, gate, ghFn) {
-  const cohort = currentPreparationCohort()
-  if (!cohort) return disarmGateObserved(cwd, pr, gate, ghFn, null)
-  const attribution = Object.freeze({})
-  return withPreparationAttribution(attribution, async () => {
-    const observedGh = ghFn
-    let repository = null
-    try {
-      repository = await authorization.resolveRepository({ cwd, gh: observedGh })
-    } catch {
-      cohort.unknown('host-disarm-repository-unreadable')
-    }
-    return disarmGateObserved(cwd, pr, gate, observedGh, { cohort, attribution, repository })
-  })
-}
-
 export function approves(verdict) {
   return verdict?.startsWith('Approve') === true
 }

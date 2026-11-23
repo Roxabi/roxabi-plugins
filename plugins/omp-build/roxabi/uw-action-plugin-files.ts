@@ -1,6 +1,5 @@
 import type { Result } from '../engine/result.ts'
-import type { InstalledPluginPin, PinnedFileRef, UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
-import { suppliedProcedurePaths } from './uw-action-dossier.ts'
+import type { InstalledPluginPin, PinnedFileRef, UwActionPorts } from './uw-action-contract.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 
 export const REQUIRED_PLUGIN = [
@@ -46,13 +45,12 @@ export async function readPinnedPluginFiles(
 }
 
 export async function verifiedPluginFiles(
-  request: UwActionRequest,
   ports: UwActionPorts,
   pin: InstalledPluginPin,
 ): Promise<Result<{ refs: PinnedFileRef[]; files: { path: string; bytes: Uint8Array }[] }>> {
   const refs: PinnedFileRef[] = []
   const files: { path: string; bytes: Uint8Array }[] = []
-  for (const path of [...REQUIRED_PLUGIN, ...suppliedProcedurePaths(request.purpose)]) {
+  for (const path of REQUIRED_PLUGIN) {
     const installed = await ports.plugin.readInstalledFile(path)
     if (!installed.ok) return installed
     refs.push({

@@ -3,22 +3,7 @@
 import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
-import { producerJsonSchema } from '../plugins/omp-build/engine/producer-schema.ts'
-import { nativeFeatureProfiles } from '../plugins/omp-build/roxabi/native-feature-profiles.ts'
-import { nativeReviewProfiles } from '../plugins/omp-build/roxabi/native-review-profiles.ts'
 import { createFreshOutputRoot, outputTree, type RemoveOutput } from './omp-build-output-tree.ts'
-
-type GeneratedProfile = {
-  name: string
-  description: string
-  tools: string
-  model: string
-  maxTurns: number
-  output: string
-  sourceAgent?: string
-  instructions?: string
-  body?: string
-}
 
 // Inputs record actual runtime reads and the contracts bundle closure; the verifier validates producer static imports.
 type OutputRecorder = { claim(path: string): void; wrote(path: string): void; paths(): string[] }
@@ -47,20 +32,6 @@ function outputRootFromArgs(args: string[]): string | undefined {
   if (args.length === 0) return undefined
   if (args.length === 2 && args[0] === '--output-root' && args[1]) return resolve(args[1])
   throw new Error('usage: bun tools/build-omp-build-contracts.ts [--output-root <fresh-owned-directory>]')
-}
-
-function bodyOf(path: string, inputs: Set<string>): string {
-  inputs.add(relative(repositoryRoot, path))
-  const source = readFileSync(path, 'utf8')
-  const end = source.indexOf('\n---\n', 4)
-  if (!source.startsWith('---\n') || end === -1) throw new Error(`agent profile ${path} has no frontmatter`)
-  return source.slice(end + 5).trim()
-}
-
-function profileBody(profile: GeneratedProfile, inputs: Set<string>): string {
-  const body = profile.sourceAgent === undefined ? profile.body : bodyOf(join(pluginRoot, profile.sourceAgent), inputs)
-  if (body === undefined) throw new Error(`native profile ${profile.name} has no body source`)
-  return profile.instructions === undefined ? body : `${body}\n\n${profile.instructions}`
 }
 
 function outputRecorder(root: string, checkWrite: (path: string) => void): OutputRecorder {
@@ -103,42 +74,6 @@ function copyAgentSources(agentDirectory: string, recorder: OutputRecorder, inpu
     recorder.wrote(destination)
     inputs.add(relative(repositoryRoot, source))
   }
-}
-
-function writeProfile(
-  agentDirectory: string,
-  profile: GeneratedProfile,
-  recorder: OutputRecorder,
-  inputs: Set<string>,
-): void {
-  const outputSchema = JSON.stringify(producerJsonSchema(profile.output))
-  if (
-    profile.output === 'delivery-execution' &&
-    (outputSchema.includes('proofToolCallId') || outputSchema.includes('proofUnavailableReason'))
-  ) {
-    throw new Error(`implementation producer schema still requires a single proof: ${profile.name}`)
-  }
-  const destination = join(agentDirectory, `${profile.name}.md`)
-  recorder.claim(destination)
-  writeFileSync(
-    destination,
-    [
-      '---',
-      `name: ${profile.name}`,
-      `description: ${profile.description}`,
-      `tools: ${profile.tools}`,
-      `model: ${JSON.stringify(profile.model)}`,
-      `maxTurns: ${profile.maxTurns}`,
-      'blocking: true',
-      'structured: true',
-      `output: ${outputSchema}`,
-      '---',
-      '',
-      profileBody(profile, inputs),
-      '',
-    ].join('\n'),
-  )
-  recorder.wrote(destination)
 }
 
 function copyIssueTriageSlice(distDirectory: string, recorder: OutputRecorder, inputs: Set<string>): void {
@@ -184,8 +119,6 @@ async function buildOmpBuildContracts(outputRoot: string | undefined, remove?: R
   }
   const recorder = outputRecorder(root, tree.checkWrite)
   copyAgentSources(agentDirectory, recorder, inputs)
-  for (const profile of nativeReviewProfiles) writeProfile(agentDirectory, profile, recorder, inputs)
-  for (const profile of nativeFeatureProfiles) writeProfile(agentDirectory, profile, recorder, inputs)
   copyIssueTriageSlice(distDirectory, recorder, inputs)
   const entrypoint = join(pluginRoot, 'contracts.ts')
   const result = await Bun.build({

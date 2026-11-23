@@ -14,23 +14,13 @@ export type CauseEffectGuard = (effect: {
   created: IssueRef | null
 }) => Promise<void>
 
-type ComposedParentInsertion = Readonly<{
-  parent: Readonly<IssueRef>
-  addChild: IssueWritePorts['addChild']
-}>
-
-const sameIssue = (left: Readonly<IssueRef>, right: Readonly<IssueRef>) =>
-  left.repository === right.repository && left.number === right.number
-
 /** Reuses the issue-triage writer and its native primitives; no alternative writer or mutation route. */
 export function guardedCauseWriter(
   ports: IssueWritePorts,
   createWriter: (ports: IssueWritePorts) => IssueWriter,
   beforeEffect: CauseEffectGuard,
-  composedInsertion?: ComposedParentInsertion,
 ): IssueWriter {
   let created: IssueRef | null = null
-  const permittedParent = composedInsertion === undefined ? null : { ...composedInsertion.parent }
   const guard = (primitive: Parameters<CauseEffectGuard>[0]['primitive']) =>
     beforeEffect({ primitive, created: created === null ? null : { ...created } })
   const guarded: IssueWritePorts = {
@@ -54,14 +44,6 @@ export function guardedCauseWriter(
       const requestedParent = { repository: parent.repository, number: parent.number }
       const requestedChild = { repository: child.repository, number: child.number }
       await guard('add-child')
-      if (
-        composedInsertion !== undefined &&
-        permittedParent !== null &&
-        created !== null &&
-        sameIssue(requestedParent, permittedParent) &&
-        sameIssue(requestedChild, created)
-      )
-        return composedInsertion.addChild(requestedParent, requestedChild)
       return ports.addChild(requestedParent, requestedChild)
     },
     async removeChild(parent, child) {

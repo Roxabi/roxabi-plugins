@@ -3,7 +3,7 @@ name: promote
 disable-model-invocation: true
 argument-hint: '[--dry-run | --skip-preview | --finalize]'
 description: OMP-only — promote staging→main. Pre-flight, version, changelog, PR, tag. Offered after land, never automatic.
-version: 0.1.1
+version: 0.1.2
 ---
 
 # Promote
@@ -556,12 +556,6 @@ Branch topology: `staging` is the default branch and every feature or fix PR tar
 `main` is promote-only and is reached exclusively through this skill.
 
 Enforce it in the promoted repo's branch protection: `allowed_merge_methods = ["merge"]`.
-
-*(dev-core carried this as `shared/references/release-convention.md`. omp-build has
-no `skills/shared/references/`: the file's only load-bearing content is the two
-rules above, both already restated by the body that cited it, so the rules travel
-and the file does not — #533's "a reference travels only when cited" cuts the
-other way when the citation is a pointer to a restatement.)*
 
 ## Trunk mode — `release.model`
 

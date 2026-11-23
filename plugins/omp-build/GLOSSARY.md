@@ -45,10 +45,6 @@ _Avoid_: a session goal, a review verdict, a permission inferred from missing da
 Temporary suspension of an otherwise valid Mandate, confirmed only after the applicable landing arms are cleared. Resumption does not clear a review-bound or safety stop.
 _Avoid_: abandonment, a spent bound, stopping the local process
 
-**Session pause**:
-The durable pause the retiring native runtime awaited for a pausable owner on session interruption, switch or shutdown. For composed Feature, local interruption does not pause the mandate; use the explicit operator control.
-_Avoid_: a local interrupt, an unconfirmed pause request, a spent review bound
-
 **Abandonment**:
 Explicit revocation of a Mandate, not successful completion and not removal of incoming dependencies. A successor, if one exists, retains its antecedents and does not erase their stops.
 _Avoid_: pause, automatic renewal, resetting a bound
@@ -74,7 +70,7 @@ A historical review attempt linked to a Replacement grant and the interrupted ro
 _Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
 
 **Action receipt**:
-A confirmed native START or RESULT record for an action. Plan and implementation receipts from the retired Feature graph remain readable history, not a cursor for composed delivery.
+A confirmed START or RESULT record for a historical action. Plan and implementation receipts remain evidence, not a cursor for composed delivery.
 _Avoid_: a review record, a transcript, a local cache
 
 **Workflow binding**:
@@ -94,7 +90,7 @@ The confirmed mandate on a UW parente: the accepted child UWs, their Spec versio
 _Avoid_: /goal, an autonomy level stored on the issue, one goal per UW
 
 **Run**:
-The coordination identifier retained on a Parent UW mandate. It identifies a historical delivery pass without granting authority or resetting a native review bound.
+The coordination identifier retained on a Parent UW mandate. It identifies the historical delivery pass without granting authority or resetting a legacy review bound.
 _Avoid_: Goal run, a /goal line, `run=` in an objective, a counter of attempts
 
 **Arrêt d'UW**:
@@ -174,12 +170,8 @@ The GitHub support for a proposed Spec, native graph facts, records, and the dis
 _Avoid_: the UW itself, proof of delivery from native closure
 
 **Report**:
-An immutable record retaining an untreated cause, or a finding or rule error resolved by an explicit adjudication without fabricating a root cause, on its UW of origin with its reason and code version. Reports can be read for that UW and its descendants; promotion to a UW requires an authenticated operator decision and fresh creation admission. Historical report retention is not criterion satisfaction or current delivery authority.
+An immutable record retaining an untreated cause, finding or rule error on its UW of origin with its reason and code version. It is readable for that UW and its descendants. Promotion requires operator confirmation and fresh creation admission; it is suspended under an active parent.
 _Avoid_: an automatically created follow-up issue, global search without an index, a satisfied criterion
-
-**Orchestrateur**:
-In the retiring native runtime, the host that assembles inputs, dispatches agents and publishes their verified forms. Composed Feature uses session instructions and a guarded delivery CLI instead.
-_Avoid_: a LLM, an agent with publication authority, a permission inferred from an agent's credentials
 
 **Instantané**:
 A read-only dossier of pinned inputs for one action, providing its UW data, references and an index of obligations and files. It exposes the action's exact assessment or CI-attribution operands when applicable, and relevant pinned repository instructions and glossaries. Its local byte integrity is distinct from the durable identity of the action's inputs.
@@ -257,7 +249,7 @@ The evidence-backed decision for one cause. A blocking cause is necessary and ur
 | Nonblocking, necessary and urgent, too large | Confirmed sister UW after original |
 | All other established causes, including unsupported nonblocking work | Report on original UW, no issue |
 
-An exclusion protects only explicitly excluded additional work, never an introduced regression, security defect or invariant violation. A sister shares the original's parent and is only created after confirmation of its exact framed proposal; an active or indeterminate parent holds the addition until its acceptance is available.
+An exclusion covers only explicitly excluded additional scope, never a regression, security defect or invariant violation. A sister shares the original's parent and needs confirmation of its exact framed proposal. Creation under an active parent is suspended.
 _Avoid_: an automatic nonblocking bundle, a blanket sibling rule, treating a pending blocker as a final report, clearing a missing criterion by rejecting a finding
 
 **Tier**:
@@ -333,18 +325,14 @@ The historical canonical `review` payload, read by record identity. It names the
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The SHA-256 on a canonical review, or null. Prefix `omp-build:review-input/4` covers the observed PR inputs and semantic context without producer parts. A null input is not approval. Admission recaptures the input and requires equality; the digest checks observed inputs, not authorship.
+The SHA-256 on a historical canonical review, or null. Prefix `omp-build:review-input/4` covers the observed code and semantic inputs, not the review outputs. A null input is not approval. Admission reconstructs the input and requires equality; the digest checks inputs, not authorship.
 
 Missing or older input formats refuse with `incompatible-format`; they are not migrated, re-reviewed, or exempted.
 
-_Avoid_: a line-3 HTML marker, an acquisition attestation, a frozen manifest, a cached snapshot, a digest rebound after panel work
-
-**Panel**:
-The five dispatchable review roles: the `R-adversarial` floor plus at most two specialists the roster proved relevant.
-_Avoid_: domain roles, FE/BE reviewers, a per-language reviewer
+_Avoid_: a line-3 HTML marker, an acquisition attestation, a cached snapshot, a digest rebound after review
 
 **R-adversarial**:
-The single red-team posture and review-panel floor (OWASP + sibling-drop).
+A read-only reviewer profile for red-team and OWASP analysis. The session chooses agents for the review.
 _Avoid_: reviewer, security-reviewer, a second unprefixed `adversarial`
 
 **R-advisor**:

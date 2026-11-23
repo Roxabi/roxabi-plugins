@@ -6,10 +6,9 @@ import type { Json, Scope } from '../engine/record-values.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
 import { implementationOutputSchema } from '../engine/workflow-output-schema.ts'
-import { implementNativeOutcome } from '../roxabi/feature-native-outcome.ts'
 import type { UwOperations, UwRead } from '../roxabi/uw-contract.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
-import { captureNativeTask } from './native-action-capture.ts'
+import { historicalCommandCapture } from './native-action-capture.ts'
 import { appendNativeReceipt, openHistoricalDelivery } from './native-history-records.ts'
 
 async function observedImplementationCommits(
@@ -115,19 +114,16 @@ export async function produceNativeImplementation(input: {
     criteria: [declarationClaim],
     reason: 'Implementation and captured test completed',
   }
-  const result = await captureNativeTask({
-    batch: opened.followUp,
+  const capture = historicalCommandCapture({
+    actionId: opened.authority.actionId,
     cwd: input.cwd,
     childId: `native-${input.scope.target}`,
     command: input.command,
     toolCallId,
     output: input.output,
     claim,
-    expectedRuns: 1,
     git: { repository: input.scope.repository, commit: head, tree },
   })
-  const child = result.children[0]
-  if (!child) throw new Error('Expected captured implementation child')
   const branch = await input.git(input.cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (branch.code !== 0 || branch.stdout.trim() === 'HEAD') throw new Error('Implementation fixture needs a branch')
   const remoteBranch = branch.stdout.trim()
@@ -147,9 +143,9 @@ export async function produceNativeImplementation(input: {
     start: opened.start,
     structured: implementationOutputSchema.parse({
       ...claim,
-      criteria: completeCriterionDeclarations(claim.criteria, child),
+      criteria: completeCriterionDeclarations(claim.criteria, capture),
     }),
-    native: implementNativeOutcome(child, true, new Set([toolCallId])),
+    native: capture.native,
     admission: {
       admitted: true,
       commits: commitSHAs,
@@ -174,7 +170,7 @@ export async function produceNativeImplementation(input: {
         record.kind === 'action-receipt' &&
         record.payload.action === 'implement' &&
         record.payload.phase === 'result' &&
-        record.payload.actionId === opened.followUp.operationId,
+        record.payload.actionId === opened.authority.actionId,
     )
     if (
       receipt?.kind !== 'action-receipt' ||
@@ -199,5 +195,5 @@ export async function produceNativeImplementation(input: {
     return { after, updated, receipt, declaration }
   }
   const { after, updated, receipt, declaration } = await readPublishedImplementation()
-  return { opened, result, receipt, declaration, read: after, history: updated }
+  return { opened, receipt, declaration, read: after, history: updated }
 }

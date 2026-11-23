@@ -5,11 +5,10 @@ import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
 const cwd = process.argv[2]
 if (!cwd) throw new Error('fixture-cwd-missing')
-// The SDK settings must be installed before loading the extension and registry.
+// The SDK settings must be installed before loading the extension.
 await installFixtureSdkSettings(cwd)
 const { default: ompBuildExtension } = await import('../omp/index.ts')
 const { createExtensionApiStub } = await import('./extension-api-stub.ts')
-const { provisionNativeRoot } = await import('./native-root-fixture.ts')
 const { operatorDialogUi } = await import('./operator-dialog-ui.ts')
 
 function freshRoot(sessionId: string) {
@@ -38,7 +37,13 @@ function freshRoot(sessionId: string) {
     agent: { kind: 'main' as const, id: sessionId, name: 'main', depth: 0 },
     model: { contextWindow: 128_000 },
     localProtocolOptions: { getArtifactsDir: () => artifacts },
-    sessionManager: { getSessionId: () => sessionId, getBranch: () => [] },
+    sessionManager: {
+      getSessionId: () => sessionId,
+      getSessionFile: () => undefined,
+      getArtifactsDir: () => artifacts,
+      getCwd: () => cwd,
+      getBranch: () => [],
+    },
     isIdle: () => true,
     hasPendingMessages: () => false,
     abort: () => undefined,
@@ -55,7 +60,6 @@ function freshRoot(sessionId: string) {
       notify: (message: string) => messages.push(message),
     },
   }
-  provisionNativeRoot(context)
   const ctx = context as unknown as ExtensionCommandContext
   const pi = createExtensionApiStub({
     on(name, handler) {

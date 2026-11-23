@@ -11,13 +11,11 @@ import {
 import type { CauseCreationProposal, CauseSisterInput, CreationContext } from '../engine/cause-disposition-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
-import type { UwCompletionObservation } from '../engine/uw-completion-types.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 import { checkDuplicate, diagnostic, exactNewIntent, hash, home, same } from './uw-cause-creation-support.ts'
 import { assertCauseParentUnchanged, observeCauseParent } from './uw-cause-parent.ts'
 import { type CauseRead, readAuthenticatedCause, readAuthenticatedReport } from './uw-cause-read.ts'
-import { assertComposedBefore } from './uw-composed-cause-guard.ts'
 import type { CauseOperationResult, CreatedUwReadPort, PreparedUwProposal, UwReadPort } from './uw-contract.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import { createParentEngagementReadPort } from './uw-parent-engagement.ts'
@@ -35,7 +33,6 @@ type Args = {
   proposal: CauseCreationProposal
   prepared: PreparedUwProposal
   confirmation: OperatorConfirmationEvidence
-  composed?: { before: Extract<UwCompletionObservation, { status: 'complete' }>; signal: AbortSignal }
   markEffect: () => void
 }
 
@@ -54,14 +51,7 @@ async function readFresh(args: Args) {
     originalDigest
   )
     throw new Error('cause-original-stale')
-  if (args.composed !== undefined && parent !== null && args.proposal.parentAcceptance !== null) {
-    await assertComposedBefore({
-      github: input.github,
-      before: args.composed.before,
-      parent: parent.parent,
-      signal: args.composed.signal,
-    })
-  } else if (parent !== null) {
+  if (parent !== null) {
     await assertCauseParentUnchanged(parent, createParentEngagementReadPort(input.github), null)
   }
   return { checked, own }
@@ -144,7 +134,7 @@ export async function confirmCauseIntent(args: Args) {
   const failure = await persistIntent(args, intent.value, own, checked.histories)
   if (failure !== null) return { ok: false as const, result: failure }
   let parent = args.parent
-  if (args.composed === undefined && parent !== null && same(parent.parent, args.ref.scope)) {
+  if (parent !== null && same(parent.parent, args.ref.scope)) {
     const afterIntent = await observeCauseParent(args.ref.scope, createParentEngagementReadPort(args.input.github))
     if (afterIntent.state !== 'inactive' || afterIntent.nativeDigest !== parent.nativeDigest)
       throw new Error('cause-parent-stale')

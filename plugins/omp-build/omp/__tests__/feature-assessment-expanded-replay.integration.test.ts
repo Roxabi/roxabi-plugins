@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { rmSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { afterEach, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import { decodeHistory, encodeRecord } from '../../adapters/github/history-codec
 import { actionInputDigest, canonicalValueDigest } from '../../engine/action-input.ts'
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
+import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import {
   arrangeReviewFixture,
   nativeFeatureSpec,
@@ -47,22 +48,21 @@ it('cold replays the owned expanded assessment after an authenticated missing-co
     issue.body = proposed.body
     issue.comments.push(...workflow.framedBodies([mandate], 'operator').map((body) => ({ author: 'operator', body })))
   })
-  const run = spawnSync(BUN, [REPLAY, cwd, JSON.stringify(REVIEW_SCOPE), 'prepare'], {
+  const authoredComments = () => readSim(box).issues['42']?.comments.map(({ author, body }) => ({ author, body }))
+  const commentsBeforePreparation = authoredComments()
+  const run = spawnSync(BUN, [REPLAY, cwd, JSON.stringify({ uw: REVIEW_SCOPE, head }), 'prepare'], {
     cwd,
     env: box.env,
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`assessment preparation failed: ${run.stderr}\n${run.stdout}`)
-  const result = JSON.parse(run.stdout) as {
-    kind: string
-    followUp: { tasks: { tasks: { action: { inputs: ActionInputs; snapshot: { indexPath: string } } }[] } }
+  expect(authoredComments()).toEqual(commentsBeforePreparation)
+  const action = JSON.parse(run.stdout) as {
+    start: CanonicalRecord
+    inputs: ActionInputs
+    snapshot: { indexPath: string }
   }
-  expect(result).toMatchObject({
-    kind: 'action',
-    verification: { before: { ok: true }, after: { ok: false } },
-  })
-  const action = result.followUp.tasks.tasks[0]?.action
-  if (action === undefined) throw new Error('assessment action missing')
+  expect(action.snapshot).toMatchObject({ indexPath: expect.stringContaining('index.md') })
   expect(action.inputs.manifest.operands).toMatchObject({
     action: 'assess-spec',
     exactInputs: {
@@ -86,6 +86,12 @@ it('cold replays the owned expanded assessment after an authenticated missing-co
         updatedAt: comment.updatedAt ?? null,
       })),
     })
+  const publish = (record: CanonicalRecord) => {
+    const encoded = encodeRecord(record, history().source, null)
+    if (!encoded.ok) throw new Error('assessment receipt encoding invalid')
+    appendSimIssueComments(box, '42', encoded.value, 'operator', '2026-10-22T12:00:00Z')
+  }
+  publish(action.start)
   const start = history().operations.find(
     (operation) =>
       operation.record?.kind === 'action-receipt' &&
@@ -122,11 +128,6 @@ it('cold replays the owned expanded assessment after an authenticated missing-co
     },
   })
   if (!negative.ok) throw new Error('assessment negative invalid')
-  const publish = (record: typeof start | typeof negative.value) => {
-    const encoded = encodeRecord(record, history().source, null)
-    if (!encoded.ok) throw new Error('assessment receipt encoding invalid')
-    appendSimIssueComments(box, '42', encoded.value, 'operator', '2026-10-22T12:00:00Z')
-  }
   publish(negative.value)
   const manifest = {
     ...action.inputs.manifest,
@@ -157,9 +158,25 @@ it('cold replays the owned expanded assessment after an authenticated missing-co
   if (!successor.ok) throw new Error('expanded assessment start invalid')
   publish(successor.value)
   rmSync(path.dirname(action.snapshot.indexPath), { recursive: true, force: true })
+  const requestFile = path.join(box.root, 'expanded-assessment-request.json')
+  writeFileSync(
+    requestFile,
+    JSON.stringify({
+      reviewed: expanded,
+      request: {
+        actionId: 'expanded-assessment-action',
+        purpose: manifest.purpose,
+        subject: manifest.subject,
+        code: manifest.code,
+        stageSources: expanded.stageSources,
+        expandedContext: manifest.expandedContext,
+        operands: manifest.operands,
+      },
+    }),
+  )
   const replay = () => {
     const before = structuredClone(readSim(box).issues['42']?.comments ?? [])
-    const child = spawnSync(BUN, [REPLAY, cwd, JSON.stringify(expanded), 'expanded-assessment-action'], {
+    const child = spawnSync(BUN, [REPLAY, cwd, requestFile], {
       cwd,
       env: box.env,
       encoding: 'utf8',

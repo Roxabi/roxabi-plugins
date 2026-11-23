@@ -267,13 +267,6 @@ function setup(
         reader: { readUw } as never,
         nativeReader: { readUw } as never,
         github: {} as never,
-        actionOptions: {
-          cwd: '/fixture',
-          readAuthor: 'operator',
-          gh: async () => {
-            throw new Error('No native assessment host in this test')
-          },
-        },
         operator: base.ports.operator,
         ...backend,
         guardedWriter: guardedWriter as never,
@@ -301,13 +294,14 @@ describe('cause creation orchestration (simulated boundaries)', () => {
     expect(test.events).toEqual([])
   })
 
-  it('requires a real native assessment host even with explicit active-parent coverage', async () => {
+  it('refuses active-parent sister creation before confirmation or writes, even with explicit coverage', async () => {
     const test = setup({ parentState: 'active' })
     const result = await test.service.createSister({
       ...test.sisterRequest,
       parentCoverage: { parent: { uw: parent, version: 'a'.repeat(64) }, assignments: [] },
     })
     expect(result.status).toBe('refused')
+    expect(JSON.stringify(result)).toContain('Parent /uw sister delivery is suspended; resumes in slice 6 (#1031).')
     expect(test.confirmations()).toBe(0)
     expect(test.nativeCreate).not.toHaveBeenCalled()
     expect(test.events).toEqual([])

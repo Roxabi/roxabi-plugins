@@ -261,7 +261,7 @@ describe('private correction code observation', () => {
       plugin: ports.plugin,
     }
     const decisionBacked = await withCorrectionObservation(request, basis, () =>
-      prepareUwAction(request, withRoot, undefined, undefined, {
+      prepareUwAction(request, withRoot, undefined, {
         inventory: { scope: TEST_SCOPE, kind: 'review-attempt', recordId: 'unrelated-inventory' },
         requestId: 'unrelated-request',
       }),

@@ -1,22 +1,8 @@
 import { actionInputDigest, citesCurrentRootOutput, validateActionInputs } from '../engine/action-input.ts'
 import { ACTION_BINDING_FORMAT, ACTION_INPUT_FORMAT, type ActionInputs } from '../engine/action-input-schema.ts'
 import type { UwActionPorts, UwActionRequest } from '../roxabi/uw-action-contract.ts'
-import { suppliedProcedurePaths } from '../roxabi/uw-action-dossier.ts'
+import { REQUIRED_PLUGIN } from '../roxabi/uw-action-plugin-files.ts'
 import { sha256Bytes } from '../roxabi/uw-action-result.ts'
-
-/** Same required plugin paths as buildManifest. Not a second pin authority. */
-const REQUIRED_PLUGIN = [
-  'package.json',
-  'GLOSSARY.md',
-  'skills/dev-review/review-classes.yml',
-  'skills/dev-review/chunker.py',
-  'skills/dev-review/digest.py',
-  'skills/dev-review/prepare_context.py',
-  'skills/dev-review/evidence-policy.md',
-  'skills/dev-review/root-causes.md',
-  'skills/dev-review/review-smells.md',
-  'skills/dev-review/review-blind-spots.md',
-] as const
 
 function refused(diagnostics: readonly { message: string }[]): string {
   return diagnostics.map((item) => item.message).join('; ')
@@ -31,7 +17,7 @@ export async function assembleActionInputs(request: UwActionRequest, ports: UwAc
   const references = await ports.repositoryReferences(request, facts.value.plannedPaths)
   if (!references.ok) throw new Error(refused(references.diagnostics))
   const pluginFiles = []
-  for (const path of [...REQUIRED_PLUGIN, ...suppliedProcedurePaths(request.purpose)]) {
+  for (const path of REQUIRED_PLUGIN) {
     const installed = await ports.plugin.readInstalledFile(path)
     if (!installed.ok) throw new Error(refused(installed.diagnostics))
     const digest = sha256Bytes(installed.value)

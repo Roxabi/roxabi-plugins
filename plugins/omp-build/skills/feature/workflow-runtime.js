@@ -1,6 +1,5 @@
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { trackPreparationGhOperation, trackPreparationOperation } from '../../host/preparation-cohort.ts'
 
 const GIT_HOOK_VARS = [
   'GIT_DIR',
@@ -38,15 +37,13 @@ async function readProcess(proc) {
 }
 
 export async function gitResult(cwd, args) {
-  return trackPreparationOperation('git', () => {
-    const proc = Bun.spawn(['git', '-C', cwd, ...args], {
-      cwd,
-      env: stripGitHookEnv(),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    return readProcess(proc)
+  const proc = Bun.spawn(['git', '-C', cwd, ...args], {
+    cwd,
+    env: stripGitHookEnv(),
+    stdout: 'pipe',
+    stderr: 'pipe',
   })
+  return readProcess(proc)
 }
 
 export async function git(cwd, args) {
@@ -56,15 +53,13 @@ export async function git(cwd, args) {
 }
 
 export async function gh(cwd, args) {
-  return trackPreparationGhOperation(args, async () => {
-    const proc = Bun.spawn(['gh', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
-    const { stdout, stderr, code } = await readProcess(proc)
-    if (code !== 0) {
-      const error = new Error(`gh ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
-      throw Object.assign(error, { exitCode: code, stderr, stdout })
-    }
-    return stdout.trim()
-  })
+  const proc = Bun.spawn(['gh', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
+  const { stdout, stderr, code } = await readProcess(proc)
+  if (code !== 0) {
+    const error = new Error(`gh ${args.join(' ')} failed (${code}): ${stderr || stdout}`)
+    throw Object.assign(error, { exitCode: code, stderr, stdout })
+  }
+  return stdout.trim()
 }
 
 export function preview(raw) {

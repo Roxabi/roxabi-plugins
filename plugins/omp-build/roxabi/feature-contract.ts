@@ -3,21 +3,12 @@ import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Diagnostic } from '../engine/record-values.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment, ParentCoverage } from '../engine/workflow-mandate-schema.ts'
-import type { JoinedNativeStop } from '../omp/review-runtime/controller-stop.ts'
 import type { FramingSourceRequest } from './feature-framing-contract.ts'
 import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import type { UwOperationResult, UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
-export type FeatureControl =
-  | 'select'
-  | 'continue'
-  | 'resume'
-  | 'pause'
-  | 'abandon'
-  | 'new'
-  | 'material-decision'
-  | 'resolve-interruption'
+export type FeatureControl = 'select' | 'continue' | 'resume' | 'pause' | 'abandon' | 'new' | 'material-decision'
 
 export type ParentCoverageRequest = {
   parent: ParentCoverage['parent']
@@ -68,7 +59,6 @@ export type ContinueFeatureInput = {
   pluginPin?: TrustedHostPluginPin
   /** Ephemeral owner fence for this command's admission; never persisted. */
   owned?: () => boolean
-  interruption?: { start?: string }
 }
 
 export type FeatureWorkflow = {
@@ -76,7 +66,7 @@ export type FeatureWorkflow = {
 }
 
 export type ParsedFeatureCommand =
-  | { ok: true; control: Exclude<FeatureControl, 'resolve-interruption'>; reference: string }
+  | { ok: true; control: FeatureControl; reference: string }
   | { ok: true; control: 'resolve-interruption'; reference: string; start?: string }
   | { ok: true; control: 'init'; args: readonly string[] }
   | { ok: false; reason: string }
@@ -87,8 +77,6 @@ export type FeatureCommandHost = {
   uw?: UwOperations
   git?: FeatureGit
   send: (text: string) => Promise<void>
-  inhibitFeatureContinuation: () => void
-  interruptOwnedWork?: (reason: string) => Promise<void> | Promise<JoinedNativeStop>
   exec: (
     command: string,
     args: string[],

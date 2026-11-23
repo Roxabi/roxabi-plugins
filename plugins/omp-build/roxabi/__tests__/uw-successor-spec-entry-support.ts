@@ -174,7 +174,6 @@ export function setup(abandoned: boolean) {
   const operations = createUwOperations({
     read,
     abandon: unsupported,
-    resolveInterruption: unsupported,
     adjustCauseDependency: unsupported,
     resolveSpecEffective,
     readCreated: read,

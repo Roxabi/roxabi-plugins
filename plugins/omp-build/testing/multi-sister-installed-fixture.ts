@@ -39,7 +39,6 @@ export async function installedMultiSisterFixture(
     cwd?: string
     pluginPin?: InstalledUwOperationsOptions['pluginPin']
     artifactsDir?: string | null
-    nativeHost?: InstalledUwOperationsOptions['nativeHost']
     confirm?: (title: string, detail: string) => Promise<boolean>
     afterParentRelation?: (parent: number, child: number) => void
   } = {},
@@ -215,7 +214,6 @@ export async function installedMultiSisterFixture(
       operator,
       pluginPin: options.pluginPin,
       artifactsDir: options.artifactsDir,
-      nativeHost: options.nativeHost,
     })
   }
   const operations = await newCommand()

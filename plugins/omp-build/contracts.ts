@@ -43,7 +43,6 @@ export type {
 } from './adapters/github-workflow/types.ts'
 export { createUwDeliveryFactReader } from './adapters/github-workflow/uw-delivery-facts.ts'
 export { readUwCompletionObservation } from './adapters/github-workflow/uw-observation.ts'
-export { hasNativeUserInterruptFlag } from './adapters/omp-native/user-interrupt.ts'
 export * from './contracts-delivery.ts'
 export * from './contracts-fix-recovery.ts'
 export * from './contracts-review.ts'
@@ -86,9 +85,7 @@ export {
   operationAuthoritySchema,
   operationReadSchema,
 } from './engine/history-schema.ts'
-export { inspectNativeTerminal } from './engine/native-terminal.ts'
 export { assessParentInsertionEngagement, type ParentEngagementEvidence } from './engine/parent-insertion-engagement.ts'
-export { inspectFinding, PRODUCER_OUTPUTS, type ProducerOutput, producerJsonSchema } from './engine/producer-schema.ts'
 export { buildRecord, parseRecord } from './engine/record-construction.ts'
 export { equalScope } from './engine/record-diagnostics.ts'
 export {
@@ -154,6 +151,7 @@ export {
   verdictSchema,
 } from './engine/record-values.ts'
 export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
+export { nativeIssueObservationFromNode } from './engine/uw-native-observation-schema.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export {
@@ -161,10 +159,6 @@ export {
   classifyAttempts,
   type InterruptionGate,
   interruptionGate,
-  interruptionResolutionCandidate,
-  type ResolutionCandidate,
-  type ResolvableStart,
-  resolvableStarts,
   startResolution,
   type UnresolvedAttempt,
 } from './engine/workflow-action-interruption.ts'
@@ -174,16 +168,6 @@ export { bindingMatchesMandate, bindingPolicy } from './engine/workflow-binding-
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
 export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
-export {
-  buildComposedMaterialAcceptanceControl,
-  validateComposedMaterialAuthorization,
-} from './engine/workflow-composed-material.ts'
-export {
-  nativeIssueObservationFromNode,
-  prepareComposedParentConsent,
-  recheckComposedAssessmentDelta,
-  recheckComposedParentAcceptance,
-} from './engine/workflow-composed-material-preparation.ts'
 export {
   bindExternalRef,
   excludedReceipt,
@@ -201,24 +185,17 @@ export {
 } from './engine/workflow-graph.ts'
 export {
   authenticateInterruptedReceiptPair,
-  HOST_INTERRUPTION_MARKER,
-  hostInterruptionDiagnostic,
   INTERRUPTION_ACTIONS,
-  INTERRUPTION_RESOLUTION_FORMAT,
-  INTERRUPTION_RESOLUTION_PREFIX,
   type InterruptionAction,
   type InterruptionResolution,
   interruptedResult,
-  interruptionResolutionDigest,
-  interruptionResolutionRecordId,
   isInterruptionAction,
   isInterruptionResolution,
   type ResolutionIndex,
   type ResolutionPayload,
-  type ResolutionProposal,
   type ResolutionRecord,
 } from './engine/workflow-interruption-proof.ts'
-export { admitInterruptionResolution, resolutionIndex } from './engine/workflow-interruption-resolution.ts'
+export { resolutionIndex } from './engine/workflow-interruption-resolution.ts'
 export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
 export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
@@ -228,11 +205,6 @@ export {
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
-export {
-  interruptionActionSchema,
-  interruptionExecutorSchema,
-  interruptionRuntimeSchema,
-} from './engine/workflow-operator-control-schema.ts'
 export { outstandingPauseInAuthority, type PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'

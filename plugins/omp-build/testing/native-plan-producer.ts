@@ -1,14 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { missingContextOutputSchema } from '../engine/action-context.ts'
+import { type MissingContextOutput, missingContextOutputSchema } from '../engine/action-context.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { MandateRecord, ReceiptRecord } from '../engine/workflow-control.ts'
 import { type PlanOutput, type PlanReview, planDigest, planOutputSchema } from '../engine/workflow-output-schema.ts'
 import type { PlanReviewSlot } from '../engine/workflow-receipt-schema.ts'
-import type { NativeBatch, NativeBatchResult } from '../omp/review-runtime/contracts.ts'
-import type { HostGitIdentity } from '../omp/review-runtime/host-git-observation.ts'
-import { deliveryBatch, deliveryTask } from '../roxabi/delivery-action.ts'
-import { nativeOutcome } from '../roxabi/feature-native-outcome.ts'
-import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
 import type { UwRead } from '../roxabi/uw-contract.ts'
 import {
   appendNativeReceipt,
@@ -16,18 +11,18 @@ import {
   historicalPlan,
   prepareHistoricalAction,
 } from './native-history-records.ts'
-import { captureNativePlanBatch } from './native-plan-capture.ts'
+import { captureNativePlanBatch, type HistoricalPlanBatch, type HistoricalPlanCapture } from './native-plan-capture.ts'
 
 type Context = {
   world: HistoryWorld
   scope: Scope
   mandate: MandateRecord
   parentScopes: readonly Scope[]
-  git: HostGitIdentity
+  git: { repository: string; commit: string; tree: string }
 }
 type StartRef = { scope: Scope; recordId: string; kind: 'action-receipt' }
 type OpenedPlanStep = {
-  opened: { start: StartRef; followUp: NativeBatch }
+  opened: { start: StartRef; followUp: HistoricalPlanBatch }
   start: StartRef
   startRecord: ReceiptRecord
   before: UwRead
@@ -43,14 +38,6 @@ export async function openNativePlanStep(input: Context, action: 'plan' | 'plan-
   const commit = input.git.commit
   const code = { repository: scope.repository, base: commit, head: commit, referenceCommit: commit }
   const prepare = (id: string) => prepareHistoricalAction(world, scope, { actionId: id, purpose: action, code })
-  const task = (name: string, agent: string, prepared: PreparedUwAction) =>
-    deliveryTask({
-      name,
-      agent,
-      prepared,
-      procedure: 'Fixture judgment',
-      solutionSpace: 'historical plan evidence',
-    })
   const authority = { actionId, mandate: { scope, recordId: mandate.recordId, kind: 'mandate' as const } }
   const specDigest = macro.specDigest
   if (specDigest === null) throw new Error('Historical plan has no authenticated Spec')
@@ -64,7 +51,7 @@ export async function openNativePlanStep(input: Context, action: 'plan' | 'plan-
         inputs: prepared.inputs,
         exactInputs: { mandateId: mandate.recordId, specDigest, amendsReviewActionId: null, requiredBlockers: [] },
       })
-      return { start, tasks: [task('R-workflow-plan', 'R-workflow-plan', prepared)] }
+      return { start, tasks: [{ name: 'R-workflow-plan' }] }
     }
     if (macro.phase !== 'needs-review' || !macro.draftActionId) throw new Error('Historical review needs a draft')
     const plan = before.histories
@@ -92,10 +79,6 @@ export async function openNativePlanStep(input: Context, action: 'plan' | 'plan-
         action: { actionId: adversarial.snapshot.actionId, inputs: adversarial.inputs },
       },
     ]
-    const tasks = [
-      task('architect', 'R-workflow-plan-architect', architect),
-      task('adversarial', 'R-workflow-plan-adversarial', adversarial),
-    ]
     const start = await appendNativeReceipt(world, scope, {
       ...authority,
       action,
@@ -109,31 +92,26 @@ export async function openNativePlanStep(input: Context, action: 'plan' | 'plan-
         planDigest: planDigest(planOutputSchema.parse(plan.payload.structured)),
       },
     })
-    return { start, tasks }
+    return { start, tasks: slots.map(({ slotId }) => ({ name: slotId })) }
   }
   const { start, tasks } = await seed()
-  const opened = { start: start.ref, followUp: deliveryBatch(actionId, tasks) }
+  const opened = { start: start.ref, followUp: { operationId: actionId, tasks: { tasks } } }
   return { opened, start: start.ref, startRecord: start.record, before, after: await world.operations.readUw(scope) }
 }
 
 export async function publishNativePlanStep(
   input: Context,
   step: OpenedPlanStep,
-  claims: readonly { task: string; childId: string; value: PlanOutput | PlanReview }[],
+  claims: readonly { task: string; childId: string; value: PlanOutput | PlanReview | MissingContextOutput }[],
 ) {
-  const result = await captureNativePlanBatch({
-    batch: step.opened.followUp,
-    cwd: input.world.cwd,
-    git: input.git,
-    claims,
-  })
+  const result = captureNativePlanBatch({ batch: step.opened.followUp, claims })
   return retainHistoricalPlanResult(input, step, result)
 }
 
-export async function retainHistoricalPlanResult(input: Context, step: OpenedPlanStep, result: NativeBatchResult) {
+async function retainHistoricalPlanResult(input: Context, step: OpenedPlanStep, result: HistoricalPlanCapture) {
   const { payload } = step.startRecord
   const { world, scope } = input
-  const negative = result.children.find((item) => item.contextBlock !== undefined)
+  const negative = result.children.find((item) => item.contextBlock)
   const child = negative ?? result.children[0]
   if ((!result.complete && !negative) || !child)
     return {
@@ -144,7 +122,7 @@ export async function retainHistoricalPlanResult(input: Context, step: OpenedPla
   const common = {
     phase: 'result' as const,
     start: step.start,
-    native: nativeOutcome(child, true),
+    native: child.native,
     admission: null,
     diagnostics: [],
   }
@@ -181,7 +159,7 @@ export async function retainHistoricalPlanResult(input: Context, step: OpenedPla
                     action,
                   },
                   rawAttempts: captured.submissions,
-                  native: nativeOutcome(captured, true),
+                  native: captured.native,
                   structured: captured.structured,
                   findings: null,
                 },

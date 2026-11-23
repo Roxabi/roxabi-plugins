@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N | resolve-interruption #N [--start <recordId>]]'
 description: Deliver a leaf UW through implementation, independent review, correction and protected merge.
-version: 0.1.19
+version: 0.1.20
 ---
 
 # Feature
@@ -30,8 +30,8 @@ A current review is the latest review evidence comment by a writer (see [../dev-
 
 ## Plan and implement
 
-1. Map every own or inherited requirement from `## Accepted Spec` to code and a targeted check in the session; preserve exclusions. Apply project instructions; bring in `R-architect` for significant design decisions. Resolve scope conflicts before editing.
-2. Use `task` implementers on disjoint slices of the canonical worktree. Keep review independent of authorship. Verify the diff and checks against every criterion, including affected docs. Make Conventional Commits linked to the issue; capture the exact committed tip with `git rev-parse HEAD`.
+1. Map every own or inherited requirement from `## Accepted Spec` to code and a targeted check in the session; preserve exclusions. Apply project instructions and resolve scope conflicts before editing.
+2. Choose agents available to the session for design and implementation. Give `task` implementers disjoint slices of the canonical worktree, and keep review independent of authorship. Verify the diff and checks against every criterion, including affected docs. Make Conventional Commits linked to the issue; capture the exact committed tip with `git rev-parse HEAD`.
 3. Use `push` for that tip. Omit `--from` only for an observed absent branch; otherwise pass the observed remote SHA. On `pushed` or `already-published`, run `open-pr` for the same tip.
 
 ## Review and correct
@@ -74,7 +74,7 @@ Stop on inactive authority, material/coverage hold, ambiguous or divergent refs,
 | `/feature abandon <reference>` | Revokes the mandate; no automatic renewal. |
 | `/feature new <reference>` | Selects a successor over an intact abandoned or revoked mandate and conformant Spec. |
 | `/feature material-decision <reference>` | Requires genuine operator confirmation of the exact pending Spec proposal. |
-| `/feature resolve-interruption <reference> [--start <recordId>]` | Resolves an eligible interrupted action; remains paused. |
+| `/feature resolve-interruption <reference> [--start <recordId>]` | Always refuses. Historical records remain readable. For an eligible leaf, run `/feature abandon <reference>`, then `/feature new <reference>` after confirmed abandonment. |
 | `/feature init` | Previews the invoking checkout. Apply requires the preview digest and the operator's own reply. |
 
 For framing, the operator presses `ctrl+alt+u` to confirm. If asked to move, the operator runs the displayed `/move <path>`, observes success, then presses `ctrl+alt+u` in the destination. A model tool cannot confirm or attest.
