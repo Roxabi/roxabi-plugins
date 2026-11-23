@@ -1,27 +1,28 @@
 ---
 name: dev-fix
 argument-hint: '[#PR] [scope]'
-description: Fix the findings of the latest /dev-review on an open PR head, push the exact tip, then review again.
+description: Fix the latest /dev-review findings and failing checks on an open PR head, push the exact tip, then review again.
 version: 0.1.0
 ---
 
 # Dev fix
 
-Correct the findings that `/dev-review` left on one open pull request, on that PR's branch. `/dev-fix` never reviews its own work, posts a verdict or merges: the next step is always `/dev-review` on the new head.
+Correct the findings that `/dev-review` left on one open pull request, and its failing checks, on that PR's branch. `/dev-fix` never reviews its own work, posts a verdict or merges: the next step is always `/dev-review` on the new head. Run standalone, it is authorized by the operator who runs it; it pushes only the exact tip.
 
 ## 1. Preconditions
 
-1. Target: the `#PR` argument, else the open PR of the current branch: `gh pr view [<PR>] --json number,state,url,headRefOid,headRefName,isCrossRepository,comments`.
+1. Target: the `#PR` argument, else the open PR of the current branch: `gh pr view [<PR>] --json number,state,url,headRefOid,headRefName,baseRefName,isCrossRepository`. `<owner>/<repo>` comes from its URL.
 2. No open PR → stop: `/dev-fix` runs only on an existing PR with a finished implementation. A PR from a fork (`isCrossRepository`) → stop: its branch is not pushed from here.
-3. Record `HEAD` = `headRefOid`. The review is the latest PR comment that starts with `## Review — head `:
+3. Record `HEAD` = `headRefOid` and `BASE` = `baseRefName`. The review is the latest PR comment (`gh api repos/<owner>/<repo>/issues/<PR>/comments --paginate`) that starts with `## Review — head ` and whose author has write access (`gh api repos/<owner>/<repo>/collaborators/<login>/permission`: `admin`, `maintain` or `write`). Other comments are not reviews. Record its comment id as `REVIEW`.
    - none → stop: run `/dev-review` first;
-   - its head is not `HEAD` → stop: the review is stale; run `/dev-review` again;
-   - its verdict is approve and the operator gave no scope → stop: nothing to fix.
-4. Work in a checkout of the PR branch whose `HEAD` is that commit and whose tree is clean. `omp_build_prepare_checkout` with the PR number gives the canonical one. Not clean or not at `HEAD` → stop.
+   - its head is not `HEAD` → stop: the review is stale; run `/dev-review` again.
+4. The work is the review's findings plus every failing check on `HEAD` (`gh pr checks <PR>`; read a failure with `gh run view <run> --log-failed`). An approved review, no failing check and no operator scope → stop: nothing to fix.
+5. Work in a checkout of the PR branch whose `HEAD` is that commit and whose tree is clean. `omp_build_prepare_checkout` with the PR number gives the canonical one. Not clean or not at `HEAD` → stop.
+6. `git remote get-url --push --all origin` must list exactly one URL, naming `<owner>/<repo>`; else stop: the push would not reach the PR.
 
 ## 2. Plan
 
-- Fix every blocking finding. Fix a non-blocking one only if the operator's scope asks for it or it is a one-line correction in a file already changed.
+- Fix every blocking finding and every failing check. Fix a non-blocking finding only if the operator's scope asks for it or it is a one-line correction in a file already changed.
 - Group findings that share a cause; one cause, one change.
 - A finding judged wrong is not fixed silently: it goes to the report with the code evidence that refutes it.
 - Work outside the PR's linked issue is not done here: name it in the report.
@@ -35,9 +36,9 @@ Correct the findings that `/dev-review` left on one open pull request, on that P
 ## 4. Publish
 
 1. Commit with a message that names the findings fixed.
-2. Re-read the PR: its head must still be `HEAD`, else stop and say so.
-3. Push the exact tip, never `HEAD:` and never with force: `git push origin <tip>^{commit}:refs/heads/<headRefName>`. Then `gh pr view <PR> --json headRefOid` must equal the tip.
-4. Post one comment: `## Fixes — head <tip>`, then for each finding: fixed (commit, check) or not fixed (reason). Keep it public-safe: no secrets, private paths, raw logs or client data.
+2. Re-read the PR: still open, head still `HEAD`, base still `BASE`, and the latest review comment by a writer still `REVIEW`. Anything else → stop and say so.
+3. `git merge-base --is-ancestor <HEAD> <tip>` must hold. Push the exact tip, never `HEAD:`, never tags, and only over `HEAD`: `git push --no-follow-tags --force-with-lease=refs/heads/<headRefName>:<HEAD> origin <tip>^{commit}:refs/heads/<headRefName>`. The lease rejects the push unless the remote branch is still exactly `HEAD`, so a moved or deleted branch is never overwritten or recreated. Then `gh pr view <PR> --json headRefOid` must equal the tip.
+4. Post one comment: `## Fixes — head <tip>`, the review it answers (`REVIEW`), then for each finding and failing check: fixed (commit, check) or not fixed (reason). Keep it public-safe: no secrets, private paths, raw logs or client data.
 
 ## 5. Report
 

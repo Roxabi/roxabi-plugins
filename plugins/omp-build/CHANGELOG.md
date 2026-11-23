@@ -2,8 +2,8 @@
 
 ## 0.21.12 (unreleased)
 
-- `/fix` becomes `/dev-fix`, as instructions. The command loads `skills/dev-fix/SKILL.md`: on an open PR whose latest `/dev-review` comment covers the current head, implementer agents fix the findings on the PR branch, behavior fixes come with a falsified test, the exact tip is pushed (`<tip>^{commit}:refs/heads/<branch>`, no force) and a `## Fixes — head <tip>` comment maps each finding; the next step is `/dev-review`. Without an open PR or a current review it stops. `/dev-review` now names `/dev-fix` as its request-changes step.
-- The native correction loses its user command and stays behind the `/feature` fix step and its admitted CI correction until #1037 removes it; `skills/fix/` (the native correction's reference body and falsification guide) is deleted.
+- Add `/dev-fix`, the instructions that replace `/fix`. The command loads `skills/dev-fix/SKILL.md`: on an open PR whose latest review comment by a writer covers the current head, implementer agents fix its findings and the failing checks on the PR branch, behavior fixes come with a falsified test, the exact tip is pushed to the PR's repository with a lease on the reviewed head (`--force-with-lease=refs/heads/<branch>:<head> <tip>^{commit}:refs/heads/<branch>`, no tags) and a `## Fixes — head <tip>` comment maps each finding; the next step is `/dev-review`. Without an open PR or a current review it stops. Run standalone, it is authorized by the operator who runs it. `/dev-review` now names `/dev-fix` as its request-changes step.
+- `/fix` stays the native correction command, marked retiring: it goes with the native runtime when `/feature` moves (#1037). `skills/fix/` (its unused reference body and the falsification guide that the native falsify profile does not read) is deleted.
 - Recognize 0.21.12 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.11 (unreleased)

@@ -5,7 +5,7 @@ export type SkillCommand = {
   requires: readonly string[]
 }
 
-/** Slash commands with a skill body; `/feature` has a real host pipeline. */
+/** Slash commands with a skill body; `/feature` and the retiring native `/fix` have real host pipelines. */
 export const SKILL_COMMANDS: readonly SkillCommand[] = [
   {
     name: 'feature',
@@ -21,8 +21,14 @@ export const SKILL_COMMANDS: readonly SkillCommand[] = [
   {
     name: 'dev-fix',
     description:
-      'Fix the findings of the latest /dev-review on an open PR head, push the exact tip, then review again.',
+      'Fix the latest /dev-review findings and failing checks on an open PR head, push the exact tip, then review again.',
     requires: ['dev-fix', 'dev-review'],
+  },
+  {
+    // Native correction, kept until the native runtime goes with `/feature`'s move (#1037).
+    name: 'fix',
+    description: 'Native correction from confirmed review records; retiring with the native runtime. Use /dev-fix.',
+    requires: [],
   },
   {
     // The optional tail (#495). Offered after a ticket lands, never chained.

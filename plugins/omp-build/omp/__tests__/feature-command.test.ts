@@ -344,11 +344,10 @@ describe('installed /feature command', () => {
 })
 
 describe('installed correction lane', () => {
-  it('registers no correction tool and exposes correction only as /dev-fix', () => {
+  it('registers no correction tool while retaining the /fix command', () => {
     const host = installed({})
 
     expect(host.tools.has('omp_build_start_fix')).toBe(false)
-    expect(host.commands.has('fix')).toBe(false)
-    expect(host.commands.has('dev-fix')).toBe(true)
+    expect(host.commands.has('fix')).toBe(true)
   })
 })

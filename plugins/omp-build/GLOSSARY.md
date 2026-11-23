@@ -313,11 +313,11 @@ The review skill on OMP: reviewer agents chosen by diff (`R-adversarial` floor) 
 _Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **dev-fix**:
-The correction skill on OMP: implementer agents fix the findings of the latest `/dev-review` on an open PR head, the exact tip is pushed, and the next step is `/dev-review`. It never reviews its own work, posts a verdict or merges. It replaces the former `/fix` command.
-_Avoid_: /fix (the former native command), fixing without a current review of the head, a self-review
+The correction skill on OMP: implementer agents fix the findings of the latest `/dev-review` on an open PR head, the exact tip is pushed, and the next step is `/dev-review`. It never reviews its own work, posts a verdict or merges. It replaces `/fix`, which is retiring.
+_Avoid_: /fix (the retiring native command), fixing without a current review of the head, a self-review
 
 **fix**:
-The native correction behind the `/feature` fix step, until #1037 removes it. It applies each established `fix-original` cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Every cause receives its evidence-backed disposition; pending blocking causes remain blocking, sisters require exact operator confirmation and reports stay on their original UW. A failed correction retains its decision and execution evidence; it is not silently reported or filed. A correction never lands.
+The native correction behind the retiring `/fix` command and the `/feature` fix step, until #1037 removes them. It applies each established `fix-original` cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Every cause receives its evidence-backed disposition; pending blocking causes remain blocking, sisters require exact operator confirmation and reports stay on their original UW. A failed correction retains its decision and execution evidence; it is not silently reported or filed. A correction never lands.
 _Avoid_: an inline orchestrator edit, R-fix as the skill name, the absent general `R-fixer`, a per-finding walkthrough, automatic issue filing, picking a fix from a finding's solutions
 
 **Correction owner**:
