@@ -50,15 +50,9 @@ for anything carrying a relation or a tier.
 
 ### Tier is mandatory
 
-Every issue carries a `size:` label. It is the **only** source of the review tier
-(`R-dev-review` reads τ from the issue labels), so an issue created without one
-silently downgrades its own review to `F-lite`.
-
-| Label | Meaning |
-|---|---|
-| `size:S` | one worktree, direct implementation, no agents |
-| `size:F-lite` | worktree + a small agent panel |
-| `size:F-full` | worktree + the full panel, test-first |
+Every issue carries a `size:` label: `size:S`, `size:F-lite`, or `size:F-full`.
+The label sets the UW tier and its review evidence requirements, not the number
+or names of agents. The omp-build session chooses agents for the change.
 
 The tier is derived from the body by the κ rubric in the `issue-triage` skill
 (files · risk · architecture · unknowns · domains), so **a body edit that
@@ -73,10 +67,6 @@ Re-asserting the **same** tier writes no label event, so it leaves no trace that
 anyone looked. When the answer is unchanged, say so in a comment instead — an
 unchanged tier after a scope edit is a decision, and a decision nobody can
 distinguish from an omission has not been recorded.
-
-A stale `size:` gives no first contact: `R-dev-review` consumes it and proceeds
-with the wrong panel, so the defect surfaces as an under-reviewed issue that
-*looks* reviewed.
 
 ### Priority
 
@@ -101,9 +91,8 @@ fact GitHub already computes.
 ### Issues filed by CI
 
 Workflows create issues with `gh issue create`, not through `issue-triage`,
-because CI has no skill runtime. They arrive **without** a `size:` label. Whoever
-picks one up sets the tier first — `/issue-triage set <n> --size <tier>` — before
-`/feature`, so the review does not fall back to `F-lite`.
+because CI has no skill runtime. They arrive without a `size:` label. Set the
+tier before `/feature`: `/issue-triage set <n> --size <tier>`.
 
 - `.github/workflows/dependency-audit.yml` files two issues. The finding issue
   carries `security` + `dependencies` and is found again by `security` + its exact

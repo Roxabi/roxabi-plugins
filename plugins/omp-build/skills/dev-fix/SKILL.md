@@ -2,7 +2,7 @@
 name: dev-fix
 argument-hint: '[#PR] [scope]'
 description: Fix the latest /dev-review findings and failing checks on an open PR head, push the exact tip, then review again.
-version: 0.1.3
+version: 0.1.4
 ---
 
 # Dev fix
@@ -34,7 +34,7 @@ When a `## Feature context` is present, use composed mode: take the repository a
 
 ## 3. Fix
 
-- Spawn implementer agents in one `task` batch, one per independent cause, with disjoint files. Give each: the finding with its `file:line` and evidence, the files it owns, and the check that proves the fix. Agents edit and run their check; they do not commit or push.
+- Choose implementers from the agents available to the session. Spawn them in one `task` batch, one per independent cause, with disjoint files. Give each the finding, its `file:line` and evidence, the files it owns, and the check that proves the fix. Agents edit and run their check; they do not commit or push.
 - A behavior fix comes with a test that fails before it and passes after. Falsify it: temporarily remove the guard the fix added and re-run the test; it must fail on the reported scenario. A test that still passes proves nothing: rework the fix. Restore the guard.
 - Run the repository's checks for the changed files (`.dev/stack.yml` names them), then the checks the review flagged.
 

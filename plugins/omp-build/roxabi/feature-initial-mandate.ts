@@ -92,7 +92,6 @@ async function prepareAndPublishInitial(input: {
     return { kind: 'blocked', reason: 'first-mandate-checkout-changed' }
   const published = await publishFirstMandate(
     context.engine,
-    history,
     scope,
     { ...own, parent },
     checkout.checkout,

@@ -1,4 +1,5 @@
 import { sourceRef } from '../../roxabi/uw-action-observe.ts'
+import { historicalSubmission } from '../../testing/native-action-capture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { acceptedMetadataOwner } from '../accepted-metadata-owner.ts'
 import { canonicalValueDigest } from '../action-input.ts'
@@ -13,6 +14,7 @@ import { recordRef } from '../uw-delivery-review.ts'
 import type { SpecContent, UwTier } from '../uw-spec.ts'
 import type { OwnSpecRef } from '../uw-spec-schema.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecAt } from '../workflow-accepted-spec.ts'
+import type { AssessmentProposalOrigin } from '../workflow-action-operands.ts'
 import { capturedChildOwnSources } from '../workflow-assessment-child-sources.ts'
 import { acceptedConstraints, proposedConstraints } from '../workflow-constraint-compatibility.ts'
 import type { MandateRecord } from '../workflow-control.ts'
@@ -79,6 +81,7 @@ export function assessFixture(
   },
   mandateId = mandated.recordId,
   codeRange?: ActionInputs['manifest']['code'],
+  origin?: AssessmentProposalOrigin,
 ): FixtureAssessment {
   if (mandated.kind !== 'mandate') throw new Error('Assessment fixture requires a mandate')
   const scope = { repository: mandated.repository, target: mandated.target }
@@ -190,6 +193,7 @@ export function assessFixture(
     effective,
     acceptedSources,
     codeRange,
+    origin,
   )
   const start = must(
     buildRecord({
@@ -211,6 +215,11 @@ export function assessFixture(
       },
     }),
   )
+  const structured = classification === null ? null : { classification, compatibility }
+  const raw =
+    origin?.kind === 'cause-created-child'
+      ? historicalSubmission('composed-assessment-child', structured).native.raw
+      : null
   const result = must(
     buildRecord({
       version: 1,
@@ -229,8 +238,8 @@ export function assessFixture(
         mandate: mandateRef,
         start: recordRef(start),
         exactInputs,
-        native: { ...native, raw: null },
-        structured: classification === null ? null : { classification, compatibility },
+        native: { ...native, raw },
+        structured,
         admission: null,
         diagnostics: [],
       },

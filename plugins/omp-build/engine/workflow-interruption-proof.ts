@@ -18,8 +18,8 @@ export const INTERRUPTION_ACTIONS = [
   'assess-spec',
   'attribute-ci',
 ] as const
-/** Canonical marker of a host-observed interruption; produced only through `hostInterruptionDiagnostic`. */
-export const HOST_INTERRUPTION_MARKER = 'omp-build-host-interruption/2' as const
+/** Canonical marker of a host-observed interruption in historical results. */
+const HOST_INTERRUPTION_MARKER = 'omp-build-host-interruption/2' as const
 export type InterruptionAction = (typeof INTERRUPTION_ACTIONS)[number]
 
 export type ResolutionPayload = Extract<OperatorControlPayload, { control: 'resolve-interruption' }>
@@ -62,15 +62,6 @@ export function interruptionResolutionRecordId(startRecordId: string): string {
 
 export function interruptionResolutionDigest(proposal: ResolutionProposal): string {
   return canonicalValueDigest({ format: INTERRUPTION_RESOLUTION_FORMAT, ...proposal })
-}
-
-/** The only diagnostic that marks a RESULT as a host-observed interruption; the host writes it, never the model. */
-export function hostInterruptionDiagnostic(origin: string): Diagnostic {
-  return {
-    code: 'action-interrupted',
-    message: `Native execution interrupted (${origin})`,
-    detail: { marker: HOST_INTERRUPTION_MARKER, proof: 'not-dispatched', origin },
-  }
 }
 
 function hostInterruptionMarked(diagnostics: readonly Diagnostic[]): boolean {

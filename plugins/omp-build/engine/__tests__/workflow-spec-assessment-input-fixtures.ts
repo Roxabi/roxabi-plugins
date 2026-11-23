@@ -3,6 +3,7 @@ import { actionInputDigest } from '../action-input.ts'
 import type { ActionInputs, RecordInputRef } from '../action-input-schema.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { SpecEffective } from '../spec-effective-schema.ts'
+import type { AssessmentProposalOrigin } from '../workflow-action-operands.ts'
 import type { AssessSpecExact } from '../workflow-receipt-schema.ts'
 import { mechanicalSpecDelta } from '../workflow-spec-assessment.ts'
 
@@ -14,6 +15,7 @@ export function assessmentActionInputs(
   effective: SpecEffective,
   acceptedSources: RecordInputRef[],
   codeRange?: ActionInputs['manifest']['code'],
+  origin: AssessmentProposalOrigin = { kind: 'native-current' },
 ) {
   const exactInputs = {
     format: 'omp-build-spec-assessment/3' as const,
@@ -30,7 +32,7 @@ export function assessmentActionInputs(
     ...baseInputs.manifest,
     acceptedSources,
     spec: { kind: 'accepted' as const, effective },
-    operands: { action: 'assess-spec' as const, origin: { kind: 'native-current' as const }, exactInputs },
+    operands: { action: 'assess-spec' as const, origin, exactInputs },
   }
   const inputs = { ...baseInputs, manifest, fingerprint: actionInputDigest(manifest) }
   return { inputs, exactInputs }

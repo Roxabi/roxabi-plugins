@@ -1,6 +1,5 @@
 import { type OmpBuildExtensionOptions, registerOmpCommandsAndTools } from './omp-commands'
-import { type OmpBuildExtensionApi, reviewControllerFor } from './omp-controller'
-import { featureWorkInterrupter, installFeatureSessionLifecycle } from './omp-feature-session'
+import type { OmpBuildExtensionApi } from './omp-controller'
 import { installOmpToolGuards } from './omp-tool-guards'
 
 export default function ompBuildExtension(pi: OmpBuildExtensionApi, options: OmpBuildExtensionOptions = {}): void {
@@ -16,10 +15,7 @@ export default function ompBuildExtension(pi: OmpBuildExtensionApi, options: Omp
   // `${CLAUDE_*}` path token to expand — agent bodies and skill bodies, the
   // surface these commands added, are held to that by
   // `testing/agent-roster.test.ts` ("cites no plugin-root token").
-  reviewControllerFor(pi)
-  const interruptOwnedFeatureWork = featureWorkInterrupter(pi)
-  installFeatureSessionLifecycle(pi, interruptOwnedFeatureWork)
-  registerOmpCommandsAndTools(pi, options, interruptOwnedFeatureWork)
+  registerOmpCommandsAndTools(pi, options)
   installOmpToolGuards(pi)
 
   // format hook + principal post-nudge: deferred. Never sendUserMessage on tool_result

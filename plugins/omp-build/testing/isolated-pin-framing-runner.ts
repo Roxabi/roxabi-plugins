@@ -8,7 +8,6 @@ if (!cwd) throw new Error('fixture-cwd-missing')
 await installFixtureSdkSettings(cwd)
 const { default: ompBuildExtension } = await import('../omp/index.ts')
 const { createExtensionApiStub } = await import('./extension-api-stub.ts')
-const { provisionNativeRoot } = await import('./native-root-fixture.ts')
 const { operatorDialogUi } = await import('./operator-dialog-ui.ts')
 const { uwMember } = await import('./framing-runtime-fixture.ts')
 
@@ -39,7 +38,13 @@ const context = {
   agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   localProtocolOptions: { getArtifactsDir: () => artifacts },
-  sessionManager: { getSessionId: () => 'framing-pin-session', getCwd: () => currentCwd, getBranch: () => entries },
+  sessionManager: {
+    getSessionId: () => 'framing-pin-session',
+    getSessionFile: () => undefined,
+    getArtifactsDir: () => artifacts,
+    getCwd: () => currentCwd,
+    getBranch: () => entries,
+  },
   isIdle: () => true,
   hasPendingMessages: () => false,
   abort: () => undefined,
@@ -59,7 +64,6 @@ const context = {
     },
   },
 }
-provisionNativeRoot(context)
 const ctx = context as unknown as ExtensionCommandContext
 let submit: ((form: unknown) => Promise<unknown>) | undefined
 const api = createExtensionApiStub({

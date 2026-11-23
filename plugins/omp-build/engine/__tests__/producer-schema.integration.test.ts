@@ -7,8 +7,8 @@ import { decision } from '../../testing/record-decisions.ts'
 
 const ompBuildRoot = fileURLToPath(new URL('../..', import.meta.url))
 
-describe('producer JSON schema SDK compatibility', () => {
-  test('validates generated decision schemas and representative retained-finding payloads in real Bun', () => {
+describe('historical decision schema', () => {
+  test('accepts representative retained-finding payloads in real Bun', () => {
     const unusable = decision({
       findings: [
         {
@@ -36,14 +36,12 @@ describe('producer JSON schema SDK compatibility', () => {
       ],
     }).payload.judgment
     const program = [
-      "import { isJsonSchemaValueValid, isValidJsonSchema } from '@oh-my-pi/pi-ai/utils/schema'",
-      "import { producerJsonSchema } from './dist/contracts.js'",
-      `const schema = producerJsonSchema('decision')`,
+      "import { decisionSchema } from './engine/review-schema.ts'",
       `const values = ${JSON.stringify([unusable, usableMerged])}`,
-      'console.log(JSON.stringify({ schema: isValidJsonSchema(schema), values: values.map((value) => isJsonSchemaValueValid(schema, value)) }))',
+      'console.log(JSON.stringify(values.map((value) => decisionSchema.safeParse(value).success)))',
     ].join('\n')
 
     const result = JSON.parse(execFileSync('bun', ['--eval', program], { cwd: ompBuildRoot, encoding: 'utf8' }))
-    expect(result).toEqual({ schema: true, values: [true, true] })
+    expect(result).toEqual([true, true])
   })
 })

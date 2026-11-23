@@ -7,7 +7,7 @@ import type { FeatureCommandHost, FeatureControl, ParsedFeatureCommand } from '.
 
 type FeatureInitHost = Pick<FeatureCommandHost, 'cwd' | 'send' | 'exec' | 'git'>
 
-const CONTROL_BY_WORD: Record<string, Exclude<FeatureControl, 'resolve-interruption'>> = {
+const CONTROL_BY_WORD: Partial<Record<string, FeatureControl>> = {
   pause: 'pause',
   abandon: 'abandon',
   new: 'new',
@@ -42,10 +42,7 @@ function parseInterruptionResolution(tokens: string[]): ParsedFeatureCommand {
   return { ok: true, control: 'resolve-interruption', reference, ...(start === undefined ? {} : { start }) }
 }
 
-function parseControlCommand(
-  control: Exclude<FeatureControl, 'resolve-interruption'>,
-  tokens: string[],
-): ParsedFeatureCommand {
+function parseControlCommand(control: FeatureControl, tokens: string[]): ParsedFeatureCommand {
   const reference = normalizeReference(tokens[1])
   if (reference === null || tokens.length !== 2) return { ok: false, reason: 'feature-reference-missing' }
   return { ok: true, control, reference }

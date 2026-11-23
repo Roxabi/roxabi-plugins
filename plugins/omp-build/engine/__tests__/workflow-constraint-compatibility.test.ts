@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { canonicalValueDigest } from '../canonical-value.ts'
 import { parseRecord } from '../record-construction.ts'
-import { specDigest } from '../record-digests.ts'
-import type { UwCompletionObservation } from '../uw-completion-types.ts'
 import { checkAuthenticatedSpecCompatibility } from '../workflow-accepted-spec.ts'
 import { actionOperandsSchema } from '../workflow-action-operands.ts'
 import { capturedAssessmentSourcesMatch, capturedChildOwnSources } from '../workflow-assessment-child-sources.ts'
-import { recheckComposedAssessmentDelta } from '../workflow-composed-material-preparation.ts'
 import { type SpecAssessment, specAssessmentSchema } from '../workflow-output-schema.ts'
 import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
 import { featureMandate, history, mandate as makeMandate, must } from './workflow-test-support.ts'
@@ -56,49 +52,6 @@ describe('exact compatibility assessment', () => {
       false,
     )
   })
-  it('allows only the actual authenticated assessment pair and no native movement', () => {
-    const { mandate, fixture } = assessment()
-    const uw = { repository: mandate.repository, target: mandate.target }
-    const date = '2026-10-27T12:00:00.000Z'
-    const node = {
-      uw,
-      title: 'parent',
-      raw: { reference: uw.target, body: '', bodySha256: specDigest(''), lastEditedAt: date },
-      updatedAt: date,
-      labels: ['size:S'],
-      wayfinderLabels: [],
-      parent: null,
-      children: [],
-      blockers: [],
-      native: { state: 'OPEN' as const, stateReason: null },
-    }
-    const before: Extract<UwCompletionObservation, { status: 'complete' }> = {
-      status: 'complete',
-      root: uw,
-      graph: { status: 'complete', root: uw, observedAt: date, nodes: [node] },
-      histories: [history([mandate])],
-      catalogues: fixtureReviewClassCatalogues(),
-      delivery: [],
-    }
-    const after: Extract<UwCompletionObservation, { status: 'complete' }> = {
-      ...before,
-      histories: [history([mandate, fixture.start, fixture.result])],
-    }
-    const input = {
-      before,
-      after,
-      assessment: { scope: uw, recordId: fixture.result.recordId, kind: 'action-receipt' as const },
-      mandate: { scope: uw, recordId: mandate.recordId, kind: 'mandate' as const },
-    }
-    expect(recheckComposedAssessmentDelta(input).ok).toBe(true)
-    expect(
-      recheckComposedAssessmentDelta({
-        ...input,
-        after: { ...after, graph: { ...after.graph, nodes: [{ ...node, title: 'changed' }] } },
-      }).ok,
-    ).toBe(false)
-  })
-
   it('captures a pre-mandate child only with its complete history', () => {
     const mandate = featureMandate()
     const accepted = mandateAssessmentState(mandate)

@@ -6,7 +6,7 @@ import { githubRepository } from '../roxabi/uw-git-bytes.ts'
 import { installedPluginIdentity, resolvePluginPin } from '../roxabi/uw-plugin-pin.ts'
 import { composedHostPluginPin } from './host-plugin-pin.ts'
 import { INSTALL_ROOT } from './install-root.ts'
-import { type OmpBuildExtensionApi, reviewControllerFor } from './omp-controller.ts'
+import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import { featureOperationOccupied } from './omp-feature-composition.ts'
 import { canonicalRepository, gitScope } from './tooling-pin-state.ts'
 
@@ -14,12 +14,7 @@ const VARIABLE = 'OMP_BUILD_TOOLING_SHA'
 const SHA = /^[0-9a-f]{40}$/
 
 export function assertNoOwnedWork(pi: OmpBuildExtensionApi): void {
-  try {
-    if (featureOperationOccupied(pi) || reviewControllerFor(pi).active()) throw new Error('tooling-pin-work-active')
-  } catch (error) {
-    if (error instanceof Error && error.message === 'tooling-pin-work-active') throw error
-    throw new Error('tooling-pin-ownership-unknown')
-  }
+  if (featureOperationOccupied(pi)) throw new Error('tooling-pin-work-active')
 }
 
 async function readPinCandidates(cwd: string, gh: Gh, repository: string, targetRepository: string) {

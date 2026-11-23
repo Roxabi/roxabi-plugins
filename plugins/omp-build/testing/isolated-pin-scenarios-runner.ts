@@ -1,15 +1,14 @@
 import { execFileSync } from 'node:child_process'
-import { type FSWatcher, mkdirSync, readdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { type FSWatcher, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ExtensionCommandContext, ExtensionContext, ToolInfo } from '@oh-my-pi/pi-coding-agent'
 import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
 const [cwd, scenario, linked, other] = process.argv.slice(2) as [string, string, string, string]
 await installFixtureSdkSettings(cwd)
-// SDK settings must exist before the installed extension and registry are loaded.
+// SDK settings must exist before loading the installed extension.
 const { default: ompBuildExtension } = await import('../omp/index.ts')
 const { createExtensionApiStub } = await import('./extension-api-stub.ts')
-const { provisionNativeRoot } = await import('./native-root-fixture.ts')
 const { operatorDialogUi } = await import('./operator-dialog-ui.ts')
 
 const controls = process.env.PIN_CONTROL_FILE
@@ -18,14 +17,9 @@ const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) =
 const commands = new Map<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>>()
 const statuses: string[] = []
 const notices: string[] = []
-const watchStatuses: Array<string | undefined> = []
 const messages: unknown[] = []
 const displayed: string[] = []
 const terminal = Promise.withResolvers<string>()
-const nativeAnnouncement = Promise.withResolvers<void>()
-const watchStarted = Promise.withResolvers<void>()
-const watchDone = Promise.withResolvers<void>()
-const watchExit = Promise.withResolvers<{ code: number; killed: boolean; stdout: string; stderr: string }>()
 let currentCwd = cwd
 let session = 'pin-session'
 const artifacts = join(cwd, '.scenario-artifacts')
@@ -37,7 +31,13 @@ const context = {
   agent: { kind: 'main' as const, id: 'Main', name: 'main', depth: 0 },
   model: { contextWindow: 128_000 },
   localProtocolOptions: { getArtifactsDir: () => artifacts },
-  sessionManager: { getSessionId: () => session, getCwd: () => currentCwd, getBranch: () => [] },
+  sessionManager: {
+    getSessionId: () => session,
+    getSessionFile: () => undefined,
+    getArtifactsDir: () => artifacts,
+    getCwd: () => currentCwd,
+    getBranch: () => [],
+  },
   isIdle: () => true,
   hasPendingMessages: () => false,
   abort: () => undefined,
@@ -54,11 +54,6 @@ const context = {
       (text) => displayed.push(text),
     ),
     setStatus(key: string, text?: string) {
-      if (key === 'omp-build-watch') {
-        watchStatuses.push(text)
-        if (text?.startsWith('ci-watch: running')) watchStarted.resolve()
-        else if (text?.includes(' · held:')) watchDone.resolve()
-      }
       if (key === 'omp-build-framing' && text) {
         statuses.push(text)
         if (text.startsWith('feature-framing blocked:') || text.startsWith('feature-framing: interview started'))
@@ -70,7 +65,6 @@ const context = {
     },
   },
 }
-provisionNativeRoot(context)
 const ctx = context as unknown as ExtensionCommandContext
 const tools: ToolInfo[] = ['read', 'grep', 'glob', 'bash', 'write', 'edit', 'task'].map((name) => ({
   name,
@@ -103,19 +97,10 @@ const api = createExtensionApiStub({
   getAllTools: () => tools,
   sendMessage(message) {
     notices.push(typeof message === 'string' ? message : String(message.content))
-    if (typeof message !== 'string' && message.customType === 'omp-build-native-batch') nativeAnnouncement.resolve()
-    if (
-      typeof message === 'string' &&
-      (message.startsWith('feature-done:') ||
-        message.startsWith('feature-stopped:') ||
-        message.startsWith('feature-held:'))
-    )
-      watchDone.resolve()
   },
   async sendUserMessage(content) {
     messages.push(content)
   },
-  ...(scenario.startsWith('native-watch') ? { exec: () => watchExit.promise } : {}),
 })
 ompBuildExtension(api)
 for (const handler of handlers.get('session_start') ?? []) await handler({ type: 'session_start' }, ctx)
@@ -257,41 +242,6 @@ context.hasUI = true
 context.mode = 'tui'
 const feature = commands.get('feature')
 if (!feature) throw new Error('fixture-feature-command-missing')
-if (scenario.startsWith('native-watch')) {
-  await feature('#42', ctx)
-  const entry = await Promise.race([
-    watchStarted.promise.then(() => 'watch'),
-    watchDone.promise.then(() => 'terminal'),
-    nativeAnnouncement.promise.then(() => 'native-batch'),
-  ])
-  if (entry !== 'watch')
-    throw new Error(`fixture-watch-not-started: ${JSON.stringify({ entry, watchStatuses, notices })}`)
-  if (scenario === 'native-watch-success') {
-    const statePath = process.env.GH_SIM_STATE
-    if (!statePath) throw new Error('fixture-gh-state-missing')
-    const state = JSON.parse(readFileSync(statePath, 'utf8')) as {
-      prs: Record<string, { headRefOid: string }>
-      checks: Record<string, Array<{ status: string; conclusion: string; state?: string }>>
-    }
-    const head = state.prs['7'].headRefOid
-    for (const check of state.checks[head] ?? []) {
-      check.status = 'completed'
-      check.conclusion = 'success'
-      if (check.state !== undefined) check.state = 'SUCCESS'
-    }
-    writeFileSync(statePath, JSON.stringify(state))
-  }
-  watchExit.resolve({ code: scenario === 'native-watch-success' ? 0 : 5, killed: false, stdout: '', stderr: '' })
-  await Promise.race([watchDone.promise, nativeAnnouncement.promise])
-  process.stdout.write(`${JSON.stringify({ notices, displayed })}\n`)
-  process.exit(0)
-}
-if (scenario === 'native-ci') {
-  await feature('#42', ctx)
-  await nativeAnnouncement.promise
-  process.stdout.write(`${JSON.stringify({ notices, displayed, messages })}\n`)
-  process.exit(0)
-}
 await feature('Build a billing export for operators', ctx)
 const outcome = await terminal.promise
 process.stdout.write(

@@ -217,9 +217,6 @@ function lifecycleFixture() {
       abandon: async () => {
         throw new Error('unexpected-abandon')
       },
-      resolveInterruption: async () => {
-        throw new Error('unexpected-interruption-resolution')
-      },
       prepare: async () => {
         throw new Error('unexpected-prepare')
       },
@@ -245,14 +242,8 @@ function lifecycleFixture() {
       prepareAction: async () => {
         throw new Error('unexpected-prepare-action')
       },
-      prepareReviewActions: async () => {
-        throw new Error('unexpected-prepare-review-actions')
-      },
       replayActionInputs: async () => {
         throw new Error('unexpected-replay')
-      },
-      verifyAction: async () => {
-        throw new Error('unexpected-verify')
       },
       readDelivery: async () => {
         throw new Error('unexpected-delivery')

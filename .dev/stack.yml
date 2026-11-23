@@ -47,12 +47,6 @@ docs:
   path: docs
   format: md
 
-# Panel is adversarial-by-default.
-# Per-agent overrides belong under `review.roster`.
-review:
-  roster:
-    max_agents: 3
-
 commands:
   dev: ""
   build: bun run build

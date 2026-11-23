@@ -109,7 +109,7 @@ it('holds framing when an accepted ancestor is abandoned before a deletion cross
   const own = beforeParent.histories.find((history) => history.source.scope.target === parent.target)
   if (own === undefined) throw new Error('Missing Parent history')
   const { inputs: _inputs, ...draft } = mandate
-  const published = await publishRecord(engine, own, draft, gh, boundary.principal)
+  const published = await publishRecord(engine, draft, gh, boundary.principal)
   if (!published.ok) throw new Error(JSON.stringify(published))
   const accepted = await reader.operations.readUw(parent)
   if (accepted.accepted.status !== 'accepted')

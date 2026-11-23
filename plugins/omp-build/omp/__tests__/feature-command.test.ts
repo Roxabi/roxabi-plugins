@@ -12,15 +12,11 @@ import * as checkout from '../../roxabi/feature-selection.ts'
 import { createUwAbandon } from '../../roxabi/uw-abandon.ts'
 import type { OperatorPort, UwOperations } from '../../roxabi/uw-contract.ts'
 import * as issues from '../../roxabi/uw-spec/index.ts'
-import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
-import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
-import { batch, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
 import { INSTALL_ROOT } from '../install-root.ts'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
-import { reviewControllerFor } from '../omp-controller'
-import type { NativeStop } from '../review-runtime/contracts.ts'
 
 const root = {
   ...consultableAgentRoot(),
@@ -31,11 +27,13 @@ const root = {
 
 beforeEach(() => {
   root.localProtocolOptions = consultableProtocolOptions()
-  Object.assign(root.sessionManager, { getArtifactsDir: root.localProtocolOptions.getArtifactsDir })
+  Object.assign(root.sessionManager, {
+    getArtifactsDir: root.localProtocolOptions.getArtifactsDir,
+    getCwd: () => root.cwd,
+  })
 })
 
 afterEach(() => {
-  cleanupFixtureActions()
   vi.restoreAllMocks()
 })
 
@@ -54,36 +52,7 @@ function installed(
   const sent: string[] = []
   const commands = new Map<string, { handler: (args: string, ctx: typeof root) => Promise<void> }>()
   const tools = new Set<string>()
-  const sessions = new Map<string, (event: { signal: AbortSignal }, ctx: typeof root) => void | Promise<void>>()
-  const handlers = new Map<string, (...args: never[]) => unknown>()
-  const registered = new Map<string, Array<(...args: never[]) => unknown>>()
-  const raw = new Map<string, (value: unknown) => void>()
-  const registeredRaw = new Map<string, Array<(value: unknown) => void>>()
   const pi = createExtensionApiStub({
-    on: (event, handler) => {
-      const listeners = registered.get(event) ?? []
-      listeners.push(handler as (...args: never[]) => unknown)
-      registered.set(event, listeners)
-      const dispatch = async (...args: never[]) => {
-        for (const listener of listeners) {
-          const result = await listener(...args)
-          if (result !== undefined) return result
-        }
-      }
-      handlers.set(event, dispatch)
-      sessions.set(event, async (session, ctx) => {
-        await dispatch(session as never, ctx as never)
-      })
-    },
-    events: fixtureEventBus((event, handler) => {
-      const listeners = registeredRaw.get(event) ?? []
-      listeners.push(handler)
-      registeredRaw.set(event, listeners)
-      raw.set(event, (value) => {
-        for (const listener of listeners) listener(value)
-      })
-      return () => undefined
-    }),
     registerCommand: (name, command) => {
       commands.set(name, command as { handler: (args: string, ctx: typeof root) => Promise<void> })
     },
@@ -98,9 +67,8 @@ function installed(
     },
     ...(exec === undefined ? {} : { exec }),
   })
-  provisionNativeRoot(root)
   ompBuildExtension(pi, { principalCwd: () => false, ...options })
-  return { sent, commands, tools, sessions, handlers, raw, pi }
+  return { sent, commands, tools }
 }
 
 describe('installed /feature command', () => {
@@ -286,7 +254,6 @@ describe('installed /feature command', () => {
     expect(host.sent[5]).toBe(host.sent[4]?.replace(`spec: ${vectorBefore}`, `spec: ${vectorAfter}`))
     expect(exec).not.toHaveBeenCalled()
     expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 6)
-    expect(reviewControllerFor(host.pi).active()).toBeNull()
   })
 
   it('stops a native parent before mandate or checkout work', async () => {
@@ -321,11 +288,10 @@ describe('installed /feature command', () => {
   })
 
   it.each([
-    ['resume #12', 'resume', undefined],
-    ['new #12', 'new', undefined],
-    ['material-decision #12', 'material-decision', undefined],
-    ['resolve-interruption #12 --start start-12', 'resolve-interruption', 'start-12'],
-  ])('routes %s without dispatching native work', async (args, control, start) => {
+    ['resume #12', 'resume'],
+    ['new #12', 'new'],
+    ['material-decision #12', 'material-decision'],
+  ])('routes %s without dispatching native work', async (args, control) => {
     const continueFeature = vi.fn(
       async (_input: ContinueFeatureInput) => ({ kind: 'blocked', reason: 'fixture-control' }) as const,
     )
@@ -333,8 +299,17 @@ describe('installed /feature command', () => {
     await host.commands.get('feature')?.handler(args, root)
     expect(continueFeature).toHaveBeenCalledOnce()
     expect(continueFeature.mock.calls[0]?.[0]).toMatchObject({ control })
-    if (start) expect(continueFeature.mock.calls[0]?.[0]).toMatchObject({ interruption: { start } })
     expect(host.sent).toEqual(['feature-stopped: fixture-control'])
+  })
+
+  it('refuses resolution without entering the workflow and names the explicit replacement route', async () => {
+    const continueFeature = vi.fn(async () => ({ kind: 'blocked', reason: 'unexpected' }) as const)
+    const host = installed({ featureWorkflow: workflow({ continueFeature }) })
+    await host.commands.get('feature')?.handler('resolve-interruption #12 --start start-12', root)
+    expect(continueFeature).not.toHaveBeenCalled()
+    expect(host.sent).toEqual([
+      'feature-stopped: interruption-dispatch-unproven. Native dispatch cannot be verified. To replace the paused mandate, run /feature abandon 12, then /feature new 12 once abandonment is confirmed.',
+    ])
   })
 
   it('confirms pause only from the product and never prints disarmed for an unconfirmed pause', async () => {
@@ -354,55 +329,6 @@ describe('installed /feature command', () => {
     await unconfirmed.commands.get('feature')?.handler('pause #12', root)
     expect(unconfirmed.sent).toEqual(['pause-unconfirmed: pause-unconfirmed'])
     expect(unconfirmed.sent.join('\n')).not.toContain('disarmed')
-  })
-
-  it.each([
-    ['pause', 'pause-confirmed: operator'],
-    ['abandon', 'feature-abandoned'],
-  ] as const)('joins the live native stop before /feature %s confirms', async (control, confirmation) => {
-    const stopping = Promise.withResolvers<{ reason: string; stop: NativeStop }>()
-    const release = Promise.withResolvers<void>()
-    const continueFeature = vi.fn(async (_input: ContinueFeatureInput) =>
-      control === 'pause'
-        ? ({ kind: 'paused', confirmed: true, reason: 'operator' } as const)
-        : ({ kind: 'abandoned', confirmed: true } as const),
-    )
-    const host = installed({ featureWorkflow: workflow({ continueFeature }) })
-    const command = host.commands.get('feature')
-    if (!command) throw new Error('feature command not registered')
-    await host.sessions.get('session_start')?.({ signal: new AbortController().signal }, root)
-    const controller = reviewControllerFor(host.pi)
-    const pending = batch(['pending-review'])
-    controller.activate(pending, {
-      onComplete: () => {
-        throw new Error('stopped batch cannot complete')
-      },
-      onStop: async (reason, _result, stop) => {
-        stopping.resolve({ reason, stop })
-        await release.promise
-      },
-    })
-    const running = command.handler(`${control} #12`, root)
-    try {
-      const first = await Promise.race([
-        stopping.promise,
-        running.then(() => {
-          throw new Error('command returned before native stop')
-        }),
-      ])
-      expect(first).toEqual({
-        reason: control,
-        stop: { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
-      })
-      expect(continueFeature).not.toHaveBeenCalled()
-      expect(host.sent).not.toContain(confirmation)
-    } finally {
-      release.resolve()
-      await running
-    }
-    expect(continueFeature).toHaveBeenCalledWith(expect.objectContaining({ control }))
-    expect(host.sent).toContain(confirmation)
-    expect(controller.active()).toBeNull()
   })
 
   it('does not claim abandoned unless the product confirmed publication', async () => {
@@ -483,7 +409,6 @@ describe('installed /feature command', () => {
     const host = installed({ featureWorkflow: { continueFeature: async () => result } })
     await host.commands.get('feature')?.handler('#12', root)
     expect(host.sent).toEqual([`feature-stopped: ${reason}`])
-    expect(reviewControllerFor(host.pi).active()).toBeNull()
   })
 })
 
@@ -494,11 +419,7 @@ describe('installed correction lane', () => {
     expect(host.commands.has('fix')).toBe(false)
     expect(host.commands.has('dev-review')).toBe(true)
     expect(host.commands.has('dev-fix')).toBe(true)
-    expect([...host.tools.keys()].sort()).toEqual([
-      'omp_build_execute_native_batch',
-      'omp_build_framing_submit',
-      'omp_build_prepare_checkout',
-    ])
+    expect([...host.tools.keys()].sort()).toEqual(['omp_build_framing_submit', 'omp_build_prepare_checkout'])
   })
 
   it('specifies a publish-only composed resume bound to the same review and PR head', () => {

@@ -3,13 +3,11 @@
 import type { Gh } from '../adapters/github/types.ts'
 import {
   decodedHistorySchema,
-  effectiveMandateRole,
   type GitHubOptions,
   readNativePullRequestFacts,
   readWorkflowBinding,
 } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { explicitParentHistories } from './feature-context.ts'
 import { discoverDeliveryPr } from './feature-delivery-discovery.ts'
@@ -199,25 +197,6 @@ async function discoverIssueDelivery(
   }
 }
 
-function mandateRole(
-  mandate: History['operations'][number]['record'] | null,
-  acceptedSpec: AcceptedOwnSpec | null,
-): 'feature' | 'epic' | 'fix-only' | null {
-  if (mandate?.kind !== 'mandate' || acceptedSpec === null) return null
-  return effectiveMandateRole(mandate.payload.role, acceptedSpec)
-}
-
-async function epicChantier(
-  loaded: Contracts,
-  primary: History,
-  mandate: History['operations'][number]['record'] | null,
-  uwRead: UwRead | null,
-  options: { cwd: string; gh: Gh },
-): Promise<Chantier> {
-  const granted = await explicitParentHistories(loaded, mandate, options)
-  return granted.ok ? composeChantier(loaded, primary, null, granted.parents, null, uwRead, options) : granted
-}
-
 async function pullRequestChantier(
   loaded: Contracts,
   targetScope: Scope,
@@ -256,14 +235,10 @@ export async function assembleChantier(
   target: { status: 'issue' | 'pull-request'; scope: Scope },
   primary: History,
   mandate: History['operations'][number]['record'] | null,
-  acceptedSpec: AcceptedOwnSpec | null,
   uwRead: UwRead | null,
   options: { cwd: string; gh: Gh },
 ): Promise<Chantier> {
-  const role = mandateRole(mandate, acceptedSpec)
-  if (mandate?.kind === 'mandate' && role === null) return { ok: false, reason: 'mandate-spec-missing' }
   const policy = { ...withRoxabiGitHubPolicy(options), gh: options.gh }
-  if (role === 'epic') return epicChantier(loaded, primary, mandate, uwRead, policy)
   return target.status === 'pull-request'
     ? pullRequestChantier(loaded, target.scope, uwRead, policy)
     : issueChantier(loaded, target.scope, primary, mandate, uwRead, policy, policy)

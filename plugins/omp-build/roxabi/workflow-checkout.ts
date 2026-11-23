@@ -3,7 +3,6 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { Scope } from '../engine/record-values.ts'
-import { trackPreparationOperation } from '../host/preparation-cohort.ts'
 import { failedGitResult } from './workflow-checkout-git-error.ts'
 import { checkoutPath, parentCheckoutPath } from './workflow-checkout-path.ts'
 export type GitRunner = (cwd: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>
@@ -34,7 +33,7 @@ type Worktree = { path: string; branch: string | null; detached: boolean }
 export function defaultGit(): GitRunner {
   return async (cwd, args) => {
     try {
-      const out = await trackPreparationOperation('git', () => execFileAsync('git', args, { cwd, encoding: 'utf8' }))
+      const out = await execFileAsync('git', args, { cwd, encoding: 'utf8' })
       return { code: 0, stdout: out.stdout, stderr: out.stderr }
     } catch (error) {
       return failedGitResult(error)

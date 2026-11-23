@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import { producerJsonSchema } from '../producer-schema.ts'
 import { implementationOutputSchema, producerImplementationOutputSchema } from '../workflow-output-schema.ts'
 import { criterionTarget } from './criterion-admission-fixture.ts'
 
@@ -43,10 +42,5 @@ describe('implementation producer schema', () => {
     const claim = citation()
     expect(producerImplementationOutputSchema.safeParse(claim).success).toBe(true)
     expect(implementationOutputSchema.safeParse(claim).success).toBe(false)
-    const form = JSON.stringify(producerJsonSchema('delivery-execution'))
-    expect(form).not.toContain('proofToolCallId')
-    expect(form).not.toContain('proofUnavailableReason')
-    expect(form).toContain('toolCallId')
-    expect(form).not.toContain('"cwd"')
   })
 })

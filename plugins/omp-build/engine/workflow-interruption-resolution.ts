@@ -180,7 +180,7 @@ function admitWithin(record: ResolutionRecord, histories: readonly DecodedHistor
 }
 
 /** Authenticate one resolution and every ref it carries against the full histories. */
-export function admitInterruptionResolution(
+function admitInterruptionResolution(
   record: ResolutionRecord,
   histories: readonly DecodedHistory[],
 ): Result<InterruptionResolution> {

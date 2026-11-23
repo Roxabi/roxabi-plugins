@@ -19,12 +19,12 @@ export function consultableProtocolOptions(): { getArtifactsDir(): string } {
 /** Main-agent context whose artifact dir is deleted when the calling unit test finishes. */
 export function consultableAgentRoot(): {
   agent: { kind: 'main'; id: 'Main'; name: 'main'; depth: 0 }
-  sessionManager: { getSessionId(): string }
+  sessionManager: { getSessionId(): string; getSessionFile(): undefined }
   localProtocolOptions: { getArtifactsDir(): string }
 } {
   const sessionId = randomUUID()
   return {
-    sessionManager: { getSessionId: () => sessionId },
+    sessionManager: { getSessionId: () => sessionId, getSessionFile: () => undefined },
     agent: { kind: 'main', id: 'Main', name: 'main', depth: 0 },
     localProtocolOptions: { getArtifactsDir: () => consultableProtocolOptions().getArtifactsDir() },
   }

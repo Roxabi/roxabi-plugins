@@ -4,7 +4,6 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { FailedCheckFailure } from '../engine/record-digests.ts'
 import type { Scope } from '../engine/record-values.ts'
-import { trackPreparationOperation } from '../host/preparation-cohort.ts'
 import { CI_ROLLUP_QUERY } from '../host/preparation-graphql.cjs'
 
 export type NativeCiEvidence =
@@ -62,9 +61,7 @@ async function loadContracts(): Promise<Contracts | { missing: string }> {
 
 function defaultGh(): Gh {
   return async (cwd, args) => {
-    const out = await trackPreparationOperation('gh-read', () =>
-      execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
-    )
+    const out = await execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
     return out.stdout
   }
 }
@@ -125,7 +122,7 @@ async function readRollupNodes(
     if (after !== null) args.push('-f', `after=${after}`)
     let parsed: unknown
     try {
-      parsed = JSON.parse(await trackPreparationOperation('gh-read', () => gh(cwd, args)))
+      parsed = JSON.parse(await gh(cwd, args))
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : 'ci-evidence-unreadable' }
     }

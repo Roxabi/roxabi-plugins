@@ -6,8 +6,7 @@ import type { Scope } from '../engine/record-values.ts'
 import { historyFor, type MandateRecord } from '../engine/workflow-control.ts'
 import { planMacro } from '../engine/workflow-plan-macro.ts'
 import { ACTION_RECEIPT_FORMAT, type ActionReceiptPayload } from '../engine/workflow-receipt-schema.ts'
-import { actionRequest, type DeliveryCode, deliveryBatch, deliveryTask, uwSubject } from '../roxabi/delivery-action.ts'
-import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
+import type { PreparedUwAction, UwActionRequest } from '../roxabi/uw-action-contract.ts'
 import { integrationProofInputs } from '../roxabi/uw-action-stage-closure.ts'
 import type { UwOperations, UwRead } from '../roxabi/uw-contract.ts'
 
@@ -68,9 +67,15 @@ export function historicalPlan(read: UwRead, scope: Scope, mandate: MandateRecor
 export async function prepareHistoricalAction(
   world: HistoryWorld,
   scope: Scope,
-  input: Omit<Parameters<typeof actionRequest>[0], 'subject'>,
+  input: Omit<UwActionRequest, 'subject' | 'expandedContext' | 'stageSources'> &
+    Partial<Pick<UwActionRequest, 'stageSources'>>,
 ): Promise<PreparedUwAction> {
-  const prepared = await world.operations.prepareAction(actionRequest({ ...input, subject: uwSubject(scope, null) }))
+  const prepared = await world.operations.prepareAction({
+    stageSources: [],
+    expandedContext: [],
+    ...input,
+    subject: { kind: 'uw', uw: scope, pullRequest: null, binding: null },
+  })
   if (!prepared.ok)
     throw new Error(`Historical ${input.purpose} inputs unavailable: ${JSON.stringify(prepared.diagnostics)}`)
   return prepared.value
@@ -82,7 +87,7 @@ export async function openHistoricalDelivery(input: {
   mandate: MandateRecord
   read: UwRead
   action: 'implement' | 'integrate'
-  code: DeliveryCode
+  code: UwActionRequest['code']
 }) {
   const { world, scope, mandate, read, action, code } = input
   const plan = historicalPlan(read, scope, mandate)
@@ -109,15 +114,5 @@ export async function openHistoricalDelivery(input: {
     exactInputs,
   }
   const start = await appendNativeReceipt(world, scope, { ...authority, phase: 'start' })
-  const role = `R-workflow-${action}`
-  const followUp = deliveryBatch(actionId, [
-    deliveryTask({
-      name: role,
-      agent: role,
-      procedure: 'Fixture delivery',
-      solutionSpace: 'historical delivery',
-      prepared,
-    }),
-  ])
-  return { authority, start: start.ref, followUp }
+  return { authority, start: start.ref }
 }

@@ -184,5 +184,5 @@ export async function preserveSuccessorBinding(
       base: plan.native.base,
     },
   } satisfies Omit<Extract<HistoryRecord, { kind: 'workflow-binding' }>, 'inputs'>
-  return publishRecord(context.loaded, checked.history, binding, context.gh, context.cwd, [issueHistory])
+  return publishRecord(context.loaded, binding, context.gh, context.cwd, [issueHistory])
 }

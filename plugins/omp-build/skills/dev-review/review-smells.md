@@ -7,7 +7,7 @@ description: Fowler ch.3 judgement-call checklist for code review.
 
 Fowler, *Refactoring* ch.3. **Judgement calls**, never merge blockers and never findings.
 
-**Standards input.** Observed smells are advisory, never findings to pass to `/dev-fix`. Historical native review records put them in the display-only `standards` field, projected under `## Standards` (`smells: RAS` when none are observed).
+List observed smells separately from findings; they are not inputs to `/dev-fix`. In historical `review` records, the display-only `standards` field renders as `## Standards`.
 
 ## Binding rules
 
@@ -15,7 +15,7 @@ Fowler, *Refactoring* ch.3. **Judgement calls**, never merge blockers and never 
 - **Always a judgement call.** Prefix every returned assessment `possible <Smell>`. Never a hard violation and never a Conventional Comment label.
 - **Skip tooling.** If a linter, formatter, or jscpd-class clone detector already covers the shape, skip.
 - **Not a finding.** No label, class, or confidence. A smell row must not be copied into findings.
-- **Cap.** ≤1 row per smell. None observed → `{state:"ras"}`. Do not invent.
+- **Cap.** At most one entry per smell. Omit the section if none are observed.
 
 ## Baseline
 

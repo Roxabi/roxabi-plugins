@@ -55,7 +55,6 @@ export async function publishAndRefreshSuccessor(
 ) {
   const published = await publishRecord(
     input.loaded,
-    input.history,
     {
       repository: input.scope.repository,
       target: input.scope.target,

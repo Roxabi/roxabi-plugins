@@ -22,19 +22,6 @@ import {
   specAssessmentSchema,
 } from './workflow-output-schema.ts'
 
-export const PRODUCER_OUTPUTS = [
-  'spec',
-  'findings',
-  'decision',
-  'action-result',
-  'spec-assessment',
-  'plan',
-  'plan-review',
-  'delivery-execution',
-  'ci-attribution',
-] as const
-export type ProducerOutput = (typeof PRODUCER_OUTPUTS)[number]
-
 const producerSchemas = {
   spec: z.union([specReportSchema, missingContextOutputSchema]),
   findings: z.union([findingReportSchema, missingContextOutputSchema]),
@@ -49,20 +36,13 @@ const producerSchemas = {
     missingContextOutputSchema,
   ]),
   'ci-attribution': z.union([ciAttributionSchema, missingContextOutputSchema]),
-} as const satisfies Record<ProducerOutput, z.ZodType>
+} as const satisfies Record<string, z.ZodType>
+
+type ProducerOutput = keyof typeof producerSchemas
 
 export function producerOutputValid(output: string, value: unknown): boolean {
   return Object.hasOwn(producerSchemas, output) && producerSchemas[output as ProducerOutput].safeParse(value).success
 }
-
-export function producerJsonSchema(output: string): Json {
-  if (!Object.hasOwn(producerSchemas, output)) {
-    throw new Error(`producerJsonSchema has no output ${output}`)
-  }
-  const schema = producerSchemas[output as ProducerOutput]
-  return JSON.parse(JSON.stringify(z.toJSONSchema(schema, { target: 'draft-2020-12' })))
-}
-
 function knownLabelFromMalformedFinding(data: Json): Label | null {
   if (data === null || typeof data !== 'object' || Array.isArray(data) || typeof data.label !== 'string') return null
   return labelIsKnown(data.label) ? data.label : null

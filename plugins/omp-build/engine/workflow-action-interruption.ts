@@ -3,7 +3,6 @@ import { diagnostic, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Result } from './result.ts'
 import {
-  type ControlRecord,
   historyFor,
   type MandateRecord,
   mandateScope,
@@ -14,16 +13,13 @@ import {
 } from './workflow-control.ts'
 import {
   authenticateInterruptedReceiptPair,
-  INTERRUPTION_ACTIONS,
   type InterruptionAction,
   type InterruptionResolution,
   interruptedResult,
   invalidResolution,
   isInterruptionAction,
-  type ResolutionPayload,
 } from './workflow-interruption-proof.ts'
 import { resolutionIndex } from './workflow-interruption-resolution.ts'
-import { unliftedPause } from './workflow-pause.ts'
 import type { ActionCompletion } from './workflow-plan.ts'
 
 export type UnresolvedAttempt =
@@ -36,16 +32,6 @@ export type AttemptClassification = {
 export type InterruptionGate =
   | { kind: 'clear'; excluded: ReadonlySet<string> }
   | { kind: 'stop'; completion: ActionCompletion }
-export type ResolvableStart = { action: InterruptionAction; start: ReceiptRecord; result: ReceiptRecord | null }
-export type ResolutionCandidate = {
-  action: InterruptionAction
-  actionId: string
-  start: ReceiptRecord
-  result: ReceiptRecord | null
-  /** The current unlifted pause-confirmed control; publication requires it. */
-  pause: ControlRecord
-  runtime: ResolutionPayload['runtime']
-}
 
 function mandateRefOf(mandate: MandateRecord): ExternalRecordRef {
   return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
@@ -215,52 +201,4 @@ export function ownAttempts(
   const own = mandateAttempt(mandate)
   const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === 'orphan' || own(attempt.start))
   return { ok: true, value: { excluded: classified.value.excluded, unresolved } }
-}
-
-/** Unresolved attempts of one mandate across the supplied histories (issue and pull request). */
-export function resolvableStarts(
-  histories: readonly DecodedHistory[],
-  mandate: MandateRecord,
-): Result<readonly ResolvableStart[]> {
-  const scan = histories.filter((history) =>
-    receiptsOf(history).some((receipt) => isInterruptionAction(receipt.payload.action)),
-  )
-  const classified = classifyAttempts({
-    histories,
-    scan,
-    actions: INTERRUPTION_ACTIONS,
-    select: mandateAttempt(mandate),
-  })
-  if (!classified.ok) return classified
-  return {
-    ok: true,
-    value: classified.value.unresolved.map((attempt) => ({
-      action: attempt.action,
-      start: attempt.start,
-      result: attempt.kind === 'interrupted' ? attempt.result : null,
-    })),
-  }
-}
-
-/** Describe one unresolved attempt under the current unlifted pause. */
-export function interruptionResolutionCandidate(input: {
-  histories: readonly DecodedHistory[]
-  mandate: MandateRecord
-  start: ExternalRecordRef
-}): Result<ResolutionCandidate> {
-  const refuse = (rule: string, message: string) => fail([invalidResolution(null, rule, message)])
-  const existing = startResolution(input.histories, input.start)
-  if (!existing.ok) return existing
-  if (existing.value !== null) return refuse('V3', 'START is already resolved')
-  const mandateHome = historyFor(mandateScope(input.mandate), input.histories)
-  const pause = mandateHome === null ? null : unliftedPause(mandateHome, input.mandate)
-  if (pause === null) return refuse('V4', 'Resolution requires the mandate to be paused')
-  const attempts = resolvableStarts(input.histories, input.mandate)
-  if (!attempts.ok) return attempts
-  const attempt = attempts.value.find((item) => scopedStartKey(input.start) === receiptStartKey(item.start))
-  if (attempt === undefined) return refuse('V3', 'START is not an unresolved attempt of this mandate')
-  const { start, result, action } = attempt
-  const config = input.mandate.payload.config
-  const runtime = { productVersion: config.productVersion, configVersion: config.version, configDigest: config.digest }
-  return { ok: true, value: { action, actionId: start.payload.actionId, start, result, pause, runtime } }
 }

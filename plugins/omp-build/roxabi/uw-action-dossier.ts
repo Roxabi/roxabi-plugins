@@ -1,22 +1,7 @@
 import { actionInputDigest } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
-import { nativeFeatureProfiles } from './native-feature-profiles.ts'
-import { nativeReviewProfiles } from './native-review-profiles.ts'
-import type { ActionInputManifest, ActionInputs, RecordInputRef, UwActionPorts } from './uw-action-contract.ts'
+import type { ActionInputManifest, PinnedFileRef, RecordInputRef, UwActionPorts } from './uw-action-contract.ts'
 import { actionFailure } from './uw-action-result.ts'
-
-const REVIEW = new Set(['review', 'correction'])
-const WORKFLOW = new Set(['plan', 'plan-review', 'implement', 'integrate', 'attribute-ci', 'assess-spec', 'frame'])
-
-export function suppliedProcedurePaths(purpose: string): readonly string[] {
-  const profiles = REVIEW.has(purpose) ? nativeReviewProfiles : WORKFLOW.has(purpose) ? nativeFeatureProfiles : []
-  return profiles.map((profile) => `agents/${profile.name}.md`)
-}
-
-function forms(purpose: string): readonly { name: string; output: string }[] {
-  const profiles = REVIEW.has(purpose) ? nativeReviewProfiles : WORKFLOW.has(purpose) ? nativeFeatureProfiles : []
-  return profiles.map((profile) => ({ name: profile.name, output: profile.output }))
-}
 
 function specBody(spec: ActionInputManifest['spec']): {
   criteria: readonly { id: string; statement: string }[]
@@ -46,7 +31,7 @@ function identityPath(namespace: string, ref: RecordInputRef): string {
     encodeURIComponent(scope.target),
     encodeURIComponent(ref.record.kind),
     encodeURIComponent(ref.record.recordId),
-    encodeURIComponent(ref.selector) + '.json',
+    `${encodeURIComponent(ref.selector)}.json`,
   ].join('/')
 }
 
@@ -57,7 +42,7 @@ function place(files: { path: string; bytes: Uint8Array }[], path: string, bytes
     return { ok: true, value: true }
   }
   if (Buffer.compare(Buffer.from(existing.bytes), Buffer.from(bytes)) !== 0) {
-    return actionFailure('record-unreadable', 'Selected identity is not unique: ' + path)
+    return actionFailure('record-unreadable', `Selected identity is not unique: ${path}`)
   }
   return { ok: true, value: true }
 }
@@ -115,11 +100,11 @@ export function dossierIndex(manifest: ActionInputManifest, files: readonly { pa
     .filter((path) => path !== 'index.md')
     .concat('index.md')
   const lines = [
-    '# ' + manifest.purpose,
+    `# ${manifest.purpose}`,
     '',
-    'Fingerprint: ' + fingerprint,
+    `Fingerprint: ${fingerprint}`,
     'Stage annex: stage/annex.json',
-    'Spec version: ' + (spec.version ?? 'absent'),
+    `Spec version: ${spec.version ?? 'absent'}`,
     '',
     ...(manifest.spec.kind === 'accepted'
       ? [
@@ -135,23 +120,25 @@ export function dossierIndex(manifest: ActionInputManifest, files: readonly { pa
         ? ['## Exact inputs', 'Accepted state and proposed state: action/exact-inputs.json', '']
         : ['## Exact inputs', 'CI failures: action/exact-inputs.json', '']),
     '## Own criteria',
-    ...(spec.criteria.length === 0 ? ['- none'] : spec.criteria.map((item) => '- ' + item.id + ': ' + item.statement)),
+    ...(spec.criteria.length === 0 ? ['- none'] : spec.criteria.map((item) => `- ${item.id}: ${item.statement}`)),
     '',
     '## Own invariants',
-    ...(spec.invariants.length === 0
-      ? ['- none']
-      : spec.invariants.map((item) => '- ' + item.id + ': ' + item.statement)),
-    '',
-    '## Forms',
-    ...forms(manifest.purpose).map((item) => '- ' + item.name + ': ' + item.output),
+    ...(spec.invariants.length === 0 ? ['- none'] : spec.invariants.map((item) => `- ${item.id}: ${item.statement}`)),
     '',
     '## Files',
-    ...named.map((path) => '- ' + path),
+    ...named.map((path) => `- ${path}`),
     '',
   ]
   return Buffer.from(lines.join('\n'), 'utf8')
 }
 
-export function bindingFingerprint(inputs: ActionInputs): string {
-  return actionInputDigest(inputs.manifest)
+export function repositorySealPath(ref: PinnedFileRef, used: Set<string>): string {
+  const plain = `repo/${ref.path}`
+  if (!used.has(plain)) {
+    used.add(plain)
+    return plain
+  }
+  const pinned = `repo/${ref.commit}/${ref.path}`
+  used.add(pinned)
+  return pinned
 }

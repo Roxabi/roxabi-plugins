@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Diagnostic, Json, Scope } from '../../engine/record-values.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
-import { trackPreparationGhOperation } from '../../host/preparation-cohort.ts'
 
 export type Gh = (cwd: string, args: string[]) => Promise<string>
 
@@ -42,19 +41,15 @@ export function diagnostic(code: string, message: string, detail?: Json): Diagno
 }
 
 export function defaultGh(cwd: string, args: string[]): Promise<string> {
-  return trackPreparationGhOperation(args, () =>
-    execFileAsync('gh', args, {
-      cwd,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    }),
-  ).then(({ stdout }) => String(stdout).trim())
+  return execFileAsync('gh', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  }).then(({ stdout }) => String(stdout).trim())
 }
 
 export function gh(options: GitHubOptions): Gh {
-  if (options.gh === undefined) return defaultGh
-  const supplied = options.gh
-  return (cwd, args) => trackPreparationGhOperation(args, () => supplied(cwd, args))
+  return options.gh ?? defaultGh
 }
 
 export function targetNumber(scope: Scope): number {

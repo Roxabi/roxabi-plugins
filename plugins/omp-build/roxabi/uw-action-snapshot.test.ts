@@ -1,14 +1,9 @@
-import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import type { ActionSnapshot } from './uw-action-contract.ts'
-import {
-  type ActionSnapshotClaim,
-  intendedSnapshotDigest,
-  sealActionSnapshot,
-  verifyActionSnapshot,
-} from './uw-action-snapshot.ts'
+import { type ActionSnapshotClaim, sealActionSnapshot } from './uw-action-snapshot.ts'
 import { createActionSnapshotStore } from './uw-action-snapshot-store.ts'
 
 function claimFor(indexPath: string, location: ActionSnapshot['location']): ActionSnapshotClaim {
@@ -21,125 +16,36 @@ function claimFor(indexPath: string, location: ActionSnapshot['location']): Acti
   }
 }
 
-async function withSealed(
-  run: (box: { snapshot: ActionSnapshot; directory: string; bytes: Uint8Array }) => Promise<void>,
-): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), 'omp-action-'))
-  try {
-    const bytes = new Uint8Array(Buffer.from('# sealed\n'))
-    const store = createActionSnapshotStore({ artifactsDir: root, cwd: root })
-    const placed = await store.create({ actionId: 'review-1', files: [{ path: 'index.md', bytes }] })
-    if (!placed.ok) throw new Error(placed.diagnostics.map((item) => item.message).join('; '))
-    const sealed = sealActionSnapshot(claimFor(placed.value.indexPath, placed.value.location), [
-      { path: 'index.md', bytes },
-    ])
-    if (!sealed.ok) throw new Error(sealed.diagnostics.map((item) => item.message).join('; '))
-    await run({ snapshot: sealed.value, directory: dirname(placed.value.indexPath), bytes })
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
-
-describe('action snapshot handle', () => {
-  test('rejects a field-equal clone of a registered handle', async () => {
-    await withSealed(async ({ snapshot }) => {
-      const registered = await verifyActionSnapshot(snapshot)
-      expect(registered.ok).toBe(true)
-      const clone = { ...snapshot }
-      const checked = await verifyActionSnapshot(clone)
-      expect(checked.ok).toBe(false)
-      if (!checked.ok) expect(checked.diagnostics[0]?.code).toBe('action-handle-unregistered')
-    })
-  })
-
-  test('refuses a same-path file replaced by a symlink', async () => {
-    await withSealed(async ({ snapshot, directory }) => {
-      const file = join(directory, 'index.md')
-      unlinkSync(file)
-      symlinkSync('index.md', file)
-      const checked = await verifyActionSnapshot(snapshot)
-      expect(checked.ok).toBe(false)
-      if (!checked.ok) expect(checked.diagnostics[0]?.code).toBe('snapshot-mutated')
-    })
-  })
-
-  test('refuses an added empty directory', async () => {
-    await withSealed(async ({ snapshot, directory }) => {
-      mkdirSync(join(directory, 'empty'))
-      const checked = await verifyActionSnapshot(snapshot)
-      expect(checked.ok).toBe(false)
-      if (!checked.ok) expect(checked.diagnostics[0]?.code).toBe('snapshot-mutated')
-    })
-  })
-
-  test('refuses a snapshot root replaced by a symlink', async () => {
-    await withSealed(async ({ snapshot, directory }) => {
-      const aside = `${directory}-held`
-      renameSync(directory, aside)
-      symlinkSync(aside, directory)
-      const checked = await verifyActionSnapshot(snapshot)
-      expect(checked.ok).toBe(false)
-      if (!checked.ok) expect(checked.diagnostics[0]?.code).toBe('snapshot-mutated')
-    })
-  })
-
-  test('refuses tampered file bytes', async () => {
-    await withSealed(async ({ snapshot, directory }) => {
-      const file = join(directory, 'index.md')
-      chmodSync(file, 0o644)
+describe('action snapshot seal', () => {
+  test.each(['extra file', 'empty directory', 'mismatched bytes', 'missing file', 'symlink'] as const)(
+    'refuses sealing a snapshot with %s',
+    async (mismatch) => {
+      const root = mkdtempSync(join(tmpdir(), 'omp-action-'))
       try {
-        writeFileSync(file, 'tampered\n')
+        const bytes = Buffer.from('# sealed\n')
+        const files = [{ path: 'index.md', bytes }]
+        const store = createActionSnapshotStore({ artifactsDir: root, cwd: root })
+        const placed = await store.create({ actionId: 'review-1', files })
+        if (!placed.ok) throw new Error('placement failed')
+        const { indexPath, location } = placed.value
+        const directory = dirname(indexPath)
+        if (mismatch === 'extra file') writeFileSync(join(directory, 'extra.txt'), 'extra\n')
+        if (mismatch === 'empty directory') mkdirSync(join(directory, 'empty'))
+        if (mismatch === 'mismatched bytes') {
+          chmodSync(indexPath, 0o644)
+          writeFileSync(indexPath, 'tampered\n')
+        }
+        if (mismatch === 'missing file' || mismatch === 'symlink') unlinkSync(indexPath)
+        if (mismatch === 'symlink') symlinkSync('index.md', indexPath)
+        expect(sealActionSnapshot(claimFor(indexPath, location), files)).toMatchObject({
+          ok: false,
+          diagnostics: [{ code: 'snapshot-mutated' }],
+        })
       } finally {
-        chmodSync(file, 0o444)
+        rmSync(root, { recursive: true, force: true })
       }
-      const checked = await verifyActionSnapshot(snapshot)
-      expect(checked.ok).toBe(false)
-      if (!checked.ok) expect(checked.diagnostics[0]?.code).toBe('snapshot-mutated')
-    })
-  })
-
-  test('refuses a missing sealed file', async () => {
-    await withSealed(async ({ snapshot, directory }) => {
-      unlinkSync(join(directory, 'index.md'))
-      const checked = await verifyActionSnapshot(snapshot)
-      expect(checked.ok).toBe(false)
-      if (!checked.ok) expect(checked.diagnostics[0]?.code).toBe('snapshot-mutated')
-    })
-  })
-
-  test('keeps the sealed baseline after the caller mutates the input bytes', async () => {
-    await withSealed(async ({ snapshot, bytes }) => {
-      bytes[0] = 0
-      expect(() => {
-        Object.assign(snapshot, { actionId: 'tampered' })
-      }).toThrow()
-      const checked = await verifyActionSnapshot(snapshot)
-      expect(checked.ok).toBe(true)
-    })
-  })
-
-  test('refuses unexpected disk entries and mismatched supplied bytes', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'omp-action-'))
-    try {
-      const bytes = new Uint8Array(Buffer.from('# sealed\n'))
-      const store = createActionSnapshotStore({ artifactsDir: root, cwd: root })
-      const placed = await store.create({ actionId: 'review-1', files: [{ path: 'index.md', bytes }] })
-      if (!placed.ok) throw new Error('placement failed')
-      const directory = dirname(placed.value.indexPath)
-      writeFileSync(join(directory, 'extra.txt'), 'extra\n')
-      const unexpected = sealActionSnapshot(claimFor(placed.value.indexPath, placed.value.location), [
-        { path: 'index.md', bytes },
-      ])
-      expect(unexpected.ok).toBe(false)
-      unlinkSync(join(directory, 'extra.txt'))
-      const mismatched = sealActionSnapshot(claimFor(placed.value.indexPath, placed.value.location), [
-        { path: 'index.md', bytes: new Uint8Array([1]) },
-      ])
-      expect(mismatched.ok).toBe(false)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
+    },
+  )
 
   test('publishes the intended tree hash including a directory entry', async () => {
     const root = mkdtempSync(join(tmpdir(), 'omp-action-'))
@@ -151,8 +57,7 @@ describe('action snapshot handle', () => {
       const sealed = sealActionSnapshot(claimFor(placed.value.indexPath, placed.value.location), files)
       expect(sealed.ok).toBe(true)
       if (!sealed.ok) return
-      expect(sealed.value.integrityDigest).toBe(intendedSnapshotDigest(files))
-      expect(sealed.value.integrityDigest).not.toBe(intendedSnapshotDigest([]))
+      expect(sealed.value.integrityDigest).toBe('e18c828552bbfd51ff0fc7b1387d2201df3af2aec3fc918e217d3dadbe532f76')
       expect(Object.isFrozen(sealed.value)).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -173,10 +78,7 @@ describe('action snapshot handle', () => {
       const sealed = sealActionSnapshot(claimFor(join(empty, 'index.md'), 'local'), [])
       expect(sealed.ok).toBe(true)
       if (!sealed.ok) return
-      expect(sealed.value.integrityDigest).toBe(intendedSnapshotDigest([]))
-      writeFileSync(join(empty, 'later.txt'), 'x\n')
-      const checked = await verifyActionSnapshot(sealed.value)
-      expect(checked.ok).toBe(false)
+      expect(sealed.value.integrityDigest).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

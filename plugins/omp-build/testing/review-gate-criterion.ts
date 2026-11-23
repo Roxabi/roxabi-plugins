@@ -48,8 +48,8 @@ export function boundReviewBodies(
   })
   const ref = reviewClassCatalogueRef(inputs)
   if (!ref.ok) throw new Error(`Cannot select fixture catalogue: ${JSON.stringify(ref.diagnostics)}`)
-  if (ref.value.repository !== 'Roxabi/roxabi-plugins' || ref.value.commit !== fixture.pin)
-    throw new Error('Fixture action catalogue does not belong to the committed tooling checkout')
+  if (ref.value.repository !== 'Roxabi/roxabi-plugins')
+    throw new Error('Fixture action catalogue does not belong to the committed tooling repository')
   const bytes = execFileSync('git', ['-C', fixture.tools, 'show', `${ref.value.commit}:${ref.value.path}`], {
     env: fixture.env,
   })

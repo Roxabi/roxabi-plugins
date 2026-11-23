@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { specDigest } from './record-digests.ts'
+import type { Scope } from './record-values.ts'
+import type { UwNativeNode } from './uw-graph.ts'
 import { issueRefSchema } from './uw-write-intent-schema.ts'
 
 export const nativeIssueObservationSchema = z.strictObject({
@@ -14,6 +16,31 @@ export const nativeIssueObservationSchema = z.strictObject({
   blockers: z.array(issueRefSchema),
 })
 export type NativeIssueObservation = z.infer<typeof nativeIssueObservationSchema>
+
+function issueFromScope(scope: Scope): { repository: string; number: number } | null {
+  const prefix = `${scope.repository}#`
+  if (!scope.target.startsWith(prefix)) return null
+  const suffix = scope.target.slice(prefix.length)
+  if (!/^[1-9][0-9]*$/.test(suffix)) return null
+  const number = Number(suffix)
+  return Number.isSafeInteger(number) ? { repository: scope.repository, number } : null
+}
+
+export function nativeIssueObservationFromNode(node: UwNativeNode): NativeIssueObservation | null {
+  if (node.parent !== null && issueFromScope(node.parent) === null) return null
+  const parsed = nativeIssueObservationSchema.safeParse({
+    issue: issueFromScope(node.uw),
+    title: node.title,
+    body: node.raw.body,
+    updatedAt: node.updatedAt,
+    nativeState: node.native,
+    labels: node.labels,
+    parent: node.parent === null ? null : issueFromScope(node.parent),
+    children: node.children.map(issueFromScope),
+    blockers: node.blockers.map(issueFromScope),
+  })
+  return parsed.success ? parsed.data : null
+}
 
 /** Same asserted facts as IssueWriter: unordered relation/label sets, no descriptive updatedAt. */
 export function nativeObservationDigest(value: NativeIssueObservation): string {

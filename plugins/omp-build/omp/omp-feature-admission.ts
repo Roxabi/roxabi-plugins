@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path'
 import {
   canonicalValueDigest,
   classifyAttempts,
+  effectiveMandateRole,
   INTERRUPTION_ACTIONS,
   interruptionGate,
   type MandateRecord,
@@ -24,7 +25,6 @@ import {
 import { type SelectedFeature, selectFeatureMandate } from '../roxabi/feature-continuation-selection.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from '../roxabi/feature-contract.ts'
 import { bindsOwnPause, inhibition } from '../roxabi/feature-control.ts'
-import { resolveFeatureInterruption } from '../roxabi/feature-interruption.ts'
 import { requireMandateCheckout } from '../roxabi/feature-selection.ts'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
 import { acceptOwnMaterialDecision } from '../roxabi/workflow-material-decision.ts'
@@ -152,10 +152,6 @@ export async function admitFeature(input: ContinueFeatureInput, classified?: () 
     classified?.()
     return applyFeatureControl(control, authority, input.uw)
   }
-  if (control === 'resolve-interruption') {
-    classified?.()
-    return resolveFeatureInterruption(input, authority)
-  }
   if (control === 'material-decision') {
     classified?.()
     return acceptOwnMaterialDecision(input, authority, async () => ({
@@ -177,6 +173,7 @@ async function admitPausedFeature(input: ContinueFeatureInput, selected: Selecte
   if (mandate === undefined) return { kind: 'paused', confirmed: true, reason: 'paused' }
   const accepted = resolveAcceptedSpec(mandate, authority.causal.histories)
   if (!accepted.ok) return { kind: 'blocked', reason: 'mandate-spec-missing', diagnostics: accepted.evidence }
+  if (effectiveMandateRole(mandate.payload.role, accepted.spec) === 'epic') return blocked('parent-delivery-suspended')
   const observation = await assembleObservationBase({ ...selected, mandate, acceptedSpec: accepted.spec })
   if ('kind' in observation) return observation
   return resumeSelectedFeature(input, authority, observation, mandate)

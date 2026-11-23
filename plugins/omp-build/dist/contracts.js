@@ -7694,6 +7694,32 @@ var nativeIssueObservationSchema = strictObject({
   children: array(issueRefSchema),
   blockers: array(issueRefSchema)
 });
+function issueFromScope(scope) {
+  const prefix = `${scope.repository}#`;
+  if (!scope.target.startsWith(prefix))
+    return null;
+  const suffix = scope.target.slice(prefix.length);
+  if (!/^[1-9][0-9]*$/.test(suffix))
+    return null;
+  const number = Number(suffix);
+  return Number.isSafeInteger(number) ? { repository: scope.repository, number } : null;
+}
+function nativeIssueObservationFromNode(node) {
+  if (node.parent !== null && issueFromScope(node.parent) === null)
+    return null;
+  const parsed = nativeIssueObservationSchema.safeParse({
+    issue: issueFromScope(node.uw),
+    title: node.title,
+    body: node.raw.body,
+    updatedAt: node.updatedAt,
+    nativeState: node.native,
+    labels: node.labels,
+    parent: node.parent === null ? null : issueFromScope(node.parent),
+    children: node.children.map(issueFromScope),
+    blockers: node.blockers.map(issueFromScope)
+  });
+  return parsed.success ? parsed.data : null;
+}
 function nativeObservationDigest(value) {
   const ref = (item) => ({ number: item.number, repository: item.repository });
   const refs = (items) => items.map(ref).sort((a, b) => a.repository.localeCompare(b.repository) || a.number - b.number);
@@ -10449,17 +10475,6 @@ var ciAttributionSchema = strictObject({
 });
 
 // plugins/omp-build/engine/producer-schema.ts
-var PRODUCER_OUTPUTS = [
-  "spec",
-  "findings",
-  "decision",
-  "action-result",
-  "spec-assessment",
-  "plan",
-  "plan-review",
-  "delivery-execution",
-  "ci-attribution"
-];
 var producerSchemas = {
   spec: union([specReportSchema, missingContextOutputSchema]),
   findings: union([findingReportSchema, missingContextOutputSchema]),
@@ -10477,13 +10492,6 @@ var producerSchemas = {
 };
 function producerOutputValid(output, value) {
   return Object.hasOwn(producerSchemas, output) && producerSchemas[output].safeParse(value).success;
-}
-function producerJsonSchema(output) {
-  if (!Object.hasOwn(producerSchemas, output)) {
-    throw new Error(`producerJsonSchema has no output ${output}`);
-  }
-  const schema = producerSchemas[output];
-  return JSON.parse(JSON.stringify(toJSONSchema(schema, { target: "draft-2020-12" })));
 }
 function knownLabelFromMalformedFinding(data) {
   if (data === null || typeof data !== "object" || Array.isArray(data) || typeof data.label !== "string")
@@ -11188,7 +11196,7 @@ function bindingPolicy(mandate) {
     return "bounded";
   if (minor === 20 && patch <= 1)
     return "bounded";
-  if (minor === 21 && patch <= 14)
+  if (minor === 21 && patch <= 15)
     return "bounded";
   return "unknown";
 }
@@ -15590,13 +15598,6 @@ function interruptionResolutionRecordId(startRecordId) {
 function interruptionResolutionDigest(proposal) {
   return canonicalValueDigest({ format: INTERRUPTION_RESOLUTION_FORMAT, ...proposal });
 }
-function hostInterruptionDiagnostic(origin) {
-  return {
-    code: "action-interrupted",
-    message: `Native execution interrupted (${origin})`,
-    detail: { marker: HOST_INTERRUPTION_MARKER, proof: "not-dispatched", origin }
-  };
-}
 function hostInterruptionMarked(diagnostics) {
   return diagnostics.some((entry) => {
     const detail = entry.detail;
@@ -15907,81 +15908,6 @@ function authenticatedResolutionOperation(history, operation, record) {
   return owners.length === 1;
 }
 
-// plugins/omp-build/engine/workflow-pause.ts
-function pauseRequestFor(mandate, record) {
-  return record.payload.control === "pause-requested" && sameRef2(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" });
-}
-function pauseConfirmationFor(history, mandate, request) {
-  if (request.payload.control !== "pause-requested")
-    return null;
-  const controlId = request.payload.controlId;
-  const requestRef = {
-    scope: { repository: request.repository, target: request.target },
-    recordId: request.recordId,
-    kind: "operator-control"
-  };
-  return controlsOf(history).find((record) => record.payload.control === "pause-confirmed" && record.payload.controlId === controlId && sameRef2(record.payload.mandate, {
-    scope: mandateScope(mandate),
-    recordId: mandate.recordId,
-    kind: "mandate"
-  }) && record.payload.predecessor !== null && sameRef2(record.payload.predecessor, requestRef) && record.payload.disarm.observed === true) ?? null;
-}
-function confirmedPause(history, mandate) {
-  for (const request of controlsOf(history)) {
-    if (!pauseRequestFor(mandate, request))
-      continue;
-    const confirmation = pauseConfirmationFor(history, mandate, request);
-    if (confirmation !== null)
-      return confirmation;
-  }
-  return null;
-}
-function unliftedPause(history, mandate) {
-  for (const request of controlsOf(history)) {
-    if (!pauseRequestFor(mandate, request))
-      continue;
-    const confirmation = pauseConfirmationFor(history, mandate, request);
-    if (confirmation !== null && !pauseLifted(history, confirmation))
-      return confirmation;
-  }
-  return null;
-}
-function outstandingPauseRequest(history, mandate) {
-  return controlsOf(history).find((record) => pauseRequestFor(mandate, record) && pauseConfirmationFor(history, mandate, record) === null) ?? null;
-}
-function outstandingPauseInAuthority(mandate, histories, seen = new Set) {
-  const scope = mandateScope(mandate);
-  const key = `${scope.repository}\x00${scope.target}\x00${mandate.recordId}`;
-  if (seen.has(key))
-    return null;
-  const home = historyFor(scope, histories);
-  if (home === null)
-    return null;
-  if (outstandingPauseRequest(home, mandate) !== null)
-    return diagnostic2("pause-unconfirmed", `Mandate ${mandate.recordId} has an unconfirmed pause request`);
-  if (mandate.payload.parent === null)
-    return null;
-  const parentHistory = historyFor(mandate.payload.parent.scope, histories);
-  if (parentHistory === null)
-    return null;
-  const parent = bindExternalRef(mandate.payload.parent, parentHistory);
-  if (!parent.ok || parent.value.kind !== "mandate")
-    return null;
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  return outstandingPauseInAuthority(parent.value, histories, nextSeen);
-}
-function pauseLifted(history, confirmation) {
-  if (confirmation.payload.control !== "pause-confirmed")
-    return false;
-  const { controlId, mandate } = confirmation.payload;
-  return controlsOf(history).some((record) => record.payload.control === "resume" && record.payload.controlId === controlId && sameRef2(record.payload.mandate, mandate) && sameRef2(record.payload.predecessor, {
-    scope: { repository: confirmation.repository, target: confirmation.target },
-    recordId: confirmation.recordId,
-    kind: "operator-control"
-  }));
-}
-
 // plugins/omp-build/engine/workflow-action-interruption.ts
 function mandateRefOf(mandate) {
   return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
@@ -16098,47 +16024,6 @@ function ownAttempts(classified, mandate) {
   const own = mandateAttempt(mandate);
   const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === "orphan" || own(attempt.start));
   return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
-}
-function resolvableStarts(histories, mandate) {
-  const scan = histories.filter((history) => receiptsOf(history).some((receipt) => isInterruptionAction(receipt.payload.action)));
-  const classified = classifyAttempts({
-    histories,
-    scan,
-    actions: INTERRUPTION_ACTIONS,
-    select: mandateAttempt(mandate)
-  });
-  if (!classified.ok)
-    return classified;
-  return {
-    ok: true,
-    value: classified.value.unresolved.map((attempt) => ({
-      action: attempt.action,
-      start: attempt.start,
-      result: attempt.kind === "interrupted" ? attempt.result : null
-    }))
-  };
-}
-function interruptionResolutionCandidate(input) {
-  const refuse = (rule, message) => fail([invalidResolution(null, rule, message)]);
-  const existing = startResolution(input.histories, input.start);
-  if (!existing.ok)
-    return existing;
-  if (existing.value !== null)
-    return refuse("V3", "START is already resolved");
-  const mandateHome = historyFor(mandateScope(input.mandate), input.histories);
-  const pause = mandateHome === null ? null : unliftedPause(mandateHome, input.mandate);
-  if (pause === null)
-    return refuse("V4", "Resolution requires the mandate to be paused");
-  const attempts = resolvableStarts(input.histories, input.mandate);
-  if (!attempts.ok)
-    return attempts;
-  const attempt = attempts.value.find((item) => scopedStartKey(input.start) === receiptStartKey(item.start));
-  if (attempt === undefined)
-    return refuse("V3", "START is not an unresolved attempt of this mandate");
-  const { start, result, action } = attempt;
-  const config = input.mandate.payload.config;
-  const runtime = { productVersion: config.productVersion, configVersion: config.version, configDigest: config.digest };
-  return { ok: true, value: { action, actionId: start.payload.actionId, start, result, pause, runtime } };
 }
 
 // plugins/omp-build/engine/workflow-spec-projections.ts
@@ -16473,1242 +16358,6 @@ function qualifyEditorialCandidate(record, input) {
     return { status: "material" };
   return { status: "editorial", record: authenticated.record };
 }
-// plugins/omp-build/engine/uw-command-schema.ts
-var shared = {
-  draft: specDraftSchema,
-  title: string2().min(1),
-  factors: complexityFactorsSchema,
-  writes: writesSchema,
-  normalization: array(normalizationDecisionSchema),
-  tierOverride: tierOverrideSchema
-};
-var uwProposalInputSchema = strictObject({ uw: scopeSchema, sourceBodySha256: sha256Schema, ...shared });
-var uwCreateInputSchema = strictObject({ repository: repositorySchema, ...shared });
-var causeDependencyAdjustmentInputSchema = strictObject({
-  origin: scopeSchema,
-  disposition: externalRecordRefSchema.extend({ kind: literal("cause-disposition") }),
-  receipt: externalRecordRefSchema.extend({ kind: literal("debt-receipt") }),
-  predecessor: union([
-    externalRecordRefSchema.extend({ kind: literal("debt-receipt") }),
-    externalRecordRefSchema.extend({ kind: literal("operator-control") })
-  ]),
-  change: discriminatedUnion("kind", [
-    strictObject({ kind: literal("withdraw") }),
-    strictObject({ kind: literal("replace"), blocker: scopeSchema })
-  ]),
-  nativeEffect: causeDependencyNativePlanSchema,
-  reason: string2().trim().min(1),
-  references: array(observationRefSchema)
-});
-
-// plugins/omp-build/engine/cause-disposition-schema.ts
-var ref5 = (kind) => externalRecordRefSchema.extend({ kind: literal(kind) });
-var dispositionRef2 = ref5("cause-disposition");
-var operationRef = ref5("cause-operation");
-var causeAdjudicationInputSchema = strictObject({
-  pending: dispositionRef2,
-  rejectedFindingIds: array(identifierSchema),
-  judgment: causeJudgmentSchema.nullable(),
-  reason: string2().trim().min(1),
-  references: array(observationRefSchema)
-});
-var causeAdjudicationProposalSchema = causeAdjudicationInputSchema.extend({
-  format: literal("omp-build-cause-adjudication-proposal/1"),
-  operationId: identifierSchema,
-  operation: literal("adjudicate-cause"),
-  uw: scopeSchema,
-  pendingDigest: sha256Schema
-});
-var parentCoverageIntentSchema = strictObject({
-  parent: strictObject({ uw: scopeSchema, version: sha256Schema }),
-  assignments: array(strictObject({
-    criterion: criterionIdSchema,
-    children: tuple([union([scopeSchema, strictObject({ kind: literal("created-child") })])]).rest(union([scopeSchema, strictObject({ kind: literal("created-child") })]))
-  }))
-});
-var causeSisterInputSchema = strictObject({
-  disposition: dispositionRef2,
-  factors: complexityFactorsSchema,
-  tierOverride: tierOverrideSchema,
-  labels: strictObject({ add: array(string2().min(1)), remove: array(string2().min(1)) }),
-  parentCoverage: parentCoverageIntentSchema.nullable().optional()
-});
-var reportPromotionInputSchema = strictObject({
-  report: dispositionRef2,
-  create: uwCreateInputSchema,
-  reason: string2().trim().min(1),
-  parentCoverage: parentCoverageIntentSchema.nullable().optional()
-});
-var composedParentConsentSchema = strictObject({
-  parent: scopeSchema,
-  mandate: ref5("mandate"),
-  accepted: ownSpecRefSchema,
-  predecessor: externalRecordRefSchema,
-  versionVector: tuple([ownSpecRefSchema]).rest(ownSpecRefSchema),
-  nativeObservationDigest: sha256Schema,
-  historyDigest: sha256Schema,
-  assessment: ref5("action-receipt"),
-  exactInputs: assessSpecExactSchema,
-  slot: createdChildSlotSchema,
-  parentOperationId: identifierSchema,
-  parentProposalDigest: sha256Schema
-});
-var causeCreationProposalSchema = uwCreatePlanSchema.extend({
-  creation: causeCreationContextSchema,
-  parentAcceptance: composedParentConsentSchema.nullable()
-});
-var causeOperationPayloadSchema = strictObject({
-  format: literal("omp-build-cause-operation/1"),
-  proposal: union([causeAdjudicationProposalSchema, causeCreationProposalSchema]),
-  proposalDigest: sha256Schema,
-  confirmation: operatorConfirmationEvidenceSchema
-});
-var causeDispositionPayloadSchema = strictObject({
-  format: literal("omp-build-cause-disposition/2"),
-  origin: ownSpecRefSchema,
-  basis: strictObject({
-    versionVector: tuple([ownSpecRefSchema]).rest(ownSpecRefSchema),
-    capture: recordInputRefSchema.nullable()
-  }),
-  subject: discriminatedUnion("kind", [
-    strictObject({
-      kind: literal("cause"),
-      decision: ref5("decision"),
-      cause: causeSchema,
-      findings: array(finalFindingSchema)
-    }),
-    strictObject({
-      kind: literal("retained-finding"),
-      contribution: ref5("contribution"),
-      finding: originalFindingSchema,
-      diagnostics: array(diagnosticSchema)
-    }),
-    strictObject({ kind: literal("rule-error"), source: externalRecordRefSchema, diagnostic: diagnosticSchema })
-  ]),
-  previous: dispositionRef2.nullable(),
-  adjudication: operationRef.nullable(),
-  outcome: discriminatedUnion("state", [
-    strictObject({
-      state: literal("final"),
-      disposition: dispositionSchema,
-      blocking: boolean2(),
-      reason: string2().min(1)
-    }),
-    strictObject({ state: literal("pending-blocking"), reason: string2().min(1) })
-  ]),
-  diagnostics: array(diagnosticSchema)
-});
-var reportPromotionPayloadSchema = strictObject({
-  format: literal("omp-build-report-promotion/1"),
-  report: dispositionRef2,
-  operation: operationRef,
-  created: scopeSchema,
-  identity: ref5("spec-identity")
-});
-
-// plugins/omp-build/engine/fix-recovery-control-schema.ts
-var FIX_RECOVERY_FORMAT = "omp-build-fix-recovery/1";
-var ref6 = (kind) => externalRecordRefSchema.extend({ kind: literal(kind) });
-var openedRefSchema3 = ref6("fix-owner");
-var settledRefSchema = ref6("fix-owner");
-var recoveryRefSchema2 = ref6("fix-recovery");
-var mandateRefSchema2 = ref6("mandate");
-var bindingRefSchema2 = ref6("workflow-binding");
-var scopeCutMemberSchema = discriminatedUnion("disposition", [
-  strictObject({
-    disposition: literal("keep-complete"),
-    record: strictObject({
-      identity: reservedOwnedIdentitySchema,
-      envelopeDigest: sha256Schema,
-      parts: array(partPinSchema).min(1)
-    })
-  }),
-  strictObject({
-    disposition: literal("retire-incomplete"),
-    identity: reservedOwnedIdentitySchema,
-    observedParts: array(partPinSchema)
-  })
-]);
-var scopeCutSchema = strictObject({
-  scope: scopeSchema,
-  retiringOpened: openedRefSchema3,
-  members: array(scopeCutMemberSchema)
-});
-var recoveryHistoryCutSchema = strictObject({
-  scope: scopeSchema,
-  expectedAuthor: string2().min(1),
-  stopAuthor: string2().min(1).nullable(),
-  complete: literal(true),
-  parts: array(partPinSchema)
-});
-var recoveryGraphFactsSchema = strictObject({
-  root: scopeSchema,
-  nodes: array(strictObject({
-    uw: scopeSchema,
-    title: string2(),
-    raw: strictObject({ reference: string2().min(1), body: string2(), bodySha256: sha256Schema }),
-    labels: array(string2()),
-    wayfinderLabels: array(string2()),
-    parent: scopeSchema.nullable(),
-    children: array(scopeSchema),
-    blockers: array(scopeSchema),
-    native: strictObject({ state: _enum(["OPEN", "CLOSED"]), stateReason: string2().nullable() })
-  }))
-});
-var priorRecoveryOwnerFactSchema = discriminatedUnion("kind", [
-  strictObject({
-    kind: literal("exact-lifetime-ended"),
-    ended: discriminatedUnion("basis", [
-      strictObject({ basis: literal("absent-in-validated-procfs") }),
-      strictObject({ basis: literal("pid-reused"), observed: processLifetimeSchema })
-    ])
-  }),
-  strictObject({ kind: literal("sealed-drained-live") })
-]);
-var fixRecoveryObservationSchema = strictObject({
-  format: literal("omp-build-fix-recovery-observation/1"),
-  histories: array(recoveryHistoryCutSchema).min(1),
-  graph: recoveryGraphFactsSchema,
-  authority: strictObject({
-    binding: recordPinSchema("workflow-binding"),
-    mandate: recordPinSchema("mandate"),
-    plugin: pluginPinSchema,
-    configuration: pluginConfigurationSchema,
-    accepted: specEffectiveSchema
-  }),
-  catalogues: array(strictObject({ ref: pinnedFileRefSchema, contents: string2() })).optional(),
-  pullRequest: strictObject({
-    scope: scopeSchema,
-    state: literal("open"),
-    candidateGitSHA: gitObjectIdSchema,
-    baseGitSHA: gitObjectIdSchema,
-    headRepository: string2().min(1),
-    branch: string2().min(1),
-    base: string2().min(1),
-    destination: destinationSchema
-  }),
-  local: localEffectsObservationSchema.extend({
-    status: strictObject({ format: literal("git-status-porcelain-v1"), stdout: string2() })
-  }),
-  host: strictObject({
-    process: processLifetimeSchema,
-    root: rootLifetimeSchema,
-    namespace: latchNamespaceSchema,
-    prior: priorRecoveryOwnerFactSchema
-  })
-});
-var fixRecoveryNativePreparationSchema = discriminatedUnion("kind", [
-  strictObject({
-    kind: literal("prepared"),
-    causeId: identifierSchema,
-    actionId: identifierSchema,
-    inputs: actionInputsSchema
-  }),
-  strictObject({ kind: literal("no-native-action") })
-]);
-var proposalCommonFields = {
-  format: literal("omp-build-fix-recovery-proposal/1"),
-  operationId: identifierSchema,
-  control: reservedRecordIdentitySchema("fix-recovery"),
-  uw: scopeSchema,
-  pullRequest: scopeSchema,
-  binding: bindingRefSchema2,
-  mandate: mandateRefSchema2,
-  predecessor: recoveryRefSchema2.nullable(),
-  opened: openedRefSchema3,
-  settled: settledRefSchema,
-  cuts: array(scopeCutSchema).min(1),
-  observation: fixRecoveryObservationSchema,
-  observationDigest: sha256Schema,
-  expected: strictObject({
-    currentStateDigest: sha256Schema,
-    headDigest: sha256Schema,
-    pinDigest: sha256Schema,
-    mandateDigest: sha256Schema,
-    acceptedSpecDigest: sha256Schema
-  })
-};
-var fixRecoveryProposalSchema = discriminatedUnion("phase", [
-  strictObject({
-    ...proposalCommonFields,
-    phase: literal("close-publication"),
-    target: publicationPrefixPhaseSchema
-  }),
-  strictObject({
-    ...proposalCommonFields,
-    phase: literal("close-predecision"),
-    target: requestBeforeDecisionPhaseSchema
-  }),
-  strictObject({
-    ...proposalCommonFields,
-    phase: literal("adopt-decision"),
-    target: decidedPhaseSchema,
-    claimReservation: reservedRecordIdentitySchema("fix-owner"),
-    nativePreparation: fixRecoveryNativePreparationSchema
-  })
-]);
-var controlCommonFields = {
-  format: literal(FIX_RECOVERY_FORMAT),
-  uw: scopeSchema,
-  pullRequest: scopeSchema,
-  binding: bindingRefSchema2,
-  mandate: mandateRefSchema2,
-  predecessor: recoveryRefSchema2.nullable(),
-  opened: openedRefSchema3,
-  settled: settledRefSchema,
-  cuts: array(scopeCutSchema).min(1),
-  observation: fixRecoveryObservationSchema,
-  observationDigest: sha256Schema,
-  proposalDigest: sha256Schema,
-  confirmation: operatorConfirmationEvidenceSchema
-};
-var fixRecoveryPayloadSchema = discriminatedUnion("phase", [
-  strictObject({
-    ...controlCommonFields,
-    phase: literal("close-publication"),
-    target: publicationPrefixPhaseSchema
-  }),
-  strictObject({
-    ...controlCommonFields,
-    phase: literal("close-predecision"),
-    target: requestBeforeDecisionPhaseSchema
-  }),
-  strictObject({
-    ...controlCommonFields,
-    phase: literal("adopt-decision"),
-    target: decidedPhaseSchema,
-    claimReservation: reservedRecordIdentitySchema("fix-owner"),
-    nativePreparation: fixRecoveryNativePreparationSchema
-  })
-]);
-
-// plugins/omp-build/engine/review-interruption-schema.ts
-var workflowBindingRefSchema = externalRecordRefSchema.extend({ kind: literal("workflow-binding") });
-var reviewInterruptionPayloadSchema = strictObject({
-  rootAttemptId: identifierSchema,
-  historicalBinding: workflowBindingRefSchema
-});
-var reviewReplacementGrantPayloadSchema = strictObject({
-  rootAttemptId: identifierSchema,
-  dispositionId: identifierSchema,
-  candidateGitSHA: shaSchema,
-  inputFormat: literal(REVIEW_INPUT_FORMAT),
-  input: sha256Schema,
-  binding: workflowBindingRefSchema
-});
-
-// plugins/omp-build/engine/framing-context-schema.ts
-var FRAMING_PROCEDURE_FILES = {
-  grilling: "skills/feature/framing-procedures/grilling.md",
-  "domain-modeling": "skills/feature/framing-procedures/domain-modeling.md",
-  "codebase-design": "skills/feature/framing-procedures/codebase-design.md"
-};
-var framingStageSchema = _enum(["grilling", "domain-modeling", "codebase-design"]);
-var framingProcedureManifestSchema = strictObject({
-  format: literal("omp-build-framing-procedures/1"),
-  plugin: pluginPinSchema,
-  procedures: tuple([
-    strictObject({ stage: literal("grilling"), file: pinnedFileRefSchema }),
-    strictObject({ stage: literal("domain-modeling"), file: pinnedFileRefSchema }),
-    strictObject({ stage: literal("codebase-design"), file: pinnedFileRefSchema })
-  ]),
-  digest: sha256Schema
-});
-var framingInvocationBindingSchema = strictObject({
-  extensionInstanceId: string2().min(1),
-  sessionId: string2().min(1),
-  agentId: string2().min(1),
-  generation: number2().int().nonnegative(),
-  revision: number2().int().nonnegative(),
-  sourceDigest: sha256Schema,
-  procedures: framingProcedureManifestSchema
-});
-// plugins/omp-build/engine/uw-framing-schema.ts
-var framingMemberKeySchema = string2().min(1);
-var framingMaterialIdSchema = string2().regex(/^m[1-9][0-9]*$/);
-var framingMaterialCaptureSchema = strictObject({
-  id: framingMaterialIdSchema,
-  producer: _enum(["to-spec", "to-tickets"]),
-  origin: strictObject({
-    kind: literal("operator-entry"),
-    sessionId: string2().min(1),
-    entryId: string2().min(1)
-  }),
-  raw: specRawSourceSchema
-});
-var framingSourceOriginSchema = discriminatedUnion("kind", [
-  strictObject({ kind: literal("native"), member: framingMemberKeySchema }),
-  strictObject({ kind: literal("material"), id: framingMaterialIdSchema })
-]);
-var framingAccountedDecisionSchema = strictObject({ origin: framingSourceOriginSchema.nullable(), decision: normalizationDecisionSchema }).superRefine((value, ctx) => {
-  if (value.decision.kind === "new" !== (value.origin === null))
-    ctx.addIssue({ code: "custom", message: "New decisions alone have no source origin" });
-});
-var framingObligationSchema = discriminatedUnion("kind", [
-  strictObject({ kind: literal("existing"), id: specItemIdSchema }),
-  strictObject({ kind: literal("new"), draftKey: string2().min(1) })
-]);
-var framingSourceRefSchema = strictObject({ origin: framingSourceOriginSchema, span: sourceSpanSchema2 });
-var framingDestinationMergeSchema = strictObject({
-  target: framingObligationSchema,
-  sources: array(framingSourceRefSchema).min(2),
-  reason: string2().trim().min(1)
-});
-var framingSlotSelectionSchema = discriminatedUnion("kind", [
-  strictObject({ kind: literal("command"), reference: string2().min(1) }),
-  strictObject({
-    kind: literal("operator-reference"),
-    text: union([
-      literal("accepted-args"),
-      strictObject({ sessionId: string2().min(1), entryId: string2().min(1) })
-    ]),
-    reference: string2().min(1)
-  }),
-  strictObject({ kind: literal("native-child"), parent: framingMemberKeySchema, reference: string2().min(1) })
-]);
-var framingMemberSlotSchema = discriminatedUnion("kind", [
-  strictObject({
-    kind: literal("existing"),
-    key: framingMemberKeySchema,
-    uw: scopeSchema,
-    sourceBodySha256: sha256Schema,
-    selection: framingSlotSelectionSchema,
-    observed: strictObject({
-      nativeParent: scopeSchema.nullable(),
-      children: array(scopeSchema),
-      blockers: array(scopeSchema)
-    })
-  }),
-  strictObject({ kind: literal("new"), key: framingMemberKeySchema, repository: repositorySchema })
-]);
-var framingEdgeSchema = discriminatedUnion("kind", [
-  strictObject({ kind: literal("parent-child"), parent: framingMemberKeySchema, child: framingMemberKeySchema }),
-  strictObject({ kind: literal("blocker"), dependent: framingMemberKeySchema, blocker: framingMemberKeySchema })
-]);
-var framingCoverageIntentSchema = strictObject({
-  parent: framingMemberKeySchema,
-  assignments: array(strictObject({ criterion: framingObligationSchema, children: array(framingMemberKeySchema).min(1) }))
-});
-var framingSourceBindingSchema = discriminatedUnion("kind", [
-  strictObject({
-    kind: literal("free-text"),
-    acceptedArgs: string2().min(1),
-    bodySha256: sha256Schema,
-    repository: repositorySchema,
-    materials: array(framingMaterialCaptureSchema)
-  }),
-  strictObject({
-    kind: literal("issue"),
-    uw: scopeSchema,
-    body: specRawSourceSchema,
-    parserDigest: sha256Schema,
-    nativeDigest: sha256Schema,
-    ledgerHead: externalRecordRefSchema.nullable(),
-    historyDigest: sha256Schema,
-    engagementDigest: sha256Schema,
-    materials: array(framingMaterialCaptureSchema)
-  })
-]);
-var framingMemberSchema = discriminatedUnion("kind", [
-  strictObject({
-    kind: literal("uw"),
-    slot: framingMemberSlotSchema,
-    draft: specDraftSchema,
-    title: string2().trim().min(1),
-    factors: complexityFactorsSchema,
-    tierOverride: tierOverrideSchema,
-    normalization: array(framingAccountedDecisionSchema),
-    merges: array(framingDestinationMergeSchema),
-    labels: strictObject({ add: array(string2().min(1)), remove: array(string2().min(1)) })
-  }),
-  strictObject({
-    kind: literal("wayfinder"),
-    slot: framingMemberSlotSchema,
-    title: string2().trim().min(1),
-    body: string2(),
-    label: _enum([
-      "wayfinder:map",
-      "wayfinder:grilling",
-      "wayfinder:research",
-      "wayfinder:prototype",
-      "wayfinder:task"
-    ])
-  })
-]);
-var framingAggregateInputSchema = strictObject({
-  kind: _enum(["uw", "wayfinder"]),
-  root: framingMemberKeySchema,
-  members: array(framingMemberSchema).min(1),
-  edges: array(framingEdgeSchema),
-  coverage: array(framingCoverageIntentSchema),
-  foundations: array(strictObject({ parent: framingMemberKeySchema, child: framingMemberKeySchema })),
-  source: framingSourceBindingSchema
-}).superRefine((value, ctx) => {
-  const members = new Map(value.members.map((member) => [member.slot.key, member]));
-  if (members.size !== value.members.length)
-    ctx.addIssue({ code: "custom", path: ["members"], message: "Member keys must be unique" });
-  const root = members.get(value.root);
-  if (!root || root.kind !== value.kind)
-    ctx.addIssue({ code: "custom", path: ["root"], message: "Root must name a member of the aggregate kind" });
-  for (const [index, edge] of value.edges.entries()) {
-    const endpoints = edge.kind === "parent-child" ? [edge.parent, edge.child] : [edge.dependent, edge.blocker];
-    if (endpoints[0] === endpoints[1] || endpoints.some((key) => members.get(key)?.kind !== "uw"))
-      ctx.addIssue({ code: "custom", path: ["edges", index], message: "Edges require two distinct UW members" });
-  }
-});
-
-// plugins/omp-build/engine/uw-framing-receipt-schema.ts
-var framingReceiptRefSchema = externalRecordRefSchema.extend({ kind: literal("framing-receipt") });
-var framingMaterialSchema = framingMaterialCaptureSchema.extend({
-  conversion: _enum(["converted", "not-applicable"]),
-  parser: strictObject({
-    status: _enum(["conformant", "draft", "legacy", "malformed"]),
-    analysis: issueSpecAnalysisSchema,
-    analysisDigest: sha256Schema
-  })
-});
-var framingAllocationSchema = strictObject({
-  ledgerHead: externalRecordRefSchema.nullable(),
-  assignments: array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })),
-  retirements: array(specItemIdSchema),
-  spec: specSchema
-});
-var preparedFramingMemberSchema = strictObject({
-  key: framingMemberKeySchema,
-  ordinal: number2().int().nonnegative(),
-  slot: framingMemberSlotSchema,
-  memberDigest: sha256Schema,
-  allocation: framingAllocationSchema.nullable(),
-  renderedBody: string2(),
-  tier: uwTierSchema.nullable(),
-  inherited: array(ownSpecRefSchema),
-  nativeDigest: sha256Schema.nullable(),
-  nativeAnalysis: strictObject({
-    status: _enum(["conformant", "draft", "legacy", "malformed"]),
-    analysis: issueSpecAnalysisSchema,
-    analysisDigest: sha256Schema
-  }).nullable(),
-  historyDigest: sha256Schema.nullable(),
-  engagementDigest: sha256Schema.nullable()
-});
-var framingProposalSchema = strictObject({
-  format: literal("omp-build-uw-framing/1"),
-  operationId: string2().min(1),
-  target: discriminatedUnion("kind", [
-    strictObject({ kind: literal("existing"), uw: scopeSchema }),
-    strictObject({ kind: literal("create"), repository: string2().min(1) })
-  ]),
-  input: framingAggregateInputSchema,
-  invocation: framingInvocationBindingSchema,
-  materials: array(framingMaterialSchema),
-  members: array(preparedFramingMemberSchema).min(1)
-});
-var resultEdgeSchema = discriminatedUnion("kind", [
-  strictObject({
-    kind: literal("parent-child"),
-    parent: scopeSchema,
-    child: scopeSchema,
-    origin: _enum(["observed", "written"])
-  }),
-  strictObject({
-    kind: literal("blocker"),
-    dependent: scopeSchema,
-    blocker: scopeSchema,
-    origin: _enum(["observed", "written"])
-  })
-]);
-var boundFramingCoverageIntentSchema = strictObject({
-  parent: scopeSchema,
-  parentVersion: sha256Schema,
-  criteria: array(strictObject({ id: string2().min(1), statement: string2() })),
-  children: array(strictObject({
-    scope: scopeSchema,
-    specVersion: sha256Schema,
-    tier: uwTierSchema,
-    criteria: array(strictObject({ id: string2().min(1), statement: string2() }))
-  })),
-  coverage: parentCoverageSchema,
-  ancestors: array(discriminatedUnion("kind", [
-    strictObject({ kind: literal("accepted"), own: ownSpecRefSchema, metadata: externalRecordRefSchema }),
-    strictObject({
-      kind: literal("framing-member"),
-      member: framingMemberKeySchema,
-      scope: scopeSchema,
-      specVersion: sha256Schema,
-      tier: uwTierSchema,
-      acceptedStateDigest: sha256Schema
-    })
-  ])),
-  aggregateIntent: framingReceiptRefSchema,
-  aggregateResult: framingReceiptRefSchema
-});
-var framingReceiptPayloadSchema = discriminatedUnion("phase", [
-  strictObject({
-    format: literal("omp-build-framing-receipt/1"),
-    phase: literal("intent"),
-    root: scopeSchema,
-    proposal: framingProposalSchema,
-    proposalDigest: sha256Schema,
-    confirmation: operatorConfirmationEvidenceSchema,
-    native: nativeIssueObservationSchema
-  }),
-  strictObject({
-    format: literal("omp-build-framing-receipt/1"),
-    phase: literal("member-binding"),
-    intent: framingReceiptRefSchema,
-    member: framingMemberKeySchema,
-    memberDigest: sha256Schema
-  }),
-  strictObject({
-    format: literal("omp-build-framing-receipt/1"),
-    phase: literal("member-claim"),
-    intent: framingReceiptRefSchema,
-    member: framingMemberKeySchema,
-    ordinal: number2().int().nonnegative(),
-    memberDigest: sha256Schema,
-    scope: scopeSchema,
-    slot: _enum(["existing", "new"]),
-    binding: framingReceiptRefSchema.nullable(),
-    native: nativeIssueObservationSchema
-  }),
-  strictObject({
-    format: literal("omp-build-framing-receipt/1"),
-    phase: literal("result"),
-    intent: framingReceiptRefSchema,
-    claims: array(framingReceiptRefSchema),
-    bindings: array(framingReceiptRefSchema),
-    identities: array(externalRecordRefSchema),
-    members: array(strictObject({
-      key: framingMemberKeySchema,
-      scope: scopeSchema,
-      memberDigest: sha256Schema,
-      binding: framingReceiptRefSchema,
-      snapshot: specSnapshotSchema.nullable(),
-      tier: uwTierSchema.nullable()
-    })),
-    edges: array(resultEdgeSchema),
-    coverage: array(boundFramingCoverageIntentSchema.omit({ aggregateResult: true })),
-    graphDigest: sha256Schema,
-    identityDigest: sha256Schema
-  })
-]);
-// plugins/omp-build/engine/workflow-receipt-exact.ts
-var frameExactSchema = strictObject({
-  specDigest: sha256Schema,
-  branch: string2().min(1),
-  base: string2().min(1)
-});
-var preMandateFrameExactSchema = strictObject({
-  branch: string2().min(1),
-  base: string2().min(1)
-});
-var PLAN_REVIEW_SPECIALISTS = ["R-workflow-plan-architect", "R-workflow-plan-adversarial"];
-var planReviewSpecialistSchema = _enum(PLAN_REVIEW_SPECIALISTS);
-var planReviewSlotSchema = strictObject({
-  slotId: identifierSchema,
-  specialist: planReviewSpecialistSchema,
-  action: contextNegativeBindingSchema.optional()
-});
-var planExactSchema = strictObject({
-  mandateId: identifierSchema,
-  specDigest: sha256Schema,
-  amendsReviewActionId: identifierSchema.nullable(),
-  requiredBlockers: array(planBlockerRefSchema)
-}).superRefine((value, context) => {
-  if (value.amendsReviewActionId === null && value.requiredBlockers.length !== 0) {
-    context.addIssue({
-      code: "custom",
-      path: ["requiredBlockers"],
-      message: "a draft does not require review blockers"
-    });
-  }
-  const seen = new Set;
-  for (const [index, ref] of value.requiredBlockers.entries()) {
-    const key = `${ref.sourceId}\x00${ref.slotId}\x00${ref.blockerId}`;
-    if (seen.has(key)) {
-      context.addIssue({
-        code: "custom",
-        path: ["requiredBlockers", index],
-        message: "blocker reference is repeated"
-      });
-    }
-    seen.add(key);
-  }
-});
-var planReviewExactSchema = strictObject({
-  mandateId: identifierSchema,
-  specDigest: sha256Schema,
-  planDigest: sha256Schema,
-  draftActionId: identifierSchema
-});
-var implementExactSchema = strictObject({ mandateId: identifierSchema, planActionId: identifierSchema });
-var implementationAdmissionCommandSchema = strictObject({
-  toolCallId: identifierSchema,
-  command: string2(),
-  exitCode: number2().int(),
-  cwd: string2().min(1)
-});
-var hostEffectAdmissionSchema = strictObject({
-  admitted: boolean2(),
-  commits: array(gitObjectIdSchema),
-  paths: array(repoRelativePathSchema),
-  commands: array(implementationAdmissionCommandSchema),
-  remoteBranch: string2().min(1).nullable(),
-  remoteTip: gitObjectIdSchema.nullable(),
-  published: boolean2(),
-  reason: string2()
-});
-var nestedPlanContributionSchema = contributionSchema.superRefine((value, context) => {
-  if (value.inventoryId !== null) {
-    context.addIssue({
-      code: "custom",
-      path: ["inventoryId"],
-      message: "plan-review contribution inventoryId must be null"
-    });
-  }
-  if (value.host.slotId === null) {
-    context.addIssue({
-      code: "custom",
-      path: ["host", "slotId"],
-      message: "plan-review contribution names its declared slot"
-    });
-  }
-});
-function declaredPlanSlots(slots, context) {
-  const ids = new Set;
-  const specialists = new Set;
-  for (const [index, slot] of slots.entries()) {
-    if (ids.has(slot.slotId)) {
-      context.addIssue({ code: "custom", path: ["slots", index, "slotId"], message: `slot ${slot.slotId} is repeated` });
-    }
-    ids.add(slot.slotId);
-    if (specialists.has(slot.specialist)) {
-      context.addIssue({
-        code: "custom",
-        path: ["slots", index, "specialist"],
-        message: `specialist ${slot.specialist} is repeated`
-      });
-    }
-    specialists.add(slot.specialist);
-  }
-  for (const name of PLAN_REVIEW_SPECIALISTS) {
-    if (!specialists.has(name)) {
-      context.addIssue({ code: "custom", path: ["slots"], message: `missing specialist ${name}` });
-    }
-  }
-}
-function issue2(context, path, message) {
-  context.addIssue({ code: "custom", path, message });
-}
-function refineAbsentMandate(receipt, context) {
-  const spec = receipt.inputs.manifest.spec;
-  if (spec.kind !== "unframed" && spec.kind !== "proposed") {
-    issue2(context, ["inputs", "manifest", "spec"], "pre-mandate receipt cannot carry an accepted or absent Spec");
-  }
-}
-function mandatedRefs(receipt) {
-  const refs = [receipt.mandate];
-  if (receipt.phase === "result")
-    refs.push(receipt.start);
-  if (receipt.action === "assess-spec") {
-    refs.push(receipt.exactInputs.accepted.ref.sourceAccepted, ...receipt.exactInputs.identityAllocations);
-  }
-  return refs;
-}
-function refuseUndeclaredSlots(receipt, context) {
-  const ids = new Set(receipt.slots.map((slot) => slot.slotId));
-  for (const [index, contribution] of receipt.contributions.entries()) {
-    if (contribution.host.slotId === null || !ids.has(contribution.host.slotId)) {
-      issue2(context, ["contributions", index, "host", "slotId"], "contribution slot is not declared");
-    }
-  }
-}
-function absentMandate(receipt) {
-  return receipt.mandate.kind === "absent";
-}
-function refineMandatedReceipt(receipt, context) {
-  sameRefMeaning(mandatedRefs(receipt), context);
-  if (receipt.action !== "plan-review")
-    return;
-  declaredPlanSlots(receipt.slots, context);
-  if (receipt.phase !== "result")
-    return;
-  refuseUndeclaredSlots(receipt, context);
-}
-function refineActionReceipt(receipt, context) {
-  const checked = validateParsedActionInputs(receipt.inputs);
-  if (receipt.action === "assess-spec" || receipt.action === "attribute-ci" || receipt.action === "integrate") {
-    const operands = receipt.inputs.manifest.operands;
-    if (operands?.action !== receipt.action || canonicalValueDigest(operands.exactInputs) !== canonicalValueDigest(receipt.exactInputs)) {
-      issue2(context, ["exactInputs"], "exact inputs must match the sealed action operands");
-    }
-  }
-  if (!checked.ok)
-    issue2(context, ["inputs"], checked.diagnostics[0]?.message ?? "action inputs are not binding/1");
-  if (absentMandate(receipt)) {
-    refineAbsentMandate(receipt, context);
-    return;
-  }
-  refineMandatedReceipt(receipt, context);
-}
-
-// plugins/omp-build/engine/workflow-receipt-schema.ts
-var ACTION_RECEIPT_FORMAT = "omp-build-action-receipt/2";
-var workflowReceiptActionSchema = _enum([
-  "frame",
-  "assess-spec",
-  "plan",
-  "plan-review",
-  "implement",
-  "integrate",
-  "attribute-ci"
-]);
-var preMandateRefSchema = strictObject({
-  kind: literal("absent"),
-  reason: literal("pre-mandate")
-});
-function actionReceipt(action, exact, structured, mandate) {
-  return [
-    strictObject({
-      format: literal(ACTION_RECEIPT_FORMAT),
-      phase: literal("start"),
-      action: literal(action),
-      actionId: identifierSchema,
-      mandate,
-      inputs: actionInputsSchema,
-      exactInputs: exact
-    }),
-    strictObject({
-      format: literal(ACTION_RECEIPT_FORMAT),
-      phase: literal("result"),
-      action: literal(action),
-      actionId: identifierSchema,
-      mandate,
-      inputs: actionInputsSchema,
-      start: externalRecordRefSchema,
-      exactInputs: exact,
-      native: nativeOutcomeSchema,
-      structured: structured.nullable(),
-      admission: hostEffectAdmissionSchema.nullable(),
-      diagnostics: array(diagnosticSchema)
-    })
-  ];
-}
-var mandated = externalRecordRefSchema;
-var [frameStart, frameResult] = actionReceipt("frame", frameExactSchema, missingContextOutputSchema, mandated);
-var [frameUnmandatedStart, frameUnmandatedResult] = actionReceipt("frame", preMandateFrameExactSchema, missingContextOutputSchema, preMandateRefSchema);
-var [assessStart, assessResult] = actionReceipt("assess-spec", assessSpecExactSchema, union([specAssessmentSchema, missingContextOutputSchema]), mandated);
-var [planStart, planResult] = actionReceipt("plan", planExactSchema, union([planOutputSchema, missingContextOutputSchema]), mandated);
-var planReviewStart = strictObject({
-  format: literal(ACTION_RECEIPT_FORMAT),
-  phase: literal("start"),
-  action: literal("plan-review"),
-  actionId: identifierSchema,
-  mandate: mandated,
-  inputs: actionInputsSchema,
-  exactInputs: planReviewExactSchema,
-  slots: array(planReviewSlotSchema).length(PLAN_REVIEW_SPECIALISTS.length)
-}).superRefine((value, context) => declaredPlanSlots(value.slots, context));
-var planReviewResult = strictObject({
-  format: literal(ACTION_RECEIPT_FORMAT),
-  phase: literal("result"),
-  action: literal("plan-review"),
-  actionId: identifierSchema,
-  mandate: mandated,
-  inputs: actionInputsSchema,
-  start: externalRecordRefSchema,
-  exactInputs: planReviewExactSchema,
-  slots: array(planReviewSlotSchema).length(PLAN_REVIEW_SPECIALISTS.length),
-  contributions: array(nestedPlanContributionSchema),
-  native: nativeOutcomeSchema,
-  structured: missingContextOutputSchema.nullable(),
-  admission: hostEffectAdmissionSchema.nullable(),
-  diagnostics: array(diagnosticSchema)
-});
-var [implementStart, implementResult] = actionReceipt("implement", implementExactSchema, union([implementationOutputSchema, deliveryMissingContextSchema]), mandated);
-var [integrateStart, integrateResult] = actionReceipt("integrate", integrationExactSchema, union([integrationOutputSchema, deliveryMissingContextSchema]), mandated);
-var [ciStart, ciResult] = actionReceipt("attribute-ci", ciExactSchema, union([ciAttributionSchema, missingContextOutputSchema]), mandated);
-var taggedActionReceipts = discriminatedUnion("action", [
-  discriminatedUnion("phase", [assessStart, assessResult]),
-  discriminatedUnion("phase", [planStart, planResult]),
-  discriminatedUnion("phase", [planReviewStart, planReviewResult]),
-  discriminatedUnion("phase", [implementStart, implementResult]),
-  discriminatedUnion("phase", [integrateStart, integrateResult]),
-  discriminatedUnion("phase", [ciStart, ciResult])
-]);
-var actionReceiptPayloadSchema = union([
-  taggedActionReceipts,
-  discriminatedUnion("phase", [frameStart, frameResult]),
-  discriminatedUnion("phase", [frameUnmandatedStart, frameUnmandatedResult])
-]).superRefine(refineActionReceipt);
-
-// plugins/omp-build/engine/record-schema.ts
-var envelope = {
-  version: literal(1),
-  recordId: identifierSchema,
-  runId: identifierSchema,
-  operationId: identifierSchema,
-  inputs: array(identifierSchema)
-};
-var record3 = (kind, payload) => scopeSchema.extend({ ...envelope, kind: literal(kind), payload }).strict();
-var recordSchema = discriminatedUnion("kind", [
-  record3("review-attempt", inventorySchema),
-  record3("contribution", contributionSchema),
-  record3("decision", decisionPayloadSchema),
-  record3("review", finalReviewSchema),
-  record3("fix-request", fixRequestSchema),
-  record3("fix-result", fixResultSchema),
-  record3("correction-result", correctionResultSchema),
-  record3("falsification-result", falsificationResultSchema),
-  record3("debt-receipt", debtReceiptSchema),
-  record3("cause-disposition", causeDispositionPayloadSchema),
-  record3("cause-operation", causeOperationPayloadSchema),
-  record3("report-promotion", reportPromotionPayloadSchema),
-  record3("stop", stopSchema),
-  record3("epic-event", jsonSchema),
-  record3("spec-identity", specIdentityPayloadSchema),
-  record3("framing-receipt", framingReceiptPayloadSchema),
-  record3("mandate", mandatePayloadSchema),
-  record3("operator-control", operatorControlPayloadSchema),
-  record3("action-receipt", actionReceiptPayloadSchema),
-  record3("workflow-binding", workflowBindingPayloadSchema),
-  record3("review-interruption", reviewInterruptionPayloadSchema),
-  record3("review-replacement-grant", reviewReplacementGrantPayloadSchema),
-  record3("fix-owner", fixOwnerPayloadSchema),
-  record3("fix-recovery", fixRecoveryPayloadSchema)
-]);
-
-// plugins/omp-build/engine/workflow-record-references.ts
-function causeDispositionRefs(payload) {
-  const subject = payload.subject;
-  return [
-    payload.origin.sourceAccepted,
-    ...payload.basis.versionVector.map((ref) => ref.sourceAccepted),
-    payload.basis.capture?.record ?? null,
-    payload.previous,
-    payload.adjudication,
-    subject.kind === "cause" ? subject.decision : subject.kind === "retained-finding" ? subject.contribution : subject.source
-  ].filter((ref) => ref !== null);
-}
-function causeOperationRefs(payload) {
-  const proposal = payload.proposal;
-  return [
-    proposal.operation === "adjudicate-cause" ? proposal.pending : proposal.creation.kind === "sister" ? proposal.creation.disposition : proposal.creation.report
-  ];
-}
-function operatorControlRefs(payload) {
-  const refs = payload.control === "adjust-cause-dependency" ? [
-    payload.proposal.mandate,
-    payload.proposal.predecessor,
-    payload.proposal.disposition,
-    payload.proposal.receipt,
-    payload.proposal.accepted.sourceAccepted,
-    ...payload.proposal.versionVector.map((ref) => ref.sourceAccepted)
-  ] : [payload.mandate, payload.predecessor];
-  if (payload.control === "accept-material") {
-    refs.push(payload.assessment);
-    if (payload.authorization.kind === "cause-creation")
-      refs.push(payload.authorization.operation, payload.authorization.binding.identity);
-  }
-  if (payload.control === "select-successor")
-    refs.push(payload.successor);
-  if (payload.control === "resolve-interruption")
-    refs.push(payload.start, payload.result);
-  if (payload.control === "adjust-cause-dependency") {
-    for (const reference of payload.proposal.references)
-      if (reference.source === "record")
-        refs.push(reference.record);
-  }
-  return refs.filter((ref) => ref !== null);
-}
-function actionReceiptRefs(payload) {
-  const refs = payload.mandate.kind === "absent" ? [] : [payload.mandate];
-  if (payload.phase === "result")
-    refs.push(payload.start);
-  if (payload.action === "assess-spec") {
-    refs.push(payload.exactInputs.accepted.ref.sourceAccepted, ...payload.exactInputs.identityAllocations);
-    refs.push(...payload.exactInputs.accepted.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted));
-    refs.push(...payload.exactInputs.proposed.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted));
-    refs.push(...payload.exactInputs.childOwnSources.flatMap((entry) => entry.own === null ? [] : [entry.own.sourceAccepted]));
-    const operands = payload.inputs.manifest.operands;
-    if (operands?.action === "assess-spec" && operands.origin.kind === "cause-created-child")
-      refs.push(operands.origin.creation.kind === "sister" ? operands.origin.creation.disposition : operands.origin.creation.report);
-  }
-  return refs;
-}
-function pinnedRef(pin) {
-  const { scope, kind, recordId } = pin.identity;
-  return { scope, kind, recordId };
-}
-function interruptedRefs(phase) {
-  const refs = [phase.opened];
-  if (phase.kind === "publication-prefix") {
-    if (phase.source.state === "complete")
-      refs.push(pinnedRef(phase.source.record));
-  } else {
-    refs.push(pinnedRef(phase.source), pinnedRef(phase.request));
-    if (phase.kind === "decided")
-      refs.push(pinnedRef(phase.decision));
-  }
-  return refs;
-}
-function fixOwnerRefs(payload) {
-  const refs = [];
-  if (payload.phase === "opened") {
-    refs.push(payload.common.mandate, payload.common.binding, ...payload.common.accepted.versionVector.map((entry) => entry.sourceAccepted));
-    if (payload.intent.kind === "fresh-intake")
-      refs.push(payload.intent.afterClose);
-    else
-      refs.push(payload.intent.recovery, pinnedRef(payload.intent.source), pinnedRef(payload.intent.request), pinnedRef(payload.intent.decision));
-  } else {
-    refs.push(payload.opened, ...interruptedRefs(payload.interrupted));
-    for (const outbound of payload.outbound)
-      if (outbound.publication.state === "confirmed")
-        refs.push(pinnedRef(outbound.publication.record));
-  }
-  return refs.filter((ref) => ref !== null);
-}
-function preparedRecoveryRefs(preparation) {
-  if (preparation.kind !== "prepared")
-    return [];
-  const inputs = preparation.inputs;
-  const refs = [
-    ...inputs.manifest.acceptedSources.map((entry) => entry.record),
-    ...inputs.manifest.deliveryData.map((entry) => entry.record),
-    ...inputs.stageSources.map((entry) => entry.record)
-  ];
-  for (const entry of inputs.manifest.expandedContext)
-    if (entry.source === "record")
-      refs.push(entry.record);
-  if (inputs.manifest.subject.kind === "uw" && inputs.manifest.subject.binding)
-    refs.push(inputs.manifest.subject.binding.record);
-  if (inputs.manifest.spec.kind === "accepted")
-    refs.push(...inputs.manifest.spec.effective.versionVector.map((entry) => entry.sourceAccepted));
-  return refs;
-}
-function fixRecoveryRefs(payload) {
-  const refs = [
-    payload.binding,
-    payload.mandate,
-    payload.predecessor,
-    payload.opened,
-    payload.settled,
-    pinnedRef(payload.observation.authority.binding),
-    pinnedRef(payload.observation.authority.mandate),
-    ...payload.observation.authority.accepted.versionVector.map((entry) => entry.sourceAccepted)
-  ];
-  refs.push(...interruptedRefs(payload.target));
-  if (payload.phase === "adopt-decision")
-    refs.push(...preparedRecoveryRefs(payload.nativePreparation));
-  for (const cut of payload.cuts) {
-    refs.push(cut.retiringOpened);
-    for (const member of cut.members)
-      if (member.disposition === "keep-complete")
-        refs.push(pinnedRef(member.record));
-  }
-  return refs.filter((ref) => ref !== null);
-}
-function scopedRefsOf(record) {
-  switch (record.kind) {
-    case "review":
-      return record.payload.causeDispositionRefs ?? [];
-    case "fix-request":
-      return [
-        record.payload.originalSpec.sourceAccepted
-      ];
-    case "correction-result":
-      return [record.payload.causeDisposition];
-    case "fix-result":
-      return record.payload.causeDispositionRefs;
-    case "debt-receipt": {
-      const p = record.payload;
-      return [p.operation, p.disposition, p.decision, p.identity];
-    }
-    case "cause-disposition":
-      return causeDispositionRefs(record.payload);
-    case "cause-operation":
-      return causeOperationRefs(record.payload);
-    case "report-promotion": {
-      const p = record.payload;
-      return [p.report, p.operation, p.identity];
-    }
-    case "framing-receipt": {
-      const payload = record.payload;
-      if (payload.phase === "intent")
-        return payload.proposal.members.flatMap((member) => [
-          ...member.inherited.map((own) => own.sourceAccepted),
-          ...member.allocation?.ledgerHead ? [member.allocation.ledgerHead] : []
-        ]);
-      if (payload.phase === "member-binding")
-        return [payload.intent];
-      if (payload.phase === "member-claim")
-        return payload.binding === null ? [payload.intent] : [payload.intent, payload.binding];
-      return [
-        payload.intent,
-        ...payload.claims,
-        ...payload.bindings,
-        ...payload.identities,
-        ...payload.coverage.flatMap((coverage) => coverage.ancestors.flatMap((ancestor) => ancestor.kind === "accepted" ? [ancestor.own.sourceAccepted, ancestor.metadata] : []))
-      ];
-    }
-    case "spec-identity": {
-      const payload = record.payload;
-      const refs = payload.predecessor === null ? [] : [payload.predecessor];
-      if (payload.format === "omp-build-spec-identity/2")
-        refs.push(payload.aggregate.intent, payload.aggregate.claim, payload.aggregate.binding);
-      return refs;
-    }
-    case "mandate": {
-      const payload = record.payload;
-      return [
-        payload.parent,
-        payload.antecedent,
-        ...payload.ownSpec.identityAllocations,
-        ...payload.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted)
-      ].filter((ref) => ref !== null);
-    }
-    case "operator-control":
-      return operatorControlRefs(record.payload);
-    case "action-receipt":
-      return actionReceiptRefs(record.payload);
-    case "workflow-binding":
-      return [record.payload.mandate];
-    case "review-interruption":
-      return [record.payload.historicalBinding];
-    case "review-replacement-grant":
-      return [record.payload.binding];
-    case "fix-owner":
-      return fixOwnerRefs(record.payload);
-    case "fix-recovery":
-      return fixRecoveryRefs(record.payload);
-    default:
-      return [];
-  }
-}
-function partitionScopedRefs(record) {
-  const scope = { repository: record.repository, target: record.target };
-  const refs = scopedRefsOf(record);
-  return {
-    sameScope: refs.filter((ref) => equalScope(ref.scope, scope)),
-    external: refs.filter((ref) => !equalScope(ref.scope, scope))
-  };
-}
-function workflowInputMeaning(record) {
-  if (!isWorkflowKind(record.kind) && !["review", "fix-request", "correction-result", "fix-result", "debt-receipt", "fix-owner", "fix-recovery"].includes(record.kind))
-    return null;
-  const { sameScope, external } = partitionScopedRefs(record);
-  for (const ref of sameScope) {
-    if (!record.inputs.includes(ref.recordId))
-      return diagnostic2("unbound", `Same-scope reference ${ref.recordId} is missing from inputs`);
-  }
-  for (const ref of external) {
-    if (record.inputs.includes(ref.recordId) || sameScope.some((item) => item.recordId === ref.recordId))
-      return diagnostic2("ambiguous", `External reference ${ref.recordId} must not be an input`);
-  }
-  return null;
-}
-
-// plugins/omp-build/engine/record-construction.ts
-function parseRecord(value) {
-  const format = recordFormatDiagnostic(value);
-  if (format)
-    return fail([format]);
-  const parsed = recordSchema.safeParse(value);
-  if (!parsed.success)
-    return fail([
-      diagnostic2("malformed", "Record does not match the canonical schema", parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })))
-    ]);
-  const meaning = workflowInputMeaning(parsed.data);
-  return meaning === null ? { ok: true, value: parsed.data } : fail([meaning]);
-}
-function reviewAttemptInputs(draft) {
-  if (draft.payload.stage !== "initial")
-    return [draft.payload.rootAttemptId];
-  if (draft.payload.purpose === "correction")
-    return [
-      draft.payload.requestId,
-      ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
-    ];
-  if (isInitialPullRequestReviewInventory(draft.payload) && draft.payload.replacement !== undefined)
-    return [
-      draft.payload.replacement.rootAttemptId,
-      draft.payload.replacement.dispositionId,
-      draft.payload.replacement.grantId
-    ];
-  return [];
-}
-function derivedInputs(draft) {
-  switch (draft.kind) {
-    case "review-attempt":
-      return reviewAttemptInputs(draft);
-    case "contribution":
-      return draft.payload.inventoryId === null ? [] : [draft.payload.inventoryId];
-    case "decision":
-      return [draft.payload.originalContributionId, ...draft.payload.judgment.sourceContributionIds];
-    case "review":
-      return [
-        draft.payload.decisionId,
-        ...draft.payload.inventoryIds,
-        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
-      ];
-    case "fix-request":
-      return [
-        draft.payload.requestContributionId,
-        ...draft.payload.existingReviewId === null ? [] : [draft.payload.existingReviewId],
-        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
-      ];
-    case "correction-result":
-      return [
-        draft.payload.decisionId,
-        ...draft.payload.appliedContributionId == null ? [] : [draft.payload.appliedContributionId],
-        ...(draft.payload.criterionObservations ?? []).map((item) => item.sourceContributionId),
-        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
-      ];
-    case "falsification-result":
-      return [draft.payload.correctionResultId];
-    case "debt-receipt":
-      return scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId);
-    case "fix-result":
-      return [
-        draft.payload.requestId,
-        draft.payload.decisionId,
-        ...draft.payload.correctionResultIds,
-        ...draft.payload.falsificationResultIds,
-        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId),
-        ...draft.payload.criterionReceipt === undefined ? [] : [draft.payload.criterionReceipt.sourceContributionId]
-      ];
-    case "stop":
-      return [draft.payload.reviewId];
-    case "epic-event":
-      return [];
-    case "review-interruption":
-      return [
-        draft.payload.rootAttemptId,
-        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId)
-      ];
-    case "review-replacement-grant":
-      return [
-        draft.payload.rootAttemptId,
-        draft.payload.dispositionId,
-        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId)
-      ];
-    case "spec-identity":
-    case "framing-receipt":
-    case "mandate":
-    case "operator-control":
-    case "action-receipt":
-    case "workflow-binding":
-    case "cause-disposition":
-    case "cause-operation":
-    case "report-promotion":
-    case "fix-owner":
-    case "fix-recovery":
-      return scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId);
-  }
-}
-function buildRecord(draft, contextInputs = []) {
-  return parseRecord({ ...draft, inputs: [...new Set([...derivedInputs(draft), ...contextInputs])] });
-}
 
 // plugins/omp-build/engine/workflow-composed-material-intent.ts
 var equal = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
@@ -17841,78 +16490,6 @@ function validateComposedMaterialAuthorization(input) {
   if (!result.success || !equal2(result.data, authorization.boundState))
     return invalid4("Persisted bound state is not the exact slot substitution");
   return { ok: true, value: result.data };
-}
-function buildComposedMaterialAcceptanceControl(input) {
-  const { prepared, operation, binding, histories } = input;
-  const history = historyFor(operation.scope, histories);
-  const bound = history === null ? null : bindExternalRef(operation, history);
-  if (bound === null || !bound.ok || bound.value.kind !== "cause-operation")
-    return invalid4("Creation intent is unavailable");
-  const outer = bound.value.payload.proposal;
-  if (outer.operation !== "create" || outer.parentAcceptance === null)
-    return invalid4("Creation intent has no parent consent");
-  const proposed = prepared.proposal.exactInputs.proposed;
-  const children = proposed.children.map((child) => ("kind" in child) ? {
-    scope: binding.child,
-    snapshot: binding.snapshot,
-    specVersion: binding.snapshot.spec.version,
-    tier: outer.tier
-  } : child);
-  const coverage = proposed.coverage === null ? null : {
-    parent: proposed.coverage.parent,
-    assignments: proposed.coverage.assignments.map((row) => {
-      const [first, ...rest] = row.children;
-      const bind = (child) => ("kind" in child) ? binding.child : child;
-      const children = [bind(first), ...rest.map(bind)];
-      return { criterion: row.criterion, children };
-    })
-  };
-  const state = concreteAcceptedStateSchema.safeParse({
-    snapshot: proposed.snapshot,
-    tier: proposed.tier,
-    inheritedOwnSpecRefs: proposed.inheritedOwnSpecRefs,
-    children,
-    coverage
-  });
-  if (!state.success || prepared.digest !== materialAcceptanceDigest(prepared.proposal))
-    return invalid4("Prepared parent proposal or bound state is malformed");
-  const authorization = {
-    kind: "cause-creation",
-    operation: { ...operation, kind: "cause-operation" },
-    binding,
-    boundState: state.data
-  };
-  const confirmation = bound.value.payload.confirmation;
-  const checked = validateComposedMaterialAuthorization({
-    proposal: prepared.proposal,
-    authorization,
-    confirmation,
-    histories
-  });
-  if (!checked.ok)
-    return checked;
-  const proposal = prepared.proposal;
-  return buildRecord({
-    repository: proposal.mandate.scope.repository,
-    target: proposal.mandate.scope.target,
-    version: 1,
-    recordId: proposal.operationId,
-    runId: proposal.operationId,
-    operationId: proposal.operationId,
-    kind: "operator-control",
-    payload: {
-      control: "accept-material",
-      controlId: proposal.operationId,
-      mandate: proposal.mandate,
-      predecessor: proposal.predecessor,
-      assessment: proposal.assessment,
-      specVersion: proposal.exactInputs.proposed.snapshot.spec.version,
-      proposalDigest: prepared.digest,
-      authorization,
-      confirmation,
-      identityDelta: { retired: [...proposal.exactInputs.mechanical.removed] }
-    }
-  });
 }
 
 // plugins/omp-build/engine/workflow-material-continuation.ts
@@ -19057,6 +17634,81 @@ function epicParentProblem(mandate, histories, causal) {
     };
   }
   return null;
+}
+
+// plugins/omp-build/engine/workflow-pause.ts
+function pauseRequestFor(mandate, record) {
+  return record.payload.control === "pause-requested" && sameRef2(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" });
+}
+function pauseConfirmationFor(history, mandate, request) {
+  if (request.payload.control !== "pause-requested")
+    return null;
+  const controlId = request.payload.controlId;
+  const requestRef = {
+    scope: { repository: request.repository, target: request.target },
+    recordId: request.recordId,
+    kind: "operator-control"
+  };
+  return controlsOf(history).find((record) => record.payload.control === "pause-confirmed" && record.payload.controlId === controlId && sameRef2(record.payload.mandate, {
+    scope: mandateScope(mandate),
+    recordId: mandate.recordId,
+    kind: "mandate"
+  }) && record.payload.predecessor !== null && sameRef2(record.payload.predecessor, requestRef) && record.payload.disarm.observed === true) ?? null;
+}
+function confirmedPause(history, mandate) {
+  for (const request of controlsOf(history)) {
+    if (!pauseRequestFor(mandate, request))
+      continue;
+    const confirmation = pauseConfirmationFor(history, mandate, request);
+    if (confirmation !== null)
+      return confirmation;
+  }
+  return null;
+}
+function unliftedPause(history, mandate) {
+  for (const request of controlsOf(history)) {
+    if (!pauseRequestFor(mandate, request))
+      continue;
+    const confirmation = pauseConfirmationFor(history, mandate, request);
+    if (confirmation !== null && !pauseLifted(history, confirmation))
+      return confirmation;
+  }
+  return null;
+}
+function outstandingPauseRequest(history, mandate) {
+  return controlsOf(history).find((record) => pauseRequestFor(mandate, record) && pauseConfirmationFor(history, mandate, record) === null) ?? null;
+}
+function outstandingPauseInAuthority(mandate, histories, seen = new Set) {
+  const scope = mandateScope(mandate);
+  const key = `${scope.repository}\x00${scope.target}\x00${mandate.recordId}`;
+  if (seen.has(key))
+    return null;
+  const home = historyFor(scope, histories);
+  if (home === null)
+    return null;
+  if (outstandingPauseRequest(home, mandate) !== null)
+    return diagnostic2("pause-unconfirmed", `Mandate ${mandate.recordId} has an unconfirmed pause request`);
+  if (mandate.payload.parent === null)
+    return null;
+  const parentHistory = historyFor(mandate.payload.parent.scope, histories);
+  if (parentHistory === null)
+    return null;
+  const parent = bindExternalRef(mandate.payload.parent, parentHistory);
+  if (!parent.ok || parent.value.kind !== "mandate")
+    return null;
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
+  return outstandingPauseInAuthority(parent.value, histories, nextSeen);
+}
+function pauseLifted(history, confirmation) {
+  if (confirmation.payload.control !== "pause-confirmed")
+    return false;
+  const { controlId, mandate } = confirmation.payload;
+  return controlsOf(history).some((record) => record.payload.control === "resume" && record.payload.controlId === controlId && sameRef2(record.payload.mandate, mandate) && sameRef2(record.payload.predecessor, {
+    scope: { repository: confirmation.repository, target: confirmation.target },
+    recordId: confirmation.recordId,
+    kind: "operator-control"
+  }));
 }
 
 // plugins/omp-build/engine/workflow-mandate-admission.ts
@@ -21173,6 +19825,236 @@ function effectiveRejectedFindingIds(input) {
 function historicalRejectedFindingIds(input) {
   return selectedRejectedFindingIds(input, true);
 }
+// plugins/omp-build/engine/workflow-record-references.ts
+function causeDispositionRefs(payload) {
+  const subject = payload.subject;
+  return [
+    payload.origin.sourceAccepted,
+    ...payload.basis.versionVector.map((ref) => ref.sourceAccepted),
+    payload.basis.capture?.record ?? null,
+    payload.previous,
+    payload.adjudication,
+    subject.kind === "cause" ? subject.decision : subject.kind === "retained-finding" ? subject.contribution : subject.source
+  ].filter((ref) => ref !== null);
+}
+function causeOperationRefs(payload) {
+  const proposal = payload.proposal;
+  return [
+    proposal.operation === "adjudicate-cause" ? proposal.pending : proposal.creation.kind === "sister" ? proposal.creation.disposition : proposal.creation.report
+  ];
+}
+function operatorControlRefs(payload) {
+  const refs = payload.control === "adjust-cause-dependency" ? [
+    payload.proposal.mandate,
+    payload.proposal.predecessor,
+    payload.proposal.disposition,
+    payload.proposal.receipt,
+    payload.proposal.accepted.sourceAccepted,
+    ...payload.proposal.versionVector.map((ref) => ref.sourceAccepted)
+  ] : [payload.mandate, payload.predecessor];
+  if (payload.control === "accept-material") {
+    refs.push(payload.assessment);
+    if (payload.authorization.kind === "cause-creation")
+      refs.push(payload.authorization.operation, payload.authorization.binding.identity);
+  }
+  if (payload.control === "select-successor")
+    refs.push(payload.successor);
+  if (payload.control === "resolve-interruption")
+    refs.push(payload.start, payload.result);
+  if (payload.control === "adjust-cause-dependency") {
+    for (const reference of payload.proposal.references)
+      if (reference.source === "record")
+        refs.push(reference.record);
+  }
+  return refs.filter((ref) => ref !== null);
+}
+function actionReceiptRefs(payload) {
+  const refs = payload.mandate.kind === "absent" ? [] : [payload.mandate];
+  if (payload.phase === "result")
+    refs.push(payload.start);
+  if (payload.action === "assess-spec") {
+    refs.push(payload.exactInputs.accepted.ref.sourceAccepted, ...payload.exactInputs.identityAllocations);
+    refs.push(...payload.exactInputs.accepted.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted));
+    refs.push(...payload.exactInputs.proposed.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted));
+    refs.push(...payload.exactInputs.childOwnSources.flatMap((entry) => entry.own === null ? [] : [entry.own.sourceAccepted]));
+    const operands = payload.inputs.manifest.operands;
+    if (operands?.action === "assess-spec" && operands.origin.kind === "cause-created-child")
+      refs.push(operands.origin.creation.kind === "sister" ? operands.origin.creation.disposition : operands.origin.creation.report);
+  }
+  return refs;
+}
+function pinnedRef(pin) {
+  const { scope, kind, recordId } = pin.identity;
+  return { scope, kind, recordId };
+}
+function interruptedRefs(phase) {
+  const refs = [phase.opened];
+  if (phase.kind === "publication-prefix") {
+    if (phase.source.state === "complete")
+      refs.push(pinnedRef(phase.source.record));
+  } else {
+    refs.push(pinnedRef(phase.source), pinnedRef(phase.request));
+    if (phase.kind === "decided")
+      refs.push(pinnedRef(phase.decision));
+  }
+  return refs;
+}
+function fixOwnerRefs(payload) {
+  const refs = [];
+  if (payload.phase === "opened") {
+    refs.push(payload.common.mandate, payload.common.binding, ...payload.common.accepted.versionVector.map((entry) => entry.sourceAccepted));
+    if (payload.intent.kind === "fresh-intake")
+      refs.push(payload.intent.afterClose);
+    else
+      refs.push(payload.intent.recovery, pinnedRef(payload.intent.source), pinnedRef(payload.intent.request), pinnedRef(payload.intent.decision));
+  } else {
+    refs.push(payload.opened, ...interruptedRefs(payload.interrupted));
+    for (const outbound of payload.outbound)
+      if (outbound.publication.state === "confirmed")
+        refs.push(pinnedRef(outbound.publication.record));
+  }
+  return refs.filter((ref) => ref !== null);
+}
+function preparedRecoveryRefs(preparation) {
+  if (preparation.kind !== "prepared")
+    return [];
+  const inputs = preparation.inputs;
+  const refs = [
+    ...inputs.manifest.acceptedSources.map((entry) => entry.record),
+    ...inputs.manifest.deliveryData.map((entry) => entry.record),
+    ...inputs.stageSources.map((entry) => entry.record)
+  ];
+  for (const entry of inputs.manifest.expandedContext)
+    if (entry.source === "record")
+      refs.push(entry.record);
+  if (inputs.manifest.subject.kind === "uw" && inputs.manifest.subject.binding)
+    refs.push(inputs.manifest.subject.binding.record);
+  if (inputs.manifest.spec.kind === "accepted")
+    refs.push(...inputs.manifest.spec.effective.versionVector.map((entry) => entry.sourceAccepted));
+  return refs;
+}
+function fixRecoveryRefs(payload) {
+  const refs = [
+    payload.binding,
+    payload.mandate,
+    payload.predecessor,
+    payload.opened,
+    payload.settled,
+    pinnedRef(payload.observation.authority.binding),
+    pinnedRef(payload.observation.authority.mandate),
+    ...payload.observation.authority.accepted.versionVector.map((entry) => entry.sourceAccepted)
+  ];
+  refs.push(...interruptedRefs(payload.target));
+  if (payload.phase === "adopt-decision")
+    refs.push(...preparedRecoveryRefs(payload.nativePreparation));
+  for (const cut of payload.cuts) {
+    refs.push(cut.retiringOpened);
+    for (const member of cut.members)
+      if (member.disposition === "keep-complete")
+        refs.push(pinnedRef(member.record));
+  }
+  return refs.filter((ref) => ref !== null);
+}
+function scopedRefsOf(record) {
+  switch (record.kind) {
+    case "review":
+      return record.payload.causeDispositionRefs ?? [];
+    case "fix-request":
+      return [
+        record.payload.originalSpec.sourceAccepted
+      ];
+    case "correction-result":
+      return [record.payload.causeDisposition];
+    case "fix-result":
+      return record.payload.causeDispositionRefs;
+    case "debt-receipt": {
+      const p = record.payload;
+      return [p.operation, p.disposition, p.decision, p.identity];
+    }
+    case "cause-disposition":
+      return causeDispositionRefs(record.payload);
+    case "cause-operation":
+      return causeOperationRefs(record.payload);
+    case "report-promotion": {
+      const p = record.payload;
+      return [p.report, p.operation, p.identity];
+    }
+    case "framing-receipt": {
+      const payload = record.payload;
+      if (payload.phase === "intent")
+        return payload.proposal.members.flatMap((member) => [
+          ...member.inherited.map((own) => own.sourceAccepted),
+          ...member.allocation?.ledgerHead ? [member.allocation.ledgerHead] : []
+        ]);
+      if (payload.phase === "member-binding")
+        return [payload.intent];
+      if (payload.phase === "member-claim")
+        return payload.binding === null ? [payload.intent] : [payload.intent, payload.binding];
+      return [
+        payload.intent,
+        ...payload.claims,
+        ...payload.bindings,
+        ...payload.identities,
+        ...payload.coverage.flatMap((coverage) => coverage.ancestors.flatMap((ancestor) => ancestor.kind === "accepted" ? [ancestor.own.sourceAccepted, ancestor.metadata] : []))
+      ];
+    }
+    case "spec-identity": {
+      const payload = record.payload;
+      const refs = payload.predecessor === null ? [] : [payload.predecessor];
+      if (payload.format === "omp-build-spec-identity/2")
+        refs.push(payload.aggregate.intent, payload.aggregate.claim, payload.aggregate.binding);
+      return refs;
+    }
+    case "mandate": {
+      const payload = record.payload;
+      return [
+        payload.parent,
+        payload.antecedent,
+        ...payload.ownSpec.identityAllocations,
+        ...payload.inheritedOwnSpecRefs.map((ref) => ref.sourceAccepted)
+      ].filter((ref) => ref !== null);
+    }
+    case "operator-control":
+      return operatorControlRefs(record.payload);
+    case "action-receipt":
+      return actionReceiptRefs(record.payload);
+    case "workflow-binding":
+      return [record.payload.mandate];
+    case "review-interruption":
+      return [record.payload.historicalBinding];
+    case "review-replacement-grant":
+      return [record.payload.binding];
+    case "fix-owner":
+      return fixOwnerRefs(record.payload);
+    case "fix-recovery":
+      return fixRecoveryRefs(record.payload);
+    default:
+      return [];
+  }
+}
+function partitionScopedRefs(record) {
+  const scope = { repository: record.repository, target: record.target };
+  const refs = scopedRefsOf(record);
+  return {
+    sameScope: refs.filter((ref) => equalScope(ref.scope, scope)),
+    external: refs.filter((ref) => !equalScope(ref.scope, scope))
+  };
+}
+function workflowInputMeaning(record) {
+  if (!isWorkflowKind(record.kind) && !["review", "fix-request", "correction-result", "fix-result", "debt-receipt", "fix-owner", "fix-recovery"].includes(record.kind))
+    return null;
+  const { sameScope, external } = partitionScopedRefs(record);
+  for (const ref of sameScope) {
+    if (!record.inputs.includes(ref.recordId))
+      return diagnostic2("unbound", `Same-scope reference ${ref.recordId} is missing from inputs`);
+  }
+  for (const ref of external) {
+    if (record.inputs.includes(ref.recordId) || sameScope.some((item) => item.recordId === ref.recordId))
+      return diagnostic2("ambiguous", `External reference ${ref.recordId} must not be an input`);
+  }
+  return null;
+}
+
 // plugins/omp-build/engine/cause-history-references.ts
 function addJudgment(judgment, add) {
   for (const dimension of [judgment.necessary, judgment.urgent, judgment.tooLarge]) {
@@ -23219,6 +22101,1012 @@ function operationAuthority(operation, history, clues) {
     return "authority";
   return ACCOUNTED_KINDS[kind] === true ? "accounted" : "authority";
 }
+// plugins/omp-build/engine/uw-command-schema.ts
+var shared = {
+  draft: specDraftSchema,
+  title: string2().min(1),
+  factors: complexityFactorsSchema,
+  writes: writesSchema,
+  normalization: array(normalizationDecisionSchema),
+  tierOverride: tierOverrideSchema
+};
+var uwProposalInputSchema = strictObject({ uw: scopeSchema, sourceBodySha256: sha256Schema, ...shared });
+var uwCreateInputSchema = strictObject({ repository: repositorySchema, ...shared });
+var causeDependencyAdjustmentInputSchema = strictObject({
+  origin: scopeSchema,
+  disposition: externalRecordRefSchema.extend({ kind: literal("cause-disposition") }),
+  receipt: externalRecordRefSchema.extend({ kind: literal("debt-receipt") }),
+  predecessor: union([
+    externalRecordRefSchema.extend({ kind: literal("debt-receipt") }),
+    externalRecordRefSchema.extend({ kind: literal("operator-control") })
+  ]),
+  change: discriminatedUnion("kind", [
+    strictObject({ kind: literal("withdraw") }),
+    strictObject({ kind: literal("replace"), blocker: scopeSchema })
+  ]),
+  nativeEffect: causeDependencyNativePlanSchema,
+  reason: string2().trim().min(1),
+  references: array(observationRefSchema)
+});
+
+// plugins/omp-build/engine/cause-disposition-schema.ts
+var ref5 = (kind) => externalRecordRefSchema.extend({ kind: literal(kind) });
+var dispositionRef2 = ref5("cause-disposition");
+var operationRef = ref5("cause-operation");
+var causeAdjudicationInputSchema = strictObject({
+  pending: dispositionRef2,
+  rejectedFindingIds: array(identifierSchema),
+  judgment: causeJudgmentSchema.nullable(),
+  reason: string2().trim().min(1),
+  references: array(observationRefSchema)
+});
+var causeAdjudicationProposalSchema = causeAdjudicationInputSchema.extend({
+  format: literal("omp-build-cause-adjudication-proposal/1"),
+  operationId: identifierSchema,
+  operation: literal("adjudicate-cause"),
+  uw: scopeSchema,
+  pendingDigest: sha256Schema
+});
+var parentCoverageIntentSchema = strictObject({
+  parent: strictObject({ uw: scopeSchema, version: sha256Schema }),
+  assignments: array(strictObject({
+    criterion: criterionIdSchema,
+    children: tuple([union([scopeSchema, strictObject({ kind: literal("created-child") })])]).rest(union([scopeSchema, strictObject({ kind: literal("created-child") })]))
+  }))
+});
+var causeSisterInputSchema = strictObject({
+  disposition: dispositionRef2,
+  factors: complexityFactorsSchema,
+  tierOverride: tierOverrideSchema,
+  labels: strictObject({ add: array(string2().min(1)), remove: array(string2().min(1)) }),
+  parentCoverage: parentCoverageIntentSchema.nullable().optional()
+});
+var reportPromotionInputSchema = strictObject({
+  report: dispositionRef2,
+  create: uwCreateInputSchema,
+  reason: string2().trim().min(1),
+  parentCoverage: parentCoverageIntentSchema.nullable().optional()
+});
+var composedParentConsentSchema = strictObject({
+  parent: scopeSchema,
+  mandate: ref5("mandate"),
+  accepted: ownSpecRefSchema,
+  predecessor: externalRecordRefSchema,
+  versionVector: tuple([ownSpecRefSchema]).rest(ownSpecRefSchema),
+  nativeObservationDigest: sha256Schema,
+  historyDigest: sha256Schema,
+  assessment: ref5("action-receipt"),
+  exactInputs: assessSpecExactSchema,
+  slot: createdChildSlotSchema,
+  parentOperationId: identifierSchema,
+  parentProposalDigest: sha256Schema
+});
+var causeCreationProposalSchema = uwCreatePlanSchema.extend({
+  creation: causeCreationContextSchema,
+  parentAcceptance: composedParentConsentSchema.nullable()
+});
+var causeOperationPayloadSchema = strictObject({
+  format: literal("omp-build-cause-operation/1"),
+  proposal: union([causeAdjudicationProposalSchema, causeCreationProposalSchema]),
+  proposalDigest: sha256Schema,
+  confirmation: operatorConfirmationEvidenceSchema
+});
+var causeDispositionPayloadSchema = strictObject({
+  format: literal("omp-build-cause-disposition/2"),
+  origin: ownSpecRefSchema,
+  basis: strictObject({
+    versionVector: tuple([ownSpecRefSchema]).rest(ownSpecRefSchema),
+    capture: recordInputRefSchema.nullable()
+  }),
+  subject: discriminatedUnion("kind", [
+    strictObject({
+      kind: literal("cause"),
+      decision: ref5("decision"),
+      cause: causeSchema,
+      findings: array(finalFindingSchema)
+    }),
+    strictObject({
+      kind: literal("retained-finding"),
+      contribution: ref5("contribution"),
+      finding: originalFindingSchema,
+      diagnostics: array(diagnosticSchema)
+    }),
+    strictObject({ kind: literal("rule-error"), source: externalRecordRefSchema, diagnostic: diagnosticSchema })
+  ]),
+  previous: dispositionRef2.nullable(),
+  adjudication: operationRef.nullable(),
+  outcome: discriminatedUnion("state", [
+    strictObject({
+      state: literal("final"),
+      disposition: dispositionSchema,
+      blocking: boolean2(),
+      reason: string2().min(1)
+    }),
+    strictObject({ state: literal("pending-blocking"), reason: string2().min(1) })
+  ]),
+  diagnostics: array(diagnosticSchema)
+});
+var reportPromotionPayloadSchema = strictObject({
+  format: literal("omp-build-report-promotion/1"),
+  report: dispositionRef2,
+  operation: operationRef,
+  created: scopeSchema,
+  identity: ref5("spec-identity")
+});
+
+// plugins/omp-build/engine/fix-recovery-control-schema.ts
+var FIX_RECOVERY_FORMAT = "omp-build-fix-recovery/1";
+var ref6 = (kind) => externalRecordRefSchema.extend({ kind: literal(kind) });
+var openedRefSchema3 = ref6("fix-owner");
+var settledRefSchema = ref6("fix-owner");
+var recoveryRefSchema2 = ref6("fix-recovery");
+var mandateRefSchema2 = ref6("mandate");
+var bindingRefSchema2 = ref6("workflow-binding");
+var scopeCutMemberSchema = discriminatedUnion("disposition", [
+  strictObject({
+    disposition: literal("keep-complete"),
+    record: strictObject({
+      identity: reservedOwnedIdentitySchema,
+      envelopeDigest: sha256Schema,
+      parts: array(partPinSchema).min(1)
+    })
+  }),
+  strictObject({
+    disposition: literal("retire-incomplete"),
+    identity: reservedOwnedIdentitySchema,
+    observedParts: array(partPinSchema)
+  })
+]);
+var scopeCutSchema = strictObject({
+  scope: scopeSchema,
+  retiringOpened: openedRefSchema3,
+  members: array(scopeCutMemberSchema)
+});
+var recoveryHistoryCutSchema = strictObject({
+  scope: scopeSchema,
+  expectedAuthor: string2().min(1),
+  stopAuthor: string2().min(1).nullable(),
+  complete: literal(true),
+  parts: array(partPinSchema)
+});
+var recoveryGraphFactsSchema = strictObject({
+  root: scopeSchema,
+  nodes: array(strictObject({
+    uw: scopeSchema,
+    title: string2(),
+    raw: strictObject({ reference: string2().min(1), body: string2(), bodySha256: sha256Schema }),
+    labels: array(string2()),
+    wayfinderLabels: array(string2()),
+    parent: scopeSchema.nullable(),
+    children: array(scopeSchema),
+    blockers: array(scopeSchema),
+    native: strictObject({ state: _enum(["OPEN", "CLOSED"]), stateReason: string2().nullable() })
+  }))
+});
+var priorRecoveryOwnerFactSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("exact-lifetime-ended"),
+    ended: discriminatedUnion("basis", [
+      strictObject({ basis: literal("absent-in-validated-procfs") }),
+      strictObject({ basis: literal("pid-reused"), observed: processLifetimeSchema })
+    ])
+  }),
+  strictObject({ kind: literal("sealed-drained-live") })
+]);
+var fixRecoveryObservationSchema = strictObject({
+  format: literal("omp-build-fix-recovery-observation/1"),
+  histories: array(recoveryHistoryCutSchema).min(1),
+  graph: recoveryGraphFactsSchema,
+  authority: strictObject({
+    binding: recordPinSchema("workflow-binding"),
+    mandate: recordPinSchema("mandate"),
+    plugin: pluginPinSchema,
+    configuration: pluginConfigurationSchema,
+    accepted: specEffectiveSchema
+  }),
+  catalogues: array(strictObject({ ref: pinnedFileRefSchema, contents: string2() })).optional(),
+  pullRequest: strictObject({
+    scope: scopeSchema,
+    state: literal("open"),
+    candidateGitSHA: gitObjectIdSchema,
+    baseGitSHA: gitObjectIdSchema,
+    headRepository: string2().min(1),
+    branch: string2().min(1),
+    base: string2().min(1),
+    destination: destinationSchema
+  }),
+  local: localEffectsObservationSchema.extend({
+    status: strictObject({ format: literal("git-status-porcelain-v1"), stdout: string2() })
+  }),
+  host: strictObject({
+    process: processLifetimeSchema,
+    root: rootLifetimeSchema,
+    namespace: latchNamespaceSchema,
+    prior: priorRecoveryOwnerFactSchema
+  })
+});
+var fixRecoveryNativePreparationSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("prepared"),
+    causeId: identifierSchema,
+    actionId: identifierSchema,
+    inputs: actionInputsSchema
+  }),
+  strictObject({ kind: literal("no-native-action") })
+]);
+var proposalCommonFields = {
+  format: literal("omp-build-fix-recovery-proposal/1"),
+  operationId: identifierSchema,
+  control: reservedRecordIdentitySchema("fix-recovery"),
+  uw: scopeSchema,
+  pullRequest: scopeSchema,
+  binding: bindingRefSchema2,
+  mandate: mandateRefSchema2,
+  predecessor: recoveryRefSchema2.nullable(),
+  opened: openedRefSchema3,
+  settled: settledRefSchema,
+  cuts: array(scopeCutSchema).min(1),
+  observation: fixRecoveryObservationSchema,
+  observationDigest: sha256Schema,
+  expected: strictObject({
+    currentStateDigest: sha256Schema,
+    headDigest: sha256Schema,
+    pinDigest: sha256Schema,
+    mandateDigest: sha256Schema,
+    acceptedSpecDigest: sha256Schema
+  })
+};
+var fixRecoveryProposalSchema = discriminatedUnion("phase", [
+  strictObject({
+    ...proposalCommonFields,
+    phase: literal("close-publication"),
+    target: publicationPrefixPhaseSchema
+  }),
+  strictObject({
+    ...proposalCommonFields,
+    phase: literal("close-predecision"),
+    target: requestBeforeDecisionPhaseSchema
+  }),
+  strictObject({
+    ...proposalCommonFields,
+    phase: literal("adopt-decision"),
+    target: decidedPhaseSchema,
+    claimReservation: reservedRecordIdentitySchema("fix-owner"),
+    nativePreparation: fixRecoveryNativePreparationSchema
+  })
+]);
+var controlCommonFields = {
+  format: literal(FIX_RECOVERY_FORMAT),
+  uw: scopeSchema,
+  pullRequest: scopeSchema,
+  binding: bindingRefSchema2,
+  mandate: mandateRefSchema2,
+  predecessor: recoveryRefSchema2.nullable(),
+  opened: openedRefSchema3,
+  settled: settledRefSchema,
+  cuts: array(scopeCutSchema).min(1),
+  observation: fixRecoveryObservationSchema,
+  observationDigest: sha256Schema,
+  proposalDigest: sha256Schema,
+  confirmation: operatorConfirmationEvidenceSchema
+};
+var fixRecoveryPayloadSchema = discriminatedUnion("phase", [
+  strictObject({
+    ...controlCommonFields,
+    phase: literal("close-publication"),
+    target: publicationPrefixPhaseSchema
+  }),
+  strictObject({
+    ...controlCommonFields,
+    phase: literal("close-predecision"),
+    target: requestBeforeDecisionPhaseSchema
+  }),
+  strictObject({
+    ...controlCommonFields,
+    phase: literal("adopt-decision"),
+    target: decidedPhaseSchema,
+    claimReservation: reservedRecordIdentitySchema("fix-owner"),
+    nativePreparation: fixRecoveryNativePreparationSchema
+  })
+]);
+
+// plugins/omp-build/engine/review-interruption-schema.ts
+var workflowBindingRefSchema = externalRecordRefSchema.extend({ kind: literal("workflow-binding") });
+var reviewInterruptionPayloadSchema = strictObject({
+  rootAttemptId: identifierSchema,
+  historicalBinding: workflowBindingRefSchema
+});
+var reviewReplacementGrantPayloadSchema = strictObject({
+  rootAttemptId: identifierSchema,
+  dispositionId: identifierSchema,
+  candidateGitSHA: shaSchema,
+  inputFormat: literal(REVIEW_INPUT_FORMAT),
+  input: sha256Schema,
+  binding: workflowBindingRefSchema
+});
+
+// plugins/omp-build/engine/framing-context-schema.ts
+var FRAMING_PROCEDURE_FILES = {
+  grilling: "skills/feature/framing-procedures/grilling.md",
+  "domain-modeling": "skills/feature/framing-procedures/domain-modeling.md",
+  "codebase-design": "skills/feature/framing-procedures/codebase-design.md"
+};
+var framingStageSchema = _enum(["grilling", "domain-modeling", "codebase-design"]);
+var framingProcedureManifestSchema = strictObject({
+  format: literal("omp-build-framing-procedures/1"),
+  plugin: pluginPinSchema,
+  procedures: tuple([
+    strictObject({ stage: literal("grilling"), file: pinnedFileRefSchema }),
+    strictObject({ stage: literal("domain-modeling"), file: pinnedFileRefSchema }),
+    strictObject({ stage: literal("codebase-design"), file: pinnedFileRefSchema })
+  ]),
+  digest: sha256Schema
+});
+var framingInvocationBindingSchema = strictObject({
+  extensionInstanceId: string2().min(1),
+  sessionId: string2().min(1),
+  agentId: string2().min(1),
+  generation: number2().int().nonnegative(),
+  revision: number2().int().nonnegative(),
+  sourceDigest: sha256Schema,
+  procedures: framingProcedureManifestSchema
+});
+// plugins/omp-build/engine/uw-framing-schema.ts
+var framingMemberKeySchema = string2().min(1);
+var framingMaterialIdSchema = string2().regex(/^m[1-9][0-9]*$/);
+var framingMaterialCaptureSchema = strictObject({
+  id: framingMaterialIdSchema,
+  producer: _enum(["to-spec", "to-tickets"]),
+  origin: strictObject({
+    kind: literal("operator-entry"),
+    sessionId: string2().min(1),
+    entryId: string2().min(1)
+  }),
+  raw: specRawSourceSchema
+});
+var framingSourceOriginSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("native"), member: framingMemberKeySchema }),
+  strictObject({ kind: literal("material"), id: framingMaterialIdSchema })
+]);
+var framingAccountedDecisionSchema = strictObject({ origin: framingSourceOriginSchema.nullable(), decision: normalizationDecisionSchema }).superRefine((value, ctx) => {
+  if (value.decision.kind === "new" !== (value.origin === null))
+    ctx.addIssue({ code: "custom", message: "New decisions alone have no source origin" });
+});
+var framingObligationSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("existing"), id: specItemIdSchema }),
+  strictObject({ kind: literal("new"), draftKey: string2().min(1) })
+]);
+var framingSourceRefSchema = strictObject({ origin: framingSourceOriginSchema, span: sourceSpanSchema2 });
+var framingDestinationMergeSchema = strictObject({
+  target: framingObligationSchema,
+  sources: array(framingSourceRefSchema).min(2),
+  reason: string2().trim().min(1)
+});
+var framingSlotSelectionSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("command"), reference: string2().min(1) }),
+  strictObject({
+    kind: literal("operator-reference"),
+    text: union([
+      literal("accepted-args"),
+      strictObject({ sessionId: string2().min(1), entryId: string2().min(1) })
+    ]),
+    reference: string2().min(1)
+  }),
+  strictObject({ kind: literal("native-child"), parent: framingMemberKeySchema, reference: string2().min(1) })
+]);
+var framingMemberSlotSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("existing"),
+    key: framingMemberKeySchema,
+    uw: scopeSchema,
+    sourceBodySha256: sha256Schema,
+    selection: framingSlotSelectionSchema,
+    observed: strictObject({
+      nativeParent: scopeSchema.nullable(),
+      children: array(scopeSchema),
+      blockers: array(scopeSchema)
+    })
+  }),
+  strictObject({ kind: literal("new"), key: framingMemberKeySchema, repository: repositorySchema })
+]);
+var framingEdgeSchema = discriminatedUnion("kind", [
+  strictObject({ kind: literal("parent-child"), parent: framingMemberKeySchema, child: framingMemberKeySchema }),
+  strictObject({ kind: literal("blocker"), dependent: framingMemberKeySchema, blocker: framingMemberKeySchema })
+]);
+var framingCoverageIntentSchema = strictObject({
+  parent: framingMemberKeySchema,
+  assignments: array(strictObject({ criterion: framingObligationSchema, children: array(framingMemberKeySchema).min(1) }))
+});
+var framingSourceBindingSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("free-text"),
+    acceptedArgs: string2().min(1),
+    bodySha256: sha256Schema,
+    repository: repositorySchema,
+    materials: array(framingMaterialCaptureSchema)
+  }),
+  strictObject({
+    kind: literal("issue"),
+    uw: scopeSchema,
+    body: specRawSourceSchema,
+    parserDigest: sha256Schema,
+    nativeDigest: sha256Schema,
+    ledgerHead: externalRecordRefSchema.nullable(),
+    historyDigest: sha256Schema,
+    engagementDigest: sha256Schema,
+    materials: array(framingMaterialCaptureSchema)
+  })
+]);
+var framingMemberSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("uw"),
+    slot: framingMemberSlotSchema,
+    draft: specDraftSchema,
+    title: string2().trim().min(1),
+    factors: complexityFactorsSchema,
+    tierOverride: tierOverrideSchema,
+    normalization: array(framingAccountedDecisionSchema),
+    merges: array(framingDestinationMergeSchema),
+    labels: strictObject({ add: array(string2().min(1)), remove: array(string2().min(1)) })
+  }),
+  strictObject({
+    kind: literal("wayfinder"),
+    slot: framingMemberSlotSchema,
+    title: string2().trim().min(1),
+    body: string2(),
+    label: _enum([
+      "wayfinder:map",
+      "wayfinder:grilling",
+      "wayfinder:research",
+      "wayfinder:prototype",
+      "wayfinder:task"
+    ])
+  })
+]);
+var framingAggregateInputSchema = strictObject({
+  kind: _enum(["uw", "wayfinder"]),
+  root: framingMemberKeySchema,
+  members: array(framingMemberSchema).min(1),
+  edges: array(framingEdgeSchema),
+  coverage: array(framingCoverageIntentSchema),
+  foundations: array(strictObject({ parent: framingMemberKeySchema, child: framingMemberKeySchema })),
+  source: framingSourceBindingSchema
+}).superRefine((value, ctx) => {
+  const members = new Map(value.members.map((member) => [member.slot.key, member]));
+  if (members.size !== value.members.length)
+    ctx.addIssue({ code: "custom", path: ["members"], message: "Member keys must be unique" });
+  const root = members.get(value.root);
+  if (!root || root.kind !== value.kind)
+    ctx.addIssue({ code: "custom", path: ["root"], message: "Root must name a member of the aggregate kind" });
+  for (const [index, edge] of value.edges.entries()) {
+    const endpoints = edge.kind === "parent-child" ? [edge.parent, edge.child] : [edge.dependent, edge.blocker];
+    if (endpoints[0] === endpoints[1] || endpoints.some((key) => members.get(key)?.kind !== "uw"))
+      ctx.addIssue({ code: "custom", path: ["edges", index], message: "Edges require two distinct UW members" });
+  }
+});
+
+// plugins/omp-build/engine/uw-framing-receipt-schema.ts
+var framingReceiptRefSchema = externalRecordRefSchema.extend({ kind: literal("framing-receipt") });
+var framingMaterialSchema = framingMaterialCaptureSchema.extend({
+  conversion: _enum(["converted", "not-applicable"]),
+  parser: strictObject({
+    status: _enum(["conformant", "draft", "legacy", "malformed"]),
+    analysis: issueSpecAnalysisSchema,
+    analysisDigest: sha256Schema
+  })
+});
+var framingAllocationSchema = strictObject({
+  ledgerHead: externalRecordRefSchema.nullable(),
+  assignments: array(strictObject({ draftKey: string2().min(1), id: specItemIdSchema })),
+  retirements: array(specItemIdSchema),
+  spec: specSchema
+});
+var preparedFramingMemberSchema = strictObject({
+  key: framingMemberKeySchema,
+  ordinal: number2().int().nonnegative(),
+  slot: framingMemberSlotSchema,
+  memberDigest: sha256Schema,
+  allocation: framingAllocationSchema.nullable(),
+  renderedBody: string2(),
+  tier: uwTierSchema.nullable(),
+  inherited: array(ownSpecRefSchema),
+  nativeDigest: sha256Schema.nullable(),
+  nativeAnalysis: strictObject({
+    status: _enum(["conformant", "draft", "legacy", "malformed"]),
+    analysis: issueSpecAnalysisSchema,
+    analysisDigest: sha256Schema
+  }).nullable(),
+  historyDigest: sha256Schema.nullable(),
+  engagementDigest: sha256Schema.nullable()
+});
+var framingProposalSchema = strictObject({
+  format: literal("omp-build-uw-framing/1"),
+  operationId: string2().min(1),
+  target: discriminatedUnion("kind", [
+    strictObject({ kind: literal("existing"), uw: scopeSchema }),
+    strictObject({ kind: literal("create"), repository: string2().min(1) })
+  ]),
+  input: framingAggregateInputSchema,
+  invocation: framingInvocationBindingSchema,
+  materials: array(framingMaterialSchema),
+  members: array(preparedFramingMemberSchema).min(1)
+});
+var resultEdgeSchema = discriminatedUnion("kind", [
+  strictObject({
+    kind: literal("parent-child"),
+    parent: scopeSchema,
+    child: scopeSchema,
+    origin: _enum(["observed", "written"])
+  }),
+  strictObject({
+    kind: literal("blocker"),
+    dependent: scopeSchema,
+    blocker: scopeSchema,
+    origin: _enum(["observed", "written"])
+  })
+]);
+var boundFramingCoverageIntentSchema = strictObject({
+  parent: scopeSchema,
+  parentVersion: sha256Schema,
+  criteria: array(strictObject({ id: string2().min(1), statement: string2() })),
+  children: array(strictObject({
+    scope: scopeSchema,
+    specVersion: sha256Schema,
+    tier: uwTierSchema,
+    criteria: array(strictObject({ id: string2().min(1), statement: string2() }))
+  })),
+  coverage: parentCoverageSchema,
+  ancestors: array(discriminatedUnion("kind", [
+    strictObject({ kind: literal("accepted"), own: ownSpecRefSchema, metadata: externalRecordRefSchema }),
+    strictObject({
+      kind: literal("framing-member"),
+      member: framingMemberKeySchema,
+      scope: scopeSchema,
+      specVersion: sha256Schema,
+      tier: uwTierSchema,
+      acceptedStateDigest: sha256Schema
+    })
+  ])),
+  aggregateIntent: framingReceiptRefSchema,
+  aggregateResult: framingReceiptRefSchema
+});
+var framingReceiptPayloadSchema = discriminatedUnion("phase", [
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("intent"),
+    root: scopeSchema,
+    proposal: framingProposalSchema,
+    proposalDigest: sha256Schema,
+    confirmation: operatorConfirmationEvidenceSchema,
+    native: nativeIssueObservationSchema
+  }),
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("member-binding"),
+    intent: framingReceiptRefSchema,
+    member: framingMemberKeySchema,
+    memberDigest: sha256Schema
+  }),
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("member-claim"),
+    intent: framingReceiptRefSchema,
+    member: framingMemberKeySchema,
+    ordinal: number2().int().nonnegative(),
+    memberDigest: sha256Schema,
+    scope: scopeSchema,
+    slot: _enum(["existing", "new"]),
+    binding: framingReceiptRefSchema.nullable(),
+    native: nativeIssueObservationSchema
+  }),
+  strictObject({
+    format: literal("omp-build-framing-receipt/1"),
+    phase: literal("result"),
+    intent: framingReceiptRefSchema,
+    claims: array(framingReceiptRefSchema),
+    bindings: array(framingReceiptRefSchema),
+    identities: array(externalRecordRefSchema),
+    members: array(strictObject({
+      key: framingMemberKeySchema,
+      scope: scopeSchema,
+      memberDigest: sha256Schema,
+      binding: framingReceiptRefSchema,
+      snapshot: specSnapshotSchema.nullable(),
+      tier: uwTierSchema.nullable()
+    })),
+    edges: array(resultEdgeSchema),
+    coverage: array(boundFramingCoverageIntentSchema.omit({ aggregateResult: true })),
+    graphDigest: sha256Schema,
+    identityDigest: sha256Schema
+  })
+]);
+// plugins/omp-build/engine/workflow-receipt-exact.ts
+var frameExactSchema = strictObject({
+  specDigest: sha256Schema,
+  branch: string2().min(1),
+  base: string2().min(1)
+});
+var preMandateFrameExactSchema = strictObject({
+  branch: string2().min(1),
+  base: string2().min(1)
+});
+var PLAN_REVIEW_SPECIALISTS = ["R-workflow-plan-architect", "R-workflow-plan-adversarial"];
+var planReviewSpecialistSchema = _enum(PLAN_REVIEW_SPECIALISTS);
+var planReviewSlotSchema = strictObject({
+  slotId: identifierSchema,
+  specialist: planReviewSpecialistSchema,
+  action: contextNegativeBindingSchema.optional()
+});
+var planExactSchema = strictObject({
+  mandateId: identifierSchema,
+  specDigest: sha256Schema,
+  amendsReviewActionId: identifierSchema.nullable(),
+  requiredBlockers: array(planBlockerRefSchema)
+}).superRefine((value, context) => {
+  if (value.amendsReviewActionId === null && value.requiredBlockers.length !== 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["requiredBlockers"],
+      message: "a draft does not require review blockers"
+    });
+  }
+  const seen = new Set;
+  for (const [index, ref] of value.requiredBlockers.entries()) {
+    const key = `${ref.sourceId}\x00${ref.slotId}\x00${ref.blockerId}`;
+    if (seen.has(key)) {
+      context.addIssue({
+        code: "custom",
+        path: ["requiredBlockers", index],
+        message: "blocker reference is repeated"
+      });
+    }
+    seen.add(key);
+  }
+});
+var planReviewExactSchema = strictObject({
+  mandateId: identifierSchema,
+  specDigest: sha256Schema,
+  planDigest: sha256Schema,
+  draftActionId: identifierSchema
+});
+var implementExactSchema = strictObject({ mandateId: identifierSchema, planActionId: identifierSchema });
+var implementationAdmissionCommandSchema = strictObject({
+  toolCallId: identifierSchema,
+  command: string2(),
+  exitCode: number2().int(),
+  cwd: string2().min(1)
+});
+var hostEffectAdmissionSchema = strictObject({
+  admitted: boolean2(),
+  commits: array(gitObjectIdSchema),
+  paths: array(repoRelativePathSchema),
+  commands: array(implementationAdmissionCommandSchema),
+  remoteBranch: string2().min(1).nullable(),
+  remoteTip: gitObjectIdSchema.nullable(),
+  published: boolean2(),
+  reason: string2()
+});
+var nestedPlanContributionSchema = contributionSchema.superRefine((value, context) => {
+  if (value.inventoryId !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["inventoryId"],
+      message: "plan-review contribution inventoryId must be null"
+    });
+  }
+  if (value.host.slotId === null) {
+    context.addIssue({
+      code: "custom",
+      path: ["host", "slotId"],
+      message: "plan-review contribution names its declared slot"
+    });
+  }
+});
+function declaredPlanSlots(slots, context) {
+  const ids = new Set;
+  const specialists = new Set;
+  for (const [index, slot] of slots.entries()) {
+    if (ids.has(slot.slotId)) {
+      context.addIssue({ code: "custom", path: ["slots", index, "slotId"], message: `slot ${slot.slotId} is repeated` });
+    }
+    ids.add(slot.slotId);
+    if (specialists.has(slot.specialist)) {
+      context.addIssue({
+        code: "custom",
+        path: ["slots", index, "specialist"],
+        message: `specialist ${slot.specialist} is repeated`
+      });
+    }
+    specialists.add(slot.specialist);
+  }
+  for (const name of PLAN_REVIEW_SPECIALISTS) {
+    if (!specialists.has(name)) {
+      context.addIssue({ code: "custom", path: ["slots"], message: `missing specialist ${name}` });
+    }
+  }
+}
+function issue2(context, path, message) {
+  context.addIssue({ code: "custom", path, message });
+}
+function refineAbsentMandate(receipt, context) {
+  const spec = receipt.inputs.manifest.spec;
+  if (spec.kind !== "unframed" && spec.kind !== "proposed") {
+    issue2(context, ["inputs", "manifest", "spec"], "pre-mandate receipt cannot carry an accepted or absent Spec");
+  }
+}
+function mandatedRefs(receipt) {
+  const refs = [receipt.mandate];
+  if (receipt.phase === "result")
+    refs.push(receipt.start);
+  if (receipt.action === "assess-spec") {
+    refs.push(receipt.exactInputs.accepted.ref.sourceAccepted, ...receipt.exactInputs.identityAllocations);
+  }
+  return refs;
+}
+function refuseUndeclaredSlots(receipt, context) {
+  const ids = new Set(receipt.slots.map((slot) => slot.slotId));
+  for (const [index, contribution] of receipt.contributions.entries()) {
+    if (contribution.host.slotId === null || !ids.has(contribution.host.slotId)) {
+      issue2(context, ["contributions", index, "host", "slotId"], "contribution slot is not declared");
+    }
+  }
+}
+function absentMandate(receipt) {
+  return receipt.mandate.kind === "absent";
+}
+function refineMandatedReceipt(receipt, context) {
+  sameRefMeaning(mandatedRefs(receipt), context);
+  if (receipt.action !== "plan-review")
+    return;
+  declaredPlanSlots(receipt.slots, context);
+  if (receipt.phase !== "result")
+    return;
+  refuseUndeclaredSlots(receipt, context);
+}
+function refineActionReceipt(receipt, context) {
+  const checked = validateParsedActionInputs(receipt.inputs);
+  if (receipt.action === "assess-spec" || receipt.action === "attribute-ci" || receipt.action === "integrate") {
+    const operands = receipt.inputs.manifest.operands;
+    if (operands?.action !== receipt.action || canonicalValueDigest(operands.exactInputs) !== canonicalValueDigest(receipt.exactInputs)) {
+      issue2(context, ["exactInputs"], "exact inputs must match the sealed action operands");
+    }
+  }
+  if (!checked.ok)
+    issue2(context, ["inputs"], checked.diagnostics[0]?.message ?? "action inputs are not binding/1");
+  if (absentMandate(receipt)) {
+    refineAbsentMandate(receipt, context);
+    return;
+  }
+  refineMandatedReceipt(receipt, context);
+}
+
+// plugins/omp-build/engine/workflow-receipt-schema.ts
+var ACTION_RECEIPT_FORMAT = "omp-build-action-receipt/2";
+var workflowReceiptActionSchema = _enum([
+  "frame",
+  "assess-spec",
+  "plan",
+  "plan-review",
+  "implement",
+  "integrate",
+  "attribute-ci"
+]);
+var preMandateRefSchema = strictObject({
+  kind: literal("absent"),
+  reason: literal("pre-mandate")
+});
+function actionReceipt(action, exact, structured, mandate) {
+  return [
+    strictObject({
+      format: literal(ACTION_RECEIPT_FORMAT),
+      phase: literal("start"),
+      action: literal(action),
+      actionId: identifierSchema,
+      mandate,
+      inputs: actionInputsSchema,
+      exactInputs: exact
+    }),
+    strictObject({
+      format: literal(ACTION_RECEIPT_FORMAT),
+      phase: literal("result"),
+      action: literal(action),
+      actionId: identifierSchema,
+      mandate,
+      inputs: actionInputsSchema,
+      start: externalRecordRefSchema,
+      exactInputs: exact,
+      native: nativeOutcomeSchema,
+      structured: structured.nullable(),
+      admission: hostEffectAdmissionSchema.nullable(),
+      diagnostics: array(diagnosticSchema)
+    })
+  ];
+}
+var mandated = externalRecordRefSchema;
+var [frameStart, frameResult] = actionReceipt("frame", frameExactSchema, missingContextOutputSchema, mandated);
+var [frameUnmandatedStart, frameUnmandatedResult] = actionReceipt("frame", preMandateFrameExactSchema, missingContextOutputSchema, preMandateRefSchema);
+var [assessStart, assessResult] = actionReceipt("assess-spec", assessSpecExactSchema, union([specAssessmentSchema, missingContextOutputSchema]), mandated);
+var [planStart, planResult] = actionReceipt("plan", planExactSchema, union([planOutputSchema, missingContextOutputSchema]), mandated);
+var planReviewStart = strictObject({
+  format: literal(ACTION_RECEIPT_FORMAT),
+  phase: literal("start"),
+  action: literal("plan-review"),
+  actionId: identifierSchema,
+  mandate: mandated,
+  inputs: actionInputsSchema,
+  exactInputs: planReviewExactSchema,
+  slots: array(planReviewSlotSchema).length(PLAN_REVIEW_SPECIALISTS.length)
+}).superRefine((value, context) => declaredPlanSlots(value.slots, context));
+var planReviewResult = strictObject({
+  format: literal(ACTION_RECEIPT_FORMAT),
+  phase: literal("result"),
+  action: literal("plan-review"),
+  actionId: identifierSchema,
+  mandate: mandated,
+  inputs: actionInputsSchema,
+  start: externalRecordRefSchema,
+  exactInputs: planReviewExactSchema,
+  slots: array(planReviewSlotSchema).length(PLAN_REVIEW_SPECIALISTS.length),
+  contributions: array(nestedPlanContributionSchema),
+  native: nativeOutcomeSchema,
+  structured: missingContextOutputSchema.nullable(),
+  admission: hostEffectAdmissionSchema.nullable(),
+  diagnostics: array(diagnosticSchema)
+});
+var [implementStart, implementResult] = actionReceipt("implement", implementExactSchema, union([implementationOutputSchema, deliveryMissingContextSchema]), mandated);
+var [integrateStart, integrateResult] = actionReceipt("integrate", integrationExactSchema, union([integrationOutputSchema, deliveryMissingContextSchema]), mandated);
+var [ciStart, ciResult] = actionReceipt("attribute-ci", ciExactSchema, union([ciAttributionSchema, missingContextOutputSchema]), mandated);
+var taggedActionReceipts = discriminatedUnion("action", [
+  discriminatedUnion("phase", [assessStart, assessResult]),
+  discriminatedUnion("phase", [planStart, planResult]),
+  discriminatedUnion("phase", [planReviewStart, planReviewResult]),
+  discriminatedUnion("phase", [implementStart, implementResult]),
+  discriminatedUnion("phase", [integrateStart, integrateResult]),
+  discriminatedUnion("phase", [ciStart, ciResult])
+]);
+var actionReceiptPayloadSchema = union([
+  taggedActionReceipts,
+  discriminatedUnion("phase", [frameStart, frameResult]),
+  discriminatedUnion("phase", [frameUnmandatedStart, frameUnmandatedResult])
+]).superRefine(refineActionReceipt);
+
+// plugins/omp-build/engine/record-schema.ts
+var envelope = {
+  version: literal(1),
+  recordId: identifierSchema,
+  runId: identifierSchema,
+  operationId: identifierSchema,
+  inputs: array(identifierSchema)
+};
+var record3 = (kind, payload) => scopeSchema.extend({ ...envelope, kind: literal(kind), payload }).strict();
+var recordSchema = discriminatedUnion("kind", [
+  record3("review-attempt", inventorySchema),
+  record3("contribution", contributionSchema),
+  record3("decision", decisionPayloadSchema),
+  record3("review", finalReviewSchema),
+  record3("fix-request", fixRequestSchema),
+  record3("fix-result", fixResultSchema),
+  record3("correction-result", correctionResultSchema),
+  record3("falsification-result", falsificationResultSchema),
+  record3("debt-receipt", debtReceiptSchema),
+  record3("cause-disposition", causeDispositionPayloadSchema),
+  record3("cause-operation", causeOperationPayloadSchema),
+  record3("report-promotion", reportPromotionPayloadSchema),
+  record3("stop", stopSchema),
+  record3("epic-event", jsonSchema),
+  record3("spec-identity", specIdentityPayloadSchema),
+  record3("framing-receipt", framingReceiptPayloadSchema),
+  record3("mandate", mandatePayloadSchema),
+  record3("operator-control", operatorControlPayloadSchema),
+  record3("action-receipt", actionReceiptPayloadSchema),
+  record3("workflow-binding", workflowBindingPayloadSchema),
+  record3("review-interruption", reviewInterruptionPayloadSchema),
+  record3("review-replacement-grant", reviewReplacementGrantPayloadSchema),
+  record3("fix-owner", fixOwnerPayloadSchema),
+  record3("fix-recovery", fixRecoveryPayloadSchema)
+]);
+
+// plugins/omp-build/engine/record-construction.ts
+function parseRecord(value) {
+  const format = recordFormatDiagnostic(value);
+  if (format)
+    return fail([format]);
+  const parsed = recordSchema.safeParse(value);
+  if (!parsed.success)
+    return fail([
+      diagnostic2("malformed", "Record does not match the canonical schema", parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })))
+    ]);
+  const meaning = workflowInputMeaning(parsed.data);
+  return meaning === null ? { ok: true, value: parsed.data } : fail([meaning]);
+}
+function reviewAttemptInputs(draft) {
+  if (draft.payload.stage !== "initial")
+    return [draft.payload.rootAttemptId];
+  if (draft.payload.purpose === "correction")
+    return [
+      draft.payload.requestId,
+      ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
+    ];
+  if (isInitialPullRequestReviewInventory(draft.payload) && draft.payload.replacement !== undefined)
+    return [
+      draft.payload.replacement.rootAttemptId,
+      draft.payload.replacement.dispositionId,
+      draft.payload.replacement.grantId
+    ];
+  return [];
+}
+function derivedInputs(draft) {
+  switch (draft.kind) {
+    case "review-attempt":
+      return reviewAttemptInputs(draft);
+    case "contribution":
+      return draft.payload.inventoryId === null ? [] : [draft.payload.inventoryId];
+    case "decision":
+      return [draft.payload.originalContributionId, ...draft.payload.judgment.sourceContributionIds];
+    case "review":
+      return [
+        draft.payload.decisionId,
+        ...draft.payload.inventoryIds,
+        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
+      ];
+    case "fix-request":
+      return [
+        draft.payload.requestContributionId,
+        ...draft.payload.existingReviewId === null ? [] : [draft.payload.existingReviewId],
+        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
+      ];
+    case "correction-result":
+      return [
+        draft.payload.decisionId,
+        ...draft.payload.appliedContributionId == null ? [] : [draft.payload.appliedContributionId],
+        ...(draft.payload.criterionObservations ?? []).map((item) => item.sourceContributionId),
+        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId)
+      ];
+    case "falsification-result":
+      return [draft.payload.correctionResultId];
+    case "debt-receipt":
+      return scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId);
+    case "fix-result":
+      return [
+        draft.payload.requestId,
+        draft.payload.decisionId,
+        ...draft.payload.correctionResultIds,
+        ...draft.payload.falsificationResultIds,
+        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, draft)).map((ref) => ref.recordId),
+        ...draft.payload.criterionReceipt === undefined ? [] : [draft.payload.criterionReceipt.sourceContributionId]
+      ];
+    case "stop":
+      return [draft.payload.reviewId];
+    case "epic-event":
+      return [];
+    case "review-interruption":
+      return [
+        draft.payload.rootAttemptId,
+        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId)
+      ];
+    case "review-replacement-grant":
+      return [
+        draft.payload.rootAttemptId,
+        draft.payload.dispositionId,
+        ...scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId)
+      ];
+    case "spec-identity":
+    case "framing-receipt":
+    case "mandate":
+    case "operator-control":
+    case "action-receipt":
+    case "workflow-binding":
+    case "cause-disposition":
+    case "cause-operation":
+    case "report-promotion":
+    case "fix-owner":
+    case "fix-recovery":
+      return scopedRefsOf(draft).filter((ref) => equalScope(ref.scope, { repository: draft.repository, target: draft.target })).map((ref) => ref.recordId);
+  }
+}
+function buildRecord(draft, contextInputs = []) {
+  return parseRecord({ ...draft, inputs: [...new Set([...derivedInputs(draft), ...contextInputs])] });
+}
 
 // plugins/omp-build/engine/history-framing.ts
 function frameFrom(comment) {
@@ -24474,156 +24362,6 @@ ${text.text}`);
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-// plugins/omp-build/host/preparation-cohort.ts
-import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash as createHash19 } from "node:crypto";
-
-// plugins/omp-build/adapters/github-native/uw-graph-query.ts
-var UW_GRAPH_QUERY = `query(
-  $owner: String!, $name: String!, $number: Int!,
-  $labelsCursor: String, $childrenCursor: String, $blockersCursor: String
-) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $number) {
-      number title body updatedAt state stateReason repository { nameWithOwner }
-      parent { number repository { nameWithOwner } }
-      labels(first: 100, after: $labelsCursor) { nodes { name } pageInfo { hasNextPage endCursor } }
-      subIssues(first: 100, after: $childrenCursor) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } }
-      blockedBy(first: 100, after: $blockersCursor) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } }
-    }
-  }
-}`;
-
-// plugins/omp-build/host/preparation-gh-classifier.ts
-var import_preparation_graphql = __toESM(require_preparation_graphql(), 1);
-function isUwGraphRead(args) {
-  if (args[0] !== "api" || args[1] !== "graphql" || args[2] !== "-f" || args[3] !== `query=${UW_GRAPH_QUERY}`) {
-    return false;
-  }
-  const allowed = {
-    owner: true,
-    name: true,
-    number: true,
-    labelsCursor: true,
-    childrenCursor: true,
-    blockersCursor: true
-  };
-  const seen = new Set;
-  for (let i = 4;i < args.length; i += 2) {
-    if (args[i] !== "-f" && args[i] !== "-F")
-      return false;
-    const field = args[i + 1];
-    if (field === undefined)
-      return false;
-    const separator = field.indexOf("=");
-    const key = field.slice(0, separator);
-    if (separator < 1 || !Object.hasOwn(allowed, key) || seen.has(key))
-      return false;
-    seen.add(key);
-  }
-  return seen.has("owner") && seen.has("name") && seen.has("number");
-}
-function isPrBodyGraphRead(args) {
-  return args.length === 10 && args[0] === "api" && args[1] === "graphql" && args[2] === "-f" && args[3] === `query=${import_preparation_graphql.PR_BODY_QUERY}` && args[4] === "-f" && args[5]?.startsWith("owner=") === true && args[6] === "-f" && args[7]?.startsWith("name=") === true && args[8] === "-F" && args[9]?.startsWith("number=") === true;
-}
-function graphFieldNames(args) {
-  const names = [];
-  for (let i = 4;i < args.length; i += 2) {
-    if (args[i] !== "-f")
-      return;
-    const field = args[i + 1];
-    if (field === undefined)
-      return;
-    const separator = field.indexOf("=");
-    if (separator < 1)
-      return;
-    names.push(field.slice(0, separator));
-  }
-  return names;
-}
-function isKnownGraphRead(args) {
-  if (isPrBodyGraphRead(args))
-    return true;
-  if (args[0] !== "api" || args[1] !== "graphql" || args[2] !== "-f" || !args[3]?.startsWith("query=")) {
-    return false;
-  }
-  const names = graphFieldNames(args);
-  if (names === undefined)
-    return false;
-  const query = args[3].slice("query=".length);
-  if (query === import_preparation_graphql.BLOB_QUERY)
-    return names.join(",") === "owner,name,expression";
-  if (query === import_preparation_graphql.AUTH_COMMENT_QUERY)
-    return names.join(",") === "id";
-  if (query === import_preparation_graphql.CI_ROLLUP_QUERY)
-    return names.join(",") === "owner,name,sha" || names.join(",") === "owner,name,sha,after";
-  if (query === import_preparation_graphql.PULLS_QUERY) {
-    return names.join(",") === "owner,name" || names.join(",") === "owner,name,cursor" || names.join(",") === "owner,name,branch" || names.join(",") === "owner,name,cursor,branch";
-  }
-  const count = names.length - 2;
-  return count > 0 && names[0] === "owner" && names[1] === "name" && names.slice(2).every((name, index) => name === `e${index}`) && query === import_preparation_graphql.catalogueQuery(count);
-}
-function githubPreparationKind(args) {
-  if (isUwGraphRead(args) || isKnownGraphRead(args))
-    return "gh-read";
-  if (args[0] === "api" && args[1] === "graphql")
-    return "gh-write";
-  const methodIndex = args.findIndex((arg) => arg === "--method" || arg === "-X");
-  const method = methodIndex < 0 ? null : args[methodIndex + 1]?.toUpperCase();
-  const hasFields = args.some((arg) => arg === "-f" || arg === "-F" || arg === "--field" || arg === "--raw-field");
-  const isApi = args[0] === "api";
-  const isRead = isApi ? method === "GET" || method === null && !hasFields : ["view", "list", "status", "get"].includes(args[1] ?? "");
-  if (isRead)
-    return "gh-read";
-  if (isApi && method === "POST" && args.some((arg) => /^repos\/[^/]+\/[^/]+\/issues\/[0-9]+\/comments$/.test(arg))) {
-    return "gh-append";
-  }
-  return "gh-write";
-}
-
-// plugins/omp-build/host/preparation-cohort.ts
-var carrierKey = Symbol.for("roxabi.omp-build.preparation-cohort.context");
-var existingCarrier = Reflect.get(globalThis, carrierKey);
-var active;
-if (Object.hasOwn(globalThis, carrierKey)) {
-  if (existingCarrier === null || typeof existingCarrier !== "object" || !("protocol" in existingCarrier) || existingCarrier.protocol !== 1 || !("storage" in existingCarrier) || existingCarrier.storage === null || typeof existingCarrier.storage !== "object" || !("run" in existingCarrier.storage) || typeof existingCarrier.storage.run !== "function" || !("getStore" in existingCarrier.storage) || typeof existingCarrier.storage.getStore !== "function")
-    throw new Error("incompatible-preparation-cohort-context-protocol");
-  Object.freeze(existingCarrier);
-  active = existingCarrier.storage;
-} else {
-  active = new AsyncLocalStorage;
-  Object.defineProperty(globalThis, carrierKey, {
-    value: Object.freeze({ protocol: 1, storage: active }),
-    writable: false,
-    configurable: false
-  });
-}
-function trackPreparationGhOperation(args, fn) {
-  const cohort = currentPreparationCohort();
-  if (cohort === undefined)
-    return fn();
-  const family = args[0] === "api" ? args[1] === "graphql" ? "graphql" : "api" : args[0] === "pr" && args[1] === "edit" ? "pr-edit" : args[0] === "pr" && args[1] === "merge" ? "pr-merge" : "other";
-  const query = family === "graphql" ? args.find((value) => value.startsWith("query=")) : undefined;
-  const fields = args.flatMap((value, index) => {
-    if (index === 0 || !["-f", "-F", "--field", "--raw-field"].includes(args[index - 1]))
-      return [];
-    const name = value.split("=", 1)[0];
-    return [
-      /^(?:query|owner|name|number|expression|branch|cursor|id|sha|after|labelsCursor|childrenCursor|blockersCursor|e[0-9]+)$/.test(name) ? name : "<other>"
-    ];
-  });
-  const provenance = {
-    family,
-    fields,
-    ...query === undefined ? {} : { querySha256: createHash19("sha256").update(query.slice(6)).digest("hex") }
-  };
-  return cohort.operation(githubPreparationKind(args), fn, provenance);
-}
-function currentPreparationCohort() {
-  return active.getStore()?.cohort;
-}
-
-// plugins/omp-build/adapters/github/types.ts
 class GitHubHistoryReadError extends Error {
   diagnostics;
   constructor(message, diagnostics) {
@@ -24638,17 +24376,14 @@ function diagnostic6(code, message, detail) {
   return detail === undefined ? { code, message } : { code, message, detail };
 }
 function defaultGh(cwd, args) {
-  return trackPreparationGhOperation(args, () => execFileAsync("gh", args, {
+  return execFileAsync("gh", args, {
     cwd,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024
-  })).then(({ stdout }) => String(stdout).trim());
+  }).then(({ stdout }) => String(stdout).trim());
 }
 function gh(options) {
-  if (options.gh === undefined)
-    return defaultGh;
-  const supplied = options.gh;
-  return (cwd, args) => trackPreparationGhOperation(args, () => supplied(cwd, args));
+  return options.gh ?? defaultGh;
 }
 function targetNumber(scope) {
   const separator = scope.target.lastIndexOf("#");
@@ -25611,6 +25346,22 @@ function metadataChangeDiagnostic(scope, connection, pageNumber, cursor, base, n
     ]
   };
 }
+
+// plugins/omp-build/adapters/github-native/uw-graph-query.ts
+var UW_GRAPH_QUERY = `query(
+  $owner: String!, $name: String!, $number: Int!,
+  $labelsCursor: String, $childrenCursor: String, $blockersCursor: String
+) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      number title body updatedAt state stateReason repository { nameWithOwner }
+      parent { number repository { nameWithOwner } }
+      labels(first: 100, after: $labelsCursor) { nodes { name } pageInfo { hasNextPage endCursor } }
+      subIssues(first: 100, after: $childrenCursor) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } }
+      blockedBy(first: 100, after: $blockersCursor) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } }
+    }
+  }
+}`;
 
 // plugins/omp-build/adapters/github-native/uw-graph-page.ts
 function asRecord(value) {
@@ -26999,7 +26750,7 @@ function createCommitRangeReader(options) {
 }
 
 // plugins/omp-build/adapters/github-workflow/uw-delivery-enumeration.ts
-var import_preparation_graphql2 = __toESM(require_preparation_graphql(), 1);
+var import_preparation_graphql = __toESM(require_preparation_graphql(), 1);
 function actionFailure2(code, message) {
   return { ok: false, diagnostics: [{ code, message }] };
 }
@@ -27032,7 +26783,7 @@ function asCandidate(value) {
 async function readPullPage(owner, name, cursor, branch, options) {
   let data;
   try {
-    data = await graphqlVariables(options, import_preparation_graphql2.PULLS_QUERY, { owner, name, cursor, branch });
+    data = await graphqlVariables(options, import_preparation_graphql.PULLS_QUERY, { owner, name, cursor, branch });
   } catch (error) {
     return actionFailure2("record-unreadable", error instanceof Error ? error.message : "Pull request enumeration is unreadable");
   }
@@ -27903,100 +27654,6 @@ async function observeCauseSisters(graph, histories, read, catalogues) {
   if (incomplete || graph.status === "incomplete")
     return { ...base, status: "incomplete", observedAt: graph.observedAt, diagnostics };
   return { ...base, status: "complete", observedAt: graph.observedAt };
-}
-// node_modules/@oh-my-pi/pi-ai/src/error/classes.ts
-var MAX_ANTHROPIC_ERROR_BODY_BYTES = 64 * 1024;
-
-// node_modules/@oh-my-pi/pi-ai/src/error/rate-limit.ts
-var QUOTA_EXHAUSTED_BACKOFF_MS = 30 * 60 * 1000;
-var RATE_LIMIT_EXCEEDED_BACKOFF_MS = 30 * 1000;
-var CONCURRENT_LIMIT_BACKOFF_MS = 5 * 1000;
-var MODEL_CAPACITY_BASE_MS = 45 * 1000;
-var MODEL_CAPACITY_JITTER_MS = 30 * 1000;
-var SERVER_ERROR_BACKOFF_MS = 20 * 1000;
-var LONG_RATE_LIMIT_DELAY_MS = 5 * 60 * 1000;
-
-// node_modules/@oh-my-pi/pi-ai/src/error/flags.ts
-var Flag = {
-  Class: 4096,
-  ThinkingLoop: 65536,
-  Transient: 131072,
-  Timeout: 262144,
-  UsageLimit: 524288,
-  StaleResponsesItem: 1048576,
-  MalformedFunctionCall: 2097152,
-  ProviderFinishError: 4194304,
-  EmptyResponse: 8192,
-  ContentBlocked: 32768,
-  AccountPolicy: 16384,
-  ContextOverflow: 8388608,
-  AuthFailed: 16777216,
-  SilentAbort: 33554432,
-  UserInterrupt: 67108864,
-  Abort: 134217728,
-  Grammar: 268435456,
-  FastModeUnsupported: 536870912,
-  OAuthExpiry: 1073741824,
-  CacheControlUnsupported: 2048,
-  PayloadRejected: 2147483648
-};
-var KIND_MASK = Flag.ThinkingLoop | Flag.Transient | Flag.Timeout | Flag.UsageLimit | Flag.StaleResponsesItem | Flag.MalformedFunctionCall | Flag.ProviderFinishError | Flag.EmptyResponse | Flag.ContentBlocked | Flag.AccountPolicy | Flag.ContextOverflow | Flag.AuthFailed | Flag.PayloadRejected | Flag.SilentAbort | Flag.UserInterrupt | Flag.Abort | Flag.Grammar | Flag.FastModeUnsupported | Flag.CacheControlUnsupported | Flag.OAuthExpiry;
-var RETRIABLE_KINDS = Flag.Transient | Flag.UsageLimit | Flag.ThinkingLoop | Flag.StaleResponsesItem | Flag.ProviderFinishError | Flag.EmptyResponse;
-var CONTEXT_OVERFLOW_EVIDENCE_PATTERNS = [
-  /prompt is too long/i,
-  /input is too long for requested model/i,
-  /exceeds the context window/i,
-  /input token count.*exceeds the maximum/i,
-  /maximum prompt length is \d+/i,
-  /reduce the length of the messages/i,
-  /maximum context length is \d+ tokens/i,
-  /exceeds the available context size/i,
-  /\bprompt\s*\(\s*\d+\s+tokens\s*\)\s*\+\s*max\s+tokens\s*\(\s*\d+\s*\)\s+exceeds\s+the\s+context\s*\(\s*\d+\s*\)/i,
-  /\bprompt\s*\(\s*\d+\s+tokens\s*\)\s+leaves\s+no\s+room\s+to\s+answer\s+in\s+the\s+context\s*\(\s*\d+\s*\)/i,
-  /requested tokens?.*exceed.*context (window|length|size)/i,
-  /context (window|length|size).*(exceeded|overflow|too small)/i,
-  /(prompt|input).*(too long|too large).*(context|n_ctx)/i,
-  /requested tokens?.*(exceeds?|greater than).*(n_ctx|context)/i,
-  /greater than the context length/i,
-  /context window exceeds limit/i,
-  /exceeded model token limit/i,
-  /context[_ ]length[_ ]exceeded/i,
-  /too many tokens/i,
-  /token limit exceeded/i,
-  /request_too_large[^\n]*\btokens?\b/i,
-  /\btokens?\b[^\n]*request_too_large/i,
-  /model_context_window_exceeded/i,
-  /prompt filled the context window/i,
-  /exceeds the limit of \d+ tokens?\b/i,
-  /chat history exceeds the \d+-message limit/i
-];
-var GENERIC_LIMIT_OVERFLOW_PATTERN = /exceeds the limit of \d+/i;
-var OVERFLOW_PATTERNS = [...CONTEXT_OVERFLOW_EVIDENCE_PATTERNS, GENERIC_LIMIT_OVERFLOW_PATTERN];
-var ERROR_KIND_LABELS = [
-  [Flag.ThinkingLoop, "thinking-loop"],
-  [Flag.Transient, "transient"],
-  [Flag.Timeout, "timeout"],
-  [Flag.UsageLimit, "usage-limit"],
-  [Flag.StaleResponsesItem, "stale-responses-item"],
-  [Flag.MalformedFunctionCall, "malformed-function-call"],
-  [Flag.ProviderFinishError, "provider-finish-error"],
-  [Flag.EmptyResponse, "empty-response"],
-  [Flag.ContentBlocked, "content-blocked"],
-  [Flag.AccountPolicy, "account-policy"],
-  [Flag.ContextOverflow, "context-overflow"],
-  [Flag.PayloadRejected, "payload-rejected"],
-  [Flag.AuthFailed, "auth-failed"],
-  [Flag.SilentAbort, "silent-abort"],
-  [Flag.UserInterrupt, "user-interrupt"],
-  [Flag.Abort, "abort"]
-];
-function is(id, flag) {
-  return ((id ?? 0) & flag) !== 0;
-}
-
-// plugins/omp-build/adapters/omp-native/user-interrupt.ts
-function hasNativeUserInterruptFlag(errorId) {
-  return is(errorId, Flag.UserInterrupt);
 }
 // plugins/omp-build/engine/uw-action-command-schema.ts
 var actionRequestSchema = strictObject({
@@ -30361,29 +30018,6 @@ var decodedHistorySchema = strictObject({
   operations: array(operationReadSchema),
   diagnostics: array(diagnosticSchema)
 });
-// plugins/omp-build/engine/native-terminal.ts
-function object6(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function inspectNativeTerminal(value) {
-  if (!object6(value))
-    return { structured: null, reason: "malformed-child-result" };
-  const output = value.structuredOutput;
-  const parsed = object6(output) && output.status === "valid" ? jsonSchema.safeParse(output.data) : null;
-  const structured = parsed?.success ? parsed.data : null;
-  let reason = null;
-  if (value.exitCode !== 0)
-    reason = "required-child-exit-code";
-  else if (value.error !== undefined && value.error !== null)
-    reason = "required-child-error";
-  else if (value.aborted === true)
-    reason = "required-child-aborted";
-  else if (!object6(output))
-    reason = "missing-structured-output";
-  else if (output.status !== "valid")
-    reason = "structured-output-not-valid";
-  return { structured, reason };
-}
 // plugins/omp-build/engine/parent-insertion-engagement.ts
 var indeterminate = (message) => ({
   state: "indeterminate",
@@ -30744,6 +30378,30 @@ function resolveBoundWork(input) {
     return { status: "refused", reason: "incomplete", evidence: closure.evidence };
   return selectedBoundMandate(input, binding.mandateRecord, closure.causal);
 }
+// plugins/omp-build/engine/native-terminal.ts
+function object6(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function inspectNativeTerminal(value) {
+  if (!object6(value))
+    return { structured: null, reason: "malformed-child-result" };
+  const output = value.structuredOutput;
+  const parsed = object6(output) && output.status === "valid" ? jsonSchema.safeParse(output.data) : null;
+  const structured = parsed?.success ? parsed.data : null;
+  let reason = null;
+  if (value.exitCode !== 0)
+    reason = "required-child-exit-code";
+  else if (value.error !== undefined && value.error !== null)
+    reason = "required-child-error";
+  else if (value.aborted === true)
+    reason = "required-child-aborted";
+  else if (!object6(output))
+    reason = "missing-structured-output";
+  else if (output.status !== "valid")
+    reason = "structured-output-not-valid";
+  return { structured, reason };
+}
+
 // plugins/omp-build/engine/workflow-captured-integration-sources.ts
 function fail11(message) {
   return { ok: false, diagnostics: [diagnostic2("unconfirmed", message)] };
@@ -31531,663 +31189,6 @@ function inspectCapturedWorkForAssessment(evidence, mandate, replay) {
     return plans;
   return inspectCapturedDeliveries(inventory.value, evidence.causal.histories, replay);
 }
-// plugins/omp-build/engine/workflow-composed-observation.ts
-var compositionStale = (message) => fail([diagnostic2("material-composition-stale", message)]);
-var sameObservationValue = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
-function issueFromScope(scope) {
-  const prefix = `${scope.repository}#`;
-  if (!scope.target.startsWith(prefix))
-    return null;
-  const suffix = scope.target.slice(prefix.length);
-  if (!/^[1-9][0-9]*$/.test(suffix))
-    return null;
-  const number = Number(suffix);
-  return Number.isSafeInteger(number) ? { repository: scope.repository, number } : null;
-}
-function assessmentCutProblem(input, native) {
-  const { before, after, assessment, mandate } = input;
-  if (before.status !== "complete" || after.status !== "complete" || !validateUwGraph(before.graph).ok || !validateUwGraph(after.graph).ok)
-    return "Assessment observations and native graphs must be complete";
-  if (!equalScope(before.root, after.root) || !equalScope(before.root, before.graph.root) || !equalScope(after.root, after.graph.root))
-    return "Observation or graph root changed during assessment";
-  if (!equalScope(assessment.scope, mandate.scope))
-    return "Assessment does not belong to the parent mandate scope";
-  if (new Set(before.histories.map((history) => scopeKey(history.source.scope))).size !== before.histories.length || new Set(after.histories.map((history) => scopeKey(history.source.scope))).size !== after.histories.length)
-    return "Assessment observations contain ambiguous duplicate history scopes";
-  if (before.graph.nodes.length !== after.graph.nodes.length)
-    return "Native graph membership changed during assessment";
-  for (const previous of before.graph.nodes) {
-    const current = after.graph.nodes.find((node) => equalScope(node.uw, previous.uw));
-    const oldNative = native(previous);
-    const newNative = current === undefined ? null : native(current);
-    if (oldNative === null || newNative === null || nativeObservationDigest(oldNative) !== nativeObservationDigest(newNative))
-      return "Native graph changed during assessment";
-  }
-  return null;
-}
-function assessmentPair(input) {
-  const { after, assessment, mandate } = input;
-  const home = historyFor(assessment.scope, after.histories);
-  if (home === null)
-    return compositionStale("Assessment result history is unavailable");
-  const result = bindExternalRef(assessment, home);
-  if (!result.ok || !isAssessResult(result.value))
-    return compositionStale("Actual canonical assessment result is unavailable");
-  const authenticated = authenticatedAssessResult(result.value, after.histories, mandate);
-  if (!authenticated.ok)
-    return fail(authenticated.evidence);
-  const startRef = result.value.payload.start;
-  if (!equalScope(startRef.scope, assessment.scope))
-    return compositionStale("Assessment start and result are not in the same scope");
-  const start = bindExternalRef(startRef, home);
-  if (!start.ok || start.value.kind !== "action-receipt" || start.value.payload.action !== "assess-spec" || start.value.payload.phase !== "start")
-    return compositionStale("Actual canonical assessment start is unavailable");
-  return { ok: true, value: { record: authenticated.record, home, startRef } };
-}
-function assessmentPairHistoryProblem(home, beforeHome, assessment, startRef) {
-  if (beforeHome === null || beforeHome.operations.some((entry) => entry.authority !== "foreign" && (entry.recordId === assessment.recordId || entry.recordId === startRef.recordId)))
-    return "Assessment pair was already present before execution";
-  const added = home.operations.filter((entry) => entry.authority !== "foreign" && (entry.recordId === assessment.recordId || entry.recordId === startRef.recordId));
-  if (added.length !== 2 || added.some((entry) => entry.status !== "complete" || entry.record?.kind !== "action-receipt"))
-    return "Assessment pair envelopes are incomplete or ambiguous";
-  const ids = new Set(added.flatMap((entry) => entry.parts.map((part) => part.nativeId)));
-  const restored = {
-    ...home,
-    operations: home.operations.filter((entry) => !added.includes(entry)),
-    source: { ...home.source, comments: home.source.comments.filter((comment) => !ids.has(comment.nativeId)) }
-  };
-  return sameObservationValue(beforeHome, restored) ? null : "Assessment history changed beyond the exact opened and result envelopes";
-}
-function unrelatedAssessmentHistoryProblem(input) {
-  const { before, after, assessment } = input;
-  if (before.histories.length !== after.histories.length)
-    return "History scope set changed during assessment";
-  for (const previous of before.histories) {
-    if (equalScope(previous.source.scope, assessment.scope))
-      continue;
-    const current = historyFor(previous.source.scope, after.histories);
-    if (current === null || !sameObservationValue(previous, current))
-      return "An unrelated history changed during assessment";
-  }
-  return null;
-}
-function checkAssessmentDelta(input, native) {
-  const cutProblem = assessmentCutProblem(input, native);
-  if (cutProblem !== null)
-    return compositionStale(cutProblem);
-  const pair = assessmentPair(input);
-  if (!pair.ok)
-    return pair;
-  const { home, startRef, record } = pair.value;
-  const beforeHome = historyFor(input.assessment.scope, input.before.histories);
-  const historyProblem = assessmentPairHistoryProblem(home, beforeHome, input.assessment, startRef);
-  if (historyProblem !== null)
-    return compositionStale(historyProblem);
-  const unrelated = unrelatedAssessmentHistoryProblem(input);
-  return unrelated === null ? { ok: true, value: record } : compositionStale(unrelated);
-}
-
-// plugins/omp-build/engine/workflow-composed-creation-effects.ts
-function sameHistoryWithIntent(before, after, operation) {
-  if (sameObservationValue(before, after))
-    return true;
-  if (!equalScope(before.source.scope, operation.scope))
-    return false;
-  const added = after.operations.filter((entry) => entry.recordId === operation.recordId && entry.status === "complete" && entry.authority !== "foreign" && entry.record?.kind === "cause-operation");
-  const [addition] = added;
-  if (added.length !== 1 || addition === undefined)
-    return false;
-  const ids = new Set(addition.parts.map((part) => part.nativeId));
-  const restored = {
-    ...after,
-    operations: after.operations.filter((entry) => entry !== addition),
-    source: { ...after.source, comments: after.source.comments.filter((comment) => !ids.has(comment.nativeId)) }
-  };
-  return sameObservationValue(before, restored);
-}
-function expectedCreationNode(uw, oldNative, outer, consent, childIssue) {
-  const reparented = outer.writes.relations.addChildren;
-  const movesHere = reparented.some((child) => sameObservationValue(child, oldNative.issue));
-  const children = oldNative.children.filter((child) => !reparented.some((moved) => sameObservationValue(child, moved)));
-  if (equalScope(uw, consent.parent))
-    children.push(childIssue);
-  const addsBlocker = outer.creation.kind === "sister" && outer.creation.relation === "original-blocked-by-sister" && equalScope(uw, outer.creation.original);
-  return {
-    ...oldNative,
-    parent: movesHere ? childIssue : oldNative.parent,
-    children,
-    blockers: addsBlocker ? [...oldNative.blockers, childIssue] : oldNative.blockers
-  };
-}
-
-class ComposedCreationEffects {
-  input;
-  native;
-  constructor(input, native) {
-    this.input = input;
-    this.native = native;
-  }
-  historyProblem() {
-    const { before, after, operation, binding } = this.input;
-    for (const previous of before.histories) {
-      const current = historyFor(previous.source.scope, after.histories);
-      if (current === null || !sameHistoryWithIntent(previous, current, operation))
-        return "A previously observed history changed beyond the confirmed intent";
-    }
-    for (const current of after.histories) {
-      if (historyFor(current.source.scope, before.histories) === null && !equalScope(current.source.scope, binding.child))
-        return "A new unrelated history appeared during creation";
-    }
-    return null;
-  }
-  graphProblem(outer, consent, childIssue) {
-    const { before, after } = this.input;
-    for (const moved of outer.writes.relations.addChildren) {
-      if (!before.graph.nodes.some((node) => sameObservationValue(issueFromScope(node.uw), moved)))
-        return "A child selected for attachment was not present in the complete before graph";
-    }
-    for (const previous of before.graph.nodes) {
-      const current = after.graph.nodes.find((node) => equalScope(node.uw, previous.uw));
-      const oldNative = this.native(previous);
-      const newNative = current === undefined ? null : this.native(current);
-      if (oldNative === null || newNative === null)
-        return "An existing graph node was not fully observed";
-      const expected = expectedCreationNode(previous.uw, oldNative, outer, consent, childIssue);
-      if (nativeObservationDigest(expected) !== nativeObservationDigest(newNative))
-        return "Native graph differs from the exact confirmed creation effects";
-    }
-    return null;
-  }
-  parentChildrenProblem(afterNode) {
-    const { prepared, binding, after } = this.input;
-    const proposedChildren = prepared.proposal.exactInputs.proposed.children.map((child) => scopeKey("kind" in child ? binding.child : child.scope)).sort();
-    if (afterNode === undefined)
-      return "Confirmed parent native readback is unavailable";
-    const actualChildren = [];
-    for (const scope of afterNode.children) {
-      const node = after.graph.nodes.find((item) => equalScope(item.uw, scope));
-      if (node === undefined || unknownWayfinderLabels(node).length !== 0)
-        return "Parent child classification is incomplete or unknown";
-      if (!isWayfinder(node))
-        actualChildren.push(scopeKey(scope));
-    }
-    actualChildren.sort();
-    return sameObservationValue(proposedChildren, actualChildren) ? null : "Confirmed proposed parent children do not match native creation readback";
-  }
-  newNativeProblem() {
-    const { before, after, binding } = this.input;
-    for (const current of after.graph.nodes) {
-      if (!equalScope(current.uw, binding.child) && !before.graph.nodes.some((node) => equalScope(node.uw, current.uw)))
-        return "A new unrelated native graph node appeared during creation";
-    }
-    const actualChild = after.graph.nodes.find((node) => equalScope(node.uw, binding.child));
-    const actual = actualChild === undefined ? null : this.native(actualChild);
-    return actual === null || nativeObservationDigest(actual) !== nativeObservationDigest(binding.observed) ? "Created child binding is not the observed native readback" : null;
-  }
-}
-
-// plugins/omp-build/engine/workflow-material-assessment.ts
-function materialFailure(code, message) {
-  return fail([diagnostic2(code, message)]);
-}
-function candidateSourcesCurrent(record, accepted, histories) {
-  const exact = record.payload.exactInputs;
-  if (!sameAssessedState(exact.accepted, {
-    ref: accepted.ref,
-    snapshot: accepted.snapshot,
-    tier: accepted.tier,
-    children: accepted.children,
-    inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
-    coverage: accepted.coverage
-  }) || !capturedAssessmentSourcesMatch({ childOwnSources: [], sourceRefs: accepted.sourceRefs }, record.payload.inputs.manifest.acceptedSources, histories))
-    return { ok: true, value: false };
-  const currentChildren = capturedChildOwnSources(exact.accepted, exact.proposed, histories, exact.attachedChildren);
-  if (currentChildren === null)
-    return materialFailure("material-child-sources-unavailable", "Current child own sources cannot be authenticated");
-  return {
-    ok: true,
-    value: canonicalValueDigest(currentChildren.childOwnSources) === canonicalValueDigest(exact.childOwnSources) && capturedAssessmentSourcesMatch(currentChildren, record.payload.inputs.manifest.acceptedSources, histories)
-  };
-}
-function evaluateCandidate(record, histories, mandate, accepted) {
-  if (!specAssessmentSchema.safeParse(record.payload.structured).success)
-    return materialFailure("material-assessment-malformed", "Material assessment output is malformed");
-  if (specAssessmentSchema.parse(record.payload.structured).compatibility.state !== "consistent")
-    return materialFailure("constraint-compatibility-unresolved", "Constraint compatibility must be consistent before material acceptance");
-  const authenticated = authenticatedAssessResult(record, histories, mandate);
-  if (!authenticated.ok)
-    return fail(authenticated.evidence);
-  const mandateHistory = historyFor(mandate.scope, histories);
-  const mandateRecord = mandateHistory === null ? null : bindExternalRef(mandate, mandateHistory);
-  if (mandateRecord === null || !mandateRecord.ok || mandateRecord.value.kind !== "mandate")
-    return materialFailure("constraint-compatibility-unresolved", "Assessment mandate is not authenticated");
-  const compatibilityProblem = checkAuthenticatedSpecCompatibility(authenticated.record, specAssessmentSchema.parse(authenticated.record.payload.structured), histories, mandateRecord.value);
-  if (compatibilityProblem !== null)
-    return materialFailure("constraint-compatibility-unresolved", compatibilityProblem);
-  const sources = candidateSourcesCurrent(record, accepted, histories);
-  if (!sources.ok)
-    return sources;
-  if (!sources.value)
-    return { ok: true, value: { status: "stale" } };
-  const exact = record.payload.exactInputs;
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
-  if (!sameMechanicalDelta(mechanical, exact.mechanical))
-    return materialFailure("material-assessment-malformed", "Material assessment mechanical delta is inconsistent");
-  const classification = specAssessmentSchema.parse(record.payload.structured).classification;
-  if (!requiresMaterialAcceptance(mechanical, classification))
-    return materialFailure("material-assessment-not-material", "Assessment does not require material acceptance");
-  return { ok: true, value: { status: "candidate", record: authenticated.record, classification } };
-}
-
-// plugins/omp-build/engine/workflow-material-acceptance.ts
-function sameRefs(left, right) {
-  return left.length === right.length && left.every((ref, index) => {
-    const candidate = right[index];
-    return candidate !== undefined && sameRef2(ref, candidate);
-  });
-}
-function sameProposed(left, right, pinned) {
-  return pinned ? JSON.stringify(left) === JSON.stringify(right) : sameCurrentAssessedState(left, right);
-}
-function materialFailure2(code, message) {
-  return fail([diagnostic2(code, message)]);
-}
-function isCurrentCandidate(record, input, mandate, requiredAssessment) {
-  if (!isAssessResult(record) || !sameRef2(record.payload.mandate, mandate))
-    return false;
-  if (requiredAssessment !== undefined && !sameRef2(receiptRef(record), requiredAssessment))
-    return false;
-  return sameProposed(record.payload.exactInputs.proposed, input.currentProposed, requiredAssessment !== undefined) && sameRefs(record.payload.exactInputs.identityAllocations, input.identityAllocations);
-}
-function matchingAssessments(records, input, mandate, accepted, excluded, requiredAssessment) {
-  const candidates = [];
-  let stale = false;
-  for (const record of records) {
-    if (!isCurrentCandidate(record, input, mandate, requiredAssessment))
-      continue;
-    if (excludedReceipt(record, excluded))
-      continue;
-    if (supersededContext(record, input, excluded, requiredAssessment))
-      continue;
-    const outcome = evaluateCandidate(record, input.histories, mandate, accepted);
-    if (!outcome.ok)
-      return outcome;
-    if (outcome.value.status === "stale")
-      stale = true;
-    if (outcome.value.status === "candidate")
-      candidates.push(outcome.value);
-  }
-  return { ok: true, value: { candidates, stale } };
-}
-function supersededContext(record, input, excluded, requiredAssessment) {
-  if (requiredAssessment !== undefined || !workflowContextNegative(record))
-    return false;
-  const home = input.histories.find((history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target);
-  return home !== undefined && workflowContextTerminal(home, "assess-spec", record.payload.mandate, undefined, excluded) === "clear";
-}
-function selectMaterialAcceptance(input, requiredAssessment) {
-  if (!identifierSchema.safeParse(input.operationId).success)
-    return materialFailure2("material-operation-invalid", "Material acceptance operation ID is invalid");
-  const accepted = resolveAcceptedSpec(input.mandate, input.histories);
-  if (!accepted.ok)
-    return fail(accepted.evidence);
-  if (!equalScope(input.uw, accepted.spec.ref.uw))
-    return materialFailure2("material-uw-mismatch", "Material acceptance UW does not match the accepted own Spec");
-  const scope = mandateScope(input.mandate);
-  const home = input.histories.find((history) => equalScope(history.source.scope, scope));
-  if (home === undefined)
-    return materialFailure2("missing-history", "Mandate history is missing");
-  const records = recordsOf(home);
-  if (records.some((record) => record.operationId === input.operationId))
-    return materialFailure2("material-operation-conflict", "Material acceptance operation ID is already present in mandate history");
-  const mandate = { scope, recordId: input.mandate.recordId, kind: "mandate" };
-  const attempts = classifyAttempts({ histories: input.histories, scan: [home], actions: ["assess-spec"] });
-  if (!attempts.ok)
-    return attempts;
-  const matches = matchingAssessments(records, input, mandate, accepted.spec, attempts.value.excluded, requiredAssessment);
-  if (!matches.ok)
-    return matches;
-  const { candidates, stale } = matches.value;
-  if (candidates.length > 1)
-    return materialFailure2("material-assessment-ambiguous", "Multiple authenticated material assessments match the current proposal");
-  const assessment = candidates[0];
-  if (assessment === undefined)
-    return materialFailure2(stale ? "material-assessment-stale" : "material-assessment-missing", stale ? "Material assessment continues a stale accepted Spec" : "No authenticated material assessment matches the current proposal");
-  const predecessor = accepted.spec.chain.at(-1);
-  if (predecessor === undefined)
-    return materialFailure2("material-proposal-invalid", "Accepted Spec chain has no predecessor");
-  const proposal = {
-    format: "omp-build-material-acceptance/2",
-    operationId: input.operationId,
-    uw: accepted.spec.ref.uw,
-    mandate,
-    predecessor: predecessor.source,
-    assessment: receiptRef(assessment.record),
-    classification: assessment.classification,
-    exactInputs: assessment.record.payload.exactInputs
-  };
-  return { ok: true, value: { proposal } };
-}
-function prepareMaterialAcceptance(input) {
-  const selected = selectMaterialAcceptance(input);
-  if (!selected.ok)
-    return selected;
-  return {
-    ok: true,
-    value: {
-      proposal: selected.value.proposal,
-      digest: materialAcceptanceDigest(selected.value.proposal)
-    }
-  };
-}
-function prepareMaterialAcceptanceForAssessment(input, assessment) {
-  const selected = selectMaterialAcceptance(input, assessment);
-  if (!selected.ok)
-    return selected;
-  return {
-    ok: true,
-    value: { proposal: selected.value.proposal, digest: materialAcceptanceDigest(selected.value.proposal) }
-  };
-}
-function recheckMaterialAcceptance(input) {
-  const { proposal, digest } = input.prepared;
-  if (proposal.format !== "omp-build-material-acceptance/2" || digest !== materialAcceptanceDigest(proposal))
-    return materialFailure2("material-proposal-invalid", "Prepared material proposal digest is invalid");
-  const selected = selectMaterialAcceptance({
-    uw: proposal.uw,
-    operationId: proposal.operationId,
-    histories: input.histories,
-    mandate: input.mandate,
-    currentProposed: proposal.exactInputs.proposed,
-    identityAllocations: proposal.exactInputs.identityAllocations
-  }, proposal.assessment);
-  if (!selected.ok)
-    return selected;
-  if (JSON.stringify(selected.value.proposal) !== JSON.stringify(proposal))
-    return materialFailure2("material-proposal-stale", "Material proposal no longer binds the current accepted assessment");
-  return { ok: true, value: input.prepared };
-}
-function buildMaterialAcceptanceControl(prepared, confirmation, context) {
-  const { proposal, digest } = prepared;
-  if (proposal.format !== "omp-build-material-acceptance/2" || digest !== materialAcceptanceDigest(proposal))
-    return materialFailure2("material-proposal-invalid", "Prepared material proposal digest is invalid");
-  const mechanical = mechanicalSpecDelta(proposal.exactInputs.accepted, proposal.exactInputs.proposed);
-  if (!sameMechanicalDelta(mechanical, proposal.exactInputs.mechanical) || !requiresMaterialAcceptance(mechanical, proposal.classification))
-    return materialFailure2("material-proposal-invalid", "Prepared material proposal is not an authenticated change");
-  if (!equalScope(proposal.uw, proposal.exactInputs.accepted.ref.uw) || !sameRef2(proposal.mandate, {
-    scope: mandateScope(context.mandate),
-    recordId: context.mandate.recordId,
-    kind: "mandate"
-  }) || proposal.mandate.kind !== "mandate" || proposal.assessment.kind !== "action-receipt")
-    return materialFailure2("material-proposal-invalid", "Prepared material proposal references are inconsistent");
-  if (confirmation.operationId !== proposal.operationId || confirmation.proposalDigest !== digest)
-    return materialFailure2("material-confirmation-mismatch", "Operator confirmation does not bind the prepared material proposal");
-  const fresh = recheckMaterialAcceptance({ prepared, ...context });
-  if (!fresh.ok)
-    return fresh;
-  return buildRecord({
-    repository: proposal.mandate.scope.repository,
-    target: proposal.mandate.scope.target,
-    version: 1,
-    recordId: proposal.operationId,
-    runId: proposal.operationId,
-    operationId: proposal.operationId,
-    kind: "operator-control",
-    payload: {
-      control: "accept-material",
-      controlId: proposal.operationId,
-      mandate: proposal.mandate,
-      predecessor: proposal.predecessor,
-      assessment: proposal.assessment,
-      specVersion: proposal.exactInputs.proposed.snapshot.spec.version,
-      proposalDigest: digest,
-      authorization: { kind: "direct" },
-      confirmation,
-      identityDelta: { retired: [...proposal.exactInputs.mechanical.removed] }
-    }
-  });
-}
-
-// plugins/omp-build/engine/workflow-composed-creation-delta.ts
-function confirmedCreationIntent(input) {
-  const { before, after, operation } = input;
-  const priorIntentHistory = historyFor(operation.scope, before.histories);
-  if (priorIntentHistory === null || priorIntentHistory.operations.some((entry) => entry.authority !== "foreign" && entry.recordId === operation.recordId))
-    return compositionStale("Creation intent scope was not observed before confirmation or its operation already existed");
-  const intentHistory = historyFor(operation.scope, after.histories);
-  const intent = intentHistory === null ? null : bindExternalRef(operation, intentHistory);
-  if (intent === null || !intent.ok || intent.value.kind !== "cause-operation" || intent.value.payload.proposal.operation !== "create")
-    return compositionStale("Confirmed creation intent is unavailable");
-  const outer = intent.value.payload.proposal;
-  const consent = outer.parentAcceptance;
-  if (consent === null)
-    return compositionStale("Confirmed creation intent is unavailable");
-  return { ok: true, value: { outer, consent } };
-}
-function originalParentObservation(input, consent, native) {
-  const beforeHistory = historyFor(consent.parent, input.before.histories);
-  const beforeNode = input.before.graph.nodes.find((node) => equalScope(node.uw, consent.parent));
-  const afterNode = input.after.graph.nodes.find((node) => equalScope(node.uw, consent.parent));
-  const beforeNative = beforeNode === undefined ? null : native(beforeNode);
-  const afterNative = afterNode === undefined ? null : native(afterNode);
-  if (beforeHistory === null || beforeNative === null || afterNative === null || specDigest(JSON.stringify(beforeHistory)) !== consent.historyDigest || nativeObservationDigest(beforeNative) !== consent.nativeObservationDigest)
-    return compositionStale("Original parent observation does not match the confirmed consent");
-  return { ok: true, value: { beforeNative, afterNode } };
-}
-function currentParentControl(input, consent) {
-  const { after, prepared, operation, binding } = input;
-  const parentMandateHistory = historyFor(consent.mandate.scope, after.histories);
-  if (parentMandateHistory === null)
-    return compositionStale("Parent mandate history is unavailable");
-  const mandate = bindExternalRef(consent.mandate, parentMandateHistory);
-  if (!mandate.ok || mandate.value.kind !== "mandate")
-    return compositionStale("Parent mandate cannot be authenticated");
-  const selected = selectedMandate(parentMandateHistory);
-  if (!("kind" in selected) || selected.kind !== "mandate" || selected.recordId !== mandate.value.recordId)
-    return compositionStale("Parent mandate is no longer the uniquely active mandate");
-  const checked = recheckMaterialAcceptance({ prepared, histories: after.histories, mandate: selected });
-  if (!checked.ok)
-    return checked;
-  const current = resolveAcceptedSpec(mandate.value, after.histories);
-  if (!current.ok || !sameOwnSpecRef(current.spec.ref, consent.accepted))
-    return compositionStale("Parent accepted predecessor advanced during creation");
-  return buildComposedMaterialAcceptanceControl({ prepared, operation, binding, histories: after.histories });
-}
-function checkParentCreationDelta(input, native) {
-  const { before, after, binding } = input;
-  if (before.status !== "complete" || after.status !== "complete")
-    return compositionStale("Both parent observation cuts must be complete");
-  if (!validateUwGraph(before.graph).ok || !validateUwGraph(after.graph).ok)
-    return compositionStale("Creation native graph is incomplete or invalid");
-  const intent = confirmedCreationIntent(input);
-  if (!intent.ok)
-    return intent;
-  const { outer, consent } = intent.value;
-  const parent = originalParentObservation(input, consent, native);
-  if (!parent.ok)
-    return parent;
-  const effects = new ComposedCreationEffects(input, native);
-  const historyProblem = effects.historyProblem();
-  if (historyProblem !== null)
-    return compositionStale(historyProblem);
-  const childIssue = issueFromScope(binding.child);
-  if (childIssue === null || parent.value.beforeNative.children.some((item) => sameObservationValue(item, childIssue)))
-    return compositionStale("Created child is not a new positive issue");
-  const graphProblem = effects.graphProblem(outer, consent, childIssue);
-  if (graphProblem !== null)
-    return compositionStale(graphProblem);
-  const childrenProblem = effects.parentChildrenProblem(parent.value.afterNode);
-  if (childrenProblem !== null)
-    return compositionStale(childrenProblem);
-  const nativeProblem = effects.newNativeProblem();
-  return nativeProblem === null ? currentParentControl(input, consent) : compositionStale(nativeProblem);
-}
-
-// plugins/omp-build/engine/workflow-composed-parent-authority.ts
-function readConsentAuthority(material, observation, proposal) {
-  const accepted = resolveAcceptedSpec(material.mandate, observation.histories);
-  if (!accepted.ok || !sameOwnSpecRef(accepted.spec.ref, proposal.exactInputs.accepted.ref))
-    return compositionStale("Current accepted parent differs from the assessment");
-  const history = historyFor(material.uw, observation.histories);
-  if (history === null || !history.source.complete)
-    return compositionStale("Complete parent history is required");
-  const selected = selectedMandate(history);
-  if (!("kind" in selected) || selected.kind !== "mandate" || selected.recordId !== material.mandate.recordId)
-    return compositionStale("Parent mandate is not the uniquely active current mandate");
-  const effective = resolveSpecEffective({
-    mode: "historical",
-    own: accepted.spec.ref,
-    versionVector: [accepted.spec.ref, ...accepted.spec.inheritedOwnSpecRefs],
-    histories: observation.histories
-  });
-  if (!effective.ok)
-    return compositionStale("Historical accepted parent authority is unavailable");
-  const proposed = resolveCurrentInheritedOwnSpecRefs(material.uw, observation.graph, observation.histories);
-  if (!proposed.ok || !sameObservationValue(proposed.value, proposal.exactInputs.proposed.inheritedOwnSpecRefs))
-    return compositionStale("Proposed inheritance differs from current authenticated native ancestry");
-  return { ok: true, value: { accepted: accepted.spec, effective: effective.value, history } };
-}
-
-// plugins/omp-build/engine/workflow-composed-parent-consent.ts
-function originalParentProblem(input, origin, native) {
-  const originalParent = origin.parentObservation;
-  const beforeNode = input.beforeAssessment.graph.nodes.find((item) => equalScope(item.uw, input.material.uw));
-  const beforeNative = beforeNode === undefined ? null : native(beforeNode);
-  const beforeHistory = historyFor(input.material.uw, input.beforeAssessment.histories);
-  if (originalParent === null || originalParent.state !== "active" || !equalScope(originalParent.parent, input.material.uw) || beforeNative === null || beforeHistory === null || originalParent.nativeDigest !== nativeObservationDigest(beforeNative) || originalParent.historyDigest !== specDigest(JSON.stringify(beforeHistory)))
-    return "Assessment origin does not bind the original active parent observation";
-  return null;
-}
-function creationSourceProblem(origin, histories) {
-  const sourceRef = origin.kind === "sister" ? origin.disposition : origin.report;
-  const sourceHistory = historyFor(sourceRef.scope, histories);
-  const source = sourceHistory === null ? null : bindExternalRef(sourceRef, sourceHistory);
-  if (source === null || !source.ok || specDigest(JSON.stringify(source.value)) !== (origin.kind === "sister" ? origin.dispositionDigest : origin.reportDigest))
-    return "Assessment creation source does not authenticate against its sealed origin";
-  if (source.value.kind !== "cause-disposition" || origin.kind === "sister" && !equalScope(origin.original, sourceRef.scope))
-    return "Assessment origin does not name the actual disposition source";
-  if (origin.kind === "sister") {
-    const outcome = source.value.payload.outcome;
-    const relation = outcome.state === "final" && outcome.disposition === "sister-blocking" ? "original-blocked-by-sister" : "sister-blocked-by-original";
-    if (origin.relation !== relation)
-      return "Assessment sister relation differs from its source disposition";
-  }
-  return null;
-}
-function createdSlotProblem(proposal, origin, input) {
-  const slots = proposal.exactInputs.proposed.children.filter((child) => ("kind" in child));
-  const slot = slots[0];
-  if (slots.length !== 1 || slot === undefined || slot.operationId !== input.createOperationId)
-    return "Assessment does not contain exactly this creation slot";
-  const parentIssue = issueFromScope(input.material.uw);
-  if (parentIssue === null || !sameObservationValue(slot.plan.writes.relations.parent, parentIssue) || origin.kind === "sister" && (origin.parent === null || !equalScope(origin.parent, input.material.uw)))
-    return "Assessment creation context and sealed core do not name the parent";
-  return null;
-}
-function attachedSourcesProblem(proposal, before, native) {
-  for (const child of proposal.exactInputs.attachedChildren) {
-    const actual = before.graph.nodes.find((node) => equalScope(node.uw, child.scope));
-    if (!actual || isWayfinder(actual) || unknownWayfinderLabels(actual).length !== 0 || actual.raw.reference !== child.snapshot.raw.reference || actual.raw.body !== child.snapshot.raw.body || actual.raw.bodySha256 !== child.snapshot.raw.bodySha256 || !actual.labels.includes(`size:${child.tier}`) || actual.labels.some((label) => label.startsWith("size:") && label !== `size:${child.tier}`))
-      return "An attached child snapshot or tier differs from the original native observation";
-  }
-  for (const wayfinder of proposal.exactInputs.attachedWayfinders) {
-    const scope = {
-      repository: wayfinder.issue.repository,
-      target: `${wayfinder.issue.repository}#${wayfinder.issue.number}`
-    };
-    const node = before.graph.nodes.find((item) => equalScope(item.uw, scope));
-    const actual = node === undefined ? null : native(node);
-    if (node === undefined || actual === null || !isWayfinder(node) || unknownWayfinderLabels(node).length !== 0 || nativeObservationDigest(actual) !== nativeObservationDigest(wayfinder))
-      return "An attached wayfinder differs from the original native observation";
-  }
-  return null;
-}
-function prepareSealedConsent(input, origin, native) {
-  const originalProblem = originalParentProblem(input, origin, native);
-  if (originalProblem !== null)
-    return compositionStale(originalProblem);
-  const sourceProblem = creationSourceProblem(origin, input.observation.histories);
-  if (sourceProblem !== null)
-    return compositionStale(sourceProblem);
-  const prepared = prepareMaterialAcceptanceForAssessment(input.material, input.assessment);
-  if (!prepared.ok)
-    return prepared;
-  const proposal = prepared.value.proposal;
-  const slotProblem = createdSlotProblem(proposal, origin, input);
-  if (slotProblem !== null)
-    return compositionStale(slotProblem);
-  const attachedProblem = attachedSourcesProblem(proposal, input.beforeAssessment, native);
-  if (attachedProblem !== null)
-    return compositionStale(attachedProblem);
-  const authority = readConsentAuthority(input.material, input.observation, proposal);
-  if (!authority.ok)
-    return authority;
-  const { accepted, effective, history } = authority.value;
-  const node = input.observation.graph.nodes.find((item) => equalScope(item.uw, input.material.uw));
-  const currentNative = node === undefined ? null : native(node);
-  if (currentNative === null)
-    return compositionStale("Complete current parent native facts are required");
-  return {
-    ok: true,
-    value: {
-      prepared: prepared.value,
-      consent: {
-        parent: input.material.uw,
-        mandate: { ...proposal.mandate, kind: "mandate" },
-        accepted: accepted.ref,
-        predecessor: proposal.predecessor,
-        versionVector: [...effective.versionVector],
-        nativeObservationDigest: nativeObservationDigest(currentNative),
-        historyDigest: specDigest(JSON.stringify(history)),
-        assessment: { ...proposal.assessment, kind: "action-receipt" },
-        exactInputs: proposal.exactInputs,
-        slot: { kind: "created-by", operationId: input.createOperationId },
-        parentOperationId: proposal.operationId,
-        parentProposalDigest: prepared.value.digest
-      }
-    }
-  };
-}
-function prepareParentConsent(input, native) {
-  const { material, beforeAssessment, observation, assessment } = input;
-  if (beforeAssessment.status !== "complete" || observation.status !== "complete" || !sameObservationValue(material.histories, observation.histories))
-    return compositionStale("Complete pre-assessment and post-assessment observation cuts are required");
-  const mandateRef = { scope: material.uw, recordId: material.mandate.recordId, kind: "mandate" };
-  const delta = checkAssessmentDelta({ before: beforeAssessment, after: observation, assessment, mandate: mandateRef }, native);
-  if (!delta.ok)
-    return delta;
-  const operands = delta.value.payload.inputs.manifest.operands;
-  if (operands?.action !== "assess-spec" || operands.origin.kind !== "cause-created-child")
-    return compositionStale("Assessment does not seal a cause-created-child origin");
-  return prepareSealedConsent(input, operands.origin.creation, native);
-}
-
-// plugins/omp-build/engine/workflow-composed-material-preparation.ts
-function nativeIssueObservationFromNode(node) {
-  if (node.parent !== null && issueFromScope(node.parent) === null)
-    return null;
-  const parsed = nativeIssueObservationSchema.safeParse({
-    issue: issueFromScope(node.uw),
-    title: node.title,
-    body: node.raw.body,
-    updatedAt: node.updatedAt,
-    nativeState: node.native,
-    labels: node.labels,
-    parent: node.parent === null ? null : issueFromScope(node.parent),
-    children: node.children.map(issueFromScope),
-    blockers: node.blockers.map(issueFromScope)
-  });
-  return parsed.success ? parsed.data : null;
-}
-function recheckComposedAssessmentDelta(input) {
-  return checkAssessmentDelta(input, nativeIssueObservationFromNode);
-}
-function prepareComposedParentConsent(input) {
-  return prepareParentConsent(input, nativeIssueObservationFromNode);
-}
-function recheckComposedParentAcceptance(input) {
-  return checkParentCreationDelta(input, nativeIssueObservationFromNode);
-}
 // plugins/omp-build/engine/workflow-landing-binding.ts
 function landingBindingReason(selection) {
   if (selection.status === "conflicting")
@@ -32421,6 +31422,218 @@ function requireLandingMandate(input) {
 function effectiveMandateRole(storedRole, accepted) {
   return storedRole === "fix-only" ? "fix-only" : accepted.children.length > 0 ? "epic" : "feature";
 }
+// plugins/omp-build/engine/workflow-material-assessment.ts
+function materialFailure(code, message) {
+  return fail([diagnostic2(code, message)]);
+}
+function candidateSourcesCurrent(record, accepted, histories) {
+  const exact = record.payload.exactInputs;
+  if (!sameAssessedState(exact.accepted, {
+    ref: accepted.ref,
+    snapshot: accepted.snapshot,
+    tier: accepted.tier,
+    children: accepted.children,
+    inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
+    coverage: accepted.coverage
+  }) || !capturedAssessmentSourcesMatch({ childOwnSources: [], sourceRefs: accepted.sourceRefs }, record.payload.inputs.manifest.acceptedSources, histories))
+    return { ok: true, value: false };
+  const currentChildren = capturedChildOwnSources(exact.accepted, exact.proposed, histories, exact.attachedChildren);
+  if (currentChildren === null)
+    return materialFailure("material-child-sources-unavailable", "Current child own sources cannot be authenticated");
+  return {
+    ok: true,
+    value: canonicalValueDigest(currentChildren.childOwnSources) === canonicalValueDigest(exact.childOwnSources) && capturedAssessmentSourcesMatch(currentChildren, record.payload.inputs.manifest.acceptedSources, histories)
+  };
+}
+function evaluateCandidate(record, histories, mandate, accepted) {
+  if (!specAssessmentSchema.safeParse(record.payload.structured).success)
+    return materialFailure("material-assessment-malformed", "Material assessment output is malformed");
+  if (specAssessmentSchema.parse(record.payload.structured).compatibility.state !== "consistent")
+    return materialFailure("constraint-compatibility-unresolved", "Constraint compatibility must be consistent before material acceptance");
+  const authenticated = authenticatedAssessResult(record, histories, mandate);
+  if (!authenticated.ok)
+    return fail(authenticated.evidence);
+  const mandateHistory = historyFor(mandate.scope, histories);
+  const mandateRecord = mandateHistory === null ? null : bindExternalRef(mandate, mandateHistory);
+  if (mandateRecord === null || !mandateRecord.ok || mandateRecord.value.kind !== "mandate")
+    return materialFailure("constraint-compatibility-unresolved", "Assessment mandate is not authenticated");
+  const compatibilityProblem = checkAuthenticatedSpecCompatibility(authenticated.record, specAssessmentSchema.parse(authenticated.record.payload.structured), histories, mandateRecord.value);
+  if (compatibilityProblem !== null)
+    return materialFailure("constraint-compatibility-unresolved", compatibilityProblem);
+  const sources = candidateSourcesCurrent(record, accepted, histories);
+  if (!sources.ok)
+    return sources;
+  if (!sources.value)
+    return { ok: true, value: { status: "stale" } };
+  const exact = record.payload.exactInputs;
+  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
+  if (!sameMechanicalDelta(mechanical, exact.mechanical))
+    return materialFailure("material-assessment-malformed", "Material assessment mechanical delta is inconsistent");
+  const classification = specAssessmentSchema.parse(record.payload.structured).classification;
+  if (!requiresMaterialAcceptance(mechanical, classification))
+    return materialFailure("material-assessment-not-material", "Assessment does not require material acceptance");
+  return { ok: true, value: { status: "candidate", record: authenticated.record, classification } };
+}
+
+// plugins/omp-build/engine/workflow-material-acceptance.ts
+function sameRefs(left, right) {
+  return left.length === right.length && left.every((ref, index) => {
+    const candidate = right[index];
+    return candidate !== undefined && sameRef2(ref, candidate);
+  });
+}
+function sameProposed(left, right, pinned) {
+  return pinned ? JSON.stringify(left) === JSON.stringify(right) : sameCurrentAssessedState(left, right);
+}
+function materialFailure2(code, message) {
+  return fail([diagnostic2(code, message)]);
+}
+function isCurrentCandidate(record, input, mandate, requiredAssessment) {
+  if (!isAssessResult(record) || !sameRef2(record.payload.mandate, mandate))
+    return false;
+  if (requiredAssessment !== undefined && !sameRef2(receiptRef(record), requiredAssessment))
+    return false;
+  return sameProposed(record.payload.exactInputs.proposed, input.currentProposed, requiredAssessment !== undefined) && sameRefs(record.payload.exactInputs.identityAllocations, input.identityAllocations);
+}
+function matchingAssessments(records, input, mandate, accepted, excluded, requiredAssessment) {
+  const candidates = [];
+  let stale = false;
+  for (const record of records) {
+    if (!isCurrentCandidate(record, input, mandate, requiredAssessment))
+      continue;
+    if (excludedReceipt(record, excluded))
+      continue;
+    if (supersededContext(record, input, excluded, requiredAssessment))
+      continue;
+    const outcome = evaluateCandidate(record, input.histories, mandate, accepted);
+    if (!outcome.ok)
+      return outcome;
+    if (outcome.value.status === "stale")
+      stale = true;
+    if (outcome.value.status === "candidate")
+      candidates.push(outcome.value);
+  }
+  return { ok: true, value: { candidates, stale } };
+}
+function supersededContext(record, input, excluded, requiredAssessment) {
+  if (requiredAssessment !== undefined || !workflowContextNegative(record))
+    return false;
+  const home = input.histories.find((history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target);
+  return home !== undefined && workflowContextTerminal(home, "assess-spec", record.payload.mandate, undefined, excluded) === "clear";
+}
+function selectMaterialAcceptance(input, requiredAssessment) {
+  if (!identifierSchema.safeParse(input.operationId).success)
+    return materialFailure2("material-operation-invalid", "Material acceptance operation ID is invalid");
+  const accepted = resolveAcceptedSpec(input.mandate, input.histories);
+  if (!accepted.ok)
+    return fail(accepted.evidence);
+  if (!equalScope(input.uw, accepted.spec.ref.uw))
+    return materialFailure2("material-uw-mismatch", "Material acceptance UW does not match the accepted own Spec");
+  const scope = mandateScope(input.mandate);
+  const home = input.histories.find((history) => equalScope(history.source.scope, scope));
+  if (home === undefined)
+    return materialFailure2("missing-history", "Mandate history is missing");
+  const records = recordsOf(home);
+  if (records.some((record) => record.operationId === input.operationId))
+    return materialFailure2("material-operation-conflict", "Material acceptance operation ID is already present in mandate history");
+  const mandate = { scope, recordId: input.mandate.recordId, kind: "mandate" };
+  const attempts = classifyAttempts({ histories: input.histories, scan: [home], actions: ["assess-spec"] });
+  if (!attempts.ok)
+    return attempts;
+  const matches = matchingAssessments(records, input, mandate, accepted.spec, attempts.value.excluded, requiredAssessment);
+  if (!matches.ok)
+    return matches;
+  const { candidates, stale } = matches.value;
+  if (candidates.length > 1)
+    return materialFailure2("material-assessment-ambiguous", "Multiple authenticated material assessments match the current proposal");
+  const assessment = candidates[0];
+  if (assessment === undefined)
+    return materialFailure2(stale ? "material-assessment-stale" : "material-assessment-missing", stale ? "Material assessment continues a stale accepted Spec" : "No authenticated material assessment matches the current proposal");
+  const predecessor = accepted.spec.chain.at(-1);
+  if (predecessor === undefined)
+    return materialFailure2("material-proposal-invalid", "Accepted Spec chain has no predecessor");
+  const proposal = {
+    format: "omp-build-material-acceptance/2",
+    operationId: input.operationId,
+    uw: accepted.spec.ref.uw,
+    mandate,
+    predecessor: predecessor.source,
+    assessment: receiptRef(assessment.record),
+    classification: assessment.classification,
+    exactInputs: assessment.record.payload.exactInputs
+  };
+  return { ok: true, value: { proposal } };
+}
+function prepareMaterialAcceptance(input) {
+  const selected = selectMaterialAcceptance(input);
+  if (!selected.ok)
+    return selected;
+  return {
+    ok: true,
+    value: {
+      proposal: selected.value.proposal,
+      digest: materialAcceptanceDigest(selected.value.proposal)
+    }
+  };
+}
+function recheckMaterialAcceptance(input) {
+  const { proposal, digest } = input.prepared;
+  if (proposal.format !== "omp-build-material-acceptance/2" || digest !== materialAcceptanceDigest(proposal))
+    return materialFailure2("material-proposal-invalid", "Prepared material proposal digest is invalid");
+  const selected = selectMaterialAcceptance({
+    uw: proposal.uw,
+    operationId: proposal.operationId,
+    histories: input.histories,
+    mandate: input.mandate,
+    currentProposed: proposal.exactInputs.proposed,
+    identityAllocations: proposal.exactInputs.identityAllocations
+  }, proposal.assessment);
+  if (!selected.ok)
+    return selected;
+  if (JSON.stringify(selected.value.proposal) !== JSON.stringify(proposal))
+    return materialFailure2("material-proposal-stale", "Material proposal no longer binds the current accepted assessment");
+  return { ok: true, value: input.prepared };
+}
+function buildMaterialAcceptanceControl(prepared, confirmation, context) {
+  const { proposal, digest } = prepared;
+  if (proposal.format !== "omp-build-material-acceptance/2" || digest !== materialAcceptanceDigest(proposal))
+    return materialFailure2("material-proposal-invalid", "Prepared material proposal digest is invalid");
+  const mechanical = mechanicalSpecDelta(proposal.exactInputs.accepted, proposal.exactInputs.proposed);
+  if (!sameMechanicalDelta(mechanical, proposal.exactInputs.mechanical) || !requiresMaterialAcceptance(mechanical, proposal.classification))
+    return materialFailure2("material-proposal-invalid", "Prepared material proposal is not an authenticated change");
+  if (!equalScope(proposal.uw, proposal.exactInputs.accepted.ref.uw) || !sameRef2(proposal.mandate, {
+    scope: mandateScope(context.mandate),
+    recordId: context.mandate.recordId,
+    kind: "mandate"
+  }) || proposal.mandate.kind !== "mandate" || proposal.assessment.kind !== "action-receipt")
+    return materialFailure2("material-proposal-invalid", "Prepared material proposal references are inconsistent");
+  if (confirmation.operationId !== proposal.operationId || confirmation.proposalDigest !== digest)
+    return materialFailure2("material-confirmation-mismatch", "Operator confirmation does not bind the prepared material proposal");
+  const fresh = recheckMaterialAcceptance({ prepared, ...context });
+  if (!fresh.ok)
+    return fresh;
+  return buildRecord({
+    repository: proposal.mandate.scope.repository,
+    target: proposal.mandate.scope.target,
+    version: 1,
+    recordId: proposal.operationId,
+    runId: proposal.operationId,
+    operationId: proposal.operationId,
+    kind: "operator-control",
+    payload: {
+      control: "accept-material",
+      controlId: proposal.operationId,
+      mandate: proposal.mandate,
+      predecessor: proposal.predecessor,
+      assessment: proposal.assessment,
+      specVersion: proposal.exactInputs.proposed.snapshot.spec.version,
+      proposalDigest: digest,
+      authorization: { kind: "direct" },
+      confirmation,
+      identityDelta: { retired: [...proposal.exactInputs.mechanical.removed] }
+    }
+  });
+}
 // plugins/omp-build/omp/tool-schemas.ts
 var ompBuildPrepareCheckoutParametersSchema = strictObject({
   reference: string2().trim().min(1)
@@ -32436,7 +31649,7 @@ async function readScopeIssueBody(scope, options) {
   return facts.body;
 }
 // plugins/omp-build/roxabi/workflow-config-digest.ts
-import { createHash as createHash20 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32514,10 +31727,10 @@ function canonicalJson(value) {
   return JSON.stringify(value) ?? "null";
 }
 function configPinDigest(effective) {
-  return createHash20("sha256").update(canonicalJson(effective)).digest("hex");
+  return createHash19("sha256").update(canonicalJson(effective)).digest("hex");
 }
 function workflowConfigDigest() {
-  return createHash20("sha256").update(canonicalJson({ version: WORKFLOW_CONFIG_VERSION, ...workflowGraphData })).digest("hex");
+  return createHash19("sha256").update(canonicalJson({ version: WORKFLOW_CONFIG_VERSION, ...workflowGraphData })).digest("hex");
 }
 function shippedProductVersion() {
   const start = dirname(fileURLToPath(import.meta.url));
@@ -32620,13 +31833,9 @@ export {
   FRAMING_ADMISSION_HOLD_CODES,
   FRAMING_PROCEDURE_FILES,
   GitHubHistoryReadError,
-  HOST_INTERRUPTION_MARKER,
   INTERRUPTION_ACTIONS,
-  INTERRUPTION_RESOLUTION_FORMAT,
-  INTERRUPTION_RESOLUTION_PREFIX,
   KIND_NAMES,
   PLAN_REVIEW_SPECIALISTS,
-  PRODUCER_OUTPUTS,
   SPEC_CONTENT_FORMAT,
   SPEC_EFFECTIVE_FORMAT,
   SPEC_IDENTITY_FORMAT,
@@ -32646,7 +31855,6 @@ export {
   actionRequestSchema,
   actionSpecInputSchema,
   actionSubjectSchema,
-  admitInterruptionResolution,
   applyActionResultSchema,
   assessAdjudicationSuccessor,
   assessCauseDispositions,
@@ -32668,7 +31876,6 @@ export {
   bindingMatchesMandate,
   bindingPolicy,
   boundFramingCoverageIntentSchema,
-  buildComposedMaterialAcceptanceControl,
   buildFramingSpecIdentity,
   buildMaterialAcceptanceControl,
   buildObservedCommitIndex,
@@ -32795,26 +32002,16 @@ export {
   githubScope,
   graphqlVariables,
   groupSchema,
-  hasNativeUserInterruptFlag,
   historyFor,
   historySchema,
   hostEffectAdmissionSchema,
-  hostInterruptionDiagnostic,
   implementationAdmissionCommandSchema,
   implementationCommandSchema,
   implementationOutputSchema,
   inspectCapturedWorkForAssessment,
-  inspectFinding,
-  inspectNativeTerminal,
   integrationOutputSchema,
   interruptedResult,
-  interruptionActionSchema,
-  interruptionExecutorSchema,
   interruptionGate,
-  interruptionResolutionCandidate,
-  interruptionResolutionDigest,
-  interruptionResolutionRecordId,
-  interruptionRuntimeSchema,
   invariantIdSchema,
   inventorySchema,
   isAssessResult,
@@ -32877,7 +32074,6 @@ export {
   pluginPinSchema,
   policySchema,
   prepareCauseDependencyAdjustment,
-  prepareComposedParentConsent,
   prepareMaterialAcceptance,
   prepareNewSpecAllocation,
   prepareSpecAllocation,
@@ -32885,7 +32081,6 @@ export {
   processLifetimeSchema,
   producerCriterionDeclarationSchema,
   producerImplementationOutputSchema,
-  producerJsonSchema,
   producerOutputValid,
   producerTestCitationSchema,
   producerTestExecutionSchema,
@@ -32922,8 +32117,6 @@ export {
   receiptStartKey,
   recheckCauseDependencyAdjustment,
   recheckCauseDependencyAdjustmentEffect,
-  recheckComposedAssessmentDelta,
-  recheckComposedParentAcceptance,
   recheckMaterialAcceptance,
   reconstructFramingRegistry,
   recordInputRefSchema,
@@ -32940,7 +32133,6 @@ export {
   requestedSourceLocatorSchema,
   requireLandingMandate,
   resolutionIndex,
-  resolvableStarts,
   resolveAcceptedSpec,
   resolveAdjudicationContext,
   resolveAdjudicationSources,
@@ -33018,7 +32210,6 @@ export {
   validateCauseAdjudication,
   validateCauseDispositionRecords,
   validateCausePublication,
-  validateComposedMaterialAuthorization,
   validateDecision2 as validateDecision,
   validateDecisionBindings,
   validateFramingAuthorization,

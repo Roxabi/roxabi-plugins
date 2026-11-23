@@ -8,12 +8,15 @@ import { buildRecord, parseRecord } from '../record-construction.ts'
 import type { ExternalRecordRef } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { MandateRecord, ReceiptRecord } from '../workflow-control.ts'
-import { hostInterruptionDiagnostic } from '../workflow-interruption-proof.ts'
 
 /** Proposal format the engine digests: the resolution payload minus proposalDigest and confirmation. */
 export const INTERRUPTION_RESOLUTION_FORMAT = 'omp-build-interruption-resolution/2'
 export const INTERRUPTED_NATIVE = { completion: 'incomplete', strict: 'absent', raw: null } as const
-export const STOP_DIAGNOSTIC = hostInterruptionDiagnostic('session-stop')
+export const STOP_DIAGNOSTIC = {
+  code: 'action-interrupted',
+  message: 'Native execution interrupted (session-stop)',
+  detail: { marker: 'omp-build-host-interruption/2', proof: 'not-dispatched', origin: 'session-stop' },
+}
 export const RESOLVED_AT = '2026-10-21T12:00:00.000Z'
 
 /**

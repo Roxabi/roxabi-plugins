@@ -12,7 +12,6 @@ import {
 import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
 import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
-import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
 import { hostPluginPin } from './host-plugin-pin.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
@@ -23,7 +22,6 @@ import {
 } from './omp-feature-composition.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
-import { runNativeUwOperation } from './omp-uw-native-lifecycle.ts'
 import { type ParsedUwCommand, parseCreateCommand, parseIssueCommand, parseProposalCommand } from './omp-uw-parse.ts'
 import { reportResult, reportStopped } from './omp-uw-result.ts'
 /** The operator is confirmation-only; cancelling it belongs to the owner-slot composition. */
@@ -31,7 +29,6 @@ export type UwOperationsFactory = (input: {
   cwd: string
   operator: OperatorPort
   artifactsDir: string | null
-  nativeHost?: UwNativeHost
   pluginPin?: TrustedHostPluginPin
 }) => Promise<UwOperations> | UwOperations
 
@@ -249,20 +246,6 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
       privateOperator.progress(`/uw ${parsed.kind}${target}`)
       const ownsRootCapability = rootContext(ctx)
       const pluginPin = await hostPluginPin(pi, ctx)
-      if (ownsRootCapability && (parsed.kind === 'sister' || parsed.kind === 'promote-report')) {
-        await runNativeUwOperation(pi, ctx, privateOperator, async (operator, nativeHost, isCurrent) => {
-          const operations = await factory({
-            cwd: ctx.cwd,
-            operator,
-            artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
-            nativeHost,
-            ...(pluginPin === undefined ? {} : { pluginPin }),
-          })
-          const outcome = await executeUwCommand(parsed, operations)
-          if (!nativeHost.signal.aborted && isCurrent()) reportOutcome(pi, ctx, outcome)
-        })
-        return
-      }
       await runOrdinaryCommand(pi, ctx, parsed, factory, privateOperator, ownsRootCapability, pluginPin)
     },
   })

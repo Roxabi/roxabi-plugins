@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.15 (unreleased)
+
+- Remove the native batch runtime (#1037): `omp/review-runtime/`, the `omp_build_execute_native_batch` tool, the 18 generated `R-review-*`/`R-workflow-*` profiles and their generator, the UW native launches, and the transport tracking left inert by 0.21.14. The session chooses its agents; `agents/` ships the 7 authored ones. Model tools left: `omp_build_framing_submit`, `omp_build_prepare_checkout`.
+- `/uw sister` and `/uw promote-report` still create a UW with no parent or under an inactive parent; under an active parent they refuse before any write while parent delivery is suspended (slice 6 of #1031).
+- `/feature resolve-interruption` refuses: native non-dispatch can no longer be proven. For an eligible paused mandate it names `/feature abandon`, then `/feature new`.
+- Historical review, fix, assessment and interruption records stay readable; parent pause/abandon containment stays.
+- Recognize 0.21.15 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.14 (unreleased)
 
 - Remove the native correction and review entry points that `/feature`'s composition replaced (#1037): the `/fix` command, the `omp_build_start_review` tool and the recovery tools `omp_build_terminalize_interrupted_review`, `omp_build_grant_review_replacement`, `omp_build_replace_interrupted_review`, `omp_build_recover_interrupted_fix`. Corrections go through `/dev-fix`, reviews through `/dev-review`. The code only they reached is deleted; historical review and fix records stay readable. The native review runtime, `omp_build_execute_native_batch` and the generated profiles go in the next step.

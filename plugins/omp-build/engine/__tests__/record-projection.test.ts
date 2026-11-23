@@ -3,7 +3,6 @@ import { fixtureMissingReviewClassCatalogues } from '../../testing/action-input-
 import { finding, submission, TEST_HEAD } from '../../testing/record-builders.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
 import { history } from '../../testing/record-history.ts'
-import { producerJsonSchema } from '../producer-schema.ts'
 import { projectRecord } from '../record-projection.ts'
 import { actionResultSchema } from '../record-values.ts'
 import { PROJECTION_CONFIG, refusalCodes } from './record-test-support.ts'
@@ -148,6 +147,5 @@ describe('action-result proof and guard binding', () => {
     expect(actionResultSchema.safeParse(invalidTraversalProofPath).success).toBe(false)
     expect(actionResultSchema.safeParse(invalidBackslashProofPath).success).toBe(false)
     expect(actionResultSchema.safeParse(invalidFactProof).success).toBe(false)
-    expect(JSON.stringify(producerJsonSchema('action-result'))).toContain('proofPaths')
   })
 })

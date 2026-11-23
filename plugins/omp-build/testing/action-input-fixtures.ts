@@ -18,7 +18,6 @@ import { mandateScope } from '../engine/workflow-control.ts'
 import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
 import { sealActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
-import { confirmingReviewActions } from './confirming-review-fixture.ts'
 import { observeDeclaredNativeWorld } from './declared-native-observation.ts'
 
 const SHA = 'a'.repeat(64)
@@ -261,7 +260,6 @@ export function fixtureUwOperations(
     closeLinked: unexpected,
     reopen: unexpected,
     abandon: unexpected,
-    resolveInterruption: unexpected,
     listReports: unexpected,
     adjudicateCause: unexpected,
     createSister: unexpected,
@@ -274,21 +272,7 @@ export function fixtureUwOperations(
     create: unexpected,
     acceptMaterial: unexpected,
     prepareAction,
-    prepareReviewActions: async () => ({ ok: false, diagnostics: [] }),
     replayActionInputs: async () => ({ ok: false, diagnostics: [] }),
-    verifyAction: async () => ({ ok: false, diagnostics: [] }),
     readDelivery: unexpected,
   }
-}
-
-/** Prepare, replay, and verify agree, so confirmPreparedAction can succeed in fixtures. */
-export function confirmingUwOperations(): UwOperations {
-  const prepared = fixturePreparedAction()
-  const operations: UwOperations = {
-    ...fixtureUwOperations(async () => ({ ok: true, value: prepared })),
-    replayActionInputs: async () => ({ ok: true, value: prepared.inputs }),
-    verifyAction: async () => ({ ok: true, value: prepared.snapshot }),
-    prepareReviewActions: (input) => confirmingReviewActions(operations, input, fixturePreparedAction),
-  }
-  return operations
 }

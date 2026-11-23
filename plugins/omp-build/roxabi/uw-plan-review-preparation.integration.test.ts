@@ -16,7 +16,6 @@ import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-i
 import { createNativeImplementationTransport } from '../testing/native-implementation-transport.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { authenticatedPlanFixtures } from '../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
-import { prepareDeliveryAction } from './delivery-action.ts'
 import type { UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
 import * as actionObserve from './uw-action-observe.ts'
 import { actionOperationMethods } from './uw-action-operations.ts'
@@ -114,9 +113,9 @@ it('prepares plan and plan-review against the same accepted UW Spec', async () =
       stageSources: [],
       expandedContext: [],
     }
-    const plan = await prepareDeliveryAction(operations, request)
+    const plan = await operations.prepareAction(request)
     expect(plan.ok).toBe(true)
-    const review = await prepareDeliveryAction(operations, {
+    const review = await operations.prepareAction({
       ...request,
       actionId: 'plan-review-action',
       purpose: 'plan-review',
@@ -193,7 +192,7 @@ it('preserves the missing adjacent native source in assessment preparation diagn
         ]).result.payload.exactInputs,
       },
     }
-    const result = await prepareDeliveryAction(operations, request)
+    const result = await operations.prepareAction(request)
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected incomplete graph refusal')
     expect(result.diagnostics).toContainEqual(
@@ -294,7 +293,7 @@ it('materializes the selected draft module glossary for each plan specialist at 
       expandedContext: [],
     }
     for (const actionId of ['specialist-a', 'specialist-b']) {
-      const prepared = await prepareDeliveryAction(operations, { ...request, actionId })
+      const prepared = await operations.prepareAction({ ...request, actionId })
       expect(prepared.ok, JSON.stringify(prepared)).toBe(true)
       if (!prepared.ok) throw new Error(JSON.stringify(prepared.diagnostics))
       expect(prepared.value.inputs.manifest.repositoryReferences).toContainEqual({

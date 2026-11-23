@@ -35,15 +35,7 @@ async function captureInput(
   cwd,
   pr,
   head,
-  {
-    gh: ghFn = gh,
-    git: gitFn = gitResult,
-    automationLogin,
-    pluginPin,
-    persistedFingerprint,
-    selectedReviewId,
-    reviewedRoot,
-  } = {},
+  { gh: ghFn = gh, git: gitFn = gitResult, automationLogin, pluginPin, persistedFingerprint, selectedReviewId } = {},
   mergedBase,
 ) {
   const selected = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
@@ -63,43 +55,18 @@ async function captureInput(
       pluginPin,
       persistedFingerprint,
       selectedReviewId,
-      reviewedRoot,
     },
   )
-}
-
-async function validateInput(cwd, pr, head, input, deps, changed, mergedBase) {
-  const current = await captureInput(cwd, pr, head, { ...deps, persistedFingerprint: input }, mergedBase)
-  if (!current.ok) return current
-  return current.input === input ? { ok: true } : changed
-}
-export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
-  return validateInput(cwd, pr, head, input, deps, {
-    ok: false,
-    reason: 'unbound',
-    error:
-      'review inputs changed during review; do not post this approval or replace its binding — start a fresh review',
-  })
 }
 
 export async function validateLandingReviewInput(cwd, pr, head, input, deps = {}, mergedBase) {
-  return validateInput(
-    cwd,
-    pr,
-    head,
-    input,
-    deps,
-    {
-      ok: false,
-      reason: 'review-input-changed',
-      error: 'review inputs changed after review; re-review the current head before landing',
-    },
-    mergedBase,
-  )
-}
-
-export async function hasFreshReviewInput(cwd, pr, records, deps = {}) {
-  return (
-    await validateReviewInput(cwd, pr, records.head, records.input, { ...deps, selectedReviewId: records.reviewId })
-  ).ok
+  const current = await captureInput(cwd, pr, head, { ...deps, persistedFingerprint: input }, mergedBase)
+  if (!current.ok) return current
+  return current.input === input
+    ? { ok: true }
+    : {
+        ok: false,
+        reason: 'review-input-changed',
+        error: 'review inputs changed after review; re-review the current head before landing',
+      }
 }

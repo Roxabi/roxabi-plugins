@@ -31,7 +31,7 @@ export async function deliverAdmission(
     if (body !== undefined) await sendSkillMessage(pi, join(skillsDir, 'feature'), body, featureContext(result))
     return
   }
-  if (result.kind === 'framing' && input.control !== 'resolve-interruption') {
+  if (result.kind === 'framing') {
     await framing.start({ ctx, operator, originalArgs, pluginPin: input.pluginPin }, result.source, guard.handoff)
     return
   }
@@ -88,15 +88,9 @@ function reportAdmissionStop(
     return
   }
   const principalDispatch = input.principal && deliversSkill(input.control)
-  const refusal =
-    input.control === 'resolve-interruption' ? 'interruption-result-invalid' : `workflow-result: ${result.kind}`
-  const message = stop ?? `feature-stopped: ${refusal}`
-  const display =
-    result.kind === 'paused' && result.confirmed && result.reason === 'interruption-resolved'
-      ? `${message}\nUW ${input.reference} remains paused · next: /feature resume ${input.reference}`
-      : message
+  const message = stop ?? `feature-stopped: workflow-result: ${result.kind}`
   if (result.kind === 'blocked' || result.kind === 'paused') {
     ctx.ui?.setStatus?.('omp-build-watch', featureResultStatus(input.reference, result))
   }
-  reportFeatureTerminalStatus(pi, principalDispatch ? principalRefusalMessage(ctx.cwd, display) : display)
+  reportFeatureTerminalStatus(pi, principalDispatch ? principalRefusalMessage(ctx.cwd, message) : message)
 }

@@ -28,10 +28,10 @@ export async function loadCauseCreationSource(
   const parent =
     parentScope === null ? null : await observeCauseParent(parentScope, createParentEngagementReadPort(input.github))
   if (parent?.state === 'active') {
-    if (request.parentCoverage == null) throw new Error('cause-parent-active-requires-explicit-coverage')
-  } else {
-    if (parent !== null && parent.state !== 'inactive') throw new Error(`cause-parent-${parent.state}`)
-    if (request.parentCoverage != null) throw new Error('cause-parent-coverage-not-applicable')
+    const verb = mode === 'sister' ? 'sister' : 'promote-report'
+    throw new Error(`Parent /uw ${verb} delivery is suspended; resumes in slice 6 (#1031).`)
   }
+  if (parent !== null && parent.state !== 'inactive') throw new Error(`cause-parent-${parent.state}`)
+  if (request.parentCoverage != null) throw new Error('cause-parent-coverage-not-applicable')
   return { source, originalDigest, parentScope, parent }
 }

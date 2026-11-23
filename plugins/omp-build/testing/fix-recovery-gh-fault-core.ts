@@ -1,30 +1,10 @@
-import { createHash } from 'node:crypto'
-import { appendFileSync, existsSync, linkSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, linkSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
-import { githubPreparationKind } from '../host/preparation-gh-classifier.ts'
 import {
   executeSimCommand,
   type SimCommandInput,
   type SimCommandResult,
 } from '../skills/feature/testing/gh-simulator/sim-execution.ts'
-
-function redactField(arg: string): string {
-  const key = arg.split('=', 1)[0]
-  if (key !== 'query') return `${key}=<redacted>`
-  const document = arg.slice('query='.length)
-  const operation = /\b(query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(document)
-  const sha256 = createHash('sha256').update(document, 'utf8').digest('hex')
-  return `query=<${operation?.[1] ?? 'unknown'}:${operation?.[2] ?? 'anonymous'}:sha256=${sha256}>`
-}
-
-function traceArgument(arg: string, index: number, argv: string[]): string {
-  if (index > 0 && ['-f', '-F', '--field', '--raw-field'].includes(argv[index - 1] ?? '')) {
-    return redactField(arg)
-  }
-  if (index > 0 && ['-H', '--header', '--hostname'].includes(argv[index - 1] ?? '')) return '<redacted>'
-  if (arg.startsWith('body=')) return 'body=<redacted>'
-  return index < 2 || arg.startsWith('-') || /^(GET|POST|PATCH|PUT|DELETE|graphql)$/.test(arg) ? arg : '<redacted>'
-}
 
 // Fail only the first reconciliation page read after an accepted POST loses its response.
 function failReconciliationRead(
@@ -73,13 +53,6 @@ export function executeFaultCommand(
 ): SimCommandResult & { awaitRelease?: string; awaitDeadline?: number } {
   const env = input.env ?? process.env
   const callerPath = (path: string) => (isAbsolute(path) ? path : `${input.cwd}/${path}`)
-  if (env.RECOVERY_GH_TRACE) {
-    const safe = argv.map(traceArgument)
-    appendFileSync(
-      callerPath(env.RECOVERY_GH_TRACE),
-      `${JSON.stringify({ kind: githubPreparationKind(argv), argv: safe })}\n`,
-    )
-  }
   const kind = env.FIX_RECOVERY_FAULT_KIND
   const marker = env.FIX_RECOVERY_FAULT_MARKER && callerPath(env.FIX_RECOVERY_FAULT_MARKER)
   const before = env.FIX_RECOVERY_FAULT_BEFORE === '1'

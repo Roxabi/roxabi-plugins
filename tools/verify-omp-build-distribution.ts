@@ -2,7 +2,6 @@
 
 import { execFileSync } from 'node:child_process'
 import {
-  copyFileSync,
   lstatSync,
   mkdtempSync,
   readdirSync,
@@ -211,23 +210,15 @@ function negativeProbes(checkout: string, expected: Snapshot): void {
   }
 }
 
-function collisionProbe(checkout: string, expected: Snapshot, owned: string): void {
-  const sourceDirectory = join(checkout, 'plugins/omp-build/agent-sources')
-  const sources = new Set(readdirSync(sourceDirectory).filter((name) => name.endsWith('.md')))
-  const profile = [...expected.keys()]
-    .filter((path) => path.startsWith('agents/') && !sources.has(path.slice('agents/'.length)))
-    .sort()[0]
-  const source = [...sources].sort()[0]
-  if (profile === undefined || source === undefined) throw new Error('cannot construct owned collision probe')
-  const collision = join(sourceDirectory, profile.slice('agents/'.length))
-  copyFileSync(join(sourceDirectory, source), collision)
-  try {
-    expectSpecificFailure('producer collision', 'omp-build output collision:', () =>
-      command(checkout, process.execPath, [buildScript, '--output-root', join(owned, 'collision-output')]),
-    )
-  } finally {
-    rmSync(collision)
-  }
+function requireAuthoredAgents(root: string, output: Snapshot): void {
+  const sourceDirectory = join(root, 'plugins/omp-build/agent-sources')
+  const authored = new Map(
+    readdirSync(sourceDirectory)
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => [`agents/${name}`, readFileSync(join(sourceDirectory, name))]),
+  )
+  const shipped = new Map([...output].filter(([path]) => path.startsWith('agents/')))
+  compare('authored agents to shipped agents', authored, shipped)
 }
 
 async function verify(root: string, probes: boolean): Promise<Receipt> {
@@ -245,6 +236,7 @@ async function verify(root: string, probes: boolean): Promise<Receipt> {
   try {
     const a = build(root, join(owned, 'a'))
     compare('candidate to A', a.files, candidate)
+    requireAuthoredAgents(root, candidate)
     compare('candidate to HEAD', headOutputs(root), candidate)
     const checkout = join(owned, 'b')
     cloneCandidate(root, checkout, commit)
@@ -260,10 +252,7 @@ async function verify(root: string, probes: boolean): Promise<Receipt> {
     compare('A to B', a.files, b.files)
     requireOwnedPath(requirePhysicalDependencies(checkout), join(checkout, 'node_modules/@oh-my-pi/pi-coding-agent'))
     verifyCleanExtension(checkout, owned)
-    if (probes) {
-      negativeProbes(checkout, b.files)
-      collisionProbe(checkout, b.files, owned)
-    }
+    if (probes) negativeProbes(checkout, b.files)
   } finally {
     rmSync(owned, { recursive: true, force: true })
   }
@@ -272,7 +261,7 @@ async function verify(root: string, probes: boolean): Promise<Receipt> {
     bun: Bun.version,
     managedFiles: candidate.size,
     comparisons: ['candidate=A', 'candidate=HEAD', 'B-installed=HEAD', 'A=B'],
-    negativeProbes: probes ? 4 : 0,
+    negativeProbes: probes ? 5 : 0,
     full: probes,
   }
 }

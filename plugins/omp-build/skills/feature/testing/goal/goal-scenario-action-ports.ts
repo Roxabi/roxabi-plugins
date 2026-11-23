@@ -62,12 +62,8 @@ export async function goalChildOperations(
   }
   return {
     ...installed,
-    prepareAction: (
-      request: Parameters<typeof installed.prepareAction>[0],
-      projection?: Parameters<typeof installed.prepareAction>[1],
-      review?: Parameters<typeof installed.prepareAction>[2],
-      correctionRoot?: Parameters<typeof installed.prepareAction>[3],
-    ) => prepareUwAction(request, ports, projection, review, correctionRoot),
+    prepareAction: (...[request, review, correctionRoot]: Parameters<typeof installed.prepareAction>) =>
+      prepareUwAction(request, ports, review, correctionRoot),
     replayActionInputs: (request: Parameters<typeof installed.replayActionInputs>[0]) =>
       replayUwActionInputs(request, ports),
   }

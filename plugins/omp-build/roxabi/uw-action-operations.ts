@@ -1,18 +1,14 @@
 import type { Result } from '../engine/result.ts'
 import type {
   ActionInputs,
-  ActionSnapshot,
   CorrectionRootRef,
   PreparedUwAction,
-  ReviewActionProjection,
   SelectedReview,
   UwActionPorts,
   UwActionRequest,
 } from './uw-action-contract.ts'
 import { prepareUwAction, replayUwActionInputs } from './uw-action-inputs.ts'
 import { actionFailure } from './uw-action-result.ts'
-import { prepareReviewActions } from './uw-action-review-batch.ts'
-import { verifyActionSnapshot } from './uw-action-snapshot.ts'
 import type { UwOperations } from './uw-contract.ts'
 import { readUwDelivery, type UwDeliveryReadPorts } from './uw-delivery-read.ts'
 
@@ -23,24 +19,16 @@ export type ActionOperationPorts = {
 
 export function actionOperationMethods(
   ports: ActionOperationPorts,
-): Pick<
-  UwOperations,
-  'prepareAction' | 'prepareReviewActions' | 'replayActionInputs' | 'verifyAction' | 'readDelivery'
-> {
+): Pick<UwOperations, 'prepareAction' | 'replayActionInputs' | 'readDelivery'> {
   const missing = (): Promise<Result<never>> =>
     Promise.resolve(actionFailure('action-input-missing', 'Action ports are not installed'))
   return {
     prepareAction: (
       input: UwActionRequest,
-      projection?: ReviewActionProjection,
       review?: SelectedReview,
       correctionRoot?: CorrectionRootRef,
     ): Promise<Result<PreparedUwAction>> =>
-      ports.actions === undefined
-        ? missing()
-        : prepareUwAction(input, ports.actions, projection, review, correctionRoot),
-    prepareReviewActions: (input) =>
-      ports.actions === undefined ? missing() : prepareReviewActions(input, ports.actions),
+      ports.actions === undefined ? missing() : prepareUwAction(input, ports.actions, review, correctionRoot),
     replayActionInputs: (input: {
       reviewed: ActionInputs
       request: UwActionRequest
@@ -48,7 +36,6 @@ export function actionOperationMethods(
       correctionRoot?: CorrectionRootRef
     }): Promise<Result<ActionInputs>> =>
       ports.actions === undefined ? missing() : replayUwActionInputs(input, ports.actions),
-    verifyAction: (snapshot: ActionSnapshot) => verifyActionSnapshot(snapshot),
     readDelivery: (uw) =>
       ports.delivery === undefined
         ? Promise.resolve({

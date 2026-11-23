@@ -5,17 +5,11 @@ import { openHistoricalAssessment } from '../../testing/native-assessment-histor
 import { openHistoricalDelivery } from '../../testing/native-history-records.ts'
 import { produceNativeImplementation } from '../../testing/native-implementation-producer.ts'
 import { confirmNewParentEngagement } from '../../testing/native-parent-engagement.ts'
-import {
-  openNativePlanStep,
-  produceNativePlan,
-  publishNativePlanStep,
-  retainHistoricalPlanResult,
-} from '../../testing/native-plan-producer.ts'
-import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
-import { bridgeHarness } from '../../testing/review-runtime-support.ts'
+import { openNativePlanStep, produceNativePlan, publishNativePlanStep } from '../../testing/native-plan-producer.ts'
 import { actionInputDigest } from '../action-input.ts'
 import { buildRecord } from '../record-construction.ts'
 import { inspectCapturedWorkForAssessment as inspectCaptured } from '../workflow-captured-work.ts'
+import { bindExternalRef } from '../workflow-control.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import type { PlanReview } from '../workflow-output-schema.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
@@ -94,7 +88,6 @@ describe('captured work during material assessment', () => {
         world,
         scenario,
         commit: git.commit,
-        tree: git.tree,
         statement: 'Deliver the revised assigned work',
       })
       expect(confirmations()).toBe(1)
@@ -105,16 +98,16 @@ describe('captured work during material assessment', () => {
       expect(selectApplicableMandate(current.issue, current.parents, current.causal).status).toBe('refused')
       expect(planMacro(current, scenario.leafMandate).phase).not.toBe('eligible')
       expect(inspectCaptured(current, scenario.leafMandate)).toEqual({ ok: true, value: undefined })
-      const { task } = await openHistoricalAssessment({
+      const { prepared } = await openHistoricalAssessment({
         world,
         scope: scenario.leaf,
         mandate: scenario.leafMandate,
         commit: git.commit,
       })
-      const inputs = task.action.inputs
+      const inputs = prepared.inputs
       const manifest = inputs.manifest
       const request = {
-        actionId: task.action.snapshot.actionId,
+        actionId: prepared.snapshot.actionId,
         purpose: manifest.purpose,
         subject: manifest.subject,
         code: manifest.code,
@@ -298,7 +291,7 @@ describe('captured work during material assessment', () => {
     })
   })
 
-  test('holds a host-settled native missing-context review until a real successor exists', async () => {
+  test('holds a captured missing-context review without a successor', async () => {
     await inWorld(async ({ world, scenario, git }) => {
       const ctx = {
         world,
@@ -331,61 +324,27 @@ describe('captured work during material assessment', () => {
           },
         ],
       }
-      const harness = bridgeHarness()
-      harness.controller.bindHostGit(() => git)
-      const root = { ...consultableAgentRoot(), cwd: world.cwd }
-      let stopReason: string | null = null
-      let publication: { published: boolean } | null = null
-      let completedCallback = false
-      harness.controller.activate(batch, {
-        onComplete: async () => {
-          completedCallback = true
-        },
-        onStop: async (reason, result) => {
-          stopReason = reason
-          if (reason !== 'action-context-missing' || result === null || result.canPublishContext?.() !== true)
-            throw new Error('Native settlement did not own its missing-context publication')
-          publication = (await retainHistoricalPlanResult(ctx, review, result)).published
-        },
-      })
-      expect(await harness.admitBatch(batch, 'negative-review-call', root)).toBe(true)
-      await harness.admitChild(batch, first.name, 'negative-review-child', {
-        toolCallId: 'negative-review-call',
-        root,
-        skipRootCall: true,
-      })
-      await harness.yieldChild('negative-review-child', negative)
-      await harness.admitChild(batch, second.name, 'clear-review-child', {
-        toolCallId: 'negative-review-call',
-        root,
-        skipRootCall: true,
-      })
-      await harness.yieldChild('clear-review-child', clear)
-      await harness.settleBatch({
-        toolCallId: 'negative-review-call',
-        errors: [],
-        results: [
-          {
-            index: 0,
-            id: 'negative-review-child',
-            agent: first.agent,
-            exitCode: 0,
-            structuredOutput: { status: 'valid', data: negative },
+      const captured = await publishNativePlanStep(ctx, review, [
+        { task: first.name, childId: 'negative-review-child', value: negative },
+        { task: second.name, childId: 'clear-review-child', value: clear },
+      ])
+      if (!captured.receipt) throw new Error('Historical review result was not seeded')
+      const after = evidence(captured.read, scenario.leaf, ctx.parentScopes)
+      expect(bindExternalRef(captured.receipt, after.issue)).toMatchObject({
+        ok: true,
+        value: {
+          payload: {
+            action: 'plan-review',
+            phase: 'result',
+            structured: negative,
+            contributions: [
+              { host: { slotId: first.name, childId: 'negative-review-child' }, structured: negative },
+              { host: { slotId: second.name, childId: 'clear-review-child' }, structured: clear },
+            ],
           },
-          {
-            index: 1,
-            id: 'clear-review-child',
-            agent: second.agent,
-            exitCode: 0,
-            structuredOutput: { status: 'valid', data: clear },
-          },
-        ],
+        },
       })
-      expect(stopReason).toBe('action-context-missing')
-      expect(completedCallback).toBe(false)
-      expect(publication, JSON.stringify(publication)).toMatchObject({ published: true })
-      const after = await world.operations.readUw(scenario.leaf)
-      expect(inspectCaptured(evidence(after, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(false)
+      expect(inspectCaptured(after, scenario.leafMandate).ok).toBe(false)
     })
   })
 

@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
-version: 0.4.5
+version: 0.4.6
 ---
 
 # Dev review
@@ -23,18 +23,13 @@ Review the current head of one open pull request with agents other than its auth
 
 ## 2. Pick the reviewers
 
-- Always `R-adversarial`. It also covers the OWASP lens.
-- Add from the diff:
-  - `R-architect`: new interfaces, cross-module or data-flow changes;
-  - `R-security-auditor`: auth, secrets, tokens, crypto, permissions, CI credentials;
-  - `R-tester`: test changes, or behavior changed without a test;
-  - `R-devops`: CI workflows, dependencies, build, configuration.
-- Reviewers are separate read-only agents. The session that wrote the change does not review it.
-- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the requirements from step 1.6, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
+- Choose independent, read-only reviewers from the agents available to the session. The session that wrote the change does not review it.
+- Cover adversarial review, including OWASP (e.g. `R-adversarial`). Choose specialists where the diff warrants them: architecture and data flow, security and permissions, test evidence, or CI and configuration.
+- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the requirements from step 1.6, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Give `R-adversarial` the actual `Spawned roster:` if selected. Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
 
 ## 3. Consolidate
 
-- Every spawned reviewer must return a completed result; `R-adversarial` is mandatory. Rerun a reviewer that failed, was cancelled or returned nothing; without its result there is no approval.
+- Every selected reviewer must return a completed result. Rerun a reviewer that failed, was cancelled or returned nothing; without its result there is no approval.
 - Merge duplicates. Check each blocking finding in the review worktree. Only the reviewer that raised a blocker drops it: when the code at `HEAD` seems to refute it, send that evidence to that reviewer; the blocker stays unless it withdraws it.
 - Verdict: **approve** when every reviewer completed and no blocking finding remains, else **request changes**.
 

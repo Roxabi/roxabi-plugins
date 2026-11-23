@@ -8,10 +8,9 @@ import { scopeKey } from '../engine/uw-graph.ts'
 import { integrationOutputSchema } from '../engine/uw-integration-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { bindExternalRef, historyFor, workflowOperationProblem } from '../engine/workflow-control.ts'
-import { implementNativeOutcome } from '../roxabi/feature-native-outcome.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
-import { captureNativeTask } from './native-action-capture.ts'
+import { historicalCommandCapture } from './native-action-capture.ts'
 import { appendNativeReceipt, openHistoricalDelivery } from './native-history-records.ts'
 import type { DeclaredCheckout } from './native-implementation-world.ts'
 
@@ -133,19 +132,16 @@ export async function produceParentIntegration(
   }
   world.checkout(facts.candidate)
   checkout.checkout(facts.candidate.head)
-  const result = await captureNativeTask({
-    batch: opened.followUp,
+  const capture = historicalCommandCapture({
+    actionId: opened.authority.actionId,
     cwd,
     childId: 'integration-native-child',
     command,
     toolCallId: callId,
     output: facts.output,
     claim: model,
-    expectedRuns: 1,
     git: { repository: code.repository, commit: code.head, tree: checkout.tree(code.head) },
   })
-  const child = result.children[0]
-  if (!child) throw new Error('Expected the historical integration capture')
   const remote = await world.git(cwd, ['ls-remote', 'origin', `refs/heads/${facts.candidate.base}`])
   const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
   if (remote.code !== 0 || remoteTip !== code.head) throw new Error('Historical integration candidate is unpublished')
@@ -166,9 +162,9 @@ export async function produceParentIntegration(
     start: opened.start,
     structured: integrationOutputSchema.parse({
       ...model,
-      criteria: completeCriterionDeclarations(model.criteria, child),
+      criteria: completeCriterionDeclarations(model.criteria, capture),
     }),
-    native: implementNativeOutcome(child, true, new Set([callId])),
+    native: capture.native,
     admission: {
       admitted: true,
       commits,

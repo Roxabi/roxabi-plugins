@@ -94,15 +94,21 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
   expect(receipt.payload.mandate).toEqual(binding.payload.mandate)
   expect(ref.digest).toBe(canonicalValueDigest(receipt.payload))
   const baseline = readSim(box)
+  const requestFile = path.join(box.root, 'attribution-matrix-request.json')
   const run = (code: UwActionRequest['code'], refs: RecordInputRef[], name = 'baseline') => {
     const before = readSim(box)
+    const request: UwActionRequest = {
+      actionId: 'attribution-matrix-intake',
+      purpose: 'correction',
+      subject: { ...subject, binding: null },
+      code,
+      stageSources: refs,
+      expandedContext: [],
+    }
+    writeFileSync(requestFile, JSON.stringify({ request }))
     const result = spawnSync(
       bun,
-      [
-        path.resolve(import.meta.dirname, 'ci-attribution-prepare-matrix-runner.ts'),
-        cwd,
-        JSON.stringify({ code, scope: subject.pullRequest, refs }),
-      ],
+      [path.resolve(import.meta.dirname, 'ci-attribution-prepare-matrix-runner.ts'), cwd, requestFile],
       { cwd, env: box.env, encoding: 'utf8', timeout: 55_000 },
     )
     expect(result.status, `${result.stderr}\n${result.stdout}`).toBe(0)
@@ -114,11 +120,15 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
       expect.soft(after.prs['7']?.comments, `${name}: PR records changed`).toEqual(before.prs['7']?.comments)
       expect.soft(after.issues['42']?.comments, `${name}: UW records changed`).toEqual(before.issues['42']?.comments)
     }
-    return JSON.parse(result.stdout) as { ok: boolean; inputs?: ActionInputs; diagnostics?: { code: string }[] }
+    return JSON.parse(result.stdout) as {
+      ok: boolean
+      value?: { inputs: ActionInputs }
+      diagnostics?: { code: string }[]
+    }
   }
   const good = run(code, [ref])
   expect(good.ok, JSON.stringify(good)).toBe(true)
-  const intake = good.inputs
+  const intake = good.value?.inputs
   if (!intake) throw new Error('attribution-intake-inputs-missing')
   expect(intake.manifest.subject).toEqual(subject)
   expect(intake.stageSources).toEqual([ref])

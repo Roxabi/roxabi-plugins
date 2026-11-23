@@ -279,7 +279,7 @@ function checkRawHistoryCases(input: MatrixSetup, operands: CiOperands) {
   )
 }
 
-it('refuses invalid CI stage evidence through installed prepare without publishing records', async () => {
+it('refuses invalid historical CI stage evidence through /uw action without publishing records', async () => {
   const input = await setupMatrix(roots)
   const operands = checkCanonicalCases(input)
   checkRawHistoryCases(input, operands)

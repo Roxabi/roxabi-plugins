@@ -113,23 +113,7 @@ function freshFactGuard(ports: IssueWritePorts): CauseEffectGuard {
   }
 }
 
-describe('exact composed parent insertion capability (declared native facts)', () => {
-  it('attaches the actual created issue to the exact parent and reads back the relation', async () => {
-    const state = world()
-    const guard = freshFactGuard(state.raw)
-    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, guard, {
-      parent: activeParent,
-      addChild: state.raw.addChild,
-    })
-    const result = await writer.create(plan({ parent: activeParent }))
-    expect(result).toMatchObject({
-      status: 'written',
-      observed: { issue: createdChild, parent: activeParent, labels: ['size:S'] },
-    })
-    expect(await state.raw.read(activeParent)).toMatchObject({ children: [createdChild] })
-    expect(await state.raw.read(createdChild)).toMatchObject({ parent: activeParent })
-  })
-
+describe('ordinary guarded cause creation (declared native facts)', () => {
   it('keeps ordinary inactive insertion working and ordinary active insertion held', async () => {
     const permitted = world()
     const result = await createIssueWriter(permitted.ordinary).create(plan({ parent: inactiveParent }))
@@ -185,10 +169,7 @@ describe('exact composed parent insertion capability (declared native facts)', (
   it.each([issue(4), foreignParent])('does not authorize another parent $repository#$number', async (wrongParent) => {
     const state = world({ extraActive: [wrongParent] })
     if (!state.facts.has(key(wrongParent))) state.facts.set(key(wrongParent), observed(wrongParent))
-    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw), {
-      parent: activeParent,
-      addChild: state.raw.addChild,
-    })
+    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw))
     const result = await writer.create(plan({ parent: wrongParent }))
     expect(['partial', 'refused']).toContain(result.status)
     if (result.status === 'partial')
@@ -198,33 +179,9 @@ describe('exact composed parent insertion capability (declared native facts)', (
     if (state.facts.has(key(createdChild))) expect((await state.raw.read(createdChild)).parent).toBeNull()
   })
 
-  it('does not grant an existing child the capability before or after creating the actual child', async () => {
-    const state = world()
-    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw), {
-      parent: activeParent,
-      addChild: state.raw.addChild,
-    })
-    const prior = await state.raw.read(existingChild)
-    const before = await writer.update(existingChild, plan({ parent: activeParent }), prior)
-    expect(before).toMatchObject({ status: 'partial', issue: existingChild, completed: ['labels'] })
-    expect((await state.raw.read(existingChild)).parent).toBeNull()
-    expect((await state.raw.read(activeParent)).children).toEqual([])
-
-    const created = await writer.create(plan({ parent: activeParent }))
-    expect(created.status).toBe('written')
-    const current = await state.raw.read(existingChild)
-    const after = await writer.update(existingChild, plan({ parent: activeParent }), current)
-    expect(after).toMatchObject({ status: 'partial', issue: existingChild, completed: ['labels'] })
-    expect((await state.raw.read(existingChild)).parent).toBeNull()
-    expect((await state.raw.read(activeParent)).children).toEqual([createdChild])
-  })
-
   it('keeps an existing-child move under ordinary parent policy', async () => {
     const state = world({ extraActive: [createdChild] })
-    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw), {
-      parent: activeParent,
-      addChild: state.raw.addChild,
-    })
+    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw))
     const result = await writer.create(plan({ addChildren: [existingChild] }))
     expect(result).toMatchObject({ status: 'partial', issue: createdChild, completed: ['create', 'labels'] })
     expect((await state.raw.read(createdChild)).children).toEqual([])
@@ -233,11 +190,8 @@ describe('exact composed parent insertion capability (declared native facts)', (
 
   it('does not infer a created identity when the native create response is lost', async () => {
     const state = world({ loseCreateReturn: true })
-    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw), {
-      parent: activeParent,
-      addChild: state.raw.addChild,
-    })
-    const result = await writer.create(plan({ parent: activeParent }))
+    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, freshFactGuard(state.raw))
+    const result = await writer.create(plan({ parent: inactiveParent }))
     expect(result).toMatchObject({ status: 'uncertain', completed: [] })
     expect((await state.raw.read(createdChild)).parent).toBeNull()
     const before = await state.raw.read(existingChild)
@@ -257,22 +211,19 @@ describe('exact composed parent insertion capability (declared native facts)', (
         created.number === createdChild.number
       )
         abort.abort('cancelled before attachment')
-      if (primitive === 'add-child' && abort.signal.aborted) throw new Error('composed-cause-cancelled')
+      if (primitive === 'add-child' && abort.signal.aborted) throw new Error('cause-effect-cancelled')
     }
-    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, guard, {
-      parent: activeParent,
-      addChild: state.raw.addChild,
-    })
-    const result = await writer.create(plan({ parent: activeParent }))
+    const writer = guardedCauseWriter(state.ordinary, createIssueWriter, guard)
+    const result = await writer.create(plan({ parent: inactiveParent }))
     expect(result).toMatchObject({
       status: 'partial',
       issue: createdChild,
       completed: ['create', 'labels'],
       diagnostics: [
-        expect.objectContaining({ code: 'write-failed', message: expect.stringContaining('composed-cause-cancelled') }),
+        expect.objectContaining({ code: 'write-failed', message: expect.stringContaining('cause-effect-cancelled') }),
       ],
     })
     expect(await state.raw.read(createdChild)).toMatchObject({ labels: ['size:S'], parent: null })
-    expect((await state.raw.read(activeParent)).children).toEqual([])
+    expect((await state.raw.read(inactiveParent)).children).toEqual([])
   })
 })

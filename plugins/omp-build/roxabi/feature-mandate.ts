@@ -24,7 +24,6 @@ export async function resolveBase(git: GitRunner, principal: string): Promise<{ 
 
 export async function publishFirstMandate(
   contracts: Contracts,
-  history: History,
   scope: Scope,
   initial: LeafOwnSpec & { parent: ExternalRecordRef | null },
   checkout: InitialMandateCheckout,
@@ -42,7 +41,6 @@ export async function publishFirstMandate(
   const effective = effectiveWorkflowConfig(productVersion, requirements)
   return publishRecord(
     contracts,
-    history,
     {
       repository: scope.repository,
       target: scope.target,

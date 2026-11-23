@@ -1,20 +1,19 @@
 import { githubScope } from '../adapters/github/transport.ts'
 import { canonicalValueDigest } from '../engine/action-input.ts'
 import { buildRecord } from '../engine/record-construction.ts'
-import type { DeliveryCode } from '../roxabi/delivery-action.ts'
-import { actionRequest, confirmPreparedAction, uwSubject } from '../roxabi/delivery-action.ts'
 import { readNativeCiFailureEvidence } from '../roxabi/feature-ci-evidence.ts'
 import { defaultGh } from '../roxabi/feature-engine.ts'
+import type { UwActionRequest } from '../roxabi/uw-action-contract.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { reviewGraph } from './record-graphs.ts'
 
 const [cwd, codeJson] = process.argv.slice(2)
 if (!cwd || !codeJson) throw new Error('fixture-input-missing')
-const code = JSON.parse(codeJson) as DeliveryCode
+const code = JSON.parse(codeJson) as UwActionRequest['code']
 const gh = defaultGh()
 const scope = githubScope('acme/app', 7)
 const uw = githubScope('acme/app', 42)
-const subject = uwSubject(uw, scope)
+const subject = { kind: 'uw' as const, uw, pullRequest: scope, binding: null }
 const actionId = 'historical-attribution'
 const operations = await createInstalledUwOperations({
   cwd,
@@ -29,10 +28,14 @@ const mandate = read.histories
   .flatMap((entry) => entry.operations)
   .find((entry) => entry.record?.kind === 'mandate' && entry.record.target === uw.target)?.record
 if (!mandate) throw new Error('fixture-mandate-missing')
-const review = await confirmPreparedAction(
-  operations,
-  actionRequest({ actionId: 'historical-review', purpose: 'review', subject, code }),
-)
+const review = await operations.prepareAction({
+  actionId: 'historical-review',
+  purpose: 'review',
+  subject,
+  code,
+  stageSources: [],
+  expandedContext: [],
+})
 if (!review.ok) throw new Error(JSON.stringify(review))
 const historicalReview = reviewGraph({
   prefix: 'historical-review',
@@ -49,16 +52,15 @@ const exactInputs = {
   failures: live.failures,
   evidenceDigest: live.evidenceDigest,
 }
-const prepared = await confirmPreparedAction(
-  operations,
-  actionRequest({
-    actionId,
-    purpose: 'attribute-ci',
-    subject,
-    code,
-    operands: { action: 'attribute-ci', exactInputs },
-  }),
-)
+const prepared = await operations.prepareAction({
+  actionId,
+  purpose: 'attribute-ci',
+  subject,
+  code,
+  operands: { action: 'attribute-ci', exactInputs },
+  stageSources: [],
+  expandedContext: [],
+})
 if (!prepared.ok) throw new Error(JSON.stringify(prepared))
 const common = {
   format: 'omp-build-action-receipt/2' as const,

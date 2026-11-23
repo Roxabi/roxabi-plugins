@@ -103,7 +103,6 @@ export async function publishSuccessorMandate(
   if (!beforeControl.ok) return beforeControl
   const controlPublished = await publishRecord(
     input.loaded,
-    refreshed.history,
     successorControlRecord(input.scope, antecedent.value.ref, successorId, controlId),
     input.gh,
     input.cwd,

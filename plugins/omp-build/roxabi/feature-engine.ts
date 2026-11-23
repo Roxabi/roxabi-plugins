@@ -3,7 +3,6 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Diagnostic, Scope } from '../engine/record-values.ts'
-import { authorizeStartPublication, recheckStartPublication } from './feature-start-publication.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
 
@@ -29,8 +28,6 @@ const requiredContractNames = [
   'failedCheckEvidenceDigest',
   'resolveAcceptedSpec',
   'bindExternalRef',
-  'resolvableStarts',
-  'startResolution',
 ] as const
 
 type RequiredContractName = (typeof requiredContractNames)[number]
@@ -71,12 +68,10 @@ export function payload<Record extends HistoryRecord>(record: Record): Record['p
 
 export async function publishRecord(
   contracts: Contracts,
-  history: History,
   draft: Parameters<Contracts['buildRecord']>[0],
   gh: Gh,
   cwd: string,
   externalHistories?: readonly History[],
-  canPublish?: () => boolean,
 ): Promise<{ ok: true } | { ok: false; reason: string; diagnostics?: readonly Diagnostic[] }> {
   const built = contracts.buildRecord(draft)
   if (!built.ok) {
@@ -86,10 +81,7 @@ export async function publishRecord(
       diagnostics: built.diagnostics,
     }
   }
-  const histories = [history, ...(externalHistories ?? [])]
-  const authorized = await authorizeStartPublication(built.value, contracts, histories, cwd, gh)
-  if (!authorized.ok) return authorized
-  const options = withRoxabiGitHubPolicy({ cwd, gh, ...(canPublish === undefined ? {} : { canPublish }) })
+  const options = withRoxabiGitHubPolicy({ cwd, gh })
   const published = await contracts.publishConfirmedWorkflowRecord(
     built.value,
     options,
@@ -103,7 +95,5 @@ export async function publishRecord(
       diagnostics: Array.isArray(published.diagnostics) ? published.diagnostics : undefined,
     }
   }
-  const rechecked = await recheckStartPublication(built.value, contracts, histories, cwd, gh)
-  if (!rechecked.ok) return rechecked
   return { ok: true }
 }
