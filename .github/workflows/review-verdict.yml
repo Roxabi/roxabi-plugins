@@ -125,21 +125,23 @@ jobs:
               -f 'output[title]=Review verdict' -f "output[summary]=$1" >/dev/null
             echo "review check posted on $HEAD_SHA: $1"
           }
+          # An eligible Dependabot head gets `review` outright. Any other head,
+          # Dependabot's included, can still carry a verdict through a clean merge.
           if [ "$AUTHOR" = 'dependabot[bot]' ]; then
             case "$UPDATE_TYPE" in
-              version-update:semver-minor | version-update:semver-patch) ;;
-              *) echo "::notice::Dependabot update '$UPDATE_TYPE' needs a verdict"; exit 0 ;;
+              version-update:semver-minor | version-update:semver-patch)
+                # The metadata and this read describe the live PR: they count for
+                # HEAD_SHA only if it is still the head and the last commit.
+                if gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid,commits | jq -e --arg head "$HEAD_SHA" \
+                  '.headRefOid == $head and (.commits | length > 0) and .commits[-1].oid == $head and
+                   all(.commits[]; (.authors | length > 0) and all(.authors[]; .login == "dependabot[bot]"))' >/dev/null; then
+                  post "Dependabot $UPDATE_TYPE, every commit authored by dependabot[bot]."
+                  exit 0
+                fi
+                echo "::notice::head moved or another commit author; trying carry-forward"
+                ;;
+              *) echo "::notice::Dependabot update '$UPDATE_TYPE' is not minor/patch; trying carry-forward" ;;
             esac
-            # The metadata and this read describe the live PR: they count for
-            # HEAD_SHA only if it is still the head and the last commit.
-            if gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid,commits | jq -e --arg head "$HEAD_SHA" \
-              '.headRefOid == $head and (.commits | length > 0) and .commits[-1].oid == $head and
-               all(.commits[]; (.authors | length > 0) and all(.authors[]; .login == "dependabot[bot]"))' >/dev/null; then
-              post "Dependabot $UPDATE_TYPE, every commit authored by dependabot[bot]."
-            else
-              echo "::notice::head moved or another commit author; this head needs a verdict"
-            fi
-            exit 0
           fi
           git fetch --quiet --no-tags origin "+refs/pull/$PR_NUMBER/head:refs/remotes/pr/head"
           if ! parent=$(bash scripts/review-verdict.sh carry "$HEAD_SHA" "origin/$DEFAULT_BRANCH" 2>&1); then
