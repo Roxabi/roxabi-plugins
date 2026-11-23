@@ -67,16 +67,26 @@ describe('implementation branch effect authority', () => {
     ['', 'git push: no stderr'],
     [
       "fatal: unable to access 'https://x-access-token:ghs_secret@github.com/o/r.git/': 403",
-      "git push: fatal: unable to access 'https://github.com/o/r.git/': 403",
+      "git push: fatal: unable to access '<url>': 403",
     ],
-  ])('distinguishes a failed push from a remote mismatch and reports %j without userinfo', async (stderr, detail) => {
-    const { git, calls } = branchGit('b'.repeat(40), 1, stderr)
-    const allowed = async () => ({ ok: true as const })
-    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
+    [
+      'fatal: repository https://example.com/o/r.git?access_token=ghs_secret not found',
+      'git push: fatal: repository <url> not found',
+    ],
+  ])(
+    'distinguishes a failed push from a remote mismatch and reports %j without credentials',
+    async (stderr, detail) => {
+      const { git, calls } = branchGit('b'.repeat(40), 1, stderr)
+      const allowed = async () => ({ ok: true as const })
+      const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
+        effect: allowed,
+        beforePush: allowed,
+      })
 
-    expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail })
-    expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
-  })
+      expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail })
+      expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
+    },
+  )
 
   it('distinguishes an unconfirmed remote tip after a successful push', async () => {
     const { git, calls } = branchGit('b'.repeat(40))

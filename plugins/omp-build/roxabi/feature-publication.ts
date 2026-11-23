@@ -1,8 +1,9 @@
 import type { GitRunner } from './workflow-checkout.ts'
 
-/** git may echo a remote URL: drop any userinfo before the text reaches the session. */
+/** git may echo a remote URL carrying credentials (userinfo or query): replace every URL before the text
+ * reaches the session. */
 function pushDiagnostic(stderr: string): string {
-  const text = stderr.trim().replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi, '$1')
+  const text = stderr.trim().replace(/[a-z][a-z0-9+.-]*:\/\/[^\s'"]+/gi, '<url>')
   return `git push: ${text || 'no stderr'}`
 }
 

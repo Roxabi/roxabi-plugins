@@ -77,8 +77,8 @@ function stoppedImplementationReason(stop: NativeStop | undefined): string | nul
       : null
 }
 
-/** The record keeps the reason code; a push diagnostic goes to the operator only and survives a
- * retention that refuses or throws. */
+/** The record keeps the reason code; a push diagnostic goes to the operator only and, with that code,
+ * survives a retention that refuses or throws. */
 async function retainUnconfirmedRemote(
   retain: () => ReturnType<typeof retainImplementationResult>,
   reason: string,
@@ -86,11 +86,12 @@ async function retainUnconfirmedRemote(
 ): Promise<FeatureNativePublication> {
   try {
     const refusal = retainedRefusal(await retain(), reason)
-    return detail === undefined ? refusal : { ...refusal, detail }
+    if (detail === undefined) return refusal
+    return { ...refusal, detail: refusal.reason === reason ? detail : `${reason} · ${detail}` }
   } catch (error) {
     if (detail === undefined) throw error
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`${message} (${detail})`, { cause: error })
+    throw new Error(`${message} · ${reason} · ${detail}`, { cause: error })
   }
 }
 
