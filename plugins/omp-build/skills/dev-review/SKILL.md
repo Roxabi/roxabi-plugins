@@ -14,11 +14,11 @@ Review the current head of one open pull request with agents other than its auth
 1. Target: the `#PR` argument, else the open PR of the current branch: `gh pr view [<PR>] --json number,state,url,headRefOid,baseRefName,body`.
 2. No open PR → stop and say so: `/dev-review` runs only on an existing PR. A PR whose base is not the repository's default branch (`gh repo view --json defaultBranchRef`) is not reviewed yet: a stacked PR is reviewed once it targets the default branch.
 3. Record `HEAD` = `headRefOid` (40 hex) and `BASE` = `baseRefName`. The review covers that commit only.
-4. Fetch from the PR's own repository (`https://github.com/<owner>/<repo>` from its URL), not `origin`, which may be a fork:
+4. Fetch from the PR's own repository (its URL without `/pull/<PR>`), not `origin`, which may be a fork:
    - `git fetch <repo> refs/heads/<BASE>`, then `BASE_SHA=$(git rev-parse FETCH_HEAD)`;
    - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
    The change is `git diff <BASE_SHA>...<HEAD>`.
-5. Check out the reviewed tree apart from the current one: `git worktree add --detach <dir> <HEAD>`. Every source read of the review happens there.
+5. Check out the reviewed tree apart from the current one, without running its hooks: `git -c core.hooksPath=/dev/null worktree add --detach <dir> <HEAD>`. Every source read of the review happens there. Remove it on every exit, a stop included: `git worktree remove --force <dir>`.
 6. Read the linked issue (`Closes #N` / `References #N` in the PR body): its criteria are what the change must meet.
 
 ## 2. Pick the reviewers
@@ -35,7 +35,7 @@ Review the current head of one open pull request with agents other than its auth
 ## 3. Consolidate
 
 - Every spawned reviewer must return a completed result; `R-adversarial` is mandatory. Rerun a reviewer that failed, was cancelled or returned nothing; without its result there is no approval.
-- Merge duplicates. Check each blocking finding in the review worktree; drop one the code at `HEAD` refutes and say why.
+- Merge duplicates. Check each blocking finding in the review worktree. Only the reviewer that raised a blocker drops it: when the code at `HEAD` seems to refute it, send that evidence to that reviewer; the blocker stays unless it withdraws it.
 - Verdict: **approve** when every reviewer completed and no blocking finding remains, else **request changes**.
 
 ## 4. Publish on the PR
@@ -53,4 +53,4 @@ Review the current head of one open pull request with agents other than its auth
 
 ## 5. Report
 
-Remove the review worktree (`git worktree remove <dir>`). Report one line: PR, `HEAD`, verdict, comment URLs.
+Remove the review worktree. Report one line: PR, `HEAD`, verdict, comment URLs.
