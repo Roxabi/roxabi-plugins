@@ -69,6 +69,7 @@ jobs:
           COMMENTER: ${{ github.event.comment.user.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_URL: ${{ github.event.comment.html_url }}
+          COMMENT_CREATED: ${{ github.event.comment.created_at }}
         run: |
           set -euo pipefail
           refuse() { echo "::error::verdict refused: $1"; exit 1; }
@@ -78,9 +79,20 @@ jobs:
             *) refuse "@$COMMENTER has $permission access" ;;
           esac
           [ "$EVENT_STATE" = open ] || refuse "comment was written on a $EVENT_STATE pull request"
-          pr=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.state) \(.head.sha) \(.base.ref)"')
-          read -r state head base <<<"$pr"
+          # The base read now is the one the verdict was written against only if it
+          # has not changed since: a verdict on a stacked diff must not survive a retarget.
+          # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+          pr=$(gh api graphql -F n="$PR_NUMBER" -f o="${REPO%/*}" -f r="${REPO#*/}" -f query='
+            query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) {
+              state headRefOid baseRefName
+              timelineItems(last: 1, itemTypes: [BASE_REF_CHANGED_EVENT]) { nodes { ... on BaseRefChangedEvent { createdAt } } }
+            } } }' --jq '.data.repository.pullRequest |
+              "\(.state | ascii_downcase) \(.headRefOid) \(.baseRefName) \(.timelineItems.nodes[0].createdAt // "-")"')
+          read -r state head base base_changed <<<"$pr"
           [ "$base" = "$DEFAULT_BRANCH" ] || refuse "pull request targets $base, not $DEFAULT_BRANCH"
+          if [ "$base_changed" != - ] && [[ ! "$base_changed" < "$COMMENT_CREATED" ]]; then
+            refuse "the base branch changed at $base_changed, after the verdict was written"
+          fi
           printf '%s' "$COMMENT_BODY" > "$RUNNER_TEMP/comment.txt"
           evidence=$(bash scripts/review-verdict.sh verdict "$RUNNER_TEMP/comment.txt" "$state" "$head" 2>&1) ||
             refuse "$evidence"
