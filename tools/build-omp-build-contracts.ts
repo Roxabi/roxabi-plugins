@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
 import { producerJsonSchema } from '../plugins/omp-build/engine/producer-schema.ts'
 import { nativeFeatureProfiles } from '../plugins/omp-build/roxabi/native-feature-profiles.ts'
 import { nativeReviewProfiles } from '../plugins/omp-build/roxabi/native-review-profiles.ts'
+import { createFreshOutputRoot, outputTree, type RemoveOutput } from './omp-build-output-tree.ts'
 
 type GeneratedProfile = {
   name: string
@@ -42,9 +43,9 @@ const issueTriageSlice = [
   'skills/shared/queries.ts',
 ] as const
 
-function outputRootFromArgs(args: string[]): string {
-  if (args.length === 0) return pluginRoot
-  if (args.length === 2 && args[0] === '--output-root') return resolve(args[1])
+function outputRootFromArgs(args: string[]): string | undefined {
+  if (args.length === 0) return undefined
+  if (args.length === 2 && args[0] === '--output-root' && args[1]) return resolve(args[1])
   throw new Error('usage: bun tools/build-omp-build-contracts.ts [--output-root <fresh-owned-directory>]')
 }
 
@@ -62,18 +63,20 @@ function profileBody(profile: GeneratedProfile, inputs: Set<string>): string {
   return profile.instructions === undefined ? body : `${body}\n\n${profile.instructions}`
 }
 
-function outputRecorder(root: string): OutputRecorder {
+function outputRecorder(root: string, checkWrite: (path: string) => void): OutputRecorder {
   const claimed = new Set<string>()
   const written = new Set<string>()
   const nameOf = (path: string): string => {
-    const name = relative(root, resolve(path)).split('\\').join('/')
-    if (name === '' || name.startsWith('../')) throw new Error(`omp-build output escapes destination: ${path}`)
+    const name = relative(root, path).split(sep).join('/')
+    if (name === '' || name === '..' || name.startsWith('../') || isAbsolute(name))
+      throw new Error(`omp-build output escapes destination: ${path}`)
     return name
   }
   return {
     claim(path) {
       const name = nameOf(path)
       if (claimed.has(name)) throw new Error(`omp-build output collision: ${name}`)
+      checkWrite(path)
       claimed.add(name)
     },
     wrote(path) {
@@ -141,12 +144,10 @@ function writeProfile(
 function copyIssueTriageSlice(distDirectory: string, recorder: OutputRecorder, inputs: Set<string>): void {
   const missing = issueTriageSlice.filter((path) => !existsSync(join(issueTriageSource, path)))
   if (missing.length > 0) throw new Error(`issue-triage runtime slice missing source: ${missing.join(', ')}`)
-  rmSync(join(distDirectory, 'issue-triage'), { recursive: true, force: true })
   for (const path of issueTriageSlice) {
     const source = join(issueTriageSource, path)
     const destination = join(distDirectory, 'issue-triage', path)
     recorder.claim(destination)
-    mkdirSync(dirname(destination), { recursive: true })
     copyFileSync(source, destination)
     recorder.wrote(destination)
     inputs.add(relative(repositoryRoot, source))
@@ -166,10 +167,13 @@ function inputsOf(metafile: { inputs: Record<string, unknown> } | undefined, ent
   return inputs
 }
 
-async function buildOmpBuildContracts(outputRoot: string): Promise<BuildReport> {
+async function buildOmpBuildContracts(outputRoot: string | undefined, remove?: RemoveOutput): Promise<BuildReport> {
   requirePinnedBun()
-  const root = resolve(outputRoot)
-  if (root !== pluginRoot && existsSync(root)) throw new Error(`temporary output root already exists: ${root}`)
+  const root =
+    outputRoot === undefined
+      ? pluginRoot
+      : createFreshOutputRoot(outputRoot, [join(repositoryRoot, 'plugins'), import.meta.dirname])
+  const tree = outputTree(root)
   const agentDirectory = join(root, 'agents')
   const distDirectory = join(root, 'dist')
   const inputs = new Set<string>()
@@ -178,9 +182,7 @@ async function buildOmpBuildContracts(outputRoot: string): Promise<BuildReport> 
     readFileSync(path)
     inputs.add(relative(repositoryRoot, path))
   }
-  mkdirSync(agentDirectory, { recursive: true })
-  mkdirSync(distDirectory, { recursive: true })
-  const recorder = outputRecorder(root)
+  const recorder = outputRecorder(root, tree.checkWrite)
   copyAgentSources(agentDirectory, recorder, inputs)
   for (const profile of nativeReviewProfiles) writeProfile(agentDirectory, profile, recorder, inputs)
   for (const profile of nativeFeatureProfiles) writeProfile(agentDirectory, profile, recorder, inputs)
@@ -188,25 +190,36 @@ async function buildOmpBuildContracts(outputRoot: string): Promise<BuildReport> 
   const entrypoint = join(pluginRoot, 'contracts.ts')
   const result = await Bun.build({
     entrypoints: [entrypoint],
-    outdir: distDirectory,
     target: 'node',
     format: 'esm',
     metafile: true,
+    throw: false,
   })
   if (!result.success) {
     for (const log of result.logs) console.error(log)
     throw new Error('omp-build contracts bundle failed')
   }
   for (const output of result.outputs) {
-    recorder.claim(output.path)
-    recorder.wrote(output.path)
+    if (isAbsolute(output.path) || output.path.includes('\\') || output.path.split('/').includes('..'))
+      throw new Error(`omp-build bundle output is not a safe relative path: ${output.path}`)
+    const destination = resolve(distDirectory, output.path)
+    const bytes = new Uint8Array(await output.arrayBuffer())
+    recorder.claim(destination)
+    writeFileSync(destination, bytes)
+    recorder.wrote(destination)
   }
   const declaration = join(distDirectory, 'contracts.d.ts')
   recorder.claim(declaration)
   writeFileSync(declaration, "export * from '../contracts.ts'\n")
   recorder.wrote(declaration)
   for (const path of inputsOf(result.metafile, entrypoint)) inputs.add(path)
-  return { outputs: recorder.paths(), inputs: [...inputs].sort() }
+  const outputs = recorder.paths()
+  if (outputRoot === undefined) tree.prune(new Set(outputs), remove)
+  return { outputs, inputs: [...inputs].sort() }
 }
 
-console.log(JSON.stringify(await buildOmpBuildContracts(outputRootFromArgs(process.argv.slice(2)))))
+export async function runProducer(args: string[], remove?: RemoveOutput): Promise<void> {
+  console.log(JSON.stringify(await buildOmpBuildContracts(outputRootFromArgs(args), remove)))
+}
+
+if (import.meta.main) await runProducer(process.argv.slice(2))
