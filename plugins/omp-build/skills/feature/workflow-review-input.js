@@ -35,15 +35,7 @@ async function captureInput(
   cwd,
   pr,
   head,
-  {
-    gh: ghFn = gh,
-    git: gitFn = gitResult,
-    automationLogin,
-    pluginPin,
-    persistedFingerprint,
-    selectedReviewId,
-    reviewedRoot,
-  } = {},
+  { gh: ghFn = gh, git: gitFn = gitResult, automationLogin, pluginPin, persistedFingerprint, selectedReviewId } = {},
   mergedBase,
 ) {
   const selected = await readPrFields(cwd, pr, ghFn, 'headRefOid,baseRefName')
@@ -63,7 +55,6 @@ async function captureInput(
       pluginPin,
       persistedFingerprint,
       selectedReviewId,
-      reviewedRoot,
     },
   )
 }

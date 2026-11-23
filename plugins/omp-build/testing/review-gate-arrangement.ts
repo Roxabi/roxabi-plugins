@@ -182,7 +182,10 @@ export async function reviewSemanticContext(fixture: ReviewGateFixture) {
   return confirmedReviewSemanticContext(fixture.tools, 7, gateGh(fixture), 'main', AUTOMATION)
 }
 
-export async function boundInput(fixture: ReviewGateFixture): Promise<ActionInputs> {
+export async function boundInput(
+  fixture: ReviewGateFixture,
+  changeManifest?: (manifest: ActionInputs['manifest']) => void,
+): Promise<ActionInputs> {
   const inputs = await assembleActionInputs(
     {
       actionId: 'review-7',
@@ -207,6 +210,10 @@ export async function boundInput(fixture: ReviewGateFixture): Promise<ActionInpu
       },
     }),
   )
+  if (changeManifest !== undefined) {
+    changeManifest(inputs.manifest)
+    inputs.fingerprint = actionInputDigest(inputs.manifest)
+  }
   const criterion = fixtureCriteria.get(fixture)
   if (criterion === undefined) throw new Error('review gate fixture has no criterion history')
   const pullHistory = decodeHistory({

@@ -6,9 +6,7 @@ export type ReviewInputDeps = {
   git?: Git
   automationLogin?: string
   pluginPin?: import('../../roxabi/uw-action-contract.ts').TrustedHostPluginPin
-  persistedFingerprint?: string
   selectedReviewId?: string | null
-  reviewedRoot?: import('../../roxabi/uw-action-contract.ts').ReviewRootRef
 }
 
 export declare function confirmedReviewSemanticContext(

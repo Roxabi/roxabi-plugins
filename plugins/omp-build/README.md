@@ -76,7 +76,7 @@ Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit p
 
 ### Controls
 
-`parseFeatureCommand` is the word list. Routine transitions do not ask again; explicit material and interruption decisions require their genuine operator confirmation. There is no per-PR merge approval.
+`parseFeatureCommand` is the word list. Routine transitions do not ask again; explicit material decisions require genuine operator confirmation. There is no per-PR merge approval.
 
 | Command | Boundary |
 |---|---|
