@@ -137,21 +137,44 @@ describe('installed /feature command', () => {
       identity: { ok: true, sessionTop: root.cwd },
     } as unknown as FeatureAuthority
     const current = {
-      snapshot: { spec: { version: 'version-1' } },
+      snapshot: {
+        spec: { version: 'version-1' },
+        raw: { body: 'Accepted issue body.', bodySha256: 'a'.repeat(64) },
+      },
       tier: 'S',
       children: [],
       inheritedOwnSpecRefs: [],
       coverage: null,
     }
     vi.spyOn(admission, 'resolveFeatureAuthority').mockResolvedValue(authority)
+    const issue = { body: 'An unaccepted edit to the criterion.' }
     vi.spyOn(selection, 'selectFeatureMandate').mockResolvedValue({
       authority,
+      issue,
       number: 12,
       mandate,
       acceptedSpec: current,
     } as unknown as selection.SelectedFeature)
     vi.spyOn(checkout, 'requireMandateCheckout').mockResolvedValue(null)
-    vi.spyOn(contracts, 'resolveSpecEffective').mockReturnValue({ ok: true, value: {} } as never)
+    const source = {
+      uw: { ...scope, target: 'acme/widgets#10' },
+      version: 'parent-version',
+      sourceAccepted: { recordId: 'parent-assessment' },
+    }
+    const own = { uw: scope, version: 'version-1', sourceAccepted: { recordId: 'mandate-1' } }
+    const spec = {
+      criteria: [{ id: 'C1', statement: 'Keep the accepted criterion.' }],
+      invariants: [{ id: 'I1', statement: 'Keep the accepted invariant.' }],
+      exclusions: ['No changes to the renderer.'],
+      inherited: {
+        invariants: [{ target: { spec: source, id: 'I2' }, statement: 'Keep the inherited invariant.' }],
+        exclusions: [{ ref: { spec: source, index: 0 }, statement: 'No public API changes.' }],
+      },
+    }
+    vi.spyOn(contracts, 'resolveSpecEffective').mockReturnValue({
+      ok: true,
+      value: { own, spec, inherited: spec.inherited },
+    } as never)
     const pr = { number: 34, scope: { ...scope, target: 'acme/widgets#34' }, ...mandate.payload }
     vi.spyOn(contracts, 'selectWorkflowBinding').mockReturnValue(
       prState === 'unbound' ? { status: 'absent' } : ({ status: 'bound', mandateRecord: mandate } as never),
@@ -184,11 +207,33 @@ describe('installed /feature command', () => {
       'base: main',
       'worktree: /repo/feature',
       ...(prState === 'open' ? ['pr: 34'] : []),
+      '',
+      '## Accepted Spec',
+      'The live issue body differs from the accepted snapshot.',
+      '',
+      '```json',
+      JSON.stringify(
+        {
+          own,
+          acceptedBodySha256: 'a'.repeat(64),
+          criteria: spec.criteria,
+          invariants: spec.invariants,
+          exclusions: spec.exclusions,
+          inherited: spec.inherited,
+        },
+        null,
+        2,
+      ),
+      '```',
     ].join('\n')
     await host.commands.get('feature')?.handler('#12', root)
     expect(host.sent).toEqual([message])
+    issue.body = current.snapshot.raw.body
     await host.commands.get('feature')?.handler('#12', root)
-    expect(host.sent).toEqual([message, message])
+    expect(host.sent).toEqual([
+      message,
+      message.replace('The live issue body differs from the accepted snapshot.\n', ''),
+    ])
     expect(exec).not.toHaveBeenCalled()
     expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 2)
     expect(reviewControllerFor(host.pi).active()).toBeNull()
@@ -349,5 +394,17 @@ describe('installed correction lane', () => {
 
     expect(host.tools.has('omp_build_start_fix')).toBe(false)
     expect(host.commands.has('fix')).toBe(true)
+  })
+
+  it('specifies a publish-only composed resume bound to the same review and PR head', () => {
+    const skill = readFileSync(join(INSTALL_ROOT, 'skills', 'dev-fix', 'SKILL.md'), 'utf8')
+    const resume = skill.split('**Composed resume:**')[1]?.split('\n')[0]
+    expect(resume).toContain('git merge-base --is-ancestor <HEAD> <tip>')
+    expect(resume).toContain('`Review-Id` and `Review-Updated-At` commit trailers match `REVIEW` exactly')
+    expect(resume).toContain('skip planning, editing and committing')
+    const publish = skill.split('## 4. Publish')[1] ?? ''
+    expect(publish).toMatch(
+      /head still `HEAD`[\s\S]*latest review comment by a writer still `REVIEW` with the same `updated_at`[\s\S]*--tip <tip> --from <HEAD> --pr <PR>/,
+    )
   })
 })

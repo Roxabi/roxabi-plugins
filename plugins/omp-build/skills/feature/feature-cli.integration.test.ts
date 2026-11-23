@@ -1,163 +1,30 @@
-import { execFile, spawnSync } from 'node:child_process'
-import { rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
-import { afterEach, expect, it } from 'vitest'
+import { expect, it } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
-import { buildRecord } from '../../engine/record-construction.ts'
-import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
-import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { git, readSim, sandbox, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
-import type { Box } from '../../testing/sandbox/sandbox-types.ts'
-import { runFeatureCli } from './feature-cli.ts'
+import { git, readSim, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
+import {
+  abandonment,
+  branch,
+  date,
+  fixtures,
+  invoke,
+  pr,
+  ref,
+  repository,
+  revoke,
+  seedAuthority,
+  world,
+} from './feature-cli.fixture.ts'
 
-const exec = promisify(execFile)
-const roots: string[] = []
-const fixtures = roxabiWorkflowFixtures()
-const repository = 'acme/app'
-const scope = { repository, target: `${repository}#42` }
-const branch = 'feat/42-save'
-const ref = `refs/heads/${branch}`
-const date = '2026-01-01T00:00:00Z'
-const pr = 142
-const rules = [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'review' }] } }]
-
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
-})
-
-function seedAuthority(box: Box, records: CanonicalRecord[]) {
-  writeSim(box, (state) => {
-    const issue = state.issues['42']
-    if (!issue) throw new Error('Expected issue')
-    issue.comments = fixtures.framedBodies(records, 'operator').map((body, index) => ({
-      id: index + 1,
-      author: 'operator',
-      body,
-      createdAt: date,
-      updatedAt: date,
-    }))
-  })
-}
-
-function world(bound = false) {
-  const box = sandbox({
-    base: { 'README.md': 'base\n' },
-    branches: [
-      { name: branch, from: 'main', commits: [{ message: 'feat: UW #42', files: { 'README.md': 'work\n' } }] },
-    ],
-    issues: [{ number: 42, title: 'Deliver the change', labels: ['size:S'] }],
-    prs: bound ? [{ number: pr, branch, title: 'Deliver the change', body: 'UW #42', closes: [] }] : [],
-  })
-  roots.push(box.root)
-  const cwd = join(box.root, 'feature')
-  git(box, box.principal, ['worktree', 'add', '-q', cwd, branch])
-  const tip = git(box, cwd, ['rev-parse', 'HEAD'])
-  const base = git(box, cwd, ['rev-parse', 'main'])
-  const spec = nativeFeatureSpec(scope, 'Deliver the change')
-  const mandate = fixtures.featureMandate(scope, { body: spec.body, ownSpec: spec.ownSpec, branch, lineageHead: base })
-  seedAuthority(box, [mandate])
-  writeSim(box, (state) => {
-    const issue = state.issues['42']
-    if (!issue) throw new Error('Expected issue')
-    issue.body = spec.body
-    const pull = state.prs[String(pr)]
-    if (pull) {
-      const binding = fixtures.workflowBinding({ repository, target: `${repository}#${pr}` }, mandate, branch, 'main')
-      pull.comments = fixtures
-        .framedBodies([binding], 'operator', [fixtures.historyFrom([mandate])])
-        .map((body, index) => ({ id: 100 + index, author: 'operator', body, createdAt: date, updatedAt: date }))
-    }
-  })
-  const bare = (...args: string[]) => git(box, cwd, ['--git-dir', box.origin, ...args])
-  const gitRunner: GitRunner = async (at, args) => {
-    try {
-      const { stdout, stderr } = await exec('git', args, { cwd: at, env: { ...box.env, LC_ALL: 'C' } })
-      return { code: 0, stdout, stderr }
-    } catch (error) {
-      const result = error as { code?: number; stdout?: string; stderr?: string }
-      return {
-        code: typeof result.code === 'number' ? result.code : 1,
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? '',
-      }
-    }
-  }
-  const gh: Gh = async (at, args) => {
-    const { stdout } = await exec('gh', args, { cwd: at, env: box.env })
-    if (args[0] === 'pr' && args[1] === 'view' && args.at(-1)?.includes(',url,'))
-      return JSON.stringify({ ...JSON.parse(stdout), url: `https://github.com/${repository}/pull/${args[2]}` })
-    return stdout
-  }
-  return { box, cwd, tip, base, bare, gitRunner, gh, mandate, spec }
-}
-
-type Simulation = ReturnType<typeof world>
-
-async function invoke(
-  f: Simulation,
-  command: string,
-  args: string[],
-  options: { cwd?: string; gh?: Gh; git?: GitRunner; mandate?: string } = {},
-) {
-  const result = await runFeatureCli(
-    [command, '--repo', repository, '--issue', '42', '--mandate', options.mandate ?? f.mandate.recordId, ...args],
-    { cwd: options.cwd ?? f.cwd, gh: options.gh ?? f.gh, git: options.git ?? f.gitRunner },
-  )
-  if (result.text === undefined) throw new Error(result.error)
-  return { code: result.code, ...JSON.parse(result.text) }
-}
-
-function abandonment(f: Simulation): CanonicalRecord {
-  const draft = buildRecord({
-    version: 1,
-    repository,
-    target: scope.target,
-    recordId: 'abandon-1',
-    runId: f.mandate.runId,
-    operationId: 'op-abandon-1',
-    kind: 'operator-control',
-    payload: { control: 'abandon', controlId: 'abandon-1', mandate: fixtures.mandateRef(f.mandate), predecessor: null },
-  })
-  if (!draft.ok) throw new Error(JSON.stringify(draft.diagnostics))
-  return draft.value
-}
-
-function revoke(f: Simulation) {
-  const predecessor = fixtures.mandateRef(f.mandate)
-  const next = fixtures.featureMandate(scope, {
-    body: f.spec.body,
-    ownSpec: f.spec.ownSpec,
-    recordId: 'mandate-next',
-    runId: 'run00002',
-    run: 'run00002',
-    operationId: 'op-mandate-next',
-    antecedent: predecessor,
-    branch: 'feat/42-next',
-    lineageHead: f.base,
-  })
-  const successor = fixtures.mandateRef(next)
-  const draft = buildRecord({
-    version: 1,
-    repository,
-    target: scope.target,
-    recordId: 'select-next-mandate',
-    runId: next.runId,
-    operationId: 'op-select-next-mandate',
-    kind: 'operator-control',
-    payload: {
-      control: 'select-successor',
-      controlId: 'select-next-mandate',
-      mandate: predecessor,
-      predecessor,
-      successor,
-    },
-  })
-  if (!draft.ok) throw new Error(JSON.stringify(draft.diagnostics))
-  seedAuthority(f.box, [f.mandate, abandonment(f), next, draft.value])
-}
+const app = 17
+const rules = [
+  {
+    type: 'required_status_checks',
+    parameters: { required_status_checks: [{ context: 'review', integration_id: app }] },
+  },
+]
 
 it('runs through trusted Bun and reports strict usage without extra JSON or effects', () => {
   const run = (...args: string[]) =>
@@ -199,27 +66,36 @@ it('pushes the captured SHA despite a local branch move, and never follows annot
   expect(await invoke(f, 'push', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'already-published' })
 })
 
-it.each(['moved', 'deleted'] as const)('refuses when the remote branch is %s at the lease boundary', async (race) => {
-  const f = world()
-  const other = f.bare('commit-tree', `${f.base}^{tree}`, '-p', f.base, '-m', 'concurrent update')
-  f.bare('update-ref', ref, f.base)
-  let invoked = false
-  const gitAtWrite: GitRunner = (at, args) => {
-    if (args[0] === 'push') {
-      invoked = true
-      if (race === 'deleted') f.bare('update-ref', '-d', ref)
-      else f.bare('update-ref', ref, other)
+it.each(['moved', 'deleted', 'created', 'created at the intended tip'] as const)(
+  'refuses when the remote branch is %s at the lease boundary',
+  async (race) => {
+    const f = world()
+    const created = race.startsWith('created')
+    const other =
+      race === 'created at the intended tip'
+        ? f.tip
+        : f.bare('commit-tree', `${f.base}^{tree}`, '-p', f.base, '-m', 'concurrent update')
+    if (created) f.bare('update-ref', '-d', ref)
+    else f.bare('update-ref', ref, f.base)
+    let invoked = false
+    const gitAtWrite: GitRunner = (at, args) => {
+      if (args[0] === 'push') {
+        invoked = true
+        if (race === 'deleted') f.bare('update-ref', '-d', ref)
+        else f.bare('update-ref', ref, other)
+      }
+      return f.gitRunner(at, args)
     }
-    return f.gitRunner(at, args)
-  }
-  expect(await invoke(f, 'push', ['--from', f.base, '--tip', f.tip], { git: gitAtWrite })).toMatchObject({
-    code: 1,
-    status: 'refused',
-    reason: 'remote-lease-mismatch',
-  })
-  expect(invoked).toBe(true)
-  expect(f.bare('for-each-ref', '--format=%(objectname)', ref)).toBe(race === 'deleted' ? '' : other)
-})
+    const args = created ? ['--tip', f.tip] : ['--from', f.base, '--tip', f.tip]
+    expect(await invoke(f, 'push', args, { git: gitAtWrite })).toMatchObject({
+      code: 1,
+      status: 'refused',
+      reason: 'remote-lease-mismatch',
+    })
+    expect(invoked).toBe(true)
+    expect(f.bare('for-each-ref', '--format=%(objectname)', ref)).toBe(race === 'deleted' ? '' : other)
+  },
+)
 
 it.each(['multiple', 'wrong-repo'] as const)(
   'refuses %s effective push destinations before writing',
@@ -240,6 +116,54 @@ it.each(['multiple', 'wrong-repo'] as const)(
     expect(f.bare('for-each-ref', '--format=%(objectname)', ref)).toBe('')
   },
 )
+
+it.each([repository, 'file:///tmp/acme/app', '/tmp/acme/app'])('rejects a non-GitHub push URL: %s', async (url) => {
+  const f = world()
+  git(f.box, f.cwd, ['remote', 'set-url', '--push', 'origin', url])
+  f.bare('update-ref', '-d', ref)
+  let pushed = false
+  const spoofRepoView: Gh = (cwd, args) =>
+    args[0] === 'repo' && args[2] === url
+      ? Promise.resolve(JSON.stringify({ nameWithOwner: repository, url: `https://github.com/${repository}` }))
+      : f.gh(cwd, args)
+  const observePush: GitRunner = (cwd, args) => {
+    if (args[0] === 'push') pushed = true
+    return f.gitRunner(cwd, args)
+  }
+  expect(await invoke(f, 'push', ['--tip', f.tip], { gh: spoofRepoView, git: observePush })).toMatchObject({
+    code: 1,
+    reason: 'origin-unreadable',
+  })
+  expect(pushed).toBe(false)
+})
+
+it('rechecks the mandate when it is revoked after initial push admission', async () => {
+  const f = world()
+  f.bare('update-ref', '-d', ref)
+  let revoked = false
+  let pushed = false
+  const gitDuringPush: GitRunner = (cwd, args) => {
+    if (args[0] === 'merge-base') {
+      revoke(f)
+      revoked = true
+    }
+    if (args[0] === 'push') pushed = true
+    return f.gitRunner(cwd, args)
+  }
+  expect(await invoke(f, 'push', ['--tip', f.tip], { git: gitDuringPush })).toMatchObject({
+    code: 1,
+    reason: 'exact-mandate-not-applicable',
+  })
+  expect(revoked).toBe(true)
+  expect(pushed).toBe(false)
+})
+
+it('pushes and opens a leaf PR into its non-default mandate base', async () => {
+  const f = world(false, 'staging')
+  f.bare('update-ref', '-d', ref)
+  expect(await invoke(f, 'push', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'pushed', base: 'staging' })
+  expect(await invoke(f, 'open-pr', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'created', base: 'staging' })
+})
 
 it.each(['paused', 'abandoned', 'revoked', 'not-applicable'] as const)(
   'does not write under a %s mandate',
@@ -299,6 +223,51 @@ it('creates and confirms one receipt-free PR, then readopts it without reposting
   ).toHaveLength(1)
 })
 
+it('ignores closed and merged PRs when reusing a unique open PR', async () => {
+  const f = world(true)
+  const gh: Gh = (cwd, args) =>
+    args[0] === 'pr' && args[1] === 'list'
+      ? Promise.resolve(
+          JSON.stringify(
+            [
+              [pr, 'OPEN'],
+              [pr + 1, 'CLOSED'],
+              [pr + 2, 'MERGED'],
+            ].map(([number, state]) => ({
+              number,
+              state,
+              isCrossRepository: false,
+              baseRefName: 'main',
+            })),
+          ),
+        )
+      : f.gh(cwd, args)
+  expect(await invoke(f, 'open-pr', ['--tip', f.tip], { gh })).toMatchObject({ code: 0, status: 'existing', pr })
+})
+
+it('readopts the latest authenticated binding on a successor PR', async () => {
+  const f = world(true)
+  const { next, records } = revoke(f, branch)
+  const binding = fixtures.workflowBinding({ repository, target: `${repository}#${pr}` }, next, branch, 'main')
+  writeSim(f.box, (state) => {
+    const pull = state.prs[String(pr)]
+    if (!pull) throw new Error('Expected PR')
+    pull.comments.push(
+      ...fixtures
+        .framedBodies([binding], 'operator', [fixtures.historyFrom(records)])
+        .map((body, index) => ({ id: 200 + index, author: 'operator', body, createdAt: date, updatedAt: date })),
+    )
+  })
+  const before = readSim(f.box).prs[String(pr)]?.comments
+  expect(await invoke(f, 'open-pr', ['--tip', f.tip], { mandate: next.recordId })).toMatchObject({
+    code: 0,
+    status: 'existing',
+    pr,
+    binding: binding.recordId,
+  })
+  expect(readSim(f.box).prs[String(pr)]?.comments).toEqual(before)
+})
+
 it('refuses instead of adopting the least of several matching open PRs', async () => {
   const f = world()
   const gh: Gh = (cwd, args) =>
@@ -313,6 +282,21 @@ it('refuses instead of adopting the least of several matching open PRs', async (
   expect(readSim(f.box).prs).toEqual({})
 })
 
+it('refuses an open PR targeting a different base even when another PR is closed', async () => {
+  const f = world()
+  const gh: Gh = (cwd, args) =>
+    args[0] === 'pr' && args[1] === 'list'
+      ? Promise.resolve(
+          JSON.stringify([
+            { number: 100, isCrossRepository: false, state: 'OPEN', baseRefName: 'staging' },
+            { number: 101, isCrossRepository: false, state: 'CLOSED', baseRefName: 'main' },
+          ]),
+        )
+      : f.gh(cwd, args)
+  expect(await invoke(f, 'open-pr', ['--tip', f.tip], { gh })).toMatchObject({ code: 1, reason: 'conflicting-pr' })
+  expect(readSim(f.box).prs).toEqual({})
+})
+
 it('refuses to land without an enforced review check rule', async () => {
   const f = world(true)
   expect(await invoke(f, 'land', ['--pr', String(pr), '--head', f.tip])).toMatchObject({
@@ -320,6 +304,49 @@ it('refuses to land without an enforced review check rule', async () => {
     reason: 'no-verdict-lock',
   })
   expect(readSim(f.box).prs[String(pr)]?.state).toBe('OPEN')
+})
+
+it('refuses to land a PR on a base with a merge queue', async () => {
+  const f = world(true)
+  const gh: Gh = (cwd, args) =>
+    args[1] === `repos/${repository}/rules/branches/main`
+      ? Promise.resolve(JSON.stringify([...rules, { type: 'merge_queue' }]))
+      : f.gh(cwd, args)
+  expect(await invoke(f, 'land', ['--pr', String(pr), '--head', f.tip], { gh })).toMatchObject({
+    code: 1,
+    reason: 'merge-queue',
+  })
+  expect(readSim(f.box).calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
+})
+
+it('refuses to land when the base changes during the final mandate read', async () => {
+  const f = world(true)
+  f.bare('update-ref', 'refs/heads/staging', f.base)
+  let checkedRules = false
+  let retargeted = false
+  const gh: Gh = (cwd, args) => {
+    if (args[1] === `repos/${repository}/rules/branches/main`) {
+      checkedRules = true
+      return Promise.resolve(JSON.stringify(rules))
+    }
+    return f.gh(cwd, args)
+  }
+  const duringRefresh: GitRunner = (cwd, args) => {
+    if (checkedRules && args[0] === 'symbolic-ref') {
+      retargeted = true
+      writeSim(f.box, (state) => {
+        const pull = state.prs[String(pr)]
+        if (pull) pull.baseRefName = 'staging'
+      })
+    }
+    return f.gitRunner(cwd, args)
+  }
+  expect(await invoke(f, 'land', ['--pr', String(pr), '--head', f.tip], { gh, git: duringRefresh })).toMatchObject({
+    code: 1,
+    reason: 'pr-coordinates-mismatch',
+  })
+  expect(retargeted).toBe(true)
+  expect(readSim(f.box).calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
 })
 
 it('refuses an exact merge when the named mandate is superseded before the write', async () => {
@@ -342,9 +369,13 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
   const f = world(true)
   let mergeCalls = 0
   let reviewedHead = f.base
+  let reviewedApp = app
+  let conclusion: string | null = 'success'
+  let reviewStatus = 'completed'
+  let reviewRules: unknown = rules
   let closeCalls = 0
   const gh: Gh = async (cwd, args) => {
-    if (args[1] === `repos/${repository}/rules/branches/main`) return JSON.stringify(rules)
+    if (args[1] === `repos/${repository}/rules/branches/main`) return JSON.stringify(reviewRules)
     if (args[1] === `repos/${repository}/commits/${f.tip}/check-runs?check_name=review&per_page=100`)
       return JSON.stringify({
         total_count: 1,
@@ -352,8 +383,9 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
           {
             id: 7,
             name: 'review',
-            status: 'completed',
-            conclusion: 'success',
+            status: reviewStatus,
+            conclusion,
+            app: { id: reviewedApp },
             head_sha: reviewedHead,
           },
         ],
@@ -391,6 +423,25 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
   })
   expect(closeCalls).toBe(0)
   reviewedHead = f.tip
+  reviewedApp = 42
+  const expectRefusal = async () =>
+    expect(await invoke(f, 'finish', ['--pr', String(pr)], { gh })).toMatchObject({
+      code: 1,
+      reason: 'close-linked-completion-unavailable',
+    })
+  await expectRefusal()
+  reviewedApp = app
+  reviewStatus = 'in_progress'
+  conclusion = null
+  await expectRefusal()
+  reviewStatus = 'completed'
+  conclusion = 'failure'
+  await expectRefusal()
+  conclusion = 'success'
+  reviewRules = [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'review' }] } }]
+  await expectRefusal()
+  expect(closeCalls).toBe(0)
+  reviewRules = rules
   f.bare('update-ref', '-d', ref)
   expect(await invoke(f, 'finish', ['--pr', String(pr)], { gh, cwd: f.box.principal })).toMatchObject({
     code: 0,

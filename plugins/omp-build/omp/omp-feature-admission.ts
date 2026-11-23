@@ -11,6 +11,7 @@ import {
   readNativePullRequestFacts,
   resolveAcceptedSpec,
   resolveSpecEffective,
+  type SpecEffective,
   selectWorkflowBinding,
 } from '../dist/contracts.js'
 import { type FeatureAuthority, resolveFeatureAuthority } from '../roxabi/feature-continuation-admission.ts'
@@ -36,6 +37,9 @@ export type FeatureReady = {
   branch: string
   base: string
   worktree: string
+  acceptedSpec: SpecEffective
+  acceptedBodySha256: string
+  liveIssueBodyDiffers: boolean
   pr?: number
 }
 
@@ -194,8 +198,8 @@ async function admitSelectedFeature(input: ContinueFeatureInput, selected: Selec
   if (checkout !== null) return checkout
   const observation = await assembleObservationBase(selected)
   if ('kind' in observation) return observation
-  const problem = readyStop(observation, mandate, acceptedSpec)
-  if (problem !== null) return problem
+  const effective = readySpec(observation, mandate, acceptedSpec)
+  if ('kind' in effective) return effective
   const { base, branch } = mandate.payload
   if (base === null || branch === null) return blocked('mandate-checkout-unreadable')
   const pr = await boundOpenPr(issueAuthority, mandate, observation)
@@ -207,15 +211,18 @@ async function admitSelectedFeature(input: ContinueFeatureInput, selected: Selec
     branch,
     base,
     worktree: identity.sessionTop,
+    acceptedSpec: effective,
+    acceptedBodySha256: acceptedSpec.snapshot.raw.bodySha256,
+    liveIssueBodyDiffers: selected.issue.body !== acceptedSpec.snapshot.raw.body,
     ...(pr === undefined ? {} : { pr }),
   }
 }
 
-function readyStop(
+function readySpec(
   observation: FeatureAdmissionObservation,
   mandate: MandateRecord,
   acceptedSpec: NonNullable<SelectedFeature['acceptedSpec']>,
-): ContinueFeatureResult | null {
+): ContinueFeatureResult | SpecEffective {
   const outstandingPause = outstandingPauseInAuthority(mandate, [
     observation.evidence.issue,
     ...observation.evidence.causal.histories,
@@ -224,21 +231,21 @@ function readyStop(
   const problem = deliveryStop(observation)
   if (problem !== null) return problem
   const current = observation.facts.currentSpec
-  const causal = observation.evidence.causal
   if (
     current === null ||
     current.snapshot.spec.version !== acceptedSpec.snapshot.spec.version ||
     current.tier !== acceptedSpec.tier ||
     current.children.length !== 0 ||
     canonicalValueDigest(current.inheritedOwnSpecRefs) !== canonicalValueDigest(acceptedSpec.inheritedOwnSpecRefs) ||
-    canonicalValueDigest(current.coverage) !== canonicalValueDigest(acceptedSpec.coverage) ||
-    !resolveSpecEffective({
-      mode: 'current',
-      own: acceptedSpec.ref,
-      histories: causal.histories,
-      graph: causal.observation.graph,
-    }).ok
+    canonicalValueDigest(current.coverage) !== canonicalValueDigest(acceptedSpec.coverage)
   )
     return { kind: 'operator-decision', reason: 'material-spec' }
-  return null
+  const causal = observation.evidence.causal
+  const effective = resolveSpecEffective({
+    mode: 'current',
+    own: acceptedSpec.ref,
+    histories: causal.histories,
+    graph: causal.observation.graph,
+  })
+  return effective.ok ? effective.value : { kind: 'operator-decision', reason: 'material-spec' }
 }

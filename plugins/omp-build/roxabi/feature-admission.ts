@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
-import { bindingMatchesMandate, bindingPolicy } from '../dist/contracts.js'
+import { bindingMatchesMandate, bindingPolicy, selectWorkflowBinding } from '../dist/contracts.js'
 import { explicitParentHistories } from './feature-context.ts'
 import { type Contracts, type History, isRecord, loadContracts } from './feature-engine.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
@@ -175,6 +175,35 @@ function existingBinding(
   return existing ? { ok: true, recordId: existing.recordId } : null
 }
 
+function existingExactBinding(
+  context: Extract<Awaited<ReturnType<typeof readBindingContext>>, { ok: true }>,
+  native: {
+    branch: string
+    base: string
+  },
+) {
+  const selected = selectWorkflowBinding({
+    pullRequest: context.prScope,
+    histories: [context.history, ...context.issueHistory.histories, ...context.parents.parents],
+    native,
+  })
+  if (selected.status === 'absent') return existingBinding(context.history, context.mandate, native.branch, native.base)
+  if (selected.status === 'bound') {
+    const { scope, recordId } = selected.mandate
+    if (
+      scope.repository === context.issueScope.repository &&
+      scope.target === context.issueScope.target &&
+      recordId === context.mandate.recordId
+    )
+      return { ok: true as const, recordId: selected.binding.recordId }
+    return { ok: false as const, reason: 'binding-conflict' }
+  }
+  return {
+    ok: false as const,
+    reason: selected.status === 'conflicting' ? 'binding-conflict' : `binding-${selected.status}`,
+  }
+}
+
 /**
  * Publish the one PR-to-mandate association after native head/base match.
  * A confirmed matching record is reused. A conflict is not replaced.
@@ -203,7 +232,10 @@ export async function confirmWorkflowBinding(input: {
   if (!context.ok) return context
   if ((expected?.mandate ?? context.mandate.recordId) !== context.mandate.recordId)
     return { ok: false, reason: 'exact-mandate-not-applicable' }
-  const existing = existingBinding(context.history, context.mandate, input.branch, input.base)
+  const existing =
+    expected === undefined
+      ? existingBinding(context.history, context.mandate, input.branch, input.base)
+      : existingExactBinding(context, input)
   if (existing !== null) {
     if (existing.ok) await verify()
     return existing

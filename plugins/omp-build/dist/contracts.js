@@ -27053,18 +27053,39 @@ async function collectCandidate(candidate, uw, options, loaded, kept) {
     kept.push(home);
   return { ok: true, value: true };
 }
-async function readMergedReview(repository, head, options) {
+function pinnedReviewApp(rules) {
+  if (!Array.isArray(rules))
+    return;
+  const ids = new Set;
+  for (const entry of rules) {
+    const rule = object5(entry);
+    if (rule?.type !== "required_status_checks")
+      continue;
+    const checks = object5(rule.parameters)?.required_status_checks;
+    if (!Array.isArray(checks))
+      continue;
+    for (const entry of checks) {
+      const check = object5(entry);
+      const id = check?.integration_id;
+      if (check?.context === "review" && typeof id === "number" && Number.isSafeInteger(id) && id > 0)
+        ids.add(id);
+    }
+  }
+  return ids.size === 1 ? ids.values().next().value : undefined;
+}
+async function readMergedReview(repository, base, head, options) {
   try {
-    const raw = await gh(options)(options.cwd, [
-      "api",
-      `repos/${repository}/commits/${head}/check-runs?check_name=review&per_page=100`
-    ]);
+    const api = (endpoint) => gh(options)(options.cwd, ["api", `repos/${repository}/${endpoint}`]);
+    const integration = pinnedReviewApp(JSON.parse(await api(`rules/branches/${encodeURIComponent(base)}`)));
+    if (integration === undefined)
+      return;
+    const raw = await api(`commits/${head}/check-runs?check_name=review&per_page=100`);
     const response = object5(JSON.parse(raw));
     if (!Array.isArray(response?.check_runs) || response.total_count !== response.check_runs.length)
       return;
     for (const entry of response.check_runs) {
       const check = object5(entry);
-      if (check?.name === "review" && check.head_sha === head && check.status === "completed" && check.conclusion === "success" && typeof check.id === "number" && Number.isSafeInteger(check.id) && check.id > 0)
+      if (check?.name === "review" && check.head_sha === head && object5(check.app)?.id === integration && check.status === "completed" && check.conclusion === "success" && typeof check.id === "number" && Number.isSafeInteger(check.id) && check.id > 0)
         return { id: check.id, head };
     }
   } catch {}
@@ -27076,7 +27097,7 @@ async function readCandidateNative(candidate, options) {
     const native = await readNativePullRequestFacts(candidate.scope.repository, number, options);
     if (native.branch !== candidate.branch || native.base !== candidate.base)
       return actionFailure("incomplete", `${candidate.scope.target} changed during delivery observation`);
-    const reviewCheck = native.state === "MERGED" ? await readMergedReview(candidate.scope.repository, native.head, options) : undefined;
+    const reviewCheck = native.state === "MERGED" ? await readMergedReview(candidate.scope.repository, native.base, native.head, options) : undefined;
     return {
       ok: true,
       value: {

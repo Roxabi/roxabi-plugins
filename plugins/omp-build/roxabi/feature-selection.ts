@@ -39,20 +39,6 @@ export function mandateBranch(mandate: HistoryRecord | null): string | null {
   return typeof mandatePayload.branch === 'string' && mandatePayload.branch.length > 0 ? mandatePayload.branch : null
 }
 
-export function actionRequiresFeatureCheckout(action: string): boolean {
-  return (
-    action === 'plan' ||
-    action === 'implement' ||
-    action === 'integrate' ||
-    action === 'assess-spec' ||
-    action === 'attribute-ci' ||
-    action === 'publish' ||
-    action === 'review' ||
-    action === 'fix' ||
-    action === 'land'
-  )
-}
-
 export async function requireMandateCheckout(input: {
   cwd: string
   git: GitRunner

@@ -131,13 +131,30 @@ async function collectCandidate(
   return { ok: true, value: true }
 }
 
+function pinnedReviewApp(rules: unknown): number | undefined {
+  if (!Array.isArray(rules)) return undefined
+  const ids = new Set<number>()
+  for (const entry of rules) {
+    const rule = object(entry)
+    if (rule?.type !== 'required_status_checks') continue
+    const checks = object(rule.parameters)?.required_status_checks
+    if (!Array.isArray(checks)) continue
+    for (const entry of checks) {
+      const check = object(entry)
+      const id = check?.integration_id
+      if (check?.context === 'review' && typeof id === 'number' && Number.isSafeInteger(id) && id > 0) ids.add(id)
+    }
+  }
+  return ids.size === 1 ? ids.values().next().value : undefined
+}
+
 /** Optional in historical observations; unreadable checks do not erase structured proof. */
-async function readMergedReview(repository: string, head: string, options: GitHubOptions) {
+async function readMergedReview(repository: string, base: string, head: string, options: GitHubOptions) {
   try {
-    const raw = await gh(options)(options.cwd, [
-      'api',
-      `repos/${repository}/commits/${head}/check-runs?check_name=review&per_page=100`,
-    ])
+    const api = (endpoint: string) => gh(options)(options.cwd, ['api', `repos/${repository}/${endpoint}`])
+    const integration = pinnedReviewApp(JSON.parse(await api(`rules/branches/${encodeURIComponent(base)}`)))
+    if (integration === undefined) return undefined
+    const raw = await api(`commits/${head}/check-runs?check_name=review&per_page=100`)
     const response = object(JSON.parse(raw))
     if (!Array.isArray(response?.check_runs) || response.total_count !== response.check_runs.length) return undefined
     for (const entry of response.check_runs) {
@@ -145,6 +162,7 @@ async function readMergedReview(repository: string, head: string, options: GitHu
       if (
         check?.name === 'review' &&
         check.head_sha === head &&
+        object(check.app)?.id === integration &&
         check.status === 'completed' &&
         check.conclusion === 'success' &&
         typeof check.id === 'number' &&
@@ -169,7 +187,9 @@ async function readCandidateNative(
     if (native.branch !== candidate.branch || native.base !== candidate.base)
       return actionFailure('incomplete', `${candidate.scope.target} changed during delivery observation`)
     const reviewCheck =
-      native.state === 'MERGED' ? await readMergedReview(candidate.scope.repository, native.head, options) : undefined
+      native.state === 'MERGED'
+        ? await readMergedReview(candidate.scope.repository, native.base, native.head, options)
+        : undefined
     return {
       ok: true,
       value: {

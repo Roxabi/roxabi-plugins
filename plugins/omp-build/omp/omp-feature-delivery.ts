@@ -48,6 +48,21 @@ function featureContext(result: FeatureReady): string {
     `base: ${base}`,
     `worktree: ${worktree}`,
     ...(pr === undefined ? [] : [`pr: ${pr}`]),
+    '',
+    acceptedSpecContext(result),
+  ].join('\n')
+}
+
+function acceptedSpecContext({ acceptedSpec, acceptedBodySha256, liveIssueBodyDiffers }: FeatureReady): string {
+  const { own, spec, inherited } = acceptedSpec
+  const { criteria, invariants, exclusions } = spec
+  return [
+    '## Accepted Spec',
+    ...(liveIssueBodyDiffers ? ['The live issue body differs from the accepted snapshot.'] : []),
+    '',
+    '```json',
+    JSON.stringify({ own, acceptedBodySha256, criteria, invariants, exclusions, inherited }, null, 2),
+    '```',
   ].join('\n')
 }
 

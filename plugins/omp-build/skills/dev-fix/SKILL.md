@@ -2,7 +2,7 @@
 name: dev-fix
 argument-hint: '[#PR] [scope]'
 description: Fix the latest /dev-review findings and failing checks on an open PR head, push the exact tip, then review again.
-version: 0.1.1
+version: 0.1.2
 ---
 
 # Dev fix
@@ -18,9 +18,11 @@ When a `## Feature context` is present, use composed mode: take the repository a
 3. Record `HEAD` = `headRefOid` and `BASE` = `baseRefName`. The review is the latest PR comment (`gh api repos/<owner>/<repo>/issues/<PR>/comments --paginate`) whose author has write access (`gh api repos/<owner>/<repo>/collaborators/<login>/permission`: `admin`, `maintain` or `write`), whose first line is `## Review — head <sha> base <branch>` and whose last line is `Verdict: approve` or `Verdict: request changes`. Other comments are not reviews. Record its `id` and `updated_at` as `REVIEW`.
    - none → stop: run `/dev-review` first;
    - its head is not `HEAD` or its base is not `BASE` → stop: the review is stale; run `/dev-review` again.
-4. The work is the review's findings plus every failing check on `HEAD` (`gh pr checks <PR>`; read a failure with `gh run view <run> --log-failed`). `Verdict: approve`, no failing check and no operator scope → stop: nothing to fix.
-5. Work in a clean checkout of the PR branch at `HEAD`. Use the named feature worktree in composed mode; in standalone mode, `omp_build_prepare_checkout` with the PR number gives the canonical checkout. Not clean or not at `HEAD` → stop.
+4. The work is the review's findings plus every failing check on `HEAD` (`gh pr checks <PR>`; read a failure with `gh run view <run> --log-failed`).
+5. Work in a clean checkout of the PR branch. Use the named feature worktree in composed mode. In standalone mode, `omp_build_prepare_checkout` with the PR number gives the canonical checkout; stop unless it is at `HEAD`. A dirty checkout → stop.
 6. `git remote get-url --push --all origin` must list exactly one URL, naming `<host>/<owner>/<repo>`; else stop. Record it as `PUSH_URL`.
+7. **Composed resume:** If the local tip differs from `HEAD`, keep it intact. Verify `git merge-base --is-ancestor <HEAD> <tip>` succeeds and the tip's `Review-Id` and `Review-Updated-At` commit trailers match `REVIEW` exactly. If either proof is absent or differs, stop without resetting or redoing the work. Reconcile `HEAD..tip` against the current findings and failing checks and verify the committed changes. If the tip is safe to publish, skip planning, editing and committing: go directly to §4 step 2 with that exact tip.
+8. For a fresh correction, `Verdict: approve`, no failing check and no operator scope → stop: nothing to fix.
 
 ## 2. Plan
 
@@ -37,7 +39,7 @@ When a `## Feature context` is present, use composed mode: take the repository a
 
 ## 4. Publish
 
-1. Commit with a message that names the findings fixed.
+1. For a fresh correction, commit with a message that names the findings fixed. In composed mode put `Review-Id: <id>` and `Review-Updated-At: <updated_at>` trailers on the final correction commit, using the values recorded before editing. For a resumed tip, keep the existing commit.
 2. Re-read the PR: still open, head still `HEAD`, base still `BASE`, and the latest review comment by a writer still `REVIEW` with the same `updated_at` (an edited review is a new review). Anything else → stop and say so.
 3. `git merge-base --is-ancestor <HEAD> <tip>` must hold, and `git remote get-url --push --all origin` must still list exactly `PUSH_URL`.
    - **Composed:** from the feature worktree, with `FEATURE_SKILL_DIR` set to the installed feature skill directory, run `bash "$FEATURE_SKILL_DIR/trusted-bun.sh" "$FEATURE_SKILL_DIR/feature-cli.ts" push --repo <owner/repo> --issue <N> --mandate <recordId> --tip <tip> --from <HEAD> --pr <PR>`. A refusal or uncertain result stops; never fall back to a standalone push.

@@ -1,7 +1,7 @@
 import type { Gh } from '../adapters/github/types.ts'
 import { githubScope, outstandingPauseInAuthority } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
-import { resolveFeatureAuthority } from './feature-continuation-admission.ts'
+import { type FeatureAuthority, resolveFeatureAuthority } from './feature-continuation-admission.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
 export type FeatureCoordinates = { repository: string; issue: number; mandate: string }
@@ -38,6 +38,7 @@ export async function readLiveFeatureMandate(
     ownSpec.uw.target !== scope.target
   )
     throw new Error('feature-leaf-mandate-required')
+  requireCurrentLeaf(result)
   if (worktreeRequired) {
     if (!result.identity.ok || result.identity.onPrincipal) throw new Error('feature-worktree-required')
     const current = await input.git(input.cwd, ['symbolic-ref', '--quiet', 'HEAD'])
@@ -45,4 +46,9 @@ export async function readLiveFeatureMandate(
       throw new Error('feature-branch-mismatch')
   }
   return { scope, ref, base, branch }
+}
+
+function requireCurrentLeaf({ context, history, parentHistories, causal }: FeatureAuthority): void {
+  const current = context.engine.resolveOwnSpecAuthority(history, parentHistories, causal)
+  if (current.ok && current.value.accepted.children.length > 0) throw new Error('parent-delivery-suspended')
 }

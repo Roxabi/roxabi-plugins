@@ -3,12 +3,12 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N | resolve-interruption #N [--start <recordId>]]'
 description: Deliver a leaf UW through implementation, independent review, correction and protected merge.
-version: 0.1.15
+version: 0.1.16
 ---
 
 # Feature
 
-Start only from the installed command's appended feature context and skill directory. A bare skill read grants no authority. Work in the named worktree against the accepted Spec and inherited clauses; edited issue text is a proposal, not acceptance. Scope every GitHub query to the named repository.
+Start only with the installed command's appended `## Feature context`, `## Accepted Spec` and skill directory. A bare skill read grants no authority. Work in the named worktree. Plan, implement and review against the criteria, invariants, exclusions and inherited clauses in `## Accepted Spec`. Report a live issue body that differs; treat it as a proposal, not as requirements. Scope every GitHub query to the named repository.
 
 ## Resume from facts
 
@@ -19,19 +19,20 @@ Compare local, remote and PR tips against the selected base. Look for matching P
 | No bound PR; local or remote commits may exist | Compare the committed diff against the Spec. Preserve dirty files and existing commits. Plan and implement only missing requirements; green checks or an existing branch are not proof. A fresh machine can recover only published commits. |
 | Exact verified tip is already on remote; no PR or one matching unbound open PR | Run `open-pr` to create or confirm the binding. If an earlier effect is uncertain, observe before writing again. |
 | Bound open PR, no completed review for its head/base | Review that exact head independently. |
-| Bound open PR, current blocking review or failing CI | Correct only after completing a review of this head. Reconcile any unpushed correction commits against the same live review and checks before using the PR-bound correction push. If already pushed, review the new head. |
+| Bound open PR with a completed current review; clean local branch has unpushed correction commits | Follow composed `/dev-fix`'s resume branch to verify and publish the existing tip without redoing work. |
+| Bound open PR, current blocking review or failing CI | Follow composed `/dev-fix` only after completing a review of this head. If already pushed, review the new head. |
 | Current approval and no red checks | Observe checks on the exact approved SHA. If the verdict was not published, rerun review. If behind the selected base, integrate locally only from a clean checkout and with a completed current review; stop on conflicts or scope change. Use the PR-bound correction push and review the new head. |
 | Bound PR merged | Skip to `finish`. |
 
 ## Plan and implement
 
-1. Map every accepted criterion and invariant to code and a targeted check in the session. Apply project instructions; bring in `R-architect` for significant design decisions. Resolve scope conflicts before editing.
+1. Map every own or inherited requirement from `## Accepted Spec` to code and a targeted check in the session; preserve exclusions. Apply project instructions; bring in `R-architect` for significant design decisions. Resolve scope conflicts before editing.
 2. Use `task` implementers on disjoint slices of the canonical worktree. Keep review independent of authorship. Verify the diff and checks against every criterion, including affected docs. Make Conventional Commits linked to the issue; capture the exact committed tip with `git rev-parse HEAD`.
 3. Use `push` for that tip. Omit `--from` only for an observed absent branch; otherwise pass the observed remote SHA. On `pushed` or `already-published`, run `open-pr` for the same tip.
 
 ## Review and correct
 
-1. Read installed [../dev-review/SKILL.md](../dev-review/SKILL.md) relative to the feature skill directory. Follow it with the bound issue, repository, PR and exact head/base. Await separate read-only reviewers and confirm the published review. Do not invoke a nested slash command.
+1. Read installed [../dev-review/SKILL.md](../dev-review/SKILL.md) relative to the feature skill directory. Follow its composed mode with the bound issue, repository, PR, exact head/base and `## Accepted Spec`. Await separate read-only reviewers and confirm the published review. Do not invoke a nested slash command.
 2. For a completed current review with blockers or red CI, read installed [../dev-fix/SKILL.md](../dev-fix/SKILL.md) and follow its composed mode. Review each changed head again. Stop on conflicting scope, no progress, or after **two automatic correction rounds** in this invocation. Report what remains for the operator to rerun.
 
 ## Land and finish

@@ -2,21 +2,15 @@
 name: ci-watch
 disable-model-invocation: true
 description: Watch every check on a PR head, then the merge, with a deadline the script owns.
-version: 0.1.3
+version: 0.1.4
 ---
 
 # ci-watch
 
-While this host-owned watch is the only work running (no model turn), Esc/RPC does
-not pause or disarm the feature workflow. Use `/feature pause` or `/feature abandon`;
-session switch and shutdown still take the durable pause path.
-
 Watch the PR until it merges or a check fails. The script owns the deadline.
 OMP's bash tool must not: call it with `async: true` and `timeout: 0`.
 
-`landPr` returns a `watch` string that already uses this script's absolute real
-path — run that string as given. For a standalone invocation, resolve the path
-first so `$0` can find `../feature/workflow-readiness.js`:
+Resolve the installed script path first so `$0` can find `../feature/workflow-readiness.js`:
 
 ```bash
 T=$(realpath skill://ci-watch/ci-watch.sh) && bash "$T" <pr>

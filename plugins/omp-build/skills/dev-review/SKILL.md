@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
-version: 0.4.2
+version: 0.4.3
 ---
 
 # Dev review
@@ -19,7 +19,7 @@ Review the current head of one open pull request with agents other than its auth
    - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
    The change is `git diff <BASE_SHA>...<HEAD>`.
 5. Check out the reviewed tree apart from the current one, without running its hooks: `git -c core.hooksPath=/dev/null worktree add --detach <dir> <HEAD>`. Every source read of the review happens there. Remove it on every exit, a stop included: `git worktree remove --force <dir>`.
-6. Read the bound issue supplied by `/feature`, or for standalone review the unambiguous linked issue from the PR body (`Closes #N`, `References #N`, or a `UW #N` line). Use its criteria for review. The PR body is not proof of binding.
+6. **Composed:** use the bound issue and `## Accepted Spec` supplied by `/feature`, including inherited clauses and their source refs. If the section is missing, stop. Compare `acceptedBodySha256` with the hash of the live body (`(set -o pipefail; gh api repos/<owner>/<repo>/issues/<N> | jq -erj '.body | strings' | sha256sum)`). Report a mismatch, and use only the accepted clauses for the verdict. If the comparison is unavailable, report that too; it does not change the review scope. **Standalone:** read the unambiguous linked issue from the PR body (`Closes #N`, `References #N`, or a `UW #N` line) and use its criteria. The PR body is not proof of binding.
 
 ## 2. Pick the reviewers
 
@@ -30,7 +30,7 @@ Review the current head of one open pull request with agents other than its auth
   - `R-tester`: test changes, or behavior changed without a test;
   - `R-devops`: CI workflows, dependencies, build, configuration.
 - Reviewers are separate read-only agents. The session that wrote the change does not review it.
-- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the issue criteria, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
+- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the requirements from step 1.6, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
 
 ## 3. Consolidate
 

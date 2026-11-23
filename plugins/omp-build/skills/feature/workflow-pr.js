@@ -69,7 +69,7 @@ export async function findOpenPr(cwd, head, base, ghFn, repository) {
     head,
     ...(repository === undefined
       ? ['--base', base, '--state', 'open']
-      : ['--repo', repository, '--state', 'all', '--limit', '100']),
+      : ['--repo', repository, '--state', 'open', '--limit', '100']),
     '--json',
     repository === undefined ? 'number,isCrossRepository' : 'number,isCrossRepository,state,baseRefName',
   ])
@@ -85,11 +85,17 @@ export async function findOpenPr(cwd, head, base, ghFn, repository) {
   if (data.some((entry) => !Number.isInteger(entry?.number) || entry.number <= 0))
     throw new Error(`openPr: \`gh pr list --head ${head}\` returned an entry with no PR number — ${preview(raw)}`)
   data = sameRepositoryPrs(data, 'openPr')
+  if (repository !== undefined) {
+    if (data.some((entry) => !['OPEN', 'CLOSED', 'MERGED'].includes(entry.state)))
+      throw new Error('openPr: invalid PR discovery response')
+    const open = data.filter((entry) => entry.state === 'OPEN')
+    data = open.filter((entry) => entry.baseRefName === base)
+    if (data.length < 2 && data.length !== open.length)
+      throw Object.assign(new Error('openPr: conflicting PR candidate'), { reason: 'conflicting-pr' })
+  }
   if (data.length > 1) throw Object.assign(new Error('openPr: multiple PR candidates'), { reason: 'ambiguous-pr' })
   const [candidate] = data
   if (candidate === undefined) return null
-  if (repository !== undefined && (candidate.state !== 'OPEN' || candidate.baseRefName !== base))
-    throw Object.assign(new Error('openPr: conflicting PR candidate'), { reason: 'conflicting-pr' })
   return candidate.number
 }
 
@@ -99,14 +105,17 @@ async function bindOpened(cwd, number, ghFn, claim, status, confirm) {
     if (!binding.ok) throw new Error(`openPr: workflow binding refused: ${binding.reason}`)
     return { number, status }
   }
+  let binding
   try {
-    const binding = await confirm(number)
-    if (!binding.ok)
-      throw Object.assign(new Error(`openPr: workflow binding refused: ${binding.reason}`), { reason: binding.reason })
-    return { number, status, binding: binding.recordId }
+    binding = await confirm(number)
   } catch (error) {
     throw Object.assign(new Error(`openPr: binding for #${number} unconfirmed`, { cause: error }), { pr: number })
   }
+  if (binding.ok) return { number, status, binding: binding.recordId }
+  const error = new Error(`openPr: workflow binding refused: ${binding.reason}`)
+  if (status === 'existing' && binding.reason === 'binding-conflict')
+    throw Object.assign(error, { reason: binding.reason })
+  throw Object.assign(error, { pr: number })
 }
 
 export async function resolveReviewPr(cwd, explicitPr, { gh: ghFn = gh, git: gitFn = git } = {}) {

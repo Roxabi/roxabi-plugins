@@ -43,14 +43,6 @@ async function boundPr(runtime: Runtime, live: Live, pr: number) {
   return native
 }
 
-async function assertDefaultBase({ cwd, gh }: Runtime, live: Live) {
-  const repo = JSON.parse(
-    await gh(cwd, ['repo', 'view', live.scope.repository, '--json', 'nameWithOwner,defaultBranchRef']),
-  )
-  if (repo?.nameWithOwner !== live.scope.repository || repo.defaultBranchRef?.name !== live.base)
-    throw new Error('default-base-mismatch')
-}
-
 async function push(
   input: Extract<Input, { command: 'push' }>,
   runtime: Runtime,
@@ -175,6 +167,13 @@ async function open(
   }
 }
 
+function landRuleRefusal(raw: string): 'merge-queue' | 'no-verdict-lock' | null {
+  const rules: unknown = JSON.parse(raw)
+  if (!Array.isArray(rules)) return 'no-verdict-lock'
+  if (rules.some((rule) => rule?.type === 'merge_queue')) return 'merge-queue'
+  return parseRequiredContexts(raw).has('review') ? null : 'no-verdict-lock'
+}
+
 async function land(
   input: Extract<Input, { command: 'land' }>,
   runtime: Runtime,
@@ -189,11 +188,13 @@ async function land(
   if (before.state === 'MERGED') return { status: 'merged' as const, ...details, mergeCommit: before.mergeCommit }
   if (before.state !== 'OPEN') throw new Error('pr-not-open')
   const rules = await gh(cwd, ['api', `repos/${repository}/rules/branches/${encodeURIComponent(live.base)}`])
-  if (!Array.isArray(JSON.parse(rules)) || !parseRequiredContexts(rules).has('review'))
-    return { status: 'refused' as const, reason: 'no-verdict-lock', ...details }
-  const current = await boundPr(runtime, live, pr)
-  if (current.state !== 'OPEN' || current.head !== head) throw new Error('pr-head-changed')
+  const reason = landRuleRefusal(rules)
+  if (reason !== null) return { status: 'refused' as const, reason, ...details }
   await refresh()
+  const current = await readFeaturePr(cwd, gh, repository, pr)
+  if (current.base !== live.base || current.branch !== live.branch) throw new Error('pr-coordinates-mismatch')
+  if (current.state !== 'OPEN' || current.head !== head) throw new Error('pr-head-changed')
+  // GitHub pins the head, not the base; a retarget after this last read is still possible.
   try {
     await gh(cwd, ['pr', 'merge', String(pr), '--repo', repository, '--merge', '--match-head-commit', head])
   } catch (error) {
@@ -270,7 +271,6 @@ export async function act(input: Input, runtime: Runtime) {
     if (current.branch !== live.branch || current.base !== live.base) throw new Error('mandate-coordinates-changed')
   }
   if (input.command === 'finish') return finish(input, runtime, live, refresh)
-  await assertDefaultBase(runtime, live)
   const origin = await featureOrigin(runtime.git, runtime.gh, runtime.cwd, input.repository)
   if (input.command === 'push') return push(input, runtime, live, origin, refresh)
   if (input.command === 'open-pr') return open(input, runtime, live, origin, refresh)
