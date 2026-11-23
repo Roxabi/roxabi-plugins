@@ -166,6 +166,7 @@ export function nativeGitHub(seed: Record<number, Partial<Issue>> = {}) {
     if (args[0] === 'api' && args[1] === 'user') return 'automation'
     if (args[0] === 'issue' && args[1] === 'edit') return labels(args)
     if (args[0] === 'issue' && args[1] === 'view') return issueView(Number(args[2]))
+    if (args[0] === 'pr' && args[1] === 'list') return '[]'
     if (args[0] === 'api' && args[1] === 'graphql') return graphql(args)
     return apiRequest(args)
   }

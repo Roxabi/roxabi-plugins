@@ -138,18 +138,13 @@ export async function assessCreatedChildForParent(input: AssessmentInput): Promi
     gh: input.gh,
     parents: input.before.histories.filter((history) => history !== home),
     operationId,
-    action: 'assess-spec',
     mandate: { scope: parent, recordId: mandate.value.recordId, kind: 'mandate' },
     origin: candidate.value.operands.origin,
     exactInputs: candidate.value.operands.exactInputs,
     prepared: prepared.value,
   })
-  if (opened.kind !== 'action' || opened.node !== 'assess-spec' || opened.start.kind !== 'action-receipt')
-    return actionFailure(
-      'action-input-missing',
-      opened.kind === 'blocked' ? opened.reason : 'Assessment start was not confirmed',
-    )
-  const start = { ...opened.start, kind: 'action-receipt' as const }
+  if (opened.kind === 'blocked') return actionFailure('action-input-missing', opened.reason)
+  const start = opened.start
   const batch = opened.followUp
   const outcome = Promise.withResolvers<Result<{ assessment: ExternalRecordRef & { kind: 'action-receipt' } }>>()
   let settled = false

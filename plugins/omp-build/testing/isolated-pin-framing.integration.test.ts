@@ -31,12 +31,16 @@ it('confirms a framed UW and continues at its moved destination with the activat
       statuses: string[]
       notices: string[]
       displayed: string[]
+      deliveries: string[]
       destination: string
     }
     expect(result.displayed.join('\n')).toContain(pin.candidate)
     const evidence = JSON.stringify(result)
-    expect(result.statuses.join('\n'), evidence).toContain('acme/app#1 · plan · R-workflow-plan · queued')
-    expect(result.notices.join('\n'), evidence).toContain('OMP_BUILD_NATIVE_BATCH')
+    const composed = result.deliveries.filter((message) => message.includes('## Feature context'))
+    expect(composed, evidence).toHaveLength(1)
+    expect(composed[0], evidence).toContain('repository: acme/app\nissue: 1')
+    expect(composed[0], evidence).toContain(`worktree: ${result.destination}`)
+    expect([...result.notices, ...result.deliveries].join('\n'), evidence).not.toContain('OMP_BUILD_NATIVE_BATCH')
     expect(result.statuses.join('\n'), evidence).not.toContain('plugin-pin-mismatch')
     expect(result.destination).not.toBe(box.principal)
     const issue = readSim(box).issues['1']
@@ -58,25 +62,12 @@ it('confirms a framed UW and continues at its moved destination with the activat
         updatedAt: comment.updatedAt ?? null,
       })),
     })
+    const records = history.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
+    expect(records, evidence).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'mandate' })]))
     expect(
-      history.operations.flatMap((operation) => (operation.record ? [operation.record] : [])),
+      records.some((record) => record.kind === 'action-receipt'),
       evidence,
-    ).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'action-receipt',
-          payload: expect.objectContaining({
-            action: 'plan',
-            phase: 'start',
-            inputs: expect.objectContaining({
-              manifest: expect.objectContaining({
-                plugin: expect.objectContaining({ commit: pin.candidate }),
-              }),
-            }),
-          }),
-        }),
-      ]),
-    )
+    ).toBe(false)
   } finally {
     rmSync(box.root, { recursive: true, force: true })
   }

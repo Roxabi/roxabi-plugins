@@ -5,8 +5,9 @@ import { canonicalSpec } from '../engine/uw-spec.ts'
 import { criterionIdSchema } from '../engine/uw-spec-schema.ts'
 import { acceptedConstraints, proposedConstraints } from '../engine/workflow-constraint-compatibility.ts'
 import type { SpecAssessment } from '../engine/workflow-output-schema.ts'
-import { publishFeatureNativeResult } from '../roxabi/feature-result.ts'
-import { continueFeature } from '../roxabi/workflow.ts'
+import { publishNonImplementResult } from '../roxabi/feature-action-result.ts'
+import { readAssessmentSpecFacts } from '../roxabi/uw-current-facts.ts'
+import { openHistoricalAssessment } from './native-assessment-history.ts'
 import { captureNativePlanBatch } from './native-plan-capture.ts'
 import type { withUnplannedInheritedWorld } from './native-unplanned-inherited-world.ts'
 
@@ -45,17 +46,9 @@ export async function confirmNewParentEngagement(
     baseTip: input.commit,
     remoteTip: input.commit,
   })
-  const request = {
-    cwd: world.cwd,
-    reference: '203',
-    control: 'continue' as const,
-    principal: false,
-    git: world.git,
-    gh: world.gh,
-    uw: world.operations,
-  }
-  const pending = await continueFeature(request)
-  if (pending.kind !== 'blocked' || !pending.coverageRequest)
+  const read = await world.operations.readUw(scenario.middle)
+  const pending = await readAssessmentSpecFacts({ uw: scenario.middle, read })
+  if (pending.ok || !('coverageRequest' in pending))
     throw new Error(`Expected actual parent coverage request: ${JSON.stringify(pending)}`)
   const coverage = {
     parent: pending.coverageRequest.parent,
@@ -64,17 +57,17 @@ export async function confirmNewParentEngagement(
       children: [scenario.leaf] as [typeof scenario.leaf],
     })),
   }
-  const started = await continueFeature({
-    ...request,
-    parentCoverage: coverage,
-    parentCoverageBasis: pending.coverageRequest,
+  const started = await openHistoricalAssessment({
+    world,
+    scope: scenario.middle,
+    mandate: scenario.middleMandate,
+    commit: input.commit,
+    coverage,
+    basis: pending.coverageRequest,
   })
-  if (started.kind !== 'action' || started.node !== 'assess-spec')
-    throw new Error(`Parent assessment did not start: ${JSON.stringify(started)}`)
-  const task = started.followUp.tasks.tasks[0]
-  const operands = task?.action.inputs.manifest.operands
-  if (!task || operands?.action !== 'assess-spec' || operands.origin.kind !== 'native-current')
-    throw new Error('Parent assessment lacks actual sealed native operands')
+  const { task } = started
+  const operands = task.action.inputs.manifest.operands
+  if (operands?.action !== 'assess-spec') throw new Error('Parent assessment lacks sealed operands')
   const inputs = task.action.inputs
   const manifest = inputs.manifest
   const replay = await world.operations.replayActionInputs({
@@ -149,12 +142,11 @@ export async function confirmNewParentEngagement(
     git: { repository: scenario.middle.repository, commit: input.commit, tree: input.tree },
     claims: [{ task: task.name, childId: 'parent-engagement-assessment', value: judgment }],
   })
-  const published = await publishFeatureNativeResult({
+  const published = await publishNonImplementResult({
     cwd: world.cwd,
     start: started.start,
     result: captured,
     gh: world.gh,
-    git: world.git,
   })
   if (!published.published) throw new Error(`Parent assessment publication refused: ${JSON.stringify(published)}`)
   const accepted = await world.operations.acceptMaterial(scenario.middle)

@@ -1,7 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
-import { criterionIdSchema } from '../../engine/uw-spec-schema.ts'
-import type { ParentCoverage } from '../../engine/workflow-mandate-schema.ts'
 import { dispose } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import {
   bodySha,
@@ -12,11 +10,12 @@ import {
   numberOf,
   uwMember,
 } from '../../testing/framing-runtime-fixture.ts'
+import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInput } from '../../testing/uw-operations-fixture.ts'
-import { freshOwnSpec } from '../feature-initial-own-spec.ts'
+import { loadContracts, publishRecord } from '../feature-engine.ts'
 import type { UwOperationResult } from '../uw-contract.ts'
+import { readCurrentFramingFacts } from '../uw-current-facts.ts'
 import { buildFramingSourceBinding } from '../uw-framing-prepare.ts'
-import { continueFeature } from '../workflow.ts'
 import { writtenBoundary } from './feature-framing-controller-world.ts'
 
 afterEach(() => {
@@ -84,38 +83,37 @@ it('holds framing when an accepted ancestor is abandoned before a deletion cross
   const child = await create('Child request', 'Requests are stored durably', numberOf(parent))
   const reader = await installed(native)
   const beforeParent = await reader.operations.readUw(parent)
-  const requested = await freshOwnSpec(parent, beforeParent, reader.operations)
-  if (!('kind' in requested) || requested.kind !== 'blocked' || !requested.coverageRequest)
-    throw new Error(`Expected the real Parent coverage request: ${JSON.stringify(requested)}`)
-  const basis = requested.coverageRequest
-  const criterion = basis.criteria[0]
-  if (!criterion || basis.children.length !== 1) throw new Error('Expected one real Parent criterion and child')
-  const coverage: ParentCoverage = {
-    parent: basis.parent,
-    assignments: [{ criterion: criterionIdSchema.parse(criterion.id), children: [child] }],
-  }
+  const facts = await readCurrentFramingFacts({ uw: parent, read: beforeParent })
+  if (!facts.ok) throw new Error(JSON.stringify(facts.diagnostics))
+  const { currentSpec, identityAllocations } = facts.value
+  const fixtures = roxabiWorkflowFixtures()
+  const mandate = fixtures.epicMandate(parent, currentSpec.children, {
+    ownSpec: {
+      uw: parent,
+      version: currentSpec.snapshot.spec.version,
+      snapshot: currentSpec.snapshot,
+      identityAllocations: identityAllocations.map((ref) => {
+        if (ref.kind !== 'spec-identity') throw new Error('Expected parent identity')
+        return { ...ref, kind: ref.kind }
+      }),
+    },
+    tier: currentSpec.tier,
+  })
   const gh: Gh = async (cwd, args) => {
     if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ nameWithOwner: 'acme/app' })
     if (args[0] === 'pr' && args[1] === 'list') return '[]'
     return native.gh(cwd, args)
   }
-  const continuation = {
-    cwd: boundary.principal,
-    reference: parent.target,
-    control: 'continue' as const,
-    principal: true,
-    gh,
-    git: boundary.git,
-    uw: reader.operations,
-    parentCoverage: coverage,
-    parentCoverageBasis: basis,
-  }
-  const move = await continueFeature(continuation)
-  if (move.kind !== 'session-cwd') throw new Error(`Expected Parent checkout handoff: ${JSON.stringify(move)}`)
-  await continueFeature({ ...continuation, cwd: move.path, principal: false })
+  const engine = await loadContracts()
+  if ('missing' in engine) throw new Error(engine.missing)
+  const own = beforeParent.histories.find((history) => history.source.scope.target === parent.target)
+  if (own === undefined) throw new Error('Missing Parent history')
+  const { inputs: _inputs, ...draft } = mandate
+  const published = await publishRecord(engine, own, draft, gh, boundary.principal)
+  if (!published.ok) throw new Error(JSON.stringify(published))
   const accepted = await reader.operations.readUw(parent)
   if (accepted.accepted.status !== 'accepted')
-    throw new Error(`Expected a real first Parent mandate: ${JSON.stringify(accepted.accepted)}`)
+    throw new Error(`Expected the seeded historical Parent mandate: ${JSON.stringify(accepted.accepted)}`)
   const parentRef = accepted.accepted.value.ref.sourceAccepted
   if (parentRef.kind !== 'mandate') throw new Error('Expected the exact accepted mandate reference')
   const mandateRef = { scope: parentRef.scope, recordId: parentRef.recordId, kind: 'mandate' as const }

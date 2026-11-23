@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import type { PauseBinding } from '../engine/workflow-pause.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
+import type { FeatureAdmissionObservation } from './feature-continuation-observation.ts'
 import type { ContinueFeatureResult } from './feature-contract.ts'
 import { releaseCwdInhibition, releaseInhibition } from './feature-control.ts'
 import { isRecord, payload, publishRecord } from './feature-engine.ts'
-import type { FeatureObservation } from './feature-observation-contract.ts'
 
 /** Publishes a validated resume control; null means the source publication succeeded. */
 export async function resumePausedFeature(input: {
   pause: PauseBinding
   authority: FeatureAuthority
-  observation: FeatureObservation
+  observation: Pick<FeatureAdmissionObservation, 'evidence'>
 }): Promise<ContinueFeatureResult | null> {
   const { pause, authority, observation } = input
   const { context, scope } = authority

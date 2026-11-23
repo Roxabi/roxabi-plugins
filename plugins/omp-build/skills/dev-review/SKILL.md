@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
-version: 0.4.1
+version: 0.4.2
 ---
 
 # Dev review
@@ -19,7 +19,7 @@ Review the current head of one open pull request with agents other than its auth
    - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
    The change is `git diff <BASE_SHA>...<HEAD>`.
 5. Check out the reviewed tree apart from the current one, without running its hooks: `git -c core.hooksPath=/dev/null worktree add --detach <dir> <HEAD>`. Every source read of the review happens there. Remove it on every exit, a stop included: `git worktree remove --force <dir>`.
-6. Read the linked issue (`Closes #N` / `References #N` in the PR body): its criteria are what the change must meet.
+6. Read the bound issue supplied by `/feature`, or for standalone review the unambiguous linked issue from the PR body (`Closes #N`, `References #N`, or a `UW #N` line). Use its criteria for review. The PR body is not proof of binding.
 
 ## 2. Pick the reviewers
 

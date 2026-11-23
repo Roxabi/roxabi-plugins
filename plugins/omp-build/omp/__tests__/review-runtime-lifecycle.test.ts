@@ -421,7 +421,7 @@ describe('native batch controller ownership fences', () => {
     expect(stopped).toBe(true)
   })
 
-  it('keeps the terminal fence intact when feature pause interleaves with owner stop', async () => {
+  it('joins an in-flight owner stop without reopening the terminal fence', async () => {
     const controller = new NativeBatchController()
     const prepared = batch(['slot-a'])
     const stopGate = Promise.withResolvers<void>()
@@ -435,11 +435,7 @@ describe('native batch controller ownership fences', () => {
         await stopGate.promise
       },
     })
-    controller.markFeatureBatch(prepared)
-    expect(controller.announce(prepared)).toBe(true)
-    controller.inhibitFeatureContinuation()
-    expect(controller.consumeFollowUp()).toBeNull()
-    const first = controller.stopOwned(prepared, 'pause-terminal')
+    const first = controller.stopOwned(prepared, 'first-owner-stop')
     let secondSettled = false
     const second = controller.stopOwned(prepared, 'second-owner-stop').then(() => {
       secondSettled = true
@@ -452,13 +448,13 @@ describe('native batch controller ownership fences', () => {
     })
     expect(capturedSettled).toBe(false)
     expect(secondSettled).toBe(false)
-    expect(reasons).toEqual(['pause-terminal'])
+    expect(reasons).toEqual(['first-owner-stop'])
     stopGate.resolve()
     await first
     await second
     await captured
     expect(capturedSettled).toBe(true)
     expect(controller.active()).toBeNull()
-    expect(reasons).toEqual(['pause-terminal'])
+    expect(reasons).toEqual(['first-owner-stop'])
   })
 })

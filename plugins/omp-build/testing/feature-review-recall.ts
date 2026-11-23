@@ -41,6 +41,7 @@ export async function invokeRecallFixContinuation(cwd: string) {
       throw new Error('actual-recall-not-triggered')
     await driver.settle(() => ({ findings: [] }))
     await driver.settle((task) => reviewDecision(task.task))
+    await driver.startFix()
     const records = recordsOf(await history(cwd))
     const published = records.find((record) => record.kind === 'review-attempt' && record.payload.stage === 'recall')
     const review = records.find(

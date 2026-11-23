@@ -1,10 +1,8 @@
 import { writeFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
-import { contentReading, evidenceDeclaration } from '../../engine/__tests__/criterion-admission-fixture.ts'
+import { contentReading } from '../../engine/__tests__/criterion-admission-fixture.ts'
 import { actionInputDigest } from '../../engine/action-input.ts'
 import { producerImplementationOutputSchema } from '../../engine/workflow-output-schema.ts'
-import { hostCompletedStructured } from '../../roxabi/feature-implementation-receipt.ts'
-import { implementNativeOutcome } from '../../roxabi/feature-native-outcome.ts'
 import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import type { NativeReviewChild } from '../../testing/native-review-child.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
@@ -159,25 +157,6 @@ describe('native non-test observation capture and normalization', () => {
     expect(complete).toBe(true)
     expect(child.observationProvenance).toEqual(provenance)
     expect(child.commandRuns).toEqual([])
-    expect(hostCompletedStructured(child)).toEqual({
-      outcome: 'implemented',
-      commitSHAs: [reading.code.commit],
-      reason: 'content read at the candidate commit',
-      commands: [],
-      criteria: [evidenceDeclaration({ ...reading, provenance })],
-    })
-    expect(implementNativeOutcome(child, true, new Set())).toMatchObject({
-      completion: 'completed',
-      strict: 'valid',
-      raw: child.raw,
-      observation: {
-        actionId: 'observation-action',
-        childId: 'observation-action-2',
-        submissionIndex: 0,
-        submission: child.submissions[0],
-      },
-    })
-    expect(implementNativeOutcome(child, true, new Set()).bashCalls).toBeUndefined()
   })
 
   it('reconciles a delayed matching toolcall with the guarded actual yield', async () => {
@@ -194,7 +173,6 @@ describe('native non-test observation capture and normalization', () => {
       raw: { toolCallId: 'yield-actual', executionArguments: { data }, toolCallArguments: { data } },
     })
     expect(child.observationProvenance).toMatchObject({ submissionIndex: 0 })
-    expect(implementNativeOutcome(child, true, new Set()).observation?.submission).toEqual(child.submissions[0])
   })
 
   it.each([
@@ -216,7 +194,6 @@ describe('native non-test observation capture and normalization', () => {
       raw: { toolCallId: id, toolCallArguments: args, executionArguments: null },
     })
     expect(child.observationProvenance).toBeUndefined()
-    expect(implementNativeOutcome(child, child.usable, new Set()).observation).toBeUndefined()
   })
 
   it('keeps multiple guarded executions as separate actual-backed attempts with delayed toolcalls', async () => {
@@ -269,13 +246,5 @@ describe('native non-test observation capture and normalization', () => {
   ])('does not produce an admitted observation with %s', async (_label, options) => {
     const { child } = await capture({ data: claim(), ...options })
     expect(child.observationProvenance).toBeUndefined()
-    expect(implementNativeOutcome(child, child.usable, new Set()).observation).toBeUndefined()
-    expect(hostCompletedStructured(child)).toEqual({
-      outcome: 'implemented',
-      commitSHAs: [reading.code.commit],
-      reason: 'content read at the candidate commit',
-      commands: [],
-      criteria: [{ target, verification: 'unverified', reason: 'observation-provenance-unresolved' }],
-    })
   })
 })

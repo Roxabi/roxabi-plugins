@@ -4,7 +4,13 @@ import { equalScope, sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
-import type { NativeDeliveryPullRequest, UwCompletion, UwCompletionObservation } from './uw-completion-types.ts'
+import type {
+  DeliveryReviewCheck,
+  NativeDeliveryPullRequest,
+  UwCompletion,
+  UwCompletionObservation,
+  UwDeliveryFacts,
+} from './uw-completion-types.ts'
 import { assessParentIntegration } from './uw-delivery-integration.ts'
 import {
   actualMergedLineage,
@@ -28,6 +34,7 @@ type DeliveryProof = {
   code: ActionInputManifest['code']
   sources: readonly ExternalRecordRef[]
   authority: readonly ExternalRecordRef[]
+  reviewCheck?: DeliveryReviewCheck
 }
 export type CompleteDeliveryChild = Extract<UwCompletion, { state: 'complete' }> & {
   authority: readonly ExternalRecordRef[]
@@ -81,6 +88,40 @@ function assessLeaf(
   const bound = leafBinding(observation, uw, accepted)
   if (!bound.ok) return bound
   const { native, binding } = bound.value
+  const expected = recordRef(binding.binding)
+  const authenticated = authenticatedDeliveryRecord(observation, expected)
+  if (!authenticated.ok) return authenticated
+  const facts = deliveryFactsFor(observation.delivery, uw)
+  if (facts === null)
+    return deliveryFailure(uw, 'delivery-facts-ambiguous', 'No unique complete binding-scoped delivery fact set')
+  const historical = assessStructuredLeaf(observation, uw, effective, native, binding, facts, index)
+  if (historical.ok || native.reviewCheck?.head !== native.head) return historical
+  const base = facts.commits.find(
+    (commit) => commit.code.repository === uw.repository && commit.code.commit === native.mergeCommit,
+  )?.parents[0]
+  if (base === undefined) return historical
+  const code = { repository: uw.repository, base, head: native.head, referenceCommit: base }
+  if (!actualMergedLineage(facts, native, code, index)) return historical
+  return {
+    ok: true,
+    value: {
+      code,
+      sources: [expected, binding.mandate],
+      authority: [expected],
+      reviewCheck: native.reviewCheck,
+    },
+  }
+}
+
+function assessStructuredLeaf(
+  observation: UwCompletionObservation,
+  uw: Scope,
+  effective: SpecEffective,
+  native: NativeDeliveryPullRequest,
+  binding: Bound,
+  facts: UwDeliveryFacts,
+  index: ObservedCommitIndex,
+): UwResult<DeliveryProof> {
   const selected = selectDeliveryReview(observation, uw, native.pullRequest, effective, 'pull-request')
   if (!selected.ok) return selected
   const subject = selected.value.inputs.manifest.subject
@@ -95,11 +136,6 @@ function assessLeaf(
     subject.binding.digest !== canonicalValueDigest(binding.binding.payload)
   )
     return deliveryFailure(uw, 'delivery-binding-mismatch', 'Final review does not use the current actual PR binding')
-  const authenticated = authenticatedDeliveryRecord(observation, expected)
-  if (!authenticated.ok) return authenticated
-  const facts = deliveryFactsFor(observation.delivery, uw)
-  if (facts === null)
-    return deliveryFailure(uw, 'delivery-facts-ambiguous', 'No unique complete binding-scoped delivery fact set')
   const code = selected.value.inputs.manifest.code
   if (!actualMergedLineage(facts, native, code, index))
     return deliveryFailure(

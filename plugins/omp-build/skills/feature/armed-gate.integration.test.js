@@ -3,21 +3,10 @@ import { buildRecord } from '../../dist/contracts.js'
 import { actionInputDigest } from '../../engine/action-input.ts'
 import { fixtureCatalogueGhResponse, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewGraph } from '../../testing/record-graphs.ts'
-import {
-  AUTHOR,
-  gateGh,
-  HEADS,
-  linkedApproval,
-  noProducerInput,
-  PR,
-  reviewHistory,
-  SCOPE,
-  WORKTREE,
-} from './review-record-fixture.js'
+import { AUTHOR, gateGh, HEADS, PR, reviewHistory, SCOPE, WORKTREE } from './review-record-fixture.js'
 import { readGate } from './workflow-gate.js'
 import { requiredReviewRecords } from './workflow-records.js'
 import { nextReviewStep } from './workflow-review-state.js'
-import { applyCiWatchExit } from './workflow-watch.js'
 
 beforeEach(() => {
   vi.stubEnv('HEAD_AUTH_REPOSITORY_ID', '1')
@@ -84,82 +73,6 @@ describe('durable review stop', () => {
       action: 'stop',
       reason: 'review-bound',
     })
-  })
-
-  it('persists the observed watcher CI failure before clearing its gate', async () => {
-    const history = reviewHistory([
-      { head: HEADS[0], verdict: 'Approve (clean)' },
-      { head: HEADS[1], verdict: 'Approve (clean)' },
-      { head: HEADS[2], verdict: 'Approve (clean)' },
-    ])
-    const { gh, git, state } = gateGh(history, { head: HEADS[2], armed: true })
-    await expect(applyCiWatchExit(WORKTREE, PR, 1, { gh, git })).resolves.toMatchObject({
-      status: 'ci-failed',
-      disarmed: true,
-    })
-    expect(state).toEqual({ head: HEADS[2], label: false, auto: false })
-    await expect(nextReviewStep(WORKTREE, PR, { gh, git })).resolves.toMatchObject({
-      action: 'stop',
-      reason: 'review-bound',
-    })
-  })
-
-  it('disarms a red watch in feature mode without publishing a stop before engine admission', async () => {
-    const history = reviewHistory([
-      { head: HEADS[0], verdict: 'Approve (clean)' },
-      { head: HEADS[1], verdict: 'Approve (clean)' },
-      { head: HEADS[2], verdict: 'Approve (clean)' },
-    ])
-    const { gh, git, state, calls } = gateGh(history, { head: HEADS[2], armed: true })
-    await expect(applyCiWatchExit(WORKTREE, PR, 1, { gh, git, stopPublication: 'engine' })).resolves.toMatchObject({
-      status: 'ci-failed',
-      disarmed: true,
-    })
-    expect(state).toEqual({ head: HEADS[2], label: false, auto: false })
-    expect(calls.filter((args) => args.includes('POST') && args.some((arg) => /kind=stop\b/.test(arg)))).toEqual([])
-  })
-
-  it('clears the watcher arm when its selected review was edited', async () => {
-    const linked = await linkedApproval(HEADS[0])
-    const review = linked.pr.source.comments.find((entry) => entry.body.includes('kind=review '))
-    if (!review) throw new Error('missing review fixture record')
-    review.updatedAt = '2026-10-21T12:00:01Z'
-    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
-
-    await expect(applyCiWatchExit(WORKTREE, PR, 5, { gh, git })).resolves.toMatchObject({
-      status: 'timeout',
-      disarmed: true,
-    })
-    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
-  })
-
-  it('clears the watcher arm when selected review revision metadata is missing', async () => {
-    const linked = await linkedApproval(HEADS[0])
-    const review = linked.pr.source.comments.find((entry) => entry.body.includes('kind=review '))
-    if (!review) throw new Error('missing review fixture record')
-    review.updatedAt = null
-    const { gh, git, state } = gateGh(linked.pr, { head: HEADS[0], armed: true, issueHistory: linked.issue })
-
-    await expect(applyCiWatchExit(WORKTREE, PR, 5, { gh, git })).resolves.toMatchObject({
-      status: 'timeout',
-      disarmed: true,
-    })
-    expect(state).toEqual({ head: HEADS[0], label: false, auto: false })
-  })
-
-  it('leaves the watcher arm unchanged when the head moves after landing admission', async () => {
-    const linked = await linkedApproval(HEADS[0])
-    expect(linked.input).not.toBe(noProducerInput(HEADS[0]))
-    const { gh, git, state } = gateGh(linked.pr, {
-      head: HEADS[0],
-      armed: true,
-      moveHeadAfterInputRead: HEADS[1],
-      issueHistory: linked.issue,
-    })
-    await expect(applyCiWatchExit(WORKTREE, PR, 5, { gh, git })).resolves.toMatchObject({
-      status: 'timeout',
-    })
-    expect(state).toEqual({ head: HEADS[0], label: true, auto: true })
   })
 
   it('keeps a proven bound when a newer review operation is incomplete', async () => {

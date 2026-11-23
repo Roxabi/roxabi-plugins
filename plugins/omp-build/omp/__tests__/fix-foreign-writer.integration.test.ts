@@ -1,14 +1,12 @@
-import { execFileSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { afterEach, expect, it } from 'vitest'
-import { createInstalledUwReadPort } from '../../roxabi/uw-read-port.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
-import { arrangeReviewFixture, REVIEW_SCOPE, seedReviewFixture } from '../../testing/feature-review-fixture.ts'
+import { arrangeReviewFixture, seedReviewFixture } from '../../testing/feature-review-fixture.ts'
 import { cleanupNativeRoots, provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { batch, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import { readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import { claimFixIngress, reviewControllerFor } from '../omp-controller.ts'
-import { dispatchAdmittedCiCorrection, dispatchDefaultFix } from '../omp-fix-dispatch.ts'
+import { dispatchDefaultFix } from '../omp-fix-dispatch.ts'
 import { registerOmpFixRecoveryTool } from '../omp-fix-recovery.ts'
 import { captureNativeRootLifetime } from '../review-runtime/native-sdk-adapter.ts'
 import { createNativeReviewPort } from '../review-runtime/port.ts'
@@ -25,13 +23,6 @@ it('refuses correction and recovery before publishing while an admitted non-Fix 
   const { box, cwd } = arrangeReviewFixture()
   roots.add(box.root)
   await seedReviewFixture(box, cwd)
-  const reader = createInstalledUwReadPort({
-    cwd,
-    readAuthor: 'operator',
-    gh: async (dir, args) => execFileSync('gh', args, { cwd: dir, env: box.env, encoding: 'utf8' }),
-  })
-  const observed = await reader.readUw(REVIEW_SCOPE)
-  if (observed.accepted.status !== 'accepted') throw new Error('fixture-accepted-uw-missing')
   let recover: ((ctx: unknown) => Promise<unknown>) | undefined
   const api = createExtensionApiStub({
     registerTool: (definition) => {
@@ -61,13 +52,6 @@ it('refuses correction and recovery before publishing while an admitted non-Fix 
   const before = readSim(box)
   try {
     await expect(dispatchDefaultFix(api, ctx as never, '#7')).rejects.toThrow('fix-known-native-writer-active')
-    await expect(
-      dispatchAdmittedCiCorrection(api, ctx as never, {
-        reference: '#7',
-        attributionRecordId: 'fixture-attribution',
-        uw: { ownSpec: observed.accepted.value, children: [] },
-      }),
-    ).rejects.toThrow('fix-known-native-writer-active')
     await expect(recover(ctx)).rejects.toThrow('fix-known-native-writer-active')
     const after = readSim(box)
     expect(after.issues['42']?.comments).toEqual(before.issues['42']?.comments)

@@ -111,7 +111,7 @@ function decodeSynthesisSources(task: string, requireFindings = true): Synthesis
     throw new Error('synthesis-evidence-missing')
   return result
 }
-export function reviewDecision(task: string): Data {
+export function reviewDecision(task: string) {
   const { sourceContributionIds, sourceFindingIds, findingTargets, findingRefs, criterionVerdicts } =
     decodeSynthesisSources(task)
   if (new Set(findingTargets.map(canonicalValueDigest)).size !== 1) throw new Error('synthesis-finding-target-mismatch')

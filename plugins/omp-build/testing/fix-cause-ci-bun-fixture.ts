@@ -4,9 +4,8 @@ import { nativeComment, wire } from '../adapters/__tests__/github-workflow-suppo
 import * as contracts from '../dist/contracts.js'
 import { actionInputDigest } from '../engine/action-input.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
+import { readNativeCiFailureEvidence } from '../roxabi/feature-ci-evidence.ts'
 import { linkedIssueBinding } from '../roxabi/fix-checkpoint-binding.ts'
-import { admitAttributedCiCorrection } from '../roxabi/fix-ci-admission.ts'
-import { authorizeFixAction, readLiveCiEvidence } from '../roxabi/fix-ci-evidence.ts'
 import type { FixTarget } from '../roxabi/fix-contract.ts'
 import { decideFixAuthority } from '../roxabi/fix-mandate-authority.ts'
 import { readFreshUwCausalContext } from '../roxabi/fix-uw-histories.ts'
@@ -80,7 +79,7 @@ async function main(): Promise<void> {
         paths: git(box, box.principal, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha])
           .split('\n')
           .filter(Boolean),
-        config: git(box, box.principal, ['show', `${sha}:.dev/stack.yml`]) + '\n',
+        config: `${git(box, box.principal, ['show', `${sha}:.dev/stack.yml`])}\n`,
       }
     }
     const world = await installedMultiSisterFixture(1, {
@@ -120,15 +119,15 @@ async function main(): Promise<void> {
     const rawGithub = { cwd: box.principal, gh: world.gh, readAuthor: 'automation' }
     const github = withRoxabiGitHubPolicy(rawGithub)
     const reader = createInstalledUwReadPort(github)
-    const live = await readLiveCiEvidence({ cwd: box.principal, target, options: github }, head)
+    const live = await readNativeCiFailureEvidence(box.principal, current.repository, head, current, { gh: github.gh })
     assert.equal(live.ok, true, JSON.stringify(live))
     if (!live.ok) throw new Error('fixture native check read failed')
     const exactInputs = {
       candidateGitSHA: head,
       scope: current,
-      failedChecks: live.value.failedChecks,
-      evidenceDigest: live.value.evidenceDigest,
-      failures: live.value.failures,
+      failedChecks: live.failedChecks,
+      evidenceDigest: live.evidenceDigest,
+      failures: live.failures,
     }
     const captured = acceptedActionInputs(world.mandate, 'attribute-ci')
     const manifest = {
@@ -211,25 +210,6 @@ async function main(): Promise<void> {
     const read = binding.value.currentSpec.read
     assert.ok(read.histories.some((entry) => entry.source.scope.target === 'acme/app#44'))
     const input = { cwd: box.principal, target, branch: 'feat/42-save', base: 'main', options: github }
-    const result = await authorizeFixAction(
-      input,
-      history,
-      binding.value.history,
-      binding.value.externalHistories,
-      'fix-ci',
-      live.value,
-      read,
-    )
-    assert.deepEqual(
-      result,
-      { ok: true, value: ['unit'] },
-      JSON.stringify({
-        result,
-        acceptedStatus: read.accepted.status,
-        observationStatus: read.observation.status,
-        causalStatus: read.causalObservation.status,
-      }),
-    )
     const verifyIsolation = async () => {
       const otherScope = { repository: 'acme/app', target: 'acme/app#77' }
       const original = world.issues.get(42)
@@ -269,19 +249,6 @@ async function main(): Promise<void> {
       )
     }
     await verifyIsolation()
-    const correctionInput = {
-      ...input,
-      uw: reader,
-      readHistory: async () => history,
-      attributionRecordId: 'fixture-ci-result',
-      workflow: { nextReviewStep: async () => ({ action: 'fix' as const, reason: 'ci-failed' }) },
-    }
-    const admitted = await admitAttributedCiCorrection(correctionInput)
-    assert.ok(admitted.ok && admitted.value.status === 'attributed-correction', JSON.stringify(admitted))
-    assert.deepEqual(admitted.value.failedChecks, ['unit'])
-    world.setFailedCheck('integration')
-    const stale = await admitAttributedCiCorrection(correctionInput)
-    assert.ok(!stale.ok && stale.diagnostics.includes('ci-attribution-stale'), JSON.stringify(stale))
   } finally {
     rmSync(box.root, { recursive: true, force: true })
   }

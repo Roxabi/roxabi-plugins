@@ -1,14 +1,11 @@
 import { canonicalValueDigest, projectNativeUwChildren } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
-import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import { causalRefusal } from './causal-refusal.ts'
-import { checkoutTarget } from './feature-checkout-target.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
+import type { ContinueFeatureResult } from './feature-contract.ts'
 import { observeInitialCheckout } from './feature-initial-checkout.ts'
-import { freshOwnSpec } from './feature-initial-own-spec.ts'
+import { freshOwnSpec, type LeafOwnSpec } from './feature-initial-own-spec.ts'
 import { firstMandateParent, prepareInitialParentSession } from './feature-initial-parent.ts'
 import { initialCheckoutTarget } from './feature-initial-target.ts'
 import { publishFirstMandate } from './feature-mandate.ts'
@@ -17,7 +14,6 @@ import { prepareRequestedSession } from './feature-selection-session.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
-import { readCurrentFramingFacts } from './uw-current-facts.ts'
 import { type FeatureCheckoutTarget, runWorktreeBootstrap } from './workflow-checkout.ts'
 
 export async function establishFirstMandate(input: {
@@ -26,38 +22,27 @@ export async function establishFirstMandate(input: {
   reader: UwReadPort | undefined
   branch: string
   history: FeatureAuthority['history']
-  parentCoverage?: ParentCoverage | null
-  parentCoverageBasis?: ParentCoverageRequest
 }): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const { authority, uwRead, reader, branch, history } = input
   const { scope } = authority
   if (uwRead === null || reader === undefined) return { kind: 'blocked', reason: 'uw-read-required' }
-  const projected = checkoutTarget({
-    uw: scope,
-    children: projectNativeUwChildren({ uw: scope, graph: uwRead.graph, accepted: uwRead.accepted }),
-    branch,
-  })
-  if ('kind' in projected) return projected
+  const children = projectNativeUwChildren({ uw: scope, graph: uwRead.graph, accepted: uwRead.accepted })
+  if (!children.ok) return { kind: 'blocked', reason: 'uw-children-unconfirmed', diagnostics: children.diagnostics }
+  if (children.value.length > 0) return { kind: 'blocked', reason: 'parent-delivery-suspended' }
   const anchor = await resolveParentWorktreeAnchor({ subject: scope, read: uwRead })
   if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-  if (projected.target.kind === 'parent') projected.target.uw = anchor.anchor
   const root = uwRead.graph.nodes.find(
     (node) => node.uw.repository === scope.repository && node.uw.target === scope.target,
   )
   if (root === undefined) return { kind: 'blocked', reason: 'graph-root-missing' }
-  const own = await freshOwnSpec(scope, uwRead, reader, input.parentCoverage, input.parentCoverageBasis)
-  if ('kind' in own) return prepareCoverageRequest(authority, uwRead, root.parent, projected.target, own)
+  const own = await freshOwnSpec(scope, uwRead, reader)
+  if ('kind' in own) return own
   const parentAuthority = await firstMandateParent(authority, root.parent, own, uwRead)
   if ('kind' in parentAuthority) return parentAuthority
-  const parentSession = await prepareInitialParentSession(authority, root.parent, projected.target, anchor.anchor)
+  const parentSession = await prepareInitialParentSession(authority, root.parent, anchor.anchor)
   if (parentSession !== null) return parentSession
-  const target = await initialCheckoutTarget(
-    authority,
-    root.parent === null ? null : anchor.anchor,
-    projected.target,
-    branch,
-  )
-  if (target.kind !== 'parent' && target.kind !== 'branch') return target
+  const target = await initialCheckoutTarget(authority, root.parent === null ? null : anchor.anchor, branch)
+  if (target.kind !== 'branch') return target
   return prepareAndPublishInitial({
     authority,
     reader,
@@ -67,35 +52,7 @@ export async function establishFirstMandate(input: {
     target,
     history,
     anchor: anchor.anchor,
-    coverage: input.parentCoverage,
-    basis: input.parentCoverageBasis,
   })
-}
-
-async function prepareCoverageRequest(
-  authority: FeatureAuthority,
-  uwRead: UwRead,
-  rootParent: FeatureAuthority['scope'] | null,
-  target: FeatureCheckoutTarget,
-  own: ContinueFeatureResult,
-): Promise<ContinueFeatureResult> {
-  if (own.kind === 'blocked' && own.coverageRequest !== undefined && authority.onPrincipal) {
-    const facts = await readCurrentFramingFacts({ uw: authority.scope, read: uwRead })
-    if (!facts.ok) return { kind: 'blocked', reason: 'uw-current-facts-refused', diagnostics: facts.diagnostics }
-    const parent = await firstMandateParent(
-      authority,
-      rootParent,
-      {
-        tier: facts.value.currentSpec.tier,
-        ownSpec: { version: facts.value.currentSpec.snapshot.spec.version },
-      },
-      uwRead,
-    )
-    if ('kind' in parent) return parent
-    const move = await prepareRequestedSession(authority, target)
-    if ('kind' in move) return move
-  }
-  return own
 }
 
 async function prepareAndPublishInitial(input: {
@@ -103,12 +60,10 @@ async function prepareAndPublishInitial(input: {
   reader: UwReadPort
   rootParent: FeatureAuthority['scope'] | null
   parentAuthority: { parent: ExternalRecordRef | null; parentHistories: FeatureAuthority['parentHistories'] }
-  own: Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'>
+  own: LeafOwnSpec
   anchor: FeatureAuthority['scope']
-  target: FeatureCheckoutTarget
+  target: Extract<FeatureCheckoutTarget, { kind: 'branch' }>
   history: FeatureAuthority['history']
-  coverage?: ParentCoverage | null
-  basis?: ParentCoverageRequest
 }): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const { authority, reader, rootParent, parentAuthority, own, target, history } = input
   const { context, scope } = authority
@@ -119,16 +74,7 @@ async function prepareAndPublishInitial(input: {
   if ('kind' in before) return before
   const boot = await runWorktreeBootstrap(context.cwd)
   if (!boot.ok) return { kind: 'blocked', reason: boot.reason }
-  const currentParent = await confirmFirstMandateFraming(
-    authority,
-    reader,
-    rootParent,
-    parent,
-    own,
-    history,
-    input.coverage,
-    input.basis,
-  )
+  const currentParent = await confirmFirstMandateFraming(authority, reader, rootParent, parent, own, history)
   if ('kind' in currentParent) return currentParent
   if (canonicalValueDigest(currentParent.parentHistories) !== canonicalValueDigest(parentAuthority.parentHistories))
     return { kind: 'blocked', reason: 'first-mandate-parent-changed' }
@@ -164,10 +110,8 @@ async function confirmFirstMandateFraming(
   reader: UwReadPort,
   rootParent: FeatureAuthority['scope'] | null,
   parent: ExternalRecordRef | null,
-  own: Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'>,
+  own: LeafOwnSpec,
   history: FeatureAuthority['history'],
-  coverage?: ParentCoverage | null,
-  basis?: ParentCoverageRequest,
 ): Promise<
   { parent: ExternalRecordRef | null; parentHistories: FeatureAuthority['parentHistories'] } | ContinueFeatureResult
 > {
@@ -175,8 +119,7 @@ async function confirmFirstMandateFraming(
   const latest = await reader.readUw(scope)
   const children = projectNativeUwChildren({ uw: scope, graph: latest.graph, accepted: latest.accepted })
   if (!children.ok) return { kind: 'blocked', reason: 'uw-children-unconfirmed', diagnostics: children.diagnostics }
-  if (children.value.length > 0 !== own.children.length > 0)
-    return { kind: 'blocked', reason: 'first-mandate-framing-changed' }
+  if (children.value.length > 0) return { kind: 'blocked', reason: 'first-mandate-framing-changed' }
   const { context } = authority
   const historyRead = await context.engine.readComposedWorkflowHistory([scope], {
     ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }),
@@ -188,7 +131,7 @@ async function confirmFirstMandateFraming(
     canonicalValueDigest(historyRead.histories[0]) !== canonicalValueDigest(history)
   )
     return { kind: 'blocked', reason: 'first-mandate-history-changed' }
-  const current = await freshOwnSpec(scope, latest, reader, coverage, basis)
+  const current = await freshOwnSpec(scope, latest, reader)
   if ('kind' in current) return current
   const latestRoot = latest.graph.nodes.find(
     (node) => node.uw.repository === scope.repository && node.uw.target === scope.target,

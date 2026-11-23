@@ -13,15 +13,3 @@ export function buildShippedFeatureMandate(workflowFixtures: ReturnType<typeof r
     body: 'ship the bounded workflow',
   })
 }
-
-export function defaultDecisions() {
-  return {
-    reviewStep: null,
-    epicStep: null,
-    epicLand: null,
-    ciWatchStatus: null,
-    publish: { status: 'absent' as const, evidence: [] },
-    landing: { status: 'absent' as const, evidence: [] },
-    watch: { status: 'absent' as const, evidence: [] },
-  }
-}

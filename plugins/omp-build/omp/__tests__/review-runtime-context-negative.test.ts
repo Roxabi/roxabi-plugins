@@ -1,15 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { announceFeatureBatch } from '../../roxabi/feature-host-native.ts'
-import { startDispatch } from '../../roxabi/feature-start-executions.ts'
 import { fixturePreparedAction } from '../../testing/action-input-fixtures.ts'
-import {
-  cleanup as cleanupFeatureHost,
-  fixture as featureHost,
-  noDelivery,
-  start,
-} from '../../testing/feature-host-native-interruption-fixture.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import {
   type BridgeHarness,
@@ -27,7 +19,7 @@ const negative = {
   missing: [
     {
       locator: { kind: 'file-request', repository: 'acme/app', path: 'src/policy.ts', revisionHint: null },
-      reason: 'The policy is required to assess the plan',
+      reason: 'The policy is required to review the change',
       targets: [],
     },
   ],
@@ -35,7 +27,6 @@ const negative = {
 
 afterEach(() => {
   cleanupFixtureActions()
-  cleanupFeatureHost()
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
@@ -51,7 +42,7 @@ function preparedBatch(actionId: string): NativeBatch {
   directories.push(dirname(action.snapshot.indexPath))
   prepared.operationId = actionId
   const task = firstTask(prepared)
-  task.agent = 'R-workflow-plan'
+  task.agent = 'R-review-adversarial'
   task.action = fixtureAction(actionId, task.agent, action.inputs)
   return prepared
 }
@@ -68,7 +59,7 @@ function terminal(callId: string, childId: string) {
       {
         index: 0,
         id: childId,
-        agent: 'R-workflow-plan',
+        agent: 'R-review-adversarial',
         exitCode: 0,
         structuredOutput: { status: 'valid', data: negative },
       },
@@ -129,203 +120,18 @@ describe('native runtime missing-context settlement', () => {
     expect(result.children).toEqual(retained)
   })
 
-  it.each([false, true])(
-    'preserves Feature publication failure through the real negative settlement fence (session switch=%s)',
-    async (switchSession) => {
-      const harness = bridgeHarness()
-      const prepared = preparedBatch(`negative-failure-${switchSession}`)
-      const { host } = featureHost(harness)
-      let stops = 0
-      const activate = host.native.activate
-      host.native.activate = (batch, callbacks) =>
-        activate(batch, {
-          ...callbacks,
-          onStop: async (reason, result, stop) => {
-            stops++
-            await callbacks.onStop(reason, result, stop)
-          },
-        })
-      const ref = start(`negative-failure-start-${switchSession}`)
-      const entered = Promise.withResolvers<void>()
-      const release = Promise.withResolvers<void>()
-      const cause = new Error('original publisher cause')
-      const primary = new Error('missing-context publication failed', { cause })
-      const notification = new Error('notification failed')
-      const sent = vi.fn(async () => {
-        throw notification
-      })
-      host.send = sent
-      host.workflow.publishFeatureNativeResult = async (input) => {
-        expect(input.stop).toEqual({ kind: 'context-negative' })
-        expect(input.result.children[0]?.contextBlock?.missing).toEqual(negative.missing)
-        entered.resolve()
-        await release.promise
-        throw primary
-      }
-      await announceFeatureBatch('42', prepared, ref, host, noDelivery)
-      await admit(harness, prepared, 'negative-failure-call')
-      const childId = `negative-failure-${switchSession}`
-      await capture(harness, prepared, childId, childId, 'negative-failure-call')
-      const pending = harness.settleBatch(terminal('negative-failure-call', childId))
-      const observed = pending.then(
-        () => null,
-        (error: unknown) => error,
-      )
-      const fence = harness.controller.settlementFor(prepared).then(
-        () => null,
-        (error: unknown) => error,
-      )
-      await entered.promise
-      const switched = switchSession
-        ? harness.emitBridge('session_switch', {}, root).then(
-            () => null,
-            (error: unknown) => error,
-          )
-        : Promise.resolve(null)
-      release.resolve()
-      const error = await observed
-      expect(await fence).toBe(error)
-      await switched
-      if (switchSession) {
-        expect(error).toBe(primary)
-        expect(sent).not.toHaveBeenCalled()
-      } else {
-        expect(error).toBeInstanceOf(AggregateError)
-        const aggregate = error as AggregateError
-        expect(aggregate.errors).toEqual([primary, notification])
-        expect(aggregate.cause).toBe(primary)
-        expect(aggregate.message).toContain(primary.message)
-        expect(sent).toHaveBeenCalledTimes(1)
-      }
-      expect(primary.cause).toBe(cause)
-      expect(stops).toBe(1)
-      expect(startDispatch(ref)).toEqual({ kind: 'activated', operationId: prepared.operationId })
-    },
-  )
-
-  it.each([
-    ['unretained', 'fail'],
-    ['retained', 'fail'],
-    ['published', 'fail'],
-    ['unretained', 'send'],
-    ['retained', 'send'],
-    ['unretained', 'switch'],
-    ['retained', 'switch'],
-  ] as const)('preserves %s context-negative publication facts when notification is %s', async (kind, mode) => {
-    const harness = bridgeHarness()
-    const prepared = preparedBatch(`negative-refusal-${kind}-${mode}`)
-    const { host } = featureHost(harness)
-    const ref = start(`negative-refusal-start-${kind}-${mode}`)
-    const notification = new Error('notification unavailable')
-    const sent = vi.fn(async () => {
-      if (mode === 'fail') throw notification
-    })
-    host.send = sent
-    const entered = Promise.withResolvers<void>()
-    const release = Promise.withResolvers<void>()
-    host.workflow.publishFeatureNativeResult = async (input) => {
-      expect(input.stop).toEqual({ kind: 'context-negative' })
-      expect(input.result.children[0]?.contextBlock?.missing).toEqual(negative.missing)
-      entered.resolve()
-      await release.promise
-      return kind === 'published'
-        ? { published: true, retained: true }
-        : {
-            published: false,
-            retained: kind === 'retained',
-            reason: 'publication refused',
-            confirmedRemote: { branch: 'feature/42', tip: 'abc123' },
-          }
-    }
-    await announceFeatureBatch('42', prepared, ref, host, noDelivery)
-    await admit(harness, prepared, 'negative-refusal-call')
-    const childId = `negative-refusal-${kind}-${mode}`
-    await capture(harness, prepared, childId, childId, 'negative-refusal-call')
-    const pending = harness.settleBatch(terminal('negative-refusal-call', childId))
-    const observed = pending.then(
-      () => null,
-      (error: unknown) => error,
-    )
-    const fence = harness.controller.settlementFor(prepared).then(
-      () => null,
-      (error: unknown) => error,
-    )
-    await entered.promise
-    const switched =
-      mode === 'switch'
-        ? harness.emitBridge('session_switch', {}, root).then(
-            () => null,
-            (error: unknown) => error,
-          )
-        : Promise.resolve(null)
-    release.resolve()
-    const error = await observed
-    expect(await fence).toBe(error)
-    await switched
-    if (mode === 'fail') {
-      expect(error).toBeInstanceOf(AggregateError)
-      const aggregate = error as AggregateError
-      const primary = aggregate.errors[0]
-      expect(primary).toBeInstanceOf(Error)
-      expect(aggregate.errors[1]).toBe(notification)
-      expect(aggregate.cause).toBe(primary)
-      expect(aggregate.message).toContain(kind === 'published' ? 'action-context-unconfirmed' : 'publication refused')
-      if (kind !== 'published') {
-        expect(aggregate.message).toContain('feature/42')
-        expect(aggregate.message).toContain('abc123')
-      }
-      expect(sent).toHaveBeenCalledTimes(1)
-    } else {
-      expect(error).toBeNull()
-      if (mode === 'switch') expect(sent).not.toHaveBeenCalled()
-      else
-        expect(sent).toHaveBeenCalledWith(
-          'feature-stopped: publication refused · confirmed remote tip: feature/42 abc123',
-        )
-    }
-    expect(startDispatch(ref)).toEqual({ kind: 'activated', operationId: prepared.operationId })
-  })
-
-  it('delivers the retained missing-context receipt as a blocked result', async () => {
-    const harness = bridgeHarness()
-    const prepared = preparedBatch('negative-retained-receipt')
-    const { host, sent } = featureHost(harness)
-    const receipt = start('negative-retained-result')
-    const delivered: unknown[] = []
-    host.workflow.publishFeatureNativeResult = async () => ({
-      published: false,
-      retained: true,
-      reason: 'action-context-missing',
-      receipt,
-    })
-    await announceFeatureBatch('42', prepared, start('negative-receipt-start'), host, async (result) => {
-      delivered.push(result)
-    })
-    await admit(harness, prepared, 'negative-receipt-call')
-    await capture(harness, prepared, 'negative-retained-receipt', 'negative-retained-receipt', 'negative-receipt-call')
-    await harness.settleBatch(terminal('negative-receipt-call', 'negative-retained-receipt'))
-    expect(sent).toEqual([])
-    expect(delivered).toMatchObject([
-      {
-        kind: 'blocked',
-        reason: 'action-context-missing',
-        diagnostics: [{ detail: { receipt: { ...receipt, selector: '/payload' } } }],
-      },
-    ])
-  })
-
-  it('retains a valid plan-review negative alongside an invalid sibling without claiming a complete batch', async () => {
+  it('retains a valid panel negative alongside an invalid sibling without claiming a complete batch', async () => {
     const harness = bridgeHarness()
     const prepared = preparedBatch('review-first')
     const sibling = preparedBatch('review-second')
-    firstTask(prepared).agent = 'R-workflow-plan-architect'
+    firstTask(prepared).agent = 'R-review-spec'
     firstTask(prepared).action = fixtureAction(
       'review-first',
       firstTask(prepared).agent,
       firstTask(prepared).action.inputs,
     )
     const siblingTask = firstTask(sibling)
-    siblingTask.agent = 'R-workflow-plan-adversarial'
+    siblingTask.agent = 'R-review-adversarial'
     siblingTask.action = fixtureAction('review-second', siblingTask.agent, siblingTask.action.inputs)
     prepared.tasks.tasks.push(siblingTask)
     const retained: NativeChildResult[] = []
@@ -354,14 +160,14 @@ describe('native runtime missing-context settlement', () => {
         {
           index: 0,
           id: 'review-first-2',
-          agent: 'R-workflow-plan-architect',
+          agent: 'R-review-spec',
           exitCode: 0,
           structuredOutput: { status: 'valid', data: negative },
         },
         {
           index: 1,
           id: 'review-second-2',
-          agent: 'R-workflow-plan-adversarial',
+          agent: 'R-review-adversarial',
           exitCode: 0,
           structuredOutput: { status: 'invalid' },
         },
@@ -390,52 +196,42 @@ describe('native runtime missing-context settlement', () => {
     expect(onSettled).not.toHaveBeenCalled()
   })
 
-  it.each(['session-switch', 'inhibit-only'] as const)(
-    'keeps context publication scoped to onStop and handles %s while it is suspended',
-    async (interruption) => {
-      const harness = bridgeHarness()
-      const prepared = preparedBatch(`guard-${interruption}`)
-      const entered = Promise.withResolvers<NativeBatchResult>()
-      const release = Promise.withResolvers<void>()
-      const onComplete = vi.fn()
-      const onSettled = vi.fn()
-      const onStop = vi.fn(async (_reason: string, result: NativeBatchResult | null) => {
-        if (result === null) throw new Error('expected negative result')
-        entered.resolve(result)
-        await release.promise
-      })
-      harness.controller.activate(prepared, { onComplete, onSettled, onStop })
-      harness.controller.markFeatureBatch(prepared)
-      await admit(harness, prepared, 'guard-call')
-      const childId = `guard-${interruption}-2`
-      await capture(harness, prepared, `guard-${interruption}`, childId, 'guard-call')
-      const settlement = harness.settleBatch(terminal('guard-call', childId))
-      const result = await entered.promise
-      const child = result.children[0]
-      if (child === undefined) throw new Error('expected negative child')
-      expect(result.canPublishContext?.()).toBe(true)
-      expect(child.canPublishContext?.()).toBe(true)
+  it('revokes context publication when the session switches during onStop', async () => {
+    const harness = bridgeHarness()
+    const prepared = preparedBatch('guard-action')
+    const entered = Promise.withResolvers<NativeBatchResult>()
+    const release = Promise.withResolvers<void>()
+    const onComplete = vi.fn()
+    const onSettled = vi.fn()
+    const onStop = vi.fn(async (_reason: string, result: NativeBatchResult | null) => {
+      if (result === null) throw new Error('expected negative result')
+      entered.resolve(result)
+      await release.promise
+    })
+    harness.controller.activate(prepared, { onComplete, onSettled, onStop })
+    await admit(harness, prepared, 'guard-call')
+    await capture(harness, prepared, 'guard-action', 'guard-action-2', 'guard-call')
+    const settlement = harness.settleBatch(terminal('guard-call', 'guard-action-2'))
+    const result = await entered.promise
+    const child = result.children[0]
+    if (child === undefined) throw new Error('expected negative child')
+    expect(result.canPublishContext?.()).toBe(true)
+    expect(child.canPublishContext?.()).toBe(true)
 
-      let switched: Promise<unknown> | undefined
-      if (interruption === 'session-switch') {
-        switched = harness.emitBridge('session_switch', {}, root)
-        expect(result.canPublishContext?.()).toBe(false)
-        expect(child.canPublishContext?.()).toBe(false)
-      } else {
-        harness.controller.inhibitFeatureContinuation()
-        expect(result.canPublishContext?.()).toBe(true)
-        expect(child.canPublishContext?.()).toBe(true)
-      }
-      release.resolve()
-      await settlement
-      await switched
+    const switched = harness.emitBridge('session_switch', {}, root)
+    try {
       expect(result.canPublishContext?.()).toBe(false)
       expect(child.canPublishContext?.()).toBe(false)
-      expect(onStop).toHaveBeenCalledTimes(1)
-      expect(onComplete).not.toHaveBeenCalled()
-      expect(onSettled).not.toHaveBeenCalled()
-    },
-  )
+    } finally {
+      release.resolve()
+      await Promise.all([settlement, switched])
+    }
+    expect(result.canPublishContext?.()).toBe(false)
+    expect(child.canPublishContext?.()).toBe(false)
+    expect(onStop).toHaveBeenCalledTimes(1)
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(onSettled).not.toHaveBeenCalled()
+  })
 
   it('does not let a late old result advance a freshly admitted action', async () => {
     const harness = bridgeHarness()

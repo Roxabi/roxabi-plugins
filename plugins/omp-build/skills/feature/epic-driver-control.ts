@@ -1,16 +1,11 @@
-import { type DecodedHistory, githubScope, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
-import type { RecordInputRef } from '../../engine/action-input-schema.ts'
+import { type DecodedHistory, resolveAcceptedSpec, selectApplicableMandate } from '../../dist/contracts.js'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
 import { readFreshUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
-import { confirmedEpicMandate, evidenceText, localInhibit, readEpicAuthority } from './epic-driver-authority'
-import { discoverAcceptedChildPrs, discoverOwnPrs, readChildPrInventory } from './epic-driver-containment'
-import { gather } from './epic-driver-gather'
+import { confirmedEpicMandate, evidenceText, localInhibit } from './epic-driver-authority'
+import { discoverAcceptedChildPrs, discoverOwnPrs } from './epic-driver-containment'
 import { adapterOptions, issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
-import { type Disarm, disarm } from './epic-driver-publication'
 import { Assisted, Refused } from './epic-driver-runtime'
-import { nextStep } from './epic-next-step'
-import { type EpicStepName, epicStepName, type Step } from './epic-types'
 
 export type EpicControlState = 'active' | 'paused' | 'abandoned' | 'revoked'
 
@@ -23,14 +18,6 @@ export type EpicControlTarget = {
   base: string
   control: EpicControlState
   openPrs: { ticket: number; pr: number }[]
-}
-
-/** Disarm read-back. `control` is the observed state, not a pause confirmation. */
-export type EpicDisarmEvidence = {
-  control: EpicControlState
-  mandateId: string
-  disarmed: Record<number, Disarm>
-  failed: { pr: number; error: string }[]
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -122,81 +109,4 @@ export async function readEpicControlTarget(repo: string, epic: number): Promise
     control: target.control,
     openPrs,
   }
-}
-
-/**
- * Disarm open PRs of an authenticated intact normal mandate, active, paused,
- * abandoned, or revoked. A failed pause publication leaves the remote mandate
- * active; this call still disarms and never authorizes a next step.
- */
-export async function disarmEpicControlTarget(repo: string, epic: number): Promise<EpicDisarmEvidence> {
-  const target = await readEpicControlTarget(repo, epic)
-  const disarmed: Record<number, Disarm> = {}
-  const failed: { pr: number; error: string }[] = []
-  for (const { pr } of target.openPrs) {
-    try {
-      disarmed[pr] = await disarm(repo, pr)
-    } catch (error) {
-      failed.push({ pr, error: error instanceof Error ? error.message : String(error) })
-    }
-  }
-  return { control: target.control, mandateId: target.mandateId, disarmed, failed }
-}
-
-export type EpicRangeReviewRequest = {
-  repository: string
-  target: string
-  runId: string
-  range: string
-  candidateGitSHA: string
-  integration: RecordInputRef
-}
-
-/** Confirmed final-review context for the native range review. Does not dispatch it. */
-export async function epicFinalReviewRequest(repo: string, epic: number): Promise<EpicRangeReviewRequest> {
-  const authority = await readEpicAuthority(repo, epic)
-  const { facts, parentAdmission } = await gather(repo, epic, authority.run, authority.base)
-  if (!parentAdmission.deliverable.ok)
-    throw new Refused(
-      `epic #${epic} native delivery admission refused: ${evidenceText(parentAdmission.deliverable.diagnostics)}`,
-    )
-  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
-  const step = nextStep(facts)
-  if (step.action !== 'final-review' || step.stage !== 'review' || !step.range) {
-    throw new Refused(`the driver expects no final review (next: ${step.action})`)
-  }
-  const candidateGitSHA = step.range.split('..')[1] ?? ''
-  if (!/^[0-9a-f]{40}$/.test(candidateGitSHA))
-    throw new Refused(`final review range ${step.range} has no candidate sha`)
-  if (!facts.parentIntegration.ok || facts.parentIntegration.value === null)
-    throw new Refused('current Parent integration is unavailable')
-  return {
-    repository: authority.repository,
-    target: githubScope(authority.repository, epic).target,
-    runId: authority.run,
-    range: step.range,
-    candidateGitSHA,
-    integration: facts.parentIntegration.value.source,
-  }
-}
-
-export type EpicStepRead = {
-  run: string
-  base: string
-  step: Step
-  name: EpicStepName | null
-  land: null
-}
-
-/**
- * One `nextStep` read for traversal. Git status and refs are read, not moved.
- * No fetch, switch, disarm, stop publication, or hook. A `stop` is returned,
- * not recorded. Landing is `landOutcome`, not this read, so `land` is null.
- */
-export async function readEpicStep(repo: string, epic: number): Promise<EpicStepRead> {
-  const authority = await readEpicAuthority(repo, epic)
-  const { facts } = await gather(repo, epic, authority.run, authority.base)
-  for (const child of facts.children) child.prs = await readChildPrInventory(repo, authority, child)
-  const step = nextStep(facts)
-  return { run: authority.run, base: authority.base, step, name: epicStepName(step), land: null }
 }

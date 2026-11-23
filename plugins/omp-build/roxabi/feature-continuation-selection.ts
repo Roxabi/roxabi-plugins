@@ -1,4 +1,4 @@
-import { effectiveMandateRole } from '../dist/contracts.js'
+import { effectiveMandateRole, projectNativeUwChildrenAgainstCommitments } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
@@ -8,14 +8,13 @@ import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate } from './feature-initial-mandate.ts'
-import { resolveParentWorktreeAnchor } from './feature-parent-anchor.ts'
 import { prepareRequestedSession, prepareSuccessorCheckout } from './feature-selection-session.ts'
 import { specEntrySelection } from './feature-selection-spec-entry.ts'
 import { createSuccessorSelection } from './feature-selection-successor.ts'
 import { composeObservedUwCausalContext } from './fix-uw-histories.ts'
 import type { UwOperations, UwRead, UwReadPort } from './uw-contract.ts'
 import { readSelectionIssueSpec, type SelectionIssueSpec } from './uw-spec'
-import { runWorktreeBootstrap, verifyParentCheckout } from './workflow-checkout.ts'
+import { runWorktreeBootstrap } from './workflow-checkout.ts'
 
 export type SelectedFeature = {
   authority: FeatureAuthority
@@ -26,11 +25,24 @@ export type SelectedFeature = {
   mandate: MandateRecord | null
   acceptedSpec: AcceptedOwnSpec | null
   mandateRef: ScopedRecordRef | null
-  /** This call published the first or successor Mandate, consuming supplied coverage intent. */
-  mandatePublished: boolean
 }
 
 type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'>
+
+function parentDeliveryStop(authority: FeatureAuthority, read: UwRead | null): ContinueFeatureResult | null {
+  const { selection, scope } = authority
+  if (selection.status === 'applicable') {
+    const { role, children } = selection.mandate.payload
+    if (role === 'epic' || children.length > 0) return { kind: 'blocked', reason: 'parent-delivery-suspended' }
+  }
+  if (read === null) return null
+  if (read.accepted.status === 'accepted' && read.accepted.value.children.length > 0)
+    return { kind: 'blocked', reason: 'parent-delivery-suspended' }
+  // Only use the native graph to identify a parent. The existing entry and succession checks
+  // own refusals when the graph or the accepted Spec cannot be read.
+  const children = projectNativeUwChildrenAgainstCommitments({ uw: scope, graph: read.graph, commitments: null })
+  return children.ok && children.value.length > 0 ? { kind: 'blocked', reason: 'parent-delivery-suspended' } : null
+}
 
 export async function selectFeatureMandate(
   control: FeatureControl,
@@ -38,8 +50,7 @@ export async function selectFeatureMandate(
   authority: FeatureAuthority,
   uw?: UwOperations,
   reader: UwReadPort | undefined = uw,
-  parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
-  parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
+  owned?: () => boolean,
 ): Promise<SelectedFeature | ContinueFeatureResult> {
   const { context, identity, scope } = authority
   const number = scopeNumber(scope)
@@ -51,28 +62,25 @@ export async function selectFeatureMandate(
     authority.target.status === 'pull-request'
       ? authority.target.pullRequest.branch
       : branchFor({ number, title: issue.title, labels: issue.labels })
-  const entry = specEntrySelection(control, authority, uwRead)
+  const entry =
+    uwRead?.admission.aggregate.status === 'held'
+      ? specEntrySelection(control, authority, uwRead)
+      : (parentDeliveryStop(authority, uwRead) ?? specEntrySelection(control, authority, uwRead))
   if (entry !== null) return entry
+  if (owned?.() === false) return { kind: 'blocked', reason: 'continuation-owner-revoked' }
   const sessionCwd = identity.ok ? identity.sessionTop : null
-  const updated = await updateMandateSelection(
-    control,
-    authority,
-    uwRead,
-    reader,
-    branch,
-    parentCoverage,
-    parentCoverageBasis,
-  )
+  const updated = await updateMandateSelection(control, authority, uwRead, reader, branch)
   if ('kind' in updated) return updated
   const selected = await finishSelection(authority, updated, exactMandateRef, issue, number, uwRead, reader)
   if ('kind' in selected) return selected
-  const prepared = await prepareSelectionSession(control, selected, branch, sessionCwd, updated.state)
+  if (owned?.() === false) return { kind: 'blocked', reason: 'continuation-owner-revoked' }
+  const prepared = await prepareSelectionSession(control, selected, branch, sessionCwd, updated)
   return prepared ?? selected
 }
 
 async function finishSelection(
   authority: FeatureAuthority,
-  { state: updated, mandatePublished }: { state: SelectionState; mandatePublished: boolean },
+  updated: SelectionState,
   exactMandateRef: ScopedRecordRef | undefined,
   issue: SelectionIssueSpec,
   number: number,
@@ -107,7 +115,6 @@ async function finishSelection(
     mandate,
     acceptedSpec: own.ok ? own.value.accepted : null,
     mandateRef,
-    mandatePublished,
   }
 }
 
@@ -128,45 +135,23 @@ async function updateMandateSelection(
   uwRead: UwRead | null,
   reader: UwReadPort | undefined,
   branch: string,
-  parentCoverage?: import('../engine/workflow-mandate-schema.ts').ParentCoverage | null,
-  parentCoverageBasis?: import('./feature-contract.ts').ParentCoverageRequest,
-): Promise<{ state: SelectionState; mandatePublished: boolean } | ContinueFeatureResult> {
-  const state: SelectionState = authority
+): Promise<SelectionState | ContinueFeatureResult> {
+  const { selection, history, parentHistories } = authority
   if (
     control === 'new' &&
-    state.selection.status === 'refused' &&
-    (state.selection.reason === 'abandoned' || state.selection.reason === 'revoked')
+    selection.status === 'refused' &&
+    (selection.reason === 'abandoned' || selection.reason === 'revoked')
   ) {
-    const successor = await createSuccessorSelection({
-      authority,
-      uwRead,
-      reader,
-      branch,
-      parentCoverage,
-      parentCoverageBasis,
-      ...state,
-    })
-    if ('kind' in successor) return successor
-    return { state: successor, mandatePublished: true }
+    return createSuccessorSelection({ authority, uwRead, reader, branch, history, parentHistories })
   }
   if (
-    state.selection.status === 'refused' &&
-    state.selection.reason === 'missing' &&
+    selection.status === 'refused' &&
+    selection.reason === 'missing' &&
     (control === 'select' || control === 'continue')
   ) {
-    const established = await establishFirstMandate({
-      authority,
-      uwRead,
-      reader,
-      branch,
-      history: state.history,
-      parentCoverage,
-      parentCoverageBasis,
-    })
-    if ('kind' in established) return established
-    return { state: { ...state, ...established }, mandatePublished: true }
+    return establishFirstMandate({ authority, uwRead, reader, branch, history })
   }
-  return { state, mandatePublished: false }
+  return authority
 }
 
 async function prepareSelectionSession(
@@ -206,30 +191,11 @@ function selectedBranchTarget(authority: FeatureAuthority, mandate: MandateRecor
 }
 
 async function verifySelectedCheckout(selected: SelectedFeature): Promise<ContinueFeatureResult | null> {
-  const { authority, mandate, acceptedSpec, uwRead } = selected
+  const { authority, mandate, acceptedSpec } = selected
   if (authority.selection.status !== 'applicable' || mandate === null || acceptedSpec === null) return null
   const role = effectiveMandateRole(mandate.payload.role, acceptedSpec)
-  if (role === 'epic') return verifyEpicCheckout(authority, uwRead)
+  if (role === 'epic') return { kind: 'blocked', reason: 'parent-delivery-suspended' }
   if (role !== 'feature') return null
   if (mandate.payload.branch === null) return { kind: 'blocked', reason: 'mandate-checkout-unreadable' }
   return prepareSuccessorCheckout(authority, { kind: 'branch', branch: mandate.payload.branch, attachExisting: true })
-}
-
-async function verifyEpicCheckout(
-  authority: FeatureAuthority,
-  uwRead: UwRead | null,
-): Promise<ContinueFeatureResult | null> {
-  if (uwRead === null) return { kind: 'blocked', reason: 'uw-read-required' }
-  const anchor = await resolveParentWorktreeAnchor({ subject: authority.scope, read: uwRead })
-  if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-  if (authority.onPrincipal) {
-    const prepared = await prepareRequestedSession(authority, { kind: 'parent', uw: anchor.anchor })
-    return 'kind' in prepared ? prepared : { kind: 'blocked', reason: 'session-not-intended-worktree' }
-  }
-  const checked = await verifyParentCheckout({
-    git: authority.context.git,
-    cwd: authority.context.cwd,
-    uw: anchor.anchor,
-  })
-  return checked.ok ? null : { kind: 'blocked', reason: checked.reason }
 }

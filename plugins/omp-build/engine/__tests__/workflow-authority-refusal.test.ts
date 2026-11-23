@@ -3,12 +3,11 @@ import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.t
 import { parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import { landingFixtures, nativeBody, nativeSnapshot } from './workflow-authority-native-fixture.ts'
-import { binding, facts, history, mandate, must, SCOPE } from './workflow-test-support.ts'
+import { binding, history, mandate, must, SCOPE } from './workflow-test-support.ts'
 
 describe('workflow authority refusal behavior', () => {
-  test('refuses a fix-only mandate at landing and does not treat pause as stop', async () => {
+  test('refuses a fix-only mandate at landing', async () => {
     const base = mandate()
     const record = must(
       parseRecord({
@@ -76,79 +75,5 @@ describe('workflow authority refusal behavior', () => {
       },
     })
     expect(landing).toMatchObject({ ok: false, reason: 'fix-only' })
-    const requested = must(
-      parseRecord({
-        version: 1,
-        repository: SCOPE.repository,
-        target: SCOPE.target,
-        recordId: 'pause-requested',
-        runId: 'run-1',
-        operationId: 'op-pause-requested',
-        kind: 'operator-control',
-        inputs: [record.recordId],
-        payload: {
-          control: 'pause-requested',
-          controlId: 'control-1',
-          predecessor: null,
-          mandate: { scope: SCOPE, recordId: record.recordId, kind: 'mandate' },
-        },
-      }),
-    )
-    const confirmed = must(
-      parseRecord({
-        version: 1,
-        repository: SCOPE.repository,
-        target: SCOPE.target,
-        recordId: 'pause-confirmed',
-        runId: 'run-1',
-        operationId: 'op-pause-confirmed',
-        kind: 'operator-control',
-        inputs: [record.recordId, requested.recordId],
-        payload: {
-          control: 'pause-confirmed',
-          controlId: 'control-1',
-          predecessor: { scope: SCOPE, recordId: requested.recordId, kind: 'operator-control' },
-          disarm: { observed: true, evidence: { source: 'host' } },
-          mandate: { scope: SCOPE, recordId: record.recordId, kind: 'mandate' },
-        },
-      }),
-    )
-    const paused = history([record, requested, confirmed])
-    const pausedCausal = await observeFixtureNativeWorld({
-      root: SCOPE,
-      nodes: [
-        {
-          scope: SCOPE,
-          title: 'Bounded workflow',
-          body: nativeBody,
-          updatedAt: '2026-10-21T00:00:00Z',
-          labels: ['size:S'],
-          parent: null,
-          children: [],
-          blockers: [],
-          state: 'OPEN',
-          stateReason: null,
-        },
-      ],
-      histories: [paused],
-      pullRequests: [],
-      commits: [],
-      comparisons: [],
-    })
-    const decision = reconstructWorkflow({
-      evidence: { issue: paused, pullRequest: null, parents: [], causal: pausedCausal },
-      facts: facts(),
-      decisions: {
-        reviewStep: 'stop',
-        epicStep: null,
-        epicLand: null,
-        ciWatchStatus: null,
-        publish: { status: 'absent', evidence: [] },
-        landing: { status: 'absent', evidence: [] },
-        watch: { status: 'absent', evidence: [] },
-      },
-    })
-    expect(decision.status).toBe('paused')
-    expect(decision).not.toMatchObject({ status: 'terminal', reason: 'bound-stop' })
   })
 })

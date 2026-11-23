@@ -46,15 +46,6 @@ export class ReviewProduct {
     await this.#dispatch(context, prepared, null)
   }
 
-  async prepareEpicRangeReview(context: ReviewContext, prepared: PreparedReviewBatch): Promise<void> {
-    if (context.subject.kind !== 'epic-range') throw new Error('epic range review requires an epic-range subject')
-    if (!/^[0-9a-f]{40}\.[.][0-9a-f]{40}$/.test(context.subject.range))
-      throw new Error('epic range must be an exact commit range')
-    if (!context.subject.range.endsWith(context.candidateGitSHA))
-      throw new Error('epic candidate must be the range tail')
-    await this.#dispatch(context, prepared, null)
-  }
-
   async #admitInventory(
     context: ReviewContext,
     prepared: PreparedReviewBatch,

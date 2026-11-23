@@ -6,13 +6,34 @@ import { AuthStorage, SqliteAuthCredentialStore } from '@oh-my-pi/pi-coding-agen
 import { SessionManager } from '@oh-my-pi/pi-coding-agent/session/session-manager'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { operatorDialogUi } from '../testing/operator-dialog-ui.ts'
-import { loadFeatureWorkflow } from './feature-loader.ts'
+import { resolveFeatureAuthority } from './feature-continuation-admission.ts'
+import { applyFeatureControl } from './feature-continuation-controls.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
 
 const cwd = process.argv[2]
 const artifacts = process.argv[3]
-if (!cwd || !artifacts) throw new Error('Missing fixture paths')
-const root = process.argv[4] === 'root'
+const mode = process.argv[4]
+if (mode === 'pause' || mode === 'abandon') {
+  const operations = await createInstalledUwOperations({
+    cwd,
+    operator: {
+      async executeConfirmed() {
+        throw new Error('unexpected-uw-write')
+      },
+    },
+  })
+  const authority = await resolveFeatureAuthority({
+    cwd,
+    reference: '#42',
+    control: mode,
+    principal: false,
+    uw: operations,
+  })
+  const result = 'kind' in authority ? authority : await applyFeatureControl(mode, authority, operations)
+  console.log(JSON.stringify(result))
+  process.exit(0)
+}
+const root = mode === 'root'
 const target = root
   ? { repository: 'acme/app', target: 'acme/app#42' }
   : { repository: 'acme/app', target: 'acme/app#43' }
@@ -66,14 +87,15 @@ runner.initialize(
 const operator = createOperatorConfirmation(runner.createContext())
 const operations = await createInstalledUwOperations({ cwd, operator })
 if (root) {
-  const workflow = await loadFeatureWorkflow()
-  const result = await workflow.continueFeature({
+  const authority = await resolveFeatureAuthority({
     cwd,
     reference: '#42',
     control: 'abandon',
     principal: false,
     uw: operations,
   })
+  if ('kind' in authority) throw new Error(`Root authority refused: ${JSON.stringify(authority)}`)
+  const result = await applyFeatureControl('abandon', authority, operations)
   const read = await operations.readUw(target)
   if (read.observation.status !== 'complete')
     throw new Error(

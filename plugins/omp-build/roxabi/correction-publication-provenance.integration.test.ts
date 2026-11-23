@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { githubScope } from '../adapters/github/transport.ts'
 import { validateProspectiveRecord, validateRecordGraph } from '../engine/history-graph.ts'
-import { appendApprovedReview, pullHistory, setFailedCi } from '../testing/feature-ci-review-fixture.ts'
+import { pullHistory } from '../testing/feature-ci-review-fixture.ts'
 import { arrangeReviewFixture, seedReviewFixture } from '../testing/feature-review-fixture.ts'
 import { isolatedPinSandbox } from '../testing/isolated-pin-sandbox.ts'
 import { readSim, writeSim } from '../testing/sandbox/sandbox-repository.ts'
@@ -30,9 +30,6 @@ it('refuses a changed synthesis input at the real publication boundary before wr
   writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
   box.env = { ...pin.env, PIN_CONTROL_FILE: control }
   await seedReviewFixture(box, cwd)
-  appendApprovedReview(box, cwd)
-  setFailedCi(box)
-  writeFileSync(control, '{}')
   const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
   const run = spawnSync(
     bun,
@@ -104,15 +101,6 @@ it('refuses a changed synthesis input at the real publication boundary before wr
     },
   })
   expect((await prepareUwAction(request, ports, undefined, undefined, correctionRoot)).ok).toBe(true)
-  const withoutEvidence = {
-    ...request,
-    stageSources: request.stageSources.filter((ref) => ref.record.kind === 'contribution'),
-  }
-  const missing = await prepareUwAction(withoutEvidence, ports, undefined, undefined, correctionRoot)
-  expect(missing).toMatchObject({
-    ok: false,
-    diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'self-output' })]),
-  })
   expect(readSim(box).prs['7']?.comments).toEqual(before)
   expect(validateRecordGraph(pullHistory(box)).ok).toBe(true)
   const bytes = execFileSync('git', ['show', `${inputs.manifest.code.head}:README.md`], { cwd, env: box.env })
@@ -186,9 +174,6 @@ it('rejects a complete older root and an incomplete findings set before publicat
   writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
   box.env = { ...pin.env, PIN_CONTROL_FILE: control }
   await seedReviewFixture(box, cwd)
-  appendApprovedReview(box, cwd)
-  setFailedCi(box)
-  writeFileSync(control, '{}')
   const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
   const run = spawnSync(
     bun,

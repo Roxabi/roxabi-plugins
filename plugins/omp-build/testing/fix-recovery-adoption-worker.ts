@@ -49,7 +49,7 @@ console.error = (...args: unknown[]) => {
   originalConsoleError(...args)
 }
 const used = new Set<string>()
-let phase: 'idle' | 'recover' | 'execute' = 'idle'
+let phase: 'idle' | 'recover' | 'execute' | 'review' = 'idle'
 let recoveryCalled = false
 let confirmations = 0
 const root = await createRecoveryTestRoot({
@@ -60,6 +60,9 @@ const root = await createRecoveryTestRoot({
   ghSimulatorState: stateFile,
   credential: process.env.RECOVERY_TEST_CREDENTIAL ?? '',
   responses: [],
+  ...(mode === 'old'
+    ? { additionalExtensionPaths: [join(import.meta.dirname, 'fix-recovery-historical-handoff.ts')] }
+    : {}),
   agentModelOverrides: Object.fromEntries(
     [
       'fix-apply',
@@ -96,6 +99,14 @@ const root = await createRecoveryTestRoot({
         ],
       }
     }
+    if (phase === 'review') {
+      phase = 'execute'
+      return {
+        content: [
+          { type: 'toolCall', id: 'adoption-final-review', name: 'omp_build_start_review', arguments: { pr: 7 } },
+        ],
+      }
+    }
     if (phase === 'execute') {
       const batchId = nextAdoptionBatch(context.messages, used)
       if (batchId) {
@@ -126,7 +137,9 @@ try {
     const marker = process.env.FIX_RECOVERY_FAULT_MARKER
     const release = process.env.FIX_RECOVERY_FAULT_RELEASE
     if (!marker || !release) throw new Error('adoption-fault-config-missing')
-    const command = root.session.prompt('/feature #42')
+    const reviewId = process.env.RECOVERY_PRELUDE_REVIEW_ID
+    if (!reviewId) throw new Error('adoption-historical-review-missing')
+    const command = root.session.prompt(`/fixture-historical-review-fix ${reviewId}`)
     try {
       await until(() => (existsSync(marker) ? true : undefined), 'request-cut')
     } catch (error) {
@@ -243,7 +256,8 @@ try {
             const released = await releaseDestinationAdmissionLease(lease.lease)
             if (released.status !== 'released') throw new Error(report('adoption-probe-lease-release-failed'))
             await root.session.waitForIdle()
-            await root.session.prompt('/feature #42')
+            phase = 'review'
+            await root.session.prompt('Start a native review for the corrected head of pull request 7.')
             finalReviewRequested = true
           } else if (lease.status !== 'occupied') {
             throw new Error(report(`adoption-lease-observation:${JSON.stringify(lease)}`))

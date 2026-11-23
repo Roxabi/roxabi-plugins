@@ -22,7 +22,7 @@ import { arrangeRecallReviewFixture } from '../../testing/feature-review-recall-
 import { git, readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../../testing/sandbox/sandbox-types.ts'
 
-const RUNNER = path.resolve(import.meta.dirname, '../../testing/feature-recovery-runner.ts')
+const RUNNER = path.resolve(import.meta.dirname, 'native-review-integration-runner.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 const roots = new Set<string>()
 
@@ -37,20 +37,8 @@ function arrange() {
   return fixture
 }
 
-async function invoke(
-  task: TestContext['task'],
-  box: Box,
-  cwd: string,
-  control: 'continue' | 'pause' | 'resume',
-  operation = 'omp-review-lifecycle',
-) {
-  const run = await boundedLifecycleChild(
-    task,
-    BUN,
-    [RUNNER, operation, cwd, JSON.stringify({ control })],
-    cwd,
-    box.env,
-  )
+async function invoke(task: TestContext['task'], box: Box, cwd: string, operation = 'review-fix') {
+  const run = await boundedLifecycleChild(task, BUN, [RUNNER, operation, cwd], cwd, box.env)
   if (run.status !== 0) throw new Error(`${operation} failed: ${run.stderr}\n${run.stdout}`)
   return JSON.parse(run.stdout) as {
     messages: string[]
@@ -334,12 +322,12 @@ function assertCorrectionReceipt(
   }
 }
 
-describe('installed /feature review lifecycle through actual Bun and external boundaries', () => {
-  it('continues to review-bound fix after an actually published recall inventory', async ({ task }) => {
+describe('standalone review and fix through actual Bun and external boundaries', () => {
+  it('keeps the published recall inventory on the review when standalone /fix starts', async ({ task }) => {
     const { box, cwd } = arrangeRecallReviewFixture()
     roots.add(box.root)
     await seedReviewFixture(box, cwd)
-    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-recall-fix')
+    const observed = await invoke(task, box, cwd, 'recall-fix')
     expect(observed.published).toBe(true)
     expect(observed.reviewReferencesRecall).toBe(true)
     expect(observed.fixActive, JSON.stringify({ messages: observed.messages, diagnostics: observed.diagnostics })).toBe(
@@ -349,7 +337,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
   it('authorizes the confirmed replacement root with genuine review-input validation', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-replacement-real')
+    const observed = await invoke(task, box, cwd, 'replacement')
     expect(observed.exact?.ok).toBe(true)
     expect(observed.replacementId).not.toBe(observed.interruptedId)
     expect(observed.wrongActive).toBeNull()
@@ -358,10 +346,10 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     expect(observed.messages.some((message) => message.includes('OMP_BUILD_NATIVE_BATCH:'))).toBe(true)
   })
 
-  it('keeps the activated fix after the preceding review terminal', async ({ task }) => {
+  it('starts an independent correction after a completed review', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = await invoke(task, box, cwd, 'continue')
+    const observed = await invoke(task, box, cwd)
     const records = reviewHistory(box).operations.flatMap((operation) => (operation.record ? [operation.record] : []))
     const decision = records.find((record) => record.kind === 'decision')
     const review = records.find((record) => record.kind === 'review')
@@ -369,13 +357,13 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     const request = records.find((record) => record.kind === 'fix-request')
     expect(
       request,
-      `review-bound request observations: ${JSON.stringify({
+      `standalone request observations: ${JSON.stringify({
         active: observed.active,
         fixRun: observed.fixRun,
         messages: observed.messages,
       })}`,
     ).toMatchObject({ target: 'acme/app#7' })
-    expect(request?.payload).toMatchObject({ existingReviewId: review?.recordId, landing: false })
+    expect(request?.payload).toMatchObject({ existingReviewId: null, landing: false })
     expect(issueRecords.filter((record) => record.kind === 'mandate').map((record) => record.recordId)).toEqual([
       'mandate-feature-1',
     ])
@@ -402,7 +390,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     expect([...finalFindingIds].sort()).toEqual([...panelFindingIds].sort())
     expect(
       observed.fixRun,
-      `review-to-fix activation observations: ${JSON.stringify({
+      `standalone fix activation observations: ${JSON.stringify({
         active: observed.active,
         fixRun: observed.fixRun,
         messages: observed.messages,
@@ -418,7 +406,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
   it('pushes the owned correction only after native falsification', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-apply-falsify')
+    const observed = await invoke(task, box, cwd, 'apply-falsify')
     const state = readSim(box)
     const review = reviewHistory(box, state)
     const issue = issueDecodedHistory(box, state)
@@ -468,7 +456,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
     const before = readSim(box)
-    const observed = await invoke(task, box, cwd, 'continue', 'omp-review-mixed-dispositions')
+    const observed = await invoke(task, box, cwd, 'mixed-dispositions')
     const state = readSim(box)
     const review = reviewHistory(box, state)
     const issue = issueDecodedHistory(box, state)
@@ -535,7 +523,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
   it('persists confirmed local pause for a fresh review without another dispatch', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = await invoke(task, box, cwd, 'pause')
+    const observed = await invoke(task, box, cwd, 'fresh-pause')
     expect(observed.active).toBeNull()
     expect(announcedBatchIds(observed.messages)).toHaveLength(1)
     assertPauseConfirmed(box, observed.messages)
@@ -544,7 +532,7 @@ describe('installed /feature review lifecycle through actual Bun and external bo
   it('fences continuation when final review publication is actually pending', async ({ task }) => {
     const { box, cwd } = arrange()
     await seedReviewFixture(box, cwd)
-    const observed = await invoke(task, box, cwd, 'resume')
+    const observed = await invoke(task, box, cwd, 'publication-pause')
     expect(observed.barrier).toBe(true)
     expect(observed.beforeRelease).toBe(2)
     expect(observed.publicationErrors).toEqual([

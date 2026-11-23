@@ -84,28 +84,6 @@ function normalizeReference(token: string | undefined): string | null {
   return stripped
 }
 
-export type InstalledWatchCommand = {
-  args: string[]
-  pr: number
-}
-
-/** The coordinator's existing `landPr` command, not a reconstructed watcher. */
-export function parseInstalledWatchCommand(command: string): InstalledWatchCommand | null {
-  const tokens = shellTokens(command)
-  if (tokens === null || tokens[0] !== 'bash' || tokens.length < 7) return null
-  const script = tokens[1]
-  const prText = tokens[2]
-  if (script === undefined || !script.startsWith('/') || !script.endsWith('/ci-watch.sh')) return null
-  if (prText === undefined || !/^[1-9]\d*$/.test(prText)) return null
-  if (tokens[3] !== '--merge-mode' || tokens[4] === undefined || tokens[4].length === 0) return null
-  if (tokens[5] !== '--base' || tokens[6] === undefined || tokens[6].length === 0) return null
-  if (tokens.length === 7) return { args: tokens.slice(1), pr: Number(prText) }
-  if (tokens.length === 9 && tokens[7] === '--since' && tokens[8] !== undefined && tokens[8].length > 0) {
-    return { args: tokens.slice(1), pr: Number(prText) }
-  }
-  return null
-}
-
 type ShellToken = { value: string; end: number }
 
 function unquotedToken(input: string, start: number): ShellToken | null {

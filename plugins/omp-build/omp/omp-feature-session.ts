@@ -1,32 +1,25 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { hasNativeUserInterruptFlag } from '../dist/contracts.js'
-import type { FeatureSessionReason, FeatureWorkflow } from '../roxabi/feature-contract.ts'
-import { pauseOwnedFeatureOnSessionEnd } from '../roxabi/feature-host-lifetime.ts'
-import { abortOwnedFeatureWatch, ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
-import { loadFeatureWorkflow } from '../roxabi/feature-loader.ts'
-import { INSTALL_ROOT, installRootStatus, replacedInstallRootMessage } from './install-root'
 import {
   type FixHost,
   hasOwnedFixRun,
   interruptExactOwnedFixRun,
   interruptOwnedFixRun,
   ownedFixRunFor,
-  reportFeatureTerminalStatus,
   reviewControllerFor,
 } from './omp-controller'
 import { joinFeatureInterruption } from './omp-feature-interruption-join.ts'
 import type { NativeExtension } from './review-runtime/contracts.ts'
 import { type JoinedNativeStop, throwJoinedStopFailures } from './review-runtime/controller-stop.ts'
 
-export type FeatureSessionOptions = { featureWorkflow?: FeatureWorkflow; installRoot?: string }
-
 export function rootContext(ctx: ExtensionContext): boolean {
   return ctx.agent.kind === 'main' && ctx.agent.depth === 0
 }
 
-export function featureWorkInterrupter(pi: NativeExtension): (reason: string) => Promise<JoinedNativeStop> {
+export type FeatureWorkInterrupter = (reason: string) => Promise<JoinedNativeStop>
+
+export function featureWorkInterrupter(pi: NativeExtension): FeatureWorkInterrupter {
   return async (reason: string): Promise<JoinedNativeStop> => {
-    abortOwnedFeatureWatch(pi)
     const controller = reviewControllerFor(pi)
     controller.inhibitFeatureContinuation()
     const owned = ownedFixRunFor(pi)
@@ -40,58 +33,19 @@ export function featureWorkInterrupter(pi: NativeExtension): (reason: string) =>
     )
   }
 }
-async function loadFeatureWorkflowForSessionEnd(
-  pi: FixHost,
-  options: FeatureSessionOptions,
-): Promise<FeatureWorkflow | null> {
-  if (ownedFeatureFor(pi)?.pausable !== true) return null
-  const install = installRootStatus(options.installRoot ?? INSTALL_ROOT)
-  if (!install.present) {
-    reportFeatureTerminalStatus(pi, `feature-stopped: ${replacedInstallRootMessage(install.root, install.version)}`)
-    return null
-  }
-  return (
-    options.featureWorkflow ??
-    (await loadFeatureWorkflow().catch(() => {
-      reportFeatureTerminalStatus(pi, 'feature-stopped: feature-workflow-unavailable')
-      return null
-    }))
-  )
-}
 
 export function installFeatureSessionLifecycle(
   pi: FixHost,
-  options: FeatureSessionOptions,
   interruptOwnedFeatureWork = featureWorkInterrupter(pi),
 ): void {
-  const pauseFeatureOnSessionEnd = (reason: FeatureSessionReason): Promise<void> => {
-    const local = interruptOwnedFeatureWork(reason).then(throwJoinedStopFailures)
-    return (async () => {
-      const workflow = await loadFeatureWorkflowForSessionEnd(pi, options)
-      if (workflow === null) {
-        await local
-        return
-      }
-      try {
-        await pauseOwnedFeatureOnSessionEnd(
-          pi,
-          reason,
-          workflow,
-          () => local,
-          async (text) => {
-            reportFeatureTerminalStatus(pi, text)
-          },
-        )
-      } catch (error) {
-        reportFeatureTerminalStatus(pi, `feature-stopped: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    })()
+  const stopOwnedWork = async (reason: string): Promise<void> => {
+    throwJoinedStopFailures(await interruptOwnedFeatureWork(reason))
   }
 
   pi.on('session_stop', (event, ctx) => {
     if (!rootContext(ctx)) return
     // Ordinary idle settle only: native bridge settle/watchSettleAbort handles batches.
-    // Do not product-pause or abort CI watch here (D2-B). Do not treat signal aborts as §85.
+    // Do not treat signal aborts as explicit user interruption.
     if (event.signal.aborted) {
       void interruptOwnedFixRun(pi, 'session-settle-aborted')
       return
@@ -118,18 +72,17 @@ export function installFeatureSessionLifecycle(
     ) {
       return
     }
-    return pauseFeatureOnSessionEnd('session-stop')
+    return stopOwnedWork('session-stop')
   })
   pi.on('session_switch', (_event, ctx) => {
     if (!rootContext(ctx)) return
-    // The status channel persists across sessions; clear it before any asynchronous pause.
     ctx.ui?.setStatus?.('omp-build-watch', undefined)
     void interruptOwnedFixRun(pi, 'session-switched')
-    return pauseFeatureOnSessionEnd('session-switch')
+    return stopOwnedWork('session-switch')
   })
   pi.on('session_shutdown', (_event, ctx) => {
     if (!rootContext(ctx)) return
     void interruptOwnedFixRun(pi, 'session-shutdown')
-    return pauseFeatureOnSessionEnd('session-shutdown')
+    return stopOwnedWork('session-shutdown')
   })
 }

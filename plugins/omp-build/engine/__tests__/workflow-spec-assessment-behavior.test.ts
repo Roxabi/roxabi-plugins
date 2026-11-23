@@ -10,18 +10,15 @@ import { buildRecord, parseRecord } from '../record-construction.ts'
 import { resolveSpecIdentityLedger } from '../uw-identity.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import {
   type AssessmentState,
   acceptedAssessmentState,
   assessFixture,
-  currentFacts,
-  decisions,
   mandateAssessmentState,
   proposedAssessmentState,
   shippedFeatureMandate,
 } from './workflow-spec-assessment-support.ts'
-import { facts, history, must, SCOPE } from './workflow-test-support.ts'
+import { history, must, SCOPE } from './workflow-test-support.ts'
 
 const workflowFixtures = roxabiWorkflowFixtures()
 
@@ -268,41 +265,7 @@ describe('workflow Spec assessment behavior', () => {
     ).toMatchObject({ ok: false })
   })
 
-  test('does not dispatch assessment when a pinned graph reaches it without current Spec facts', async () => {
-    const baseline = nativeMandate()
-    const graph = {
-      version: 1,
-      productVersion: baseline.payload.config.productVersion,
-      configVersion: baseline.payload.config.version,
-      edgeOrder: 'array' as const,
-      nodes: [{ id: 'assess-spec', action: 'assess-spec' as const }],
-      edges: [],
-      initial: 'assess-spec',
-    }
-    const mandated = workflowFixtures.featureMandate(SCOPE, {
-      body: nativeInitialBody,
-      ownSpec: workflowFixtures.ownSpecFromSnapshot(SCOPE, parsedNativeSpec(nativeInitialBody)),
-      config: {
-        version: baseline.payload.config.version,
-        digest: baseline.payload.config.digest,
-        effective: { graph },
-      },
-    })
-    const decision = reconstructWorkflow({
-      evidence: await nativeEvidence(history([mandated]), nativeInitialBody, 'S'),
-      facts: facts({
-        productVersion: mandated.payload.config.productVersion,
-        configVersion: mandated.payload.config.version,
-        configDigest: mandated.payload.config.digest,
-        supportedConfigVersions: [mandated.payload.config.version],
-      }),
-      decisions: decisions(),
-    })
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'unknown-outcome' })
-    expect(decision).not.toMatchObject({ status: 'action', action: 'assess-spec' })
-  })
-
-  test('requires a material decision for an editorial assessment of a tier change', async () => {
+  test('does not advance authority for an editorial assessment of a tier change', () => {
     const mandated = nativeMandate()
     const accepted = mandateAssessmentState(mandated)
     const proposed = {
@@ -327,16 +290,9 @@ describe('workflow Spec assessment behavior', () => {
     })
     expect(assessment.proposed.snapshot.spec).toEqual(accepted.snapshot.spec)
     expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: true, spec: accepted })
-    expect(
-      reconstructWorkflow({
-        evidence: await nativeEvidence(issue, nativeInitialBody, 'F-lite'),
-        facts: currentFacts(mandated, assessment.proposed),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'spec-decision-required' })
   })
 
-  test('refuses an authenticated editorial tier assessment with a false mechanical delta', async () => {
+  test('refuses an authenticated editorial tier assessment with a false mechanical delta', () => {
     const mandated = nativeMandate()
     const accepted = mandateAssessmentState(mandated)
     const proposed = {
@@ -374,20 +330,9 @@ describe('workflow Spec assessment behavior', () => {
       ok: false,
       evidence: [{ message: 'Spec assessment mechanical delta does not match its exact states' }],
     })
-    expect(
-      reconstructWorkflow({
-        evidence: await nativeEvidence(issue, nativeInitialBody, 'F-lite'),
-        facts: currentFacts(mandated, proposed),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({
-      status: 'terminal',
-      reason: 'spec-ambiguous',
-      evidence: [{ message: 'Spec assessment mechanical delta does not match its exact states' }],
-    })
   })
 
-  test('accepts a genuinely non-mechanical editorial assessment without a material decision', async () => {
+  test('accepts a genuinely non-mechanical editorial assessment without a material decision', () => {
     const mandated = nativeMandate()
     const accepted = mandateAssessmentState(mandated)
     const body = strictSpecBody('editorially revised wording')
@@ -408,13 +353,6 @@ describe('workflow Spec assessment behavior', () => {
       ok: true,
       spec: { ref: { version: assessment.currentVersion, sourceAccepted: { recordId: assessment.result.recordId } } },
     })
-    expect(
-      reconstructWorkflow({
-        evidence: await nativeEvidence(issue, body, 'S'),
-        facts: currentFacts(mandated, assessment.proposed),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'action', mandateId: mandated.recordId })
   })
 
   test('keeps an editorial return as the current accepted source rather than a competing assessment', async () => {
@@ -452,20 +390,12 @@ describe('workflow Spec assessment behavior', () => {
       ok: true,
       spec: { ref: { version: returned.currentVersion }, snapshot: { spec: { version: returned.currentVersion } } },
     })
-    expect(
-      reconstructWorkflow({
-        evidence,
-        facts: currentFacts(mandated, returned.proposed),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'action', mandateId: mandated.recordId })
   })
 
   test('does not let a predecessor material assessment govern its selected successor', async () => {
     const predecessor = nativeMandate()
     const predecessorState = mandateAssessmentState(predecessor)
     const successorBody = strictSpecBody('successor accepts the current Spec')
-    const nextBody = strictSpecBody('next Spec')
     const stale = assessFixture(
       predecessor,
       'predecessor-material',
@@ -529,59 +459,5 @@ describe('workflow Spec assessment behavior', () => {
       status: 'applicable',
       mandate: { recordId: successor.recordId },
     })
-    const successorState = mandateAssessmentState(successor)
-    const successorCurrent = {
-      snapshot: successor.payload.ownSpec.snapshot,
-      tier: successor.payload.tier,
-      children: successor.payload.children,
-      inheritedOwnSpecRefs: successor.payload.inheritedOwnSpecRefs,
-      coverage: successor.payload.coverage,
-    }
-    expect(
-      reconstructWorkflow({
-        evidence,
-        facts: currentFacts(successor, successorCurrent),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'action', mandateId: successor.recordId })
-
-    const first = assessFixture(
-      successor,
-      'successor-material-a',
-      successorState,
-      nativeProposal(successorState, nextBody),
-      'material',
-      [evidence.issue],
-    )
-    const second = assessFixture(
-      successor,
-      'successor-material-b',
-      successorState,
-      nativeProposal(successorState, nextBody),
-      'material',
-      [evidence.issue],
-    )
-    expect(
-      reconstructWorkflow({
-        evidence: await nativeEvidence(
-          history([
-            predecessor,
-            stale.start,
-            stale.result,
-            abandoned,
-            successor,
-            selected,
-            first.start,
-            first.result,
-            second.start,
-            second.result,
-          ]),
-          nextBody,
-          'S',
-        ),
-        facts: currentFacts(successor, first.proposed),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'terminal', reason: 'spec-ambiguous' })
   })
 })

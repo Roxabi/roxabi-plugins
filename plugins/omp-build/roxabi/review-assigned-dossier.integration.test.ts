@@ -6,7 +6,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, test, vi } from 'vitest'
 import { fixtureUwOperations } from '../testing/action-input-fixtures.ts'
-import { assembleEpicRangeInputs } from './epic-range-inputs.ts'
 import type { Git, PreparedReviewInputs } from './review-input-contract.ts'
 import { prepareReviewInputs } from './review-pr-inputs.ts'
 import * as reviewTarget from './review-pr-target.ts'
@@ -431,32 +430,4 @@ test('PR review input ignores legacy draft and invalid priced-fence signals', as
     if (previousHost === undefined) delete process.env.GH_HOST
     else process.env.GH_HOST = previousHost
   }
-})
-
-test('parent-range review input ignores legacy draft and invalid priced-fence signals', async () => {
-  const body = '---\nstatus: draft\n---\n\n```yaml\npriced: example\nnot: example\noracles: []\n```\n'
-  const candidate = candidateRepo()
-  const ingress = githubIngress(candidate)
-  const gh = async (cwd: string, args: string[]) => {
-    if (args[0] === 'issue' && args[1] === 'view') {
-      return JSON.stringify({ body, updatedAt: null, state: 'OPEN', labels: [] })
-    }
-    return ingress(cwd, args)
-  }
-  const assembled = await assembleEpicRangeInputs({
-    cwd: candidate.cwd,
-    request: {
-      repository: REPOSITORY,
-      target: `${REPOSITORY}#42`,
-      runId: 'range-review',
-      range: `${candidate.base}..${candidate.head}`,
-      candidateGitSHA: candidate.head,
-      integration: null as never,
-    },
-    contextWindow: CONTEXT_WINDOW,
-    pluginPin: trustedPin,
-    gh,
-    git: reviewingGit(candidate.bare),
-  })
-  expect(assembled.observedEvidence.resolvedSpec?.body).toBe(body)
 })

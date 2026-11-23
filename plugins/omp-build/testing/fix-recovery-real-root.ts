@@ -16,6 +16,7 @@ export async function createRecoveryTestRoot(input: {
   responses: NonNullable<Parameters<typeof createMockModel>[0]>['responses']
   agentModelOverrides: Record<string, string | string[]>
   handler?: NonNullable<Parameters<typeof createMockModel>[0]>['handler']
+  additionalExtensionPaths?: string[]
   onApproval: (prompt: unknown) => Promise<'once' | 'deny'>
   onConfirmation: () => Promise<'confirm' | 'refuse' | 'defer'>
   onDisplay?: (text: string) => void
@@ -106,7 +107,7 @@ export async function createRecoveryTestRoot(input: {
     getApiKey: async () => input.credential,
     bindProcessState: false,
     disableExtensionDiscovery: true,
-    additionalExtensionPaths: [join(import.meta.dirname, '..')],
+    additionalExtensionPaths: [join(import.meta.dirname, '..'), ...(input.additionalExtensionPaths ?? [])],
     enableMCP: false,
     enableLsp: false,
     enableIrc: false,

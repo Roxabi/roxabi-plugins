@@ -8,7 +8,7 @@ import { finding } from './record-builders.ts'
 /** Each native panel reports three distinct causes under the same accepted criterion. */
 export function mixedReviewInitialData(task: NativeTask): NativeData {
   if (task.name === 'spec') return { findings: [], specRows: [fixtureSpecRow(task.action)] }
-  if (!task.name.startsWith('panel-')) return { findings: [] }
+  if (task.name !== 'fix-intake' && !task.name.startsWith('panel-')) return { findings: [] }
   const spec = task.action.inputs.manifest.spec
   if (spec.kind !== 'accepted' || !spec.effective.spec.criteria[0]) throw new Error('mixed-criterion-missing')
   const target = {
@@ -27,7 +27,7 @@ export function mixedReviewInitialData(task: NativeTask): NativeData {
 }
 
 /** The synthesis cites real selected panel records, partitioning all original findings. */
-export function mixedReviewDecision(task: string): NativeData {
+export function mixedReviewDecision(task: string) {
   const base = reviewDecision(task)
   const groups: Array<{ ids: string[]; refs: unknown[]; target: unknown }> = Array.from({ length: 3 }, () => ({
     ids: [],

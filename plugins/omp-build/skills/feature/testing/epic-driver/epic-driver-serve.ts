@@ -1,25 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { parseIssueSpecBody, rawSource } from '../../../../contracts.ts'
 import { roxabiWorkflowFixtures } from '../../../../testing/roxabi-presets.ts'
-import { type Comment, ME, RUN, strictSpecBody } from './epic-driver-records.ts'
+import { type Comment, ME, strictSpecBody } from './epic-driver-records.ts'
 import { sandboxOf } from './epic-driver-sandbox.ts'
 
-const { epicMandate, framedBodies, identityAllocation, ownSpecFromSnapshot } = roxabiWorkflowFixtures()
-
-function currentSnapshot(scope: { repository: string; target: string }, body: string) {
-  const parsed = parseIssueSpecBody({
-    uw: scope,
-    raw: rawSource(scope.target, body, '2026-10-21T12:00:00Z'),
-  })
-  if (parsed.status !== 'conformant') throw new Error(`fixture Spec ${scope.target} is ${parsed.status}`)
-  return parsed.snapshot
-}
-
-function approvedChild(scope: { repository: string; target: string }, body: string) {
-  const snapshot = currentSnapshot(scope, body)
-  return { scope, specVersion: snapshot.spec.version, snapshot, tier: 'S' as const }
-}
+const { framedBodies, identityAllocation } = roxabiWorkflowFixtures()
 
 export function serveComments(issue: number, comments: Comment[]): void {
   writeFileSync(
@@ -61,55 +46,17 @@ export function serveEpic(
   children: {
     number: number
     body?: string
-    specBody?: string
     stateReason?: string | null
     fixtureComments?: Comment[]
   }[],
-  epicComments: Comment[] = [],
-  options: { mandate?: boolean } = {},
+  epicComments: Comment[],
 ): void {
   const framedBody = strictSpecBody('works')
-  const epicScope = { repository: 'o/r', target: 'o/r#1' }
-  const mandate =
-    options.mandate === false
-      ? []
-      : framedBodies(
-          [
-            epicMandate(
-              epicScope,
-              children.map((child) =>
-                approvedChild(
-                  { repository: 'o/r', target: `o/r#${child.number}` },
-                  child.specBody ?? child.body ?? framedBody,
-                ),
-              ),
-              {
-                runId: RUN,
-                body: framedBody,
-                ownSpec: ownSpecFromSnapshot(epicScope, currentSnapshot(epicScope, framedBody)),
-              },
-            ),
-          ],
-          ME,
-        ).map((body) => ({ body, author: ME }))
-  serveComments(1, [...mandate, ...epicComments])
+  serveComments(1, epicComments)
   for (const child of children) {
     const scope = { repository: 'o/r', target: `o/r#${child.number}` }
     const identity = framedBodies([identityAllocation(scope)], ME).map((body) => ({ body, author: ME }))
     serveComments(child.number, [...identity, ...(child.fixtureComments ?? [])])
-  }
-  const data = {
-    data: {
-      viewer: { login: ME },
-      repository: {
-        issue: {
-          comments: { nodes: [] },
-          subIssues: { pageInfo: { hasNextPage: false }, nodes: children },
-          closedByPullRequestsReferences: { pageInfo: { hasNextPage: false }, nodes: [] },
-          timelineItems: { pageInfo: { hasPreviousPage: false }, nodes: [] },
-        },
-      },
-    },
   }
   const connection = <T>(nodes: T[]) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } })
   const strictIssue = (
@@ -143,8 +90,6 @@ export function serveEpic(
       },
     },
   })
-  writeFileSync(path.join(sandboxOf().state, 'epic.json'), JSON.stringify(data))
-  const root = data.data.repository.issue
   writeFileSync(
     path.join(sandboxOf().state, 'containment-1.json'),
     JSON.stringify({
@@ -153,8 +98,8 @@ export function serveEpic(
           issue: {
             number: 1,
             repository: { nameWithOwner: 'o/r' },
-            closedByPullRequestsReferences: root.closedByPullRequestsReferences,
-            timelineItems: root.timelineItems,
+            closedByPullRequestsReferences: { pageInfo: { hasNextPage: false }, nodes: [] },
+            timelineItems: { pageInfo: { hasPreviousPage: false }, nodes: [] },
           },
         },
       },
@@ -237,7 +182,7 @@ export function serveEpic(
   }
 }
 
-export function servePr(number: number, view: { state: string; labels: string[]; autoMerge: boolean }, sticky = false) {
+export function servePr(number: number, view: { state: string; labels: string[]; autoMerge: boolean }) {
   const { state } = sandboxOf()
   writeFileSync(
     path.join(state, 'pr', `${number}.json`),
@@ -247,5 +192,4 @@ export function servePr(number: number, view: { state: string; labels: string[];
       autoMergeRequest: view.autoMerge ? { enabledAt: 'x' } : null,
     }),
   )
-  if (sticky) writeFileSync(path.join(state, 'pr', `${number}.sticky`), '')
 }

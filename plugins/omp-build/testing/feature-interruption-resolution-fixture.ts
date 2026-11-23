@@ -19,6 +19,7 @@ const fixtures = roxabiWorkflowFixtures()
 export type Prompt = { proposal: Record<string, unknown>; digest: string }
 export type Outcome = { result: Record<string, unknown>; prompts: Prompt[]; observed: Array<Record<string, unknown>> }
 type RunPayload = {
+  continue: boolean
   start: string | null
   executor: 'settled' | 'busy' | 'unobserved' | 'missing' | 'known-unretained-terminal'
   operator: 'confirm' | 'defer' | 'stale-commit' | 'stale-comment' | 'throw-before' | 'throw-after' | 'abandon-readback'

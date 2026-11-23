@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { createInstalledUwReadPort, UwGraphUnavailableError } from '../../../../roxabi/uw-read-port.ts'
 import { openPr } from '../../workflow-pr.js'
 import { A, BRANCH_A } from './goal-scenario-domain.ts'
-import { ensureChildMandate, frameGoalChildren } from './goal-scenario-records.ts'
 import { commitAndPush, git, sandbox } from './goal-scenario-sandbox.ts'
 import { workflowGh } from './goal-simulator-port.ts'
 
@@ -22,9 +21,8 @@ function useEnv(env: NodeJS.ProcessEnv, fn: () => Promise<void>): Promise<void> 
 describe('goal transport recovery', () => {
   it('recovers a duplicate pull through workflowGh without treating exit 1 as HTTP status', async () => {
     const box = sandbox()
-    frameGoalChildren([{ number: A, branch: BRANCH_A, id: 'a' }])
     git(box.epic, ['switch', '-q', '-c', BRANCH_A])
-    await ensureChildMandate(A, BRANCH_A, 'a', () => commitAndPush(BRANCH_A, `feat(a): child a (#${A})`, 'a.txt'))
+    commitAndPush(BRANCH_A, `feat(a): child a (#${A})`, 'a.txt')
     await useEnv(box.env, async () => {
       const post = [
         'api',
@@ -53,7 +51,16 @@ describe('goal transport recovery', () => {
       const recovered = await openPr(
         box.epic,
         { issue: A, branch: BRANCH_A, base: 'main', title: 'feat(a): child a' },
-        { gh: raced },
+        {
+          gh: raced,
+          confirm: async (number) => {
+            const pull = JSON.parse(
+              await workflowGh(box.epic, ['pr', 'view', String(number), '--json', 'headRefName,baseRefName']),
+            )
+            expect(pull).toMatchObject({ headRefName: BRANCH_A, baseRefName: 'main' })
+            return { ok: true, recordId: 'transport-only' }
+          },
+        },
       )
       expect(recovered).toMatchObject({ status: 'existing' })
       expect(recovered.number).toBeGreaterThan(0)

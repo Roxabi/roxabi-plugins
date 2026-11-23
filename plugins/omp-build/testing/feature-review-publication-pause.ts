@@ -50,7 +50,7 @@ export async function pauseDuringPublication(driver: ReviewDriver): Promise<obje
   const failures: unknown[] = []
   try {
     await waitFor(started, publication)
-    pendingPause = driver.pause()
+    pendingPause = driver.pauseFeature()
     beforeRelease = driver.messages.filter((message) => message.includes('OMP_BUILD_NATIVE_BATCH')).length
   } catch (error) {
     failures.push(error)

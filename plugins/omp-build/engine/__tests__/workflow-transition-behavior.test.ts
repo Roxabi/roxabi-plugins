@@ -1,13 +1,11 @@
 import { describe, expect, test } from 'vitest'
-import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { parseRecord } from '../record-construction.ts'
 import { assessFixMandate } from '../workflow-correction-admission.ts'
 import type { WorkflowGraph } from '../workflow-graph.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
-import { BODY, binding, facts, history, mandate, must, PARENT, SCOPE } from './workflow-test-support.ts'
+import { binding, history, mandate, must, PARENT, SCOPE } from './workflow-test-support.ts'
 import {
   childCommitment,
   featureMandate,
@@ -63,48 +61,6 @@ describe('workflow transition behavior', () => {
     })
   })
 
-  test('blocks the first mandate when the session is not in the prepared worktree', async () => {
-    const issue = history([])
-    const causal = await observeFixtureNativeWorld({
-      root: SCOPE,
-      nodes: [
-        {
-          scope: SCOPE,
-          title: 'Bounded workflow',
-          body: BODY,
-          updatedAt: '2026-10-21T00:00:00Z',
-          labels: ['size:S'],
-          parent: null,
-          children: [],
-          blockers: [],
-          state: 'OPEN',
-          stateReason: null,
-        },
-      ],
-      histories: [issue],
-      pullRequests: [],
-      commits: [],
-      comparisons: [],
-    })
-    const decision = reconstructWorkflow({
-      evidence: { issue, pullRequest: null, parents: [], causal },
-      facts: facts({ explicitSelection: true, sessionCwd: '/principal', preparedWorktree: '/work' }),
-      decisions: {
-        reviewStep: null,
-        epicStep: null,
-        epicLand: null,
-        ciWatchStatus: null,
-        publish: { status: 'absent', evidence: [] },
-        landing: { status: 'absent', evidence: [] },
-        watch: { status: 'absent', evidence: [] },
-      },
-    })
-    expect(decision).toMatchObject({
-      status: 'blocked',
-      reason: 'session-cwd',
-      evidence: [expect.objectContaining({ detail: { path: '/work', instruction: '/move /work' } })],
-    })
-  })
   test('lands a standalone feature through one binding and refuses absence, conflict, and an omitted epic parent', async () => {
     const feature = featureMandate()
     expect(

@@ -11,9 +11,8 @@ import type { MandateRecord } from '../workflow-control.ts'
 import { assessFixMandate } from '../workflow-correction-admission.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import { landingFixtures, nativeBody, nativeSnapshot } from './workflow-authority-native-fixture.ts'
-import { binding, facts, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
+import { binding, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
 
 function nativeChild(body: string) {
   const snapshot = nativeSnapshot(SCOPE, body)
@@ -278,21 +277,6 @@ describe('workflow authority behavior', () => {
       ok: false,
       diagnostics: [expect.objectContaining({ code: 'revoked' })],
     })
-    expect(
-      reconstructWorkflow({
-        evidence: { issue: childHistory, pullRequest: null, parents: [parentHistory], causal },
-        facts: facts(),
-        decisions: {
-          reviewStep: null,
-          epicStep: null,
-          epicLand: null,
-          ciWatchStatus: null,
-          publish: { status: 'absent', evidence: [] },
-          landing: { status: 'absent', evidence: [] },
-          watch: { status: 'absent', evidence: [] },
-        },
-      }),
-    ).not.toMatchObject({ status: 'action' })
     expect(
       assessFixMandate({
         target: { scope: SCOPE, kind: 'issue', branch: 'feature/bounded', base: 'main' },

@@ -85,6 +85,16 @@ async function stageHandoff(
   }
   if ('kind' in preparation) {
     const reason = preparation.kind === 'blocked' ? preparation.reason : preparation.kind
+    if (reason === 'parent-delivery-suspended') {
+      closeLease(
+        core,
+        lease,
+        { kind: 'closed', reason },
+        undefined,
+        `Parent /feature delivery is suspended; resumes in slice 6 (#1031). ${root.target} framing written. ${effectsText(outcome)} Detail: ${journal}`,
+      )
+      return
+    }
     const code = reason.startsWith('framing-handoff-') ? reason : `framing-handoff-${reason}`
     blockLease(
       core,

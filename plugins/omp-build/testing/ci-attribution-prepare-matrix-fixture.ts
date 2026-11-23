@@ -9,8 +9,8 @@ import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { accounted } from '../engine/review-context-authentication.ts'
 import type { ActionReceiptPayload } from '../engine/workflow-receipt-schema.ts'
 import type { RecordInputRef, UwActionRequest } from '../roxabi/uw-action-contract.ts'
-import { appendApprovedReview, pullHistory, setFailedCi } from './feature-ci-review-fixture.ts'
-import { arrangeReviewFixture, seedReviewFixture } from './feature-review-fixture.ts'
+import { pullHistory, setFailedCi } from './feature-ci-review-fixture.ts'
+import { arrangeReviewFixture, REVIEW_BRANCH, seedReviewFixture } from './feature-review-fixture.ts'
 import { isolatedPinSandbox } from './isolated-pin-sandbox.ts'
 import { readSim } from './sandbox/sandbox-repository.ts'
 import type { Box, SimState } from './sandbox/sandbox-types.ts'
@@ -44,12 +44,14 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
   writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
   box.env = { ...pin.env, PIN_CONTROL_FILE: control }
   await seedReviewFixture(box, cwd)
-  appendApprovedReview(box, cwd)
   setFailedCi(box)
-  writeFileSync(control, '{}')
+  const base = box.sha.main
+  const head = box.sha[REVIEW_BRANCH]
+  if (!base || !head) throw new Error('fixture commits missing')
+  const code = { repository: 'acme/app', base, head, referenceCommit: head }
   const prefix = spawnSync(
     bun,
-    [path.resolve(import.meta.dirname, 'ci-attribution-provenance-prefix-runner.ts'), cwd, 'capture-intake'],
+    [path.resolve(import.meta.dirname, 'ci-attribution-provenance-prefix-runner.ts'), cwd, JSON.stringify(code)],
     {
       cwd,
       env: box.env,
@@ -58,8 +60,6 @@ export async function setupMatrix(roots: Set<string>): Promise<MatrixSetup> {
     },
   )
   expect(prefix.status, `${prefix.stderr}\n${prefix.stdout}`).toBe(0)
-  // Subsequent prepare processes are independent of the captured host activation.
-  writeFileSync(control, JSON.stringify({ shared: pin.candidate }))
   const captured = JSON.parse(prefix.stdout) as { intake: ActionInputs }
   const intake = captured.intake
   const subject = intake.manifest.subject

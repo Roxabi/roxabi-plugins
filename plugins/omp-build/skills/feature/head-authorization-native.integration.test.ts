@@ -15,7 +15,6 @@ import { disarmReviewedBeforePush } from './landing-foundation.js'
 import { base, dispose, openState, pull, run, saved } from './testing/gh-simulator/sim-transport-fixture.ts'
 import type { State } from './testing/gh-simulator/sim-types.ts'
 import { enforceArmedGate, readGate } from './workflow-gate.js'
-import { applyCiWatchExit } from './workflow-watch.js'
 
 const HEAD = 'a'.repeat(40)
 const BASE = 'b'.repeat(40)
@@ -200,27 +199,6 @@ it('does not withdraw a linked closed PR without selected ownership authority', 
     expect(after.allowed).toBe(true)
     expect(after.receipt?.id).toBe(before.receipt?.id)
     expect(saved(f.file).prs['10'].comments.some((comment) => comment.body.includes('"kind":"withdraw"'))).toBe(false)
-  } finally {
-    dispose(f.root)
-  }
-})
-
-it.each([0, 4])('fences an in-flight grant on stopped watcher exit %s without an existing arm', async (code) => {
-  const f = fixture()
-  try {
-    const snapshot = await authorization.captureAuthorization(f.args)
-    expect((await applyCiWatchExit(f.root, 10, code, { gh: f.gh })).status).toBe('stopped')
-    expect((await authorization.readAuthorization(f.args)).allowed).toBe(false)
-    await expect(
-      authorization.issueAuthorization({
-        ...f.args,
-        snapshot,
-        lane: 'reviewed',
-        source: 'native',
-        evidence: 'review:old',
-        operationId: 'late',
-      }),
-    ).rejects.toThrow()
   } finally {
     dispose(f.root)
   }

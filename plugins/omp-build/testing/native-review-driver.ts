@@ -25,14 +25,15 @@ export type ReviewDriver = {
   messages: string[]
   diagnostics: Record<string, unknown>[]
   fixRun(): FixRun | undefined
+  fixRelease(): Promise<void> | undefined
   hasFixIngress(): boolean
-  beginFeature(): Promise<void>
+  startReview(): Promise<void>
+  startFix(): Promise<void>
   fixTransition(after: number): Promise<'next-batch' | 'terminal'>
   nextBatch(after: number): Promise<void>
   fixTerminal(): FixRun['terminal']
   pause(): Promise<unknown[]>
   pauseFeature(): Promise<void>
-  continueFeature(): Promise<void>
   settle(data: (task: NativeTask) => NativeData): Promise<void>
   settleAction(data: (task: NativeTask) => NativeData, proof: ActionProof): Promise<void>
 }
@@ -130,7 +131,7 @@ async function settleDriver(input: DriverSettlement): Promise<void> {
 export async function createReviewDriver(
   cwd: string,
   contextWindow = 128_000,
-  mode: 'feature' | 'review-only' | 'fix-pr' | 'fix-issue' = 'feature',
+  mode: 'review-only' | 'fix-pr' | 'fix-issue' = 'review-only',
   activatePin = false,
   deferred = false,
 ): Promise<ReviewDriver> {
@@ -198,17 +199,19 @@ export async function createReviewDriver(
   }
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  if (!deferred) await dispatchInitialCommand(commands, tools, mode, context, feature)
+  const startReview = () => dispatchInitialCommand(commands, tools, 'review-only', context)
+  const startFix = () => dispatchInitialCommand(commands, tools, 'fix-pr', context)
+  if (!deferred) await dispatchInitialCommand(commands, tools, mode, context)
   return {
     controller,
     native: createOmpFixPort(api),
     messages,
     diagnostics,
     fixRun: () => ownedFixRunFor(api)?.run,
+    fixRelease: () => ownedFixRunFor(api)?.release,
     hasFixIngress: () => hasOwnedFixRun(api),
-    beginFeature: async () => {
-      await feature('#42', context)
-    },
+    startReview,
+    startFix,
     fixTransition: (after) => {
       const run = ownedFixRunFor(api)?.run
       if (run === undefined) throw new Error('fix-run-missing')
@@ -240,9 +243,6 @@ export async function createReviewDriver(
       const run = ownedFixRunFor(api)?.run
       if (run === undefined) throw new Error('fix-run-missing')
       return run.terminal
-    },
-    continueFeature: async () => {
-      await feature('#42', context)
     },
     pause: () => pause(events, context),
     pauseFeature: async () => {

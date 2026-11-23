@@ -5,14 +5,9 @@ import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.t
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
-import { resolveSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
-import { conditionHolds } from '../workflow-condition-evaluation.ts'
-import { executableGraph } from '../workflow-graph.ts'
 import { effectiveMandateRole } from '../workflow-mandate.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
-import { walkWorkflow } from '../workflow-walk.ts'
 import {
   acceptedMaterialState,
   acceptMaterialFixture,
@@ -20,7 +15,7 @@ import {
   mandateAssessmentState,
   proposedAssessmentState,
 } from './workflow-spec-assessment-support.ts'
-import { BODY, facts, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
+import { BODY, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
 
 const landingFixtures = roxabiWorkflowFixtures()
 const parentBody = strictSpecBody(BODY)
@@ -157,7 +152,6 @@ describe('material parent authority', () => {
       }),
     )
     if (childWithParent.kind !== 'mandate') throw new Error('fixture is not a mandate')
-    const acceptedChildMandate = childWithParent
     const childHistory = history([childWithParent], PARENT)
     const changedParentHistory = history([parent, changed.start, changed.result, acceptedChange], SCOPE)
     const acceptedParent = resolveAcceptedSpec(parent, [changedParentHistory])
@@ -183,90 +177,12 @@ describe('material parent authority', () => {
       content: childC2Content,
       tier: 'F-lite',
     })
-    const controlFacts = facts({
-      productVersion: childWithParent.payload.config.productVersion,
-      configVersion: childWithParent.payload.config.version,
-      configDigest: childWithParent.payload.config.digest,
-      supportedConfigVersions: [childWithParent.payload.config.version],
-      currentSpec: childC2,
-      identityAllocations: childWithParent.payload.ownSpec.identityAllocations,
-    })
-    const controlDecisions = {
-      reviewStep: null,
-      epicStep: 'start' as const,
-      epicLand: null,
-      ciWatchStatus: null,
-      publish: { status: 'absent' as const, evidence: [] },
-      landing: { status: 'absent' as const, evidence: [] },
-      watch: { status: 'absent' as const, evidence: [] },
-    }
-    async function assertChildAssessmentRoute() {
-      const childEvidence = await parentEvidence(childHistory, changedParentHistory, childC2Body, 'F-lite')
-      const childAuthority = resolveOwnSpecAuthority(childHistory, [changedParentHistory], childEvidence.causal)
-      const childNext = reconstructWorkflow({
-        evidence: childEvidence,
-        facts: controlFacts,
-        decisions: controlDecisions,
-      })
-      const acceptedForProbe = childAuthority.ok ? childAuthority.value.accepted : null
-      const effective =
-        acceptedForProbe === null
-          ? null
-          : resolveSpecEffective({
-              mode: 'historical',
-              own: acceptedForProbe.ref,
-              versionVector: [acceptedForProbe.ref, ...acceptedForProbe.inheritedOwnSpecRefs],
-              histories: childEvidence.causal.histories,
-            })
-      const graph = executableGraph(acceptedChildMandate)
-      const walk = graph.ok
-        ? walkWorkflow(graph.value, childEvidence, controlFacts, controlDecisions, acceptedChildMandate)
-        : graph
-      const differs = conditionHolds(
-        'spec-differs',
-        childHistory,
-        controlFacts,
-        controlDecisions,
-        acceptedChildMandate,
-        null,
-        childEvidence.causal,
-      )
-      expect(
-        childNext,
-        JSON.stringify(
-          {
-            childAuthority: childAuthority.ok
-              ? {
-                  own: acceptedForProbe?.ref,
-                  inherited: acceptedForProbe?.inheritedOwnSpecRefs,
-                  snapshot: acceptedForProbe?.snapshot,
-                  tier: acceptedForProbe?.tier,
-                }
-              : childAuthority,
-            current: controlFacts.currentSpec,
-            effective,
-            differs,
-            walk,
-            childNext,
-          },
-          null,
-          2,
-        ),
-      ).toMatchObject({ status: 'action', action: 'assess-spec', mandateId: childWithParent.recordId })
-    }
-    await assertChildAssessmentRoute()
+    const childEvidence = await parentEvidence(childHistory, changedParentHistory, childC2Body, 'F-lite')
+    expect(resolveOwnSpecAuthority(childHistory, [changedParentHistory], childEvidence.causal).ok).toBe(true)
     const childAssessment = assessFixture(childWithParent, 'child-c2-assessment', childInitial, childC2, 'material', [
       childHistory,
       changedParentHistory,
     ])
-    const assessedChildHistory = history([childWithParent, childAssessment.start, childAssessment.result], PARENT)
-    expect(
-      reconstructWorkflow({
-        evidence: await parentEvidence(assessedChildHistory, changedParentHistory, childC2Body, 'F-lite'),
-        facts: controlFacts,
-        decisions: controlDecisions,
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'spec-decision-required' })
     const acceptedChild = acceptMaterialFixture(childWithParent, 'accept-child-c2', childAssessment)
     const acceptedChildHistory = history(
       [childWithParent, childAssessment.start, childAssessment.result, acceptedChild],

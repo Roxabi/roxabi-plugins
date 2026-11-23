@@ -12,12 +12,12 @@ import {
 } from '../skills/feature/testing/gh-simulator/sim-transport-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 
-const { epicControlTarget } = vi.hoisted(() => ({ epicControlTarget: vi.fn() }))
+const { readEpicControlTarget } = vi.hoisted(() => ({ readEpicControlTarget: vi.fn() }))
 
-vi.mock('../skills/feature/epic-driver.ts', () => ({ epicControlTarget }))
+vi.mock('../skills/feature/epic-driver-control.ts', () => ({ readEpicControlTarget }))
 
 import { legacyFixtures } from './__tests__/uw-successor-selection-support.ts'
-import { disarmBranchBeforePush, disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
+import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
 
 type Gate = { reviewed: boolean; autoMerge: boolean }
 type GhReply = { output: string }
@@ -126,50 +126,6 @@ const target = {
   issue: { number: 42 },
 }
 
-describe('branch push withdrawal discovery', () => {
-  it('permits a push only after complete empty PR enumeration', async () => {
-    const calls: string[][] = []
-    const gh = async (_cwd: string, args: string[]) => {
-      calls.push(args)
-      return '[]'
-    }
-    expect(await disarmBranchBeforePush(gh, '/repo', 'acme/app', 'feat/42')).toBe(true)
-    expect(calls).toEqual([['api', 'repos/acme/app/pulls?state=all&head=acme%3Afeat%2F42&per_page=100&page=1']])
-  })
-
-  it.each(['{}', '[[{"number":0}]]', '[[{"number":9}],null]'])(
-    'refuses incomplete or malformed enumeration %s',
-    async (response) => {
-      expect(await disarmBranchBeforePush(async () => response, '/repo', 'acme/app', 'feat/42')).toBe(false)
-    },
-  )
-
-  it('withdraws every unmerged branch PR, including closed PRs, but not merged PRs', async () => {
-    const fixture = ghForDiscovery('[]')
-    const gh = async (cwd: string, args: string[]) => {
-      if (args[0] === 'api' && args[1]?.includes('/pulls?state=all&head=')) {
-        return JSON.stringify([
-          { number: 9, state: 'open', merged_at: null },
-          { number: 10, state: 'closed', merged_at: null },
-          { number: 11, state: 'closed', merged_at: '2026-01-01T00:00:00Z' },
-        ])
-      }
-      return fixture.gh(cwd, args)
-    }
-    expect(await disarmBranchBeforePush(gh, '/workspace', 'acme/app', 'feat/42')).toBe(true)
-    expect(fixture.comments(9).some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
-    expect(fixture.comments(10).some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
-  })
-
-  it('refuses when a discovered PR cannot be withdrawn', async () => {
-    const gh = async (_cwd: string, args: string[]) => {
-      if (args[0] === 'api') return JSON.stringify([{ number: 9, state: 'open', merged_at: null }])
-      throw new Error('withdrawal unavailable')
-    }
-    expect(await disarmBranchBeforePush(gh, '/repo', 'acme/app', 'feat/42')).toBe(false)
-  })
-})
-
 function composedHistory(histories: DecodedHistory[]) {
   const validated = validateComposedWorkflowHistories(histories)
   if (!validated.ok) throw new Error(`invalid fixture histories: ${validated.reason}`)
@@ -215,7 +171,7 @@ function epicAuthority() {
 }
 
 beforeEach(() => {
-  epicControlTarget.mockReset()
+  readEpicControlTarget.mockReset()
   vi.stubEnv('HEAD_AUTH_REPOSITORY_ID', '1')
   vi.stubEnv('HEAD_AUTH_OPERATOR_IDS', '[101]')
   vi.stubEnv('HEAD_AUTH_APP_ID', '200')
@@ -276,7 +232,7 @@ describe('Feature pause disarm discovery', () => {
     ['epic', false],
     ['epic', true],
   ] as const)('refuses %s disarm without selected authority (empty discovery: %s)', async (role, empty) => {
-    epicControlTarget.mockResolvedValue({ mandateId: 'mandate-42', control: 'paused', openPrs: [] })
+    readEpicControlTarget.mockResolvedValue({ mandateId: 'mandate-42', control: 'paused', openPrs: [] })
     const fixture = ghForDiscovery(JSON.stringify(empty ? [] : [{ number: 9, state: 'OPEN' }]))
 
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, role, null, null)
@@ -289,7 +245,7 @@ describe('Feature pause disarm discovery', () => {
   })
 
   it('disarms parent and current approved child PRs', async () => {
-    epicControlTarget.mockResolvedValue({
+    readEpicControlTarget.mockResolvedValue({
       mandateId: 'mandate-42',
       control: 'paused',
       openPrs: [
@@ -311,7 +267,7 @@ describe('Feature pause disarm discovery', () => {
   })
 
   it('refuses confirmation when approved-child discovery is unavailable', async () => {
-    epicControlTarget.mockRejectedValue(new Error('accepted child replay unavailable'))
+    readEpicControlTarget.mockRejectedValue(new Error('accepted child replay unavailable'))
     const fixture = ghForDiscovery(JSON.stringify([{ number: 9, state: 'OPEN' }]), 'epic/42')
 
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'epic', null, epicAuthority())

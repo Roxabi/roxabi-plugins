@@ -1,39 +1,19 @@
-import { execFileSync } from 'node:child_process'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { loadReviewClassCatalogues } from '../roxabi/review-class-catalogues.ts'
-
-import { readReviewHistory, reviewRecords } from '../skills/feature/workflow-records.js'
-import { reviewStep } from '../skills/feature/workflow-review-state.js'
-import { gh } from '../skills/feature/workflow-runtime.js'
+import { readReviewHistory } from '../skills/feature/workflow-records.js'
 import { reviewInitialData } from './feature-review-lifecycle.ts'
 import { failNextPost, type GitBarrier, gitBarrier } from './feature-review-race-barriers.ts'
-import { citedHistory, history } from './feature-review-race-history.ts'
+import { history } from './feature-review-race-history.ts'
 import { nextReviewRecords } from './feature-review-race-reviews.ts'
 import { reviewDecision } from './feature-review-synthesis-sources.ts'
 import { createReviewDriver } from './native-review-driver.ts'
 
-type Mode = 'latest' | 'pause' | 'owned-pause'
-function errorMessages(error: unknown): string[] {
-  if (error instanceof AggregateError) return error.errors.flatMap(errorMessages)
-  return [error instanceof Error ? error.message : String(error)]
-}
-async function continuationPrerequisites(cwd: string, kind: 'preflight' | 'checkout') {
+type Mode = 'latest' | 'owned-pause'
+
+async function untouchedRequestPrecondition(cwd: string) {
   const source = await history(cwd)
-  const records = source.operations.flatMap((operation) => (operation.record ? [operation.record] : []))
-  const externalHistories = await citedHistory(cwd, source)
-  const catalogues = await loadReviewClassCatalogues({ histories: [source, ...externalHistories], cwd, gh })
-  const summary = reviewRecords(source, { catalogues, externalHistories })
-  const requests = records.filter((record) => record.kind === 'fix-request')
-  if (kind === 'preflight') {
-    if (!source.source.complete || requests.length !== 1) throw new Error('fix-request-not-confirmed-before-race')
-    return { complete: true, requests: requests.length }
-  }
-  const step = summary.ok ? reviewStep(summary.value, { head: summary.value.head }) : null
-  if (!source.source.complete || step?.action !== 'fix' || requests.length !== 0)
-    throw new Error(
-      `fix-selection-not-confirmed-before-pause:${JSON.stringify({ complete: source.source.complete, summary, step, requests })}`,
-    )
-  return { complete: true, action: step.action, requests: requests.length }
+  const requests = source.operations.filter((operation) => operation.record?.kind === 'fix-request')
+  if (!source.source.complete || requests.length !== 0) throw new Error('fix-request-written-before-preflight')
+  return { complete: true, requests: requests.length }
 }
 
 type Cleanup = () => void | Promise<void>
@@ -68,102 +48,27 @@ async function completeRace<T>(work: () => Promise<T>, cleanup: () => Promise<un
 
 async function latest(cwd: string) {
   const driver = await createReviewDriver(cwd)
-  let barrier: GitBarrier | null = null
-  let settling: Promise<void> | null = null
-  return completeRace(
-    async () => {
-      await driver.settle(reviewInitialData)
-      const armed = gitBarrier('preflight', 30_000)
-      barrier = armed
-      settling = driver.settle((task) => reviewDecision(task.task))
-      await armed.started
-      const precondition = await continuationPrerequisites(cwd, 'preflight')
-      const summary = await nextReviewRecords(cwd)
-      armed.release()
-      await settling
-      const finalHistory = await history(cwd)
-      return {
-        active: driver.controller.active(),
-        messages: driver.messages,
-        precondition,
-        summary,
-        records: finalHistory.operations.flatMap((operation) => (operation.record ? [operation.record] : [])),
-      }
-    },
-    () =>
-      cleanupRace([
-        () => barrier?.release(),
-        async () => {
-          if (settling !== null) await settling
-        },
-        () => driver.controller.stop('race-cleanup'),
-        () => barrier?.close(),
-      ]),
-    'review latest race cleanup failed',
-  )
-}
-
-async function pause(cwd: string) {
-  const driver = await createReviewDriver(cwd)
-  let barrier: GitBarrier | null = null
-  let closePost: { failed(): boolean; premature(): boolean; refused: Promise<void>; close(): void } | null = null
-  let settling: Promise<void> | null = null
-  return completeRace(
-    async () => {
-      await driver.settle(reviewInitialData)
-      const armed = gitBarrier('checkout')
-      barrier = armed
-      settling = driver.settle((task) => reviewDecision(task.task))
-      await armed.started
-      const precondition = await continuationPrerequisites(cwd, 'checkout')
-      if (driver.fixRun() !== undefined) throw new Error('fix-run-started-before-pause')
-      closePost = failNextPost()
-      let pauseFinished = false
-      const pausing = driver.pause().finally(() => {
-        pauseFinished = true
-      })
-      const outcomes = Promise.allSettled([pausing, settling])
-      await nextTurn()
-      if (pauseFinished || closePost.failed()) throw new Error('pause-did-not-join-checkout-settlement')
-      armed.release()
-      await closePost.refused
-      if (!closePost.failed() || closePost.premature()) throw new Error('pause-post-order-invalid')
-      const pausedRecords = (await history(cwd)).operations.flatMap((operation) =>
-        operation.record ? [operation.record] : [],
-      )
-      const controls = pausedRecords.filter((record) => record.kind === 'operator-control')
-      if (controls.length !== 0) throw new Error('pause-control-persisted-despite-refusal')
-      closePost.close()
-      closePost = null
-      execFileSync('gh', ['repo', 'view', 'acme/app', '--json', 'nameWithOwner'], { cwd, encoding: 'utf8' })
-      const [paused, settled] = await outcomes
-      settling = null
-      if (paused.status === 'rejected') throw paused.reason
-      if (settled.status !== 'rejected') throw new Error('review-settlement-rejection-missing')
-      const settlementErrors = errorMessages(settled.reason)
-      const finalHistory = await history(cwd)
-      return {
-        precondition,
-        pause: { postRefused: true, operatorControls: controls.length, ghAvailable: true, joinedBeforeRelease: true },
-        settlementErrors,
-        active: driver.controller.active(),
-        fixRun: driver.fixRun(),
-        messages: driver.messages,
-        records: finalHistory.operations.flatMap((operation) => (operation.record ? [operation.record] : [])),
-      }
-    },
-    () =>
-      cleanupRace([
-        () => barrier?.release(),
-        async () => {
-          if (settling !== null) await settling
-        },
-        () => closePost?.close(),
-        () => driver.controller.stop('race-cleanup'),
-        () => barrier?.close(),
-      ]),
-    'review pause race cleanup failed',
-  )
+  try {
+    await driver.settle(reviewInitialData)
+    await driver.settle((task) => reviewDecision(task.task))
+    const summary = await nextReviewRecords(cwd)
+    const refusal = await driver.startReview().then(
+      () => {
+        throw new Error('review bound did not refuse another native review')
+      },
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+    const finalHistory = await history(cwd)
+    return {
+      active: driver.controller.active(),
+      messages: driver.messages,
+      summary,
+      refusal,
+      records: finalHistory.operations.flatMap((operation) => (operation.record ? [operation.record] : [])),
+    }
+  } finally {
+    await driver.controller.stop('race-cleanup')
+  }
 }
 
 async function assertIssuePauseNotPersisted(cwd: string) {
@@ -182,10 +87,11 @@ async function ownedPause(cwd: string) {
   return completeRace(
     async () => {
       await driver.settle(reviewInitialData)
-      barrier = gitBarrier('preflight', 30_000)
-      settling = driver.settle((task) => reviewDecision(task.task))
+      await driver.settle((task) => reviewDecision(task.task))
+      barrier = gitBarrier(30_000)
+      settling = driver.startFix()
       await barrier.started
-      const precondition = await continuationPrerequisites(cwd, 'preflight')
+      const precondition = await untouchedRequestPrecondition(cwd)
       const run = driver.fixRun()
       if (run === undefined) throw new Error('owned-fix-run-missing')
       let terminated = false
@@ -240,5 +146,5 @@ async function ownedPause(cwd: string) {
 }
 
 export async function invokeReviewRace(cwd: string, mode: Mode): Promise<object> {
-  return mode === 'latest' ? latest(cwd) : mode === 'owned-pause' ? ownedPause(cwd) : pause(cwd)
+  return mode === 'latest' ? latest(cwd) : ownedPause(cwd)
 }

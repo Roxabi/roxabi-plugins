@@ -1,13 +1,10 @@
 import { canonicalValueDigest, projectNativeUwChildrenAgainstCommitments } from '../dist/contracts.js'
 import type { NativeDeliveryPullRequest } from '../engine/uw-completion-types.ts'
-import type { MandateRecord } from '../engine/workflow-control.ts'
-import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import { causalRefusal } from './causal-refusal.ts'
-import { checkoutTarget } from './feature-checkout-target.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { ContinueFeatureResult, ParentCoverageRequest } from './feature-contract.ts'
-import { freshSuccessorOwnSpec } from './feature-initial-own-spec.ts'
+import type { ContinueFeatureResult } from './feature-contract.ts'
+import { freshSuccessorOwnSpec, type LeafOwnSpec } from './feature-initial-own-spec.ts'
 import { resolveSuccessorWorktreeAnchor } from './feature-parent-anchor.ts'
 import { prepareSuccessorCheckout } from './feature-selection-session.ts'
 import { publishSuccessorMandate, type SuccessionBasis } from './feature-succession.ts'
@@ -24,6 +21,13 @@ import type { FeatureCheckoutTarget } from './workflow-checkout.ts'
 import { runWorktreeBootstrap, verifyParentCheckout } from './workflow-checkout.ts'
 
 type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'>
+type BranchTarget = Extract<FeatureCheckoutTarget, { kind: 'branch' }>
+
+function successorBranchTarget(authority: FeatureAuthority, branch: string): BranchTarget | ContinueFeatureResult {
+  if (authority.target.status !== 'pull-request') return { kind: 'branch', branch }
+  if (branch !== authority.target.pullRequest.branch) return { kind: 'blocked', reason: 'successor-branch-mismatch' }
+  return { kind: 'branch', branch, attachExisting: true }
+}
 
 export async function createSuccessorSelection(input: {
   authority: FeatureAuthority
@@ -32,50 +36,34 @@ export async function createSuccessorSelection(input: {
   branch: string
   history: FeatureAuthority['history']
   parentHistories: FeatureAuthority['parentHistories']
-  parentCoverage?: ParentCoverage | null
-  parentCoverageBasis?: ParentCoverageRequest
 }): Promise<SelectionState | ContinueFeatureResult> {
   const { authority, uwRead, reader, history, parentHistories } = input
   if (reader === undefined || uwRead === null) return { kind: 'blocked', reason: 'uw-read-required' }
   const observedBasis = await currentSuccessionBasis(authority, uwRead, history, parentHistories)
   if ('kind' in observedBasis) return observedBasis
   const basis = observedBasis.basis
-  const delivery = await successorOwnDelivery(authority, observedBasis.histories, history)
-  if ('kind' in delivery) return delivery
+  if (basis.terminal.mandate.payload.role === 'epic' || basis.historical.children.length > 0)
+    return { kind: 'blocked', reason: 'parent-delivery-suspended' }
   const children = projectNativeUwChildrenAgainstCommitments({
     uw: authority.scope,
     graph: uwRead.graph,
-    commitments: basis.historical.children,
+    commitments: [],
   })
-  const projected = checkoutTarget({
-    uw: authority.scope,
-    children,
-    branch: basis.terminal.mandate.payload.branch ?? input.branch,
-  })
-  if ('kind' in projected) return projected
-  const own = await freshSuccessorOwnSpec(
-    authority.scope,
-    uwRead,
-    basis.historical,
-    input.parentCoverage,
-    input.parentCoverageBasis,
-  )
-  if ('kind' in own) return prepareSuccessorCoverageRequest(authority, uwRead, basis, projected.target, own)
+  if (!children.ok) return { kind: 'blocked', reason: 'uw-children-unconfirmed', diagnostics: children.diagnostics }
+  const delivery = await successorOwnDelivery(authority, observedBasis.histories, history)
+  if ('kind' in delivery) return delivery
+  const own = await freshSuccessorOwnSpec(authority.scope, uwRead, basis.historical)
+  if ('kind' in own) return own
   const anchor = await resolveSuccessorWorktreeAnchor({
     subject: authority.scope,
     read: uwRead,
     succession: { child: authority.scope, tip: basis.terminal.ref },
   })
   if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-  if (projected.target.kind === 'parent') projected.target.uw = anchor.anchor
-  const parentCheck = await ensureSuccessorParent(authority, uwRead, projected.target, anchor.anchor)
+  const parentCheck = await ensureSuccessorParent(authority, uwRead, anchor.anchor)
   if (parentCheck !== null) return parentCheck
-  if (!successorPullBranchMatches(authority, projected.target))
-    return { kind: 'blocked', reason: 'successor-branch-mismatch' }
-  const target: FeatureCheckoutTarget =
-    projected.target.kind === 'branch' && authority.target.status === 'pull-request'
-      ? { ...projected.target, attachExisting: true }
-      : projected.target
+  const target = successorBranchTarget(authority, basis.terminal.mandate.payload.branch ?? input.branch)
+  if (target.kind !== 'branch') return target
   const boot = await bootstrapSuccessor(authority, target)
   if ('kind' in boot) return boot
   const confirmed = await confirmSuccessorAfterBootstrap({
@@ -86,12 +74,9 @@ export async function createSuccessorSelection(input: {
     basis,
     history,
     parentHistories,
-    target,
     anchor: anchor.anchor,
     head: boot.head,
     branch: boot.branch,
-    parentCoverage: input.parentCoverage,
-    parentCoverageBasis: input.parentCoverageBasis,
   })
   if ('kind' in confirmed) return confirmed
   return publishAndRefreshSuccessor(
@@ -106,32 +91,9 @@ export async function createSuccessorSelection(input: {
   )
 }
 
-function successorPullBranchMatches(authority: FeatureAuthority, target: FeatureCheckoutTarget): boolean {
-  if (target.kind !== 'branch' || authority.target.status !== 'pull-request') return true
-  return target.branch === authority.target.pullRequest.branch
-}
-
-async function prepareSuccessorCoverageRequest(
-  authority: FeatureAuthority,
-  read: UwRead,
-  basis: SuccessionBasis,
-  target: FeatureCheckoutTarget,
-  outcome: ContinueFeatureResult,
-): Promise<ContinueFeatureResult> {
-  if (outcome.kind !== 'blocked' || outcome.coverageRequest === undefined || !authority.onPrincipal) return outcome
-  const anchor = await resolveSuccessorWorktreeAnchor({
-    subject: authority.scope,
-    read,
-    succession: { child: authority.scope, tip: basis.terminal.ref },
-  })
-  if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
-  if (target.kind === 'parent') target.uw = anchor.anchor
-  return (await prepareSuccessorCheckout(authority, target)) ?? outcome
-}
-
 async function bootstrapSuccessor(
   authority: FeatureAuthority,
-  target: FeatureCheckoutTarget,
+  target: BranchTarget,
 ): Promise<{ head: string; branch: string } | ContinueFeatureResult> {
   const checkout = await prepareSuccessorCheckout(authority, target)
   if (checkout !== null) return checkout
@@ -147,14 +109,13 @@ async function bootstrapSuccessor(
 async function ensureSuccessorParent(
   authority: FeatureAuthority,
   uwRead: UwRead,
-  target: FeatureCheckoutTarget,
   anchor: FeatureAuthority['scope'],
 ): Promise<ContinueFeatureResult | null> {
   const root = uwRead.graph.nodes.find(
     (node) => node.uw.repository === authority.scope.repository && node.uw.target === authority.scope.target,
   )
   if (root === undefined) return { kind: 'blocked', reason: 'graph-root-missing' }
-  if (target.kind === 'branch' && root.parent !== null) {
+  if (root.parent !== null) {
     if (authority.onPrincipal) {
       const move = await prepareSuccessorCheckout(authority, { kind: 'parent', uw: anchor })
       return move ?? { kind: 'blocked', reason: 'session-not-intended-worktree' }
@@ -172,17 +133,14 @@ async function ensureSuccessorParent(
 async function confirmSuccessorAfterBootstrap(input: {
   authority: FeatureAuthority
   reader: UwReadPort
-  own: Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'>
+  own: LeafOwnSpec
   basis: SuccessionBasis
   history: FeatureAuthority['history']
   parentHistories: FeatureAuthority['parentHistories']
-  target: FeatureCheckoutTarget
   anchor: FeatureAuthority['scope']
   head: string
   branch: string
   pullRequests: readonly NativeDeliveryPullRequest[]
-  parentCoverage?: ParentCoverage | null
-  parentCoverageBasis?: ParentCoverageRequest
 }): Promise<ConfirmedSuccessor | ContinueFeatureResult> {
   const { authority, reader, own, history, parentHistories } = input
   const latest = await reader.readUw(authority.scope)
@@ -194,18 +152,10 @@ async function confirmSuccessorAfterBootstrap(input: {
   const children = projectNativeUwChildrenAgainstCommitments({
     uw: authority.scope,
     graph: latest.graph,
-    commitments: currentBasis.historical.children,
+    commitments: [],
   })
   if (!children.ok) return { kind: 'blocked', reason: 'uw-children-unconfirmed', diagnostics: children.diagnostics }
-  if (children.value.length > 0 !== (input.target.kind === 'parent'))
-    return { kind: 'blocked', reason: 'successor-framing-changed' }
-  const current = await freshSuccessorOwnSpec(
-    authority.scope,
-    latest,
-    currentBasis.historical,
-    input.parentCoverage,
-    input.parentCoverageBasis,
-  )
+  const current = await freshSuccessorOwnSpec(authority.scope, latest, currentBasis.historical)
   if ('kind' in current) return current
   if (canonicalValueDigest(current) !== canonicalValueDigest(own))
     return { kind: 'blocked', reason: 'successor-framing-changed' }
@@ -217,7 +167,7 @@ async function confirmSuccessorAfterBootstrap(input: {
   if (!anchor.ok) return { kind: 'blocked', reason: anchor.reason }
   if (canonicalValueDigest(anchor.anchor) !== canonicalValueDigest(input.anchor))
     return { kind: 'blocked', reason: 'successor-framing-changed' }
-  const checkout = await confirmSuccessorCheckout(authority, input.target, input.head, input.branch)
+  const checkout = await confirmSuccessorCheckout(authority, input.head, input.branch)
   if (checkout !== null) return checkout
   const confirmed = await confirmSuccessorHistories(authority, latest, history, parentHistories, currentBasis)
   if ('kind' in confirmed) return confirmed
@@ -228,7 +178,6 @@ async function confirmSuccessorAfterBootstrap(input: {
 
 async function confirmSuccessorCheckout(
   authority: FeatureAuthority,
-  target: FeatureCheckoutTarget,
   head: string,
   branch: string,
 ): Promise<ContinueFeatureResult | null> {
@@ -241,22 +190,14 @@ async function confirmSuccessorCheckout(
     afterBranch.stdout.trim() !== branch
   )
     return { kind: 'blocked', reason: 'successor-checkout-changed' }
-  if (target.kind === 'parent') {
-    const checked = await verifyParentCheckout({
-      git: authority.context.git,
-      cwd: authority.context.cwd,
-      uw: target.uw,
-    })
-    if (!checked.ok) return { kind: 'blocked', reason: checked.reason }
-  }
   return null
 }
 
 async function publishAndRefreshSuccessor(
   authority: FeatureAuthority,
-  own: Pick<MandateRecord['payload'], 'ownSpec' | 'tier' | 'children' | 'inheritedOwnSpecRefs' | 'coverage'>,
+  own: LeafOwnSpec,
   basis: SuccessionBasis,
-  target: FeatureCheckoutTarget,
+  target: BranchTarget,
   history: FeatureAuthority['history'],
   parentHistories: FeatureAuthority['parentHistories'],
   reader: UwReadPort,

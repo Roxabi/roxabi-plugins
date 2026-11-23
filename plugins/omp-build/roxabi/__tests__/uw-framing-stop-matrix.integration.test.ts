@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
+import { admitFeature as continueFeature } from '../../omp/omp-feature-admission.ts'
 import { dispose } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { nativeGitHub } from '../../testing/framing-native-github.ts'
 import {
@@ -13,7 +14,6 @@ import {
   scope,
 } from '../../testing/framing-runtime-fixture.ts'
 import { createInput } from '../../testing/uw-operations-fixture.ts'
-import { continueFeature } from '../workflow.ts'
 import { writtenBoundary } from './feature-framing-controller-world.ts'
 
 afterEach(() => {

@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
+import { admitFeature as continueFeature } from '../../omp/omp-feature-admission.ts'
 import { dispose } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import { installed, numberOf } from '../../testing/framing-runtime-fixture.ts'
 import { operatorDialogUi } from '../../testing/operator-dialog-ui.ts'
 import { createInput } from '../../testing/uw-operations-fixture.ts'
-import { continueFeature } from '../workflow.ts'
 import { answeredQuestion, begun, codes, submit } from './feature-framing-controller-drivers.ts'
 import { world, writtenBoundary } from './feature-framing-controller-world.ts'
 

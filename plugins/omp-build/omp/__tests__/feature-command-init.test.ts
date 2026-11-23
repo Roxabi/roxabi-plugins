@@ -1,18 +1,54 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseFeatureCommand } from '../../roxabi/feature-command'
-import type { FeatureWorkflow } from '../../roxabi/feature-contract'
-import { runInstalledFeatureCommand } from '../../roxabi/feature-entry'
+import { createExtensionApiStub } from '../../testing/extension-api-stub'
+import ompBuildExtension from '../index'
+import type { OmpBuildExtensionApi } from '../omp-controller'
+import { featureCommandContext } from './feature-command-fixture.ts'
 
-function workflow(impl: Partial<FeatureWorkflow> = {}): FeatureWorkflow {
-  return {
-    continueFeature: async () => ({ kind: 'blocked', reason: 'unconfigured' }),
-    consumeWatchExit: async () => ({ kind: 'blocked', reason: 'watch-unconfigured' }),
-    publishFeatureNativeResult: async () => {
-      throw new Error('unexpected-native-publication')
-    },
-    requestFeatureSessionPause: async () => ({ kind: 'paused', confirmed: false, reason: 'pause-unconfirmed' }),
-    ...impl,
+vi.mock('node:child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:child_process')>()
+  const { promisify } = await import('node:util')
+  const execFile = async (_command: string, _args: string[], options: { cwd: string }) => {
+    if (options.cwd.endsWith('/missing-checkout')) throw new Error('not a repository')
+    return { stdout: options.cwd, stderr: '' }
   }
+  return { ...original, execFile: Object.assign(execFile, { [promisify.custom]: execFile }) }
+})
+
+const paths: string[] = []
+afterEach(() => {
+  for (const path of paths.splice(0)) rmSync(path, { recursive: true, force: true })
+})
+
+function installed(cwd: string, exec: OmpBuildExtensionApi['exec']) {
+  const context = featureCommandContext(cwd)
+  const sent: string[] = []
+  const continueFeature = vi.fn(async () => ({ kind: 'blocked', reason: 'unexpected-continuation' }) as const)
+  let handler: ((args: string) => Promise<void>) | undefined
+  const api = createExtensionApiStub({
+    exec,
+    registerCommand: (name, command) => {
+      if (name === 'feature') handler = (args) => command.handler(args, context as never)
+    },
+    sendUserMessage: async (content) => {
+      sent.push(String(content))
+    },
+    sendMessage: (message) => {
+      sent.push(typeof message === 'string' ? message : String(message?.content ?? message))
+    },
+  })
+  ompBuildExtension(api, { principalCwd: () => true, featureWorkflow: { continueFeature } })
+  if (handler === undefined) throw new Error('missing installed /feature')
+  return { run: handler, sent, continueFeature }
+}
+
+function directory() {
+  const path = realpathSync(mkdtempSync(join(tmpdir(), 'omp-feature-init-')))
+  paths.push(path)
+  return path
 }
 
 describe('feature command grammar', () => {
@@ -52,72 +88,33 @@ describe('feature init route', () => {
       reason: 'feature-init-invalid',
     })
 
-    const calls: string[] = []
-    const execs: { command: string; args: string[]; cwd?: string }[] = []
-    const sent: string[] = []
-    let activated = false
-    const host = {
-      key: {},
-      cwd: '/candidate/checkout',
-      principal: true,
-      workflow: workflow({
-        continueFeature: async () => {
-          calls.push('continue')
-          return { kind: 'framing', source: { kind: 'free-text', acceptedArgs: 'init' } }
-        },
-      }),
-      native: {
-        activate: () => {
-          activated = true
-        },
-        inactive: () => undefined,
-        stopOwned: async () => undefined,
-        announce: async () => undefined,
-      },
-      send: async (text: string) => {
-        sent.push(text)
-      },
-      status: async () => undefined,
-      startFraming: async () => {
-        throw new Error('init must not start framing')
-      },
-      inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
-      featureContinuationInhibited: () => false,
-      markFeatureBatch: () => undefined,
-      git: async (args: readonly string[], cwd: string) => {
-        calls.push(`git:${cwd}:${args.join(' ')}`)
-        return { stdout: '/captured/target\n', exitCode: 0 }
-      },
-      exec: async (command: string, args: string[], options?: { cwd?: string }) => {
-        calls.push('exec')
-        execs.push({ command, args, cwd: options?.cwd })
-        return { code: 0, killed: false, stdout: 'digest: abc\ndigest is not authorization\n' }
-      },
-    }
+    const target = directory()
+    const execs: { command: string; args: readonly string[]; cwd: string | undefined }[] = []
+    const host = installed(target, async (command, args, options) => {
+      execs.push({ command, args, cwd: options?.cwd })
+      return { code: 0, killed: false, stdout: 'digest: abc\ndigest is not authorization\n', stderr: '' }
+    })
 
-    await runInstalledFeatureCommand('init', host)
-    await runInstalledFeatureCommand('init --dry-run', host)
-    await runInstalledFeatureCommand("init --approve abc --operator-approval 'ship it'", host)
+    await host.run('init')
+    await host.run('init --dry-run')
+    await host.run("init --approve abc --operator-approval 'ship it'")
 
-    expect(calls.filter((call) => call === 'continue')).toEqual([])
-    expect(activated).toBe(false)
-    expect(calls.indexOf('git:/candidate/checkout:rev-parse --show-toplevel')).toBeLessThan(calls.indexOf('exec'))
+    expect(host.continueFeature).not.toHaveBeenCalled()
     expect(execs).toHaveLength(3)
     for (const exec of execs) {
       expect(exec.command).toBe('bun')
       expect(exec.cwd).toMatch(/\/skills\/feature$/)
-      expect(exec.cwd).not.toBe('/candidate/checkout')
+      expect(exec.cwd).not.toBe(target)
       expect(exec.args[0]).toBe('--no-env-file')
       expect(exec.args[1]).toMatch(/\/skills\/feature\/feature-init\.ts$/)
-      expect(exec.args.slice(2, 4)).toEqual(['--dir', '/captured/target'])
+      expect(exec.args.slice(2, 4)).toEqual(['--dir', target])
     }
     expect(execs[0]?.args.slice(4)).toEqual([])
     expect(execs[1]?.args.slice(4)).toEqual(['--dry-run'])
     expect(execs[2]?.args.slice(4)).toEqual(['--approve', 'abc', '--operator-approval', 'ship it'])
     expect(execs[0]?.args).not.toContain('--approve')
     expect(execs[1]?.args).not.toContain('--approve')
-    expect(sent).toEqual([
+    expect(host.sent).toEqual([
       'digest: abc\ndigest is not authorization\n',
       'digest: abc\ndigest is not authorization\n',
       'digest: abc\ndigest is not authorization\n',
@@ -125,44 +122,11 @@ describe('feature init route', () => {
   })
 
   it('does not launch init or framing when the target capture fails', async () => {
-    let executed = false
-    let continued = false
-    const sent: string[] = []
-    await runInstalledFeatureCommand('init --dry-run', {
-      key: {},
-      cwd: '/candidate/checkout',
-      principal: false,
-      workflow: workflow({
-        continueFeature: async () => {
-          continued = true
-          return { kind: 'blocked', reason: 'unconfigured' }
-        },
-      }),
-      native: {
-        activate: () => undefined,
-        inactive: () => undefined,
-        stopOwned: async () => undefined,
-        announce: async () => undefined,
-      },
-      send: async (text: string) => {
-        sent.push(text)
-      },
-      status: async () => undefined,
-      startFraming: async () => {
-        throw new Error('init must not start framing')
-      },
-      inhibitFeatureContinuation: () => undefined,
-      releaseFeatureContinuation: () => undefined,
-      featureContinuationInhibited: () => false,
-      markFeatureBatch: () => undefined,
-      git: async () => ({ stdout: '', exitCode: 1 }),
-      exec: async () => {
-        executed = true
-        return { code: 0, killed: false, stdout: '', stderr: '' }
-      },
-    })
-    expect(executed).toBe(false)
-    expect(continued).toBe(false)
-    expect(sent).toEqual(['feature-stopped: feature-init-target-unobserved'])
+    const exec = vi.fn(async () => ({ code: 0, killed: false, stdout: '', stderr: '' }))
+    const host = installed(join(directory(), 'missing-checkout'), exec)
+    await host.run('init --dry-run')
+    expect(exec).not.toHaveBeenCalled()
+    expect(host.continueFeature).not.toHaveBeenCalled()
+    expect(host.sent).toEqual(['feature-stopped: feature-init-target-unobserved'])
   })
 })

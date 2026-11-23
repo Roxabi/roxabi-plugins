@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
-import { resolveSpecEffective } from '../../dist/contracts.js'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { selectFeatureMandate } from '../feature-continuation-selection.ts'
 import {
@@ -163,39 +162,22 @@ test('ordinary resume does not renew an abandoned mandate', async () => {
   expect(subject.native.writes).toEqual([])
 })
 
-test('a Parent successor retains its unmanaged child commitments and has usable current engagement', async () => {
+test('an abandoned Parent stops before successor checkout or publication', async () => {
   const subject = await abandonedParent()
+  const git = vi.spyOn(subject.authority.context, 'git')
   const result = await selectNew(subject)
-  expect(result).toMatchObject({
-    authority: { selection: { status: 'applicable' } },
-    mandate: {
-      payload: {
-        antecedent: { scope, recordId: subject.original.recordId, kind: 'mandate' },
-        children: subject.original.payload.children,
-        coverage: subject.original.payload.coverage,
-      },
-    },
-  })
-  const after = await subject.reader.readUw(scope)
-  expect(after.admission).toMatchObject({ applicability: 'resolved', deliverable: { ok: true } })
-  if (after.accepted.status !== 'accepted') throw new Error('Parent successor did not establish accepted framing')
-  expect(
-    resolveSpecEffective({
-      mode: 'current',
-      own: after.accepted.value.ref,
-      histories: after.histories,
-      graph: after.graph,
-    }),
-  ).toMatchObject({ ok: true })
+  expect(result).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
+  expect(git).not.toHaveBeenCalled()
+  expect(subject.native.writes).toEqual([])
 })
 
 test.each(['active', 'abandoned'] as const)(
-  'a Parent successor cannot strand a child with an %s mandate',
+  'an abandoned Parent with an %s child stops without changing either history',
   async (state) => {
     const subject = await abandonedParent(state)
     const before = [...subject.native.comments.values()].flatMap((comments) => comments.map((comment) => comment.body))
     const result = await selectNew(subject)
-    expect(result).toMatchObject({ kind: 'blocked' })
+    expect(result).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
     expect(subject.native.writes).toEqual([])
     expect(
       [...subject.native.comments.values()].flatMap((comments) => comments.map((comment) => comment.body)),
@@ -224,22 +206,24 @@ test('a nested terminal child succeeds only against its unchanged active Parent 
   expect(afterParent.admission).toMatchObject({ applicability: 'resolved', deliverable: { ok: true } })
 })
 
-test('a Parent successor refuses a child mandate acquired during bootstrap', async () => {
+test('an abandoned Parent stops before the bootstrap hook can run', async () => {
   const subject = await abandonedParent()
-  bootstrap.after = async () => {
+  const after = vi.fn(async () => {
     subject.seed(subject.childMandate)
-  }
+  })
+  bootstrap.after = after
   const result = await selectNew(subject)
-  expect(result).toMatchObject({ kind: 'blocked' })
+  expect(result).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
+  expect(after).not.toHaveBeenCalled()
   expect(subject.native.writes).toEqual([])
 })
 
-test('a foreign child mandate claim is not evidence that the child is unmanaged', async () => {
+test('a foreign child mandate claim does not bypass the Parent stop', async () => {
   const subject = await abandonedParent('unmanaged', (world) => {
     world.seed(roxabiWorkflowFixtures().featureMandate(child, { recordId: 'foreign-child' }), 'outsider')
   })
   const result = await selectNew(subject)
-  expect(result).toMatchObject({ kind: 'blocked' })
+  expect(result).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
   expect(subject.native.writes).toEqual([])
 })
 
@@ -270,23 +254,13 @@ test('an independently abandoned sibling during bootstrap stops the nested succe
   expect(subject.native.writes).toEqual([])
 })
 
-test('a nested Parent preserves both its active ancestor and unmanaged descendant commitments', async () => {
+test('an abandoned nested Parent stops before successor checkout or publication', async () => {
   const subject = await abandonedNestedParent()
+  const git = vi.spyOn(subject.authority.context, 'git')
   const result = await selectNew(subject)
-  expect(result).toMatchObject({
-    authority: { selection: { status: 'applicable' } },
-    mandate: {
-      payload: {
-        parent: subject.original.payload.parent,
-        inheritedOwnSpecRefs: subject.original.payload.inheritedOwnSpecRefs,
-        children: subject.original.payload.children,
-        coverage: subject.original.payload.coverage,
-      },
-    },
-  })
-  expect((await subject.reader.readUw(child)).admission.deliverable.ok).toBe(true)
-  expect((await subject.reader.readUw(scope)).admission.deliverable.ok).toBe(true)
-  expect((await subject.reader.readUw(sibling)).accepted.status).toBe('absent')
+  expect(result).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
+  expect(git).not.toHaveBeenCalled()
+  expect(subject.native.writes).toEqual([])
 })
 
 test('ancestor revocation is not proof of an own abandoned terminal mandate', async () => {
@@ -296,13 +270,13 @@ test('ancestor revocation is not proof of an own abandoned terminal mandate', as
   expect(subject.native.writes).toEqual([])
 })
 
-test('a Parent successor cannot retain a changed native child version as an old commitment', async () => {
+test('an abandoned Parent with a changed native child Spec still stops', async () => {
   const subject = await abandonedParent('unmanaged', ({ native }) => {
     const delegated = native.issues.get(42)
     if (!delegated) throw new Error('missing delegated issue')
     delegated.body = renderIssueSpecBody(proposal('Deliver a newly changed child outcome.'), { complexity: 2 })
   })
   const result = await selectNew(subject)
-  expect(result).toMatchObject({ kind: 'blocked' })
+  expect(result).toEqual({ kind: 'blocked', reason: 'parent-delivery-suspended' })
   expect(subject.native.writes).toEqual([])
 })

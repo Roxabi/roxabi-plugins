@@ -7,7 +7,7 @@ import { boundedLifecycleChild } from '../testing/bounded-lifecycle-child.ts'
 import { arrangeReviewFixture, REVIEW_SCOPE, seedReviewFixture } from '../testing/feature-review-fixture.ts'
 import type { Box } from '../testing/sandbox/sandbox-types.ts'
 
-const runner = path.resolve(import.meta.dirname, '../testing/feature-recovery-runner.ts')
+const runner = path.resolve(import.meta.dirname, '../testing/fix-disposition-runner.ts')
 const bun = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
 
 type HistoryObservation = {

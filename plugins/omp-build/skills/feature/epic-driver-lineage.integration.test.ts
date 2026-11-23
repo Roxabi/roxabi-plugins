@@ -33,7 +33,7 @@ import {
   servePr,
   strictSpecBody,
 } from './testing/epic-driver/epic-driver-records.ts'
-import { cleanupSandbox, drive, git, sandbox, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
+import { cleanupSandbox, git, readControlTarget, sandbox, writes } from './testing/epic-driver/epic-driver-sandbox.ts'
 
 afterEach(cleanupSandbox)
 
@@ -190,7 +190,7 @@ function lineageMandates(depth: 0 | 1 | 2, body: string) {
   return { f, own, grant, g, p, u }
 }
 
-async function prepare(depth: 0 | 1 | 2, armed: boolean) {
+async function prepare(depth: 0 | 1 | 2) {
   const box = sandbox()
   if (depth !== 0) {
     const outer = path.join(path.dirname(box.epic), `o-${depth === 1 ? 3 : 4}`)
@@ -299,46 +299,34 @@ async function prepare(depth: 0 | 1 | 2, armed: boolean) {
       writeFileSync(file, JSON.stringify({ ...view, headRefName: branch, baseRefName: 'main' }))
     }
   }
-  if (armed) prepareArmedPullRequests()
-  const node = armed ? childNode(2, 'feat(x): first child', { prs: [childPr] }) : child
-  serveEpic([{ ...node, fixtureComments: comments([c], [uh, ...ancestors]) }], comments(uRecords, ancestors), {
-    mandate: false,
-  })
+  prepareArmedPullRequests()
+  const node = childNode(2, 'feat(x): first child', { prs: [childPr] })
+  serveEpic([{ ...node, fixtureComments: comments([c], [uh, ...ancestors]) }], comments(uRecords, ancestors))
   if (depth) serveComments(3, comments([p], depth === 2 ? [gh] : []))
   if (depth === 2) serveComments(4, comments([g]))
-  if (armed) {
-    const file = path.join(state, 'containment-1.json')
-    const data = JSON.parse(readFileSync(file, 'utf8'))
-    data.data.repository.issue.closedByPullRequestsReferences.nodes = [ownPr]
-    writeFileSync(file, JSON.stringify(data))
-    writeFileSync(path.join(state, 'branch-prs-1.json'), JSON.stringify([ownPr]))
-  }
+  const file = path.join(state, 'containment-1.json')
+  const data = JSON.parse(readFileSync(file, 'utf8'))
+  data.data.repository.issue.closedByPullRequestsReferences.nodes = [ownPr]
+  writeFileSync(file, JSON.stringify(data))
+  writeFileSync(path.join(state, 'branch-prs-1.json'), JSON.stringify([ownPr]))
   if (depth) prepareAncestorIssues(state, depth)
   return { epic, state }
 }
 
 describe('epic-driver explicit mandate lineage', () => {
-  it.each<0 | 1 | 2>([0, 1, 2])('advances a current parent at ancestor depth %i', async (depth) => {
-    const { epic } = await prepare(depth, false)
-    const result = drive(['next'])
-    expect(result.code, result.stderr).toBe(0)
-    expect(result.json().step).toMatchObject({ action: 'start', ticket: 2, branch: 'feat/2-first-child' })
-    expect(git(epic, 'branch', '--show-current')).toBe('feat/2-first-child')
-  })
-  it.each<0 | 1 | 2>([0, 1, 2])('contains both own and child PRs at ancestor depth %i', async (depth) => {
-    const { state } = await prepare(depth, true)
+  it.each<0 | 1 | 2>([0, 1, 2])('discovers both own and child PRs at ancestor depth %i', async (depth) => {
+    await prepare(depth)
     if (depth === 0) await expectCompleteEpicObservation()
-    const result = drive(['control-disarm'])
+    const result = readControlTarget()
     expect(result.code, result.stderr).toBe(0)
-    expect(result.json()).toMatchObject({ failed: [] })
-    for (const number of [11, 12]) {
-      const pr = JSON.parse(readFileSync(path.join(state, 'pr', `${number}.json`), 'utf8'))
-      expect(pr.autoMergeRequest).toBeNull()
-      expect(pr.labels).toEqual([])
-    }
+    expect(result.json().openPrs).toEqual([
+      { ticket: 1, pr: 11 },
+      { ticket: 2, pr: 12 },
+    ])
+    expect(writes()).toEqual([])
   })
   it.each(['missing', 'edited'])('refuses %s grandparent without mutations', async (damage) => {
-    const { epic, state } = await prepare(2, true)
+    const { epic, state } = await prepare(2)
     const file = path.join(state, 'comments-4.json')
     if (damage === 'missing') writeFileSync(file, '[]')
     else {
@@ -347,12 +335,9 @@ describe('epic-driver explicit mandate lineage', () => {
       writeFileSync(file, JSON.stringify(comments))
     }
     const before = [11, 12].map((n) => readFileSync(path.join(state, 'pr', `${n}.json`), 'utf8'))
-    for (const command of [['next'], ['control-disarm']]) {
-      const result = drive(command)
-      expect(result.code).not.toBe(0)
-      expect(writes()).toEqual([])
-      expect(git(epic, 'branch', '--show-current')).toBe('')
-      expect([11, 12].map((n) => readFileSync(path.join(state, 'pr', `${n}.json`), 'utf8'))).toEqual(before)
-    }
+    expect(readControlTarget().code).not.toBe(0)
+    expect(writes()).toEqual([])
+    expect(git(epic, 'branch', '--show-current')).toBe('')
+    expect([11, 12].map((n) => readFileSync(path.join(state, 'pr', `${n}.json`), 'utf8'))).toEqual(before)
   })
 })

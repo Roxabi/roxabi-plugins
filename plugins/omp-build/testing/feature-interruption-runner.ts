@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import type { ContinueFeatureInput, FeatureCommandHost } from '../roxabi/feature-contract.ts'
-import { claimStartActivation } from '../roxabi/feature-start-executions.ts'
+import type { ContinueFeatureInput } from '../roxabi/feature-contract.ts'
+import { claimStartActivation, recordStartNotActivated } from '../roxabi/feature-start-executions.ts'
 import type { OperatorPort, PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { installFixtureSdkSettings } from './native-sdk-settings-fixture.ts'
 
 await installFixtureSdkSettings(process.argv[2] ?? '')
 // Load the Feature modules (and their SDK registry) only after the fixture's SDK settings are installed.
-const { loadFeatureWorkflow } = await import('../roxabi/feature-loader.ts')
+const { admitFeature } = await import('../omp/omp-feature-admission.ts')
 const { createInstalledUwOperations } = await import('../roxabi/uw-installed-operations.ts')
 const { createInstalledUwReadPort } = await import('../roxabi/uw-read-port.ts')
 
@@ -134,36 +134,7 @@ if (payload.start !== null) {
     recordId: payload.start,
     kind: 'action-receipt' as const,
   }
-  if (payload.executor === 'settled') {
-    // Exercise the host's real pre-activation fence in the same module graph as installed UW.
-    const { batch, cleanupFixtureActions } = await import('./review-runtime-support.ts')
-    const { announceFeatureBatch } = await import('../roxabi/feature-host-native.ts')
-    const unexpected = (): never => {
-      throw new Error('Unexpected fixture host port')
-    }
-    const host: FeatureCommandHost = {
-      key: {},
-      cwd,
-      principal: false,
-      workflow: {
-        continueFeature: unexpected,
-        consumeWatchExit: unexpected,
-        publishFeatureNativeResult: unexpected,
-        requestFeatureSessionPause: unexpected,
-      },
-      native: { activate: unexpected, inactive: unexpected, stopOwned: unexpected, announce: unexpected },
-      async send() {},
-      status: unexpected,
-      startFraming: unexpected,
-      inhibitFeatureContinuation: unexpected,
-      releaseFeatureContinuation: unexpected,
-      featureContinuationInhibited: () => true,
-      markFeatureBatch: unexpected,
-      exec: unexpected,
-    }
-    await announceFeatureBatch('42', batch(['slot-a']), start, host, async () => {})
-    cleanupFixtureActions()
-  }
+  if (payload.executor === 'settled') recordStartNotActivated(start)
   if (payload.executor === 'busy') claimStartActivation(start, 'fixture-admitted')
   if (payload.executor === 'known-unretained-terminal') {
     // Load SDK-backed fixtures only after the fixture's SDK settings are installed.
@@ -270,18 +241,17 @@ if (payload.startTarget !== null) {
   const { probePrResolution } = await import('./feature-interruption-pr-probe.ts')
   await probePrResolution(cwd, { ...payload, startTarget: payload.startTarget }, prompts, observed)
 } else {
-  const workflow = await loadFeatureWorkflow()
   const installed = await createInstalledUwOperations({ cwd, operator })
   const uw = payload.operator === 'abandon-readback' ? await withAbandonOnFinalRead(cwd, installed) : installed
   const input = {
     cwd,
     reference: payload.reference,
-    control: 'resolve-interruption',
+    control: field(JSON.parse(payloadText ?? '{}'), 'continue') === true ? 'continue' : 'resolve-interruption',
     principal: false,
     read: createInstalledUwReadPort({ cwd }),
     uw,
     interruption: payload.start === null ? {} : { start: payload.start },
   } as unknown as ContinueFeatureInput
-  const result = await workflow.continueFeature(input)
+  const result = await admitFeature(input)
   process.stdout.write(`${JSON.stringify({ result, prompts, observed })}\n`)
 }

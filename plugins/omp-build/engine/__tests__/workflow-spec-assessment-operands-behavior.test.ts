@@ -1,24 +1,17 @@
 import { describe, expect, test } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
 import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
-import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest, canonicalActionOperands } from '../action-input.ts'
 import { actionInputManifestSchema } from '../action-input-schema.ts'
-import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
 import { actionRequestSchema } from '../uw-action-command-schema.ts'
 import { prepareMaterialAcceptance } from '../workflow-material-acceptance.ts'
 import { actionReceiptPayloadSchema } from '../workflow-receipt-schema.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
 import {
   type AssessmentState,
-  acceptedMaterialState,
-  acceptMaterialFixture,
   assessFixture,
-  currentFacts,
-  decisions,
   mandateAssessmentState,
   proposedAssessmentState,
   shippedFeatureMandate,
@@ -57,31 +50,6 @@ function nativeProposal(accepted: AssessmentState, body: string) {
       sections: spec.sections,
     },
   })
-}
-
-async function nativeEvidence(issue: DecodedHistory, body: string, updatedAt: string) {
-  const causal = await observeFixtureNativeWorld({
-    root: SCOPE,
-    nodes: [
-      {
-        scope: SCOPE,
-        title: 'Bounded workflow',
-        body,
-        updatedAt,
-        labels: ['size:S'],
-        parent: null,
-        children: [],
-        blockers: [],
-        state: 'OPEN',
-        stateReason: null,
-      },
-    ],
-    histories: [issue],
-    pullRequests: [],
-    commits: [],
-    comparisons: [],
-  })
-  return { issue, pullRequest: null, parents: [], causal }
 }
 
 describe('workflow Spec assessment operand binding and freshness', () => {
@@ -209,41 +177,7 @@ describe('workflow Spec assessment operand binding and freshness', () => {
     expect(actionRequestSchema.safeParse({ ...request, operands: source.operands }).success).toBe(false)
   })
 
-  test('requires a fresh authenticated assessment when the live Spec changes after an accepted material decision', async () => {
-    const mandated = nativeMandate()
-    const initial = mandateAssessmentState(mandated)
-    const bodyB = strictSpecBody('material body B')
-    const bodyC = strictSpecBody('material body C')
-    const historical = assessFixture(mandated, 'material-a-b', initial, nativeProposal(initial, bodyB), 'material', [
-      history([mandated]),
-    ])
-    const accepted = acceptMaterialFixture(mandated, 'accept-material-a-b', historical)
-    const afterHistorical = acceptedMaterialState(historical, accepted)
-    const live = assessFixture(
-      mandated,
-      'material-b-c',
-      afterHistorical,
-      nativeProposal(afterHistorical, bodyC),
-      'material',
-      [history([mandated, historical.start, historical.result, accepted])],
-    )
-    const staleRecords = [mandated, historical.start, historical.result, accepted]
-    const staleEvidence = await nativeEvidence(history(staleRecords), bodyC, '2026-10-21T00:00:00Z')
-    const liveFacts = currentFacts(mandated, live.proposed)
-    expect(reconstructWorkflow({ evidence: staleEvidence, facts: liveFacts, decisions: decisions() })).toMatchObject({
-      status: 'action',
-      action: 'assess-spec',
-      mandateId: mandated.recordId,
-    })
-    expect(
-      reconstructWorkflow({
-        evidence: await nativeEvidence(history([...staleRecords, live.start]), bodyC, '2026-10-21T00:00:00Z'),
-        facts: liveFacts,
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-  })
-  test('keeps a pending authenticated material assessment through date-only current metadata drift', async () => {
+  test('keeps a pending authenticated material assessment through date-only current metadata drift', () => {
     const mandated = nativeMandate()
     const initial = mandateAssessmentState(mandated)
     const body = strictSpecBody('material body with unchanged canonical content')
@@ -259,13 +193,6 @@ describe('workflow Spec assessment operand binding and freshness', () => {
     }
     const issueHistory = history([mandated, pending.start, pending.result])
     const histories = [issueHistory]
-    expect(
-      reconstructWorkflow({
-        evidence: await nativeEvidence(issueHistory, body, '2026-10-22T00:00:00Z'),
-        facts: currentFacts(mandated, dateOnlyCurrent),
-        decisions: decisions(),
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'spec-decision-required' })
     expect(
       prepareMaterialAcceptance({
         uw: SCOPE,

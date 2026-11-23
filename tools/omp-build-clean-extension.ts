@@ -46,7 +46,6 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
     consumer,
     [
       "export * as extension from './clean-plugin/omp/index.ts'",
-      "export * as loader from './clean-plugin/roxabi/feature-loader.ts'",
       "export * as procedures from './clean-plugin/roxabi/feature-framing-procedures.ts'",
       "export * as projection from './clean-plugin/omp/omp-feature-framing-context.ts'",
     ].join('\n'),
@@ -56,15 +55,8 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
     import { join } from 'node:path'
     import { installLegacyPiSpecifierShim, loadLegacyPiModule } from '@oh-my-pi/pi-coding-agent/extensibility/plugins/legacy-pi-compat'
     installLegacyPiSpecifierShim()
-    const { extension, loader, procedures, projection } = await loadLegacyPiModule(${JSON.stringify(consumer)})
+    const { extension, procedures, projection } = await loadLegacyPiModule(${JSON.stringify(consumer)})
     if (typeof extension?.default !== 'function') throw new Error('extension has no default factory')
-    // Exercise the computed lazy imports as well as the root extension graph.
-    // Loading these modules must not execute any workflow or host action.
-    if (typeof loader?.loadFeatureWorkflow !== 'function') throw new Error('missing loadFeatureWorkflow')
-    const workflow = await loader.loadFeatureWorkflow()
-    for (const name of ['continueFeature', 'requestFeatureSessionPause', 'publishFeatureNativeResult', 'consumeWatchExit']) {
-      if (typeof workflow[name] !== 'function') throw new Error('missing feature module function: ' + name)
-    }
     const version = JSON.parse(readFileSync(join(${JSON.stringify(destination)}, 'package.json'), 'utf8')).version
     const pin = { name: 'omp-build', version, repository: 'Roxabi/roxabi-plugins', commit: '0'.repeat(40), root: 'plugins/omp-build' }
     let changed = false

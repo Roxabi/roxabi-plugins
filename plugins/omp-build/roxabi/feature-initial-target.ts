@@ -7,14 +7,13 @@ import { type FeatureCheckoutTarget, verifyParentCheckout } from './workflow-che
 export async function initialCheckoutTarget(
   authority: FeatureAuthority,
   parent: Scope | null,
-  projected: FeatureCheckoutTarget,
   branch: string,
-): Promise<FeatureCheckoutTarget | ContinueFeatureResult> {
-  const target: FeatureCheckoutTarget =
-    projected.kind === 'branch' && authority.target.status === 'pull-request'
-      ? { ...projected, attachExisting: true }
-      : projected
-  if (target.kind !== 'branch' || parent === null || authority.onPrincipal) return target
+): Promise<Extract<FeatureCheckoutTarget, { kind: 'branch' }> | ContinueFeatureResult> {
+  const target: Extract<FeatureCheckoutTarget, { kind: 'branch' }> =
+    authority.target.status === 'pull-request'
+      ? { kind: 'branch', branch, attachExisting: true }
+      : { kind: 'branch', branch }
+  if (parent === null || authority.onPrincipal) return target
   const { context, scope } = authority
   const parentCheckout = await verifyParentCheckout({ git: context.git, cwd: context.cwd, uw: parent })
   if (!parentCheckout.ok) return { kind: 'blocked', reason: parentCheckout.reason }

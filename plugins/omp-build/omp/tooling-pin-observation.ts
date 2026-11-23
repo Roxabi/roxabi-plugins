@@ -1,7 +1,6 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { Gh } from '../adapters/github/types.ts'
 import { captureOrigin } from '../roxabi/feature-framing-controller-lease.ts'
-import { ownedFeatureFor } from '../roxabi/feature-host-ownership.ts'
 import type { ToolingPinActivationProposal } from '../roxabi/uw-action-contract.ts'
 import { githubRepository } from '../roxabi/uw-git-bytes.ts'
 import { installedPluginIdentity, resolvePluginPin } from '../roxabi/uw-plugin-pin.ts'
@@ -16,7 +15,7 @@ const SHA = /^[0-9a-f]{40}$/
 
 export function assertNoOwnedWork(pi: OmpBuildExtensionApi): void {
   try {
-    if (featureOperationOccupied(pi) || ownedFeatureFor(pi) || hasOwnedFixRun(pi) || reviewControllerFor(pi).active())
+    if (featureOperationOccupied(pi) || hasOwnedFixRun(pi) || reviewControllerFor(pi).active())
       throw new Error('tooling-pin-work-active')
   } catch (error) {
     if (error instanceof Error && error.message === 'tooling-pin-work-active') throw error

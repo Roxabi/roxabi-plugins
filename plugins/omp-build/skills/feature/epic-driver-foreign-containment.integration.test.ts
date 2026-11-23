@@ -57,7 +57,7 @@ test.each(['legacy', 'framed'] as const)(
     const childHistory = fixtures.historyFrom([child], ME, ME, [parentHistory])
     const binding = fixtures.workflowBinding(prScope, child, branch, 'main')
     const childComments = fixtures.framedBodies([child], ME, [parentHistory]).map((body) => ({ body, author: ME }))
-    serveEpic([{ ...node, fixtureComments: childComments }], framedRecords(1, [parent]), { mandate: false })
+    serveEpic([{ ...node, fixtureComments: childComments }], framedRecords(1, [parent]))
     serveComments(
       11,
       fixtures.framedBodies([binding], ME, [childHistory, parentHistory]).map((body) => ({ body, author: ME })),

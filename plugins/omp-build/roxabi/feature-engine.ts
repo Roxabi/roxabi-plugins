@@ -1,4 +1,3 @@
-// Source: plugins/omp-build/roxabi/workflow.ts:244-287,312-314,529-560
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
@@ -11,7 +10,6 @@ import { createPublicationContextResolver } from './publication-context.ts'
 const execFileAsync = promisify(execFile)
 
 const requiredContractNames = [
-  'reconstructWorkflow',
   'selectApplicableMandate',
   'resolveOwnSpecAuthority',
   'effectiveMandateRole',

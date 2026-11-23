@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { SCOPE } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
-import { decide, implementationWorld, observe, planWorld } from '../../testing/workflow-interruption-world.ts'
+import {
+  classifyDeliveryAttempts,
+  implementationWorld,
+  observe,
+  planWorld,
+} from '../../testing/workflow-interruption-world.ts'
 import { buildRecord } from '../record-construction.ts'
 import { abandoned } from '../workflow-control.ts'
 import {
-  evidenceCodes,
   INTERRUPTED_IMPLEMENTATION_ADMISSION,
   interruptionResolution,
   recoveryStart,
@@ -48,15 +52,11 @@ describe('legacy implementation recovery tombstone', () => {
       kind: 'action-receipt',
     })
     expect(await observe(abandonedHistory)).toMatchObject({ status: 'complete' })
-    const decision = await decide(abandonedHistory, world.mandate)
-    expect(decision, JSON.stringify(decision)).toMatchObject({ status: 'blocked', reason: 'incomplete' })
-    expect(evidenceCodes(decision)).toContain('unconfirmed')
-    expect(decision).not.toMatchObject({ status: 'action' })
   })
 })
 
 describe('legacy interruption proof', () => {
-  it('does not replay a v1 marker and still recognizes a confirmed abandonment', async () => {
+  it('rejects a v1 marker and still recognizes a confirmed abandonment', () => {
     const world = planWorld()
     const legacy = withPayload(world.interrupted, {
       diagnostics: [
@@ -67,9 +67,10 @@ describe('legacy interruption proof', () => {
         },
       ],
     })
-    const decision = await decide(world.issue([world.start, legacy]), world.mandate)
-    expect(decision).toMatchObject({ status: 'blocked' })
-    expect(decision).not.toMatchObject({ status: 'action', action: 'plan' })
+    expect(classifyDeliveryAttempts(world.issue([world.start, legacy]))).toMatchObject({
+      ok: false,
+      diagnostics: [expect.objectContaining({ code: 'action-uncertain' })],
+    })
     const built = buildRecord({
       version: 1,
       repository: world.mandate.repository,
@@ -86,14 +87,12 @@ describe('legacy interruption proof', () => {
       },
     })
     if (!built.ok) throw new Error('Expected a canonical abandonment')
-    expect(await decide(world.issue([world.start, legacy, built.value]), world.mandate)).toMatchObject({
-      status: 'abandoned',
-    })
+    expect(abandoned(world.issue([world.start, legacy, built.value]), world.mandate)).toBe(true)
   })
 })
 
 describe('typed host interruption codes', () => {
-  it('keeps completed implementation work non-resolvable despite a typed host reason', async () => {
+  it('keeps completed implementation work out of the interruption classifier despite a typed host reason', () => {
     const world = implementationWorld()
     const captured = withPayload(rejectedImplementResult(world.mandate), {
       native: { completion: 'completed', strict: 'valid', raw: null },
@@ -103,9 +102,10 @@ describe('typed host interruption codes', () => {
         reason: 'implementation-push-failed',
       },
     })
-    const blocked = await decide(world.issue([world.start, captured]), world.mandate)
-    expect(blocked).toMatchObject({ status: 'blocked' })
-    expect(blocked).not.toMatchObject({ reason: 'action-interrupted' })
+    expect(classifyDeliveryAttempts(world.issue([world.start, captured]))).toMatchObject({
+      ok: true,
+      value: { unresolved: [] },
+    })
   })
 
   it.each([
@@ -155,24 +155,21 @@ describe('typed host interruption codes', () => {
         admission: { ...INTERRUPTED_IMPLEMENTATION_ADMISSION, reason: 'implementation-authority-withdrawn' },
       },
     },
-  ])('keeps a $name fail-closed and unresolvable', async ({ changes }) => {
+  ])('rejects a resolution for a $name', ({ changes }) => {
     const world = implementationWorld()
     const kept = withPayload(rejectedImplementResult(world.mandate), changes)
-    const unresolved = await decide(world.issue([world.start, kept]), world.mandate)
-    expect(unresolved).toMatchObject({ status: 'blocked' })
-    expect(unresolved).not.toMatchObject({ reason: 'action-interrupted' })
     const resolution = interruptionResolution({
       mandate: world.mandate,
       pause: world.pause,
       start: world.start,
       result: kept,
     })
-    const decision = await decide(
-      world.issue([world.start, kept, world.request, world.pause, resolution, world.resume]),
-      world.mandate,
-    )
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'interruption-invalid' })
-    expect(evidenceCodes(decision)).toContain('interruption-resolution-invalid')
+    expect(
+      classifyDeliveryAttempts(world.issue([world.start, kept, world.request, world.pause, resolution, world.resume])),
+    ).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'interruption-resolution-invalid' })]),
+    })
   })
 
   it.each([
@@ -188,36 +185,35 @@ describe('typed host interruption codes', () => {
         diagnostics: [{ code: 'action-interrupted', message: 'Native execution interrupted (session-stop)' }],
       },
     },
-  ])('keeps a $name uncertain and unresolvable', async ({ changes }) => {
+  ])('rejects a resolution for a $name', ({ changes }) => {
     const world = planWorld()
     const legacy = withPayload(world.result, changes)
-    const unresolved = await decide(world.issue([world.start, legacy]), world.mandate)
-    expect(unresolved).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
     const resolution = interruptionResolution({
       mandate: world.mandate,
       pause: world.pause,
       start: world.start,
       result: legacy,
     })
-    const decision = await decide(
-      world.issue([world.start, legacy, ...world.paused, resolution, world.resume]),
-      world.mandate,
-    )
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'interruption-invalid' })
+    expect(
+      classifyDeliveryAttempts(world.issue([world.start, legacy, ...world.paused, resolution, world.resume])),
+    ).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'interruption-resolution-invalid' })]),
+    })
   })
 })
 
 describe('safe-stop resolution', () => {
-  it('readmits a not-dispatched implementation without an effects snapshot', async () => {
+  it('excludes a resolved not-dispatched implementation without an effects snapshot', () => {
     const world = implementationWorld()
-    const decision = await decide(
-      world.issue([world.start, world.interrupted, world.request, world.pause, world.resolution, world.resume]),
-      world.mandate,
-    )
-    expect(decision).toMatchObject({ status: 'action', action: 'implement' })
+    expect(
+      classifyDeliveryAttempts(
+        world.issue([world.start, world.interrupted, world.request, world.pause, world.resolution, world.resume]),
+      ),
+    ).toMatchObject({ ok: true, value: { unresolved: [] } })
   })
 
-  it('refuses a resolution that ignores a RESULT published after it', async () => {
+  it('refuses a resolution that ignores a RESULT published after it', () => {
     const world = planWorld()
     const resolution = interruptionResolution({
       mandate: world.mandate,
@@ -225,11 +221,13 @@ describe('safe-stop resolution', () => {
       start: world.start,
       result: null,
     })
-    const decision = await decide(
+    const attempts = classifyDeliveryAttempts(
       world.issue([world.start, ...world.paused, resolution, world.resume, world.result]),
-      world.mandate,
     )
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'interruption-invalid' })
-    expect(JSON.stringify(decision.evidence)).toContain('late-result')
+    expect(attempts).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'interruption-resolution-invalid' })]),
+    })
+    expect(JSON.stringify(attempts)).toContain('late-result')
   })
 })

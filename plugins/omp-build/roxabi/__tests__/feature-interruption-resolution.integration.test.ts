@@ -26,7 +26,7 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { git, readSim } from '../../testing/sandbox/sandbox-repository.ts'
 import { eligiblePlan } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { featureStopMessage } from '../feature-presentation.ts'
-import { coldCheckout, invoke } from '../feature-recovery-process-fixture.ts'
+import { coldCheckout } from '../feature-recovery-process-fixture.ts'
 
 const FORMAT = 'omp-build-interruption-resolution/2'
 const TIMEOUT = 180_000
@@ -284,13 +284,7 @@ describe('/feature resolve-interruption over a read-only START', () => {
       expect(records(world.box).some((item) => item.recordId === world.start.recordId)).toBe(true)
       expect(controls(world.box)).not.toContain('resume')
 
-      const after = invoke<Record<string, unknown>>(
-        world.box,
-        coldCheckout(world.box, 'after-resolution'),
-        path.join(world.box.root, 'home-after-resolution'),
-        'continue',
-        { reference: '#42' },
-      )
+      const after = resolve(world, 'after-resolution', { continue: true }).result
       expect(after).toEqual({ kind: 'paused', confirmed: true, reason: 'paused' })
       expect(controls(world.box)).not.toContain('resume')
     },

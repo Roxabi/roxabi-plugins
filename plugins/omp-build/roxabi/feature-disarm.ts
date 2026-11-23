@@ -1,14 +1,9 @@
 // Source: plugins/omp-build/roxabi/workflow.ts:857-1023
 
 import type { Gh } from '../adapters/github/types.ts'
-import { epicControlTarget } from '../skills/feature/epic-driver.ts'
+import { readEpicControlTarget } from '../skills/feature/epic-driver-control.ts'
 import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.js'
-import {
-  branchPrNumbers,
-  linkedPullRequests,
-  type PullRequestList,
-  parsePullRequestList,
-} from './feature-disarm-discovery.ts'
+import { linkedPullRequests, type PullRequestList, parsePullRequestList } from './feature-disarm-discovery.ts'
 import { authenticateOwnPullRequests, type SelectedMandateAuthority } from './feature-disarm-ownership.ts'
 import { isRecord, type Scope } from './feature-engine.ts'
 import { classifyIssueReference } from './prepare-canonical-checkout.ts'
@@ -75,7 +70,7 @@ async function discoverApprovedChildPullRequests(
   issue: number,
 ): Promise<{ numbers: Set<number>; incomplete: boolean; evidence: unknown }> {
   try {
-    const control = await epicControlTarget(cwd, issue)
+    const control = await readEpicControlTarget(cwd, issue)
     return {
       numbers: new Set(control.openPrs.map(({ pr }) => pr)),
       incomplete: false,
@@ -120,24 +115,6 @@ async function disarmPullRequests(gh: Gh, cwd: string, numbers: Set<number>): Pr
     }
   }
   return { clean, evidence: disarmed }
-}
-
-/** Fence every unmerged PR targeting this repository from the branch before a push. */
-export async function disarmBranchBeforePush(
-  gh: Gh,
-  cwd: string,
-  repository: string,
-  branch: string,
-): Promise<boolean> {
-  const [owner, name, ...rest] = repository.split('/')
-  if (!owner || !name || rest.length !== 0 || !branch) return false
-  try {
-    const endpoint = `repos/${owner}/${name}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=100`
-    const numbers = await branchPrNumbers(gh, cwd, endpoint)
-    return numbers !== null && (await disarmPullRequests(gh, cwd, numbers)).clean
-  } catch {
-    return false
-  }
 }
 
 async function discoverOwnPullRequests(

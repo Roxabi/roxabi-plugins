@@ -1,13 +1,16 @@
 import { execFileSync } from 'node:child_process'
 import { describe, expect, test } from 'vitest'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
-import { startImplement } from '../../roxabi/feature-action-start.ts'
-import { loadContracts } from '../../roxabi/feature-engine.ts'
-import { publishFeatureNativeResult } from '../../roxabi/feature-result.ts'
-import { continueFeature } from '../../roxabi/workflow.ts'
+import { openHistoricalAssessment } from '../../testing/native-assessment-history.ts'
+import { openHistoricalDelivery } from '../../testing/native-history-records.ts'
 import { produceNativeImplementation } from '../../testing/native-implementation-producer.ts'
 import { confirmNewParentEngagement } from '../../testing/native-parent-engagement.ts'
-import { openNativePlanStep, produceNativePlan, publishNativePlanStep } from '../../testing/native-plan-producer.ts'
+import {
+  openNativePlanStep,
+  produceNativePlan,
+  publishNativePlanStep,
+  retainHistoricalPlanResult,
+} from '../../testing/native-plan-producer.ts'
 import { consultableAgentRoot } from '../../testing/protocol-retention.unit.ts'
 import { bridgeHarness } from '../../testing/review-runtime-support.ts'
 import { actionInputDigest } from '../action-input.ts'
@@ -24,11 +27,7 @@ function singleNativeStartParts(wire: ReturnType<typeof encodeParts>) {
 }
 
 async function expectEditedWorkRefused(
-  {
-    world,
-    scenario,
-    confirmations,
-  }: Pick<Parameters<Parameters<typeof inWorld>[0]>[0], 'world' | 'scenario' | 'confirmations'>,
+  { world, scenario }: Pick<Parameters<Parameters<typeof inWorld>[0]>[0], 'world' | 'scenario'>,
   recordId: string,
   nativeId: string,
   editedBody: string,
@@ -50,24 +49,6 @@ async function expectEditedWorkRefused(
   expect(home.diagnostics).toContainEqual(
     expect.objectContaining({ code: 'record-edited', message: expect.stringContaining(recordId) }),
   )
-  const confirmationCount = confirmations()
-  const result = await continueFeature({
-    cwd: world.cwd,
-    reference: '202',
-    control: 'continue',
-    principal: false,
-    git: world.git,
-    gh: world.gh,
-    uw: world.operations,
-  })
-  expect(result, JSON.stringify(result)).toMatchObject({
-    kind: 'blocked',
-    reason: 'fix-own-uw-unsettled',
-    diagnostics: expect.arrayContaining([
-      expect.objectContaining({ message: expect.stringContaining('legacy-coverage-incomplete') }),
-    ]),
-  })
-  expect(confirmations()).toBe(confirmationCount)
   const reread = await world.operations.readUw(scenario.leaf)
   expect(reread.observation.histories.map((item) => item.source)).toEqual(
     after.observation.histories.map((item) => item.source),
@@ -124,19 +105,12 @@ describe('captured work during material assessment', () => {
       expect(selectApplicableMandate(current.issue, current.parents, current.causal).status).toBe('refused')
       expect(planMacro(current, scenario.leafMandate).phase).not.toBe('eligible')
       expect(inspectCaptured(current, scenario.leafMandate)).toEqual({ ok: true, value: undefined })
-      const next = await continueFeature({
-        cwd: world.cwd,
-        reference: '202',
-        control: 'continue',
-        principal: false,
-        git: world.git,
-        gh: world.gh,
-        uw: world.operations,
+      const { task } = await openHistoricalAssessment({
+        world,
+        scope: scenario.leaf,
+        mandate: scenario.leafMandate,
+        commit: git.commit,
       })
-      expect(next, JSON.stringify(next)).toMatchObject({ kind: 'action', node: 'assess-spec' })
-      if (next.kind !== 'action' || next.node !== 'assess-spec') throw new Error('Expected a real assessment START')
-      const task = next.followUp.tasks.tasks[0]
-      if (!task) throw new Error('Assessment task is missing')
       const inputs = task.action.inputs
       const manifest = inputs.manifest
       const request = {
@@ -241,21 +215,14 @@ describe('captured work during material assessment', () => {
       const planned = await produceNativePlan({ ...ctx, output, reviews: [clear, clear] })
       const before = evidence(planned.read, scenario.leaf, ctx.parentScopes)
       expect(inspectCaptured(before, scenario.leafMandate).ok).toBe(true)
-      const loaded = await loadContracts()
-      if ('missing' in loaded) throw new Error(`Missing engine ${loaded.missing}`)
-      const opened = await startImplement(
-        loaded,
-        before,
-        before.issue,
-        scenario.leaf,
-        { body: scenario.leafMandate.payload.ownSpec.snapshot.raw.body },
-        world.git,
-        world.gh,
-        world.cwd,
-        scenario.leafMandate,
-        world.operations,
-      )
-      expect(opened, JSON.stringify(opened)).toMatchObject({ kind: 'action', node: 'implement' })
+      await openHistoricalDelivery({
+        world,
+        scope: scenario.leaf,
+        mandate: scenario.leafMandate,
+        read: planned.read,
+        action: 'implement',
+        code: { repository: scenario.leaf.repository, base: git.commit, head: git.commit, referenceCommit: git.commit },
+      })
       const after = await world.operations.readUw(scenario.leaf)
       expect(inspectCaptured(evidence(after, scenario.leaf, ctx.parentScopes), scenario.leafMandate).ok).toBe(false)
     })
@@ -368,7 +335,7 @@ describe('captured work during material assessment', () => {
       harness.controller.bindHostGit(() => git)
       const root = { ...consultableAgentRoot(), cwd: world.cwd }
       let stopReason: string | null = null
-      let publication: Awaited<ReturnType<typeof publishFeatureNativeResult>> | null = null
+      let publication: { published: boolean } | null = null
       let completedCallback = false
       harness.controller.activate(batch, {
         onComplete: async () => {
@@ -378,13 +345,7 @@ describe('captured work during material assessment', () => {
           stopReason = reason
           if (reason !== 'action-context-missing' || result === null || result.canPublishContext?.() !== true)
             throw new Error('Native settlement did not own its missing-context publication')
-          publication = await publishFeatureNativeResult({
-            cwd: world.cwd,
-            start: review.start,
-            result,
-            gh: world.gh,
-            git: world.git,
-          })
+          publication = (await retainHistoricalPlanResult(ctx, review, result)).published
         },
       })
       expect(await harness.admitBatch(batch, 'negative-review-call', root)).toBe(true)
@@ -431,7 +392,7 @@ describe('captured work during material assessment', () => {
   test.each(['child', 'raw-submission', 'slot-action'] as const)(
     'holds after the actual published specialist witness loses its %s binding',
     async (change) => {
-      await inWorld(async ({ world, scenario, git, confirmations }) => {
+      await inWorld(async ({ world, scenario, git }) => {
         const ctx = {
           world,
           git,
@@ -495,7 +456,7 @@ describe('captured work during material assessment', () => {
         const nativeId = operation.parts[0]?.nativeId
         const editedBody = bodies[0]
         if (!nativeId || editedBody === undefined) throw new Error('Edited native review part is missing')
-        await expectEditedWorkRefused({ world, scenario, confirmations }, original.recordId, nativeId, editedBody)
+        await expectEditedWorkRefused({ world, scenario }, original.recordId, nativeId, editedBody)
       })
     },
   )
@@ -503,7 +464,7 @@ describe('captured work during material assessment', () => {
   test.each(['code', 'inherited-constraint', 'accepted-source'] as const)(
     'refuses a native START whose %s was edited after its paired result was published',
     async (change) => {
-      await inWorld(async ({ world, scenario, git, confirmations }) => {
+      await inWorld(async ({ world, scenario, git }) => {
         const ctx = {
           world,
           git,
@@ -581,7 +542,7 @@ describe('captured work during material assessment', () => {
         const encoded = parts[0]
         if (encoded === undefined) throw new Error('Expected one canonical edited native comment')
         world.editComment(scenario.leaf, nativeId, encoded, '2026-10-29T12:00:00Z')
-        await expectEditedWorkRefused({ world, scenario, confirmations }, actualStart.recordId, nativeId, encoded)
+        await expectEditedWorkRefused({ world, scenario }, actualStart.recordId, nativeId, encoded)
       })
     },
   )

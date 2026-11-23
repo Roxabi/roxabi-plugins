@@ -30,10 +30,6 @@ const BRANCH_QUERY = `query EpicContainmentBranch($owner: String!, $name: String
   }
 }`
 
-const PR_QUERY = `query EpicContainmentPullRequest($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ${PR_FIELDS} } }
-}`
-
 export type Candidate = {
   number: number
   state: 'OPEN' | 'CLOSED' | 'MERGED'
@@ -63,14 +59,7 @@ function repository(full: string): { owner: string; name: string } {
   return { owner, name }
 }
 
-export function readCandidate(context: Locator, number: number): unknown {
-  return graphql<{ repository: { pullRequest: unknown } | null }>(context.repo, PR_QUERY, {
-    ...repository(context.full),
-    number,
-  }).repository?.pullRequest
-}
-
-export function candidate(value: unknown): value is Candidate {
+function candidate(value: unknown): value is Candidate {
   if (value === null || typeof value !== 'object') return false
   const pr = value as Partial<Candidate>
   return (

@@ -9,7 +9,6 @@ import type { ExternalRecordRef } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { MandateRecord, ReceiptRecord } from '../workflow-control.ts'
 import { hostInterruptionDiagnostic } from '../workflow-interruption-proof.ts'
-import type { WorkflowDecision } from '../workflow-reconstruction-types.ts'
 
 /** Proposal format the engine digests: the resolution payload minus proposalDigest and confirmation. */
 export const INTERRUPTION_RESOLUTION_FORMAT = 'omp-build-interruption-resolution/2'
@@ -263,8 +262,4 @@ export function appendRecords(
     }
   }
   return decodeHistory({ ...history.source, comments })
-}
-
-export function evidenceCodes(decision: WorkflowDecision): string[] {
-  return decision.evidence.map((entry) => entry.code)
 }

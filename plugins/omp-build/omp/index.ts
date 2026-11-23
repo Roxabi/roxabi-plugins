@@ -18,7 +18,7 @@ export default function ompBuildExtension(pi: OmpBuildExtensionApi, options: Omp
   // `testing/agent-roster.test.ts` ("cites no plugin-root token").
   reviewControllerFor(pi)
   const interruptOwnedFeatureWork = featureWorkInterrupter(pi)
-  installFeatureSessionLifecycle(pi, options, interruptOwnedFeatureWork)
+  installFeatureSessionLifecycle(pi, interruptOwnedFeatureWork)
   registerOmpCommandsAndTools(pi, options, interruptOwnedFeatureWork)
   installOmpToolGuards(pi)
 

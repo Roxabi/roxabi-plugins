@@ -29,7 +29,8 @@ let currentCwd = cwd
 const artifacts = join(cwd, '.framing-artifacts')
 mkdirSync(artifacts, { recursive: true })
 const started = Promise.withResolvers<void>()
-const announcement = Promise.withResolvers<void>()
+const composed = Promise.withResolvers<void>()
+const deliveries: string[] = []
 const failure = Promise.withResolvers<void>()
 const context = {
   cwd,
@@ -104,10 +105,13 @@ const api = createExtensionApiStub({
   sendMessage(message) {
     const text = typeof message === 'string' ? message : String(message.content)
     notices.push(text)
-    if (typeof message !== 'string' && message.customType === 'omp-build-native-batch') announcement.resolve()
     if (text.startsWith('feature-stopped:')) failure.resolve()
   },
-  async sendUserMessage() {},
+  async sendUserMessage(message) {
+    if (typeof message !== 'string') return
+    deliveries.push(message)
+    if (message.includes('## Feature context')) composed.resolve()
+  },
 })
 ompBuildExtension(api)
 for (const handler of handlers.get('session_start') ?? []) await handler({ type: 'session_start' }, ctx)
@@ -195,14 +199,14 @@ await shortcut()
 const timedOut = Promise.withResolvers<void>()
 const timer = setTimeout(timedOut.resolve, 10_000)
 const delivery = await Promise.race([
-  announcement.promise.then(() => 'native-announcement'),
+  composed.promise.then(() => 'composition'),
   failure.promise.then(() => 'failure'),
   timedOut.promise.then(() => 'timeout'),
 ])
 clearTimeout(timer)
-if (delivery !== 'native-announcement')
+if (delivery !== 'composition')
   throw new Error(
     `fixture-handoff-${delivery}: ${JSON.stringify({ statuses, notices, displayed, destination: currentCwd })}`,
   )
-process.stdout.write(`${JSON.stringify({ statuses, notices, displayed, destination: currentCwd })}\n`)
+process.stdout.write(`${JSON.stringify({ statuses, notices, displayed, deliveries, destination: currentCwd })}\n`)
 process.exit(0)

@@ -13,6 +13,8 @@ import type { OwnSpecRef } from './uw-spec-schema.ts'
 type NonEmpty<T> = readonly [T, ...T[]]
 export type SpecVersionVector = NonEmpty<OwnSpecRef>
 
+export type DeliveryReviewCheck = { id: number; head: string }
+
 export type NativeDeliveryPullRequest = {
   pullRequest: Scope
   branch: string
@@ -21,6 +23,7 @@ export type NativeDeliveryPullRequest = {
   baseTip: string
   state: 'OPEN' | 'CLOSED' | 'MERGED'
   mergeCommit: string | null
+  reviewCheck?: DeliveryReviewCheck
 }
 export type ObservedCommit = { code: CodeVersion; parents: readonly string[] }
 export type UwDeliveryFacts = {
@@ -89,6 +92,7 @@ export type UwCompletion =
       versionVector: NonEmpty<OwnSpecRef>
       code: ActionInputManifest['code']
       sources: readonly ExternalRecordRef[]
+      reviewCheck?: DeliveryReviewCheck
     }
   | { state: 'not-complete' | 'indeterminate' | 'abandoned'; uw: Scope; diagnostics: NonEmpty<UwDiagnostic> }
 export type DependencyResolution = {

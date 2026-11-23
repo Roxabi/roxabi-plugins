@@ -8,32 +8,15 @@ import {
 } from '../../engine/__tests__/workflow-interruption-support.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
-import { actionCompletion } from '../../engine/workflow-action-completion.ts'
 import { abandoned, type MandateRecord } from '../../engine/workflow-control.ts'
 import { planMacro } from '../../engine/workflow-plan-macro.ts'
-import { reconstructWorkflow } from '../../engine/workflow-reconstruction-admission.ts'
 import { observeFixtureNativeWorld } from '../action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../roxabi-presets.ts'
 import { nativeDecisionBody, nativeDecisionMandate } from './support/native-decision-spec.ts'
-import {
-  authenticatedPlanFixtures,
-  BODY,
-  decisions,
-  eligiblePlan,
-  SCOPE,
-  shippedFacts,
-  shippedMandate,
-} from './support/workflow-decision-fixtures.ts'
+import { authenticatedPlanFixtures, BODY, SCOPE, shippedMandate } from './support/workflow-decision-fixtures.ts'
 
-const {
-  blockingPlanContribution,
-  clearPlanContribution,
-  featureMandate,
-  historyFrom,
-  implementStart,
-  publishedPlanDigest,
-  rejectedImplementResult,
-} = roxabiWorkflowFixtures()
+const { blockingPlanContribution, clearPlanContribution, featureMandate, historyFrom, publishedPlanDigest } =
+  roxabiWorkflowFixtures()
 
 type Actions = ReturnType<typeof roxabiWorkflowFixtures>
 const planDraftRecords = (...args: Parameters<Actions['planDraftRecords']>) =>
@@ -242,7 +225,6 @@ describe('workflow completion decisions', () => {
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('needs-review')
     expect(macro.phase).not.toBe('eligible')
-    expect(actionCompletion('plan', evidence, decisions(), mandate).status).toBe('not-started')
   })
 
   it('sends a blocking review back to the plan instead of confirming it', async () => {
@@ -261,7 +243,6 @@ describe('workflow completion decisions', () => {
     expect(macro.blockers).toEqual([
       { sourceId: 'slot-architect', slotId: 'slot-architect', blockerId: 'plan-block-1' },
     ])
-    expect(actionCompletion('plan', evidence, decisions(), mandate).status).not.toBe('confirmed')
   })
 
   it('confirms a clear review of the bound plan and does not open another review', async () => {
@@ -278,7 +259,6 @@ describe('workflow completion decisions', () => {
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('eligible')
     expect(macro.amendmentActionId).toBeNull()
-    expect(actionCompletion('plan', evidence, decisions(), mandate).status).toBe('confirmed')
   })
 
   it('stays blocked when an amendment misses a declared blocker', async () => {
@@ -336,7 +316,6 @@ describe('workflow completion decisions', () => {
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('eligible')
     expect(macro.amendmentActionId).toBe('act-plan-2')
-    expect(actionCompletion('plan', evidence, decisions(), mandate).status).toBe('confirmed')
   })
 
   it('does not treat a clear review of another plan as completion', async () => {
@@ -381,9 +360,6 @@ describe('workflow completion decisions', () => {
     )
     const macro = planMacro(evidence, mandate)
     expect(macro.phase).toBe('blocked')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(mandate), decisions: decisions() })
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'missing-contribution' })
-    expect(decision).not.toMatchObject({ status: 'action' })
   })
 
   it('does not dispatch another plan review when the review start has no result', async () => {
@@ -397,54 +373,6 @@ describe('workflow completion decisions', () => {
       ]),
     )
     expect(planMacro(evidence, mandate).phase).toBe('uncertain')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(mandate), decisions: decisions() })
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-    expect(decision).not.toMatchObject({ status: 'action' })
-  })
-
-  it('does not replay an implement start or a rejected implement result', async () => {
-    const mandate = nativeDecisionMandate(shippedMandate())
-    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const started = await rootEvidence(
-      historyFrom([...eligiblePlan(mandate, [historyFrom([mandate])]), implementStart(mandate)]),
-    )
-    const startedDecision = reconstructWorkflow({
-      evidence: started,
-      facts: shippedFacts(mandate),
-      decisions: decisions(),
-    })
-    expect(startedDecision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-    expect(startedDecision).not.toMatchObject({ status: 'action' })
-    const rejected = await rootEvidence(
-      historyFrom([
-        ...eligiblePlan(mandate, [historyFrom([mandate])]),
-        implementStart(mandate),
-        rejectedImplementResult(mandate),
-      ]),
-    )
-    const rejectedDecision = reconstructWorkflow({
-      evidence: rejected,
-      facts: shippedFacts(mandate),
-      decisions: decisions(),
-    })
-    expect(rejectedDecision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
-    expect(rejectedDecision).not.toMatchObject({ status: 'action' })
-    expect(actionCompletion('implement', rejected, decisions(), mandate).status).not.toBe('confirmed')
-  })
-
-  it('plans a successor mandate whose predecessor implementation was rejected', async () => {
-    const mandate = nativeDecisionMandate(shippedMandate())
-    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const prior = [
-      ...eligiblePlan(mandate, [historyFrom([mandate])]),
-      implementStart(mandate),
-      rejectedImplementResult(mandate),
-    ]
-    const { nextMandate, records } = succession(mandate)
-    const evidence = await rootEvidence(historyFrom([...prior, ...records]))
-    expect(actionCompletion('implement', evidence, decisions(), mandate).status).toBe('blocked')
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
-    expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
   })
 
   it.each(['plan', 'plan-review'] as const)(
@@ -468,44 +396,7 @@ describe('workflow completion decisions', () => {
       const { nextMandate, records } = succession(mandate)
       const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [...prior, ...records]))
       expect(planMacro(evidence, mandate).phase).toBe('blocked')
-      const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
-      expect(decision).toMatchObject({ status: 'action', action: 'plan', mandateId: nextMandate.recordId })
+      expect(planMacro(evidence, nextMandate).phase).toBe('needs-draft')
     },
   )
-
-  it.each([
-    ['an orphan plan START', 'orphan'],
-    ['a plan START whose RESULT does not authenticate it', 'resealed'],
-  ] as const)('keeps a successor uncertain over a predecessor %s', async (_label, variant) => {
-    const mandate = nativeDecisionMandate(shippedMandate())
-    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const { workflow, version } = authenticatedPlanFixtures(mandate, [historyFrom([mandate])])
-    const [start, result] = pairOf(workflow.planDraftRecords(mandate, 'act-plan-1', version))
-    const exact = (result.payload as { exactInputs: { specDigest: string } }).exactInputs
-    const specDigest = exact.specDigest.replace(/.$/, (last) => (last === '0' ? '1' : '0'))
-    const prior =
-      variant === 'orphan' ? [start] : [start, withPayload(result, { exactInputs: { ...exact, specDigest } })]
-    const { nextMandate, records } = succession(mandate)
-    const evidence = await rootEvidence(appendRecords(historyFrom([mandate]), [...prior, ...records]))
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-  })
-
-  it.each([
-    ['paired with another mandate START', 'crossed'],
-    ['whose sealed inputs differ from its START', 'resealed'],
-  ] as const)('keeps a successor blocked by a predecessor rejection %s', async (_label, variant) => {
-    const mandate = nativeDecisionMandate(shippedMandate())
-    if (mandate.kind !== 'mandate') throw new Error('expected a mandate')
-    const { nextMandate, records } = succession(mandate)
-    const rejected = rejectedImplementResult(mandate)
-    const exactInputs = { ...(rejected.payload as { exactInputs: object }).exactInputs, planActionId: 'other-plan' }
-    const attempt =
-      variant === 'crossed'
-        ? [...records, implementStart(nextMandate), rejected]
-        : [implementStart(mandate), withPayload(rejected, { exactInputs }), ...records]
-    const evidence = await rootEvidence(historyFrom([...eligiblePlan(mandate, [historyFrom([mandate])]), ...attempt]))
-    const decision = reconstructWorkflow({ evidence, facts: shippedFacts(nextMandate), decisions: decisions() })
-    expect(decision).toMatchObject({ status: 'blocked', reason: 'unconfirmed' })
-  })
 })

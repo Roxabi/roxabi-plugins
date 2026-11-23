@@ -11,45 +11,23 @@ import { failedCheckEvidenceDigest } from '../record-digests.ts'
 import { planOutputSchema, planReviewSchema } from '../workflow-output-schema.ts'
 import { planMacro } from '../workflow-plan-macro.ts'
 import { ACTION_RECEIPT_FORMAT } from '../workflow-receipt-schema.ts'
-import { reconstructWorkflow } from '../workflow-reconstruction-admission.ts'
-import { BODY, binding, facts, history, mandate, must, SCOPE } from './workflow-test-support.ts'
+import { BODY, history, mandate, must, SCOPE } from './workflow-test-support.ts'
 
 const git = nativeImplementationGit(42)
 afterAll(() => git.cleanup())
 
 describe('workflow CI attribution behavior', () => {
-  test('admits a current change attribution to fix and keeps a spent stop', async () => {
+  test('binds attribution receipts to a candidate and its actual CI observation', async () => {
     const built = mandate()
     const body = strictSpecBody(BODY)
     const parsedSpec = parseIssueSpecBody({ uw: SCOPE, raw: rawSource(SCOPE.target, body, '2026-10-21T00:00:00Z') })
     if (parsedSpec.status !== 'conformant') throw new Error('Expected a conformant native Spec')
-    const graph = {
-      version: 1,
-      productVersion: built.payload.config.productVersion,
-      configVersion: built.payload.config.version,
-      edgeOrder: 'array',
-      nodes: [
-        { id: 'ready', action: 'stop' },
-        { id: 'attribute-ci', action: 'attribute-ci' },
-        { id: 'fix', action: 'fix' },
-        { id: 'stop', action: 'stop' },
-      ],
-      edges: [
-        { from: 'ready', to: 'attribute-ci', when: 'ci-red' },
-        { from: 'ready', to: 'fix', when: 'ci-attributed-change' },
-        { from: 'ready', to: 'stop', when: 'ci-attribution-refused' },
-        { from: 'ready', to: 'fix', when: 'review-step-fix' },
-        { from: 'ready', to: 'stop', when: 'review-step-stop' },
-      ],
-      initial: 'ready',
-    }
     const parsed = must(
       parseRecord({
         ...built,
         payload: {
           ...built.payload,
           ownSpec: roxabiWorkflowFixtures().ownSpecFromSnapshot(SCOPE, parsedSpec.snapshot),
-          config: { ...built.payload.config, effective: { graph } },
         },
       }),
     )
@@ -179,26 +157,6 @@ describe('workflow CI attribution behavior', () => {
         },
       }).ok,
     ).toBe(false)
-    const start = must(
-      buildRecord({
-        version: 1,
-        repository: pr.repository,
-        target: pr.target,
-        recordId: 'ci-start',
-        runId: 'run-1',
-        operationId: 'op-ci-start',
-        kind: 'action-receipt',
-        payload: {
-          format: ACTION_RECEIPT_FORMAT,
-          inputs: bind(exactInputs),
-          phase: 'start',
-          action: 'attribute-ci',
-          actionId: 'act-ci-1',
-          mandate: { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' },
-          exactInputs,
-        },
-      }),
-    )
     const receipt = must(
       buildRecord({
         version: 1,
@@ -225,98 +183,5 @@ describe('workflow CI attribution behavior', () => {
       }),
     )
     expect(parseRecord({ ...receipt, payload: { ...receipt.payload, exactInputs: rerunInputs } }).ok).toBe(false)
-    const decisions = {
-      reviewStep: 'fix-ci' as const,
-      epicStep: null,
-      epicLand: null,
-      ciWatchStatus: 'red' as const,
-      publish: { status: 'not-applicable' as const, evidence: [] },
-      landing: { status: 'not-applicable' as const, evidence: [] },
-      watch: { status: 'not-applicable' as const, evidence: [] },
-    }
-    const shared = {
-      evidence: await nativeEvidence(history([binding(mandated, pr), start, receipt], pr)),
-      facts: facts({
-        candidateGitSHA: candidate,
-        pullRequest: { scope: pr, head: candidate, base: 'main', associatedIssue: SCOPE },
-        failedChecks: ['test'],
-        evidenceDigest,
-      }),
-    }
-    const unattributed = {
-      ...shared,
-      evidence: await nativeEvidence(history([binding(mandated, pr)], pr)),
-    }
-    expect(reconstructWorkflow({ ...unattributed, decisions })).toMatchObject({
-      status: 'action',
-      action: 'attribute-ci',
-    })
-    expect(reconstructWorkflow({ ...unattributed, decisions: { ...decisions, reviewStep: 'fix' } })).toMatchObject({
-      status: 'action',
-      action: 'fix',
-    })
-    expect(reconstructWorkflow({ ...shared, decisions })).toMatchObject({ status: 'action', action: 'fix' })
-    const unknownReceipt = must(
-      parseRecord({
-        ...receipt,
-        recordId: 'ci-unknown',
-        operationId: 'op-ci-unknown',
-        payload: { ...receipt.payload, structured: { attribution: 'unknown', evidence: null } },
-      }),
-    )
-    expect(
-      reconstructWorkflow({
-        ...shared,
-        evidence: await nativeEvidence(history([binding(mandated, pr), start, unknownReceipt], pr)),
-        decisions,
-      }),
-    ).toMatchObject({ status: 'terminal', reason: 'ci-attribution-refused' })
-    const currentRerunDigest: string | null = failedCheckEvidenceDigest({
-      candidateGitSHA: candidate,
-      scope: pr,
-      failures: [rerun],
-    })
-    if (currentRerunDigest === null) throw new Error('expected CI evidence digest')
-    expect(
-      reconstructWorkflow({
-        ...shared,
-        facts: facts({ ...shared.facts, failedChecks: ['test'], evidenceDigest: currentRerunDigest }),
-        decisions,
-      }),
-    ).toMatchObject({ status: 'action', action: 'attribute-ci' })
-    const rerunStart = must(
-      buildRecord({
-        version: 1,
-        repository: pr.repository,
-        target: pr.target,
-        recordId: 'ci-rerun-start',
-        runId: 'run-1',
-        operationId: 'op-ci-rerun-start',
-        kind: 'action-receipt',
-        payload: {
-          format: ACTION_RECEIPT_FORMAT,
-          inputs: bind(rerunInputs),
-          phase: 'start',
-          action: 'attribute-ci',
-          actionId: 'act-ci-rerun',
-          mandate: { scope: SCOPE, recordId: mandated.recordId, kind: 'mandate' },
-          exactInputs: rerunInputs,
-        },
-      }),
-    )
-    expect(
-      reconstructWorkflow({
-        ...shared,
-        evidence: await nativeEvidence(history([binding(mandated, pr), rerunStart], pr)),
-        facts: facts({ ...shared.facts, failedChecks: ['test'], evidenceDigest: rerunDigest }),
-        decisions,
-      }),
-    ).toMatchObject({ status: 'blocked', reason: 'action-uncertain' })
-    expect(
-      reconstructWorkflow({
-        ...shared,
-        decisions: { ...decisions, reviewStep: 'stop' },
-      }),
-    ).toMatchObject({ status: 'terminal', reason: 'bound-stop' })
   })
 })
