@@ -20,7 +20,9 @@ refuse() {
 
 verdict() {
   local file=$1 state=$2 head=$3 lines line named
-  lines=$(tr -d '\r' <"$file" | grep -E '^review-verdict v1 head=[0-9a-f]{40} approve evidence=https://[^[:space:]]+$' || true)
+  lines=$(tr -d '\r' <"$file" |
+    grep -E '^review-verdict v1 head=[0-9a-f]{40} approve evidence=https://[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+(/[^[:space:]]*)?$' ||
+    true)
   [ -n "$lines" ] || refuse 'no well-formed verdict line'
   [ "$(printf '%s\n' "$lines" | wc -l)" -eq 1 ] || refuse 'more than one verdict line'
   line=$lines

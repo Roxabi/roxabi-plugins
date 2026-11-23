@@ -62,6 +62,7 @@ describe('review-verdict.sh verdict', () => {
     ['a closed pull request', `review-verdict v1 head=${HEAD} approve evidence=${EVIDENCE}`, 'closed', 'is closed'],
     ['uppercase hex', `review-verdict v1 head=${'A'.repeat(40)} approve evidence=${EVIDENCE}`, 'open', 'no well'],
     ['a missing evidence URL', `review-verdict v1 head=${HEAD} approve`, 'open', 'no well-formed'],
+    ['a hostless evidence URL', `review-verdict v1 head=${HEAD} approve evidence=https://?q=x`, 'open', 'no well'],
     ['trailing text', `review-verdict v1 head=${HEAD} approve evidence=${EVIDENCE} later`, 'open', 'no well-formed'],
     [
       'two verdict lines',

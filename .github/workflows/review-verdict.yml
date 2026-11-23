@@ -6,10 +6,16 @@
 #   review-verdict v1 head=<40-hex sha> approve evidence=<https url>
 # A head that is the clean merge of a reviewed head with a main commit keeps the
 # check. Dependabot semver-minor/patch updates, every commit authored by
-# dependabot[bot], get it without a verdict.
+# dependabot[bot], get it without a verdict. Only PRs into the default branch
+# get the check: a verdict on a stacked PR would not cover what it brings in.
+#
+# The check is created with the roxabi-ci App token and the ruleset pins
+# `review` to that App, so a workflow job that happens to be named `review`
+# does not count. Fork PR workflows never see the App key.
 #
 # Both events run this file from the default branch. Candidate commits are
 # fetched as Git objects for scripts/review-verdict.sh; no candidate file runs.
+# Each event posts at most one check on one SHA, so runs need no serialization.
 name: Review Verdict
 
 on:
@@ -20,25 +26,24 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: review-verdict-${{ github.event.issue.number || github.event.pull_request.number }}
-  cancel-in-progress: false
-
 jobs:
   verdict:
     name: Review verdict
     if: >-
-      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'pull_request_target' &&
+        github.event.pull_request.base.ref == github.event.repository.default_branch) ||
       (github.event.issue.pull_request && contains(github.event.comment.body, 'review-verdict v1'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      checks: write
+      checks: read
       contents: read
       pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      APP_ID: ${{ vars.ROXABI_CI_APP_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,28 +51,40 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Used only to create the `review` check run.
+      - name: Mint app token (roxabi-ci)
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          app-id: ${{ vars.ROXABI_CI_APP_ID }}
+          private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+          permission-checks: write
+
       - name: Verdict comment
         if: github.event_name == 'issue_comment'
         env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.issue.number }}
+          EVENT_STATE: ${{ github.event.issue.state }}
           COMMENTER: ${{ github.event.comment.user.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_URL: ${{ github.event.comment.html_url }}
         run: |
           set -euo pipefail
+          refuse() { echo "::error::verdict refused: $1"; exit 1; }
           permission=$(gh api "repos/$REPO/collaborators/$COMMENTER/permission" --jq .permission)
           case "$permission" in
             admin | write) ;;
-            *) echo "::error::@$COMMENTER has $permission access; verdict ignored"; exit 1 ;;
+            *) refuse "@$COMMENTER has $permission access" ;;
           esac
-          pr=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.state) \(.head.sha)"')
-          read -r state head <<<"$pr"
+          [ "$EVENT_STATE" = open ] || refuse "comment was written on a $EVENT_STATE pull request"
+          pr=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.state) \(.head.sha) \(.base.ref)"')
+          read -r state head base <<<"$pr"
+          [ "$base" = "$DEFAULT_BRANCH" ] || refuse "pull request targets $base, not $DEFAULT_BRANCH"
           printf '%s' "$COMMENT_BODY" > "$RUNNER_TEMP/comment.txt"
-          if ! evidence=$(bash scripts/review-verdict.sh verdict "$RUNNER_TEMP/comment.txt" "$state" "$head" 2>&1); then
-            echo "::error::verdict refused: $evidence"
-            exit 1
-          fi
-          gh api "repos/$REPO/check-runs" -f name=review -f head_sha="$head" \
+          evidence=$(bash scripts/review-verdict.sh verdict "$RUNNER_TEMP/comment.txt" "$state" "$head" 2>&1) ||
+            refuse "$evidence"
+          GH_TOKEN=$APP_TOKEN gh api "repos/$REPO/check-runs" -f name=review -f head_sha="$head" \
             -f status=completed -f conclusion=success \
             -f 'output[title]=Review verdict' \
             -f "output[summary]=Approved by @$COMMENTER. Evidence: $evidence. Verdict: $COMMENT_URL" >/dev/null
@@ -83,15 +100,15 @@ jobs:
       - name: Dependabot rule or carry-forward
         if: github.event_name == 'pull_request_target'
         env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           UPDATE_TYPE: ${{ steps.dependabot.outputs.update-type }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           post() {
-            gh api "repos/$REPO/check-runs" -f name=review -f head_sha="$HEAD_SHA" \
+            GH_TOKEN=$APP_TOKEN gh api "repos/$REPO/check-runs" -f name=review -f head_sha="$HEAD_SHA" \
               -f status=completed -f conclusion=success \
               -f 'output[title]=Review verdict' -f "output[summary]=$1" >/dev/null
             echo "review check posted on $HEAD_SHA: $1"
@@ -101,23 +118,26 @@ jobs:
               version-update:semver-minor | version-update:semver-patch) ;;
               *) echo "::notice::Dependabot update '$UPDATE_TYPE' needs a verdict"; exit 0 ;;
             esac
-            if gh pr view "$PR_NUMBER" --repo "$REPO" --json commits | jq -e \
-              '(.commits | length > 0) and all(.commits[]; (.authors | length > 0) and all(.authors[]; .login == "dependabot[bot]"))' >/dev/null; then
+            # The metadata and this read describe the live PR: they count for
+            # HEAD_SHA only if it is still the head and the last commit.
+            if gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid,commits | jq -e --arg head "$HEAD_SHA" \
+              '.headRefOid == $head and (.commits | length > 0) and .commits[-1].oid == $head and
+               all(.commits[]; (.authors | length > 0) and all(.authors[]; .login == "dependabot[bot]"))' >/dev/null; then
               post "Dependabot $UPDATE_TYPE, every commit authored by dependabot[bot]."
             else
-              echo "::notice::Dependabot PR has another commit author; it needs a verdict"
+              echo "::notice::head moved or another commit author; this head needs a verdict"
             fi
             exit 0
           fi
           git fetch --quiet --no-tags origin "+refs/pull/$PR_NUMBER/head:refs/remotes/pr/head"
-          if ! parent=$(bash scripts/review-verdict.sh carry "$HEAD_SHA" "origin/$BASE_REF" 2>&1); then
+          if ! parent=$(bash scripts/review-verdict.sh carry "$HEAD_SHA" "origin/$DEFAULT_BRANCH" 2>&1); then
             echo "::notice::no carry-forward ($parent); this head needs a verdict"
             exit 0
           fi
-          reviewed=$(gh api "repos/$REPO/commits/$parent/check-runs?check_name=review" \
-            --jq '[.check_runs[] | select(.app.slug == "github-actions" and .conclusion == "success")] | length')
+          reviewed=$(gh api "repos/$REPO/commits/$parent/check-runs?check_name=review&app_id=$APP_ID" | jq --arg app "$APP_ID" \
+            '[.check_runs[] | select((.app.id | tostring) == $app and .conclusion == "success")] | length')
           if [ "$reviewed" -gt 0 ]; then
-            post "Carried forward from reviewed head $parent: clean merge with $BASE_REF."
+            post "Carried forward from reviewed head $parent: clean merge with $DEFAULT_BRANCH."
           else
             echo "::notice::first parent $parent has no review check; this head needs a verdict"
           fi
