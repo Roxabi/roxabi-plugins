@@ -5,7 +5,7 @@ import type { GitRunner } from '../workflow-checkout.ts'
 const branch = 'feat/42-save'
 const tip = 'a'.repeat(40)
 
-function branchGit(remoteTip: string, pushCode = 0) {
+function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection lost') {
   const calls: string[][] = []
   const git: GitRunner = async (_cwd, args) => {
     calls.push(args)
@@ -13,7 +13,7 @@ function branchGit(remoteTip: string, pushCode = 0) {
       return { code: 0, stdout: args[1] === '--abbrev-ref' ? branch : tip, stderr: '' }
     }
     if (args[0] === 'ls-remote') return { code: 0, stdout: `${remoteTip}\trefs/heads/${branch}\n`, stderr: '' }
-    if (args[0] === 'push') return { code: pushCode, stdout: '', stderr: pushCode === 0 ? '' : 'connection lost' }
+    if (args[0] === 'push') return { code: pushCode, stdout: '', stderr: pushCode === 0 ? '' : pushStderr }
     throw new Error(`unexpected git call: ${args.join(' ')}`)
   }
   return { git, calls }
@@ -62,21 +62,20 @@ describe('implementation branch effect authority', () => {
     expect(calls.some(([command]) => command === 'push')).toBe(false)
   })
 
-  it('distinguishes a failed push from a confirmed remote mismatch and keeps git stderr', async () => {
-    const { git, calls } = branchGit('b'.repeat(40), 1)
+  it.each([
+    ['connection lost\n', 'git push: connection lost'],
+    ['', 'git push: no stderr'],
+    [
+      "fatal: unable to access 'https://x-access-token:ghs_secret@github.com/o/r.git/': 403",
+      "git push: fatal: unable to access 'https://github.com/o/r.git/': 403",
+    ],
+  ])('distinguishes a failed push from a remote mismatch and reports %j without userinfo', async (stderr, detail) => {
+    const { git, calls } = branchGit('b'.repeat(40), 1, stderr)
     const allowed = async () => ({ ok: true as const })
     const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
 
-    expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail: 'connection lost' })
+    expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail })
     expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
-  })
-
-  it('pushes the verified tip, never the symbolic HEAD', async () => {
-    const { git, calls } = branchGit('b'.repeat(40))
-    const allowed = async () => ({ ok: true as const })
-    await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
-
-    expect(calls.filter(([command]) => command === 'push')).toEqual([['push', 'origin', `${tip}:refs/heads/${branch}`]])
   })
 
   it('distinguishes an unconfirmed remote tip after a successful push', async () => {

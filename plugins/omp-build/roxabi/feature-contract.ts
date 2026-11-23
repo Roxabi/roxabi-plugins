@@ -141,7 +141,7 @@ export type FeatureNativePublication =
       published: false
       retained: true
       reason: string
-      /** Operator-facing only (e.g. git's stderr); never published in a record. */
+      /** Operator-facing push diagnostic (`git push: …`, userinfo removed); never published in a record. */
       detail?: string
       receipt?: ScopedRecordRef
       confirmedRemote?: { branch: string; tip: string }

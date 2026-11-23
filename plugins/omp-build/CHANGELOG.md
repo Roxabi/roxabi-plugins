@@ -2,7 +2,7 @@
 
 ## 0.21.10 (unreleased)
 
-- Push the verified implementation tip and show git's stderr when that push is rejected. `/feature` checked that `HEAD` was the verified tip, then pushed `HEAD:refs/heads/<branch>`, so a checkout moved in between could publish another commit; it now pushes `<tip>:refs/heads/<branch>`. A rejected push stopped with `feature-stopped: implementation-push-failed` and dropped git's message; the notification now ends with `· git: <stderr>`. The RESULT record keeps the reason code only.
+- Push the verified implementation tip and show git's stderr when that push is rejected. `/feature` checked that `HEAD` was the verified tip, then pushed `HEAD:refs/heads/<branch>`, so a checkout moved in between could publish another commit; it now pushes `<tip>^{commit}:refs/heads/<branch>`, which a local branch named like the SHA cannot shadow. A rejected push stopped with `feature-stopped: implementation-push-failed` and dropped git's message; the notification now ends with `· git push: <stderr>` (URL userinfo removed, `no stderr` when empty), also when retaining the RESULT refuses or throws. The RESULT record keeps the reason code only.
 - Recognize 0.21.10 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.9 (unreleased)

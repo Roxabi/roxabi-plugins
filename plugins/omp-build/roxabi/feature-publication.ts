@@ -1,5 +1,11 @@
 import type { GitRunner } from './workflow-checkout.ts'
 
+/** git may echo a remote URL: drop any userinfo before the text reaches the session. */
+function pushDiagnostic(stderr: string): string {
+  const text = stderr.trim().replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi, '$1')
+  return `git push: ${text || 'no stderr'}`
+}
+
 async function authorizeObservedTip(
   branch: string,
   tip: string,
@@ -42,8 +48,10 @@ export async function proveAuthorizedBranch(
   const authorized = await authority.beforePush()
   if (!authorized.ok) return authorized
   // The verified SHA, not `HEAD`: a checkout moved after the check above cannot be published here.
-  const pushed = await git(cwd, ['push', 'origin', `${tip}:refs/heads/${branch}`])
-  if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed', detail: pushed.stderr.trim() }
+  // `^{commit}` cannot name a ref, so a local branch named like the SHA cannot shadow it.
+  const pushed = await git(cwd, ['push', 'origin', `${tip}^{commit}:refs/heads/${branch}`])
+  if (pushed.code !== 0)
+    return { ok: false, reason: 'implementation-push-failed', detail: pushDiagnostic(pushed.stderr) }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
   if (remote.code !== 0 || remoteTip !== tip) return { ok: false, reason: 'implementation-remote-unconfirmed' }

@@ -190,7 +190,7 @@ describe('Feature native owner acquisition and typed stop forwarding', () => {
       published: false,
       retained: true,
       reason: 'implementation-push-failed',
-      detail: '! [rejected] feature/42 (fetch first)',
+      detail: 'git push: ! [rejected] feature/42 (fetch first)',
     })
     await announceFeatureBatch('42', prepared, start('rejected-push-start'), host, noDelivery)
     expect(await harness.admitBatch(prepared, 'rejected-push-call', root)).toBe(true)
@@ -209,7 +209,9 @@ describe('Feature native owner acquisition and typed stop forwarding', () => {
         },
       ],
     })
-    expect(sent).toContain('feature-stopped: implementation-push-failed · git: ! [rejected] feature/42 (fetch first)')
+    expect(sent).toContain(
+      'feature-stopped: implementation-push-failed · git push: ! [rejected] feature/42 (fetch first)',
+    )
   })
 
   it.each([false, true])(

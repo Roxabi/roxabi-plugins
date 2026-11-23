@@ -58,7 +58,7 @@ function publicationFailure(publication: Extract<FeatureNativePublication, { pub
     remote === undefined
       ? publication.reason
       : `${publication.reason} · confirmed remote tip: ${remote.branch} ${remote.tip}`
-  return publication.detail ? `${failure} · git: ${publication.detail}` : failure
+  return publication.detail ? `${failure} · ${publication.detail}` : failure
 }
 
 async function publishCompletedResult(

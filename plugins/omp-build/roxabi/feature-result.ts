@@ -77,6 +77,23 @@ function stoppedImplementationReason(stop: NativeStop | undefined): string | nul
       : null
 }
 
+/** The record keeps the reason code; a push diagnostic goes to the operator only and survives a
+ * retention that refuses or throws. */
+async function retainUnconfirmedRemote(
+  retain: () => ReturnType<typeof retainImplementationResult>,
+  reason: string,
+  detail: string | undefined,
+): Promise<FeatureNativePublication> {
+  try {
+    const refusal = retainedRefusal(await retain(), reason)
+    return detail === undefined ? refusal : { ...refusal, detail }
+  } catch (error) {
+    if (detail === undefined) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`${message} (${detail})`, { cause: error })
+  }
+}
+
 async function retainRemoteRefusal(
   binding: ImplementationResultBinding,
   input: FeatureNativeResultInput,
@@ -93,12 +110,12 @@ async function retainRemoteRefusal(
       reason: remote.reason,
       ...(confirmedRemote === undefined ? {} : { confirmedRemote }),
     }
-  if (confirmedRemote === undefined) {
-    // The record keeps the reason code; git's stderr goes to the operator only.
-    const retained = await retainImplementationResult(binding, input, claims, remote.reason, commits, commands)
-    const refusal = retainedRefusal(retained, remote.reason)
-    return remote.detail ? { ...refusal, detail: remote.detail } : refusal
-  }
+  if (confirmedRemote === undefined)
+    return retainUnconfirmedRemote(
+      () => retainImplementationResult(binding, input, claims, remote.reason, commits, commands),
+      remote.reason,
+      remote.detail,
+    )
   try {
     const retained = await retainImplementationResult(
       binding,
