@@ -18,7 +18,7 @@ export const SHA = /^[0-9a-f]{40}$/
 type Effect =
   | { command: 'push'; tip: string; from: string | null; pr: number | null }
   | { command: 'open-pr'; tip: string }
-  | { command: 'land'; pr: number; head: string }
+  | { command: 'land'; pr: number; head: string; spec: string }
   | { command: 'finish'; pr: number }
 export type Input = FeatureCoordinates & Effect
 export type Runtime = { cwd: string; gh: Gh; git: GitRunner }
@@ -179,7 +179,7 @@ async function land(
   input: Extract<Input, { command: 'land' }>,
   runtime: Runtime,
   live: Live,
-  refresh: () => Promise<void>,
+  refresh: (expectedSpecDigest: string) => Promise<void>,
 ) {
   const { repository, issue, pr, head } = input
   const { cwd, gh } = runtime
@@ -191,7 +191,7 @@ async function land(
   const rules = await gh(cwd, ['api', `repos/${repository}/rules/branches/${encodeURIComponent(live.base)}`])
   const reason = landRuleRefusal(rules)
   if (reason !== null) return { status: 'refused' as const, reason, ...details }
-  await refresh()
+  await refresh(input.spec)
   const current = await readFeaturePr(cwd, gh, repository, pr)
   if (current.base !== live.base || current.branch !== live.branch) throw new Error('pr-coordinates-mismatch')
   if (current.state !== 'OPEN' || current.head !== head) throw new Error('pr-head-changed')
@@ -273,10 +273,11 @@ async function requireDefaultBase({ cwd, gh }: Runtime, live: Live): Promise<voi
 }
 
 export async function act(input: Input, runtime: Runtime) {
-  const read = () => readLiveFeatureMandate({ ...input, ...runtime }, input.command !== 'finish')
+  const read = (expectedSpecDigest?: string) =>
+    readLiveFeatureMandate({ ...input, ...runtime }, input.command !== 'finish', expectedSpecDigest)
   const live = await read()
-  const refresh = async () => {
-    const current = await read()
+  const refresh = async (expectedSpecDigest?: string) => {
+    const current = await read(expectedSpecDigest)
     if (current.branch !== live.branch || current.base !== live.base) throw new Error('mandate-coordinates-changed')
   }
   if (input.command === 'finish') return finish(input, runtime, live, refresh)

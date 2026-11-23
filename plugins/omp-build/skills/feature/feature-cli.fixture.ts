@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
+import { resolveAcceptedSpec, resolveSpecEffective } from '../../dist/contracts.js'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { featureSpecDigest } from '../../roxabi/feature-spec-digest.ts'
 import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
 import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -121,6 +123,21 @@ export function world(bound = false, baseBranch = 'main') {
 }
 
 type Simulation = ReturnType<typeof world>
+
+export function acceptedDigest(f: Simulation, records: CanonicalRecord[] = [f.mandate]): string {
+  const histories = [fixtures.historyFrom(records)]
+  const accepted = resolveAcceptedSpec(f.mandate, histories)
+  if (!accepted.ok) throw new Error(JSON.stringify(accepted.evidence))
+  const { ref, inheritedOwnSpecRefs } = accepted.spec
+  const effective = resolveSpecEffective({
+    mode: 'historical',
+    own: ref,
+    versionVector: [ref, ...inheritedOwnSpecRefs],
+    histories,
+  })
+  if (!effective.ok) throw new Error(JSON.stringify(effective.diagnostics))
+  return featureSpecDigest(effective.value)
+}
 
 export async function invoke(
   f: Simulation,

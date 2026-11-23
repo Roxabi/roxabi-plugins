@@ -1,6 +1,5 @@
 import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import { canonicalValueDigest } from '../dist/contracts.js'
 import type { ContinueFeatureInput, ContinueFeatureResult } from '../roxabi/feature-contract.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
 import {
@@ -9,6 +8,7 @@ import {
   featureStopMessage,
   principalRefusalMessage,
 } from '../roxabi/feature-presentation.ts'
+import { featureSpecDigest } from '../roxabi/feature-spec-digest.ts'
 import { type OmpBuildExtensionApi, reportFeatureTerminalStatus } from './omp-controller'
 import type { Admission, FeatureReady } from './omp-feature-admission.ts'
 import type { FeatureOperationReportGuard } from './omp-feature-composition.ts'
@@ -59,7 +59,7 @@ function acceptedSpecContext({ acceptedSpec, acceptedBodySha256, liveIssueBodyDi
   const { criteria, invariants, exclusions } = spec
   return [
     '## Accepted Spec',
-    `spec: ${canonicalValueDigest(acceptedSpec)}`,
+    `spec: ${featureSpecDigest(acceptedSpec)}`,
     ...(liveIssueBodyDiffers ? ['The live issue body differs from the accepted snapshot.'] : []),
     '',
     '```json',

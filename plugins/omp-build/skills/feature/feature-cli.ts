@@ -5,7 +5,7 @@ import { act, type Input, messageOf, type Runtime, refusalReason, SHA } from './
 const USAGE = `Usage: bash <skill-dir>/trusted-bun.sh <skill-dir>/feature-cli.ts <command> --repo <owner/repo> --issue <N> --mandate <recordId> [args]
   push --tip <sha> [--from <sha>] [--pr <N>]
   open-pr --tip <sha>
-  land --pr <N> --head <sha>
+  land --pr <N> --head <sha> --spec <digest>
   finish --pr <N>`
 const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.-]+$/
 const POSITIVE = /^[1-9][0-9]*$/
@@ -13,7 +13,7 @@ const POSITIVE = /^[1-9][0-9]*$/
 const EFFECT_FLAGS = {
   push: ['tip', 'from', 'pr'],
   'open-pr': ['tip'],
-  land: ['pr', 'head'],
+  land: ['pr', 'head', 'spec'],
   finish: ['pr'],
 } as const
 
@@ -65,7 +65,11 @@ function argumentsFor(argv: readonly string[]): Input {
     return { ...coordinates, command, tip: sha('tip'), from, pr }
   }
   if (command === 'open-pr') return { ...coordinates, command, tip: sha('tip') }
-  if (command === 'land') return { ...coordinates, command, pr: number('pr'), head: sha('head') }
+  if (command === 'land') {
+    const spec = requireValue('spec')
+    if (!/^[0-9a-f]{64}$/.test(spec)) throw new Error('--spec must be a lowercase 64-character digest')
+    return { ...coordinates, command, pr: number('pr'), head: sha('head'), spec }
+  }
   return { ...coordinates, command: 'finish', pr: number('pr') }
 }
 

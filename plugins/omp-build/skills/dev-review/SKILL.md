@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
-version: 0.4.4
+version: 0.4.5
 ---
 
 # Dev review
@@ -19,7 +19,7 @@ Review the current head of one open pull request with agents other than its auth
    - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
    The change is `git diff <BASE_SHA>...<HEAD>`.
 5. Check out the reviewed tree apart from the current one, without running its hooks: `git -c core.hooksPath=/dev/null worktree add --detach <dir> <HEAD>`. Every source read of the review happens there. Remove it on every exit, a stop included: `git worktree remove --force <dir>`.
-6. **Composed:** use the bound issue and `## Accepted Spec` supplied by `/feature`, including inherited clauses and their source refs. Record its `spec: <digest>` value (64 lowercase hex); if the section or digest is missing or invalid, stop. Compare `acceptedBodySha256` with the hash of the live body (`(set -o pipefail; gh api repos/<owner>/<repo>/issues/<N> | jq -erj '.body | strings' | sha256sum)`). Report a mismatch, and use only the accepted clauses for the verdict. If the comparison is unavailable, report that too; it does not change the review scope. **Standalone:** read the unambiguous linked issue from the PR body (`Closes #N`, `References #N`, or a `UW #N` line) and use its criteria. The PR body is not proof of binding.
+6. **Composed:** review only the host's `## Accepted Spec` snapshot for the bound issue, including inherited clauses and their source refs. Record its `spec: <digest>` value (64 lowercase hex); if the section or digest is missing or invalid, stop. If you discover a newer accepted own or inherited Spec, stop without publishing review evidence or a verdict: report the accepted change and ask the operator to rerun `/feature` for a new snapshot. A live body edit alone is not evidence of acceptance. Compare `acceptedBodySha256` with the live body hash (`(set -o pipefail; gh api repos/<owner>/<repo>/issues/<N> | jq -erj '.body | strings' | sha256sum)`). Report a mismatch or an unavailable comparison; neither changes the review scope. **Standalone:** read the unambiguous linked issue from the PR body (`Closes #N`, `References #N`, or a `UW #N` line) and use its criteria. The PR body is not proof of binding.
 
 ## 2. Pick the reviewers
 

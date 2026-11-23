@@ -637,19 +637,19 @@ bash "<skill dir>/trusted-bun.sh" "<skill dir>/feature-cli.ts" <sub> --repo <own
 
 Every effect rechecks the live, applicable leaf mandate. Accepted or native children, unknown leaf status, and inactive or mismatched authority all refuse. `push` and `open-pr` require the mandate base to be the repository's default branch.
 
-For a composed delivery, `land` and `finish` require a successful `review` check on the exact PR head from the single App pinned by the base rules. On approval, `/dev-review` posts `review-verdict v1 head=<sha> approve evidence=<url>` for the Review Verdict workflow. A new head needs a fresh review and verdict.
+On approval, `/dev-review` posts `review-verdict v1 head=<sha> approve evidence=<url>` for the Review Verdict workflow. A new head needs a fresh review and verdict.
 
 | Subcommand | Checks and effect |
 |---|---|
 | `push --tip <sha> [--from <sha>] [--pr <N>]` | Verify the branch, ancestry from the base or `--from`, and the sole `origin` push URL immediately before writing. Omit `--from` only for an observed absent branch. Correction requires `--from` and the bound open `--pr` at that head. Push the exact commit with a lease and no tags; read back the remote tip and correction PR head. |
 | `open-pr --tip <sha>` | Verify the published tip and nonempty branch delta. Create or reuse one matching open PR and confirm its binding, adopting an authenticated successor binding when applicable. Refuse ambiguous matches or replacement of a closed or merged PR. |
-| `land --pr <N> --head <sha>` | Verify the bound PR and exact head. The active base rules must pin `review` to one App and must not require a merge queue. Attempt `gh pr merge <N> --repo <owner/repo> --merge --match-head-commit <sha>` once and read back the merge. GitHub enforces the `review` + `ci` ruleset; no auto-merge, bypass or `reviewed` label. |
-| `finish --pr <N>` | Verify the bound leaf PR is merged and use its merged head's review proof in `closeLinked` to calculate completion and confirm closure. Admissible historical structured-review proof remains supported. |
+| `land --pr <N> --head <sha> --spec <digest>` | Verify the bound PR, recheck the live mandate and effective accepted Spec, and reread the PR's base and head. The digest comes from the host's admission snapshot; a mismatch returns `spec-changed` without merging. The active base rules must pin `review` to one App and must not require a merge queue. Attempt `gh pr merge <N> --repo <owner/repo> --merge --match-head-commit <sha>` once and read back the merge. GitHub enforces `review` + `ci` on that head; no auto-merge, bypass or `reviewed` label. |
+| `finish --pr <N>` | Verify the bound leaf PR is merged and that its exact merged head has a successful `review` check from the App pinned by the base rules, or admissible historical structured-review proof. Use that proof in `closeLinked` to calculate completion and confirm closure. |
 
 **Known limits**
 
-- GitHub pins the merge head, not the base. The PR can be retargeted after `land`'s last read.
-- Which Spec a review covered is an instruction: `/dev-review` writes the Spec digest in its evidence header and `/feature` re-reviews when it differs; the CLI does not check it.
+- GitHub pins the merge head, not the base or Spec. The base or accepted Spec can still change after `land`'s final reads.
+- The CLI checks that the admission Spec is still current, not which Spec the review covered. `/dev-review` writes the digest in its evidence header and `/feature` re-reviews when it differs.
 
 Exit 0 emits one JSON status: `pushed`, `already-published`, `created`, `existing`, `merged` or `finished`. Exit 1 emits `refused`, `waiting` or `uncertain` with a reason; observe before retrying. Exit 2 is a usage error on stderr, with no effect.
 

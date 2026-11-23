@@ -3,12 +3,12 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N | resolve-interruption #N [--start <recordId>]]'
 description: Deliver a leaf UW through implementation, independent review, correction and protected merge.
-version: 0.1.18
+version: 0.1.19
 ---
 
 # Feature
 
-Start only with the installed command's appended `## Feature context`, `## Accepted Spec` and skill directory. A bare skill read grants no authority. Work in the named worktree. Plan, implement and review against the criteria, invariants, exclusions and inherited clauses in `## Accepted Spec`. Report a live issue body that differs; treat it as a proposal, not as requirements. Scope every GitHub query to the named repository.
+Start only with the installed command's appended `## Feature context`, `## Accepted Spec` and skill directory. A bare skill read grants no authority. Work in the named worktree. Plan, implement and review against the criteria, invariants, exclusions and inherited clauses in `## Accepted Spec`. Its `spec: <digest>` binds the effective accepted Spec snapshot taken by host admission for this `/feature` invocation. Report a live issue body that differs; treat it as a proposal, not as requirements. Scope every GitHub query to the named repository.
 
 Before planning or implementing, read the repository's default branch with `gh repo view <owner>/<repo> --json defaultBranchRef --jq '.defaultBranchRef.name'`. If unavailable or different from `base` in `## Feature context`, stop and report why: composed delivery and its required review verdict target only the default branch.
 
@@ -41,7 +41,7 @@ A current review is the latest review evidence comment by a writer (see [../dev-
 
 ## Land and finish
 
-- Observe required checks, including `review` and CI, on the exact current head. If pending, wait read-only for a bounded time. Immediately before calling `land`, re-read the open PR's head/base and its latest review. Land only when that review approves this head/base, names the current Accepted Spec digest, its published verdict points to that review comment, and required checks are green. If the digest is missing or differs, run composed `/dev-review` again; never land on a mismatch. The protected base is the merge lock; never bypass it or arm auto-merge. No verdict lock → stop for the operator.
+- Observe required checks, including `review` and CI, on the exact current head. If pending, wait read-only for a bounded time. Immediately before calling `land`, re-read the open PR's head/base and its latest review. Land only when that review approves this head/base, names the snapshot digest, its published verdict points to that review comment, and required checks are green. If the review digest is missing or differs from the snapshot, run composed `/dev-review` again; never land on a mismatch. Pass `--spec <digest>` from that approving review's header, not an independently computed digest. If `land` refuses with `spec-changed`, stop and tell the operator to rerun `/feature` to obtain a new Accepted Spec snapshot and review it. The protected base is the merge lock; never bypass it or arm auto-merge. No verdict lock → stop for the operator.
 - Once the bound PR is observed merged, call `finish` and report its URL, merge commit and confirmed UW completion. Offer `/cleanup` and, only for `release.model: staging-train`, `/promote`; leave both to the operator.
 
 ## Delivery CLI
@@ -57,7 +57,7 @@ bash "$FEATURE_SKILL_DIR/trusted-bun.sh" "$FEATURE_SKILL_DIR/feature-cli.ts" \
 |---|---|
 | `push` | `--tip <sha> [--from <sha>] [--pr <N>]` — correction requires `--from` and `--pr` |
 | `open-pr` | `--tip <sha>` |
-| `land` | `--pr <N> --head <sha>` |
+| `land` | `--pr <N> --head <sha> --spec <digest>` |
 | `finish` | `--pr <N>` |
 
 Exit 0 confirms one JSON status: `pushed`, `already-published`, `created`, `existing`, `merged` or `finished`. Exit 1 reports `refused`, `waiting` or `uncertain` with a reason; observe before taking another step. Exit 2 is usage error, no effect. Use only these commands for delivery writes, including base integration pushes.

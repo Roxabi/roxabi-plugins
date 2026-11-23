@@ -265,8 +265,24 @@ describe('installed /feature command', () => {
     await host.commands.get('feature')?.handler('#12', root)
     expect(recordedDigest(host.sent[3])).toMatch(/^[0-9a-f]{64}$/)
     expect(recordedDigest(host.sent[3])).not.toBe(originalDigest)
+
+    // With no inherited clauses, the ancestor version vector alone must change the digest.
+    const withoutClauses = { ...resolved, inherited: { invariants: [], exclusions: [] } }
+    resolveEffective.mockReturnValue({ ok: true, value: withoutClauses } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    resolveEffective.mockReturnValue({
+      ok: true,
+      value: { ...withoutClauses, versionVector: [own, updatedParent] },
+    } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    const vectorBefore = recordedDigest(host.sent[4])
+    const vectorAfter = recordedDigest(host.sent[5])
+    expect(vectorBefore).toMatch(/^[0-9a-f]{64}$/)
+    expect(vectorAfter).toMatch(/^[0-9a-f]{64}$/)
+    expect(vectorAfter).not.toBe(vectorBefore)
+    expect(host.sent[5]).toBe(host.sent[4]?.replace(`spec: ${vectorBefore}`, `spec: ${vectorAfter}`))
     expect(exec).not.toHaveBeenCalled()
-    expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 4)
+    expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 6)
     expect(reviewControllerFor(host.pi).active()).toBeNull()
   })
 
