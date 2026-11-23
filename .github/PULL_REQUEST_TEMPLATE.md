@@ -22,7 +22,9 @@
 <!-- A merge into main needs the `review` check on the head commit. After an
 independent review of that head, an account with write access comments, on its
 own line: review-verdict v1 head=<40-hex sha> approve evidence=<https url>
-A new commit needs a new verdict; a clean update from main keeps the check, and
-Dependabot minor/patch updates get it without one. See CONTRIBUTING.md § PR conventions. -->
+Any new commit needs a new verdict, with two exceptions: a clean merge of main into
+the reviewed head (as `gh pr update-branch` makes; a rebase does not count) keeps
+the check, and a Dependabot minor/patch update whose every commit is authored by
+dependabot[bot] gets it without one. See CONTRIBUTING.md § PR conventions. -->
 
 - [ ] PR into main: the final head has a green `review` check
