@@ -5,7 +5,13 @@ import type { GitRunner } from '../workflow-checkout.ts'
 const branch = 'feat/42-save'
 const tip = 'a'.repeat(40)
 
-function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection lost') {
+function pushUrlRead(pushUrl: string | null) {
+  return pushUrl === null
+    ? { code: 2, stdout: '', stderr: "error: No such remote 'origin'" }
+    : { code: 0, stdout: `${pushUrl}\n`, stderr: '' }
+}
+
+function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection lost', pushUrl: string | null = null) {
   const calls: string[][] = []
   const git: GitRunner = async (_cwd, args) => {
     calls.push(args)
@@ -14,6 +20,7 @@ function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection los
     }
     if (args[0] === 'ls-remote') return { code: 0, stdout: `${remoteTip}\trefs/heads/${branch}\n`, stderr: '' }
     if (args[0] === 'push') return { code: pushCode, stdout: '', stderr: pushCode === 0 ? '' : pushStderr }
+    if (args.join(' ') === 'remote get-url --push origin') return pushUrlRead(pushUrl)
     throw new Error(`unexpected git call: ${args.join(' ')}`)
   }
   return { git, calls }
@@ -63,30 +70,33 @@ describe('implementation branch effect authority', () => {
   })
 
   it.each([
-    ['connection lost\n', 'git push: connection lost'],
-    ['', 'git push: no stderr'],
+    ['git@github.com:o/r.git', 'connection lost\n', 'git push: connection lost'],
+    ['git@github.com:o/r.git', '', 'git push: no stderr'],
     [
-      "fatal: unable to access 'https://x-access-token:ghs_secret@github.com/o/r.git/': 403",
-      "git push: fatal: unable to access '<url>",
+      'https://x-access-token:ghs_secret_value@github.com/o/r.git',
+      "fatal: unable to access 'https://x-access-token:ghs_secret_value@github.com/o/r.git/': 403",
+      "git push: fatal: unable to access 'https://***:***@github.com/o/r.git/': 403",
     ],
     [
-      "To https://example.com/o/r.git?q='x'&access_token=ghs_secret\n ! [rejected] feat/42-save (fetch first)",
-      'git push: To <url>\n ! [rejected] feat/42-save (fetch first)',
+      'https://example.com/o/r.git?q=x&access_token=ghs_secret_value',
+      "To https://example.com/o/r.git?q='x'\u2028&access_token=ghs_secret_value\n ! [rejected] feat/42-save (fetch first)",
+      "git push: To https://example.com/o/r.git?q='x'\u2028&access_token=***\n ! [rejected] feat/42-save (fetch first)",
     ],
-  ])(
-    'distinguishes a failed push from a remote mismatch and reports %j without credentials',
-    async (stderr, detail) => {
-      const { git, calls } = branchGit('b'.repeat(40), 1, stderr)
-      const allowed = async () => ({ ok: true as const })
-      const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, {
-        effect: allowed,
-        beforePush: allowed,
-      })
+    [
+      'https://user:p%40ss-word-123@example.com/o/r.git',
+      'remote: bad password p@ss-word-123 (p%40ss-word-123)',
+      'git push: remote: bad password *** (***)',
+    ],
+    ['https://exa mple.com/o/r.git', 'token everywhere', 'git push: stderr withheld (push URL unparseable)'],
+    [null, 'token everywhere', 'git push: stderr withheld (push URL unreadable)'],
+  ])('reports a failed push from %j without the credentials of the push URL', async (pushUrl, stderr, detail) => {
+    const { git, calls } = branchGit('b'.repeat(40), 1, stderr, pushUrl)
+    const allowed = async () => ({ ok: true as const })
+    const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
 
-      expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail })
-      expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
-    },
-  )
+    expect(result).toEqual({ ok: false, reason: 'implementation-push-failed', detail })
+    expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
+  })
 
   it('distinguishes an unconfirmed remote tip after a successful push', async () => {
     const { git, calls } = branchGit('b'.repeat(40))
