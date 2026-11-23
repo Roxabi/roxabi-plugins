@@ -24,4 +24,4 @@ independent review of that head, an account with write access comments, on its
 own line: review-verdict v1 head=<40-hex sha> approve evidence=<https url>
 A new commit needs a new verdict; see CONTRIBUTING.md § PR conventions. -->
 
-- [ ] Verdict posted for the current head
+- [ ] Verdict posted for the final head (after the last push)
