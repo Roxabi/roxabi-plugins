@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { fixtureReviewClassCatalogues, freshReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { reviewRoot, TEST_SCOPE } from '../../testing/record-builders.ts'
-import { history } from '../../testing/record-history.ts'
+import { history, observedComment, operation } from '../../testing/record-history.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Result } from '../result.ts'
@@ -51,6 +51,17 @@ describe('review recovery', () => {
     expect(ordinary).toMatchObject({ ok: false })
     if (!ordinary.ok)
       expect(ordinary.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'incomplete' })]))
+
+    const terminalHistory = history([root, historicalBinding, disposition.value])
+    const forged = operation(disposition.value, { parts: [observedComment({ author: 'other-bot' })] })
+    expect(
+      readReviewRecovery({ ...terminalHistory, operations: [...terminalHistory.operations.slice(0, -1), forged] }),
+    ).toMatchObject({
+      ok: false,
+      diagnostics: [
+        expect.objectContaining({ code: 'unbound', message: expect.stringContaining('unauthorized native author') }),
+      ],
+    })
   })
 
   test('surfaces an unconsumed replacement grant without admitting ordinary progression', () => {
@@ -120,7 +131,8 @@ describe('review recovery', () => {
     } as never)
 
     expect(grant).toMatchObject({ ok: true })
-    if (!grant.ok) return
+    if (!grant.ok || grant.value.kind !== 'review-replacement-grant')
+      throw new Error('invalid historical grant fixture')
     expect(grant.value.inputs).toHaveLength(3)
     expect(grant.value.inputs).toEqual(
       expect.arrayContaining([root.recordId, disposition.value.recordId, freshBinding.value.recordId]),
@@ -144,6 +156,27 @@ describe('review recovery', () => {
         normalProgression: 'stopped',
         replacementGrant: { recordId: grant.value.recordId },
       },
+    })
+
+    const prefix = [root, historicalBinding, disposition.value, freshBinding.value]
+    const recordedPrefix = history(prefix)
+    const partialGrant = operation(grant.value, { status: 'incomplete', record: null })
+    expect(
+      readReviewRecovery({ ...recordedPrefix, operations: [...recordedPrefix.operations, partialGrant] }),
+    ).toMatchObject({
+      ok: false,
+      diagnostics: [expect.objectContaining({ code: 'incomplete', message: expect.stringContaining('is partial') })],
+    })
+
+    const conflictingGrant = { ...grant.value, payload: { ...grant.value.payload, candidateGitSHA: '3'.repeat(40) } }
+    expect(readReviewRecovery(history([...prefix, grant.value, conflictingGrant]))).toMatchObject({
+      ok: false,
+      diagnostics: [
+        expect.objectContaining({
+          code: 'conflict',
+          message: expect.stringContaining('contradictory duplicate evidence'),
+        }),
+      ],
     })
   })
 

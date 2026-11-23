@@ -15,10 +15,12 @@ import * as issues from '../../roxabi/uw-spec/index.ts'
 import { createExtensionApiStub, fixtureEventBus } from '../../testing/extension-api-stub'
 import { provisionNativeRoot } from '../../testing/native-root-fixture.ts'
 import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
+import { batch, cleanupFixtureActions } from '../../testing/review-runtime-support.ts'
 import ompBuildExtension from '../index'
 import { INSTALL_ROOT } from '../install-root.ts'
 import type { OmpBuildExtensionOptions } from '../omp-commands'
 import { reviewControllerFor } from '../omp-controller'
+import type { NativeStop } from '../review-runtime/contracts.ts'
 
 const root = {
   ...consultableAgentRoot(),
@@ -33,6 +35,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  cleanupFixtureActions()
   vi.restoreAllMocks()
 })
 
@@ -351,6 +354,55 @@ describe('installed /feature command', () => {
     await unconfirmed.commands.get('feature')?.handler('pause #12', root)
     expect(unconfirmed.sent).toEqual(['pause-unconfirmed: pause-unconfirmed'])
     expect(unconfirmed.sent.join('\n')).not.toContain('disarmed')
+  })
+
+  it.each([
+    ['pause', 'pause-confirmed: operator'],
+    ['abandon', 'feature-abandoned'],
+  ] as const)('joins the live native stop before /feature %s confirms', async (control, confirmation) => {
+    const stopping = Promise.withResolvers<{ reason: string; stop: NativeStop }>()
+    const release = Promise.withResolvers<void>()
+    const continueFeature = vi.fn(async (_input: ContinueFeatureInput) =>
+      control === 'pause'
+        ? ({ kind: 'paused', confirmed: true, reason: 'operator' } as const)
+        : ({ kind: 'abandoned', confirmed: true } as const),
+    )
+    const host = installed({ featureWorkflow: workflow({ continueFeature }) })
+    const command = host.commands.get('feature')
+    if (!command) throw new Error('feature command not registered')
+    await host.sessions.get('session_start')?.({ signal: new AbortController().signal }, root)
+    const controller = reviewControllerFor(host.pi)
+    const pending = batch(['pending-review'])
+    controller.activate(pending, {
+      onComplete: () => {
+        throw new Error('stopped batch cannot complete')
+      },
+      onStop: async (reason, _result, stop) => {
+        stopping.resolve({ reason, stop })
+        await release.promise
+      },
+    })
+    const running = command.handler(`${control} #12`, root)
+    try {
+      const first = await Promise.race([
+        stopping.promise,
+        running.then(() => {
+          throw new Error('command returned before native stop')
+        }),
+      ])
+      expect(first).toEqual({
+        reason: control,
+        stop: { kind: 'interrupted', origin: 'host-stop', proof: 'not-dispatched' },
+      })
+      expect(continueFeature).not.toHaveBeenCalled()
+      expect(host.sent).not.toContain(confirmation)
+    } finally {
+      release.resolve()
+      await running
+    }
+    expect(continueFeature).toHaveBeenCalledWith(expect.objectContaining({ control }))
+    expect(host.sent).toContain(confirmation)
+    expect(controller.active()).toBeNull()
   })
 
   it('does not claim abandoned unless the product confirmed publication', async () => {
