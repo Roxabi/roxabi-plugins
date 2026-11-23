@@ -1,45 +1,56 @@
 ---
 name: dev-review
 argument-hint: '[#PR]'
-description: Native structured review: bind → chunk/panel → recall → synthesis → confirmed records.
-version: 0.3.0
+description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
+version: 0.4.0
 ---
 
-# Native review
+# Dev review
 
-`dev-review` is the product entry. It never renders, posts, or parses a parallel Markdown review protocol.
+Review the current head of one open pull request with agents other than its author. Leave the findings on the PR and, when the head is approved, post the head-bound verdict. `/dev-review` never edits code, pushes or merges.
 
-## Bind
+## 1. Bind the PR
 
-1. Resolve exactly one existing target before work. For a PR use `resolveReviewPr`; unknown, closed, stopped, ambiguous, moved head, or a spent bound stops. Standalone may use only an existing local target; never invent a PR.
-2. Capture `REVIEWED_HEAD` and `captureReviewInput(cwd, pr, REVIEWED_HEAD)`. Before every **new dispatch**, decision, final record, or stop publication, call `validateReviewInput(cwd, pr, REVIEWED_HEAD, input)` again. If binding moves while an already-authorized batch runs, retain every observed native output under its confirmed old root first, then stop before another dispatch/decision/final record; never retarget or rebind.
-3. Baseline is default. Candidate evidence policy remains advisory unless the existing accepted reference independently admits it; do not add policy rules.
+1. Target: the `#PR` argument, else the open PR of the current branch: `gh pr view [<PR>] --json number,state,url,headRefOid,baseRefName,body`.
+2. No open PR → stop and say so: `/dev-review` runs only on an existing PR. A PR whose base is not the repository's default branch (`gh repo view --json defaultBranchRef`) is not reviewed yet: a stacked PR is reviewed once it targets the default branch.
+3. Record `HEAD` = `headRefOid` (40 hex) and `BASE` = `baseRefName`. The review covers that commit only.
+4. Fetch from the PR's own repository (its URL without `/pull/<PR>`), not `origin`, which may be a fork:
+   - `git fetch <repo> refs/heads/<BASE>`, then `BASE_SHA=$(git rev-parse FETCH_HEAD)`;
+   - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
+   The change is `git diff <BASE_SHA>...<HEAD>`.
+5. Check out the reviewed tree apart from the current one, without running its hooks: `git -c core.hooksPath=/dev/null worktree add --detach <dir> <HEAD>`. Every source read of the review happens there. Remove it on every exit, a stop included: `git worktree remove --force <dir>`.
+6. Read the linked issue (`Closes #N` / `References #N` in the PR body): its criteria are what the change must meet.
 
-The installed product resolves the exact candidate head itself, invokes `captureReviewInput`, and refuses every unbound/stopped target. Do not recreate this binding with an ad-hoc shell helper.
+## 2. Pick the reviewers
 
-## Prepare native product
+- Always `R-adversarial`. It also covers the OWASP lens.
+- Add from the diff:
+  - `R-architect`: new interfaces, cross-module or data-flow changes;
+  - `R-security-auditor`: auth, secrets, tokens, crypto, permissions, CI credentials;
+  - `R-tester`: test changes, or behavior changed without a test;
+  - `R-devops`: CI workflows, dependencies, build, configuration.
+- Reviewers are separate read-only agents. The session that wrote the change does not review it.
+- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the issue criteria, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
 
-Before preparation, read `review-classes.yml`, `root-causes.md`, `evidence-policy.md`, and applicable `review-blind-spots.md` / `review-smells.md`. Their semantic requirements remain authoritative; native records transport their results and do not replace their policy or causal admission rules.
+## 3. Consolidate
 
-Use the installed `omp-build` review product, not a shell runner or a replacement panel:
+- Every spawned reviewer must return a completed result; `R-adversarial` is mandatory. Rerun a reviewer that failed, was cancelled or returned nothing; without its result there is no approval.
+- Merge duplicates. Check each blocking finding in the review worktree. Only the reviewer that raised a blocker drops it: when the code at `HEAD` seems to refute it, send that evidence to that reviewer; the blocker stays unless it withdraws it.
+- Verdict: **approve** when every reviewer completed and no blocking finding remains, else **request changes**.
 
-- Parse the full diff with `chunker.py`, produce every boundary digest with `digest.py`, and preserve their ordered outputs.
-- Allocate every chunk with `roster.allocateReview`; retain its full allocation. `review_halt` stops. Existing tier $\tau \in \{S,F\text{-lite},F\text{-full}\}$ remains host-selected; a parent range is not silently tier S.
-- Read `review-classes.yml`; only canonical classes can trigger recall. `candidate/<slug>` is advisory.
-- Publish and read back the immutable initial `review-attempt` before dispatch. Initial PR inventory has `subject:{kind:'pull-request'}`; parent range inventory has `subject:{kind:'epic-range',range:'<40hex>..<40hex>'}`. Later recall/synthesis inventories inherit the root; do not repeat `subject`.
-- **Recall** — index report/callsite associations. Trigger a canonical non-candidate class only at $\ge2$ chunks and $\ge3$ unique callsites. Recall uses `R-review-recall`, the explicitly named blocking, read-only Roxabi profile configured with the bundled scout's `@smol` role and read-only tool subset; it is not the bundled `scout` or a scheduler replacement. Its terminal strict result is required before synthesis.
+## 4. Publish on the PR
 
-## Stages
+1. Re-read the PR. If its head is no longer `HEAD` or its base is no longer `BASE`, stop: the review is stale; run `/dev-review` again.
+2. Post one comment (`gh pr comment <PR> --body-file <file>`): `## Review — head <HEAD>`, the reviewers used, the findings (blocking first) with `file:line`, then the verdict. Keep it public-safe: no secrets, private paths, raw logs or client data.
+3. On approve, post a second comment whose only line is:
 
-`spec → panel → class index/recall → strict synthesis → confirmed records` is one product continuation, not an orchestration transcript.
+   ```text
+   review-verdict v1 head=<HEAD> approve evidence=<URL of the review comment>
+   ```
 
-1. **Initial** — required spec and panel slots use strict schemas. Preserve raw attempts and each child identity before inspecting the structured report. The outer task success does not make a child valid: every required `event.details.results` child needs expected ID, exitCode 0, no error/abort, and `structuredOutput.status === 'valid'`.
-2. **Recall** — use the confirmed class index and `R-review-recall`; its strict terminal result is required before synthesis.
-3. **Synthesis** — after all required source slots are retained and valid, use the blocking `R-review-synthesis` role. It alone classifies identities, final labels, impact, merges, and causes. Core only validates references/conservation and derives labels/groups/verdict.
-4. **Publication** — revalidate binding, publish canonical contribution/decision records through the GitHub adapter, and read them back. A PR publishes only its final `review`; a parent range never publishes `review` or consumes PR rounds. Its driver publishes its domain `epic-event` from the confirmed decision/inventory references and exact range.
+   The Review Verdict workflow turns it into the `review` check that the `PR_Main` ruleset requires next to `ci` (CONTRIBUTING.md § PR conventions). The account posting it needs write access. A new commit needs a new review and a new verdict.
+4. On request changes, post no verdict line. The next step is correcting the findings on the PR branch, pushing, then `/dev-review` again.
 
-Any incomplete or unusable required result stops. Retain raw partial output, including extractable reports, rather than replacing it with `[]` or a successful empty finding list. A third-red or third-green+CI-red stop remains sticky and is published as canonical `stop` before continuation/disarm.
+## 5. Report
 
-## Next action
-
-`deriveReviewState`/`nextReviewStep` derive the specialized PR review state. Standalone `/dev-review` ends with confirmed review records and grants no landing authority. Under `/feature`, completion returns to `continueFeature` → `reconstructWorkflow` before selecting the next lifecycle action. `/fix` consumes confirmed records by reference without reclassifying findings. Human choice remains only at the existing explicit decision boundaries; no routine continuation confirmation is introduced.
+Remove the review worktree. Report one line: PR, `HEAD`, verdict, comment URLs.

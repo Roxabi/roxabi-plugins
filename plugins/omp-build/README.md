@@ -419,7 +419,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and 0.21.0 through 0.21.10 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and 0.21.0 through 0.21.11 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -507,9 +507,9 @@ Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds th
 | `/promote` | `registerCommand('promote')`. Dumps `skills/promote/SKILL.md`. User lane. |
 | `/cleanup` | `registerCommand('cleanup')`. Loads the worktree-only guide; inventory and confirmed single-path removals use its guarded CLI. |
 | `/ci-watch` | `registerCommand('ci-watch')`. Dumps `skills/ci-watch/SKILL.md`. User lane. |
-| `/dev-review` | `registerCommand('dev-review')`. Dispatches the host-authorized native review. Not a skill dump. |
+| `/dev-review` | `registerCommand('dev-review')`. Dumps `skills/dev-review/SKILL.md`: reviewer agents on an open PR head, a findings comment, the verdict line when approved. User lane. |
 | `/fix` | `registerCommand('fix')`. Dispatches the host-authorized native correction. Not a skill dump. |
-| `omp_build_start_review` | `registerTool`. Same review dispatch, model lane. Not execution authority. |
+| `omp_build_start_review` | `registerTool`. Native review whose records `/fix` and the `/feature` lifecycle consume, until they move to instructions (#1037). Model lane. Not execution authority. |
 | `omp_build_recover_interrupted_fix` | `registerTool`. Inspect one PR's interrupted correction and offer an exact-state root-operator confirmation. Accepts only `{ pr }`; host write approval and current authority are required. Neutral closure or unstarted existing-review adoption only; never landing authority. |
 | `omp_build_prepare_checkout` | `registerTool`. Canonical checkout for one unambiguous issue reference. A pull-request number checks out that request's existing head instead of minting an issue branch. Returns `ready`, `move`, or `blocked` with the path. Host write approval. Does not publish authority, bootstrap, resume, move the session, or simulate `/feature`. |
 | `omp_build_execute_native_batch` | Restricted owned execution tool. Accepts only `{ batchId }` for an announced, sealed batch; it does not authorize or publish work. |
@@ -555,7 +555,7 @@ If a remote branch and tip were confirmed before a later publication refusal or 
 
 Implementation command claims contain only `toolCallId`, `command` and `exitCode`; a claim is not an observation. Criterion evidence is admitted against matching completed host captures, with genuinely observed output, working directory and code linkage. Combined output remains combined unless separate streams were actually observed. A model's printed output, asserted SHA or selected tool ID alone cannot establish that linkage; an unobserved linkage stays explicitly unverified.
 
-Native `/dev-review` runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` uses `R-review-fix-intake` and `R-review-fix-synthesis` for a standalone request; a review-bound request instead consumes the already-confirmed decision unchanged, without new intake or synthesis. Correction uses `R-review-fix-apply` and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
+The native review (`omp_build_start_review` and the `/feature` review step) runs spec → panel → recall → synthesis and publishes the confirmed records. Native `/fix` uses `R-review-fix-intake` and `R-review-fix-synthesis` for a standalone request; a review-bound request instead consumes the already-confirmed decision unchanged, without new intake or synthesis. Correction uses `R-review-fix-apply` and `R-review-fix-falsify`. It does not edit inline in the orchestrator turn and does not revive the absent `R-fixer`. Correction records set `landing: false`.
 
 Correction mandates use the same strict own-UW contract. A bound PR reuses its real accepted UW snapshot, tier and durable identity references, with correction permission but no landing permission. A PR without an authenticated UW binding refuses `fix-own-uw-required` before publication or dispatch; neither its prose nor a correction-scope string becomes an invented `C1`.
 
@@ -589,8 +589,8 @@ The full original review input is checked at entry. Subsequent owned correction 
 commit, proof and head fences, rather than requiring the local HEAD to remain the original review's HEAD.
 
 Feature-owned PR and parent reviews check local continuation before authorization, after authorization before publishing
-the inventory, and before native activation. Standalone `/dev-review` and `omp_build_start_review` remain independent
-of Feature inhibition. Native Feature ownership is registered before asynchronous work and is not recreated by a stop
+the inventory, and before native activation. Standalone `omp_build_start_review` remains independent
+of Feature inhibition; `/dev-review` runs no native work. Native Feature ownership is registered before asynchronous work and is not recreated by a stop
 callback; passive diagnostics remain visible under inhibition.
 
 An already-engaged GitHub publication is not rolled back. An interrupted inventory can remain explicitly pending:
@@ -813,8 +813,7 @@ edited selected review, mandate or binding record. Every posted review counts, w
 before it. Older accounting comments and the `## Review Fixes Applied` receipt
 decide nothing.
 
-The canonical choices and escalation dossier live in `skills/dev-review/SKILL.md`
-Phase 8. `continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle
+`continueFeature` → `reconstructWorkflow` selects the next Feature lifecycle
 action. `nextReviewStep` retains specialized PR review/bound policy; `landPr` and
 `applyCiWatchExit` retain guarded landing/watch execution, with shared
 `requireLandingMandate` admission at actual landing. Explicit standalone review
@@ -917,7 +916,7 @@ Guards are **off** unless the project declares the host-neutral contract (`.dev/
 
 `omp/guards.ts`, `hooks/`, `agent-sources/R-*` (except `R-advisor`) and `skills/shared/` originate in a **self-contained snapshot** (ADR-020): omp-build resolves nothing through a sibling plugin at runtime, so it stays installable on its own. The snapshot is not resynced. Model selection and the Discovery rules on the five review agents are maintained local divergences, not a resync.
 
-`skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. `skills/dev-review/SKILL.md` Phase 1 remains an in-plugin caller of `detect_base_branch`; cleanup no longer classifies or deletes branches.
+`skills/shared/` holds `lib.sh` (base-branch / worktree helpers, sourced as `. "$SCRIPT_DIR/../shared/lib.sh"`) and its `artifact-classify.ts` closure. No `references/` directory travels: the one reference a snapshotted agent cited is inlined into `R-architect` itself, because a `${CLAUDE_PLUGIN_ROOT}` token only expands in SKILL.md bodies — never in an agent body, and never at all in this plugin. No skill sources `lib.sh` any more; only its tests run it. Cleanup no longer classifies or deletes branches.
 
 > **Known caveat, this slice only.** While both this plugin and `dev-core` are installed, both interceptors see the same `tool_call` and reach the same verdict — the snapshots are byte-identical and read the same escape hatch. Expect the refusal, and the no-contract warning, to be reported **once per plugin**: each extension owns a private warned-cwd set, so neither dedupes the other.
 
@@ -961,15 +960,15 @@ For built-in task spawns without a `model`: explicit call model, then `task.agen
 | Skill | Lane |
 |---|---|
 | `feature` | Installed `/feature` command. `SKILL.md` is the reference, not a dumped lifecycle. |
-| `dev-review` | `/dev-review` and `omp_build_start_review` · native spec → panel → recall → synthesis |
+| `dev-review` | `/dev-review` · reviewer agents (`R-adversarial` floor, others by diff) on an open PR head; findings comment and verdict line. The native spec → panel → recall → synthesis stays behind `omp_build_start_review` and the `/feature` review step until #1037 moves them |
 | `fix` | `/fix` · native correction profiles; the Feature review-bound handoff starts the same path; not an inline walk |
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` · read-only inventory, then explicitly selected guarded removal; optional manual `--force` requires local-data discard approval; branches preserved |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
 
-`dev-review` and `fix` dispatch native pipelines, not an inline Markdown walk. Findings identify a local accepted criterion/invariant or explicitly declare outside-Spec work; outside-Spec findings may still block. Each cause receives an evidence-backed [cause disposition](GLOSSARY.md): fix in the original UW, propose a sister that blocks the original, propose a sister after the original, or retain a report on the original UW without creating an issue. Missing or contested blocking evidence stays blocking for motivated operator adjudication; it never triggers a blind fix or automatic report. Exclusions cover only explicitly excluded additional work, not introduced regression, security defects or invariant violations. A sister is created only after genuine confirmation of its exact framed proposal, under the same parent and through the existing UW writer. Active or indeterminate parent delivery holds the addition; accepted coverage belongs to the parent capability. No grouped nonblocking issue is created.
+The native review and `fix` dispatch native pipelines, not an inline Markdown walk. Findings identify a local accepted criterion/invariant or explicitly declare outside-Spec work; outside-Spec findings may still block. Each cause receives an evidence-backed [cause disposition](GLOSSARY.md): fix in the original UW, propose a sister that blocks the original, propose a sister after the original, or retain a report on the original UW without creating an issue. Missing or contested blocking evidence stays blocking for motivated operator adjudication; it never triggers a blind fix or automatic report. Exclusions cover only explicitly excluded additional work, not introduced regression, security defects or invariant violations. A sister is created only after genuine confirmation of its exact framed proposal, under the same parent and through the existing UW writer. Active or indeterminate parent delivery holds the addition; accepted coverage belongs to the parent capability. No grouped nonblocking issue is created.
 
-They read their own bundled files through `skill://dev-review/<file>`. `lib.sh` is the exception: it sits one level up, in a non-skill directory, and `skill://` rejects `..`, so `dev-review` Phase 1 traverses from `$SKILL_DIR` instead. **Nothing in this plugin exports `SKILL_DIR`** — only the registered commands print a skill directory (`omp/index.ts`) — so that fence asserts the variable (`${SKILL_DIR:?…}`) and stops when it is unset, rather than sourcing `/../shared/lib.sh` and detecting a base branch against nothing.
+`/dev-review` finds its checklists (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`) through the `[Skill directory: …]` line that the registered command appends to the body.
 
 `promote` and `cleanup` remain optional: **offered after land, never automatic,
 and never inside the review→fix loop**. `/feature` offers `promote` only for
@@ -1068,7 +1067,7 @@ issue numbers and excludes unattributed shells. `--report-only` stops after
 inventory; `--yes` is rejected. Branch deletion, fetch/prune, GitHub labels and
 CI cancellation are outside this workflow and require separate operator mandates.
 
-**The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
+**The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the reviewer brief from `skills/dev-review/SKILL.md` is the contract they actually obey.
 
 ## Maintenance
 

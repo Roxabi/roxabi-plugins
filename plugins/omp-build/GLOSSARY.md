@@ -309,8 +309,8 @@ In-process OMP `tool_call` interceptor (principal freeze, bare `bun test`, secre
 _Avoid_: hook (Claude `hooks.json`), lefthook (commit/push persist law)
 
 **dev-review**:
-The native review product on OMP: spec, panel, recall, synthesis, and confirmed canonical records. Named `dev-review`, not `R-dev-review`.
-_Avoid_: a Markdown review protocol, R-dev-review as the skill name, code-review (Matt), /review (host builtin)
+The review skill on OMP: reviewer agents chosen by diff (`R-adversarial` floor) review an open PR head, the findings go in one PR comment, and an approved head gets the `review-verdict v1` line. Named `dev-review`, not `R-dev-review`. The native spec → panel → recall → synthesis review stays behind `omp_build_start_review` and the `/feature` review step until #1037 moves them.
+_Avoid_: R-dev-review as the skill name, code-review (Matt), /review (host builtin)
 
 **fix**:
 The native correction that applies each established `fix-original` cause's one plan through dedicated correction profiles, then falsifies that plan. It does not walk findings inline and does not revive `R-fixer`. Every cause receives its evidence-backed disposition; pending blocking causes remain blocking, sisters require exact operator confirmation and reports stay on their original UW. A failed correction retains its decision and execution evidence; it is not silently reported or filed. A correction never lands.

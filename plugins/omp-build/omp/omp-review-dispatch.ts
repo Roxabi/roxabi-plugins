@@ -120,7 +120,7 @@ async function dispatchDefaultReview(
   if (hasOwnedFixRun(pi)) throw new Error('fix-run-already-active')
   const supplied = args.trim()
   if (supplied !== '' && !/^[1-9]\d*$/.test(supplied))
-    throw new Error('/dev-review accepts one positive pull-request number')
+    throw new Error('omp_build_start_review accepts one positive pull-request number')
   const contextWindow = ctx.model?.contextWindow
   if (typeof contextWindow !== 'number' || !Number.isSafeInteger(contextWindow) || contextWindow <= 0)
     throw new Error('current model has no usable context window')

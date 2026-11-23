@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.11 (unreleased)
+
+- `/dev-review` becomes instructions instead of a native dispatch. The command loads `skills/dev-review/SKILL.md`: bind an open PR that targets the default branch, its head and base, fetched from the PR's own repository; review in a detached worktree at that head; spawn read-only reviewer agents (`R-adversarial` always, `R-architect`, `R-security-auditor`, `R-tester` or `R-devops` by diff) and approve only when every one completed and no blocking finding remains; re-check head and base, post one findings comment and, when the head is approved, the `review-verdict v1 head=<sha> approve evidence=<url>` line that the `PR_Main` ruleset requires as `review`. Without an open PR it stops. The native review stays behind `omp_build_start_review` and the `/feature` review step until they move (#1037); the test driver starts it through that tool.
+- Recognize 0.21.11 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.10 (unreleased)
 
 - Push the verified implementation tip and show git's stderr when that push is rejected. `/feature` checked that `HEAD` was the verified tip, then pushed `HEAD:refs/heads/<branch>`, so a checkout moved in between could publish another commit; it now pushes `<tip>^{commit}:refs/heads/<branch>`, which a local branch named like the SHA cannot shadow. A rejected push stopped with `feature-stopped: implementation-push-failed` and dropped git's message; the notification now ends with `· git push: <stderr>`, `no stderr` when empty, also when retaining the RESULT refuses or throws (then after the retention failure, as `implementation-push-failed · git push: <stderr>`). The stderr is whole: git can echo a credential (a credential-bearing push URL, curl tracing), which the session's agent would see anyway when running git itself. The RESULT record keeps the reason code only.
