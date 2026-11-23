@@ -2,7 +2,7 @@
 
 ## 0.21.11 (unreleased)
 
-- `/dev-review` becomes instructions instead of a native dispatch. The command loads `skills/dev-review/SKILL.md`: bind an open PR and its head, spawn read-only reviewer agents (`R-adversarial` always, `R-architect`, `R-security-auditor`, `R-tester` or `R-devops` by diff), check blocking findings against the code, post one findings comment and, when the head is approved, the `review-verdict v1 head=<sha> approve evidence=<url>` line that the `PR_Main` ruleset requires as `review`. Without an open PR it stops. The native review stays behind `omp_build_start_review` and the `/feature` review step until they move (#1037).
+- `/dev-review` becomes instructions instead of a native dispatch. The command loads `skills/dev-review/SKILL.md`: bind an open PR that targets the default branch, its head and base, fetched from the PR's own repository; review in a detached worktree at that head; spawn read-only reviewer agents (`R-adversarial` always, `R-architect`, `R-security-auditor`, `R-tester` or `R-devops` by diff) and approve only when every one completed and no blocking finding remains; re-check head and base, post one findings comment and, when the head is approved, the `review-verdict v1 head=<sha> approve evidence=<url>` line that the `PR_Main` ruleset requires as `review`. Without an open PR it stops. The native review stays behind `omp_build_start_review` and the `/feature` review step until they move (#1037); the test driver starts it through that tool.
 - Recognize 0.21.11 under the bounded PR-binding policy while preserving earlier supported versions.
 
 ## 0.21.10 (unreleased)

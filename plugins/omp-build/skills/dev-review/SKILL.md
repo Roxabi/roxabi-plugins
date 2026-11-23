@@ -12,10 +12,14 @@ Review the current head of one open pull request with agents other than its auth
 ## 1. Bind the PR
 
 1. Target: the `#PR` argument, else the open PR of the current branch: `gh pr view [<PR>] --json number,state,url,headRefOid,baseRefName,body`.
-2. No open PR → stop and say so: `/dev-review` runs only on an existing PR.
-3. Record `HEAD` = `headRefOid` (40 hex). The review covers that commit only.
-4. `git fetch origin <base> <HEAD>`; the change is `git diff origin/<base>...<HEAD>`.
-5. Read the linked issue (`Closes #N` / `References #N` in the PR body): its criteria are what the change must meet.
+2. No open PR → stop and say so: `/dev-review` runs only on an existing PR. A PR whose base is not the repository's default branch (`gh repo view --json defaultBranchRef`) is not reviewed yet: a stacked PR is reviewed once it targets the default branch.
+3. Record `HEAD` = `headRefOid` (40 hex) and `BASE` = `baseRefName`. The review covers that commit only.
+4. Fetch from the PR's own repository (`https://github.com/<owner>/<repo>` from its URL), not `origin`, which may be a fork:
+   - `git fetch <repo> refs/heads/<BASE>`, then `BASE_SHA=$(git rev-parse FETCH_HEAD)`;
+   - `git fetch <repo> refs/pull/<PR>/head`; `git rev-parse FETCH_HEAD` must equal `HEAD`, else stop.
+   The change is `git diff <BASE_SHA>...<HEAD>`.
+5. Check out the reviewed tree apart from the current one: `git worktree add --detach <dir> <HEAD>`. Every source read of the review happens there.
+6. Read the linked issue (`Closes #N` / `References #N` in the PR body): its criteria are what the change must meet.
 
 ## 2. Pick the reviewers
 
@@ -26,16 +30,17 @@ Review the current head of one open pull request with agents other than its auth
   - `R-tester`: test changes, or behavior changed without a test;
   - `R-devops`: CI workflows, dependencies, build, configuration.
 - Reviewers are separate read-only agents. The session that wrote the change does not review it.
-- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, base, the diff command, the issue criteria, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
+- Spawn them in one `task` batch. Give each: repository, PR number, `HEAD`, the review worktree path (read sources only there), the diff command, the issue criteria, and the checklists in this skill directory (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`). Ask for factual findings only: `file:line`, blocking or non-blocking, the evidence, no fixes.
 
 ## 3. Consolidate
 
-- Merge duplicates. Check each blocking finding against the code; drop one the code refutes and say why.
-- Verdict: **approve** when no blocking finding remains, else **request changes**.
+- Every spawned reviewer must return a completed result; `R-adversarial` is mandatory. Rerun a reviewer that failed, was cancelled or returned nothing; without its result there is no approval.
+- Merge duplicates. Check each blocking finding in the review worktree; drop one the code at `HEAD` refutes and say why.
+- Verdict: **approve** when every reviewer completed and no blocking finding remains, else **request changes**.
 
 ## 4. Publish on the PR
 
-1. Re-read the PR head. If it is no longer `HEAD`, stop: the review is stale; run `/dev-review` again.
+1. Re-read the PR. If its head is no longer `HEAD` or its base is no longer `BASE`, stop: the review is stale; run `/dev-review` again.
 2. Post one comment (`gh pr comment <PR> --body-file <file>`): `## Review — head <HEAD>`, the reviewers used, the findings (blocking first) with `file:line`, then the verdict. Keep it public-safe: no secrets, private paths, raw logs or client data.
 3. On approve, post a second comment whose only line is:
 
@@ -44,8 +49,8 @@ Review the current head of one open pull request with agents other than its auth
    ```
 
    The Review Verdict workflow turns it into the `review` check that the `PR_Main` ruleset requires next to `ci` (CONTRIBUTING.md § PR conventions). The account posting it needs write access. A new commit needs a new review and a new verdict.
-4. On request changes, post no verdict line. The next step is `/dev-fix` on this PR.
+4. On request changes, post no verdict line. The next step is correcting the findings on the PR branch, pushing, then `/dev-review` again.
 
 ## 5. Report
 
-One line: PR, `HEAD`, verdict, comment URLs.
+Remove the review worktree (`git worktree remove <dir>`). Report one line: PR, `HEAD`, verdict, comment URLs.

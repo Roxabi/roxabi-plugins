@@ -1067,7 +1067,7 @@ issue numbers and excludes unattributed shells. `--report-only` stops after
 inventory; `--yes` is rejected. Branch deletion, fetch/prune, GitHub labels and
 CI cancellation are outside this workflow and require separate operator mandates.
 
-**The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the dispatch prompt in `skills/dev-review/SKILL.md` is the contract they actually obey.
+**The names are deliberately not `R-dev-review`/`R-fix`.** Skill discovery dedups by `name` across every provider, first-wins. `dev-core` is archived and is not an installable sibling. Snapshotted agent bodies still call the workflow `/R-dev-review` in prose; that is a label, not an invocation, and the reviewer brief from `skills/dev-review/SKILL.md` is the contract they actually obey.
 
 ## Maintenance
 

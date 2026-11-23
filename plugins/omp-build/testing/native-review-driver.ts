@@ -136,6 +136,7 @@ export async function createReviewDriver(
 ): Promise<ReviewDriver> {
   const events = new Map<string, Handler[]>()
   const commands = new Map<string, Handler>()
+  const tools = new Map<string, Handler>()
   const messages: string[] = []
   const batchWaiters: BatchWaiter[] = []
   const continuationWaiters: ContinuationWaiter[] = []
@@ -151,6 +152,9 @@ export async function createReviewDriver(
       return () => undefined
     }),
     registerCommand: (name, command) => commands.set(name, command.handler as Handler),
+    registerTool: (tool) => {
+      tools.set(tool.name, tool.execute as Handler)
+    },
     sendUserMessage: async (message) => {
       recordMessage(message)
     },
@@ -194,7 +198,7 @@ export async function createReviewDriver(
   }
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  if (!deferred) await dispatchInitialCommand(commands, mode, context, feature)
+  if (!deferred) await dispatchInitialCommand(commands, tools, mode, context, feature)
   return {
     controller,
     native: createOmpFixPort(api),

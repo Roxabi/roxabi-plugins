@@ -2,14 +2,16 @@ type Handler = (...args: unknown[]) => unknown
 
 export async function dispatchInitialCommand(
   commands: Map<string, Handler>,
+  tools: Map<string, Handler>,
   mode: 'feature' | 'review-only' | 'fix-pr' | 'fix-issue',
   context: unknown,
   feature: Handler,
 ): Promise<void> {
   if (mode === 'review-only') {
-    const review = commands.get('dev-review')
-    if (review === undefined) throw new Error('review-command-unregistered')
-    await review('7', context)
+    // `/dev-review` runs as instructions; the native review starts through its model-lane tool.
+    const review = tools.get('omp_build_start_review')
+    if (review === undefined) throw new Error('review-tool-unregistered')
+    await review('review-start', { pr: 7 }, undefined, undefined, context)
   } else if (mode === 'fix-pr' || mode === 'fix-issue') {
     const fix = commands.get('fix')
     if (fix === undefined) throw new Error('fix-command-unregistered')
