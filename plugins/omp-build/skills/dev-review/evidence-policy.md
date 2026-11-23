@@ -74,7 +74,7 @@ record. Its normal review record keeps the ordinary positional markers/head/inpu
 then exactly `Policy: evidence-v1` and `Acceptance: <real reference>`. It is the
 authoritative Phase 4 body for that selected work: it contains the qualified findings
 and selected plans, is posted through the normal writer, and is the same marked record
-the normal `/fix` reader consumes. It preserves head/input binding, verdict accounting,
+the native correction reader consumes. It preserves head/input binding, verdict accounting,
 Phase 8, stops and bounds. Missing, malformed, self-generated, or unverified acceptance
 means shadow; it never authorizes a patch.
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import ompBuildExtension from '../omp/index.ts'
 import { createOmpFixPort, hasOwnedFixRun, ownedFixRunFor, reviewControllerFor } from '../omp/omp-controller.ts'
+import { dispatchDefaultFix } from '../omp/omp-fix-dispatch.ts'
 import type { NativeTask } from '../omp/review-runtime/contracts.ts'
 import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import type { NativePort } from '../roxabi/fix-contract.ts'
@@ -198,7 +199,8 @@ export async function createReviewDriver(
   }
   const feature = commands.get('feature')
   if (feature === undefined) throw new Error('feature-command-unregistered')
-  if (!deferred) await dispatchInitialCommand(commands, tools, mode, context, feature)
+  const fix = (args: unknown, ctx: unknown) => dispatchDefaultFix(api, ctx as never, String(args))
+  if (!deferred) await dispatchInitialCommand(fix, tools, mode, context, feature)
   return {
     controller,
     native: createOmpFixPort(api),

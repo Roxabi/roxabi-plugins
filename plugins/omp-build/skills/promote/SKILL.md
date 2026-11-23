@@ -26,7 +26,7 @@ Let: σ := staging | μ := main | V := release version (vX.Y.Z) | Q := user choi
   promote, and nothing in the review→fix loop may reach this skill. A release that
   happens as a side effect of reviewing a PR is a release nobody decided to cut.
 - The operator invokes it. There is no path from `/feature`, `skill://dev-review`
-  or `skill://fix` that runs it automatically, and none may be added.
+  or `skill://dev-fix` that runs it automatically, and none may be added.
 - `disable-model-invocation: true` in the frontmatter omits this skill from the
   prompt listing on omp — it is **not** a gate. The property that makes this
   user-only is the lane: `omp/index.ts` exposes `/promote` through

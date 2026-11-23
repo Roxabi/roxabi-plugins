@@ -7,8 +7,8 @@ identity, merge findings, select labels, repair memberships, or invent a plan.
 
 The decision binds each final finding to its retained originals. Causes reference
 exact **final finding IDs**, not original contribution IDs, source-finding IDs, or
-copied descriptions. `dev-review` names them after synthesis; `fix` consumes the
-decision by record reference, and `skill://fix/falsification.md` tries to break
+copied descriptions. `dev-review` names them after synthesis; the native correction
+consumes the decision by record reference, and its falsify profile tries to break
 each applied plan under § Proof.
 
 ## Partition and disposition

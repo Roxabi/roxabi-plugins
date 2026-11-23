@@ -1,7 +1,7 @@
 type Handler = (...args: unknown[]) => unknown
 
 export async function dispatchInitialCommand(
-  commands: Map<string, Handler>,
+  fix: Handler,
   tools: Map<string, Handler>,
   mode: 'feature' | 'review-only' | 'fix-pr' | 'fix-issue',
   context: unknown,
@@ -13,8 +13,7 @@ export async function dispatchInitialCommand(
     if (review === undefined) throw new Error('review-tool-unregistered')
     await review('review-start', { pr: 7 }, undefined, undefined, context)
   } else if (mode === 'fix-pr' || mode === 'fix-issue') {
-    const fix = commands.get('fix')
-    if (fix === undefined) throw new Error('fix-command-unregistered')
+    // `/dev-fix` runs as instructions; the native correction keeps its host dispatcher until #1037 removes it.
     await fix(`${mode === 'fix-pr' ? '#7' : '#42'} preserve the selected region`, context)
   } else {
     await feature('#42', context)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.12 (unreleased)
+
+- `/fix` becomes `/dev-fix`, as instructions. The command loads `skills/dev-fix/SKILL.md`: on an open PR whose latest `/dev-review` comment covers the current head, implementer agents fix the findings on the PR branch, behavior fixes come with a falsified test, the exact tip is pushed (`<tip>^{commit}:refs/heads/<branch>`, no force) and a `## Fixes — head <tip>` comment maps each finding; the next step is `/dev-review`. Without an open PR or a current review it stops. `/dev-review` now names `/dev-fix` as its request-changes step.
+- The native correction loses its user command and stays behind the `/feature` fix step and its admitted CI correction until #1037 removes it; `skills/fix/` (the native correction's reference body and falsification guide) is deleted.
+- Recognize 0.21.12 under the bounded PR-binding policy while preserving earlier supported versions.
+
 ## 0.21.11 (unreleased)
 
 - `/dev-review` becomes instructions instead of a native dispatch. The command loads `skills/dev-review/SKILL.md`: bind an open PR that targets the default branch, its head and base, fetched from the PR's own repository; review in a detached worktree at that head; spawn read-only reviewer agents (`R-adversarial` always, `R-architect`, `R-security-auditor`, `R-tester` or `R-devops` by diff) and approve only when every one completed and no blocking finding remains; re-check head and base, post one findings comment and, when the head is approved, the `review-verdict v1 head=<sha> approve evidence=<url>` line that the `PR_Main` ruleset requires as `review`. Without an open PR it stops. The native review stays behind `omp_build_start_review` and the `/feature` review step until they move (#1037); the test driver starts it through that tool.

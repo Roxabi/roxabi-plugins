@@ -2,7 +2,7 @@
 name: dev-review
 argument-hint: '[#PR]'
 description: Independent review of an open PR head — reviewer agents, findings on the PR, verdict line when approved.
-version: 0.4.0
+version: 0.4.1
 ---
 
 # Dev review
@@ -49,7 +49,7 @@ Review the current head of one open pull request with agents other than its auth
    ```
 
    The Review Verdict workflow turns it into the `review` check that the `PR_Main` ruleset requires next to `ci` (CONTRIBUTING.md § PR conventions). The account posting it needs write access. A new commit needs a new review and a new verdict.
-4. On request changes, post no verdict line. The next step is correcting the findings on the PR branch, pushing, then `/dev-review` again.
+4. On request changes, post no verdict line. The next step is `/dev-fix` on this PR.
 
 ## 5. Report
 

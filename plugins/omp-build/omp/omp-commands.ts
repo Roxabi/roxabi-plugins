@@ -8,7 +8,6 @@ import type { OmpBuildExtensionApi } from './omp-controller'
 import { continueFramedFeature, runFeatureCommand } from './omp-feature-command.ts'
 import type { FeatureCommandComposition, FeatureCommandOptions } from './omp-feature-command-host.ts'
 import { installFeatureUwOperationLifecycle } from './omp-feature-composition.ts'
-import { dispatchDefaultFix } from './omp-fix-dispatch'
 import { registerOmpFixRecoveryTool } from './omp-fix-recovery.ts'
 import { type FramingRuntimeOptions, installFeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { dispatchDefaultReview } from './omp-review-dispatch'
@@ -42,7 +41,7 @@ export function registerOmpCommandsAndTools(
     name: 'omp_build_start_review',
     label: 'Start structured review',
     description:
-      'Prepare and dispatch the native review whose records /fix and the /feature lifecycle consume. For a reviewer-agent review with a verdict line, use /dev-review.',
+      'Prepare and dispatch the native review whose records the /feature lifecycle consumes. For a reviewer-agent review with a verdict line, use /dev-review.',
     parameters: ompBuildStartReviewParametersJsonSchema,
     approval: 'write',
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -67,15 +66,6 @@ export function registerOmpCommandsAndTools(
       pi.registerCommand(name, {
         description,
         handler: (args, ctx) => runFeatureCommand(args, ctx, features),
-      })
-      continue
-    }
-    if (name === 'fix') {
-      pi.registerCommand(name, {
-        description,
-        handler: async (args, ctx) => {
-          await dispatchDefaultFix(pi, ctx, args)
-        },
       })
       continue
     }
