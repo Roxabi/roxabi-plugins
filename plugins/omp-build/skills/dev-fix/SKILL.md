@@ -2,7 +2,7 @@
 name: dev-fix
 argument-hint: '[#PR] [scope]'
 description: Fix the latest /dev-review findings and failing checks on an open PR head, push the exact tip, then review again.
-version: 0.1.2
+version: 0.1.3
 ---
 
 # Dev fix
@@ -15,9 +15,10 @@ When a `## Feature context` is present, use composed mode: take the repository a
 
 1. Target: the `#PR` argument, else the open PR of the current branch: `gh pr view [<PR>] --json number,state,url,headRefOid,headRefName,baseRefName,isCrossRepository`. `<host>/<owner>/<repo>` comes from its URL.
 2. No open PR → stop: `/dev-fix` runs only on an existing PR with a finished implementation. A PR from a fork (`isCrossRepository`) → stop: its branch is not pushed from here. A PR whose base is not the repository's default branch (`gh repo view --json defaultBranchRef`) → stop, as `/dev-review` does.
-3. Record `HEAD` = `headRefOid` and `BASE` = `baseRefName`. The review is the latest PR comment (`gh api repos/<owner>/<repo>/issues/<PR>/comments --paginate`) whose author has write access (`gh api repos/<owner>/<repo>/collaborators/<login>/permission`: `admin`, `maintain` or `write`), whose first line is `## Review — head <sha> base <branch>` and whose last line is `Verdict: approve` or `Verdict: request changes`. Other comments are not reviews. Record its `id` and `updated_at` as `REVIEW`.
+3. Record `HEAD` = `headRefOid` and `BASE` = `baseRefName`. The review is the latest PR comment (`gh api repos/<owner>/<repo>/issues/<PR>/comments --paginate`) whose author has write access (`gh api repos/<owner>/<repo>/collaborators/<login>/permission`: `admin`, `maintain` or `write`), whose first line is `## Review — head <sha> base <branch>` with or without a trailing ` spec <digest>` (64 lowercase hex), and whose last line is `Verdict: approve` or `Verdict: request changes`. Other comments are not reviews. Record its `id` and `updated_at` as `REVIEW`.
    - none → stop: run `/dev-review` first;
    - its head is not `HEAD` or its base is not `BASE` → stop: the review is stale; run `/dev-review` again.
+   - in composed mode, the review must name the current `spec: <digest>` from `## Accepted Spec`; missing or different digest → stop and run composed `/dev-review` again. Do not choose an older matching review.
 4. The work is the review's findings plus every failing check on `HEAD` (`gh pr checks <PR>`; read a failure with `gh run view <run> --log-failed`).
 5. Work in a clean checkout of the PR branch. Use the named feature worktree in composed mode. In standalone mode, `omp_build_prepare_checkout` with the PR number gives the canonical checkout; stop unless it is at `HEAD`. A dirty checkout → stop.
 6. `git remote get-url --push --all origin` must list exactly one URL, naming `<host>/<owner>/<repo>`; else stop. Record it as `PUSH_URL`.

@@ -163,18 +163,19 @@ describe('installed /feature command', () => {
     }
     const own = { uw: scope, version: 'version-1', sourceAccepted: { recordId: 'mandate-1' } }
     const spec = {
+      version: own.version,
       criteria: [{ id: 'C1', statement: 'Keep the accepted criterion.' }],
       invariants: [{ id: 'I1', statement: 'Keep the accepted invariant.' }],
       exclusions: ['No changes to the renderer.'],
-      inherited: {
-        invariants: [{ target: { spec: source, id: 'I2' }, statement: 'Keep the inherited invariant.' }],
-        exclusions: [{ ref: { spec: source, index: 0 }, statement: 'No public API changes.' }],
-      },
     }
-    vi.spyOn(contracts, 'resolveSpecEffective').mockReturnValue({
-      ok: true,
-      value: { own, spec, inherited: spec.inherited },
-    } as never)
+    const inherited = (parent: typeof source) => ({
+      invariants: [{ target: { spec: parent, id: 'I2' }, statement: 'Keep the inherited invariant.' }],
+      exclusions: [{ ref: { spec: parent, index: 0 }, statement: 'No public API changes.' }],
+    })
+    const resolved = { own, versionVector: [own, source], spec, inherited: inherited(source) }
+    const resolveEffective = vi
+      .spyOn(contracts, 'resolveSpecEffective')
+      .mockReturnValue({ ok: true, value: resolved } as never)
     const pr = { number: 34, scope: { ...scope, target: 'acme/widgets#34' }, ...mandate.payload }
     vi.spyOn(contracts, 'selectWorkflowBinding').mockReturnValue(
       prState === 'unbound' ? { status: 'absent' } : ({ status: 'bound', mandateRecord: mandate } as never),
@@ -209,6 +210,7 @@ describe('installed /feature command', () => {
       ...(prState === 'open' ? ['pr: 34'] : []),
       '',
       '## Accepted Spec',
+      `spec: ${contracts.canonicalValueDigest(resolved)}`,
       'The live issue body differs from the accepted snapshot.',
       '',
       '```json',
@@ -219,7 +221,7 @@ describe('installed /feature command', () => {
           criteria: spec.criteria,
           invariants: spec.invariants,
           exclusions: spec.exclusions,
-          inherited: spec.inherited,
+          inherited: resolved.inherited,
         },
         null,
         2,
@@ -234,8 +236,37 @@ describe('installed /feature command', () => {
       message,
       message.replace('The live issue body differs from the accepted snapshot.\n', ''),
     ])
+    const recordedDigest = (text: string | undefined) => text?.match(/^spec: ([0-9a-f]{64})$/m)?.[1]
+    const originalDigest = recordedDigest(host.sent[0])
+    expect(originalDigest).toBeDefined()
+    expect(recordedDigest(host.sent[1])).toBe(originalDigest)
+
+    // A new inherited version changes the review scope even when its exposed clauses are unchanged.
+    const updatedParent = { ...source, version: 'parent-version-2' }
+    resolveEffective.mockReturnValue({
+      ok: true,
+      value: { ...resolved, versionVector: [own, updatedParent], inherited: inherited(updatedParent) },
+    } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(recordedDigest(host.sent[2])).toMatch(/^[0-9a-f]{64}$/)
+    expect(recordedDigest(host.sent[2])).not.toBe(originalDigest)
+
+    const updatedOwn = { ...own, version: 'version-2' }
+    current.snapshot.spec.version = updatedOwn.version
+    resolveEffective.mockReturnValue({
+      ok: true,
+      value: {
+        ...resolved,
+        own: updatedOwn,
+        versionVector: [updatedOwn, source],
+        spec: { ...spec, version: updatedOwn.version },
+      },
+    } as never)
+    await host.commands.get('feature')?.handler('#12', root)
+    expect(recordedDigest(host.sent[3])).toMatch(/^[0-9a-f]{64}$/)
+    expect(recordedDigest(host.sent[3])).not.toBe(originalDigest)
     expect(exec).not.toHaveBeenCalled()
-    expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 2)
+    expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 4)
     expect(reviewControllerFor(host.pi).active()).toBeNull()
   })
 

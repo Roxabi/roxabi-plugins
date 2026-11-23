@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N | resolve-interruption #N [--start <recordId>]]'
 description: Deliver a leaf UW through implementation, independent review, correction and protected merge.
-version: 0.1.17
+version: 0.1.18
 ---
 
 # Feature
@@ -16,11 +16,13 @@ Before planning or implementing, read the repository's default branch with `gh r
 
 Compare local, remote and PR tips against the selected base. Look for matching PRs (including closed ones) by repository, branch and base, never by title. A PR number in context is a hint; the CLI confirms bindings.
 
+A current review is the latest review evidence comment by a writer (see [../dev-fix/SKILL.md](../dev-fix/SKILL.md)) for the bound PR. Its header must match the live head/base and the `spec: <digest>` in `## Accepted Spec`. A missing or different digest, including on an existing approval, requires a new composed `/dev-review`; never select an older matching comment.
+
 | Observed facts | Next action |
 |---|---|
 | No bound PR; local or remote commits may exist | Compare the committed diff against the Spec. Preserve dirty files and existing commits. Plan and implement only missing requirements; green checks or an existing branch are not proof. A fresh machine can recover only published commits. |
 | Exact verified tip is already on remote; no PR or one matching unbound open PR | Run `open-pr` to create or confirm the binding. If an earlier effect is uncertain, observe before writing again. |
-| Bound open PR, no completed review for its head/base | Review that exact head independently. |
+| Bound open PR, no completed current review | Review that exact head and accepted Spec independently. |
 | Bound open PR with a completed current review; clean local branch has unpushed correction commits | Follow composed `/dev-fix`'s resume branch to verify and publish the existing tip without redoing work. |
 | Bound open PR, current blocking review or failing CI | Follow composed `/dev-fix` only after completing a review of this head. If already pushed, review the new head. |
 | Current approval and no red checks | Observe checks on the exact approved SHA. If the verdict was not published, rerun review. If behind the selected base, integrate locally only from a clean checkout and with a completed current review; stop on conflicts or scope change. Use the PR-bound correction push and review the new head. |
@@ -39,7 +41,7 @@ Compare local, remote and PR tips against the selected base. Look for matching P
 
 ## Land and finish
 
-- Observe required checks, including `review` and CI, on the exact current head. If pending, wait read-only for a bounded time; re-read head, base and review before proceeding. When green, call `land`. The protected base is the merge lock; never bypass it or arm auto-merge. No verdict lock → stop for the operator.
+- Observe required checks, including `review` and CI, on the exact current head. If pending, wait read-only for a bounded time. Immediately before calling `land`, re-read the open PR's head/base and its latest review. Land only when that review approves this head/base, names the current Accepted Spec digest, its published verdict points to that review comment, and required checks are green. If the digest is missing or differs, run composed `/dev-review` again; never land on a mismatch. The protected base is the merge lock; never bypass it or arm auto-merge. No verdict lock → stop for the operator.
 - Once the bound PR is observed merged, call `finish` and report its URL, merge commit and confirmed UW completion. Offer `/cleanup` and, only for `release.model: staging-train`, `/promote`; leave both to the operator.
 
 ## Delivery CLI

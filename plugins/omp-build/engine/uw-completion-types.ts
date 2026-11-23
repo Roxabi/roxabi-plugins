@@ -13,7 +13,7 @@ import type { OwnSpecRef } from './uw-spec-schema.ts'
 type NonEmpty<T> = readonly [T, ...T[]]
 export type SpecVersionVector = NonEmpty<OwnSpecRef>
 
-export type DeliveryReviewCheck = { id: number; head: string; completedAt: string }
+export type DeliveryReviewCheck = { id: number; head: string }
 
 export type NativeDeliveryPullRequest = {
   pullRequest: Scope

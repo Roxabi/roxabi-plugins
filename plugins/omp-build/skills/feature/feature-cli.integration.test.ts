@@ -401,12 +401,11 @@ it('refuses an exact merge when the named mandate is superseded before the write
 it('requests one exact-head merge, and closes only after an exact-head review check succeeds', async () => {
   const f = world(true)
   let mergeCalls = 0
-  let reviewedHead = f.base
+  let reviewedHead = f.tip
   let reviewedApp = app
   let conclusion = 'success'
   let reviewStatus = 'completed'
   let reviewRules: unknown = rules
-  let completedAt = '2026-01-01T00:00:01Z'
   let closeCalls = 0
   const gh: Gh = async (cwd, args) => {
     if (args[1] === `repos/${repository}/rules/branches/main`) return JSON.stringify(reviewRules)
@@ -421,7 +420,6 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
             conclusion,
             app: { id: reviewedApp },
             head_sha: reviewedHead,
-            completed_at: completedAt,
           },
         ],
       })
@@ -452,6 +450,7 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
     status: 'merged',
   })
   expect(mergeCalls).toBe(1)
+  reviewedHead = f.base
   expect(await invoke(f, 'finish', ['--pr', String(pr)], { gh })).toMatchObject({
     code: 1,
     reason: 'close-linked-completion-unavailable',
@@ -476,10 +475,6 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
   await expectRefusal()
   expect(closeCalls).toBe(0)
   reviewRules = rules
-  completedAt = '2025-12-31T23:59:59Z'
-  await expectRefusal()
-  expect(closeCalls).toBe(0)
-  completedAt = date
   f.bare('update-ref', '-d', ref)
   expect(await invoke(f, 'finish', ['--pr', String(pr)], { gh, cwd: f.box.principal })).toMatchObject({
     code: 0,

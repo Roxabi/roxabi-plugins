@@ -635,18 +635,21 @@ Run from the canonical worktree using the installed skill directory reported by 
 bash "<skill dir>/trusted-bun.sh" "<skill dir>/feature-cli.ts" <sub> --repo <owner/repo> --issue <N> --mandate <recordId> [args]
 ```
 
-Every effect rechecks the live, applicable mandate. Inactive or mismatched authority refuses.
+Every effect rechecks the live, applicable leaf mandate. Accepted or native children, unknown leaf status, and inactive or mismatched authority all refuse. `push` and `open-pr` require the mandate base to be the repository's default branch.
 
-The non-finish effects also require the mandate base to be the repository default branch. `push` rechecks the `origin` push URL immediately before writing. Use the installed launcher so target configuration and `.env` loading cannot change startup.
-
-On approval, `/dev-review` posts `review-verdict v1 head=<sha> approve evidence=<url>`; the Review Verdict workflow turns it into the `review` check for that exact head. A new head needs fresh review and verdict. With no verdict lock, stop for the operator rather than falling back to legacy arming.
+For a composed delivery, `land` and `finish` require a successful `review` check on the exact PR head from the single App pinned by the base rules. On approval, `/dev-review` posts `review-verdict v1 head=<sha> approve evidence=<url>` for the Review Verdict workflow. A new head needs a fresh review and verdict.
 
 | Subcommand | Checks and effect |
 |---|---|
-| `push --tip <sha> [--from <sha>] [--pr <N>]` | Match the mandate branch and verify the sole `origin` push URL names the repository. The tip must descend from the base on first push or from `--from` on update. Omit `--from` only for an observed absent branch. Correction requires `--from` and the bound open `--pr` at that head. Push the exact commit with a lease and no tags, then read back the remote tip and correction PR head. |
-| `open-pr --tip <sha>` | Verify the published tip and a nonempty branch delta. Create or reuse one matching PR and confirm its `workflow-binding` against the mandate, head, branch and base. Ambiguous matches refuse. |
-| `land --pr <N> --head <sha>` | Verify the bound PR and exact head. The base's active rules must require `review`, or the CLI refuses with `no-verdict-lock`. GitHub enforces the configured `review` + `ci` ruleset on that head. For an open PR, attempt `gh pr merge <N> --repo <owner/repo> --merge --match-head-commit <sha>` once, without auto-merge, bypass or a `reviewed` label. Read back the merge; pending/red checks or head movement are not success. |
-| `finish --pr <N>` | Verify the bound leaf PR is merged. A successful `review` check read by the merged PR head SHA is delivery proof; admissible historical structured-review proof remains readable. Use `closeLinked` for calculated UW completion and verified closure. |
+| `push --tip <sha> [--from <sha>] [--pr <N>]` | Verify the branch, ancestry from the base or `--from`, and the sole `origin` push URL immediately before writing. Omit `--from` only for an observed absent branch. Correction requires `--from` and the bound open `--pr` at that head. Push the exact commit with a lease and no tags; read back the remote tip and correction PR head. |
+| `open-pr --tip <sha>` | Verify the published tip and nonempty branch delta. Create or reuse one matching open PR and confirm its binding, adopting an authenticated successor binding when applicable. Refuse ambiguous matches or replacement of a closed or merged PR. |
+| `land --pr <N> --head <sha>` | Verify the bound PR and exact head. The active base rules must pin `review` to one App and must not require a merge queue. Attempt `gh pr merge <N> --repo <owner/repo> --merge --match-head-commit <sha>` once and read back the merge. GitHub enforces the `review` + `ci` ruleset; no auto-merge, bypass or `reviewed` label. |
+| `finish --pr <N>` | Verify the bound leaf PR is merged and use its merged head's review proof in `closeLinked` to calculate completion and confirm closure. Admissible historical structured-review proof remains supported. |
+
+**Known limits**
+
+- GitHub pins the merge head, not the base. The PR can be retargeted after `land`'s last read.
+- Which Spec a review covered is an instruction: `/dev-review` writes the Spec digest in its evidence header and `/feature` re-reviews when it differs; the CLI does not check it.
 
 Exit 0 emits one JSON status: `pushed`, `already-published`, `created`, `existing`, `merged` or `finished`. Exit 1 emits `refused`, `waiting` or `uncertain` with a reason; observe before retrying. Exit 2 is a usage error on stderr, with no effect.
 

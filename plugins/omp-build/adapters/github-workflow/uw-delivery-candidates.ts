@@ -151,11 +151,9 @@ async function readMergedReview(repository: string, base: string, head: string, 
         check.conclusion === 'success' &&
         typeof check.id === 'number' &&
         Number.isSafeInteger(check.id) &&
-        check.id > 0 &&
-        typeof check.completed_at === 'string' &&
-        Number.isFinite(Date.parse(check.completed_at))
+        check.id > 0
       )
-        return { id: check.id, head, completedAt: check.completed_at }
+        return { id: check.id, head }
     }
   } catch {
     // The historical structured-review proof remains independently readable.

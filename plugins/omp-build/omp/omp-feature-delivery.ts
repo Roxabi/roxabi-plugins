@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { canonicalValueDigest } from '../dist/contracts.js'
 import type { ContinueFeatureInput, ContinueFeatureResult } from '../roxabi/feature-contract.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
 import {
@@ -58,6 +59,7 @@ function acceptedSpecContext({ acceptedSpec, acceptedBodySha256, liveIssueBodyDi
   const { criteria, invariants, exclusions } = spec
   return [
     '## Accepted Spec',
+    `spec: ${canonicalValueDigest(acceptedSpec)}`,
     ...(liveIssueBodyDiffers ? ['The live issue body differs from the accepted snapshot.'] : []),
     '',
     '```json',
