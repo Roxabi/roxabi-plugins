@@ -5,13 +5,13 @@ import type { GitRunner } from '../workflow-checkout.ts'
 const branch = 'feat/42-save'
 const tip = 'a'.repeat(40)
 
-function pushUrlRead(pushUrl: string | null) {
-  return pushUrl === null
+function pushUrlRead(pushUrls: string[] | null) {
+  return pushUrls === null
     ? { code: 2, stdout: '', stderr: "error: No such remote 'origin'" }
-    : { code: 0, stdout: `${pushUrl}\n`, stderr: '' }
+    : { code: 0, stdout: `${pushUrls.join('\n')}\n`, stderr: '' }
 }
 
-function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection lost', pushUrl: string | null = null) {
+function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection lost', pushUrls: string[] | null = null) {
   const calls: string[][] = []
   const git: GitRunner = async (_cwd, args) => {
     calls.push(args)
@@ -20,7 +20,7 @@ function branchGit(remoteTip: string, pushCode = 0, pushStderr = 'connection los
     }
     if (args[0] === 'ls-remote') return { code: 0, stdout: `${remoteTip}\trefs/heads/${branch}\n`, stderr: '' }
     if (args[0] === 'push') return { code: pushCode, stdout: '', stderr: pushCode === 0 ? '' : pushStderr }
-    if (args.join(' ') === 'remote get-url --push origin') return pushUrlRead(pushUrl)
+    if (args.join(' ') === 'remote get-url --push --all origin') return pushUrlRead(pushUrls)
     throw new Error(`unexpected git call: ${args.join(' ')}`)
   }
   return { git, calls }
@@ -69,28 +69,23 @@ describe('implementation branch effect authority', () => {
     expect(calls.some(([command]) => command === 'push')).toBe(false)
   })
 
+  const withheld = 'git push: stderr withheld (a push URL of origin carries a credential)'
   it.each([
-    ['git@github.com:o/r.git', 'connection lost\n', 'git push: connection lost'],
-    ['git@github.com:o/r.git', '', 'git push: no stderr'],
+    [['git@github.com:o/r.git'], 'connection lost\n', 'git push: connection lost'],
+    [['git@github.com:o/r.git'], '', 'git push: no stderr'],
     [
-      'https://x-access-token:ghs_secret_value@github.com/o/r.git',
-      "fatal: unable to access 'https://x-access-token:ghs_secret_value@github.com/o/r.git/': 403",
-      "git push: fatal: unable to access 'https://***:***@github.com/o/r.git/': 403",
+      ['https://github.com/o/r.git', 'ssh://git@github.com/o/r.git'],
+      "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403",
+      "git push: fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403",
     ],
-    [
-      'https://example.com/o/r.git?q=x&access_token=ghs_secret_value',
-      "To https://example.com/o/r.git?q='x'\u2028&access_token=ghs_secret_value\n ! [rejected] feat/42-save (fetch first)",
-      "git push: To https://example.com/o/r.git?q='x'\u2028&access_token=***\n ! [rejected] feat/42-save (fetch first)",
-    ],
-    [
-      'https://user:p%40ss-word-123@example.com/o/r.git',
-      'remote: bad password p@ss-word-123 (p%40ss-word-123)',
-      'git push: remote: bad password *** (***)',
-    ],
-    ['https://exa mple.com/o/r.git', 'token everywhere', 'git push: stderr withheld (push URL unparseable)'],
-    [null, 'token everywhere', 'git push: stderr withheld (push URL unreadable)'],
-  ])('reports a failed push from %j without the credentials of the push URL', async (pushUrl, stderr, detail) => {
-    const { git, calls } = branchGit('b'.repeat(40), 1, stderr, pushUrl)
+    [['https://x-access-token:ghs_secret@github.com/o/r.git'], 'ghs_secret', withheld],
+    [['https://ghs_secret@github.com/o/r.git'], 'ghs_secret', withheld],
+    [['https://example.com/o/r.git?access_token=ghs_secret'], 'ghs_secret', withheld],
+    [['ssh://git:ghs_secret@example.com/o/r.git'], 'ghs_secret', withheld],
+    [['git@github.com:o/r.git', 'https://x:ghs_secret@mirror.example/o/r.git'], 'ghs_secret', withheld],
+    [null, 'ghs_secret', 'git push: stderr withheld (push URL unreadable)'],
+  ])('reports a failed push to %j without exposing a URL credential', async (pushUrls, stderr, detail) => {
+    const { git, calls } = branchGit('b'.repeat(40), 1, stderr, pushUrls)
     const allowed = async () => ({ ok: true as const })
     const result = await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
 

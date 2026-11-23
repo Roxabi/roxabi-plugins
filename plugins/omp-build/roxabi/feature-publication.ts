@@ -1,44 +1,25 @@
 import type { GitRunner } from './workflow-checkout.ts'
 
-function decoded(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
+/** True when a push URL itself carries a credential: userinfo (beyond an `ssh://` user name) or a query. */
+function carriesCredential(url: string): boolean {
+  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)/i.exec(url)
+  if (match === null) return false
+  const at = match[2].lastIndexOf('@')
+  const userinfo = at < 0 ? '' : match[2].slice(0, at)
+  return url.includes('?') || userinfo.includes(':') || (userinfo !== '' && match[1].toLowerCase() !== 'ssh')
 }
 
 /**
- * git may echo the push URL, with any credential it carries. Mask the credential values of the configured
- * push URL (userinfo and query values, raw and decoded, 8+ characters) wherever they occur, so the rest of
- * git's message survives. A URL that cannot be read or parsed withholds the message instead.
+ * git may echo a push URL with any credential it carries, and no masking of that text is reliable. When a
+ * push URL of `origin` carries a credential, or cannot be read, the message is withheld; otherwise it is
+ * returned whole. scp-like and local URLs carry none.
  */
 async function pushDiagnostic(git: GitRunner, cwd: string, stderr: string): Promise<string> {
-  const configured = await git(cwd, ['remote', 'get-url', '--push', 'origin'])
-  const pushUrl = configured.stdout.trim()
-  let secrets: string[] = []
+  const configured = await git(cwd, ['remote', 'get-url', '--push', '--all', 'origin'])
   if (configured.code !== 0) return 'git push: stderr withheld (push URL unreadable)'
-  if (pushUrl.includes('://')) {
-    let url: URL
-    try {
-      url = new URL(pushUrl)
-    } catch {
-      return 'git push: stderr withheld (push URL unparseable)'
-    }
-    const values = [
-      url.username,
-      url.password,
-      ...url.search
-        .slice(1)
-        .split('&')
-        .map((pair) => pair.split('=')[1] ?? ''),
-    ]
-    secrets = [...new Set(values.flatMap((value) => [value, decoded(value)]))]
-      .filter((value) => value.length >= 8)
-      .sort((a, b) => b.length - a.length)
-  }
-  const text = secrets.reduce((masked, secret) => masked.split(secret).join('***'), stderr.trim())
-  return `git push: ${text || 'no stderr'}`
+  if (configured.stdout.split('\n').some((url) => carriesCredential(url.trim())))
+    return 'git push: stderr withheld (a push URL of origin carries a credential)'
+  return `git push: ${stderr.trim() || 'no stderr'}`
 }
 
 async function authorizeObservedTip(
