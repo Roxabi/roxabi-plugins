@@ -86,4 +86,14 @@ describe('implementation branch effect authority', () => {
     expect(calls.filter(([command]) => command === 'push')).toHaveLength(1)
     expect(calls.filter(([command]) => command === 'ls-remote')).toHaveLength(2)
   })
+
+  it('pushes the verified SHA, never the symbolic HEAD', async () => {
+    const { git, calls } = branchGit('b'.repeat(40))
+    const allowed = async () => ({ ok: true as const })
+    await proveAuthorizedBranch(git, '/checkout', branch, tip, { effect: allowed, beforePush: allowed })
+
+    expect(calls.filter(([command]) => command === 'push')).toEqual([
+      ['push', 'origin', `${tip}^{commit}:refs/heads/${branch}`],
+    ])
+  })
 })
