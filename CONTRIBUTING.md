@@ -67,6 +67,13 @@ docs(plugins): update voice-me README
   the merge boundary, which phantom-conflicts the next merge.
 - Your branch is **deleted automatically** when the PR merges. Nothing downstream
   reads it afterwards; delete the local copy and its worktree too.
+- A merge needs two green checks on the PR's head commit, both required by the
+  `PR_Main` ruleset: `ci` and `review`. The
+  [Review Verdict](.github/workflows/review-verdict.yml) workflow posts `review`
+  when an account with write access comments this line, naming the current head:
+  `review-verdict v1 head=<40-hex sha> approve evidence=<https url>`. A new commit
+  needs a new verdict. Updating the branch from `main` with a clean merge keeps it.
+  Dependabot semver-minor and semver-patch updates get it without a verdict.
 - Add the `reviewed` label to enable auto-merge. There is no merge queue, so if
   several PRs must land in a given order, add the label in that order.
 
