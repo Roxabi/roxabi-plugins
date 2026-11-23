@@ -15,8 +15,9 @@ import {
 } from '../dist/contracts.js'
 import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
+import type { NativeBatch } from '../omp/review-runtime/contracts.ts'
+import type { NativeBatchController } from '../omp/review-runtime/controller.ts'
 import { defaultGh } from './feature-engine.ts'
-import type { NativeBatch, NativePort } from './fix-contract.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { createUwAbandon } from './uw-abandon.ts'
@@ -46,7 +47,9 @@ import type { GitRunner } from './workflow-checkout.ts'
 
 /** Context-owned native execution capability; absent in noninteractive consumers. */
 export type UwNativeHost = {
-  native: NativePort
+  native: Pick<NativeBatchController, 'active' | 'activate' | 'stopOwned'> & {
+    announce(batch: NativeBatch): Promise<void>
+  }
   actionReaders: Readonly<{ git: GitRunner; createPorts(options: ProductionReaderOptions): UwActionPorts }>
   signal: AbortSignal
   onBatch(batch: NativeBatch): void

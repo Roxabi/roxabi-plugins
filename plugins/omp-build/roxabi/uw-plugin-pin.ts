@@ -22,7 +22,7 @@ export type PluginPinSource = {
 }
 
 /** Same filesystem root `pluginPinPort` byte-compares. Trusted host root wins; otherwise the running install. */
-export function pinnedInstalledRoot(pluginPin?: TrustedHostPluginPin, installedRoot = INSTALL_ROOT): string {
+function pinnedInstalledRoot(pluginPin?: TrustedHostPluginPin, installedRoot = INSTALL_ROOT): string {
   return pluginPin?.installedRoot ?? installedRoot
 }
 

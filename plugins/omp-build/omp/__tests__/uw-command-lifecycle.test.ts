@@ -1,6 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import { causeSisterInputSchema } from '../../engine/cause-disposition-schema.ts'
@@ -10,7 +8,6 @@ import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import { manualOperatorDialog, operatorDialogUi, operatorRootContext } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
-import { batch } from '../../testing/review-runtime-support.ts'
 import { installFeatureUwOperationLifecycle } from '../omp-feature-composition.ts'
 import { reopenOperatorConfirmation } from '../omp-operator-confirmation.ts'
 import { parseUwCommand, registerUwCommand, type UwOperationsFactory } from '../omp-uw-command.ts'
@@ -60,74 +57,6 @@ it('accepts explicit planned-child coverage without accepting a forged created-b
       assignments: [{ criterion: 'C1', children: [{ kind: 'created-by', operationId: 'forged' }] }],
     }).success,
   ).toBe(false)
-})
-it('retains an announced sister operation until terminal and revokes it on root session switch', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'uw-cause-command-'))
-  const requestFile = join(directory, 'request.json')
-  writeFileSync(
-    requestFile,
-    JSON.stringify({
-      disposition: { scope: target, recordId: 'cause', kind: 'cause-disposition' },
-      factors: { files: 1, risk: 1, architecture: 1, unknowns: 1, domains: 1 },
-      tierOverride: null,
-      labels: { add: [], remove: [] },
-    }),
-  )
-  const commands = new Map<string, Command>()
-  const listeners = new Map<string, Session[]>()
-  const done = Promise.withResolvers<void>()
-  const state: { signal?: AbortSignal } = {}
-  const context = {
-    cwd: directory,
-    agent: { kind: 'main', depth: 0 },
-    hasUI: true,
-    mode: 'tui',
-    sessionManager: {
-      getSessionId: () => 'session-1',
-      getCwd: () => directory,
-      getSessionFile: () => join(directory, 'session-1.jsonl'),
-      getArtifactsDir: () => join(directory, 'artifacts'),
-    },
-    localProtocolOptions: consultableProtocolOptions(),
-    ui: operatorDialogUi(async () => 'confirm'),
-  } as unknown as ExtensionContext
-  const pi = createExtensionApiStub({
-    on: (event, handler) => {
-      listeners.set(event, [...(listeners.get(event) ?? []), handler as Session])
-    },
-    registerCommand: (name, command) => {
-      commands.set(name, command as Command)
-    },
-  })
-  installFeatureUwOperationLifecycle(pi)
-  registerUwCommand(pi, ({ nativeHost }) => ({
-    ...fixtureUwOperations(),
-    createSister: async () => {
-      if (nativeHost === undefined) throw new Error('missing native host')
-      state.signal = nativeHost.signal
-      const prepared = batch(['slot-a'])
-      nativeHost.native.activate(prepared, { onComplete: async () => undefined, onStop: async () => undefined })
-      nativeHost.onBatch(prepared)
-      nativeHost.onStarted({
-        creationOperationId: 'create-1',
-        assessmentStart: { scope: target, recordId: 'assessment-start', kind: 'action-receipt' },
-      })
-      await done.promise
-      return { status: 'refused', diagnostics: [] }
-    },
-  }))
-  try {
-    const command = commands.get('uw')
-    if (command === undefined) throw new Error('uw-command-missing')
-    await command.handler(`sister --request-file ${requestFile}`, context)
-    expect(state.signal?.aborted).toBe(false)
-    for (const listener of listeners.get('session_switch') ?? []) await listener({}, context)
-    expect(state.signal?.aborted).toBe(true)
-    done.resolve()
-  } finally {
-    done.resolve()
-    rmSync(directory, { recursive: true, force: true })
-  }
 })
 
 type Command = { handler: (args: string, context: ExtensionContext) => Promise<void> }

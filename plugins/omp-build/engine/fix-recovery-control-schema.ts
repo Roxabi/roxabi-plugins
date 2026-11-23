@@ -84,7 +84,7 @@ const priorRecoveryOwnerFactSchema = z.discriminatedUnion('kind', [
   }),
   z.strictObject({ kind: z.literal('sealed-drained-live') }),
 ])
-export const fixRecoveryObservationSchema = z.strictObject({
+const fixRecoveryObservationSchema = z.strictObject({
   format: z.literal('omp-build-fix-recovery-observation/1'),
   histories: z.array(recoveryHistoryCutSchema).min(1),
   graph: recoveryGraphFactsSchema,
@@ -117,7 +117,7 @@ export const fixRecoveryObservationSchema = z.strictObject({
   }),
 })
 export type FixRecoveryObservation = z.infer<typeof fixRecoveryObservationSchema>
-export const fixRecoveryNativePreparationSchema = z.discriminatedUnion('kind', [
+const fixRecoveryNativePreparationSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('prepared'),
     causeId: identifierSchema,
@@ -126,7 +126,6 @@ export const fixRecoveryNativePreparationSchema = z.discriminatedUnion('kind', [
   }),
   z.strictObject({ kind: z.literal('no-native-action') }),
 ])
-export type FixRecoveryNativePreparation = z.infer<typeof fixRecoveryNativePreparationSchema>
 
 const proposalCommonFields = {
   format: z.literal('omp-build-fix-recovery-proposal/1'),

@@ -14,13 +14,13 @@ afterEach(() => {
   roots.clear()
 })
 
-it('closes a simulated torn request with complete source and retains late raw parts without reactivating it', async () => {
+it('reads a historical close of a torn request and retains late raw parts without reactivating it', async () => {
   const { box, cwd } = arrangeReviewFixture()
   roots.add(box.root)
   await seedReviewFixture(box, cwd)
   const runner = path.resolve(import.meta.dirname, '../testing/fix-recovery-prefix-reader.ts')
-  const read = (mode?: 'control') => {
-    const run = spawnSync(bun, [runner, cwd, ...(mode ? [mode] : [])], {
+  const read = () => {
+    const run = spawnSync(bun, [runner, cwd], {
       cwd,
       env: box.env,
       encoding: 'utf8',
@@ -31,7 +31,7 @@ it('closes a simulated torn request with complete source and retains late raw pa
     expect(result.error, JSON.stringify(result)).toBeUndefined()
     return result
   }
-  // External owner/witness and UI confirmation are structural simulations, not native host proof.
+  // Owner, witness and confirmation are historical fixture data, not native host proof.
   // The real encoder uses a test-only 400-byte limit for R, not native production's 65536-byte limit.
   const fixture = await seedFixRecoveryPrefix(box, cwd, 'torn-request')
   const baseline = fixture.baseline
@@ -58,18 +58,7 @@ it('closes a simulated torn request with complete source and retains late raw pa
       expect.objectContaining({ code: 'incomplete', message: expect.stringContaining(fixture.request.operationId) }),
     ]),
   )
-  // The actual engine producer binds this structural confirmation to its own prepared proposal.
-  const control = read('control')
-  expect(control).toMatchObject({
-    kind: 'fix-recovery',
-    payload: {
-      phase: 'close-publication',
-      opened: fixture.opened,
-      settled: fixture.settled,
-      target: { source: { state: 'complete' }, request: { state: 'submitted-unconfirmed' } },
-    },
-  })
-  const controlBodies = fixture.frame(control)
+  const controlBodies = await fixture.frameClose()
   const post = (body: string) =>
     execFileSync('gh', ['api', '--method', 'POST', 'repos/acme/app/issues/7/comments', '-f', `body=${body}`], {
       cwd,

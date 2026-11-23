@@ -1,7 +1,6 @@
 import { decodeHistory, projectRecoveryHistories } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
-import type { FixActionResult } from './fix-contract.ts'
-import { failure } from './fix-contract.ts'
+import { type CausalResult, causalFailure } from './causal-refusal.ts'
 
 export type HistoryEntry = { history: DecodedHistory; cohort: string }
 export type HistoryDifference = HistoryEntry & { previous: HistoryEntry }
@@ -28,9 +27,9 @@ export function observationDrift(
   history: DecodedHistory,
   cohort: string,
   previous: HistoryEntry | undefined,
-): FixActionResult<never> {
+): CausalResult<never> {
   const scope = history.source.scope
-  return failure(
+  return causalFailure(
     'fix-own-uw-unsettled',
     'fix-history-observation-drift',
     `scope=${scope.repository}:${scope.target}`,
@@ -47,11 +46,11 @@ export function observationDrift(
 export function reconcileProjectedDifferences(
   histories: Map<string, HistoryEntry>,
   different: HistoryDifference[],
-): FixActionResult<true> {
+): CausalResult<true> {
   const raw = [...histories.values()].map((entry) => decodeHistory(entry.history.source))
   const projected = projectRecoveryHistories(raw)
   if (!projected.ok)
-    return failure(
+    return causalFailure(
       'fix-own-uw-unsettled',
       ...projected.diagnostics.flatMap((item) => [item.code, `${item.code}:${item.message}`]),
     )

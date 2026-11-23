@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
-import { discoverFixRecovery, discoverSelectedRecoveryOwner } from '../fix-recovery-discovery.ts'
+import { discoverFixRecovery } from '../fix-recovery-discovery.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { recoveryAssociationFixture } from './fix-recovery-association-fixture.ts'
 import { associationFrames } from './fix-recovery-association-source.ts'
@@ -33,13 +33,8 @@ it('holds neutral recovery for an outstanding or confirmed pause and permits an 
   const resumed = inputWith([controls.requested, controls.confirmed, controls.resumed])
   for (const input of [requested, paused]) {
     expect(discoverFixRecovery(input).status).toBe('blocked')
-    expect(discoverSelectedRecoveryOwner({ ...input, opened: initial.owner }).status).toBe('blocked')
   }
   expect(discoverFixRecovery(resumed)).toMatchObject({
-    status: 'interrupted',
-    phase: { kind: 'request-before-decision' },
-  })
-  expect(discoverSelectedRecoveryOwner({ ...resumed, opened: initial.owner })).toMatchObject({
     status: 'interrupted',
     phase: { kind: 'request-before-decision' },
   })

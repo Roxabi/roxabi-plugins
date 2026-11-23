@@ -10,20 +10,16 @@ export type {
 export {
   catalogueForAction,
   createReviewClassCatalogues,
-  parseReviewClassCatalogue,
   type ReviewCatalogueRead,
   type ReviewClassCatalogues,
   reviewClassCatalogueRef,
 } from './engine/review-class-catalogue.ts'
-export { deriveRecallPlan } from './engine/review-conservation.ts'
 export {
   type DecisionBindings,
   type ReviewDecisionBindings,
   validateDecision,
   validateDecisionBindings,
-  validateFreshDecision,
   validateRetainedUnusableLabels,
-  validateReviewDecisionBindings,
 } from './engine/review-decision.ts'
 export { validateHistoricalReviewDecision } from './engine/review-fresh-decision.ts'
 export { authenticateIntegrationPin } from './engine/review-integration-pin.ts'
@@ -35,34 +31,6 @@ export {
 } from './engine/review-interruption-schema.ts'
 export { reviewRootFromDecision } from './engine/review-inventory-input.ts'
 export {
-  confirmHistoricalReviewInputMatch,
-  type HistoricalReviewAssociation,
-  historicalReviewAssociations,
-  interruptiblePullRequestRoot,
-  proveHistoricalReviewAssociation,
-  type ReviewRecovery,
-  readReviewRecovery,
-} from './engine/review-recovery.ts'
-export {
-  admitReviewInterruption,
-  admitReviewReplacementGrant,
-  admitReviewReplacementInventory,
-} from './engine/review-recovery-admission.ts'
-export {
-  prepareReviewInterruptionPublication,
-  prepareReviewReplacementGrantPublication,
-  prepareReviewReplacementInventoryPublication,
-} from './engine/review-recovery-prepare.ts'
-export {
-  buildReviewInterruptionRecord,
-  buildReviewReplacementGrantRecord,
-  buildReviewReplacementInventoryRecord,
-  reviewInterruptionRecordId,
-  reviewReplacementGrantRecordId,
-  reviewReplacementInventoryRecordId,
-} from './engine/review-recovery-records.ts'
-export {
-  type Cause,
   type CauseJudgment,
   type CorrectionResult,
   causeJudgmentSchema,
@@ -74,7 +42,6 @@ export {
   type Disposition,
   debtReceiptSchema,
   decisionPayloadSchema,
-  decisionSchema,
   dispositionSchema,
   type FalsificationResult,
   type FinalFinding,

@@ -7,8 +7,6 @@ import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 import { gh as trackedGh } from '../adapters/github/types.ts'
 import { readGitHubHistory } from '../dist/contracts.js'
-import { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
-import { reconcileRecoveryHostEffects } from '../roxabi/fix-recovery-host-effects.ts'
 import { disarmGate, readGate } from '../skills/feature/workflow-gate.js'
 import { arrangeReviewFixture } from '../testing/feature-review-fixture.ts'
 import { readSim, writeSim } from '../testing/sandbox/sandbox-repository.ts'
@@ -46,21 +44,10 @@ it('retains exact publication attribution on actual GitHub transport appends', a
         (await execute('gh', args, { cwd: directory, env: box.env, encoding: 'utf8' })).stdout.trim(),
     })
     const cohort = createPreparationCohort()
-    const fence = new FixExecutionFence()
-    fence.bindCohort(cohort)
-    fence.bindIdentity({ runId: 'run-1', operationId: 'operation-1' })
-    const reservation = {
-      scope: { repository: 'acme/app', target: 'acme/app#42' },
-      kind: 'contribution',
-      runId: 'run-1',
-      operationId: 'operation-1-source',
-      recordId: 'source',
-    }
-    const equalToken = { ...reservation, scope: { ...reservation.scope } }
-    fence.enrollPublicationReservation(reservation)
-    const record = { ...reservation, repository: reservation.scope.repository, target: reservation.scope.target }
+    const reservation = { publication: 'source' }
     await cohort.run(() =>
-      fence.trackPublication(record, async () => {
+      withPreparationAttribution(reservation, async () => {
+        const equalToken = { ...reservation }
         await Promise.resolve()
         await gh(cwd, [
           'api',
@@ -81,63 +68,19 @@ it('retains exact publication attribution on actual GitHub transport appends', a
             'body=other fixture append',
           ])
         })
-        // An acknowledged comment is not canonical readback or publication proof.
-        return { ok: false as const, diagnostics: ['fixture-readback-unconfirmed'] }
       }),
     )
     cohort.seal()
     const joined = await cohort.join()
     if (joined.status !== 'joined') throw new Error(`fixture-cohort-not-joined:${JSON.stringify(joined)}`)
-    const publication = fence.snapshot().publications[0]
-    expect(publication).toMatchObject({ reserved: true, outcome: 'unconfirmed' })
-    expect(publication?.attribution).toEqual(reservation)
-    expect(publication?.attribution).not.toBe(reservation)
     const appends = joined.operations.filter((item) => item.kind === 'gh-append')
     expect(appends).toHaveLength(2)
-    expect(appends[0]?.attribution).toBe(publication?.attribution)
-    expect(appends[1]?.attribution).toBe(equalToken)
-    expect(appends[1]?.attribution).not.toBe(publication?.attribution)
-    expect(equalToken).toEqual(reservation)
-    const head = box.sha['feat/42-save']
-    if (!head) throw new Error('fixture-head-missing')
-    const target = { repository: 'acme/app', pr: 7, head }
-    expect(
-      reconcileRecoveryHostEffects({ host: joined, publications: fence.snapshot().publications, target }),
-    ).toMatchObject({
-      status: 'held',
-      diagnostics: expect.arrayContaining(['fix-host-append-unattributed']),
-    })
-
-    const matchingCohort = createPreparationCohort()
-    const matchingFence = new FixExecutionFence()
-    matchingFence.bindCohort(matchingCohort)
-    matchingFence.bindIdentity({ runId: 'run-1', operationId: 'operation-1' })
-    matchingFence.enrollPublicationReservation(reservation)
-    await matchingCohort.run(() =>
-      matchingFence.trackPublication(record, async () => {
-        await gh(cwd, [
-          'api',
-          '--method',
-          'POST',
-          'repos/acme/app/issues/42/comments',
-          '-f',
-          'body=matching fixture append',
-        ])
-        return { ok: false as const, diagnostics: ['fixture-readback-unconfirmed'] }
-      }),
-    )
-    matchingCohort.seal()
-    const matchingHost = await matchingCohort.join()
-    if (matchingHost.status !== 'joined') throw new Error(`fixture-cohort-not-joined:${JSON.stringify(matchingHost)}`)
-    const matchingPublications = matchingFence.snapshot().publications
-    expect(reconcileRecoveryHostEffects({ host: matchingHost, publications: matchingPublications, target })).toEqual({
-      status: 'qualified',
-      reservedPublications: matchingPublications,
-    })
+    expect(appends[0]?.attribution).toBe(reservation)
+    expect(appends[1]?.attribution).toEqual(reservation)
+    expect(appends[1]?.attribution).not.toBe(reservation)
     expect(readSim(box).issues['42']?.comments.map((comment) => comment.body)).toEqual([
       'reserved fixture append',
       'other fixture append',
-      'matching fixture append',
     ])
   } finally {
     rmSync(box.root, { recursive: true, force: true })
@@ -243,13 +186,6 @@ it('joins bundled transport under the exact real disarm attribution without merg
         (operation) => operation.kind === 'gh-read' && operation.attribution === receipt.attribution,
       ),
     ).toBe(true)
-    expect(
-      reconcileRecoveryHostEffects({
-        host,
-        publications: [],
-        target: { repository: 'acme/app', pr: 7, head: receipt.head },
-      }),
-    ).toEqual({ status: 'qualified', reservedPublications: [] })
     const pr = readSim(box).prs['7']
     expect(pr?.autoMerge).toBeNull()
     expect(pr?.labels).not.toContain('reviewed')

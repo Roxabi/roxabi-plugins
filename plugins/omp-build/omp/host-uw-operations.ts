@@ -21,7 +21,7 @@ export function installedUwRequest(
   }
 }
 
-export function createHostUwOperations(
+function createHostUwOperations(
   ctx: Pick<ExtensionContext, 'cwd' | 'localProtocolOptions'>,
   operator: OperatorPort,
   pin?: TrustedHostPluginPin,

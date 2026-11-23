@@ -57,6 +57,21 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
     installLegacyPiSpecifierShim()
     const { extension, procedures, projection } = await loadLegacyPiModule(${JSON.stringify(consumer)})
     if (typeof extension?.default !== 'function') throw new Error('extension has no default factory')
+    const commands = []
+    const tools = []
+    extension.default({
+      events: { on() { return () => {} } },
+      on() {},
+      registerShortcut() {},
+      registerCommand(name) { commands.push(name) },
+      registerTool({ name }) { tools.push(name) },
+    })
+    if (tools.sort().join(',') !== 'omp_build_execute_native_batch,omp_build_framing_submit,omp_build_prepare_checkout') {
+      throw new Error('unexpected installed tool roster: ' + tools)
+    }
+    if (commands.includes('fix') || !commands.includes('uw') || !commands.includes('feature')) {
+      throw new Error('unexpected installed command roster: ' + commands)
+    }
     const version = JSON.parse(readFileSync(join(${JSON.stringify(destination)}, 'package.json'), 'utf8')).version
     const pin = { name: 'omp-build', version, repository: 'Roxabi/roxabi-plugins', commit: '0'.repeat(40), root: 'plugins/omp-build' }
     let changed = false

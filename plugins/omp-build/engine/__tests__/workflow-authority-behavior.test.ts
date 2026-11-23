@@ -8,7 +8,6 @@ import { buildRecord, parseRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
 import type { Scope } from '../record-values.ts'
 import type { MandateRecord } from '../workflow-control.ts'
-import { assessFixMandate } from '../workflow-correction-admission.ts'
 import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { landingFixtures, nativeBody, nativeSnapshot } from './workflow-authority-native-fixture.ts'
@@ -138,15 +137,6 @@ describe('workflow authority behavior', () => {
       status: 'refused',
       reason: 'abandoned',
     })
-    expect(
-      assessFixMandate({
-        target: { scope: SCOPE, kind: 'issue', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [SCOPE],
-        history: issue,
-        linkedIssueHistory: null,
-        causal,
-      }),
-    ).toMatchObject({ status: 'refused', reason: 'abandoned' })
     const empty = history([])
     const emptyCausal = await observeFixtureNativeWorld({
       root: SCOPE,
@@ -277,16 +267,6 @@ describe('workflow authority behavior', () => {
       ok: false,
       diagnostics: [expect.objectContaining({ code: 'revoked' })],
     })
-    expect(
-      assessFixMandate({
-        target: { scope: SCOPE, kind: 'issue', branch: 'feature/bounded', base: 'main' },
-        linkedIssueScopes: [SCOPE],
-        history: childHistory,
-        linkedIssueHistory: null,
-        externalHistories: [parentHistory],
-        causal,
-      }),
-    ).not.toMatchObject({ status: 'applicable' })
     const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
     const pullHistory = history([binding(boundChild, pull)], pull)
     const code = 'b'.repeat(40)

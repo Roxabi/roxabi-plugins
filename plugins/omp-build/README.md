@@ -89,7 +89,7 @@ Re-running `/feature` re-observes Git and GitHub, not native receipts or callbac
 | `/feature resolve-interruption <reference> [--start <recordId>]` | Retained recovery for an exact native START. Requires compatible runtime, an own confirmed pause, current-process no-admission proof and genuine confirmation. Success remains paused. |
 | `/feature init` | Preview of the invoking checkout. Not a subject, not framing, not a mandate, not a native task. |
 
-The retained interruption control covers native `plan`, `plan-review`, `implement`, `integrate`, `assess-spec` and `attribute-ci` starts, not the separate review-replacement or fix protocols. Closure before admission counts only after a fenced stop and confirmed terminal RESULT. Missing, conflicting or already-admitted dispatch evidence refuses resolution, including after restart. A stop request, missing result or human attestation is not proof.
+The retained interruption control covers native `plan`, `plan-review`, `implement`, `integrate`, `assess-spec` and `attribute-ci` starts. Closure before admission counts only after a fenced stop and confirmed terminal RESULT. Missing, conflicting or already-admitted dispatch evidence refuses resolution, including after restart. A stop request, missing result or human attestation is not proof.
 
 Resolution rereads causal history, runtime and exact dispatch evidence before publication. It proves no native child dispatch, not absence of earlier preparation or root-turn effects; it does not reconcile effects, adopt commits or roll back preparation already performed. Ordinary subsequent admission owns fresh checkout and code checks. Invalid terminal output, ordinary context-negative results and malformed legacy history remain blocking; an invalid legacy START is not bypassed by an abandon record.
 
@@ -98,7 +98,7 @@ Explicit leaf succession retains compatibility checks for accepted obligations a
 An existing PR is not automatically replaced:
 - Complete own-UW PR facts are collected even when ordinary terminal-state observation omits that scope. Their commitments must survive bootstrap unchanged. Closed, ambiguous, mismatched or unproved bindings stop before publication. Compatible open or merged requests retain their identity; native facts and authenticated binding parts are rechecked before later writes. Publication is sequential, not atomic: a later refusal may retain the new Mandate or selection control, without rollback or automatic replay.
 
-Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`. `/dev-review` and `/fix` do not grant landing.
+Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`.
 
 The confirmation starts on `Plus tard`. Tab/Left/Right selects an action, Enter activates it; C confirms, R refuses and Escape defers. Up/Down/PageUp/PageDown scroll the summary; D toggles the captured JSON, digest and detail reference. Supplied values are quoted with visible line-break and bidirectional-control escapes, without changing the prepared payload. Wrapped continuation rows retain a `| ` marker even when their origin has scrolled away.
 
@@ -118,7 +118,7 @@ Workflow history reads revalidate comment pages with GitHub (`If-None-Match`). A
 
 Late `/feature` and generic root `/uw` command reports, their UI notifications and command-result records stay bound to the original session and agent, live cwd, session file, manager artifact mapping, actual report directory and command ownership. Current failures before or after a held confirmation are reported once; a newer command suppresses the old in-flight command report. An admitted framing handoff keeps only that exact lease's command-reporting permission; controller-owned framing journals retain their existing storage lifecycle. A confirmed choice is not proof that the domain operation published successfully.
 
-The retired Feature flow advanced from native results and CI-watch exits. Composed `/feature` has no delivery callback or background delivery watch. It makes bounded read-only check observations and stops for re-entry when needed. Standalone `/ci-watch` and the retiring native review/fix runtime retain their own operations.
+Composed `/feature` makes bounded read-only check observations and stops for re-entry when needed. Standalone `/ci-watch` observes independently; it does not advance delivery.
 
 Spec assessment receives the exact accepted and proposed canonical snapshots together with their original raw bytes, tier and accepted-child commitments. Its original classification stays in the action result. Additions/removals of criteria, invariants or exclusions, and tier/accepted-child changes are mechanically material; a stable-ID rewording still receives semantic editorial/material/unknown judgment. Material or unknown acceptance requires a real operator decision bound to that exact assessment and proposal. Declining publishes no acceptance and grants no continuation or landing authority.
 
@@ -137,15 +137,14 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 | Part | Owns | Does not own |
 |---|---|---|
 | Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories and landing-mandate admission | Semantic judgement, GitHub calls, merge |
-| Roxabi (`roxabi/`) | Feature admission, mandate and worktree preparation, UW operations and retiring native product paths | A project-defined graph or an admission override |
+| Roxabi (`roxabi/`) | Feature admission, mandate and worktree preparation, UW operations | A project-defined graph or an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
-GitHub comments hold `mandate`, `spec-identity`, `operator-control` and `workflow-binding` records. Retained native history also includes `action-receipt` (including START/RESULT from the retired Feature flow), `epic-event` (retired parent delivery), and `review`, `correction`, `review-interruption` and `review-replacement-grant` (retiring native review/fix and recovery). Mandates use `omp-build-mandate/4`, Spec assessments `omp-build-spec-assessment/3`, action receipts `omp-build-action-receipt/2`, and reviews carrying input `omp-build:review-input/4`. Incompatible formats, obsolete payload fields and the removed `kind: 'proof'` refuse explicitly. Historical decoding does not grant current authority or imply migration.
+GitHub comments hold `mandate`, `spec-identity`, `operator-control` and `workflow-binding` records. Retained readers still decode `action-receipt`, `epic-event`, and historical `review`, `correction`, `review-interruption` and `review-replacement-grant` records. Mandates use `omp-build-mandate/4`, Spec assessments `omp-build-spec-assessment/3`, action receipts `omp-build-action-receipt/2`, and review inputs `omp-build:review-input/4`. Incompatible formats, obsolete payload fields and the removed `kind: 'proof'` refuse explicitly. Historical decoding supports UW, completion and Feature admission; it does not grant current authority or imply migration.
 
 Trusted complete workflow records, including retained action receipts, require readable UTC native creation/revision facts on every part, with `updatedAt === createdAt`. Missing or unreadable facts refuse as `record-unreadable`; a revised part refuses as `record-edited`. Foreign observations remain readable but never become authoritative. Foreign copies cannot veto authenticated candidates by reusing their identifiers; missing, conflicting or damaged expected-author records still refuse.
-Correction checkpoints and review recovery authenticate their own records; foreign claims remain observable without vetoing authenticated evidence, while incomplete or conflicting expected-author evidence still refuses.
 
-Cause state is durable on its original UW: `cause-disposition`, exact-confirmed `cause-operation`, sister-only `debt-receipt`, and `report-promotion`. A newly published review explicitly references its complete dispositions through `causeDispositionRefs`; omitting that field cannot select historical semantics at a live admission gate. Historical verdicts remain diagnostic records, not fresh approvals. Admission authenticates the referenced decision, action inputs, accepted Spec and cited observations before a successor can release a hold.
+Cause state is durable on its original UW: `cause-disposition`, exact-confirmed `cause-operation`, sister-only `debt-receipt`, and `report-promotion`. Historical reviews reference their complete dispositions through `causeDispositionRefs`. Historical verdicts are not fresh approvals. Admission authenticates the referenced decision, action inputs, accepted Spec and cited observations before a successor can release a hold.
 
 Cause resolution uses the complete authenticated causal history and the catalogue pinned by each producing action, not the currently installed catalogue. The host supplies an immutable table derived from exact pinned bytes, retaining per-pin failures; missing, conflicting or invalid evidence refuses rather than inventing a class. The full causal context resolves references but does not enlarge the selected mandate, parent or execution authority.
 Cause-wait projection discovers cause histories from expected-author claims, including incomplete or invalid claims; a foreign-only cause claim does not trigger that projection. Independent review and causal validation still apply to their own authenticated evidence and context.
@@ -164,25 +163,17 @@ The landing binding on every base is the confirmed `workflow-binding` on that PR
 
 Issue state is a scope fact, not execution authority. A closed Spec remains readable when reconstructing its bound mandate. Closing an issue neither pauses or revokes that mandate nor approves landing; a closed PR still cannot authorize another review or correction.
 
-#### Interrupted native review
+#### Historical review and correction records
 
-Recovery for retiring `omp_build_start_review` is three explicit write-approved host actions, each with `{ "pr": <number> }` in the PR's worktree. Composed `/dev-review` does not use these tools.
+A `review-interruption` is a neutral terminal for the initial inventory, not a verdict. A `review-replacement-grant` is consumed only by its confirmed linked replacement inventory. Incomplete or conflicting chains do not count as approval or reset the legacy review bound.
 
-| Tool | Confirmed effect |
-|---|---|
-| `omp_build_terminalize_interrupted_review` | Publishes a neutral interruption for the unfinished initial PR inventory after reconstructing its historical mandate, binding and input. No verdict or review tasks. |
-| `omp_build_grant_review_replacement` | Captures fresh review inputs against the verified current binding and grants one replacement. No review tasks. |
-| `omp_build_replace_interrupted_review` | Recaptures those inputs, confirms the exact linked inventory by remote readback, then activates and announces its native review batch. |
-
-Historical inputs need not equal the fresh grant's inputs. Replacement inputs, head and binding must equal the grant's freshly verified values. Roots and publication identities are derived from the recorded chain, not supplied by the caller. A confirmed linked inventory consumes the grant once; a transport acknowledgement alone does not. Incomplete, conflicting or unauthenticated evidence refuses progression rather than minting another attempt.
-
-The interruption, grant and unfinished replacement all leave ordinary review/correction progression stopped. A genuine completed replacement verdict re-enters normal review/correction accounting with all historical bounds and stops retained. An interrupted replacement needs a new human checkpoint; these tools do not grant a third recovery, a new review bound, a mandate succession or landing permission. An uncertain publication must be reconciled against native history before retrying; restarting the host does not refill the allowance.
+Historical `fix-owner` and `fix-request` records show ownership and intent, not completed execution. Confirmed `fix-recovery` records preserve neutral closure or transfer of an unstarted request and its unchanged decision. Replay keeps retired fragments from reopening the recorded attempt; unrelated corruption still blocks. Composed correction does not resume these attempts.
 
 ### Criterion delivery and action inputs
 
 For composed `/feature`, the session maps accepted criteria and invariants to code and targeted checks, verifies the committed diff, and commissions independent review of the open PR head.
 
-The retired graph wrote criterion-ID plans and implementation receipts. Each receipt accounted for every criterion at its exact code version, with evidence or an explicit unverified reason. The action-input and evidence rules below describe retained native records and retiring native review/fix paths, not the composed Feature cursor.
+Retained action-input records include criterion-ID plans and implementation receipts. Each receipt accounts for every criterion at its exact code version, with evidence or an explicit unverified reason. They are evidence, not the composed Feature cursor.
 
 Execution ownership is the full scoped mandate reference, not the accepted Spec's `sourceAccepted` identifier. Editorial or material Spec succession does not silently replace that owner. PR reviews reconstruct it through their pinned workflow binding; parent-range reviews without a PR use their unique authenticated own-UW mandate payload pin. Both preserve the separate exact accepted `OwnSpecRef` and version vector. Initial inventory subjects, manifest subjects and record scopes must agree; a PR inventory cannot downgrade to the unbound parent-review path.
 
@@ -213,11 +204,11 @@ Within one selected-record materialization or replay call, references to the sam
 
 Review admission reconstructs the currently eligible inputs from complete authenticated histories, not just the old manifest's listed records. A new eligible evidence receipt at the same HEAD changes the inputs or produces an explicit ambiguity. The review's own outputs stay outside its normative fingerprint; its authenticated stage annex supplies the records later stages actually need. Prose-only PR edits do not change that fingerprint.
 
-UW review and correction manifests pin the full prior disposition/adjudication lineage as `cause-state` delivery data. These records are not criterion evidence. A changed authenticated operator decision changes the next action's inputs; the current review's own dispositions remain outputs rather than circular self-inputs.
+Historical review and correction manifests pin the prior disposition and adjudication lineage as `cause-state` delivery data, not criterion evidence. The review's own dispositions are outputs, not its inputs.
 
 Reconstructing a selected review names its exact authenticated `review-attempt` reference as well as its persisted input fingerprint. The reference selects that review's own initial outputs; the fingerprint only checks input equality, never record identity. A later adjudication invalidates this reconstruction and belongs to the next review's full prior cause lineage. A new review neither reuses the old root nor resets the review bound.
 
-Recall inventories retain each task's exact prepared action for later review-bound correction. Confirmed replacement dispatch validates the confirmed replacement root initially and the runner-supplied root at subsequent stages; an interrupted inventory or an equal fingerprint is not a substitute.
+Historical recall inventories retain each task's exact prepared action. A replacement is identified by its confirmed linked root, not an equal fingerprint or the interrupted inventory.
 
 The separate read-only Instantané contains the index of criterion/invariant ids, titles, versions and paths; pinned diff, useful records, repository instructions and touched-area glossaries; and referenced assets copied from the verified installed plugin. Planning uses base references; review uses candidate references. The task carries only the procedure and index path, not copied UW data.
 
@@ -231,17 +222,17 @@ Snapshot integrity covers its actual paths, entry types and bytes, independently
 
 The snapshot index identifies authoritative UW data and pinned normative references, not a source-code allowlist. Code-reading roles discover relevant implementation, tests, technical documentation (including READMEs and changelogs), and CI/build/test configuration in the action worktree at the indexed code version. These files, including plugin instructions under review, are product context to inspect, not replacement authority: governing instructions and normative references still come from their indexed snapshot copies.
 
-In the retired native Feature graph, planning and plan review could explore code without shell or write access and required a clean, readable checkout. Native correction and verification keep their role-specific permissions; dossier-only decision and synthesis roles remain restricted to indexed records. The native child inherits the root session's working directory; this is not filesystem isolation.
+The retained native runtime starts children in the root session's working directory; this is not filesystem isolation. Role-specific tool permissions still apply.
 
 A source file need not be preselected in the snapshot for an authorized role to discover it. Missing authoritative UW information still requires a concrete missing-context result; repository exploration does not authorize live-record reads, replacement of accepted obligations or publication.
 
 #### Required context and explicit expansion
 
-The native `missing-context` result binds to the action and sealed inputs; it is not a satisfied criterion, approval, or Report. The retired Feature planner, plan review, implementation and CI attribution used authenticated START/RESULT pairs to scope context-negative or rejected results to the producing mandate. Those records remain readable for history and eligible recovery. Spec assessment and retiring native review/correction still require their applicable authenticated inputs; a missing observation is not acceptance.
+The native `missing-context` result binds to the action and sealed inputs; it is not a satisfied criterion, approval, or Report. Retained START/RESULT pairs scope context-negative or rejected results to the producing mandate. Spec assessment still requires authenticated inputs; a missing observation is not acceptance.
 
 Prepare the replacement explicitly with `/uw action /absolute/path/action.json`. Its `expandedContext` cites the authenticated negative's `/payload` and genuinely additional pinned references. Preparation preserves the supplied context, required stage sources, accepted authority, code, subject and purpose, and creates a distinct manifest fingerprint and sealed snapshot. A missing required source remains blocking; unreadable, edited, wrong-digest or ambiguous lineage refuses. Repeated negatives must form a unique authenticated chain, not competing successors.
 
-Preparation does not dispatch the new action, renew a mandate, reset review/correction limits or authorize recovery of an effectful correction. A previously resolved or cross-purpose negative can remain authenticated input data without becoming new resume authority. Session changes revoke pending native publication as well as continuation; pausing continuation alone does not revoke an already admitted publication.
+Preparation does not dispatch the new action, renew a mandate or reset limits. A previously resolved or cross-purpose negative can remain authenticated input data without becoming new resume authority. Session changes revoke pending native publication as well as continuation; pausing continuation alone does not revoke an already admitted publication.
 
 #### Communication and publication authority
 
@@ -410,7 +401,7 @@ Foreign claims do not veto UW **home-history coverage**. This does not relax the
 
 Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and 0.21.0 through 0.21.13 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and 0.21.0 through 0.21.14 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -475,13 +466,10 @@ Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds th
 | `/ci-watch` | `registerCommand('ci-watch')`. Dumps `skills/ci-watch/SKILL.md`. User lane. |
 | `/dev-review` | `registerCommand('dev-review')`. Dumps `skills/dev-review/SKILL.md`: reviewer agents on an open PR head, a findings comment, the verdict line when approved. User lane. |
 | `/dev-fix` | `registerCommand('dev-fix')`. Dumps `skills/dev-fix/SKILL.md`: implementer agents fix the latest `/dev-review` findings and the failing checks on an open PR head, the exact tip is pushed over the reviewed head, then `/dev-review` again. User lane; the operator who runs it authorizes its push. |
-| `/fix` | Retiring user-lane native correction. Still installed; use `/dev-fix` for composed delivery. |
-| `omp_build_start_review` | Retiring model-lane native review on an existing PR. Its records support native `/fix` and recovery, not composed review. Not execution authority. |
-| `omp_build_recover_interrupted_fix` | Retiring native recovery. Inspects an interrupted PR correction and offers exact-state root-operator confirmation. Accepts only `{ pr }`; requires host write approval and current authority. Neutral closure or unstarted existing-review adoption only; never landing authority. |
 | `omp_build_prepare_checkout` | `registerTool`. Canonical checkout for one unambiguous issue reference. A pull-request number checks out that request's existing head instead of minting an issue branch. Returns `ready`, `move`, or `blocked` with the path. Host write approval. Does not publish authority, bootstrap, resume, move the session, or simulate `/feature`. |
-| `omp_build_execute_native_batch` | Retiring native runtime's restricted execution tool. Accepts only `{ batchId }` for an announced, sealed batch; does not authorize or publish work. |
+| `omp_build_execute_native_batch` | Retires with the native runtime in PR 3c of [#1037](https://github.com/Roxabi/roxabi-plugins/issues/1037). Accepts only `{ batchId }` for an announced, sealed batch; does not authorize or publish work. |
 
-`registerCommand` is the user lane. Retiring native review and correction still verify the target, head, bound and proofs before dispatch; unknown, stale, ambiguous or closed PRs refuse. The restricted execution tool runs only a host-admitted batch. `disable-model-invocation` omits a skill from the prompt listing but neither prevents explicit reads nor grants authority.
+`registerCommand` is the user lane. The restricted execution tool runs only a host-admitted batch. `disable-model-invocation` omits a skill from the prompt listing but neither prevents explicit reads nor grants authority.
 
 The retiring runtime uses SDK child sessions through owned execution, not interception of built-in `task` results. It retains outcomes and errors before settlement. These records conserve SDK observations, not a complete raw stream, and grant no publication authority by themselves.
 
@@ -490,7 +478,7 @@ The owned execution tool declares the SDK's `essential` load mode for direct top
 During an owned dispatch turn, a root- and batch-scoped lease temporarily removes the built-in `task` tool while retaining the other enabled tools. The owned tool must already be enabled. Restoration is limited to the same root identity and an unchanged observed tool presentation; if that presentation drifts, omp-build leaves it untouched and stops the owned continuation. This is not a compare-and-swap or an ABA/zero-race guarantee.
 Both native root capture and the tool-mask lease bind journal, file and cwd to the live session and command context. A fresh capture after `/move` may observe an older registry `sessionFile` locator; it captures that metadata separately instead of treating it as the live file. Subsequent registry-ref, session, journal, live-file, cwd or provider drift still invalidates the capture; registry locator drift also refuses. Both paths retain the captured model-registry and cost-gate identities; ordinary changes within the same cost gate do not replace that identity. No SDK registry metadata is rewritten, and this does not permit a move during an active lease or relax tool-presentation restoration.
 
-The qualified SDK baseline is OMP CLI 18.20.2, also pinned for development; this is not a claim that it is the earliest compatible version or that later versions are compatible. OMP CLI 19.1.0 renamed the mounted `xd://` tools to tool commands; the native task mask reads either name, which does not qualify 19.1.0. Catalogue installation does not install the declared host peers: the running OMP host must provide the matching SDK packages. The root-capture and tool-mask paths were smoke-tested before and after a real `/move` on unmodified official OMP CLI 18.14.0, without starting a model turn or native workflow; those historical observations do not qualify the current recovery path on that version. The common confirmation UI has runtime proof only on official OMP CLI 18.18.5, as detailed below. Standard CLI credential and model-pool composition is assumed. A custom embedding can present compatible APIs while using opaque credential or pool provenance; that provenance cannot be automatically detected or attested here. Offline and adapter evidence is not real native acceptance: a separate native cold-restart recovery acceptance run is still required.
+The qualified SDK baseline is OMP CLI 18.20.2, also pinned for development; earlier and later versions are not qualified by that pin. OMP CLI 19.1.0 renamed mounted `xd://` tools to tool commands; the native mask recognizes both names. Catalogue installation does not install the declared host peers: the OMP host must provide the matching SDK packages. Custom embeddings can expose compatible APIs without proving credential or model-pool provenance.
 
 The earlier framing confirmation path was exercised on unmodified official OMP CLI 18.18.3 at 80×18, 40×12 and 40×8, including defer/reopen, explicit choices, scrolling and resizing. Diagnostic parent coverage, foundations and escaped supplied text were also observed. External native writes were denied in those probes: they qualify that UI/controller path, not the later generic confirmation surface, native delivery or hosted landing.
 
@@ -498,7 +486,7 @@ The common confirmation path was additionally exercised in native mode on unmodi
 
 ## Records
 
-The engine (`engine/`) owns versioned records, references, conservation, counts and deterministic projection. Roxabi (`roxabi/`) prepares delivery authority and UW operations and retains the retiring native review/fix paths. GitHub adapters paginate comments, check native authorship and revisions, and confirm publication by readback. These checks do not judge review semantics.
+The engine (`engine/`) owns versioned records, references, conservation, counts and deterministic projection. Roxabi (`roxabi/`) prepares delivery authority and UW operations. GitHub adapters paginate comments, check native authorship and revisions, and confirm publication by readback. These checks do not judge review semantics.
 
 For multi-page GitHub histories, each next page is followed by a comparison of the preceding page's native IDs and revision facts. A changed or unverifiable page returns `complete: false`, retains comments already read, and reports `github-pagination-changed`; read failures retain their existing diagnostics. Relative to GitHub's documented ascending-ID ordering and the undocumented assumptions that new IDs increase, deleted IDs never reappear, and responses are non-stale and monotonic, a complete read includes every comment present throughout the read. Stale or replayed responses can defeat the check. Edits within a preceding page's comparison window cause a hold; revisions outside those windows are not checked, and the result is not a snapshot.
 
@@ -514,106 +502,13 @@ In the retired Feature flow, a result bound its confirmed START, exact mandate a
 
 Native command claims are not observations. Historical criterion evidence needs matching completed host captures and demonstrated code linkage; a printed SHA, selected tool ID or combined output relabeled as two streams does not prove linkage.
 
-The retiring `omp_build_start_review` runs spec → panel → recall → synthesis and publishes confirmed native records. Retiring `/fix` uses `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply` and `R-review-fix-falsify` as applicable. An existing-review-bound request uses its confirmed decision unchanged. Correction records set `landing: false`.
+Historical correction records set `landing: false`. An existing-review-bound request names the PR, exact review, scope, mandate and confirmed decision. See [root causes and member references](skills/dev-review/root-causes.md) for the native record format.
 
-Correction mandates use the same strict own-UW contract. A bound PR reuses its real accepted UW snapshot, tier and durable identity references, with correction permission but no landing permission. A PR without an authenticated UW binding refuses `fix-own-uw-required` before publication or dispatch; neither its prose nor a correction-scope string becomes an invented `C1`.
+### Historical review policy and cause dispositions
 
-Pre-decision correction synthesis binds to the complete initial intake of the same correction root. CI correction additionally pins the authenticated attribution result as stage evidence, not dispatch or landing authority. An issue reference to `/fix` aliases its unique current authenticated bound open PR; the binding must identify that exact current mandate, not a predecessor in the same UW. The issue must be open and its PR branch checked out. Issues without such a PR are refused before writes; correction without a PR is unsupported.
+Historical native reviews distinguish `baseline` and independently accepted `evidence-v1`. The policy field does not alter the rules for interpreting [cause dispositions](GLOSSARY.md): pending blockers remain pending, a sister requires exact confirmation, and a report belongs to the original UW. Rejection is not criterion evidence.
 
-Before publishing a correction root, the effective push remote must be credential-free and its branch tip must equal the candidate head. Missing or different remote heads refuse rather than creating an unusable request. Credential-bearing URLs refuse without echoing the URL; use SSH or credential-free HTTPS with a credential helper instead. These checks do not replace repository identity, current authority or publication ownership checks.
-
-Pre-release stranded roots, including legacy synthetic CI roots, are not migrated or repaired. New authenticated owners use the [bounded correction recovery](#bounded-correction-recovery) path; a refusal never permits clearing history or replacing an entered attempt.
-
-Existing worktrees are entered with `/move <path>`, not recreated, and not with `/wt`. The command prints that move only when the session cwd is not the intended worktree.
-
-Composed `/feature` resumes from Git and GitHub facts once in the matching worktree and reviews each changed PR head independently. The retired review-bound handoff pinned the PR, review, scope and exact mandate; these bindings remain readable for native history and eligible correction recovery.
-
-A persisted `fix-request` proves recording, not completed execution. Ordinary continuation remains bound to its live invocation. Durable `fix-owner` records additionally prevent another ordinary, review-bound or CI start from bypassing active or interrupted ownership, including an opening with no complete request. A cold request can continue only through the explicit bounded recovery protocol below; local artifacts are not a replacement workflow journal.
-
-Each native correction continuation re-reads the current history and validates the originally confirmed review against it
-before confirming the mandate and live request from that same snapshot. A newer review or an exhausted review bound
-refuses execution of the older decision; it does not reset the bound or discard the recorded request.
-
-The full original review input is checked at entry. Subsequent owned correction commits are checked by the existing
-commit, proof and head fences, rather than requiring the local HEAD to remain the original review's HEAD.
-
-Retiring standalone `omp_build_start_review` is independent of Feature inhibition; composed `/dev-review` uses independent reviewer agents, not a native review batch. A native interrupted inventory may remain pending; it is not approval, does not restart silently and does not reset the native review bound.
-
-Review → fix record contract: [root causes and member references](skills/dev-review/root-causes.md).
-
-### Native review policy and cause dispositions (retiring)
-
-Prepared review uses `baseline`. The separate [evidence review policy](skills/dev-review/evidence-policy.md) requires independent operator acceptance for explicitly selected `evidence-v1` work. A record's policy field, a test fixture or a passing replay cannot switch the live policy; the prepared review assembler does not read policy from old records.
-
-Correction disposition follows the same evidence-backed D14 table under either review policy. Per-cause cited judgments determine correction, an exact-confirmed sister or an original-UW report; no review-policy value authorizes automatic issue filing or optional-neighbor work. Unsupported or contested blocking causes remain pending for motivated operator adjudication. Rejecting a finding cannot satisfy a missing criterion or bypass the head/input/CI and mandate gates.
-
-Mechanical inspection of original findings is independent of synthesis. An intrinsically unusable blocking original remains retained even if synthesis marks it usable or downgrades its severity; genuinely usable originals may still be reclassified. Unassigned exclusion-rule errors remain named blocking dispositions, including when an otherwise authenticated correction has no findings or causes.
-
-Historical dispositions authenticate their exact accepted-Spec prefix against the complete authoritative chain. Legitimate editorial or material succession does not invalidate an immutable final report, and historical rejections cannot waive findings under a different accepted Spec. Sequential adjudication validation reuses authenticated prefixes only within one observation; a fresh history requires fresh validation.
-
-The optional evaluator supplies separate qualification dimensions and per-result backend identity, not aggregate severity, probability or authority. Unavailable evaluation is disclosed degraded mode, never a fabricated score or automatic clearance. Shadow outputs remain separate from authoritative records and authorize no effects.
-
-Differential re-review retains its independent acceptance requirements: baseline, delta, affected paths and residual obligations. Missing history or impact evidence requires full review plus explicit residual inspection. A missed required blocker, unauthorized correction, inadmissible sister or lost residual suspends candidate use pending renewed supervised acceptance; existing stopped review bounds remain intact.
-
-### Earlier review/fix qualification (T2)
-
-The earlier T2 cohort covered actual OMP 18.12.5, a local scripted provider, a fake
-GitHub, and a local bare Git. A native positive path exercised spec → panel →
-recall → synthesis → canonical review, and trusted gate 0 accepted it.
-Invalid-only and sequential new-head paths met their gate-1 refusal checks. A
-full native fix accepted two commits, with independent proofs, falsification,
-restore, a clean tree, a non-default push, and final records. Typecheck,
-Biome, build, and the repo suite passed on that same cohort. This is not a
-paid semantic-model campaign, not proof of review efficacy, not full cold
-resume, not hosted GitHub, and not T3, T5 or merge activation. It does not qualify composed `/feature`.
-
-### Historical native workflow integration qualification (T3)
-
-A private local cohort qualified candidate `0.11.0` with actual OMP 18.12.6
-and Bun 1.4.4. All 29 modes passed on one frozen product-code and fixture
-snapshot, with unchanged runtime binaries. This is not an installed release.
-
-- **Product paths:** the then-installed native `/feature`, native tasks, the CLI landing
-  path and the independent trusted review gate. The default/non-default-base
-  binding case is an explicitly seeded CLI/gate witness, not an OMP session.
-- **Recovery and controls:** fresh checkouts and distinct homes without session
-  transfer; two actual pause/resume cycles; abandon and explicit successor;
-  wrong-child-branch refusal; unconfirmed pause refused by Feature, explicit
-  review preparation, trusted CI and the now-removed local landing command.
-- **Nested coverage:** seven terminal-delivery reentry cases; both parent
-  completion and child-to-parent ownership interruption; both remote-pause
-  interleavings during CI attribution and correction synthesis. Original
-  results remain evidence even when current authority refuses further effects.
-- **Ordinary checks:** build, typecheck, Biome (183 files), isolated imports
-  without dependency installation, and the full suite (87 files, 2,054 tests).
-  The full suite ran without concurrent native qualification jobs.
-- **Limits:** scripted local model provider, fake GitHub transport and local bare Git only. No paid-model efficacy, hosted GitHub adoption, global installation or merge activation is established; T4 and T5 require their separate authorizations.
-
-### Historical C1 portable preparations and coordinator witnesses (candidate 0.11.1)
-
-The C1 cohort passed 43 tests in four focused files with an inherited global Git
-configuration that requires an unavailable signing program. The admission and
-correction fixtures isolate Git configuration, inherited hooks and shell startup;
-every allocated repository or remote is owned before setup can fail. A real
-failing Git setup also left no allocated sandbox behind.
-
-A subsequent preservation commit ports the principal's merge-race regression to
-the actual native landing process and strict GitHub simulator. Its focused check
-passed: a completed merge adds no `reviewed` label and makes no second arm attempt.
-
-The historical witnesses exercised `continueFeature`, `publishFeatureNativeResult`,
-`consumeWatchExit`, and `requestFeatureSessionPause` in the retired Feature coordinator.
-They used disposable Git, the strict GitHub simulator, fresh Bun processes, distinct
-homes and cold checkouts. The old handler used its source-module loader and an
-external API stand-in; this was not a running OMP session. Assertions inspected
-durable controls, original action bindings and refused effects, not message wording.
-The CLOSED-watch case proves a stopped result, not a successful MERGED landing.
-
-A separate runtime smoke used the locked OMP 18.12.6 agent parser and both source
-and distributed strict schemas. Typecheck and Biome on the eight changed TypeScript
-files passed. These are not a full suite result, a C2 deterministic-generation/parity
-proof, a C4 lifecycle qualification, model-obedience evidence, hosted GitHub
-validation, installation, or merge activation.
+Historical dispositions authenticate the exact accepted-Spec prefix against the complete authoritative chain. Later Spec succession does not invalidate immutable final reports or carry old rejections over to a different accepted Spec.
 
 ### Existing review and landing safeguards
 
@@ -625,7 +520,7 @@ login (`gh api user`). The count and the latest review come from that history. A
 refusal is not an empty history. Nothing writes accounting. A legacy marker is not a
 review and does not reset the bound.
 
-A spent native bound remains a stop for native review/correction and hosted structured admission. Revised work requires separate operator scope and a superseding PR; the original dossier and records remain evidence. It does not restore the removed local landing command.
+A spent native bound still stops legacy hosted structured admission. It is not the composed correction counter and never grants authority to replace or merge the PR.
 
 #### Trusted Feature delivery CLI
 
@@ -701,7 +596,7 @@ authority for one head never authorizes another.
 
 #### Existing arms and disarm
 
-The surviving `workflow-gate.js` reads native PR state and, where configured, Kit authorization. Retiring native review/fix admission and pause/abandon use its disarm checks: disable auto-merge and remove `reviewed` when present, withdraw applicable authorization, and confirm the result by readback. An unreadable or still-armed PR is not a confirmed disarm. This code does not arm a new merge.
+The surviving `workflow-gate.js` reads native PR state and, where configured, Kit authorization. Pause and abandon use its disarm checks: disable auto-merge and remove `reviewed` when present, withdraw applicable authorization, and confirm the result by readback. An unreadable or still-armed PR is not a confirmed disarm. This code does not arm a new merge.
 
 Standalone `/ci-watch` observes the existing merge state using `workflow-readiness.js`: committed base `landing.mode`, otherwise `merge-on-green` if that workflow exists on the base, otherwise `native`. It does not advance Feature or restore an arm.
 
@@ -786,29 +681,6 @@ The separately authorized T5 capability check passed in [run 40180871966](https:
 
 This is not a new tamper control.
 
-## Bounded correction recovery
-
-In the active OMP root, `/uw` or a refused native correction can expose an inspection hint for the retiring `omp_build_recover_interrupted_fix({ pr })`. The hint is factual, not eligibility. The tool rechecks the release/pin, accepted Spec, mandate, UW/PR binding, current head, controls, history and owner before proposing recovery and again before effects. Root-operator confirmation authorizes only the displayed recovery.
-
-| Observed retiring correction | Confirmable transition |
-|---|---|
-| Authenticated opening, torn C0 or R, no native/startup or correction-plan entry | Neutral closure; a subsequent native `/fix` can create a fresh canonical attempt on the same UW/PR. |
-| Complete R before native intake/decision | The same neutral closure; old predecision findings do not transfer. |
-| Existing-review-bound R/D, genuinely unspent correction execution | A new confirmed owner executes the same R and D with the original logical run and unchanged bounds. Pending or infeasible obligations still hold. |
-| Native/startup or plan entered; witness missing; ambiguous effects or authority | Reconciliation hold. No generic cursor restoration, post-push completion, or automatic local cleanup. |
-
-The originating host seals admission and joins the real tracked driver, Git/source publications, streams and callbacks before preparing its no-entry witness. Preparation trusts the maintained host operations; it does not certify every custom helper or establish generic descendant cessation. The final witness publication is a bounded immutable self-write, not permission to resume source work. A live origin additionally requires its retained in-memory attestation; a cold origin requires compatible, positively observed process-lifetime evidence. A clean tree, completed task or free mutex is insufficient.
-
-One protocol-checked process context connects source, bundled and reloaded host operations. Cohorts, fences, reservations and receipts remain owned by their originating run; sharing context does not create shared workflow authority. Incompatible context protocols refuse operation rather than silently splitting observation, and finishing one run never resets another run's context.
-
-Every start holds the same publication-destination OS mutex through its tracked driver. It is independent of checkout, OMP profile and recovery qualification. Linux uses its native network-namespace lock domain; Windows uses the native global mutex; Darwin uses a protected persistent sidecar under the OS-account home, not an environment-selected HOME. Darwin sidecars are never unlinked or treated as stale workflow state. Kernel release, explicit release and normal termination are logical exclusion facts, not no-entry witnesses or durable-owner resolution. Physical-host exclusion across isolated Linux network namespaces is not claimed.
-
-Positive recovery requires Linux-qualified host observations, including compatible boot, UID, process and namespace identities and the protected runtime-root observations. Missing qualification leaves ordinary corrections available under the real mutex, but their interrupted owners remain held. An unavailable Linux network-namespace observation never qualifies recovery or changes the mutex key. Darwin/Windows runtime qualification of this new host path is not claimed.
-
-The engine owns owner/claim admission and confirmed `fix-recovery` replay. Owner/claim records live on the UW; C0, R, D and recovery controls live on its bound PR. GitHub adapters retain raw records and fragments; ordinary UW, correction and review consumers use the same authenticated effective projection. Late retired fragments cannot reopen a closed attempt; unrelated corruption remains blocking. Embedded pinned catalogue bytes make historical replay independent of current catalogue availability, while new execution still requires current ordinary preflight. Neither recovery nor owner termination relaxes final-head proof, review, pause or landing gates.
-
-Qualification distinguishes native scenarios from the complete-C0/torn-R protocol case. No valid current public producer input yielding a multipart R at the fixed 65,536-byte limit has been established. That case uses an explicit reduced test framing limit and structural origin fixture at the engine/adapter boundary; it is not native origin/witness or default-limit reachability proof. Production framing is unchanged, and this exception does not replace the other native recovery requirements.
-
 ## Guards
 
 The plugin arms its guard chain **in-process**, through `omp.extensions` → `omp/index.ts`. It intercepts `tool_call` and refuses, before the tool runs:
@@ -860,7 +732,7 @@ The parent-model fallback described here applies to ordinary built-in spawns. An
 For ordinary operator-directed spawns outside an owned workflow batch: `task` `{ agent: "R-adversarial" | "R-advisor" | "R-architect" | "R-devops" | "R-tester" | "R-security-auditor" | "elon", ... }`. Owned workflow batches use the execution tool described above. Profiles are read from `agents/` of whichever package root is in the extension lane — the `link` symlink, or the marketplace install's `node_modules` symlink once it is listed in `extensions:`. `R-advisor` is a spawnable task agent, **not** the session WATCHDOG (`advisor.enabled`).
 
 `R-frontend-dev`, `R-backend-dev`, `R-fixer`, `R-doc-writer` and `R-product-lead` are deliberately absent (ADR-020 decision 7): their concerns fall to the `R-adversarial` floor through the sibling-drop rule.
-Retiring native `/fix` can dispatch `R-review-fix-intake`, `R-review-fix-synthesis`, `R-review-fix-apply` and `R-review-fix-falsify`. Composed `/dev-fix` uses implementer agents instead; neither revives `R-fixer`.
+The 18 generated `R-review-*` and `R-workflow-*` profiles and their generator retire with the native runtime in PR 3c. `/dev-review` uses independent reviewer agents; `/dev-fix` uses implementer agents.
 
 For built-in task spawns without a `model`: explicit call model, then `task.agentModelOverrides`, then this frontmatter, then the active parent. An operator override for an agent masks the manifest role until it is removed. A role alias in an override expands through `modelRoles`, `@default` included, and OMP uses the override only when that expansion yields at least one model; otherwise it skips the override and reads the frontmatter. `R-devops: "@default"` therefore pins the configured `modelRoles.default`, not the parent's live model, and has no effect while `default` is unset. In omp 18.8.0 the parent's active model is taken by a per-call `model` entry `@default`, a single-entry frontmatter `@default`, and a single-entry frontmatter `@task` while `modelRoles.task` is unset: `R-devops` and `R-tester` run the parent's model until the operator maps `task`. The two-entry `@review, @slow` never takes that path; only the credential fallback above reaches the parent. This describes generic built-in task spawns, not the owned native workflow dispatch.
 
@@ -874,8 +746,6 @@ For built-in task spawns without a `model`: explicit call model, then `task.agen
 | `promote` | `/promote` (registered command) · the optional tail |
 | `cleanup` | `/cleanup` · read-only inventory, then explicitly selected guarded removal; optional manual `--force` requires local-data discard approval; branches preserved |
 | `ci-watch` | `/ci-watch` (registered command) · watches checks, then the merge |
-
-The retiring native review and correction pipelines retain evidence-backed [cause dispositions](GLOSSARY.md), exact-confirmed sisters and reports on the original UW. Composed review and correction follow their installed instructions instead.
 
 `/dev-review` finds its checklists (`evidence-policy.md`, `review-blind-spots.md`, `review-smells.md`) through the `[Skill directory: …]` line that the registered command appends to the body.
 
@@ -995,11 +865,11 @@ The root declaration bridge retains published types; it is not a mirror of every
 
 | Product boundary | Canonical source owners |
 |---|---|
-| Review, correction and standalone fix | `roxabi/review-contract.ts`, `review-dispatch.ts`, `correction-plan-*.ts`, `fix-entry-{lifecycle,ci}.ts` |
+| Review and correction | `skills/dev-review/SKILL.md`, `skills/dev-fix/SKILL.md` |
 | Leaf Feature admission and delivery | `omp/omp-feature-command.ts`, `roxabi/feature-live-mandate.ts`, `skills/feature/{SKILL.md,feature-cli.ts}` |
 | UW linked closure | `roxabi/uw-linked-closure.ts` owns fresh binding/graph proof, native state mutation and readback; `uw-installed-operations.ts` composes its ports |
 | GitHub history and publication | `adapters/github/`, `adapters/github-workflow/` |
-| Retiring native OMP capture, settlement and lifetime | `omp/review-runtime/`, `omp/omp-controller.ts` |
+| Native OMP capture, settlement and lifetime (retires in PR 3c) | `omp/review-runtime/`, `omp/omp-controller.ts` |
 
 The Feature handler hands off scoped leaf delivery to the installed instructions. Its delivery CLI rechecks live authority for each effect; it does not reconstruct a native action graph, publish native results or consume watch exits.
 The review class catalogue has one source: `skills/dev-review/review-classes.yml`. The aggregate plugin validator checks that this complete asset is readable UTF-8, valid YAML and non-empty, and validates its declared subsumption-pair notes. Native panel and recall tasks receive the canonical catalogue itself. This preserves guidance delivery, not proof that a model obeys subsumption rules; final labels remain model judgments, not classifications repaired by the engine.
@@ -1010,27 +880,19 @@ History merge guards avoid serializing a retained native-decoded history against
 
 Record and engine scenarios share fixtures for histories and external boundaries, without re-exporting the product under test. Cross-boundary native support includes `testing/extension-api-stub.ts` and `testing/review-runtime-support.ts`. Keep expected consumer-visible outcomes in scenarios, outside model inputs. Process-spawning scenarios use `*.integration.test.ts` and own resource cleanup.
 
-Feature tests use the GitHub simulator and disposable Git repositories. Retiring native review and recovery harnesses arrange external state and invoke the canonical product owners rather than implementing alternate admission.
-
-Review-race fixtures finish initial review preparation before arming the Git barrier; only decision settlement overlaps that barrier. The third canonical review case has a 30-second marker bound, a 60-second subprocess bound and a 120-second test budget. The pause race retains the 10-second marker, 30-second subprocess and default integration bounds; the shell release bound remains 20 seconds for both.
+Feature tests use the GitHub simulator and disposable Git repositories. Retained history fixtures seed native records and exercise the current readers.
 
 The GitHub simulator's shared kernel owns lock, hydration, audit, command handling and atomic state replacement. It does not grant delivery authority or model an atomic GitHub transaction.
 
 Commit and comparison metadata is batched from real Git within each request, retaining exact SHAs, trees, all parents and page order. Range observations and simulator transactions remain fresh; no metadata cache spans requests.
 
-Integration fixtures use lightweight `gh`, pin, and fix-recovery fault clients to send commands to a dedicated simulator server per test file; the server is compiled with automatic loading of ambient Bun configuration and `.env` files disabled, and fixtures pass their environment explicitly. The server path is Linux `/proc`-based. The `gh` client uses a standalone executable for comment-barrier calls, calls made while the state lock is held, and hosts without `/proc`; a nested `gh` call inside a server request fails fast.
-
-The pin client uses its compiled standalone executable when `/proc` is unavailable or a gate or synchronization call must wait. The fault client's release-gate wait stays client-side, and its standalone fallback is a TypeScript script.
+Integration fixtures use lightweight `gh` and pin clients to send commands to a dedicated simulator server per test file; fixtures pass their environment explicitly. The `gh` client uses a standalone executable for comment-barrier calls, calls made while the state lock is held, and hosts without `/proc`; a nested `gh` call inside a server request fails fast. The pin client also uses its standalone executable when `/proc` is unavailable or a gate or synchronization call must wait.
 
 ### Quality contract
 
 Run `bun run quality:omp-build` for the same owned-source check used by the pre-commit hook and CI. Physical discovery feeds both the line counter and the pinned Biome command; warnings fail, and an empty lint set is not success.
 
 Vitest runs unit first, then integration (`groupOrder: 1`). Unit inherits `min(8, max(1, availableParallelism() - 1))` workers; integration uses `min(8, max(1, floor(availableParallelism() / 4)))` independently. The unit timeout is 5s and the default integration timeout is 60s; scenario-specific fixture clocks are not product limits.
-
-The candidate CI correction lifecycle has a 90-second subprocess clock inside a 120-second case budget. The complete correction and current-head follow-on review finished in 59.8 seconds under a controlled process CPU quota, with all seven candidate-pinned stages checked; its former 55-second clock cut off the same scenario with `SIGTERM/ETIMEDOUT`. This calibrates the finite fixture workload without changing Native admission or consumer assertions. The resource probe does not establish the exact resource conditions of the historical hosted failure.
-
-The physical SDK adoption scenario caps its new-root worker at 420 seconds and its correction/final-review observation loop at 240 seconds. Each physical worker is also limited to the time remaining on a monotonic 720-second case deadline; an exhausted budget fails before another process is launched. A separate CPU-quota observer completed the new-root worker in 372.3 seconds and checked the original request/decision, distinct physical roots, preserved history, changed head, and clean current-head review. The former 240-second parent clock cut off the worker; extending only that clock left its 150-second loop expiring with final-review synthesis still queued. Prelude and old-root phase caps remain 240 seconds. These are fixture budgets, not SDK or Native admission bounds, and do not establish the historical hosted resource conditions.
 
 | Surface | Enforced limit |
 |---|---|
@@ -1044,7 +906,7 @@ Generated distribution files and retained inert data are distinguished by their 
 
 ### Owned distribution
 
-`agent-sources/*.md` holds seven authored generic agents. The producer copies them into `agents/` byte for byte. The 18 native profiles generated from `roxabi/native-*-profiles.ts` and strict schemas still ship, pending retirement in #1037 PRs 3b/3c. Tests and support stay outside the generated surface.
+`agent-sources/*.md` holds seven authored generic agents. The producer copies them into `agents/` byte for byte. The 18 native profiles generated from `roxabi/native-*-profiles.ts` and strict schemas still ship until PR 3c of #1037. Tests and support stay outside the generated surface.
 
 The single producer, `tools/build-omp-build-contracts.ts`, owns all of `agents/**` and `dist/**`, including the issue-triage runtime slice. Do not edit these outputs. The inventory records each [produced output](GLOSSARY.md#language) (*Sortie produite*) only after a successful write. Duplicate output claims and incomplete build metadata fail.
 

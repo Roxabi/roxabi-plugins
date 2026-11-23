@@ -35,7 +35,7 @@ export type PreparationCohortResult =
       disarmConfirmations: readonly PreparationDisarmConfirmation[]
     }
 
-type Context = { cohort: PreparationCohort; settlement: boolean; attribution?: object }
+type Context = { cohort: PreparationCohort; attribution?: object }
 const carrierKey = Symbol.for('roxabi.omp-build.preparation-cohort.context')
 const existingCarrier: unknown = Reflect.get(globalThis, carrierKey)
 let active: AsyncLocalStorage<Context>
@@ -93,12 +93,7 @@ export class PreparationCohort {
   run<T>(fn: () => T): T {
     if (this.#sealed) throw new Error('preparation-cohort-sealed')
     this.#entered = true
-    return active.run({ cohort: this, settlement: false }, fn)
-  }
-
-  runSettlement<T>(fn: () => T): T {
-    if (!this.#sealed) throw new Error('preparation-cohort-not-sealed')
-    return active.run({ cohort: this, settlement: true }, fn)
+    return active.run({ cohort: this }, fn)
   }
 
   seal(): void {
@@ -122,7 +117,7 @@ export class PreparationCohort {
   /** Enrol before starting the real operation and retain its observed outcome. */
   operation<T>(kind: PreparationOperationKind, fn: () => Promise<T>, provenance?: PreparationGhProvenance): Promise<T> {
     const context = active.getStore()
-    if (context?.cohort !== this || (this.#sealed && !context.settlement)) {
+    if (context?.cohort !== this || this.#sealed) {
       this.unknown('host-operation-after-seal')
       throw new Error('preparation-cohort-admission-closed')
     }
@@ -173,7 +168,7 @@ export class PreparationCohort {
 
   syncOperation<T>(kind: PreparationOperationKind, fn: () => T): T {
     const context = active.getStore()
-    if (context?.cohort !== this || (this.#sealed && !context.settlement)) {
+    if (context?.cohort !== this || this.#sealed) {
       this.unknown('host-operation-after-seal')
       throw new Error('preparation-cohort-admission-closed')
     }
@@ -256,9 +251,4 @@ export function trackPreparationSyncOperation<T>(kind: PreparationOperationKind,
 
 export function currentPreparationCohort(): PreparationCohort | undefined {
   return active.getStore()?.cohort
-}
-
-export function inPreparationSettlement(cohort: PreparationCohort): boolean {
-  const context = active.getStore()
-  return context?.cohort === cohort && context.settlement
 }

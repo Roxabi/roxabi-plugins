@@ -3,7 +3,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { createProductionActionPorts } from '../roxabi/uw-input-readers.ts'
 import type { UwNativeHost } from '../roxabi/uw-installed-operations.ts'
 import { defaultGit } from '../roxabi/workflow-checkout.ts'
-import { createOmpFixPort, type OmpBuildExtensionApi, reviewControllerFor } from './omp-controller.ts'
+import { type OmpBuildExtensionApi, reviewControllerFor } from './omp-controller.ts'
 import {
   beginFeatureUwOperation,
   cancelFeatureUwOperation,
@@ -13,6 +13,7 @@ import { rootContext } from './omp-feature-session.ts'
 import type { CommandOperatorPort } from './omp-operator-confirmation.ts'
 import { reportStopped } from './omp-uw-result.ts'
 import type { NativeBatch } from './review-runtime/contracts.ts'
+import { createNativeReviewPort } from './review-runtime/port.ts'
 import { releaseTaskMask } from './review-runtime/task-mask-lease.ts'
 
 export async function runNativeUwOperation(
@@ -23,7 +24,7 @@ export async function runNativeUwOperation(
 ): Promise<void> {
   const controller = reviewControllerFor(pi)
   controller.observeRootContext(ctx)
-  const native = createOmpFixPort(pi)
+  const native = createNativeReviewPort(pi, controller)
   const runId = randomUUID()
   const abort = new AbortController()
   const session = ctx.sessionManager?.getSessionId()

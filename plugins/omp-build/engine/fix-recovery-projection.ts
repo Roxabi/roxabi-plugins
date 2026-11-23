@@ -8,28 +8,6 @@ import { recordIntegrity } from './record-integrity.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
 import { scopeKey } from './uw-graph.ts'
-/** Requests neutrally closed by confirmed, fully replayed pre-decision controls. */
-export function recoveryClosedRequests(
-  histories: readonly DecodedHistory[],
-): Result<readonly { scope: { repository: string; target: string }; kind: 'fix-request'; recordId: string }[]> {
-  const closed: { scope: { repository: string; target: string }; kind: 'fix-request'; recordId: string }[] = []
-  for (const history of histories) {
-    for (const operation of history.operations) {
-      if (
-        operation.authority === 'foreign' ||
-        operation.status !== 'complete' ||
-        operation.record?.kind !== 'fix-recovery'
-      )
-        continue
-      const replay = replayFixRecoveryControl({ control: operation.record, histories })
-      if (!replay.ok) return replay
-      if (replay.value.proposal.phase !== 'close-predecision') continue
-      const identity = replay.value.proposal.target.request.identity
-      closed.push({ scope: identity.scope, kind: 'fix-request', recordId: identity.recordId })
-    }
-  }
-  return { ok: true, value: closed }
-}
 
 const fail = (): Result<never> => ({
   ok: false,

@@ -1,5 +1,4 @@
-import { actionInputDigest, decodeHistory, readGitHubHistory, validateActionInputs } from '../../dist/contracts.js'
-import type { ActionInputManifest, ActionInputs } from '../../engine/action-input-schema.ts'
+import { decodeHistory, readGitHubHistory } from '../../dist/contracts.js'
 import { PR_BODY_QUERY } from '../../host/preparation-graphql.cjs'
 import { type ConfirmedReviewSemanticContext, confirmedReviewSemanticContext } from '../../roxabi/review-semantic-canon'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context'
@@ -23,14 +22,8 @@ export type ReviewInputDeps = {
   persistedFingerprint?: string
   selectedReviewId?: string | null
   reviewedRoot?: ReviewRootRef
-  preparedSnapshot?: ActionInputs
 }
-export type ReviewInputCapture = { ok: true; input: string | null; body: ReviewPrBody | null } | Refusal
-
-/** Action-input digest. PR prose and the semantic canon are not part of the fingerprint. */
-export function hashReviewInput(manifest: ActionInputManifest): string {
-  return actionInputDigest(manifest)
-}
+type ReviewInputCapture = { ok: true; input: string | null } | Refusal
 
 /** Current body and native edit metadata from one response, without tightening the existing date policy. */
 export async function readPrBody(cwd: string, pr: number, gh: Gh, repository: string): Promise<ReviewPrBody> {
@@ -106,30 +99,6 @@ async function loadSemantic(
   }
   return confirmedReviewSemanticContext(resolved.value)
 }
-function preparedReviewExpansion(
-  target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
-  repository: string,
-  preparedSnapshot: ActionInputs,
-  persistedFingerprint?: string,
-) {
-  const parsed = validateActionInputs(preparedSnapshot)
-  const snapshot = parsed.ok ? parsed.value : null
-  const scope = snapshot?.manifest.subject.pullRequest
-  if (
-    persistedFingerprint !== undefined ||
-    snapshot === null ||
-    snapshot.manifest.purpose !== 'review' ||
-    snapshot.manifest.code.repository !== repository ||
-    snapshot.manifest.code.head !== target.candidate ||
-    snapshot.manifest.code.base !== target.base ||
-    scope?.repository !== repository ||
-    scope.target !== `${repository}#${target.pr}` ||
-    actionInputDigest(snapshot.manifest) !== snapshot.fingerprint
-  )
-    return refuse('review-input-changed', 'prepared review snapshot does not match the selected PR and code')
-  return { expandedContext: snapshot.manifest.expandedContext, stageSources: snapshot.stageSources }
-}
-
 async function reviewExpansion(
   cwd: string,
   target: Pick<ReviewTarget, 'pr' | 'candidate' | 'base'>,
@@ -143,8 +112,6 @@ async function reviewExpansion(
     }
   | Refusal
 > {
-  if (deps.preparedSnapshot !== undefined)
-    return preparedReviewExpansion(target, repository, deps.preparedSnapshot, deps.persistedFingerprint)
   if (deps.persistedFingerprint !== undefined) {
     const pullRequest = { repository, target: `${repository}#${target.pr}` }
     const history = decodeHistory(
@@ -221,5 +188,5 @@ export async function captureReviewInput(
       : 'unreadable'
     return refuse(reason, fingerprint.diagnostics.map((item) => item.message).join('; '))
   }
-  return { ok: true, input: fingerprint.value, body }
+  return { ok: true, input: fingerprint.value }
 }

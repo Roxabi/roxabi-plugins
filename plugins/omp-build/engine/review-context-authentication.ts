@@ -57,45 +57,6 @@ export function negativeFor(history: DecodedHistory, root: Root, entry: Contribu
   )
 }
 
-export function unresolvedStepValid(
-  history: DecodedHistory,
-  current: Root,
-  entry: Contribution,
-  contributions: readonly Contribution[],
-  records: readonly CanonicalRecord[],
-  seen: Set<string>,
-): boolean {
-  if (
-    seen.has(current.recordId) ||
-    records.some((record) => record.kind === 'review' && record.payload.inventoryIds.includes(current.recordId))
-  )
-    return false
-  seen.add(current.recordId)
-  return (
-    contributions.filter((candidate) => negativeFor(history, current, candidate)).length === 1 &&
-    contributions.filter(
-      (candidate) =>
-        candidate.payload.inventoryId === current.recordId &&
-        candidate.payload.host.slotId === entry.payload.host.slotId,
-    ).length === 1
-  )
-}
-
-export function successorSlotEntry(
-  history: DecodedHistory,
-  root: Root,
-  contributions: readonly Contribution[],
-  slotId: string,
-): { next: Contribution; slot: Slot } | undefined {
-  const entries = contributions.filter(
-    (candidate) => candidate.payload.inventoryId === root.recordId && candidate.payload.host.slotId === slotId,
-  )
-  const next = entries[0]
-  const slot = root.payload.slots.find((candidate) => candidate.slotId === slotId)
-  if (entries.length !== 1 || next === undefined || slot === undefined || !accounted(history, next)) return undefined
-  return { next, slot }
-}
-
 export function resolvedOutputValid(
   next: Contribution,
   slot: Slot,

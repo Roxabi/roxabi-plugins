@@ -1,15 +1,7 @@
 # Evidence review policy — evidence-v1
 
-This is the single review-classification policy for the evidence-v1 candidate.
-Correction dispositions follow `skill://dev-review/root-causes.md`, independently
-of review policy selection and rollout.
+Use the baseline proof and classification rules as a checklist. This file also describes the legacy native `evidence-v1` candidate and its record format; `/dev-review` publishes the comment defined in `SKILL.md`, which `/dev-fix` reads.
 
-## Authority and rollout
-
-`baseline` is the default and remains the only live authority until an **independent
-operator acceptance** authorizes `evidence-v1` for later, explicitly selected work.
-Baseline's existing review body, markers, head/input binding, verdict, review-record
-accounting, routing, landing and stop/bound rules are unchanged.
 ## Baseline Phase 2 proof adjudication
 
 For tiers other than S, the SC→Test matrix must cover every SC without silent gaps. Its only NO TEST reasons are `infra-not-wired`, `prompt-logic-only`, `ui-manual-only`, and `out-of-scope`; a missing matrix is `issue(blocking)`.
@@ -23,7 +15,7 @@ A Phase 2 missing/weak-test finding reaches the Phase 4 final-label write. A mis
 
 Baseline Phase 4 retains every finding by default. Confidence orders it; it never removes, demotes, files, or repairs a finding. After collection, same-defect-only merge, and recall normalization, baseline applies this final missing-or-weak-test label rule before verdict and root causes:
 
-- Rewrite a finding whose subject is a missing or weak test, including an agent `issue:`, a recall finding, and a Phase 2 unmet-criterion finding whose only gap is that test. Do not rewrite a missing SC→Test matrix, an unmet behaviour criterion, or a real missed/fix-induced behaviour defect with evidence.
+- Rewrite a finding whose subject is a missing or weak test, including an agent `issue:`, a recall finding, and a Phase 2 unmet-criterion finding whose only gap is that test. Do not rewrite a missing SC→Test matrix, an unmet behaviour criterion, or an evidenced behaviour defect the fix missed or introduced.
 - Keep the finding as `issue:` only when both are true: the unproven behaviour is an issue acceptance criterion with no other PR evidence, or a safety invariant (merge/release/deploy/delete/publish/permission/automated-stop-or-disarm path); and the PR has no accepted proof under `root-causes.md` § Proof.
 - A test in Δ that is not accepted proof satisfies the second condition; a restatement of accepted proof without new defect evidence does not. Source-text, wiring-copy, and mock-echo assertions are never requirements.
 - Otherwise relabel the finding `suggestion:`. Retain `Source: recall` in immutable provenance, but do not give that source independent blocking weight; this is the last baseline label write.
@@ -32,16 +24,16 @@ Final baseline grouping is exact: Blockers are `issue:`, `issue(blocking):`, `to
 These labels are review-record classifications only; they never mutate a GitHub label or erase captured provenance.
 
 
+## Legacy native `evidence-v1` policy
 
-Candidate evaluation is callable with supplied inputs, but begins in **shadow**:
+`baseline` was the default. An independent operator acceptance selected `evidence-v1` for specific native work; without it, the candidate stayed in **shadow**. This selection does not apply to composed review.
 
 - call `await evaluateFindings(evidenceById, { judgeBatch })`; retain its typed
   observations and per-item provider/model identity only as candidate evidence;
   a degraded result preserves every supplied ID and supplies no Jev score;
 - render candidate findings, selected plans and a receipt locally and separately
   from the authoritative review body; never post, append, copy a candidate verdict,
-  plan or receipt into it. The fix reader scans verdict declarations, so this
-  separation is load-bearing;
+  plan or receipt into it. Keep candidate output out of authoritative verdict accounting;
 - shadow cannot create an issue, make a patch, change a label, alter routing or
   change the baseline verdict. A replay pass, a model-generated "pass" or acceptance
   reference, and a self-declared mode are not authority.
@@ -58,9 +50,8 @@ bytes, a hypothetical fix plan, and a hypothetical receipt. The local render ide
 hypothetical review selection. It contains no authoritative verdict declaration and
 is never passed to a live writer/reader.
 
-The local fix consumer may read those exact local bytes only for hypothetical
-observation. It must not write or treat a missing acceptance reference as a parsing
-failure. Its output is not fix authorization.
+A shadow fixture may read those exact local bytes only for hypothetical observation.
+Its output is not correction authorization.
 
 An isolated fixture may exercise the active branch with an explicitly labelled
 **fictional acceptance event**. It may prove branch behavior only: it cannot establish
@@ -68,15 +59,11 @@ operator acceptance, authorize a real candidate, publish a body, alter a review 
 or trigger any GitHub/issue/patch/label/routing write. Keep that fixture event out of
 production records and all claims of activation.
 
-An **active candidate** is possible only for later selected work when an independently
-established acceptance reference is present and verified by the operator-controlled
-record. Its normal review record keeps the ordinary positional markers/head/input first,
-then exactly `Policy: evidence-v1` and `Acceptance: <real reference>`. It is the
-authoritative Phase 4 body for that selected work: it contains the qualified findings
-and selected plans, is posted through the normal writer, and is the same marked record
-the native correction reader consumes. It preserves head/input binding, verdict accounting,
-Phase 8, stops and bounds. Missing, malformed, self-generated, or unverified acceptance
-means shadow; it never authorizes a patch.
+In a historical native review record using `evidence-v1`, positional markers and
+head/input bindings precede `Policy: evidence-v1` and `Acceptance: <real reference>`.
+The record contains the qualified findings and selected plans, and retains ordinary
+verdict accounting, stops and bounds. Missing, malformed, self-generated or
+unverified acceptance identifies shadow evidence, not patch authority.
 
 Suspend candidate use immediately on a missed required blocker, an out-of-policy
 correction, an unauthorized issue, or a lost residual obligation. Retain the
@@ -136,11 +123,9 @@ accepted for the selected differential use. Failure or uncertainty restores full
 no differential disposition becomes authoritative merely because the general candidate
 is active.
 
-## Correction dispositions
+## Historical correction dispositions
 
-Persist each assessed cause outcome on the original UW before applying any
-`fix-original` work. A blocking or indeterminate cause with missing, contested or
-contradictory evidence stays pending; unsupported nonblocking work is a report.
-Reports create no issue. Sister creation requires an exact authenticated operator
-confirmation; a blocking sister holds the original. A skipped or inconclusive
-falsification is never a pass.
+Cause outcomes belong to the original UW. A blocking or indeterminate cause with
+missing, contested or contradictory evidence stays pending; unsupported nonblocking
+work is a report, not an issue. A sister needs exact authenticated confirmation; a
+blocking sister holds the original. Skipped or inconclusive falsification is not a pass.

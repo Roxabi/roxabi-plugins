@@ -24,7 +24,7 @@ GitHub drafts require semantic confidentiality review; existing-tool scanning is
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Autonomous GitHub triage CLI plus an importable complete-observation writer, guarded native close/reopen effects and κ tier calculator; labels and native relations, no Projects V2. |
-| [omp-build](plugins/omp-build/README.md) | OMP | `/feature` prepares a leaf mandate and worktree, then composes implementation, independent review and correction. Resume from Git and GitHub facts; the guarded CLI publishes the exact tip, binds the PR, merges under the `review` + `ci` ruleset and closes the UW with delivery proof. Parent delivery is suspended until #1031 slice 6. `/uw` retains Spec and coverage authority; native records remain readable, and native review, fix and recovery are retiring. [Distribution contract](plugins/omp-build/README.md#owned-distribution). |
+| [omp-build](plugins/omp-build/README.md) | OMP | `/feature` prepares a leaf mandate and worktree, then composes implementation, `/dev-review` and `/dev-fix`. Resume from Git and GitHub facts; the guarded CLI publishes the exact tip, binds the PR, merges under the `review` + `ci` ruleset and closes the UW with delivery proof. Parent delivery is suspended until #1031 slice 6. `/uw` retains Spec and coverage authority; historical native records remain readable. [Distribution contract](plugins/omp-build/README.md#owned-distribution). |
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 

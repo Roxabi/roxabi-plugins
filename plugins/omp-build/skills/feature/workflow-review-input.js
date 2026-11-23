@@ -1,7 +1,4 @@
-import {
-  confirmedReviewSemanticContext as projectReviewSemanticContext,
-  reviewSemanticCanon,
-} from '../../roxabi/review-semantic-canon.ts'
+import { confirmedReviewSemanticContext as projectReviewSemanticContext } from '../../roxabi/review-semantic-canon.ts'
 import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context.ts'
 import { captureReviewInput as captureReviewInputCore } from './review-input.ts'
 import { isCommitSha, readPrFields } from './workflow-gate.js'
@@ -41,13 +38,11 @@ async function captureInput(
   {
     gh: ghFn = gh,
     git: gitFn = gitResult,
-    semantic: supplied,
     automationLogin,
     pluginPin,
     persistedFingerprint,
     selectedReviewId,
     reviewedRoot,
-    preparedSnapshot,
   } = {},
   mergedBase,
 ) {
@@ -56,9 +51,9 @@ async function captureInput(
     return { ok: false, reason: 'unbound', error: 'the review head changed; start a fresh review' }
   const base = await fetchBase(cwd, selected.baseRefName, gitFn, ghFn)
   if (base.refusal) return base.refusal
-  const semantic = supplied ?? (await confirmedReviewSemanticContext(cwd, pr, ghFn, base.name, automationLogin))
+  const semantic = await confirmedReviewSemanticContext(cwd, pr, ghFn, base.name, automationLogin)
   if (semantic.ok === false) return semantic
-  const snapshot = await captureReviewInputCore(
+  return captureReviewInputCore(
     cwd,
     { pr: Number(pr), candidate: head, base: mergedBase ?? base.tip },
     {
@@ -67,40 +62,17 @@ async function captureInput(
       automationLogin,
       pluginPin,
       persistedFingerprint,
-      preparedSnapshot,
       selectedReviewId,
       reviewedRoot,
     },
   )
-  if (!snapshot.ok) return snapshot
-  return {
-    ok: true,
-    input: snapshot.input,
-    body: snapshot.body,
-    semantic,
-    semanticCanon: reviewSemanticCanon(semantic),
-  }
-}
-export async function captureReviewInput(cwd, pr, head, deps = {}) {
-  return captureInput(cwd, pr, head, deps)
 }
 
 async function validateInput(cwd, pr, head, input, deps, changed, mergedBase) {
-  const { semantic: _stale, preparedSnapshot: _prepared, ...fresh } = deps
-  const current = await captureInput(cwd, pr, head, { ...fresh, persistedFingerprint: input }, mergedBase)
+  const current = await captureInput(cwd, pr, head, { ...deps, persistedFingerprint: input }, mergedBase)
   if (!current.ok) return current
   return current.input === input ? { ok: true } : changed
 }
-/** Initial dispatch checks the sealed host-prepared snapshot before its inventory is published. */
-export async function validatePreparedReviewInput(cwd, pr, head, snapshot, deps = {}) {
-  const { semantic: _stale, persistedFingerprint: _persisted, preparedSnapshot: _prepared, ...fresh } = deps
-  const current = await captureInput(cwd, pr, head, { ...fresh, preparedSnapshot: snapshot })
-  if (!current.ok) return current
-  if (snapshot?.fingerprint !== current.input)
-    return { ok: false, reason: 'review-input-changed', error: 'prepared review input no longer matches current facts' }
-  return { ok: true }
-}
-
 export async function validateReviewInput(cwd, pr, head, input, deps = {}) {
   return validateInput(cwd, pr, head, input, deps, {
     ok: false,

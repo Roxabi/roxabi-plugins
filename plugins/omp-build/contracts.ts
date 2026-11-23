@@ -1,7 +1,7 @@
 export { createGhIssueWritePorts } from '../issue-triage/skills/shared/adapters/issue-writer.ts'
 export { calculateTier } from '../issue-triage/skills/shared/domain/complexity.ts'
 export { createIssueWriter } from '../issue-triage/skills/shared/domain/issue-write.ts'
-export { decodeHistory, encodeRecord, projectRecoveryHistories } from './adapters/github/history-codec.ts'
+export { decodeHistory, projectRecoveryHistories } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
 export { recordOperation } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
@@ -40,7 +40,6 @@ export type {
   NativeIssueFacts,
   NativePullRequestFacts,
   NativeTargetResolution,
-  WorkflowPublication,
 } from './adapters/github-workflow/types.ts'
 export { createUwDeliveryFactReader } from './adapters/github-workflow/uw-delivery-facts.ts'
 export { readUwCompletionObservation } from './adapters/github-workflow/uw-observation.ts'
@@ -51,7 +50,6 @@ export * from './contracts-review.ts'
 export * from './contracts-uw.ts'
 export { acceptedMetadataOwner } from './engine/accepted-metadata-owner.ts'
 export { pluginPinSchema } from './engine/action-input-schema.ts'
-export { authenticateCauseCapture, type PreparedCauseCapture } from './engine/cause-capture-authentication.ts'
 export {
   prepareCauseDependencyAdjustment,
   recheckCauseDependencyAdjustment,
@@ -81,7 +79,6 @@ export {
   type HistoryClassification,
   type HistoryOperationClass,
 } from './engine/history-classification.ts'
-export { validateRecordGraph } from './engine/history-graph.ts'
 export type { DecodedHistory, History, OperationAuthority, OperationRead } from './engine/history-schema.ts'
 export {
   decodedHistorySchema,
@@ -92,7 +89,7 @@ export {
 export { inspectNativeTerminal } from './engine/native-terminal.ts'
 export { assessParentInsertionEngagement, type ParentEngagementEvidence } from './engine/parent-insertion-engagement.ts'
 export { inspectFinding, PRODUCER_OUTPUTS, type ProducerOutput, producerJsonSchema } from './engine/producer-schema.ts'
-export { buildRecord, parseRecord, type RecordDraft } from './engine/record-construction.ts'
+export { buildRecord, parseRecord } from './engine/record-construction.ts'
 export { equalScope } from './engine/record-diagnostics.ts'
 export {
   type FailedCheckFailure,
@@ -102,21 +99,17 @@ export {
 } from './engine/record-digests.ts'
 export type { RecordIntegrityRefusal } from './engine/record-integrity.ts'
 export { nativeInstant, recordIntegrity } from './engine/record-integrity.ts'
-export { projectRecord } from './engine/record-projection.ts'
-export type { ExternalRecordRef, ScopedRecordRef, WorkflowRecordKind } from './engine/record-references.ts'
+export type { ExternalRecordRef, WorkflowRecordKind } from './engine/record-references.ts'
 export {
   externalRecordRefSchema,
   isWorkflowKind,
   KIND_NAMES,
-  kindSchema,
   scopedRecordRefSchema,
   stopBotMayAuthor,
   WORKFLOW_RECORD_KINDS,
 } from './engine/record-references.ts'
-export { type CanonicalRecord, type Kind, type Payloads, recordSchema } from './engine/record-schema.ts'
+export { type CanonicalRecord, recordSchema } from './engine/record-schema.ts'
 export {
-  type ActionResult,
-  actionResultSchema,
   applyActionResultSchema,
   type Contribution,
   commandResultSchema,
@@ -145,17 +138,12 @@ export {
   type OriginalFinding,
   originalFindingSchema,
   type Phase,
-  type Policy,
   phaseSchema,
   policySchema,
-  type RecallClass,
-  type RecallPlan,
   recallClassSchema,
   recallPlanSchema,
   type Scope,
-  type Slot,
   type SpecReport,
-  type SpecRow,
   type Submission,
   scopeSchema,
   slotSchema,
@@ -204,8 +192,6 @@ export {
   scopedStartKey,
   workflowOperationProblem,
 } from './engine/workflow-control.ts'
-export { assessFixMandate } from './engine/workflow-correction-admission.ts'
-export { buildFixOnlyMandate, type FixMandateAssessment } from './engine/workflow-correction-mandate.ts'
 export type { WorkflowCondition, WorkflowGraph, WorkflowGraphAction } from './engine/workflow-graph.ts'
 export {
   validateWorkflowGraph,
@@ -265,18 +251,9 @@ export { authenticatedAssessResult } from './engine/workflow-spec-authentication
 export { type TerminalMandate, terminalMandate } from './engine/workflow-terminal-mandate.ts'
 export {
   type OmpBuildPrepareCheckoutParameters,
-  type OmpBuildRecoveryPrParameters,
-  type OmpBuildRecoveryReplaceParameters,
-  type OmpBuildStartReviewParameters,
   ompBuildFramingSubmitParametersJsonSchema,
   ompBuildPrepareCheckoutParametersJsonSchema,
   ompBuildPrepareCheckoutParametersSchema,
-  ompBuildRecoveryPrParametersJsonSchema,
-  ompBuildRecoveryPrParametersSchema,
-  ompBuildRecoveryReplaceParametersJsonSchema,
-  ompBuildRecoveryReplaceParametersSchema,
-  ompBuildStartReviewParametersJsonSchema,
-  ompBuildStartReviewParametersSchema,
 } from './omp/tool-schemas.ts'
 export { readScopeIssueBody } from './roxabi/uw-spec/scope-issue.ts'
 export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'

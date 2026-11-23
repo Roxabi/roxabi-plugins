@@ -1,13 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { finding, reviewRoot, submission, synthesisInventory, TEST_SCOPE } from '../../testing/record-builders.ts'
+import { finding, reviewRoot, submission, TEST_SCOPE } from '../../testing/record-builders.ts'
 import { contribution, decision } from '../../testing/record-decisions.ts'
 import { epicReviewGraph, reviewGraph } from '../../testing/record-graphs.ts'
 import { history, observedComment, operation } from '../../testing/record-history.ts'
 import { validateRecordGraph } from '../history-graph.ts'
 import { inspectFinding } from '../producer-schema.ts'
 import { projectRecord } from '../record-projection.ts'
-import { deriveRecallPlan } from '../review-conservation.ts'
 import { validateDecision } from '../review-decision.ts'
 import { assessmentCodes, refusalCodes, TAXONOMY } from './record-test-support.ts'
 
@@ -197,180 +196,8 @@ describe('closed review graph', () => {
     )
   })
 })
-describe('recall scheduling', () => {
-  test('indexes usable non-candidate findings by observed chunks and callsites only', () => {
-    const baseRoot = reviewRoot({
-      slots: [
-        {
-          slotId: 'spec-0',
-          phase: 'spec',
-          role: 'R-spec',
-          chunk: null,
-          required: true,
-          output: 'spec',
-          classId: null,
-          sourceFindingIds: [],
-        },
-        {
-          slotId: 'panel-0',
-          phase: 'panel',
-          role: 'R-adversarial',
-          chunk: 0,
-          required: true,
-          output: 'findings',
-          classId: null,
-          sourceFindingIds: [],
-        },
-        {
-          slotId: 'panel-1',
-          phase: 'panel',
-          role: 'R-adversarial',
-          chunk: 1,
-          required: true,
-          output: 'findings',
-          classId: null,
-          sourceFindingIds: [],
-        },
-      ],
-    })
-    if (baseRoot.payload.stage !== 'initial' || baseRoot.payload.purpose !== 'review')
-      throw new Error('Expected initial review inventory')
-    const inputs = baseRoot.payload.inputSnapshot
-    const firstAction = { actionId: 'recall-panel-0', inputs }
-    const secondAction = { actionId: 'recall-panel-1', inputs }
-    const root = {
-      ...baseRoot,
-      payload: {
-        ...baseRoot.payload,
-        slots: baseRoot.payload.slots.map((slot) => ({
-          ...slot,
-          action:
-            slot.slotId === 'panel-0'
-              ? firstAction
-              : slot.slotId === 'panel-1'
-                ? secondAction
-                : { actionId: 'recall-spec', inputs },
-        })),
-      },
-    }
-    const recallSpecStructured = { findings: [], specRows: [] }
-    const spec = contribution({
-      id: 'recall-spec',
-      inventoryId: root.recordId,
-      phase: 'spec',
-      role: 'R-spec',
-      slotId: 'spec-0',
-      chunk: null,
-      findings: [],
-      structured: recallSpecStructured,
-      rawAttempts: [
-        submission({ id: 'child-recall-spec', structuredOutput: { status: 'valid', data: recallSpecStructured } }),
-      ],
-    })
-    const first = contribution({
-      id: 'recall-first',
-      inventoryId: root.recordId,
-      findings: [
-        {
-          id: 'recall-first:f0',
-          attemptIndex: 0,
-          data: finding({
-            classes: ['test-tautology'],
-            rawCallsites: [
-              { file: 'src/a.ts', line: 10 },
-              { file: 'src/b.ts', line: 20 },
-            ],
-          }),
-        },
-      ],
-    })
-    const second = contribution({
-      id: 'recall-second',
-      inventoryId: root.recordId,
-      slotId: 'panel-1',
-      chunk: 1,
-      findings: [
-        {
-          id: 'recall-second:f0',
-          attemptIndex: 0,
-          data: finding({
-            classes: ['test-tautology', 'candidate/isolated-hypothesis'],
-            rawCallsites: [{ file: 'src/c.ts', line: 30 }],
-          }),
-        },
-      ],
-    })
-    const reviewReady = decision({
-      id: 'recall-decision',
-      sourceContributionIds: ['recall-spec', 'recall-first', 'recall-second'],
-      originalContributionId: 'recall-synthesis-source',
-      inputs: ['recall-synthesis-source', 'recall-spec', 'recall-first', 'recall-second'],
-      findings: [
-        {
-          id: 'recall-one',
-          label: 'issue',
-          impactReason: 'Race.',
-          state: 'usable',
-          target: finding().target,
-          sourceFindingIds: ['recall-first:f0'],
-          description: 'Synchronize writes.',
-        },
-        {
-          id: 'recall-two',
-          label: 'issue',
-          impactReason: 'Race.',
-          state: 'usable',
-          target: finding().target,
-          sourceFindingIds: ['recall-second:f0'],
-          description: 'Synchronize reads.',
-        },
-      ],
-    })
-    const synthesis = contribution({
-      id: 'recall-synthesis-source',
-      inventoryId: 'recall-synthesis',
-      phase: 'synthesis',
-      role: 'R-synthesis',
-      slotId: 'synthesis-0',
-      chunk: null,
-      content: 'decision',
-      rawAttempts: [
-        submission({
-          id: 'child-recall-synthesis-source',
-          structuredOutput: { status: 'valid', data: reviewReady.payload.judgment },
-        }),
-      ],
-      structured: reviewReady.payload.judgment,
-    })
-    const synthesisStage = synthesisInventory({ id: 'recall-synthesis', rootId: root.recordId })
-    const capturedFirst = {
-      ...first,
-      payload: { ...first.payload, host: { ...first.payload.host, action: firstAction } },
-    }
-    const capturedSecond = {
-      ...second,
-      payload: { ...second.payload, host: { ...second.payload.host, action: secondAction } },
-    }
-    const records = [root, spec, capturedFirst, capturedSecond, synthesisStage, synthesis, reviewReady]
-
-    expect(deriveRecallPlan(history(records), root.recordId, fixtureReviewClassCatalogues())).toMatchObject({
-      ok: true,
-      value: {
-        index: [
-          {
-            classId: 'test-tautology',
-            chunks: [0, 1],
-            callsites: [
-              { file: 'src/a.ts', line: 10 },
-              { file: 'src/b.ts', line: 20 },
-              { file: 'src/c.ts', line: 30 },
-            ],
-            sourceFindingIds: ['recall-first:f0', 'recall-second:f0'],
-          },
-        ],
-        triggeredClassIds: ['test-tautology'],
-      },
-    })
+describe('finding inspection', () => {
+  test('retains a usable finding with a candidate class', () => {
     expect(
       inspectFinding(
         finding({ classes: ['candidate/isolated-hypothesis'], rawCallsites: [{ file: 'src/d.ts', line: 4 }] }),

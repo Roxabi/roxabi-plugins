@@ -3,11 +3,10 @@ import { expect, it } from 'vitest'
 import { UW_GRAPH_QUERY } from '../adapters/github-native/uw-graph-query.ts'
 import { graphqlVariables } from '../adapters/github-workflow/client.ts'
 import { readNativeCiFailureEvidence } from '../roxabi/feature-ci-evidence.ts'
-import { FixExecutionFence } from '../roxabi/fix-execution-fence.ts'
-import { reconcileRecoveryHostEffects } from '../roxabi/fix-recovery-host-effects.ts'
 import { readPrBody } from '../skills/feature/review-input.ts'
 import {
   createPreparationCohort,
+  type PreparationCohortResult,
   trackPreparationGhOperation,
   trackPreparationOperation,
   withPreparationAttribution,
@@ -15,19 +14,12 @@ import {
 import { githubPreparationKind } from './preparation-gh-classifier.ts'
 import { AUTH_COMMENT_QUERY, BLOB_QUERY, CI_ROLLUP_QUERY, catalogueQuery, PULLS_QUERY } from './preparation-graphql.cjs'
 
-function expectUnattributedWrite(result: ReturnType<typeof reconcileRecoveryHostEffects>, args: readonly string[]) {
-  expect(result.status).toBe('held')
-  if (result.status !== 'held') throw new Error('expected-host-write-held')
-  expect(result.diagnostics[0]).toBe('fix-host-write-unattributed')
-  expect(result.diagnostics).toHaveLength(2)
-  const prefix = 'fix-host-effect-detail:'
-  const encoded = result.diagnostics[1]
-  expect(encoded?.startsWith(prefix)).toBe(true)
-  if (!encoded?.startsWith(prefix)) throw new Error('expected-host-effect-detail')
+function expectUnattributedWrite(result: PreparationCohortResult, args: readonly string[]) {
   const query = args.find((arg) => arg.startsWith('query='))
   if (query === undefined) throw new Error('expected-graphql-query')
-  expect(JSON.parse(encoded.slice(prefix.length))).toMatchObject({
-    index: 0,
+  const operation = result.operations[0]
+  expect(result.operations).toHaveLength(1)
+  expect(operation).toMatchObject({
     kind: 'gh-write',
     outcome: 'fulfilled',
     provenance: {
@@ -35,10 +27,9 @@ function expectUnattributedWrite(result: ReturnType<typeof reconcileRecoveryHost
       querySha256: createHash('sha256').update(query.slice(6)).digest('hex'),
       fields: expect.any(Array),
     },
-    hasAttribution: false,
-    matchingPublications: [],
-    receipts: [],
   })
+  expect(operation?.attribution).toBeUndefined()
+  const encoded = JSON.stringify(operation)
   for (const arg of args) {
     if (arg.includes('=') || arg.startsWith('Authorization:')) expect(encoded).not.toContain(arg)
     if (arg.startsWith('query=')) expect(encoded).not.toContain(arg.slice(6))
@@ -70,23 +61,12 @@ it('refuses ordinary operations attempted after sealing from an already-entered 
   expect(await cohort.join()).toMatchObject({ status: 'unknown', diagnostics: ['host-cohort-no-operations'] })
 })
 
-it('preserves exact reserved publication attribution across asynchronous nested host calls', async () => {
+it('preserves exact attribution across asynchronous nested host calls', async () => {
   const cohort = createPreparationCohort()
-  const fence = new FixExecutionFence()
-  fence.bindCohort(cohort)
-  fence.bindIdentity({ runId: 'run-1', operationId: 'operation-1' })
-  const reservation = {
-    scope: { repository: 'acme/app', target: 'acme/app#7' },
-    kind: 'contribution',
-    runId: 'run-1',
-    operationId: 'operation-1-source',
-    recordId: 'source',
-  }
-  fence.enrollPublicationReservation(reservation)
+  const reservation = { scope: { repository: 'acme/app', target: 'acme/app#7' } }
   const similar = { ...reservation, scope: { ...reservation.scope } }
-  const record = { ...reservation, repository: reservation.scope.repository, target: reservation.scope.target }
   await cohort.run(() =>
-    fence.trackPublication(record, async () => {
+    withPreparationAttribution(reservation, async () => {
       await Promise.resolve()
       await trackPreparationOperation('gh-append', async () => {
         await Promise.resolve()
@@ -97,27 +77,21 @@ it('preserves exact reserved publication attribution across asynchronous nested 
         await Promise.resolve()
         await trackPreparationOperation('gh-append', async () => 'different-context')
       })
-      return { ok: true as const }
     }),
   )
   cohort.seal()
   const result = await cohort.join()
   expect(result.status).toBe('joined')
-  const publication = fence.snapshot().publications[0]
-  expect(publication).toMatchObject({ reserved: true, outcome: 'confirmed' })
-  expect(publication?.attribution).toEqual(reservation)
-  expect(publication?.attribution).not.toBe(reservation)
   const append = result.operations.filter((item) => item.kind === 'gh-append')
   expect(append).toHaveLength(2)
-  expect(append[0]?.attribution).toBe(publication?.attribution)
-  expect(result.operations.find((item) => item.kind === 'gh-read')?.attribution).toBe(publication?.attribution)
+  expect(append[0]?.attribution).toBe(reservation)
+  expect(result.operations.find((item) => item.kind === 'gh-read')?.attribution).toBe(reservation)
   expect(append[1]?.attribution).toBe(similar)
-  expect(append[1]?.attribution).not.toBe(publication?.attribution)
+  expect(append[1]?.attribution).not.toBe(reservation)
   expect(similar).toEqual(reservation)
 })
 
-it('qualifies only the actual UW graph query as a read for recovery host effects', async () => {
-  const target = { repository: 'acme/app', pr: 7, head: 'a'.repeat(40) }
+it('qualifies the actual UW graph query as a read', async () => {
   const cohort = createPreparationCohort()
   await cohort.run(() =>
     graphqlVariables(
@@ -161,15 +135,10 @@ it('qualifies only the actual UW graph query as a read for recovery host effects
   expect(host.status).toBe('joined')
   if (host.status !== 'joined') throw new Error('fixture-cohort-not-joined')
   expect(host.operations).toEqual([expect.objectContaining({ kind: 'gh-read', outcome: 'fulfilled' })])
-  expect(reconcileRecoveryHostEffects({ host, publications: [], target })).toEqual({
-    status: 'qualified',
-    reservedPublications: [],
-  })
 })
 
 it('qualifies actual paginated CI rollup reads but holds changed or ambiguous calls', async () => {
   const head = 'a'.repeat(40)
-  const target = { repository: 'acme/app', pr: 7, head }
   const calls: string[][] = []
   const cohort = createPreparationCohort()
   const evidence = await cohort.run(() =>
@@ -226,10 +195,8 @@ it('qualifies actual paginated CI rollup reads but holds changed or ambiguous ca
   cohort.seal()
   const host = await cohort.join()
   if (host.status !== 'joined') throw new Error('fixture-cohort-not-joined')
-  expect(reconcileRecoveryHostEffects({ host, publications: [], target })).toEqual({
-    status: 'qualified',
-    reservedPublications: [],
-  })
+  expect(host.operations).toHaveLength(calls.length * 2)
+  expect(host.operations.every((operation) => operation.kind === 'gh-read')).toBe(true)
 
   const first = calls[0]
   const next = calls[1]
@@ -251,11 +218,11 @@ it('qualifies actual paginated CI rollup reads but holds changed or ambiguous ca
     changed.seal()
     const observed = await changed.join()
     if (observed.status !== 'joined') throw new Error('fixture-cohort-not-joined')
-    expectUnattributedWrite(reconcileRecoveryHostEffects({ host: observed, publications: [], target }), args)
+    expectUnattributedWrite(observed, args)
   }
 })
 
-it('holds recovery for changed or ambiguous GraphQL operations', async () => {
+it('classifies changed or ambiguous GraphQL operations as writes', async () => {
   const valid = [
     'api',
     'graphql',
@@ -292,14 +259,7 @@ it('holds recovery for changed or ambiguous GraphQL operations', async () => {
     cohort.seal()
     const host = await cohort.join()
     if (host.status !== 'joined') throw new Error(`fixture-cohort-not-joined:${label}`)
-    expectUnattributedWrite(
-      reconcileRecoveryHostEffects({
-        host,
-        publications: [],
-        target: { repository: 'acme/app', pr: 7, head: 'a'.repeat(40) },
-      }),
-      args,
-    )
+    expectUnattributedWrite(host, args)
   }
 })
 
@@ -332,7 +292,6 @@ it('qualifies the exact installed GraphQL read contracts and holds altered trans
     [...args, '-f', 'query=mutation{}'],
   ])
   changed.push(call(catalogueQuery(22), [...catalogueFields.slice(0, -1), 'e20=duplicate']))
-  const target = { repository: 'acme/app', pr: 7, head: 'a'.repeat(40) }
   for (const [expected, cases] of [
     ['gh-read', genuine],
     ['gh-write', changed],
@@ -344,9 +303,8 @@ it('qualifies the exact installed GraphQL read contracts and holds altered trans
       cohort.seal()
       const host = await cohort.join()
       if (host.status !== 'joined') throw new Error('fixture-cohort-not-joined')
-      const result = reconcileRecoveryHostEffects({ host, publications: [], target })
-      if (expected === 'gh-read') expect(result).toEqual({ status: 'qualified', reservedPublications: [] })
-      else expectUnattributedWrite(result, args)
+      if (expected === 'gh-read') expect(host.operations.map((operation) => operation.kind)).toEqual(['gh-read'])
+      else expectUnattributedWrite(host, args)
     }
   }
 })
@@ -378,7 +336,6 @@ it('qualifies the real PR body read but holds altered or ambiguous requests', as
     [...actual, '--method', 'GET'],
     [...actual, '--paginate'],
   ]
-  const target = { repository: 'acme/app', pr: 7, head: 'a'.repeat(40) }
   for (const [expected, cases] of [
     ['gh-read', [actual]],
     ['gh-write', variants],
@@ -390,9 +347,8 @@ it('qualifies the real PR body read but holds altered or ambiguous requests', as
       cohort.seal()
       const host = await cohort.join()
       if (host.status !== 'joined') throw new Error('fixture-cohort-not-joined')
-      const result = reconcileRecoveryHostEffects({ host, publications: [], target })
-      if (expected === 'gh-read') expect(result).toEqual({ status: 'qualified', reservedPublications: [] })
-      else expectUnattributedWrite(result, args)
+      if (expected === 'gh-read') expect(host.operations.map((operation) => operation.kind)).toEqual(['gh-read'])
+      else expectUnattributedWrite(host, args)
     }
   }
 })

@@ -3,8 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { hostActionBinding } from '../omp/review-runtime/action-registry.ts'
-import { fixtureUwOperations, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
-import { createSynthesisBatch } from './review-runner-outcomes.ts'
+import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import type { CurrentActionFacts, ReviewActionBatch, UwActionPorts, UwActionRequest } from './uw-action-contract.ts'
 import { actionOperationMethods } from './uw-action-operations.ts'
 
@@ -236,33 +235,6 @@ test('the next gate rereads current facts and refuses drift after the batch', as
   const replay = await operations.replayActionInputs({ reviewed: first.inputs, request })
   expect(replay.ok).toBe(false)
   if (!replay.ok) expect(replay.diagnostics.some((diagnostic) => diagnostic.code === 'review-input-changed')).toBe(true)
-})
-
-test('the synthesis gate rejects facts that drift after the initial batch', async () => {
-  const { operations, drift } = fixture()
-  const input = batch()
-  const prepared = await operations.prepareReviewActions(input)
-  expect(prepared.ok).toBe(true)
-  if (!prepared.ok) return
-  const spec = prepared.value[0]
-  const projection = input.actions[0]?.projection
-  if (spec === undefined || projection === undefined) throw new Error('batch fixture requires a first action')
-  drift()
-  const args = {
-    review: {
-      actions: { spec },
-      operations: { ...fixtureUwOperations(), ...operations },
-      chunks: projection.chunks,
-      contextWindow: projection.contextWindow,
-    },
-    rootAttemptId: 'root',
-    scope: { repository: 'acme/app', target: 'acme/app#42' },
-    sourceContributions: [{ contributionId: 'contribution', payload: {} }],
-    sourceContributionIds: new Set(['contribution']),
-    knownSlots: new Map(),
-    identity: {},
-  } as unknown as Parameters<typeof createSynthesisBatch>[0]
-  await expect(createSynthesisBatch(args)).rejects.toThrow('review-input-changed')
 })
 
 test('a later batch observes a fresh cut instead of retaining the initial facts', async () => {

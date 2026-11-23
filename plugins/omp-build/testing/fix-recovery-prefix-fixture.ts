@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
 import { encodeParts } from '../adapters/github/history-encoder.ts'
-import { canonicalValueDigest } from '../dist/contracts.js'
-import type { LatchNamespace, ProcessLifetime } from '../engine/fix-recovery-schema.ts'
+import { canonicalValueDigest } from '../engine/action-input.ts'
+import type { InterruptedPhase, OutboundOperation } from '../engine/fix-recovery-phase-schema.ts'
+import type { FixOwnerOpenedPayload, FixOwnerSettledPayload } from '../engine/fix-recovery-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
-import { capturedSubmission } from '../roxabi/fix-contract.ts'
 import { readFixRecoveryPrefixBootstrap } from './fix-recovery-prefix-bootstrap.ts'
+import { buildHistoricalFixRecoveryClose } from './fix-recovery-prefix-control.ts'
 import { frameFixRecoveryFixture } from './fix-recovery-prefix-framing.ts'
 import { publishFixRecoveryFixture } from './fix-recovery-prefix-publish.ts'
-import { writeSim } from './sandbox/sandbox-repository.ts'
 import type { Box } from './sandbox/sandbox-types.ts'
 
 // Structural external history only, not genuine originating host authority or native approval.
@@ -15,19 +15,13 @@ export async function seedFixRecoveryPrefix(
   box: Box,
   cwd: string,
   mode: 'torn-source' | 'torn-request' = 'torn-source',
-  options: { authority?: string; host?: { process: ProcessLifetime; namespace: LatchNamespace } } = {},
 ) {
-  if (options.authority !== undefined) {
-    writeSim(box, (state) => {
-      state.repositoryAuthority = options.authority
-    })
-  }
   const { baseline, mandate, binding, receipt, head, spec } = readFixRecoveryPrefixBootstrap(box, cwd)
   const uw = { repository: 'acme/app', target: 'acme/app#42' }
   const pullRequest = { repository: 'acme/app', target: 'acme/app#7' }
   const runId = 'fix-prefix-run'
   const operationPrefix = 'fix-prefix-operation'
-  const identity = (scope: typeof uw, kind: string, recordId: string) => ({
+  const identity = <K extends string>(scope: typeof uw, kind: K, recordId: string) => ({
     scope,
     kind,
     runId,
@@ -38,26 +32,16 @@ export async function seedFixRecoveryPrefix(
   const source = identity(pullRequest, 'contribution', 'fix-prefix-source')
   const request = identity(pullRequest, 'fix-request', 'fix-prefix-request')
   const settledIdentity = identity(uw, 'fix-owner', 'fix-prefix-settled')
-  const opened = { scope: uw, kind: 'fix-owner', recordId: owner.recordId }
-  const settled = { scope: uw, kind: 'fix-owner', recordId: settledIdentity.recordId }
-  const mandateRef = { scope: uw, kind: 'mandate', recordId: mandate.recordId }
-  const bindingRef = { scope: pullRequest, kind: 'workflow-binding', recordId: binding.recordId }
-  const envelope = (id: typeof owner, payload: unknown, inputs: string[]) => ({
-    ...id.scope,
-    version: 1,
-    recordId: id.recordId,
-    runId: id.runId,
-    operationId: id.operationId,
-    inputs,
-    kind: id.kind,
-    payload,
-  })
+  const opened = { scope: uw, kind: 'fix-owner' as const, recordId: owner.recordId }
+  const settled = { scope: uw, kind: 'fix-owner' as const, recordId: settledIdentity.recordId }
+  const mandateRef = { scope: uw, kind: 'mandate' as const, recordId: mandate.recordId }
+  const bindingRef = { scope: pullRequest, kind: 'workflow-binding' as const, recordId: binding.recordId }
   const destination = {
-    authority: options.authority ?? 'github.com',
+    authority: 'github.com',
     publicationRepository: 'acme/app',
     destinationRef: 'refs/heads/feat/42-save',
   }
-  const common = {
+  const common: FixOwnerOpenedPayload['common'] = {
     owner,
     operationPrefix,
     host: {
@@ -72,10 +56,10 @@ export async function seedFixRecoveryPrefix(
         ]),
         namespace: {
           kind: 'linux-abstract',
-          networkNamespace: options.host?.namespace.networkNamespace ?? 'network-fixture',
+          networkNamespace: 'network-fixture',
         },
       },
-      process: options.host?.process ?? {
+      process: {
         bootId: 'boot-fixture',
         userNamespace: 'user-fixture',
         pidNamespace: 'pid-fixture',
@@ -83,7 +67,7 @@ export async function seedFixRecoveryPrefix(
         pid: 1234,
         processStartTicks: '12345',
       },
-      namespace: options.host?.namespace ?? {
+      namespace: {
         protocol: 'omp-build-execution/v1',
         bootId: 'boot-fixture',
         effectiveUid: 1000,
@@ -131,31 +115,36 @@ export async function seedFixRecoveryPrefix(
       inventoryId: null,
       host: { origin: 'operator', phase: 'fix', role: 'operator', slotId: null, chunk: null, childId: null },
       rawAttempts: [
-        capturedSubmission({
-          operatorRequest: { request: 'correct the issue' },
-          publishBinding: {
-            pushUrl: box.origin,
-            publicationRepository: 'acme/app',
-            localBranch: 'feat/42-save',
-            destinationRef: 'refs/heads/feat/42-save',
-            localHead: head,
-            expectedRemoteSHA: head,
-            defaultBranch: 'main',
-            observed: {
-              target: pullRequest.target,
-              baseRepository: 'acme/app',
-              baseDefaultBranch: 'main',
-              localRef: 'refs/heads/feat/42-save',
-              localHead: head,
+        {
+          attemptIndex: 0,
+          data: null,
+          partialText: null,
+          raw: {
+            operatorRequest: { request: 'correct the issue' },
+            publishBinding: {
               pushUrl: box.origin,
-              remoteRepository: 'acme/app',
-              remoteDefaultBranch: 'main',
-              remoteLine: `${head}\trefs/heads/feat/42-save`,
-              pr: { headRefOid: head, headRefName: 'feat/42-save', headRepository: 'acme/app', baseRefName: 'main' },
+              publicationRepository: 'acme/app',
+              localBranch: 'feat/42-save',
+              destinationRef: 'refs/heads/feat/42-save',
+              localHead: head,
+              expectedRemoteSHA: head,
+              defaultBranch: 'main',
+              observed: {
+                target: pullRequest.target,
+                baseRepository: 'acme/app',
+                baseDefaultBranch: 'main',
+                localRef: 'refs/heads/feat/42-save',
+                localHead: head,
+                pushUrl: box.origin,
+                remoteRepository: 'acme/app',
+                remoteDefaultBranch: 'main',
+                remoteLine: `${head}\trefs/heads/feat/42-save`,
+                pr: { headRefOid: head, headRefName: 'feat/42-save', headRepository: 'acme/app', baseRefName: 'main' },
+              },
             },
+            candidateGitSHA: head,
           },
-          candidateGitSHA: head,
-        }),
+        },
       ],
       native: null,
       structured: null,
@@ -204,7 +193,7 @@ export async function seedFixRecoveryPrefix(
   if (!body || !requestBody || !sourceParts[0]) throw new Error('fixture-part-missing')
   const part = sourceParts[0]
   const requestPart = makePart(requestBody, 19001, 1, framedRequest.value.length)
-  const interrupted =
+  const interrupted: Extract<InterruptedPhase, { kind: 'publication-prefix' }> =
     mode === 'torn-source'
       ? {
           kind: 'publication-prefix',
@@ -218,7 +207,7 @@ export async function seedFixRecoveryPrefix(
           source: { state: 'complete', record: sourcePin },
           request: { state: 'submitted-unconfirmed', reservation: request, observedParts: [requestPart] },
         }
-  const outbound =
+  const outbound: OutboundOperation[] =
     mode === 'torn-source'
       ? [
           { identity: source, publication: { state: 'submitted-unconfirmed', observedParts: [part] } },
@@ -228,58 +217,82 @@ export async function seedFixRecoveryPrefix(
           { identity: source, publication: { state: 'confirmed', record: sourcePin } },
           { identity: request, publication: { state: 'submitted-unconfirmed', observedParts: [requestPart] } },
         ]
-  const opening = envelope(
-    owner,
-    {
-      format: 'omp-build-fix-owner/1',
-      phase: 'opened',
-      common,
-      intent: { kind: 'fresh-intake', afterClose: null, sourceReservation: source, requestReservation: request },
+  const openingPayload: FixOwnerOpenedPayload = {
+    format: 'omp-build-fix-owner/1',
+    phase: 'opened',
+    common,
+    intent: { kind: 'fresh-intake', afterClose: null, sourceReservation: source, requestReservation: request },
+  }
+  const opening = buildRecord({
+    ...uw,
+    version: 1,
+    kind: 'fix-owner',
+    recordId: owner.recordId,
+    runId,
+    operationId: owner.operationId,
+    payload: openingPayload,
+  })
+  const settlementPayload: FixOwnerSettledPayload = {
+    format: 'omp-build-fix-owner/1',
+    phase: 'settled',
+    opened,
+    interrupted,
+    admissionSealed: true,
+    outbound,
+    witness: {
+      kind: 'sealed-no-entry',
+      hostContract: 'trusted-preparation/1',
+      nativeAdmission: 'not-entered',
+      correctionPlan: 'not-entered',
+      driver: 'joined',
+      publications: 'joined',
+      git: 'joined',
+      hostCallbacks: 'joined',
     },
-    [mandate.recordId],
-  )
-  const settlement = envelope(
-    settledIdentity,
-    {
-      format: 'omp-build-fix-owner/1',
-      phase: 'settled',
-      opened,
-      interrupted,
-      admissionSealed: true,
-      outbound,
-      witness: {
-        kind: 'sealed-no-entry',
-        hostContract: 'trusted-preparation/1',
-        nativeAdmission: 'not-entered',
-        correctionPlan: 'not-entered',
-        driver: 'joined',
-        publications: 'joined',
-        git: 'joined',
-        hostCallbacks: 'joined',
-      },
-      local: { head, remoteHead: head, statusDigest: createHash('sha256').update('').digest('hex'), clean: true },
-    },
-    [owner.recordId],
-  )
-  publishFixRecoveryFixture({ box, mode, opening, settlement, date, sourceParts: framedSource.value, requestBody })
-  return {
+    local: { head, remoteHead: head, statusDigest: createHash('sha256').update('').digest('hex'), clean: true },
+  }
+  const settlement = buildRecord({
+    ...uw,
+    version: 1,
+    kind: 'fix-owner',
+    recordId: settledIdentity.recordId,
+    runId,
+    operationId: settledIdentity.operationId,
+    payload: settlementPayload,
+  })
+  if (!opening.ok) throw new Error(`fixture-opening-invalid:${JSON.stringify(opening.diagnostics)}`)
+  if (!settlement.ok) throw new Error(`fixture-settlement-invalid:${JSON.stringify(settlement.diagnostics)}`)
+  publishFixRecoveryFixture({
     box,
+    mode,
+    opening: opening.value,
+    settlement: settlement.value,
+    date,
+    sourceParts: framedSource.value,
+    requestBody,
+  })
+  const frameClose = async () =>
+    frameFixRecoveryFixture(
+      await buildHistoricalFixRecoveryClose({
+        box,
+        cwd,
+        opening: openingPayload,
+        settlement: settlementPayload,
+        settled,
+      }),
+    )
+  return {
     uw,
     pullRequest,
     source,
     request,
     opened,
     settled,
-    mandateRef,
-    bindingRef,
     interrupted,
-    part,
     framedSource: framedSource.value,
     framedRequest: framedRequest.value,
     date,
-    identity,
-    envelope,
-    frame: frameFixRecoveryFixture,
+    frameClose,
     baseline,
   }
 }

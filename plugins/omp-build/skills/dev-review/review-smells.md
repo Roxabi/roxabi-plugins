@@ -1,13 +1,13 @@
 ---
 title: Review Smells
-description: Fowler ch.3 judgement-call baseline supplied to native review synthesis as the standards input.
+description: Fowler ch.3 judgement-call checklist for code review.
 ---
 
 # Review smells
 
 Fowler, *Refactoring* ch.3. **Judgement calls**, never merge blockers and never findings.
 
-**Standards input.** Preparation reads this file into the synthesis prompt. The synthesizer returns the decision's display-only `standards` field: `{state:"ras"}` when none are observed, otherwise `{state:"observed", rows:[{smell, assessment}]}`. Projection renders that field under `## Standards` (`smells: RAS`, or one `possible <Smell>` row). It is not a finding source. `/fix` does not parse this file or the projected section for causes.
+**Standards input.** Observed smells are advisory, never findings to pass to `/dev-fix`. Historical native review records put them in the display-only `standards` field, projected under `## Standards` (`smells: RAS` when none are observed).
 
 ## Binding rules
 
