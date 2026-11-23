@@ -54,9 +54,11 @@ async function publishNativeResult(
 }
 function publicationFailure(publication: Extract<FeatureNativePublication, { published: false }>): string {
   const remote = publication.confirmedRemote
-  return remote === undefined
-    ? publication.reason
-    : `${publication.reason} · confirmed remote tip: ${remote.branch} ${remote.tip}`
+  const failure =
+    remote === undefined
+      ? publication.reason
+      : `${publication.reason} · confirmed remote tip: ${remote.branch} ${remote.tip}`
+  return publication.detail ? `${failure} · ${publication.detail}` : failure
 }
 
 async function publishCompletedResult(

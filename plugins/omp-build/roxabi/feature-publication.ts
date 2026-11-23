@@ -1,5 +1,13 @@
 import type { GitRunner } from './workflow-checkout.ts'
 
+/**
+ * git's stderr is returned whole. It can echo a credential (a credential-bearing push URL, curl tracing);
+ * accepted: the session's agent sees the same text when it runs git itself (operator decision, #1035).
+ */
+function pushDiagnostic(stderr: string): string {
+  return `git push: ${stderr.trim() || 'no stderr'}`
+}
+
 async function authorizeObservedTip(
   branch: string,
   tip: string,
@@ -27,7 +35,8 @@ export async function proveAuthorizedBranch(
     beforePush: () => Promise<{ ok: true } | { ok: false; reason: string }>
   },
 ): Promise<
-  { ok: true; remoteTip: string } | { ok: false; reason: string; confirmedRemote?: { branch: string; tip: string } }
+  | { ok: true; remoteTip: string }
+  | { ok: false; reason: string; detail?: string; confirmedRemote?: { branch: string; tip: string } }
 > {
   const current = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (current.code !== 0 || current.stdout.trim() !== branch)
@@ -40,8 +49,11 @@ export async function proveAuthorizedBranch(
     return authorizeObservedTip(branch, observedTip, () => authority.effect())
   const authorized = await authority.beforePush()
   if (!authorized.ok) return authorized
-  const pushed = await git(cwd, ['push', 'origin', `HEAD:refs/heads/${branch}`])
-  if (pushed.code !== 0) return { ok: false, reason: 'implementation-push-failed' }
+  // The verified SHA, not `HEAD`: a checkout moved after the check above cannot be published here.
+  // `^{commit}` cannot name a ref, so a local branch named like the SHA cannot shadow it.
+  const pushed = await git(cwd, ['push', 'origin', `${tip}^{commit}:refs/heads/${branch}`])
+  if (pushed.code !== 0)
+    return { ok: false, reason: 'implementation-push-failed', detail: pushDiagnostic(pushed.stderr) }
   const remote = await git(cwd, ['ls-remote', 'origin', `refs/heads/${branch}`])
   const remoteTip = remote.stdout.trim().split(/\s+/)[0] ?? ''
   if (remote.code !== 0 || remoteTip !== tip) return { ok: false, reason: 'implementation-remote-unconfirmed' }

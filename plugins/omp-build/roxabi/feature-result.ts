@@ -77,13 +77,31 @@ function stoppedImplementationReason(stop: NativeStop | undefined): string | nul
       : null
 }
 
+/** The record keeps the reason code; a push diagnostic goes to the operator only and, with that code,
+ * survives a retention that refuses or throws. */
+async function retainUnconfirmedRemote(
+  retain: () => ReturnType<typeof retainImplementationResult>,
+  reason: string,
+  detail: string | undefined,
+): Promise<FeatureNativePublication> {
+  try {
+    const refusal = retainedRefusal(await retain(), reason)
+    if (detail === undefined) return refusal
+    return { ...refusal, detail: refusal.reason === reason ? detail : `${reason} · ${detail}` }
+  } catch (error) {
+    if (detail === undefined) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`${message} · ${reason} · ${detail}`, { cause: error })
+  }
+}
+
 async function retainRemoteRefusal(
   binding: ImplementationResultBinding,
   input: FeatureNativeResultInput,
   claims: ImplementationClaims,
   commits: readonly RetainedCommit[],
   commands: HostEffectAdmission['commands'],
-  remote: { reason: string; confirmedRemote?: { branch: string; tip: string } },
+  remote: { reason: string; detail?: string; confirmedRemote?: { branch: string; tip: string } },
 ): Promise<FeatureNativePublication> {
   const confirmedRemote = remote.confirmedRemote
   if (remote.reason === 'implementation-start-resolved')
@@ -93,10 +111,12 @@ async function retainRemoteRefusal(
       reason: remote.reason,
       ...(confirmedRemote === undefined ? {} : { confirmedRemote }),
     }
-  if (confirmedRemote === undefined) {
-    const retained = await retainImplementationResult(binding, input, claims, remote.reason, commits, commands)
-    return retainedRefusal(retained, remote.reason)
-  }
+  if (confirmedRemote === undefined)
+    return retainUnconfirmedRemote(
+      () => retainImplementationResult(binding, input, claims, remote.reason, commits, commands),
+      remote.reason,
+      remote.detail,
+    )
   try {
     const retained = await retainImplementationResult(
       binding,

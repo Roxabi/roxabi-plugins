@@ -182,6 +182,38 @@ describe('Feature native owner acquisition and typed stop forwarding', () => {
     expect(reasons.join('\n')).toContain('abc123')
   })
 
+  it("shows git's stderr to the operator when the implementation push is rejected", async () => {
+    const harness = bridgeHarness()
+    const { host, sent } = fixture(harness)
+    const prepared = batch(['slot-a'])
+    host.workflow.publishFeatureNativeResult = async () => ({
+      published: false,
+      retained: true,
+      reason: 'implementation-push-failed',
+      detail: 'git push: ! [rejected] feature/42 (fetch first)',
+    })
+    await announceFeatureBatch('42', prepared, start('rejected-push-start'), host, noDelivery)
+    expect(await harness.admitBatch(prepared, 'rejected-push-call', root)).toBe(true)
+    await harness.admitChild(prepared, 'slot-a', 'slot-a', { root, skipRootCall: true })
+    await harness.yieldChild('slot-a', { findings: [] })
+    await harness.settleBatch({
+      toolCallId: 'rejected-push-call',
+      errors: [],
+      results: [
+        {
+          id: 'slot-a',
+          index: 0,
+          agent: 'R-review-adversarial',
+          exitCode: 0,
+          structuredOutput: { status: 'valid', data: { findings: [] } },
+        },
+      ],
+    })
+    expect(sent).toContain(
+      'feature-stopped: implementation-push-failed · git push: ! [rejected] feature/42 (fetch first)',
+    )
+  })
+
   it.each([false, true])(
     'keeps typed publication facts across the real settlement fence (retained=%s)',
     async (retained) => {

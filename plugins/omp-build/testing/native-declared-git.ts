@@ -116,7 +116,7 @@ export function declaredNativeGit(
     const remoteBranch = current.branch === null ? current.base : current.branch
     if (key === `ls-remote origin refs/heads/${remoteBranch}`)
       return ok(current.remoteTip === null ? '' : `${current.remoteTip}\trefs/heads/${remoteBranch}`)
-    if (current.branch !== null && key === `push origin HEAD:refs/heads/${current.branch}`) {
+    if (current.branch !== null && key === `push origin ${current.head}^{commit}:refs/heads/${current.branch}`) {
       current = { ...current, remoteTip: current.head }
       return ok()
     }
