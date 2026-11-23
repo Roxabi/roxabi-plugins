@@ -2,6 +2,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { githubScope, outstandingPauseInAuthority } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import { type FeatureAuthority, resolveFeatureAuthority } from './feature-continuation-admission.ts'
+import { featureLeafStatus } from './feature-leaf-status.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
 export type FeatureCoordinates = { repository: string; issue: number; mandate: string }
@@ -28,17 +29,16 @@ export async function readLiveFeatureMandate(
     throw new Error('exact-mandate-not-applicable')
   if (outstandingPauseInAuthority(result.selection.mandate, [result.history, ...result.parentHistories]) !== null)
     throw new Error('exact-mandate-pause-unconfirmed')
-  const { base, branch, role, children, ownSpec } = result.selection.mandate.payload
+  requireCurrentLeaf(result)
+  const { base, branch, role, ownSpec } = result.selection.mandate.payload
   if (
     role !== 'feature' ||
     branch === null ||
     branch === base ||
-    children.length !== 0 ||
     ownSpec.uw.repository !== scope.repository ||
     ownSpec.uw.target !== scope.target
   )
     throw new Error('feature-leaf-mandate-required')
-  requireCurrentLeaf(result)
   if (worktreeRequired) {
     if (!result.identity.ok || result.identity.onPrincipal) throw new Error('feature-worktree-required')
     const current = await input.git(input.cwd, ['symbolic-ref', '--quiet', 'HEAD'])
@@ -48,7 +48,10 @@ export async function readLiveFeatureMandate(
   return { scope, ref, base, branch }
 }
 
-function requireCurrentLeaf({ context, history, parentHistories, causal }: FeatureAuthority): void {
+function requireCurrentLeaf(authority: FeatureAuthority): void {
+  const { context, history, parentHistories, causal } = authority
   const current = context.engine.resolveOwnSpecAuthority(history, parentHistories, causal)
-  if (current.ok && current.value.accepted.children.length > 0) throw new Error('parent-delivery-suspended')
+  const acceptedChildCount = current.ok ? current.value.accepted.children.length : null
+  const status = featureLeafStatus(authority, causal.observation.graph, acceptedChildCount)
+  if (status !== 'leaf') throw new Error(status === 'parent' ? 'parent-delivery-suspended' : 'leaf-status-unknown')
 }

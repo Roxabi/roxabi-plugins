@@ -26958,6 +26958,28 @@ function deliveryCoverage(home) {
   return { ok: true, branches, uncovered: false };
 }
 
+// plugins/omp-build/adapters/github-workflow/review-rule.ts
+function pinnedReviewApp(rules) {
+  if (!Array.isArray(rules))
+    return;
+  const ids = new Set;
+  for (const entry of rules) {
+    const rule = object5(entry);
+    if (rule?.type !== "required_status_checks")
+      continue;
+    const checks = object5(rule.parameters)?.required_status_checks;
+    if (!Array.isArray(checks))
+      continue;
+    for (const entry of checks) {
+      const check = object5(entry);
+      const id = check?.integration_id;
+      if (check?.context === "review" && typeof id === "number" && Number.isSafeInteger(id) && id > 0)
+        ids.add(id);
+    }
+  }
+  return ids.size === 1 ? ids.values().next().value : undefined;
+}
+
 // plugins/omp-build/adapters/github-workflow/uw-delivery-candidates.ts
 function actionFailure(code, message) {
   return { ok: false, diagnostics: [{ code, message }] };
@@ -27053,26 +27075,6 @@ async function collectCandidate(candidate, uw, options, loaded, kept) {
     kept.push(home);
   return { ok: true, value: true };
 }
-function pinnedReviewApp(rules) {
-  if (!Array.isArray(rules))
-    return;
-  const ids = new Set;
-  for (const entry of rules) {
-    const rule = object5(entry);
-    if (rule?.type !== "required_status_checks")
-      continue;
-    const checks = object5(rule.parameters)?.required_status_checks;
-    if (!Array.isArray(checks))
-      continue;
-    for (const entry of checks) {
-      const check = object5(entry);
-      const id = check?.integration_id;
-      if (check?.context === "review" && typeof id === "number" && Number.isSafeInteger(id) && id > 0)
-        ids.add(id);
-    }
-  }
-  return ids.size === 1 ? ids.values().next().value : undefined;
-}
 async function readMergedReview(repository, base, head, options) {
   try {
     const api = (endpoint) => gh(options)(options.cwd, ["api", `repos/${repository}/${endpoint}`]);
@@ -27085,8 +27087,8 @@ async function readMergedReview(repository, base, head, options) {
       return;
     for (const entry of response.check_runs) {
       const check = object5(entry);
-      if (check?.name === "review" && check.head_sha === head && object5(check.app)?.id === integration && check.status === "completed" && check.conclusion === "success" && typeof check.id === "number" && Number.isSafeInteger(check.id) && check.id > 0)
-        return { id: check.id, head };
+      if (check?.name === "review" && check.head_sha === head && object5(check.app)?.id === integration && check.status === "completed" && check.conclusion === "success" && typeof check.id === "number" && Number.isSafeInteger(check.id) && check.id > 0 && typeof check.completed_at === "string" && Number.isFinite(Date.parse(check.completed_at)))
+        return { id: check.id, head, completedAt: check.completed_at };
     }
   } catch {}
   return;
@@ -28905,6 +28907,25 @@ function leafBinding(observation, uw, accepted) {
   const [candidate] = candidates;
   return candidates.length === 1 && candidate !== undefined ? { ok: true, value: candidate } : deliveryFailure(uw, "delivery-binding-ambiguous", "Accepted delivery mandate has no unique authenticated native PR binding");
 }
+function reviewCoversAcceptedSpec(observation, effective, check) {
+  const completedAt = Date.parse(check.completedAt);
+  if (!Number.isFinite(completedAt))
+    return false;
+  for (const { sourceAccepted } of effective.versionVector) {
+    const accepted = authenticatedDeliveryRecord(observation, sourceAccepted);
+    if (!accepted.ok)
+      return false;
+    const operation = historyFor(sourceAccepted.scope, observation.histories)?.operations.find((entry) => entry.operationId === accepted.value.operationId && entry.recordId === sourceAccepted.recordId);
+    if (!operation?.parts.length)
+      return false;
+    for (const part of operation.parts) {
+      const createdAt = Date.parse(part.createdAt ?? "");
+      if (!Number.isFinite(createdAt) || createdAt > completedAt)
+        return false;
+    }
+  }
+  return true;
+}
 function assessLeaf(observation, uw, accepted, effective, index) {
   const bound = leafBinding(observation, uw, accepted);
   if (!bound.ok)
@@ -28920,6 +28941,8 @@ function assessLeaf(observation, uw, accepted, effective, index) {
   const historical = assessStructuredLeaf(observation, uw, effective, native, binding, facts, index);
   if (historical.ok || native.reviewCheck?.head !== native.head)
     return historical;
+  if (!reviewCoversAcceptedSpec(observation, effective, native.reviewCheck))
+    return deliveryFailure(uw, "delivery-review-before-spec", "The review must cover the effective accepted Spec");
   const base = facts.commits.find((commit) => commit.code.repository === uw.repository && commit.code.commit === native.mergeCommit)?.parents[0];
   if (base === undefined)
     return historical;

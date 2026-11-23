@@ -123,7 +123,7 @@ it.each([repository, 'file:///tmp/acme/app', '/tmp/acme/app'])('rejects a non-Gi
   f.bare('update-ref', '-d', ref)
   let pushed = false
   const spoofRepoView: Gh = (cwd, args) =>
-    args[0] === 'repo' && args[2] === url
+    args[0] === 'repo' && args[2] === url && args.at(-1) === 'nameWithOwner,url'
       ? Promise.resolve(JSON.stringify({ nameWithOwner: repository, url: `https://github.com/${repository}` }))
       : f.gh(cwd, args)
   const observePush: GitRunner = (cwd, args) => {
@@ -158,11 +158,14 @@ it('rechecks the mandate when it is revoked after initial push admission', async
   expect(pushed).toBe(false)
 })
 
-it('pushes and opens a leaf PR into its non-default mandate base', async () => {
+it('refuses to publish a leaf whose mandate base is not the default branch', async () => {
   const f = world(false, 'staging')
   f.bare('update-ref', '-d', ref)
-  expect(await invoke(f, 'push', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'pushed', base: 'staging' })
-  expect(await invoke(f, 'open-pr', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'created', base: 'staging' })
+  expect(await invoke(f, 'push', ['--tip', f.tip])).toMatchObject({ code: 1, reason: 'default-base-required' })
+  expect(f.bare('for-each-ref', '--format=%(objectname)', ref)).toBe('')
+  f.bare('update-ref', ref, f.tip)
+  expect(await invoke(f, 'open-pr', ['--tip', f.tip])).toMatchObject({ code: 1, reason: 'default-base-required' })
+  expect(readSim(f.box).prs).toEqual({})
 })
 
 it.each(['paused', 'abandoned', 'revoked', 'not-applicable'] as const)(
@@ -297,6 +300,36 @@ it('refuses an open PR targeting a different base even when another PR is closed
   expect(readSim(f.box).prs).toEqual({})
 })
 
+it.each(['CLOSED', 'MERGED'])('does not replace a terminal %s PR on the same branch', async (state) => {
+  const f = world(true)
+  writeSim(f.box, (sim) => {
+    const pull = sim.prs[String(pr)]
+    if (!pull) throw new Error('Expected PR')
+    pull.state = state
+    if (state === 'MERGED') pull.comments = []
+  })
+  const before = readSim(f.box).prs
+  expect(await invoke(f, 'open-pr', ['--tip', f.tip])).toMatchObject({ code: 1, reason: 'conflicting-pr' })
+  expect(readSim(f.box).prs).toEqual(before)
+})
+
+it('refuses to land when the required review check is not pinned to a GitHub App', async () => {
+  const f = world(true)
+  const gh: Gh = (cwd, args) =>
+    args[1] === `repos/${repository}/rules/branches/main`
+      ? Promise.resolve(
+          JSON.stringify([
+            { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'review' }] } },
+          ]),
+        )
+      : f.gh(cwd, args)
+  expect(await invoke(f, 'land', ['--pr', String(pr), '--head', f.tip], { gh })).toMatchObject({
+    code: 1,
+    reason: 'no-verdict-lock',
+  })
+  expect(readSim(f.box).calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
+})
+
 it('refuses to land without an enforced review check rule', async () => {
   const f = world(true)
   expect(await invoke(f, 'land', ['--pr', String(pr), '--head', f.tip])).toMatchObject({
@@ -370,9 +403,10 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
   let mergeCalls = 0
   let reviewedHead = f.base
   let reviewedApp = app
-  let conclusion: string | null = 'success'
+  let conclusion = 'success'
   let reviewStatus = 'completed'
   let reviewRules: unknown = rules
+  let completedAt = '2026-01-01T00:00:01Z'
   let closeCalls = 0
   const gh: Gh = async (cwd, args) => {
     if (args[1] === `repos/${repository}/rules/branches/main`) return JSON.stringify(reviewRules)
@@ -387,6 +421,7 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
             conclusion,
             app: { id: reviewedApp },
             head_sha: reviewedHead,
+            completed_at: completedAt,
           },
         ],
       })
@@ -432,7 +467,6 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
   await expectRefusal()
   reviewedApp = app
   reviewStatus = 'in_progress'
-  conclusion = null
   await expectRefusal()
   reviewStatus = 'completed'
   conclusion = 'failure'
@@ -442,6 +476,10 @@ it('requests one exact-head merge, and closes only after an exact-head review ch
   await expectRefusal()
   expect(closeCalls).toBe(0)
   reviewRules = rules
+  completedAt = '2025-12-31T23:59:59Z'
+  await expectRefusal()
+  expect(closeCalls).toBe(0)
+  completedAt = date
   f.bare('update-ref', '-d', ref)
   expect(await invoke(f, 'finish', ['--pr', String(pr)], { gh, cwd: f.box.principal })).toMatchObject({
     code: 0,

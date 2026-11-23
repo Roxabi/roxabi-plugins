@@ -9,6 +9,7 @@ import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import { type GitHubOptions, gh } from '../github/types.ts'
 import { readNativePullRequestFacts } from './native-facts.ts'
+import { pinnedReviewApp } from './review-rule.ts'
 import { object } from './types.ts'
 import type { Candidate } from './uw-delivery-enumeration.ts'
 
@@ -131,23 +132,6 @@ async function collectCandidate(
   return { ok: true, value: true }
 }
 
-function pinnedReviewApp(rules: unknown): number | undefined {
-  if (!Array.isArray(rules)) return undefined
-  const ids = new Set<number>()
-  for (const entry of rules) {
-    const rule = object(entry)
-    if (rule?.type !== 'required_status_checks') continue
-    const checks = object(rule.parameters)?.required_status_checks
-    if (!Array.isArray(checks)) continue
-    for (const entry of checks) {
-      const check = object(entry)
-      const id = check?.integration_id
-      if (check?.context === 'review' && typeof id === 'number' && Number.isSafeInteger(id) && id > 0) ids.add(id)
-    }
-  }
-  return ids.size === 1 ? ids.values().next().value : undefined
-}
-
 /** Optional in historical observations; unreadable checks do not erase structured proof. */
 async function readMergedReview(repository: string, base: string, head: string, options: GitHubOptions) {
   try {
@@ -167,9 +151,11 @@ async function readMergedReview(repository: string, base: string, head: string, 
         check.conclusion === 'success' &&
         typeof check.id === 'number' &&
         Number.isSafeInteger(check.id) &&
-        check.id > 0
+        check.id > 0 &&
+        typeof check.completed_at === 'string' &&
+        Number.isFinite(Date.parse(check.completed_at))
       )
-        return { id: check.id, head }
+        return { id: check.id, head, completedAt: check.completed_at }
     }
   } catch {
     // The historical structured-review proof remains independently readable.

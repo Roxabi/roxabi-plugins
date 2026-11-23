@@ -1,4 +1,5 @@
 import type { Gh } from '../../adapters/github/types.ts'
+import { pinnedReviewApp } from '../../adapters/github-workflow/review-rule.ts'
 import { githubScope, readWorkflowBinding } from '../../dist/contracts.js'
 import { confirmWorkflowBinding, readFeaturePr } from '../../roxabi/feature-admission.ts'
 import { isRecord } from '../../roxabi/feature-engine.ts'
@@ -11,7 +12,7 @@ import { featureOrigin, pushFeatureTip, readFeatureRemote } from '../../roxabi/f
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
 import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
 import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
-import { findOpenPr, openPr, parseRequiredContexts } from './workflow-pr.js'
+import { findOpenPr, openPr } from './workflow-pr.js'
 
 export const SHA = /^[0-9a-f]{40}$/
 type Effect =
@@ -171,7 +172,7 @@ function landRuleRefusal(raw: string): 'merge-queue' | 'no-verdict-lock' | null 
   const rules: unknown = JSON.parse(raw)
   if (!Array.isArray(rules)) return 'no-verdict-lock'
   if (rules.some((rule) => rule?.type === 'merge_queue')) return 'merge-queue'
-  return parseRequiredContexts(raw).has('review') ? null : 'no-verdict-lock'
+  return pinnedReviewApp(rules) === undefined ? 'no-verdict-lock' : null
 }
 
 async function land(
@@ -263,6 +264,14 @@ async function finish(
   }
 }
 
+async function requireDefaultBase({ cwd, gh }: Runtime, live: Live): Promise<void> {
+  const repo = JSON.parse(
+    await gh(cwd, ['repo', 'view', live.scope.repository, '--json', 'nameWithOwner,defaultBranchRef']),
+  )
+  if (repo?.nameWithOwner !== live.scope.repository || repo.defaultBranchRef?.name !== live.base)
+    throw new Error('default-base-required')
+}
+
 export async function act(input: Input, runtime: Runtime) {
   const read = () => readLiveFeatureMandate({ ...input, ...runtime }, input.command !== 'finish')
   const live = await read()
@@ -271,6 +280,7 @@ export async function act(input: Input, runtime: Runtime) {
     if (current.branch !== live.branch || current.base !== live.base) throw new Error('mandate-coordinates-changed')
   }
   if (input.command === 'finish') return finish(input, runtime, live, refresh)
+  if (input.command !== 'land') await requireDefaultBase(runtime, live)
   const origin = await featureOrigin(runtime.git, runtime.gh, runtime.cwd, input.repository)
   if (input.command === 'push') return push(input, runtime, live, origin, refresh)
   if (input.command === 'open-pr') return open(input, runtime, live, origin, refresh)

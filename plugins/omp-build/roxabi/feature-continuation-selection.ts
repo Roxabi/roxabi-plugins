@@ -1,4 +1,4 @@
-import { effectiveMandateRole, projectNativeUwChildrenAgainstCommitments } from '../dist/contracts.js'
+import { effectiveMandateRole } from '../dist/contracts.js'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
@@ -8,6 +8,7 @@ import type { FeatureAuthority } from './feature-continuation-admission.ts'
 import type { ContinueFeatureResult, FeatureControl } from './feature-contract.ts'
 import { scopeNumber } from './feature-delivery-facts.ts'
 import { establishFirstMandate } from './feature-initial-mandate.ts'
+import { featureLeafStatus } from './feature-leaf-status.ts'
 import { prepareRequestedSession, prepareSuccessorCheckout } from './feature-selection-session.ts'
 import { specEntrySelection } from './feature-selection-spec-entry.ts'
 import { createSuccessorSelection } from './feature-selection-successor.ts'
@@ -30,18 +31,11 @@ export type SelectedFeature = {
 type SelectionState = Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'>
 
 function parentDeliveryStop(authority: FeatureAuthority, read: UwRead | null): ContinueFeatureResult | null {
-  const { selection, scope } = authority
-  if (selection.status === 'applicable') {
-    const { role, children } = selection.mandate.payload
-    if (role === 'epic' || children.length > 0) return { kind: 'blocked', reason: 'parent-delivery-suspended' }
-  }
-  if (read === null) return null
-  if (read.accepted.status === 'accepted' && read.accepted.value.children.length > 0)
-    return { kind: 'blocked', reason: 'parent-delivery-suspended' }
-  // Only use the native graph to identify a parent. The existing entry and succession checks
-  // own refusals when the graph or the accepted Spec cannot be read.
-  const children = projectNativeUwChildrenAgainstCommitments({ uw: scope, graph: read.graph, commitments: null })
-  return children.ok && children.value.length > 0 ? { kind: 'blocked', reason: 'parent-delivery-suspended' } : null
+  const acceptedChildCount = read?.accepted.status === 'accepted' ? read.accepted.value.children.length : null
+  // The existing entry and succession checks own refusals for unknown leaf status.
+  return featureLeafStatus(authority, read?.graph ?? null, acceptedChildCount) === 'parent'
+    ? { kind: 'blocked', reason: 'parent-delivery-suspended' }
+    : null
 }
 
 export async function selectFeatureMandate(

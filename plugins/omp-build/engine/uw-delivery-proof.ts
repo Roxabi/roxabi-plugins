@@ -28,6 +28,7 @@ import {
 } from './uw-delivery-review.ts'
 import type { UwResult } from './uw-diagnostics.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
+import { historyFor } from './workflow-control.ts'
 import { selectWorkflowBinding, type WorkflowBindingSelection } from './workflow-pr-binding.ts'
 
 type DeliveryProof = {
@@ -78,6 +79,28 @@ function leafBinding(
       )
 }
 
+function reviewCoversAcceptedSpec(
+  observation: UwCompletionObservation,
+  effective: SpecEffective,
+  check: DeliveryReviewCheck,
+): boolean {
+  const completedAt = Date.parse(check.completedAt)
+  if (!Number.isFinite(completedAt)) return false
+  for (const { sourceAccepted } of effective.versionVector) {
+    const accepted = authenticatedDeliveryRecord(observation, sourceAccepted)
+    if (!accepted.ok) return false
+    const operation = historyFor(sourceAccepted.scope, observation.histories)?.operations.find(
+      (entry) => entry.operationId === accepted.value.operationId && entry.recordId === sourceAccepted.recordId,
+    )
+    if (!operation?.parts.length) return false
+    for (const part of operation.parts) {
+      const createdAt = Date.parse(part.createdAt ?? '')
+      if (!Number.isFinite(createdAt) || createdAt > completedAt) return false
+    }
+  }
+  return true
+}
+
 function assessLeaf(
   observation: UwCompletionObservation,
   uw: Scope,
@@ -96,6 +119,8 @@ function assessLeaf(
     return deliveryFailure(uw, 'delivery-facts-ambiguous', 'No unique complete binding-scoped delivery fact set')
   const historical = assessStructuredLeaf(observation, uw, effective, native, binding, facts, index)
   if (historical.ok || native.reviewCheck?.head !== native.head) return historical
+  if (!reviewCoversAcceptedSpec(observation, effective, native.reviewCheck))
+    return deliveryFailure(uw, 'delivery-review-before-spec', 'The review must cover the effective accepted Spec')
   const base = facts.commits.find(
     (commit) => commit.code.repository === uw.repository && commit.code.commit === native.mergeCommit,
   )?.parents[0]
