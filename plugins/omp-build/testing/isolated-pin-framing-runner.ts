@@ -16,6 +16,7 @@ const commands = new Map<string, (args: string, ctx: ExtensionCommandContext) =>
 const shortcuts = new Map<string, () => Promise<void>>()
 const entries: SessionEntry[] = []
 const statuses: string[] = []
+const widgets = new Map<string, string[]>()
 const notices: string[] = []
 const displayed: string[] = []
 const tools: ToolInfo[] = ['read', 'grep', 'glob', 'bash', 'write', 'edit', 'task'].map((name) => ({
@@ -58,6 +59,10 @@ const context = {
       if (text) statuses.push(`${key}: ${text}`)
       if (key === 'omp-build-framing' && text?.startsWith('feature-framing: interview started')) started.resolve()
       if (key === 'omp-build-framing' && text?.startsWith('feature-framing blocked:')) failure.resolve()
+    },
+    setWidget(key: string, lines?: string[]) {
+      if (lines) widgets.set(key, lines)
+      else widgets.delete(key)
     },
     notify(message: string) {
       notices.push(message)
@@ -195,11 +200,14 @@ await submitForm({
 const shortcut = shortcuts.get('ctrl+alt+u')
 if (!shortcut) throw new Error('framing-shortcut-missing')
 await shortcut()
-const move = statuses.map((status) => /Run native \/move (.+?), check that it displays/.exec(status)).find(Boolean)
-if (!move?.[1]) throw new Error(`fixture-handoff-missing: ${JSON.stringify({ statuses, notices })}`)
-currentCwd = move[1]
+const framingWidget = widgets.get('omp-build-framing')
+const move = framingWidget?.find((line) => line.startsWith('/move '))
+if (!move || !framingWidget?.some((line) => line.includes('Ctrl+Alt+U')))
+  throw new Error(`fixture-handoff-missing: ${JSON.stringify({ framingWidget, statuses, notices })}`)
+currentCwd = move.slice('/move '.length)
 context.cwd = currentCwd
 await shortcut()
+if (widgets.has('omp-build-framing')) throw new Error('fixture-handoff-move-prompt-not-cleared')
 const timedOut = Promise.withResolvers<void>()
 const timer = setTimeout(timedOut.resolve, 10_000)
 const delivery = await Promise.race([

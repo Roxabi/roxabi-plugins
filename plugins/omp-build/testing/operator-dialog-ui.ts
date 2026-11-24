@@ -35,10 +35,22 @@ export const operatorDialogKeybindings = {
   },
 }
 
+function readDialog(view: MountedOperatorDialog, width: number): string {
+  const display: string[] = []
+  for (let i = 0; i < 2000; i++) {
+    const rendered = view.render(width).join('\n')
+    if (display.at(-1) === rendered) break
+    display.push(rendered)
+    view.handleInput?.('\u001b[B')
+  }
+  return display.join('\n')
+}
+
 /** Mount the real dialog and send its normal keyboard input. */
 export function operatorDialogUi(
   decide: () => Promise<OperatorChoice>,
   onDisplay?: (text: string) => void,
+  onDetails?: (text: string) => void,
 ): ExtensionContext['ui'] {
   const custom = async (factory: Parameters<ExtensionContext['ui']['custom']>[0]) => {
     const result = Promise.withResolvers<unknown>()
@@ -50,15 +62,14 @@ export function operatorDialogUi(
       result.resolve(value)
     }
     mounted = await factory(tui as never, {} as never, operatorDialogKeybindings as never, finish)
-    const display: string[] = []
-    for (let i = 0; i < 2000; i++) {
-      const lines = mounted.render(80)
-      const rendered = lines.join('\n')
-      if (display.at(-1) === rendered) break
-      display.push(rendered)
-      mounted.handleInput?.('\u001b[B')
+    if (onDisplay) onDisplay(readDialog(mounted, terminal.columns))
+    else mounted.render(terminal.columns)
+    if (onDetails) {
+      mounted.handleInput?.('d')
+      onDetails(readDialog(mounted, terminal.columns))
+      mounted.handleInput?.('d')
+      mounted.render(terminal.columns)
     }
-    onDisplay?.(display.join('\n'))
     const choice = await decide()
     mounted.handleInput?.(choice === 'confirm' ? 'c' : choice === 'refuse' ? 'r' : '\u001b')
     return result.promise
