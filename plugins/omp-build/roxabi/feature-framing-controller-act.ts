@@ -82,7 +82,11 @@ async function frameOnce(
     const outcome = await uw.frame(prepared, {
       async check(point) {
         await effects.guard.check(point)
-        if (point.at === 'before-effect' && lease.phase.kind === 'confirming') lease.phase = { kind: 'committing' }
+        if (point.at === 'before-effect' && lease.phase.kind === 'confirming') {
+          lease.phase = { kind: 'committing' }
+          const message = 'Publication du cadrage en cours…'
+          core.host.status(message, [message])
+        }
       },
     })
     return { outcome, uw }

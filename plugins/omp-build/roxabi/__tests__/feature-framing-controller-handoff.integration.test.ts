@@ -56,6 +56,7 @@ describe('written framing handoff', () => {
     await w.controller.act(w.ctx())
     expect(w.controller.view()?.phase).toEqual(ready)
     expect(boundary.native.writes).toEqual([])
+    expect(w.instructions).not.toContainEqual(['Publication du cadrage en cours…'])
     await w.controller.act(w.ctx())
     expect(w.controller.view()?.phase.kind).toBe('awaiting-human-move')
     expect(w.runtime.confirms).toBe(2)
@@ -82,11 +83,19 @@ describe('written framing handoff', () => {
   test('a confirmed frame writes natively, prepares the real checkout and continues exactly once after an attested move', async () => {
     const boundary = writtenBoundary()
     const w = world({ written: boundary })
+    let handoffMessage: string[] | undefined
+    w.runtime.onRepoView = () => {
+      if (boundary.native.count('create') === 0) return
+      handoffMessage = w.instructions.at(-1)
+      w.runtime.onRepoView = null
+    }
     const { destination, root } = await framedToMove(w)
     expect(root.repository).toBe('acme/app')
     expect(boundary.native.issues.has(numberOf(root))).toBe(true)
     expect(boundary.native.count('create')).toBe(1)
     expect(existsSync(destination)).toBe(true)
+    expect(w.instructions).toContainEqual(['Publication du cadrage en cours…'])
+    expect(handoffMessage).toEqual([`Cadrage ${root.target} publié — préparation du worktree…`])
     expect(w.statuses.at(-1)).toContain(`/move ${destination}`)
     expect(w.instructions.at(-1)).toEqual([
       expect.stringContaining('Cadrage publié'),
@@ -111,6 +120,10 @@ describe('written framing handoff', () => {
     expect(w.continued).toEqual([])
     expect((await acceptance(w, boundary, root)).status).toBe('absent')
 
+    let atTransfer: { status: string | undefined; instructions: string[] | undefined } | undefined
+    w.runtime.onContinue = () => {
+      atTransfer = { status: w.statuses.at(-1), instructions: w.instructions.at(-1) }
+    }
     w.runtime.answers.push(true)
     await w.controller.act(w.ctx())
     expect(w.continued).toEqual([
@@ -121,8 +134,10 @@ describe('written framing handoff', () => {
         principal: false,
       }),
     ])
-    expect(w.statuses.at(-1)).toBe(`feature-framing: continued ${root.target} at ${destination}`)
-    expect(w.instructions.at(-1)).toBeUndefined()
+    expect(atTransfer).toEqual({
+      status: 'Worktree vérifié — reprise de la livraison…',
+      instructions: undefined,
+    })
     expect(w.controller.view()).toBeNull()
     expect(w.outcomes).toEqual([expect.objectContaining({ kind: 'ready', worktree: destination })])
     const accepted = await acceptance(w, boundary, root)

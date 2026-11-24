@@ -201,6 +201,8 @@ export async function continueAtDestination(
   if (continuation === null) return
   lease.ticketConsumed = true
   lease.phase = { kind: 'continuing' }
+  // The ordinary continuation replaces and finalizes this lease, so clear the move prompt before calling it.
+  core.host.status('Worktree vérifié — reprise de la livraison…')
   try {
     await core.host.continueFeature({ ctx, continuation, operator })
   } catch (error) {

@@ -67,6 +67,10 @@ async function stageHandoff(
     const supply = await verifyFramingProcedures(procedures)
     return supply.ok && committing() && lease.procedures === procedures
   }
+  if (committing()) {
+    const message = `Cadrage ${root.target} publié — préparation du worktree…`
+    core.host.status(message, [message])
+  }
   const read = await uw.readUw(root)
   const preparation = await prepareFramedFeatureHandoff({
     written: outcome.value,

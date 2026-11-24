@@ -130,6 +130,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     answers: [] as boolean[],
     choices: [] as ('confirm' | 'refuse' | 'defer')[],
     onRepoView: null as (() => void) | null,
+    onContinue: null as (() => void) | null,
   }
   const sessionManager = {
     getBranch: () => [...entries],
@@ -235,6 +236,8 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     /** Root's adapter shape: the verified continuation drives the real installed workflow exactly once. */
     continueFeature: async ({ continuation }) => {
       if (!options.written) throw new Error('unexpected continuation')
+      replaceOwner()
+      runtime.onContinue?.()
       continued.push(continuation)
       outcomes.push(await admitFeature(continuation))
     },
