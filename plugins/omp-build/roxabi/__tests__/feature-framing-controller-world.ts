@@ -130,6 +130,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     answers: [] as boolean[],
     choices: [] as ('confirm' | 'refuse' | 'defer')[],
     onRepoView: null as (() => void) | null,
+    onContinue: null as (() => void) | null,
   }
   const sessionManager = {
     getBranch: () => [...entries],
@@ -165,6 +166,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
   const supply = procedureSupply()
   const uw = fixture()
   const statuses: string[] = []
+  const instructions: Array<string[] | undefined> = []
   const sent: { content: unknown; options: unknown }[] = []
   const continued: ContinueFeatureInput[] = []
   const outcomes: Awaited<ReturnType<typeof admitFeature>>[] = []
@@ -194,8 +196,9 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     sendUserMessage: async (content, sendOptions) => {
       sent.push({ content, options: sendOptions })
     },
-    status: (message) => {
+    status: (message, nextSteps) => {
       statuses.push(message)
+      instructions.push(nextSteps)
     },
     procedurePorts: () => supply.ports,
     operator: (receiving) => createOperatorConfirmation(receiving, { escape: 'defer' }),
@@ -233,6 +236,8 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     /** Root's adapter shape: the verified continuation drives the real installed workflow exactly once. */
     continueFeature: async ({ continuation }) => {
       if (!options.written) throw new Error('unexpected continuation')
+      replaceOwner()
+      runtime.onContinue?.()
       continued.push(continuation)
       outcomes.push(await admitFeature(continuation))
     },
@@ -243,7 +248,21 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     occupant = { revoke: () => {} }
     previous?.revoke('ordinary-operation')
   }
-  return { controller, ctx, entries, location, runtime, supply, uw, statuses, sent, continued, outcomes, replaceOwner }
+  return {
+    controller,
+    ctx,
+    entries,
+    location,
+    runtime,
+    supply,
+    uw,
+    statuses,
+    instructions,
+    sent,
+    continued,
+    outcomes,
+    replaceOwner,
+  }
 }
 
 export type World = ReturnType<typeof world>

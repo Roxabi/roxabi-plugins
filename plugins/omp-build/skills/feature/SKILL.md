@@ -77,7 +77,7 @@ Stop on inactive authority, material/coverage hold, ambiguous or divergent refs,
 | `/feature resolve-interruption <reference> [--start <recordId>]` | Always refuses. Historical records remain readable. For an eligible leaf, run `/feature abandon <reference>`, then `/feature new <reference>` after confirmed abandonment. |
 | `/feature init` | Previews the invoking checkout. Apply requires the preview digest and the operator's own reply. |
 
-For framing, the operator presses `ctrl+alt+u` to confirm. If asked to move, the operator runs the displayed `/move <path>`, observes success, then presses `ctrl+alt+u` in the destination. A model tool cannot confirm or attest.
+For framing, `Ctrl+Alt+U` opens the staged proposal for review; only `Confirmer` authorizes publication. If a move is required, the operator runs the displayed `/move <path>`, observes success, then presses `Ctrl+Alt+U` in the destination to attest it. A model tool cannot confirm or attest.
 
 ## Public-safe publication
 

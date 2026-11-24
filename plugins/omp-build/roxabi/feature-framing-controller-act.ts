@@ -1,4 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { FRAMING_REVIEW_INSTRUCTIONS } from './feature-framing-contract.ts'
 import { continueAtDestination } from './feature-framing-controller-destination.ts'
 import {
   blockLease,
@@ -81,7 +82,11 @@ async function frameOnce(
     const outcome = await uw.frame(prepared, {
       async check(point) {
         await effects.guard.check(point)
-        if (point.at === 'before-effect' && lease.phase.kind === 'confirming') lease.phase = { kind: 'committing' }
+        if (point.at === 'before-effect' && lease.phase.kind === 'confirming') {
+          lease.phase = { kind: 'committing' }
+          const message = 'Publication du cadrage en cours…'
+          core.host.status(message, [message])
+        }
       },
     })
     return { outcome, uw }
@@ -139,7 +144,7 @@ export async function confirmAndFrame(core: ControllerCore, lease: LeaseState, c
     if (claimedNow()) {
       lease.proposal = claimed
       lease.phase = { kind: 'proposal-ready', digest: claimed.prepared.digest }
-      core.host.status('feature-framing: proposal deferred; use Ctrl+Alt+U to reopen')
+      core.host.status('feature-framing: proposal deferred; use Ctrl+Alt+U to reopen', FRAMING_REVIEW_INSTRUCTIONS)
     } else {
       reservePreparedFramingProposal(claimed.prepared)?.(false)
       if (live(core, lease)) blockLease(core, lease, 'framing-location-changed')

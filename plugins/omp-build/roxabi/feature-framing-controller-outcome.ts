@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { PendingFramingHandoff } from './feature-framing-contract.ts'
-import { continueAtDestination, NOTHING_FOLLOWS } from './feature-framing-controller-destination.ts'
+import { continueAtDestination, NOTHING_FOLLOWS, reportPendingMove } from './feature-framing-controller-destination.ts'
 import { advance, retainDetail } from './feature-framing-controller-index.ts'
 import {
   blockLease,
@@ -66,6 +66,10 @@ async function stageHandoff(
     if (!committing() || procedures === null) return false
     const supply = await verifyFramingProcedures(procedures)
     return supply.ok && committing() && lease.procedures === procedures
+  }
+  if (committing()) {
+    const message = `Cadrage ${root.target} publié — préparation du worktree…`
+    core.host.status(message, [message])
   }
   const read = await uw.readUw(root)
   const preparation = await prepareFramedFeatureHandoff({
@@ -133,8 +137,10 @@ async function stageHandoff(
     await continueAtDestination(core, lease, ctx, false)
     return
   }
-  core.host.status(
-    `feature-framing: ${root.target} written. Run native /move ${destination}, check that it displays "Moved to ${destination}", then press the framing shortcut. Nothing continues before that.`,
+  reportPendingMove(
+    core,
+    `feature-framing: ${root.target} written. Run native /move ${destination}, then press Ctrl+Alt+U after "Moved to …".`,
+    destination,
   )
 }
 /** A Wayfinder is non-UW: report its cards and close; no checkout, Mandate or continuation. */

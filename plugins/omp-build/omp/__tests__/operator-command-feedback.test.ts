@@ -1,7 +1,5 @@
 import { readdirSync } from 'node:fs'
-import type { SessionEntry } from '@oh-my-pi/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
-import { FRAMING_SUBMIT_TOOL } from '../../roxabi/feature-framing-contract.ts'
 import { createUwOperations } from '../../roxabi/uw-operations.ts'
 import { fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import {
@@ -11,98 +9,36 @@ import {
   installed,
   session,
 } from '../../testing/feature-framing-runtime-fixture.ts'
-import { uwMember } from '../../testing/framing-runtime-fixture.ts'
 import { manualOperatorDialog } from '../../testing/operator-dialog-ui.ts'
 import { consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
 import { fixture as uwFixture } from '../../testing/uw-operations-fixture.ts'
-
-async function stageSuccessor(host: ReturnType<typeof installed>, root: ReturnType<typeof contextOf>) {
-  const entries: SessionEntry[] = []
-  Object.assign(root.sessionManager, { getBranch: () => entries })
-  await host.command('ship the billing export', root)
-  const supplyToken = async () => {
-    const projected = (await host.emit('context', { type: 'context', messages: [] }, root)) as
-      | { messages: Array<{ content?: unknown }> }
-      | undefined
-    const match = /^Supply token: (\S+)$/m.exec(String(projected?.messages.at(-1)?.content ?? ''))
-    if (!match?.[1]) throw new Error('framing-projection-missing')
-    return match[1]
-  }
-  const signal = new AbortController().signal
-  expect(
-    await host.submit(
-      { supplyToken: await supplyToken(), form: { kind: 'question', question: 'Question grill?' } },
-      root,
-      signal,
-    ),
-  ).toMatchObject({ status: 'waiting' })
-  entries.push(
-    {
-      type: 'message',
-      id: 'q-grill',
-      parentId: null,
-      timestamp: '2026-10-27T12:00:00.000Z',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'toolCall', id: 'submit-call', name: FRAMING_SUBMIT_TOOL, arguments: {} }],
-        timestamp: 1,
-      },
-    } as unknown as SessionEntry,
-    {
-      type: 'message',
-      id: 'u-grill',
-      parentId: null,
-      timestamp: '2026-10-27T12:00:00.000Z',
-      message: { role: 'user', content: 'Answer grill', timestamp: 1 },
-    } as SessionEntry,
-  )
-  expect(
-    await host.submit(
-      {
-        supplyToken: await supplyToken(),
-        form: {
-          kind: 'grilling',
-          shape: 'leaf',
-          unresolved: [],
-          decisions: [{ questionEntryId: 'q-grill', answerEntryId: 'u-grill', decision: 'Decision grill' }],
-          terms: [],
-        },
-      },
-      root,
-      signal,
-    ),
-  ).toMatchObject({ status: 'accepted' })
-  const member = uwMember(
-    { kind: 'new', key: 'root', repository: 'acme/widgets' },
-    'Request queue',
-    'queue',
-    'Requests enter the queue',
-  )
-  const staged = await host.submit(
-    {
-      supplyToken: await supplyToken(),
-      form: {
-        kind: 'proposal',
-        decisions: [],
-        modules: [],
-        vocabulary: [],
-        aggregate: {
-          kind: 'uw',
-          root: 'root',
-          members: [{ ...member, slot: { kind: 'new', key: 'root' } }],
-          edges: [],
-          coverage: [],
-          foundations: [],
-        },
-      },
-    },
-    root,
-    signal,
-  )
-  expect(staged).toMatchObject({ status: 'accepted', diagnostics: [{ code: 'framing-proposal-staged' }] })
-}
+import { stageSuccessor } from './operator-command-feedback-fixture.ts'
 
 describe('registered UW command and shortcut feedback', () => {
+  it('keeps the review shortcut visible until the staged proposal is closed', async () => {
+    const host = installed({
+      uwOperations: ({ operator }) => ({
+        ...fixtureUwOperations(),
+        prepareFraming: createUwOperations({ ...uwFixture().ports, operator }).prepareFraming,
+      }),
+    })
+    const state = session()
+    const root = contextOf(state)
+    const widgets = new Map<string, unknown>()
+    root.ui.setWidget = (key, content) => widgets.set(key, content)
+
+    await stageSuccessor(host, root)
+    const visible = ['Proposition prête — Ctrl+Alt+U pour la relire.', 'Seul le choix Confirmer publie la proposition.']
+    expect(widgets.get('omp-build-framing')).toEqual(visible)
+
+    state.idle = false
+    await host.shortcut(root)
+    expect(widgets.get('omp-build-framing')).toEqual(visible)
+
+    await host.emit('session_stop', { type: 'session_stop', signal: AbortSignal.abort() }, root)
+    expect(widgets.get('omp-build-framing')).toBeUndefined()
+  })
+
   it('acknowledges a UW command before preparation and explains repeated shortcuts without repeating the operation', async () => {
     const entered = Promise.withResolvers<void>()
     const release = Promise.withResolvers<void>()

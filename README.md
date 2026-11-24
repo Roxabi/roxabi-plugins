@@ -34,6 +34,8 @@ Pause, abandon and control-disarm require complete ordinary authority; uncovered
 
 Initial `/feature` framing preserves the selected source and requires genuine aggregate confirmation. `ctrl+alt+u` opens a readable proposal with explicit confirm, refuse and defer actions; it does not approve. Escape or `Plus tard` keeps that exact proposal pending for the same shortcut in the same live session and location, including confirmations other than framing. Commands receive an immediate UI receipt before long reads; phase status and shortcut feedback distinguish preparation, pending decisions and started actions without adding model progress messages. omp-build 0.21.9 is a manual source change until an applicable activation decision; it does not move the tooling pin. If a move is needed, the operator performs `/move`, attests its observed success at the destination, and continues the same UW without retyping. Framing is not a Mandate; host and provider behavior requires separate qualification. See the [omp-build guide](plugins/omp-build/README.md).
 
+Framing shows the next operator action above the editor. The confirmation leads with the publication effects and the final Spec; `Détails` keeps the audit trail available without repeating it in the summary.
+
 For an isolated installation, `/tooling-pin status` reports the current pin and `/tooling-pin activate` offers a root-operator confirmation of the target repository's `OMP_BUILD_TOOLING_SHA`. Approval is session- and clone-scoped, never a shared-pin update or workflow authorization; see the [activation procedure](plugins/omp-build/README.md#isolated-session-tooling-pin).
 
 For merge-on-green repositories using the Kit gate, omp-build authorizes the reviewed

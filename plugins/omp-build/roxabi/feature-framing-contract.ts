@@ -15,6 +15,11 @@ import type { OperatorPort, UwOperations } from './uw-contract.ts'
 import type { FramingEffect } from './uw-framing-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
+export const FRAMING_REVIEW_INSTRUCTIONS = [
+  'Proposition prête — Ctrl+Alt+U pour la relire.',
+  'Seul le choix Confirmer publie la proposition.',
+]
+
 export type FramingSourceRequest = { kind: 'free-text'; acceptedArgs: string } | { kind: 'issue'; uw: Scope }
 
 export type FramingPhase =
@@ -122,7 +127,8 @@ export type FeatureFramingControllerHost = Readonly<{
   }>
   /** Public `pi.sendUserMessage`; the controller passes the exact accepted text unchanged. */
   sendUserMessage: ExtensionAPI['sendUserMessage']
-  status(message: string): void
+  /** The optional persistent instructions tell the operator what to do at the current human gate. */
+  status(message: string, instructions?: string[]): void
   /** Fresh cwd-bound installed pin and pinned-byte readers (`createProductionInputPorts`). */
   procedurePorts(location: Readonly<{ cwd: string; pluginPin?: TrustedHostPluginPin }>): FramingProcedurePorts
   /** Fresh per-context confirmation capability; only `act` ever requests it. */

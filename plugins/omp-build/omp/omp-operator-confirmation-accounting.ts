@@ -7,15 +7,10 @@ type FramingSourceRef = FramingUwMember['merges'][number]['sources'][number]
 type Decision = FramingUwMember['normalization'][number]['decision']
 type Target = Extract<Decision, { target: unknown }>['target']
 
-function targetDescription(target: Target, member: FramingUwMember, plan: Plan | undefined): string {
+function targetDescription(target: Target, plan: Plan | undefined): string {
   if (target.kind === 'existing') return target.id
-  if (target.kind === 'new') {
-    const id = plan?.allocation?.assignments.find((item) => item.draftKey === target.draftKey)?.id ?? target.draftKey
-    const item = [...member.draft.criteria, ...member.draft.invariants].find(
-      (entry) => entry.kind === 'new' && entry.draftKey === target.draftKey,
-    )
-    return `${id}${item ? ` — ${item.statement}` : ''}`
-  }
+  if (target.kind === 'new')
+    return plan?.allocation?.assignments.find((item) => item.draftKey === target.draftKey)?.id ?? target.draftKey
   if (target.kind === 'section') return `section ${target.section}`
   return `${target.kind} ${target.index + 1}`
 }
@@ -54,25 +49,27 @@ function excerpt(proposal: FramingProposal, source: FramingSourceRef): string {
   return item?.source ?? 'extrait indisponible'
 }
 
-export function accountingEffects(
+export function accountingDetails(
   proposal: FramingProposal,
   member: FramingUwMember,
   plan: Plan | undefined,
 ): string[] {
   const lines: string[] = []
   const labels = { kept: 'Conservé', reworded: 'Reformulé', removed: 'Retiré', new: 'Ajouté' }
+  if (member.normalization.length) lines.push('Normalisation')
   for (const entry of member.normalization) {
     const decision = entry.decision
     const origin = entry.origin
     const before = origin && 'source' in decision ? excerpt(proposal, { origin, span: decision.source }) : ''
-    const target = 'target' in decision ? summaryField(' → ', targetDescription(decision.target, member, plan)) : ''
+    const target = 'target' in decision ? summaryField(' → ', targetDescription(decision.target, plan)) : ''
     const reason = 'reason' in decision ? summaryField(' ; motif : ', decision.reason) : ''
     lines.push(`  ${labels[decision.kind]}${before ? summaryField(' : ', before) : ''}${target}${reason}`)
   }
+  if (member.merges.length) lines.push('Fusions')
   for (const merge of member.merges) {
     const sources = merge.sources.map((source) => summaryField('', excerpt(proposal, source))).join(' + ')
     lines.push(
-      `  Fusion : ${sources}${summaryField(' → ', targetDescription(merge.target, member, plan))}${summaryField(' ; motif : ', merge.reason)}`,
+      `  Fusion : ${sources}${summaryField(' → ', targetDescription(merge.target, plan))}${summaryField(' ; motif : ', merge.reason)}`,
     )
   }
   return lines

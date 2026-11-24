@@ -1,6 +1,6 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { FramingForm } from '../engine/framing-form-schema.ts'
-import type { FramingSubmissionResult } from './feature-framing-contract.ts'
+import { FRAMING_REVIEW_INSTRUCTIONS, type FramingSubmissionResult } from './feature-framing-contract.ts'
 import {
   decisionProblem,
   recheck,
@@ -157,13 +157,14 @@ async function stageProposal(
   })
   retainIndex(lease, actual.ctx)
   core.host.status(
-    `feature-framing: proposal ${prepared.digest.slice(0, 12)} ready; the operator reviews and confirms it with the framing shortcut`,
+    `feature-framing: proposal ${prepared.digest.slice(0, 12)} ready · Ctrl+Alt+U to review`,
+    FRAMING_REVIEW_INSTRUCTIONS,
   )
   return submission(lease, 'accepted', [
     framingDiagnostic(
       lease,
       'framing-proposal-staged',
-      'The proposal is staged read-only. Only the operator can review and confirm it through the host framing shortcut; end your turn.',
+      'The proposal is staged read-only. Tell the operator to press Ctrl+Alt+U to review it and choose Confirmer to publish; end your turn.',
     ),
   ])
 }
