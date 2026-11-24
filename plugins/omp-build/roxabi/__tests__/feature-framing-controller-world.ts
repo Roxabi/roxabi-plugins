@@ -165,6 +165,7 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
   const supply = procedureSupply()
   const uw = fixture()
   const statuses: string[] = []
+  const instructions: Array<string[] | undefined> = []
   const sent: { content: unknown; options: unknown }[] = []
   const continued: ContinueFeatureInput[] = []
   const outcomes: Awaited<ReturnType<typeof admitFeature>>[] = []
@@ -194,8 +195,9 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     sendUserMessage: async (content, sendOptions) => {
       sent.push({ content, options: sendOptions })
     },
-    status: (message) => {
+    status: (message, nextSteps) => {
       statuses.push(message)
+      instructions.push(nextSteps)
     },
     procedurePorts: () => supply.ports,
     operator: (receiving) => createOperatorConfirmation(receiving, { escape: 'defer' }),
@@ -243,7 +245,21 @@ export function world(options: { publication?: boolean; written?: WrittenBoundar
     occupant = { revoke: () => {} }
     previous?.revoke('ordinary-operation')
   }
-  return { controller, ctx, entries, location, runtime, supply, uw, statuses, sent, continued, outcomes, replaceOwner }
+  return {
+    controller,
+    ctx,
+    entries,
+    location,
+    runtime,
+    supply,
+    uw,
+    statuses,
+    instructions,
+    sent,
+    continued,
+    outcomes,
+    replaceOwner,
+  }
 }
 
 export type World = ReturnType<typeof world>

@@ -88,10 +88,16 @@ describe('written framing handoff', () => {
     expect(boundary.native.count('create')).toBe(1)
     expect(existsSync(destination)).toBe(true)
     expect(w.statuses.at(-1)).toContain(`/move ${destination}`)
+    expect(w.instructions.at(-1)).toEqual([
+      expect.stringContaining('Cadrage publié'),
+      `/move ${destination}`,
+      expect.stringContaining('Ctrl+Alt+U'),
+    ])
     const confirmations = w.runtime.confirms
 
     await w.controller.act(w.ctx())
     expect(w.statuses.at(-1)).toContain('still waiting')
+    expect(w.instructions.at(-1)).toContain(`/move ${destination}`)
     w.location.cwd = join(boundary.principal, '..')
     await w.controller.act(w.ctx())
     expect(w.statuses.at(-1)).toContain('still waiting')
@@ -116,6 +122,7 @@ describe('written framing handoff', () => {
       }),
     ])
     expect(w.statuses.at(-1)).toBe(`feature-framing: continued ${root.target} at ${destination}`)
+    expect(w.instructions.at(-1)).toBeUndefined()
     expect(w.controller.view()).toBeNull()
     expect(w.outcomes).toEqual([expect.objectContaining({ kind: 'ready', worktree: destination })])
     const accepted = await acceptance(w, boundary, root)

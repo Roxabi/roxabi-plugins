@@ -43,10 +43,19 @@ function atDestination(core: ControllerCore, lease: LeaseState, ctx: ExtensionCo
   )
 }
 
+export function reportPendingMove(core: ControllerCore, message: string, destination: string): void {
+  core.host.status(message, [
+    'Cadrage publié · Déplacement requis pour continuer',
+    `/move ${destination}`,
+    'Après « Moved to … », appuyez sur Ctrl+Alt+U et confirmez le déplacement.',
+  ])
+}
+
 function waitAgain(core: ControllerCore, lease: LeaseState, message: string): void {
   if (!live(core, lease)) return
   if (lease.phase.kind === 'destination-check') lease.phase = { kind: 'awaiting-human-move' }
-  core.host.status(message)
+  if (lease.ticket === null) core.host.status(message)
+  else reportPendingMove(core, message, lease.ticket.preparation.destination)
 }
 
 /** The ticket is pending, the session sits at its destination, and the human attests the completed move. */
@@ -63,8 +72,10 @@ async function attestedMove(
   }
   const destination = ticket.preparation.destination
   if (ctx.cwd !== destination || ctx.sessionManager.getCwd() !== destination) {
-    core.host.status(
-      `feature-framing: still waiting. Run native /move ${destination}, then press the framing shortcut.`,
+    reportPendingMove(
+      core,
+      `feature-framing: still waiting. Run native /move ${destination}, then press Ctrl+Alt+U.`,
+      destination,
     )
     return null
   }

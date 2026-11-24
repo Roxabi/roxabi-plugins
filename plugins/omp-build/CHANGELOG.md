@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.16 (unreleased)
+
+- Show `Ctrl+Alt+U` when a framing proposal is ready and display the `/move` command and attestation steps when publication is complete but delivery is waiting for the worktree.
+- Lead framing confirmation with publication effects and final criteria; keep identity history, normalization, and the exact proposal in `Détails`.
+- Recognize 0.21.16 under the existing bounded PR-binding policy.
+
 ## 0.21.15 (unreleased)
 
 - Remove the native batch runtime (#1037): `omp/review-runtime/`, the `omp_build_execute_native_batch` tool, the 18 generated `R-review-*`/`R-workflow-*` profiles and their generator, the UW native launches, and the transport tracking left inert by 0.21.14. The session chooses its agents; `agents/` ships the 7 authored ones. Model tools left: `omp_build_framing_submit`, `omp_build_prepare_checkout`.

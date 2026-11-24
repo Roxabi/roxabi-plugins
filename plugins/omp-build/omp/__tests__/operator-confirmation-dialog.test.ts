@@ -128,7 +128,7 @@ async function alignedHeadingAtPadding(padding: number): Promise<readonly string
 }
 
 describe('operator dialog input and viewport', () => {
-  it('presents framing titles, criteria and concrete effects without internal machinery', () => {
+  it('separates framing effects and final content from readable audit evidence and exact JSON', async () => {
     const framing = {
       digest: 'digest',
       proposal: {
@@ -177,10 +177,10 @@ describe('operator dialog input and viewport', () => {
               ],
               draft: {
                 criteria: [{ kind: 'new', draftKey: 'draft', statement: 'Keep each change traceable' }],
-                invariants: [],
-                exclusions: [],
-                openQuestions: [],
-                sections: { origin: '', context: '', change: '' },
+                invariants: [{ kind: 'existing', id: 'I2', statement: 'Protect the final audit history' }],
+                exclusions: ['Historical imports'],
+                openQuestions: ['Who verifies imports?'],
+                sections: { origin: 'Audit request', context: 'Production scope', change: 'Make audit durable' },
               },
             },
             {
@@ -192,13 +192,25 @@ describe('operator dialog input and viewport', () => {
             },
             {
               kind: 'wayfinder',
-              slot: { kind: 'new', key: 'child-b', repository: 'acme/app' },
+              slot: {
+                kind: 'existing',
+                key: 'child-b',
+                uw: { repository: 'acme/app', target: 'issue:22' },
+                observed: {
+                  nativeParent: { repository: 'acme/app', target: 'issue:11' },
+                  children: [],
+                  blockers: [],
+                },
+              },
               title: 'Queue worker',
               label: 'wayfinder:task',
               body: '',
             },
           ],
-          edges: [],
+          edges: [
+            { kind: 'parent-child', parent: 'internal-slot', child: 'child-a' },
+            { kind: 'blocker', dependent: 'child-b', blocker: 'child-a' },
+          ],
           coverage: [
             {
               parent: 'internal-slot',
@@ -215,10 +227,19 @@ describe('operator dialog input and viewport', () => {
             allocation: {
               retirements: ['C7'],
               assignments: [{ draftKey: 'draft', id: 'C8' }],
-              spec: { criteria: [{ id: 'C8', statement: 'Keep each change traceable' }], invariants: [] },
+              spec: {
+                criteria: [{ id: 'C8', statement: 'Keep each change traceable' }],
+                invariants: [{ id: 'I2', statement: 'Protect the final audit history' }],
+                exclusions: ['Historical imports'],
+                openQuestions: ['Who verifies imports?'],
+                sections: { origin: 'Audit request', context: 'Production scope', change: 'Make audit durable' },
+              },
             },
             nativeAnalysis: {
-              analysis: { criterionSources: [{ id: 'C7', statement: 'Old audit rule' }], invariantSources: [] },
+              analysis: {
+                criterionSources: [{ id: 'C7', statement: 'Old audit rule' }],
+                invariantSources: [{ id: 'I2', statement: 'Previous invariant wording' }],
+              },
             },
           },
         ],
@@ -228,22 +249,38 @@ describe('operator dialog input and viewport', () => {
     const text = summary.join('\n')
     const coverage = summary.find((line) => line.startsWith('Couverture :'))
     expect(coverage).toContain('C8')
-    expect(coverage).toContain('Keep each change traceable')
+    expect(coverage).not.toContain('Keep each change traceable')
     expect(coverage).toContain('Queue storage (acme/app)')
-    expect(coverage).toContain('Queue worker (acme/app)')
+    expect(coverage).toContain('Queue worker (acme/app : issue:22)')
     const foundation = summary.find((line) => line.startsWith('Fondation :'))
     expect(foundation).toContain('Protect audit history (acme/app)')
     expect(foundation).toContain('Queue storage (acme/app)')
-    expect(text).toContain('Protect audit history')
-    expect(text).toContain('Keep each change traceable')
-    expect(text).toContain('acme/app')
-    expect(text).toContain('audit')
-    expect(text).toContain('C7')
-    expect(text).toContain('Old audit rule')
-    expect(text).toContain('C8')
-    expect(text).toContain('Old entry')
-    expect(text).toContain('New detail')
-    expect(text).toContain('obsolete')
+    expect(summary).toContain('Créer : "Protect audit history"')
+    expect(summary).toContain('  Périmètre : "acme/app"')
+    expect(summary).toContain('Modifier : "Queue worker"')
+    expect(summary).toContain('  Périmètre : "acme/app : issue:22"')
+    expect(summary).toContain('  Parent actuel : "issue:11"')
+    expect(summary).toContain('  Label de repère cible : "wayfinder:task"')
+    expect(summary).toContain('  Labels à ajouter : "audit"')
+    expect(summary).toContain('  Niveau proposé : "F-lite"')
+    expect(summary).toContain('  Identités : 1 à attribuer, 1 à retirer')
+    expect(text).toContain('Relation parent → enfant : "Protect audit history (acme/app) → Queue storage (acme/app)"')
+    expect(text).toContain('Dépendance : "Queue worker (acme/app : issue:22) bloqué par Queue storage (acme/app)"')
+    const criterionStart = summary.indexOf('Critères finaux')
+    expect(summary.slice(criterionStart, criterionStart + 9)).toEqual([
+      'Critères finaux',
+      '  "C8 — Keep each change traceable"',
+      'Invariants finaux',
+      '  "I2 — Protect the final audit history"',
+      'Exclusion : "Historical imports"',
+      'Question ouverte : "Who verifies imports?"',
+      'Origine : "Audit request"',
+      'Contexte : "Production scope"',
+      'Changement : "Make audit durable"',
+    ])
+    expect(text.indexOf('Fondation :')).toBeLessThan(text.indexOf('Critères finaux'))
+    expect(text.match(/Keep each change traceable/g)).toHaveLength(1)
+    expect(text).not.toMatch(/C7|Old audit rule|Previous invariant wording|Old entry|New detail|obsolete/)
     expect(summary.find((line) => line.includes('evil/repo'))).toContain(JSON.stringify('  Périmètre : evil/repo'))
     expect(summary.some((line) => line.startsWith('  Périmètre : "evil/repo'))).toBe(false)
     expect(text).not.toContain('internal-operation')
@@ -253,20 +290,47 @@ describe('operator dialog input and viewport', () => {
     if (!material) throw new Error('Expected framing material')
     for (const newline of ['\n', '\r\n', '\r']) {
       material.raw.body = `Old entry${newline}New detail`
-      const rows = proposalSummary(framing)
-      expect(rows.find((line) => line.includes('Conservé'))).toContain('Old entry')
-      expect(rows.find((line) => line.includes('Retiré'))).toContain('New detail')
+      const mounted = mount(framing)
+      mounted.terminal.columns = 200
+      mounted.terminal.rows = 400
+      const overview = mounted.view.render(200).join('\n')
+      expect(overview).toContain('Créer : "Protect audit history"')
+      expect(overview).not.toContain('Old audit rule')
+      mounted.view.handleInput?.('d')
+      const details = mounted.view.render(200)
+      const rawStart = details.indexOf('Proposition exacte (JSON)')
+      expect(rawStart).toBeGreaterThan(0)
+      const audit = details.slice(0, rawStart)
+      expect(audit).toContain('Référence : local://exact')
+      expect(audit).toContain('Digest : digest')
+      expect(audit).toContain('  Identité retirée : "C7 — Old audit rule"')
+      expect(audit).toContain('  Nouvelle identité : "C8"')
+      expect(audit).toContain('  Identité reformulée, avant : "I2 — Previous invariant wording"')
+      expect(audit).toContain('Normalisation')
+      expect(audit).toContain('  Conservé : "Old entry" → "C8"')
+      expect(audit).toContain('  Retiré : "New detail" ; motif : "obsolete"')
+      expect(audit).toContain('Fusions')
+      expect(audit).toContain('  Fusion : "Old entry" + "New detail" → "C8" ; motif : "combine"')
+      expect(audit.join('\n')).not.toContain('Keep each change traceable')
+      expect(audit.join('\n')).not.toContain('Protect the final audit history')
+      expect(details.slice(rawStart + 1).join('\n')).toContain(JSON.stringify(framing.proposal, null, 2))
+      mounted.view.handleInput?.('d')
+      expect(mounted.view.render(200).join('\n')).toBe(overview)
+      mounted.view.handleInput?.('r')
+      await expect(mounted.choice).resolves.toBe('refuse')
     }
     const member = framing.proposal.input.members[0]
     if (member?.kind !== 'uw') throw new Error('Expected framing draft')
     member.title = 'Harmless : injected\n  Périmètre : forged'
-    member.draft.sections.context = 'Context\nCréer : forged'
+    const spec = framing.proposal.members[0]?.allocation?.spec
+    if (!spec) throw new Error('Expected allocated framing specification')
+    spec.sections.context = 'Context\nCréer : forged'
     const safeRows = proposalSummary(framing)
     expect(safeRows.every((row) => !row.includes('\n') && !row.includes('\r'))).toBe(true)
     expect(safeRows.join('\n')).toContain('Harmless : injected\\n  Périmètre : forged')
     expect(safeRows.find((row) => row.startsWith('Couverture :'))).toContain('"Harmless : injected\\n')
-    const criterion = member.draft.criteria[0]
-    if (!criterion) throw new Error('Expected framing criterion')
+    const criterion = spec.criteria[0]
+    if (!criterion) throw new Error('Expected an allocated framing criterion')
     const statement = 'Keep "proof" ; motif : forged\n  Périmètre : forged'
     const reason = 'Real "reason"'
     criterion.statement = statement
@@ -274,10 +338,19 @@ describe('operator dialog input and viewport', () => {
       origin: null,
       decision: { kind: 'new', target: { kind: 'new', draftKey: 'draft' }, reason },
     })
-    const added = proposalSummary(framing).find((row) => row.startsWith('  Ajouté'))
-    expect(added).toContain(JSON.stringify(`C8 — ${statement}`))
-    expect(added).toContain(JSON.stringify(reason))
-    expect(added).not.toMatch(/[\r\n]/)
+    const mounted = mount(framing)
+    const cx = { cols: 80, supports: () => true } as unknown as DescribeContext
+    const overview = mounted.view.describeScreen?.(cx)
+    expect(nativeText(overview?.main)).toContain(JSON.stringify(`C8 — ${statement}`))
+    expect(nativeText(overview?.main)).not.toContain(JSON.stringify(reason))
+    const detailsAction = nativeActions(mounted.view, overview?.dock, cx).find((action) => action.act === 'details')
+    if (!detailsAction) throw new Error('Expected a native details action')
+    detailsAction.view.handleNativeEvent?.({ type: 'action', key: detailsAction.key, act: detailsAction.act, mods: [] })
+    const nativeAudit = nativeText(mounted.view.describeScreen?.(cx)?.main).split('Proposition exacte (JSON)')[0]
+    expect(nativeAudit).toContain(`  Ajouté → "C8" ; motif : ${JSON.stringify(reason)}`)
+    expect(nativeAudit).not.toContain(JSON.stringify(`C8 — ${statement}`))
+    mounted.view.handleInput?.('\u001b')
+    await expect(mounted.choice).resolves.toBe('defer')
     expect(safeRows.join('\n')).toContain('Context\\nCréer : forged')
   })
 

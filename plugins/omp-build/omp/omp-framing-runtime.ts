@@ -88,7 +88,14 @@ export function installFeatureFramingRuntime(
       claim: (revoke) => claimFeatureFramingOwner(pi, controller, revoke),
     },
     sendUserMessage: (content, sendOptions) => pi.sendUserMessage(content, sendOptions),
-    status: (message) => statusContext?.ui?.setStatus?.(FRAMING_STATUS, message),
+    status: (message, instructions) => {
+      const ui = statusContext?.ui
+      ui?.setStatus?.(FRAMING_STATUS, message)
+      const phase = controller.view()?.phase.kind
+      if (instructions || (phase !== 'proposal-ready' && phase !== 'awaiting-human-move')) {
+        ui?.setWidget?.(FRAMING_STATUS, instructions)
+      }
+    },
     procedurePorts,
     operator: (ctx) => createOperatorConfirmation(ctx, { escape: 'defer' }),
     uw: ({ ctx, operator, pluginPin }) => resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin),
