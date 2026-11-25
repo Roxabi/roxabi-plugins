@@ -11,6 +11,7 @@ const CLEANUP = 'Disarm after failed arming'
 const WORKFLOW_NAME = 'Auto Merge'
 const REPOSITORY = 'Roxabi/roxabi-plugins'
 const PR = '42'
+const PR_ID = 'PR_fixture_live_id'
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const BOT = 'dependabot[bot]'
 const PATCH_ENV = { AUTHOR: BOT, DEPENDABOT_UPDATE_TYPE: 'version-update:semver-patch' }
@@ -32,7 +33,7 @@ interface CheckRun {
 interface StatusContext {
   __typename: 'StatusContext'
   context: string
-  startedAt: string
+  createdAt: string
   state: string
 }
 
@@ -50,7 +51,7 @@ function checkRun(
 
 const SUCCESS_AND_PENDING: Check[] = [
   checkRun('CI', 'ci', 'SUCCESS'),
-  { __typename: 'StatusContext', context: 'deployment', startedAt: LATER, state: 'PENDING' },
+  { __typename: 'StatusContext', context: 'deployment', createdAt: LATER, state: 'PENDING' },
 ]
 
 interface WorkflowStep {
@@ -68,11 +69,17 @@ interface CommandResult {
   stderr: string
 }
 
-interface Scenario {
+interface LiveState {
+  id: string
+  baseRefName: string
+  headRefOid: string
+  mergeStateStatus: string
+  statusCheckRollup: Check[]
+}
+
+interface Scenario extends Partial<LiveState> {
   commits?: { authors: { login: string }[] }[]
-  baseRefName?: string
-  headRefOid?: string
-  statusCheckRollup?: Check[]
+  liveReads?: Partial<LiveState>[]
   autoMergeRequest?: typeof ARMED | null
   labels?: { name: string }[]
   arm?: CommandResult[]
@@ -88,7 +95,7 @@ const { spawnSync } = require('node:child_process')
 const args = process.argv.slice(2)
 const entry = JSON.stringify(args)
 const log = 'gh.jsonl'
-const previousCalls = readFileSync(log, 'utf8').split('\n')
+const previousCalls = readFileSync(log, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
 appendFileSync(log, entry + '\n')
 const scenario = JSON.parse(readFileSync('scenario.json', 'utf8'))
 const [resource, action, pr, ...options] = args
@@ -103,16 +110,23 @@ function reply(result) {
 }
 
 function run() {
+  if (resource === 'api' && action === 'graphql') {
+    const attempt = previousCalls.filter(call => call[0] === 'api' && call[1] === 'graphql').length
+    reply(scenario.arm?.[attempt])
+    return
+  }
   if (resource !== 'pr' || pr !== process.env.PR_NUMBER) return false
   switch (shape) {
     case 'view ' + repo + ' --json commits':
       return { commits: scenario.commits ?? [] }
-    case 'view ' + repo + ' --json baseRefName,headRefOid,statusCheckRollup':
-      return {
-        baseRefName: scenario.baseRefName,
-        headRefOid: scenario.headRefOid,
-        statusCheckRollup: scenario.statusCheckRollup,
+    case 'view ' + repo + ' --json id,baseRefName,headRefOid,mergeStateStatus,statusCheckRollup': {
+      const read = previousCalls.filter(call => JSON.stringify(call) === entry).length
+      const { id, baseRefName, headRefOid, mergeStateStatus, statusCheckRollup } = {
+        ...scenario,
+        ...scenario.liveReads?.[read],
       }
+      return { id, baseRefName, headRefOid, mergeStateStatus, statusCheckRollup }
+    }
     case 'view ' + repo + ' --json autoMergeRequest,labels':
       return { ...state, labels: scenario.labels ?? [] }
     case 'view ' + repo + ' --json autoMergeRequest':
@@ -126,9 +140,6 @@ function run() {
       process.exitCode = result.status ?? 2
       return
     }
-    case 'merge --auto --merge ' + repo + ' --match-head-commit ' + process.env.HEAD_SHA:
-      reply(scenario.arm?.[previousCalls.filter(line => line === entry).length])
-      return
     case 'merge ' + repo + ' --disable-auto':
       reply(scenario.disable)
       return
@@ -150,8 +161,27 @@ if (payload === false) {
 `
 
 const VIEW_COMMITS = ['pr', 'view', PR, '--repo', REPOSITORY, '--json', 'commits']
-const VIEW_LIVE = ['pr', 'view', PR, '--repo', REPOSITORY, '--json', 'baseRefName,headRefOid,statusCheckRollup']
-const ENABLE = ['pr', 'merge', PR, '--auto', '--merge', '--repo', REPOSITORY, '--match-head-commit', HEAD]
+const VIEW_LIVE = [
+  'pr',
+  'view',
+  PR,
+  '--repo',
+  REPOSITORY,
+  '--json',
+  'id,baseRefName,headRefOid,mergeStateStatus,statusCheckRollup',
+]
+const ENABLE = [
+  'api',
+  'graphql',
+  '-f',
+  `id=${PR_ID}`,
+  '-f',
+  `head=${HEAD}`,
+  '-f',
+  expect.stringMatching(
+    /^query=\s*mutation\(\$id: ID!, \$head: GitObjectID!\) \{\s*enablePullRequestAutoMerge\(input: \{pullRequestId: \$id, expectedHeadOid: \$head, mergeMethod: MERGE\}\)/,
+  ),
+]
 const DISABLE = ['pr', 'merge', PR, '--repo', REPOSITORY, '--disable-auto']
 const REMOVE_LABEL = ['pr', 'edit', PR, '--repo', REPOSITORY, '--remove-label', 'reviewed']
 const VIEW_ARMED = ['pr', 'view', PR, '--repo', REPOSITORY, '--json', 'autoMergeRequest', '--jq', '.autoMergeRequest']
@@ -199,7 +229,14 @@ function runStep(name: string, scenario: Scenario = {}, overrides: Record<string
   writeFileSync(join(scratch, 'step.sh'), step.run)
   writeFileSync(
     join(scratch, 'scenario.json'),
-    JSON.stringify({ baseRefName: 'main', headRefOid: HEAD, statusCheckRollup: SUCCESS_AND_PENDING, ...scenario }),
+    JSON.stringify({
+      id: PR_ID,
+      baseRefName: 'main',
+      headRefOid: HEAD,
+      mergeStateStatus: 'BLOCKED',
+      statusCheckRollup: SUCCESS_AND_PENDING,
+      ...scenario,
+    }),
   )
   writeFileSync(join(scratch, 'gh.jsonl'), '')
 
@@ -227,6 +264,11 @@ function runStep(name: string, scenario: Scenario = {}, overrides: Record<string
 function expectStep(result: StepResult, status: number, errors: string[], calls: string[][]) {
   expect(result.status, result.output).toBe(status)
   expect(result.errors, result.output).toEqual(errors.map((error) => `::error::${error}`))
+  expect(
+    result.calls.filter(
+      ([resource, action, ...args]) => resource === 'pr' && action === 'merge' && !args.includes('--disable-auto'),
+    ),
+  ).toEqual([])
   expect(result.calls).toEqual(calls)
 }
 
@@ -235,8 +277,19 @@ function eventState(autoMerge: typeof ARMED | null, labels: { name: string }[]) 
 }
 
 describe(ARM, () => {
-  it('arms a PR into the default branch with successful and pending checks', () => {
-    expectStep(runStep(ARM), 0, [], [VIEW_LIVE, ENABLE])
+  it.each(['BLOCKED', 'BEHIND', 'UNKNOWN'])('arms a %s PR on the reviewed head without directly merging', (state) => {
+    expectStep(runStep(ARM, { mergeStateStatus: state }), 0, [], [VIEW_LIVE, ENABLE])
+  })
+
+  it.each(['CLEAN', 'UNSTABLE', 'HAS_HOOKS'])('leaves a %s PR for a person to merge', (state) => {
+    expectStep(
+      runStep(ARM, { mergeStateStatus: state }),
+      1,
+      [
+        `refusing auto-merge: PR is already mergeable; merge it with: gh pr merge ${PR} --merge --match-head-commit ${HEAD}`,
+      ],
+      [VIEW_LIVE],
+    )
   })
 
   it('refuses a PR into a non-default branch before calling gh', () => {
@@ -306,7 +359,7 @@ describe(ARM, () => {
   const statusError: StatusContext = {
     __typename: 'StatusContext',
     context: 'external-ci',
-    startedAt: LATER,
+    createdAt: EARLIER,
     state: 'ERROR',
   }
   it.each([
@@ -318,6 +371,26 @@ describe(ARM, () => {
       1,
       [`refusing auto-merge: failed checks on the head: ${name}`],
       [VIEW_LIVE],
+    )
+  })
+
+  it('does not let a newer successful CheckRun mask a failed StatusContext of the same name', () => {
+    const rollup = [...SUCCESS_AND_PENDING, statusError, checkRun('', statusError.context, 'SUCCESS', LATER)]
+    expectStep(
+      runStep(ARM, { statusCheckRollup: rollup }),
+      1,
+      ['refusing auto-merge: failed checks on the head: external-ci'],
+      [VIEW_LIVE],
+    )
+  })
+
+  it('chooses the latest StatusContext by createdAt even if it appears first', () => {
+    const current = { ...statusError, createdAt: LATER, state: 'SUCCESS' }
+    expectStep(
+      runStep(ARM, { statusCheckRollup: [...SUCCESS_AND_PENDING, current, statusError] }),
+      0,
+      [],
+      [VIEW_LIVE, ENABLE],
     )
   })
 
@@ -374,12 +447,7 @@ describe(ARM, () => {
   })
 
   it.each(['0123456', `g${HEAD.slice(1)}`])('refuses an invalid reviewed head SHA %s', (sha) => {
-    expectStep(
-      runStep(ARM, { headRefOid: sha }, { HEAD_SHA: sha }),
-      1,
-      ['refusing auto-merge without the reviewed commit'],
-      [VIEW_LIVE],
-    )
+    expectStep(runStep(ARM, {}, { HEAD_SHA: sha }), 1, ['refusing auto-merge without the reviewed commit'], [])
   })
 
   it('disables and re-arms against the reviewed head when auto-merge was already enabled', () => {
@@ -387,7 +455,19 @@ describe(ARM, () => {
       runStep(ARM, { arm: [{ code: 1, stderr: 'auto-merge already enabled' }] }),
       0,
       [],
-      [VIEW_LIVE, ENABLE, DISABLE, ENABLE],
+      [VIEW_LIVE, ENABLE, DISABLE, VIEW_LIVE, ENABLE],
+    )
+  })
+
+  it('does not re-arm if the base moved after disabling auto-merge', () => {
+    expectStep(
+      runStep(ARM, {
+        arm: [{ code: 1, stderr: 'auto-merge already enabled' }],
+        liveReads: [{}, { baseRefName: 'feature/x' }],
+      }),
+      1,
+      ['refusing auto-merge: PR now targets feature/x, not main'],
+      [VIEW_LIVE, ENABLE, DISABLE, VIEW_LIVE],
     )
   })
 
@@ -400,8 +480,8 @@ describe(ARM, () => {
         ],
       }),
       1,
-      ['refusing to enable auto-merge without the reviewed commit'],
-      [VIEW_LIVE, ENABLE, DISABLE, ENABLE],
+      ['refusing to enable auto-merge on the reviewed commit'],
+      [VIEW_LIVE, ENABLE, DISABLE, VIEW_LIVE, ENABLE],
     )
   })
 
@@ -409,7 +489,7 @@ describe(ARM, () => {
     expectStep(
       runStep(ARM, { arm: [{ code: 1, stderr: 'head SHA does not match' }] }),
       1,
-      ['refusing to enable auto-merge without the reviewed commit'],
+      ['refusing to enable auto-merge on the reviewed commit'],
       [VIEW_LIVE, ENABLE],
     )
   })

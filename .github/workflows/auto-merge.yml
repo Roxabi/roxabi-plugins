@@ -1,7 +1,8 @@
 # The reviewed label arms GitHub native auto-merge (merge commit) on the event head
 # of a PR into the default branch, unless a check on that head already failed.
-# The PR_Main ruleset requires ci and App-issued review on that head before merge;
-# other branches have no ruleset, so a PR into them never arms.
+# The App only arms, never merges: GitHub merges once the PR_Main ruleset (ci and
+# App-issued review on that head) holds for the base in effect at that time. A PR
+# that is already mergeable is refused with the merge command to run instead.
 # A head change (synchronize) or a base change (edited) disarms with the job
 # token and drops the reviewed label.
 # Dependabot can arm only for semver-minor or semver-patch updates whose every
@@ -164,47 +165,68 @@ jobs:
               refuse 'refusing auto-merge: Dependabot PR has a non-Dependabot commit author'
             fi
           fi
-          # One live read: the label event may be stale. GitHub offers no expected
-          # base on merge, so the base and head are checked here, right before it.
-          if ! live=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json baseRefName,headRefOid,statusCheckRollup); then
-            refuse 'refusing auto-merge: could not read the pull request'
-          fi
-          if ! live_base=$(printf '%s' "$live" | jq -er '.baseRefName') || [ "$live_base" != "$DEFAULT_BRANCH" ]; then
-            refuse "refusing auto-merge: PR now targets ${live_base:-an unknown branch}, not $DEFAULT_BRANCH"
-          fi
-          if ! live_head=$(printf '%s' "$live" | jq -er '.headRefOid') || [ "$live_head" != "$HEAD_SHA" ]; then
-            refuse 'refusing auto-merge: the head moved after the label'
-          fi
-          # Checks outside the ruleset (e.g. trufflehog) do not block native
-          # auto-merge, so a head whose check already failed does not arm. Only the
-          # latest run of each check counts, and this workflow's own runs (a
-          # disarm fails on purpose) never do.
-          if ! failed=$(printf '%s' "$live" | jq -er --arg self "$GITHUB_WORKFLOW" '[.statusCheckRollup[]
-            | select((.workflowName // "") != $self)
-            | {key: [(.workflowName // ""), (.name // .context // "")], at: (.startedAt // ""),
-               failed: (((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
-                 or ((.state // "") | ascii_downcase | IN("failure", "error")))}]
-            | group_by(.key) | map(max_by(.at)) | map(select(.failed) | .key[1]) | join(", ")'); then
-            refuse 'refusing auto-merge: could not read the checks of the head'
-          fi
-          if [ -n "$failed" ]; then
-            refuse "refusing auto-merge: failed checks on the head: $failed"
-          fi
+          # The label event may be stale, and GitHub offers no expected base on a
+          # merge: read the live PR right before each arming call.
+          live_check() {
+            if ! live=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json id,baseRefName,headRefOid,mergeStateStatus,statusCheckRollup); then
+              refuse 'refusing auto-merge: could not read the pull request'
+            fi
+            if ! live_base=$(printf '%s' "$live" | jq -er '.baseRefName') || [ "$live_base" != "$DEFAULT_BRANCH" ]; then
+              refuse "refusing auto-merge: PR now targets ${live_base:-an unknown branch}, not $DEFAULT_BRANCH"
+            fi
+            if ! live_head=$(printf '%s' "$live" | jq -er '.headRefOid') || [ "$live_head" != "$HEAD_SHA" ]; then
+              refuse 'refusing auto-merge: the head moved after the label'
+            fi
+            if ! pr_id=$(printf '%s' "$live" | jq -er '.id'); then
+              refuse 'refusing auto-merge: could not read the pull request'
+            fi
+            # Checks outside the ruleset (e.g. trufflehog) do not block native
+            # auto-merge, so a head whose check already failed does not arm. Only the
+            # latest run of each check counts, and this workflow's own runs (a
+            # disarm fails on purpose) never do.
+            if ! failed=$(printf '%s' "$live" | jq -er --arg self "$GITHUB_WORKFLOW" '[.statusCheckRollup[]
+              | select((.workflowName // "") != $self)
+              | {key: [(.__typename // ""), (.workflowName // ""), (.name // .context // "")],
+                 at: (.startedAt // .createdAt // ""),
+                 failed: (((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
+                   or ((.state // "") | ascii_downcase | IN("failure", "error")))}]
+              | group_by(.key) | map(max_by(.at)) | map(select(.failed) | .key[2]) | join(", ")'); then
+              refuse 'refusing auto-merge: could not read the checks of the head'
+            fi
+            if [ -n "$failed" ]; then
+              refuse "refusing auto-merge: failed checks on the head: $failed"
+            fi
+            # The App only arms: a direct merge could land on a base changed after
+            # this read. A PR that is mergeable now is merged by a person.
+            case "$(printf '%s' "$live" | jq -r '.mergeStateStatus')" in
+              CLEAN | UNSTABLE | HAS_HOOKS)
+                refuse "refusing auto-merge: PR is already mergeable; merge it with: gh pr merge $PR_NUMBER --merge --match-head-commit $HEAD_SHA" ;;
+            esac
+          }
+          arm() {
+            # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+            gh api graphql -f id="$pr_id" -f head="$HEAD_SHA" -f query='
+              mutation($id: ID!, $head: GitObjectID!) {
+                enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $head, mergeMethod: MERGE}) {
+                  pullRequest { autoMergeRequest { enabledAt } }
+                }
+              }' 2>&1
+          }
           if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             refuse 'refusing auto-merge without the reviewed commit'
           fi
-          set +e
-          out=$(gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA" 2>&1)
-          code=$?
-          set -e
-          if [ "$code" -ne 0 ]; then
+          live_check
+          if ! out=$(arm); then
             printf '%s\n' "$out" >&2
             if ! printf '%s' "$out" | grep -qi 'already enabled'; then
-              refuse 'refusing to enable auto-merge without the reviewed commit'
+              refuse 'refusing to enable auto-merge on the reviewed commit'
             fi
             gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-            if ! gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA"; then
-              refuse 'refusing to enable auto-merge without the reviewed commit'
+            live_check
+            if ! out=$(arm); then
+              printf '%s\n' "$out" >&2
+              refuse 'refusing to enable auto-merge on the reviewed commit'
             fi
           fi
 

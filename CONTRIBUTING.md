@@ -77,10 +77,13 @@ docs(plugins): update voice-me README
   merge keeps it. Dependabot semver-minor and semver-patch updates get it without
   a verdict.
 - Add the `reviewed` label to arm GitHub native auto-merge on the current head of
-  a PR into `main`. The ruleset still requires both checks. A PR into another
-  branch, or a head with a failed check (for example `trufflehog`), does not arm
-  and loses the label. A head or base change disarms auto-merge and removes the label.
-  There is no merge queue; label dependent PRs only once they are ready to land.
+  a PR into `main`; GitHub merges once both checks are green. The workflow only
+  arms: a PR that is already mergeable is refused with the
+  `gh pr merge <N> --merge --match-head-commit <sha>` command to run instead. A PR
+  into another branch, or a head with a failed check (for example `trufflehog`),
+  does not arm and loses the label. A head or base change disarms auto-merge and
+  removes the label. There is no merge queue; label dependent PRs only once they
+  are ready to land.
 
 ## Code style
 
