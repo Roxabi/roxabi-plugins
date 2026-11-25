@@ -93,7 +93,7 @@ export async function observeHistoricalPins(
     const cited = decodeHistory(source)
     for (const ref of refs) {
       if (recordRefDiagnostics('Historical action manifest', ref, [cited]).length === 0)
-        noteObservedRecordPin(history.source, ref, cited.source)
+        noteObservedRecordPin(history.source, ref, cited)
     }
   }
   return history

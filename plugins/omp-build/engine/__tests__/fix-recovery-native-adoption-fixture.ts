@@ -120,7 +120,7 @@ export function executableReview(leaf: Leaf, home: DecodedHistory, pr: DecodedHi
   return { home: dispositions.reduce(append, prior), pr: updatedPr, decision, causeId: cause.id }
 }
 
-export async function foreignRecoveryContext(append: Append) {
+export async function foreignRecoveryContext(append: Append, controlTime: string) {
   const scope = { repository: 'acme/context', target: 'acme/context#42' }
   const workflow = roxabiWorkflowFixtures()
   const record = workflow.fixOnlyMandate(scope)
@@ -137,7 +137,15 @@ export async function foreignRecoveryContext(append: Append) {
     diagnostics: [],
     comments: [],
   })
-  const seed = append(empty, record)
+  const publishedLater = '2026-10-28T12:00:00Z'
+  const dateParts = (history: DecodedHistory, timestamp: string, start = 0) =>
+    decodeHistory({
+      ...history.source,
+      comments: history.source.comments.map((part, index) =>
+        index < start ? part : { ...part, createdAt: timestamp, updatedAt: timestamp },
+      ),
+    })
+  const seed = dateParts(append(empty, record), '2026-10-26T12:00:00Z')
   const encodeOptions = (history: DecodedHistory) => ({
     cwd: '.',
     readAuthor: 'operator',
@@ -160,12 +168,15 @@ export async function foreignRecoveryContext(append: Append) {
   const revised = append(empty, changed)
   const bad = decodeHistory({
     ...revised.source,
-    comments: revised.source.comments.map((part, index) => ({
-      ...part,
-      nativeId: seed.source.comments[index]?.nativeId ?? null,
-    })),
+    comments: revised.source.comments.map((part, i) => ({ ...part, ...seed.source.comments[i], body: part.body })),
   })
-  const observed = append(seed, late)
+  const versions = {
+    current: dateParts(append(seed, late), publishedLater, seed.source.comments.length),
+    changed: bad,
+    absent: empty,
+    'same-second': dateParts(seed, controlTime),
+    'published-later': dateParts(seed, publishedLater),
+  }
   const ref: RecordInputRef = {
     source: 'record',
     record: { scope, kind: 'mandate', recordId: record.recordId },
@@ -175,8 +186,8 @@ export async function foreignRecoveryContext(append: Append) {
   return {
     original,
     ref,
-    observe: (pr: DecodedHistory, candidate: CanonicalRecord, valid: boolean) =>
-      observeHistoricalPins(pr, encodeOptions(valid ? observed : bad), { candidate, includeHistory: false }),
+    observe: (pr: DecodedHistory, candidate: CanonicalRecord, version: keyof typeof versions) =>
+      observeHistoricalPins(pr, encodeOptions(versions[version]), { candidate, includeHistory: false }),
   }
 }
 

@@ -310,8 +310,11 @@ describe('registered /uw command root lifecycle', () => {
   it.each(['evidence', 'verdicts'] as const)(
     'reports a successful empty %s result and retains its consultable detail',
     async (kind) => {
-      const diagnostics =
-        kind === 'verdicts' ? [{ code: 'mismatch', message: 'Evidence C1 observation digest does not match' }] : []
+      const message =
+        kind === 'evidence'
+          ? 'Correction delivery fix-1 lacks its authenticated lineage pins'
+          : 'Evidence C1 observation digest does not match'
+      const diagnostics = [{ code: 'mismatch', message }]
       let command: Command | undefined
       const messages: string[] = []
       const pi = createExtensionApiStub({
@@ -339,11 +342,13 @@ describe('registered /uw command root lifecycle', () => {
       const summary = (messages[0] ?? '').split(' detail=')[0]
       expect(summary).not.toContain('malformed-result')
       expect(summary).toMatch(/\b0\b/)
-      if (kind === 'verdicts') expect(summary).toContain('diagnostics=mismatch')
+      expect(summary).toContain('diagnostics=mismatch')
       const detail = /detail=([^ ]+)/.exec(messages[0] ?? '')?.[1]
       expect(detail).toBeDefined()
       expect(JSON.parse(readFileSync(detail as string, 'utf8'))).toEqual(
-        kind === 'evidence' ? [] : { status: 'verdicts', uw: target, verdicts: [], diagnostics },
+        kind === 'evidence'
+          ? { status: 'evidence', uw: target, declarations: [], diagnostics }
+          : { status: 'verdicts', uw: target, verdicts: [], diagnostics },
       )
     },
   )

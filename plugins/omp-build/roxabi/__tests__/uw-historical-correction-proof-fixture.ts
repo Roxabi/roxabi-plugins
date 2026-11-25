@@ -1,5 +1,6 @@
 import { actionInputDigest, canonicalValueDigest } from '../../engine/action-input.ts'
 import type { ActionInputs, RecordInputRef } from '../../engine/action-input-schema.ts'
+import type { ObservationRef } from '../../engine/criterion-evidence-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
@@ -97,6 +98,7 @@ function capturedBasis() {
 /** Extend the captured pre-apply history with immutable records, not a live correction writer. */
 export function historicalCorrectionProof(
   expand?: (record: RecordInputRef) => ActionInputs['manifest']['expandedContext'],
+  observations?: ObservationRef[],
 ) {
   const { records, binding, fix, initial, decision, cause, originalInputs, spec, pull, priorHead } = capturedBasis()
   const workflow = roxabiWorkflowFixtures()
@@ -108,7 +110,7 @@ export function historicalCorrectionProof(
   const plan = planRecords.find((record) => record.payload.phase === 'result' && record.payload.action === 'plan')
   if (plan?.payload.phase !== 'result' || plan.payload.action !== 'plan') throw new Error('Expected plan result')
   const head = 'c'.repeat(40)
-  const proof = proofData(spec, { repository: pull.repository, commit: head })
+  const proof = proofData(spec, { repository: pull.repository, commit: head }, observations)
   const manifest: ActionInputs['manifest'] = {
     ...originalInputs.manifest,
     expandedContext: [
@@ -272,6 +274,7 @@ export function historicalCorrectionProof(
     mandate,
     spec,
     head,
+    binding,
     priorHead,
     evidence: proof.receipt.evidence,
     result,

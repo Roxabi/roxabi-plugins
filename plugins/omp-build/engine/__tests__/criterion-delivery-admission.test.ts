@@ -309,7 +309,9 @@ describe('authorized criterion delivery admission', () => {
         diagnostics,
         fixtureReviewClassCatalogues(),
       )
-      expect(selected, label).toEqual({ declarations: label === 'valid' ? [declaration] : [], evidence: [] })
+      expect(selected.declarations, label).toEqual(label === 'valid' ? [declaration] : [])
+      expect(selected.evidence, label).toEqual([])
+      expect(selected.declarationFacts, label).toHaveLength(label === 'valid' ? 1 : 0)
       expect(diagnostics.length === 0, label).toBe(label === 'valid')
     }
   })

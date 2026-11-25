@@ -1,9 +1,13 @@
 import { expect, test } from 'vitest'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { executeDurableUwCommand } from '../../roxabi/uw-command-read.ts'
+import { fixtureReviewClassCatalogues, fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { canonicalValueDigest } from '../action-input.ts'
+import type { DecodedHistory } from '../history-schema.ts'
 import { specDigest } from '../record-digests.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
 import { specReportSchema } from '../record-values.ts'
 import { assessUwCompletion } from '../uw-completion.ts'
 import { projectUwDelivery } from '../uw-delivery-projection.ts'
@@ -164,3 +168,64 @@ test.each(['satisfied', 'unverified'] as const)(
     }
   },
 )
+
+function withMissingProducerReference(record: CanonicalRecord): CanonicalRecord {
+  if (record.kind !== 'action-receipt' || record.payload.action !== 'implement' || record.payload.phase !== 'result')
+    return record
+  const output = record.payload.structured
+  if (output?.outcome !== 'implemented') throw new Error('Expected a published implementation')
+  const [declaration] = output.criteria
+  const evidence = declaration?.verification === 'evidence' ? declaration.evidence[0] : undefined
+  if (evidence?.method !== 'test' || !('format' in evidence) || declaration === undefined)
+    throw new Error('Expected captured test evidence')
+  const reference = {
+    source: 'git-file' as const,
+    repository: record.repository,
+    commit: evidence.after.versionClaim.code.commit,
+    path: 'docs/unobserved-producer-proof.md',
+    digest: '0'.repeat(64),
+  }
+  const after = { ...evidence.after, versionClaim: { ...evidence.after.versionClaim, references: [reference] } }
+  const criteria = [{ ...declaration, verification: 'evidence' as const, evidence: [{ ...evidence, after }] }]
+  return { ...record, payload: { ...record.payload, structured: { ...output, criteria } } }
+}
+
+function producerWithMissingReference(producer: { records: readonly CanonicalRecord[]; history: DecodedHistory }) {
+  const records = producer.records.map(withMissingProducerReference)
+  const rewritten = roxabiWorkflowFixtures().historyFrom(records, 'operator', 'operator')
+  // Preserve native Git observations while changing the producer's cited Git file.
+  const history = decodeHistory({ ...producer.history.source, comments: rewritten.source.comments })
+  return { records, history }
+}
+
+test.each([true, false])('only projects a satisfied verdict from authenticated producer proof: %s', async (valid) => {
+  const fixture = await buildDeliveredLeaf(
+    'Request changes',
+    42,
+    false,
+    undefined,
+    valid ? undefined : producerWithMissingReference,
+  )
+  const assessment = assessUwCompletion(fixture.observation)
+  const projected = projectUwDelivery(fixture.observation, assessment, fixture.uw)
+  if (!projected.ok) throw new Error('Expected read-only delivery projection')
+  const result = await executeDurableUwCommand(
+    { kind: 'verdicts', repository: fixture.uw.repository, number: 42 },
+    { ...fixtureUwOperations(), readDelivery: async () => projected },
+  )
+  const unknownProducer = expect.objectContaining({
+    code: 'unknown-reference',
+    message: expect.stringContaining('cites an unauthenticated pinned source'),
+  })
+  if (valid) {
+    expect(projected.value.declarations).toHaveLength(1)
+    expect(result.value).toMatchObject({ status: 'verdicts', verdicts: [{ value: { verdict: 'satisfied' } }] })
+    expect(projected.value.diagnostics).not.toContainEqual(unknownProducer)
+  } else {
+    expect(result.value).toMatchObject({
+      status: 'verdicts',
+      verdicts: [],
+      diagnostics: expect.arrayContaining([unknownProducer]),
+    })
+  }
+})

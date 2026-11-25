@@ -2,7 +2,8 @@ import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
 import { assessCriterionReview } from './criterion-admission.ts'
 import { selectedDeclarations } from './criterion-decision-selection.ts'
-import type { CriterionDeclaration, CriterionEvidence, EvidenceRef } from './criterion-evidence-schema.ts'
+import type { CriterionSourceSelection } from './criterion-declaration-projection.ts'
+import type { CriterionDeclaration } from './criterion-evidence-schema.ts'
 import type { CriterionVerdict } from './criterion-verdict-schema.ts'
 import { criterionVerdictCitationDiagnostics } from './delivery-observation-authentication.ts'
 import { validateExclusionClaims } from './exclusion-claims.ts'
@@ -20,9 +21,8 @@ import { recordsOf } from './workflow-control.ts'
 type ReviewDecision = Extract<Decision, { purpose: 'review' }>
 type VerdictSource = { contributionId: string; selector: string; digest: string }
 
-export type CriterionDecisionFacts = {
+export type CriterionDecisionFacts = CriterionSourceSelection & {
   declarations: CriterionDeclaration[]
-  evidence: { ref: EvidenceRef; value: CriterionEvidence }[]
   verdicts: CriterionVerdict[]
   verdictSources?: ReadonlyMap<CriterionVerdict, VerdictSource>
   diagnostics: Diagnostic[]
@@ -123,7 +123,7 @@ export function authenticatedCriterionFacts(
   const inputs = reviewInputsFromInventory(decision, history, histories)
   const selected =
     inputs === null
-      ? { declarations: [], evidence: [] }
+      ? { declarations: [], declarationFacts: [], evidence: [] }
       : selectedDeclarations(histories, inputs, diagnostics, catalogues)
   const bound = new Set(decision.sourceContributionIds)
   if (originalContributionId !== null) bound.add(originalContributionId)
@@ -173,7 +173,7 @@ function assessStandalone(
 export function criterionAssessmentForDecision(
   decision: Decision,
   inputs: ActionInputs | null,
-  facts: CriterionDecisionFacts,
+  facts: Pick<CriterionDecisionFacts, 'declarations' | 'evidence' | 'verdicts' | 'diagnostics'>,
   code: { repository: string; commit: string } | null,
   histories: readonly DecodedHistory[] = [],
 ): { forceRequestChanges: boolean; diagnostics: Diagnostic[] } {

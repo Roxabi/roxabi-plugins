@@ -22,7 +22,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function blobOid(parsed: unknown): string | 'absent' | 'unreadable' {
+function blobOid(parsed: unknown, expectedCommit: string): string | 'absent' | 'invalid-commit' | 'unreadable' {
   if (
     !record(parsed) ||
     !('data' in parsed) ||
@@ -32,7 +32,9 @@ function blobOid(parsed: unknown): string | 'absent' | 'unreadable' {
   const data = parsed.data
   if (!record(data) || !('repository' in data)) return 'unreadable'
   const repository = data.repository
-  if (!record(repository) || !('object' in repository)) return 'unreadable'
+  if (!record(repository) || !('commit' in repository) || !('object' in repository)) return 'unreadable'
+  const commit = repository.commit
+  if (!record(commit) || commit.__typename !== 'Commit' || commit.oid !== expectedCommit) return 'invalid-commit'
   if (repository.object === null) return 'absent'
   const object = repository.object
   if (!record(object) || !('oid' in object) || typeof object.oid !== 'string' || !isGitSha(object.oid)) return 'absent'
@@ -72,7 +74,7 @@ function jsonBody(raw: string, missing: string, label: string): Result<unknown> 
   }
 }
 
-/** Commit:path blob oid, then that Git blob. Not the Contents API: it follows symlinks. */
+/** Authenticate the commit and its path's blob OID together, then verify the raw Git blob. */
 export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Uint8Array>> {
   const missing = `${request.repository}@${request.commit}:${request.path}`
   const slash = request.repository.indexOf('/')
@@ -89,6 +91,8 @@ export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Ui
       '-f',
       `name=${request.repository.slice(slash + 1)}`,
       '-f',
+      `commit=${request.commit}`,
+      '-f',
       `expression=${request.commit}:${request.path}`,
     ],
     missing,
@@ -96,9 +100,11 @@ export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Ui
   if (!located.ok) return located
   const lookup = jsonBody(located.value, missing, 'blob lookup')
   if (!lookup.ok) return lookup
-  const oid = blobOid(lookup.value)
+  const oid = blobOid(lookup.value, request.commit)
   if (oid === 'unreadable')
     return actionFailure('pinned-file-unreadable', `Cross-repository Git object is unreadable: ${missing}`)
+  if (oid === 'invalid-commit')
+    return actionFailure('pinned-file-incomplete', `Pinned object is not the requested Git commit: ${missing}`)
   if (oid === 'absent') return actionFailure('pinned-file-incomplete', `Pinned path is not a Git blob: ${missing}`)
   return fetchGitHubBlob(request, oid)
 }

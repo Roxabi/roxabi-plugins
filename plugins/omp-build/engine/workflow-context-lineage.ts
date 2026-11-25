@@ -1,5 +1,6 @@
 import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './action-input.ts'
+import { sameInputRef } from './action-input-refs.ts'
 import type { ActionInputs } from './action-input-schema.ts'
 import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -55,8 +56,7 @@ function hasNewLineageContext(
     canonicalValueDigest(oldInputs.stageSources) !== canonicalValueDigest(newInputs.stageSources)
   )
     return false
-  if (!oldRefs.every((ref) => newRefs.some((nextRef) => canonicalValueDigest(ref) === canonicalValueDigest(nextRef))))
-    return false
+  if (!oldRefs.every((ref) => newRefs.some((nextRef) => sameInputRef(ref, nextRef)))) return false
   const negative = { kind: old.kind, recordId: old.recordId, scope: history.source.scope }
   const lineage = newRefs.filter(
     (ref) =>
@@ -69,13 +69,14 @@ function hasNewLineageContext(
   const priorRefs = [
     ...oldRefs,
     ...previous.acceptedSources,
-    ...previous.deliveryData.map(({ role: _role, ...ref }) => ref),
+    ...previous.deliveryData,
     ...previous.repositoryReferences,
+    ...previous.plugin.files,
     ...oldInputs.stageSources,
   ]
   return newRefs.some(
     (ref) =>
       (ref.source !== 'record' || !sameRef(ref.record, negative)) &&
-      !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)),
+      !priorRefs.some((oldRef) => sameInputRef(oldRef, ref)),
   )
 }

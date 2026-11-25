@@ -24,11 +24,12 @@ export type RecoveryHistoricalFacts = {
 export function inspectRecoveryHistoricalFacts(
   proposal: FixRecoveryProposal,
   histories: readonly DecodedHistory[],
+  recordPinsBefore?: number,
 ): Result<RecoveryHistoricalFacts> {
   const initial = validateHistoricalObservation(proposal)
   if (!initial.ok) return initial
   const observation = proposal.observation
-  const result = reconstructRecoveryHistoricalCut(observation.histories, histories)
+  const result = reconstructRecoveryHistoricalCut(observation.histories, histories, recordPinsBefore)
   if (!result.ok) return result
   // Cite only this cut's decoded membership; foreign expansion pins are carried separately on its sources.
   const snapshot = result.value

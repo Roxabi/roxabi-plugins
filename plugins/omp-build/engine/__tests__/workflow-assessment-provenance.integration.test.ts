@@ -17,7 +17,7 @@ import { workflowContextTerminal } from '../workflow-context-terminal.ts'
 import { assessFixture, mandateAssessmentState, shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
 import { history, must, SCOPE } from './workflow-test-support.ts'
 
-function expandedAssessment(commit: string, policyDigest: string) {
+function expandedAssessment(commit: string, policyDigest: string, basis?: 'plugin' | 'expanded' | 'delivery') {
   const mandated = shippedFeatureMandate()
   const state = mandateAssessmentState(mandated)
   const proposed = {
@@ -34,9 +34,36 @@ function expandedAssessment(commit: string, policyDigest: string) {
     prior.start.payload.phase !== 'start'
   )
     throw new Error('Expected assessment START')
-  const startPayload = prior.start.payload
+  const added = {
+    source: 'git-file' as const,
+    repository: SCOPE.repository,
+    commit,
+    path: 'policy.txt',
+    digest: policyDigest,
+  }
+  const selected = {
+    source: 'record' as const,
+    record: { scope: SCOPE, kind: mandated.kind, recordId: mandated.recordId },
+    selector: '/payload',
+    digest: canonicalValueDigest(mandated.payload),
+  }
+  const originalInputs = prior.start.payload.inputs
+  const original = originalInputs.manifest
+  const previous: ActionInputs['manifest'] = {
+    ...original,
+    expandedContext: basis === 'expanded' ? [added] : original.expandedContext,
+    plugin:
+      basis === 'plugin'
+        ? { ...original.plugin, repository: added.repository, commit, files: [added] }
+        : original.plugin,
+    deliveryData: basis === 'delivery' ? [{ ...selected, role: 'correction-lineage' }] : original.deliveryData,
+  }
+  const inputs = { ...originalInputs, manifest: previous, fingerprint: actionInputDigest(previous) }
+  const startPayload = { ...prior.start.payload, inputs }
+  const priorStart = must(buildRecord({ ...prior.start, payload: startPayload }))
   const negativePayload = {
     ...prior.result.payload,
+    inputs,
     structured: {
       outcome: 'missing-context' as const,
       missing: [
@@ -56,14 +83,7 @@ function expandedAssessment(commit: string, policyDigest: string) {
     selector: '/payload/structured',
     digest: canonicalValueDigest(negativePayload.structured),
   }
-  const added = {
-    source: 'git-file' as const,
-    repository: SCOPE.repository,
-    commit,
-    path: 'policy.txt',
-    digest: policyDigest,
-  }
-  const manifest = { ...startPayload.inputs.manifest, expandedContext: [lineage, added] }
+  const manifest = { ...previous, expandedContext: [lineage, basis === 'delivery' ? selected : added] }
   const stageSources = startPayload.inputs.stageSources
   function successor(changedManifest: ActionInputs['manifest'], changedSources = stageSources) {
     const inputs = {
@@ -95,7 +115,7 @@ function expandedAssessment(commit: string, policyDigest: string) {
   }
   return {
     mandated,
-    prior: [mandated, prior.start, negative],
+    prior: [mandated, priorStart, negative],
     manifest,
     lineage,
     sameNegativeSelector,
@@ -158,6 +178,18 @@ test('historical assessments require observed bytes and intact expanded-context 
       ok: false,
       evidence: [{ code: 'action-context-missing' }],
     })
+
+    for (const basis of ['plugin', 'expanded', 'delivery'] as const) {
+      const attempt = expandedAssessment(commit, added.digest, basis)
+      const retry = attempt.successor(attempt.manifest)
+      const cut = await observe([...attempt.prior, retry.start, retry.result])
+      expect(authenticateHistoricalActionInputs(retry.inputs, [cut]).ok, basis).toBe(true)
+      expect(workflowContextTerminal(cut, 'assess-spec', mandateRef), basis).toBe('missing')
+      expect(resolveAcceptedSpec(mandated, [cut]), basis).toMatchObject({
+        ok: false,
+        evidence: [{ code: 'action-context-missing' }],
+      })
+    }
 
     const stageRef = { ...lineage, record: { ...lineage.record, recordId: 'other-stage' } }
     const selected = {

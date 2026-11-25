@@ -1,6 +1,6 @@
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import type { ActionInputs } from '../../engine/action-input-schema.ts'
-import { CRITERION_EVIDENCE_FORMAT } from '../../engine/criterion-evidence-schema.ts'
+import { CRITERION_EVIDENCE_FORMAT, type ObservationRef } from '../../engine/criterion-evidence-schema.ts'
 import { FINDING_TARGET_FORMAT } from '../../engine/finding-target-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
@@ -30,6 +30,7 @@ export function correctionProofHistory(scope: Scope, records: readonly Canonical
 export function proofData(
   spec: Extract<ActionInputs['manifest']['spec'], { kind: 'accepted' }>,
   code: { repository: string; commit: string },
+  references: ObservationRef[] = [],
 ) {
   const target = {
     format: FINDING_TARGET_FORMAT,
@@ -51,7 +52,7 @@ export function proofData(
   const childId = 'historical-region-child'
   const provenance = { kind: 'native' as const, actionId, childId, submissionIndex: 0, toolCallIds: [toolCallId] }
   const scenario = 'the selected region survives reload'
-  const versionClaim = { code, reason: 'Verified on the applied correction commit', references: [] }
+  const versionClaim = { code, reason: 'Verified on the applied correction commit', references }
   const receipt = {
     target,
     verification: 'evidence' as const,

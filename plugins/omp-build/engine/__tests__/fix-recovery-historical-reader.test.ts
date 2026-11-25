@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { projectRecoveryHistories } from '../../adapters/github/history-codec.ts'
 import { inspectRecoveryHistoricalFacts } from '../fix-recovery-historical-facts.ts'
 import { fixRecoveryProposalFromControl } from '../fix-recovery-proposal.ts'
+import { hasObservedRecordPin } from '../historical-record-pins.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import { equalScope } from '../record-diagnostics.ts'
@@ -43,7 +44,7 @@ describe('legacy correction recovery history', () => {
       const fixture = await historicalRecoveryFixture('adopt-decision', false, mode)
       const foreign = fixture.foreign
       if (foreign === null) throw new Error('Expected an independently observed foreign source')
-      const pr = await fixture.readBackWithForeignExpansion(true)
+      const pr = await fixture.readBackWithForeignExpansion('current')
       const raw = [fixture.home, pr]
       const proposal = required(fixRecoveryProposalFromControl(fixture.record))
       const facts = required(inspectRecoveryHistoricalFacts(proposal, raw))
@@ -65,13 +66,36 @@ describe('legacy correction recovery history', () => {
     { mode: 'finite-cut', code: 'incomplete' },
   ] as const)('rejects native-action adoption with changed foreign content ($mode)', async ({ mode, code }) => {
     const fixture = await historicalRecoveryFixture('adopt-decision', false, mode)
-    const pr = await fixture.readBackWithForeignExpansion(false)
+    const pr = await fixture.readBackWithForeignExpansion('changed')
     expect(operation(pr, fixture.record.recordId)?.record).toEqual(fixture.record)
     expect(projectRecoveryHistories([fixture.home, pr])).toMatchObject({
       ok: false,
       diagnostics: [{ code }],
     })
   })
+
+  it.each(['same-second', 'published-later'] as const)(
+    'does not replay an adoption when its missing pin-only expansion cannot be shown to predate the control (%s)',
+    async (version) => {
+      const fixture = await historicalRecoveryFixture('adopt-decision', false, 'pin-only')
+      const foreign = fixture.foreign
+      if (foreign === null) throw new Error('Expected a foreign expansion fixture')
+      const pr = fixture.readBack()
+      const before = await foreign.observe(pr, fixture.record, 'absent')
+      expect(operation(before, fixture.record.recordId)?.record).toEqual(fixture.record)
+      expect(projectRecoveryHistories([fixture.home, before])).toMatchObject({
+        ok: false,
+        diagnostics: [{ code: 'missing-history' }],
+      })
+
+      const after = await foreign.observe(pr, fixture.record, version)
+      expect(hasObservedRecordPin([after], foreign.ref)).toBe(true)
+      expect(projectRecoveryHistories([fixture.home, after])).toMatchObject({
+        ok: false,
+        diagnostics: [{ code: 'missing-history' }],
+      })
+    },
+  )
 
   it.each(['close-predecision', 'adopt-decision'] as const)(
     'refuses a framed %s record with a changed confirmation digest',

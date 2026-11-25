@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { observeHistoricalPins } from '../adapters/github/historical-pins.ts'
 import { decodeHistory } from '../adapters/github/history-codec.ts'
+import { buildDeliveredLeaf } from '../engine/__tests__/uw-delivered-leaf-fixture.ts'
 import type { MissingContextOutput } from '../engine/action-context.ts'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import type { ActionInputs, PinnedFileRef } from '../engine/action-input-schema.ts'
@@ -174,6 +175,48 @@ describe('authenticated review context lineage', () => {
     expect(authenticateHistoricalActionInputs(bInputs, [observed]).ok).toBe(true)
     const result = reviewContextLineage(observed, new Map(records.map((record) => [record.recordId, record])))
     expect(result.diagnostics).toEqual([])
+    expect(result.superseded).toEqual(new Set())
+  })
+
+  it('does not supersede a negative by re-listing an authenticated plugin file', async () => {
+    const base = standaloneReviewInputs(TEST_SCOPE, commit)
+    const prior = pin('region.txt')
+    const manifest = {
+      ...base.manifest,
+      plugin: { ...base.manifest.plugin, repository: prior.repository, commit, files: [prior] },
+    }
+    const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+    const a = historicalReview(inputs, 'prior-plugin-a', negative)
+    const bInputs = expanded(inputs, a.entry, prior)
+    const b = historicalReview(bInputs, 'prior-plugin-b', { findings: [] })
+    const records = [a.root, a.entry, b.root, b.entry]
+    const observed = await observe(history(records))
+    expect(authenticateHistoricalActionInputs(bInputs, [observed]).ok).toBe(true)
+    expect(
+      reviewContextLineage(observed, new Map(records.map((record) => [record.recordId, record]))).superseded,
+    ).toEqual(new Set())
+  })
+
+  it('does not supersede a negative by re-listing an authenticated delivery declaration without its role', async () => {
+    const leaf = await buildDeliveredLeaf()
+    const declaration = leaf.inputs.manifest.deliveryData[0]
+    if (declaration === undefined) throw new Error('Expected a captured implementation declaration')
+    const { role: _role, ...prior } = declaration
+    const base = standaloneReviewInputs(TEST_SCOPE, commit)
+    const manifest = { ...base.manifest, deliveryData: [declaration] }
+    const inputs = { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+    const a = historicalReview(inputs, 'prior-declaration-a', negative)
+    const bInputs = expanded(inputs, a.entry, prior)
+    const b = historicalReview(bInputs, 'prior-declaration-b', { findings: [] })
+    const records = [a.root, a.entry, b.root, b.entry]
+    const observed = await observe(history(records))
+    const histories = [observed, ...leaf.observation.histories]
+    expect(authenticateHistoricalActionInputs(bInputs, histories).ok).toBe(true)
+    const result = reviewContextLineage(
+      observed,
+      new Map(records.map((record) => [record.recordId, record])),
+      histories,
+    )
     expect(result.superseded).toEqual(new Set())
   })
 

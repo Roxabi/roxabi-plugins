@@ -70,9 +70,9 @@ function statusSummary(record: object, status: string, resultValue: object | nul
     scope(property(object(property(record, 'control')), 'scope'))
   const diagnostics = diagnosticCodes(record)
   const suffix = diagnostics.length === 0 ? '' : ` diagnostics=${diagnostics.join(',')}`
-  if (status === 'verdicts') {
-    const verdicts = property(record, 'verdicts')
-    if (Array.isArray(verdicts)) return `uw-verdicts: ${target ?? 'unknown'} count=${verdicts.length}${suffix}`
+  if (status === 'evidence' || status === 'verdicts') {
+    const rows = property(record, status === 'evidence' ? 'declarations' : 'verdicts')
+    if (Array.isArray(rows)) return `uw-${status}: ${target ?? 'unknown'} count=${rows.length}${suffix}`
   }
   if (status === 'deferred')
     return `uw-deferred: no approval${target === null ? '' : ` for ${target}`}; re-enter the /uw command${suffix}`

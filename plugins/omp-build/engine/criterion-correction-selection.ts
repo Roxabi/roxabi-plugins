@@ -3,12 +3,8 @@ import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
 import { resolveAdmittedCorrectionCriterionSource } from './correction-criterion-source.ts'
 import { correctionObservationAuthenticationDiagnostics } from './correction-observation-authentication.ts'
 import { evidenceDigest } from './criterion-admission.ts'
-import {
-  type CriterionDeclaration,
-  type CriterionEvidence,
-  criterionDeclarationSchema,
-  type EvidenceRef,
-} from './criterion-evidence-schema.ts'
+import type { CriterionSourceSelection } from './criterion-declaration-projection.ts'
+import { criterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -19,7 +15,6 @@ import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
 
 type Ref = ActionInputs['manifest']['deliveryData'][number]
-type Selection = { declarations: CriterionDeclaration[]; evidence: { ref: EvidenceRef; value: CriterionEvidence }[] }
 
 function pointer(value: unknown, selector: string): unknown {
   let current = value
@@ -55,20 +50,25 @@ function appendCorrectionDeclaration(
   inputs: ActionInputs,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
-  selected: Selection,
+  selected: CriterionSourceSelection,
   contribution: Extract<CanonicalRecord, { kind: 'contribution' }>,
 ): void {
   if (ref.role !== 'implementation') return
   const declaration = criterionDeclarationSchema.safeParse(value)
   if (!declaration.success) return
-  selected.declarations.push(declaration.data)
+  const { role: _role, ...source } = ref
+  selected.declarationFacts.push({ value: declaration.data, receipt: source })
   if (declaration.data.verification !== 'evidence') return
   for (const item of declaration.data.evidence) {
     if (item.code.commit !== inputs.manifest.code.head) {
       diagnostics.push(diagnostic('mismatch', `Evidence ${item.id} is not the admitted current head`))
       continue
     }
-    diagnostics.push(...correctionObservationAuthenticationDiagnostics(item, histories, pins, contribution))
+    const problems = correctionObservationAuthenticationDiagnostics(item, histories, pins, contribution)
+    if (problems.length !== 0) {
+      diagnostics.push(...problems)
+      continue
+    }
     selected.evidence.push({
       ref: { receipt: ref.record, evidenceId: item.id, digest: evidenceDigest(item) },
       value: item,
@@ -85,7 +85,7 @@ export function appendCorrectionSelection(
   ownSpec: OwnSpecRef,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
-  selected: Selection,
+  selected: CriterionSourceSelection,
   catalogues: ReviewClassCatalogues,
 ): void {
   const history = historyFor(ref.record.scope, histories)

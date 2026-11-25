@@ -37,12 +37,15 @@ export function fixtureGitBlobGhResponse(args: readonly string[], ref: PinnedFil
   if (
     args[0] === 'api' &&
     args[1] === 'graphql' &&
-    args.some((arg) => arg.includes('object(expression:$expression)')) &&
+    args.some((arg) => arg.includes('commit:object(oid:$commit)') && arg.includes('object(expression:$expression)')) &&
     args.includes(`owner=${owner}`) &&
     args.includes(`name=${name}`) &&
+    args.includes(`commit=${ref.commit}`) &&
     args.includes(`expression=${ref.commit}:${ref.path}`)
   )
-    return JSON.stringify({ data: { repository: { object: { oid } } } })
+    return JSON.stringify({
+      data: { repository: { commit: { __typename: 'Commit', oid: ref.commit }, object: { oid } } },
+    })
   if (args[0] === 'api' && args.includes(`repos/${ref.repository}/git/blobs/${oid}`))
     return JSON.stringify({
       sha: oid,

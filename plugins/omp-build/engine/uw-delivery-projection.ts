@@ -1,21 +1,12 @@
-import { canonicalValueDigest } from './action-input.ts'
-import type { RecordInputRef } from './action-input-refs.ts'
 import { criterionVerdictRequiresChanges } from './criterion-admission.ts'
-import { criterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import { criterionVerdictCitationDiagnostics } from './delivery-observation-authentication.ts'
-import {
-  authenticatedReceiptActionInputs,
-  recordRefDiagnostics,
-  selectedRecordValue,
-} from './historical-action-inputs.ts'
 import { diagnostic, sameOwnSpecRef } from './record-diagnostics.ts'
-import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import { resolveSpecEffective } from './spec-effective.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
 import type { UwCompletionAssessment, UwCompletionObservation } from './uw-completion-types.ts'
 import { selectUwDeliveryReview } from './uw-delivery-proof.ts'
-import { authenticatedDeliveryRecord, deliveryFailure, type SelectedDeliveryReview } from './uw-delivery-review.ts'
+import { deliveryFailure, type SelectedDeliveryReview } from './uw-delivery-review.ts'
 import type { UwDeliveryDeclaration, UwDeliveryRead, UwDeliveryVerdict } from './uw-delivery-types.ts'
 import { toDiagnostics, type UwResult } from './uw-diagnostics.ts'
 import { scopeKey } from './uw-graph.ts'
@@ -35,43 +26,18 @@ function currentAccepted(observation: UwCompletionObservation, uw: Scope): UwRes
     : deliveryFailure(uw, accepted.reason, accepted.evidence.map((item) => item.message).join('; '))
 }
 
-function declarationRecord(observation: UwCompletionObservation, pin: RecordInputRef): CanonicalRecord | null {
-  const bound = authenticatedDeliveryRecord(observation, pin.record)
-  if (!bound.ok || recordRefDiagnostics('Delivery declaration', pin, observation.histories).length !== 0) return null
-  if (
-    bound.value.kind === 'action-receipt' &&
-    !authenticatedReceiptActionInputs(bound.value.payload, observation.histories)
-  )
-    return null
-  return bound.value
-}
-
-function declarationRows(
-  observation: UwCompletionObservation,
-  selected: SelectedDeliveryReview,
-): UwDeliveryDeclaration[] {
+function declarationRows(selected: SelectedDeliveryReview, spec: SpecEffective): UwDeliveryDeclaration[] {
   const rows: UwDeliveryDeclaration[] = []
   const seen = new Set<string>()
-  const spec = selected.inputs.manifest.spec
-  if (spec.kind !== 'accepted') return rows
-  const code = selected.inputs.manifest.code
-  for (const pin of selected.inputs.manifest.deliveryData) {
-    const evidenceIndex = pin.selector.indexOf('/evidence/')
-    const selector = evidenceIndex === -1 ? pin.selector : pin.selector.slice(0, evidenceIndex)
-    if (!/^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+$/.test(selector)) continue
-    const key = `${pin.record.scope.repository}\0${pin.record.scope.target}\0${pin.record.recordId}\0${selector}`
+  const { repository, head } = selected.inputs.manifest.code
+  const code = { repository, commit: head }
+  for (const fact of selected.facts.declarationFacts) {
+    if (!sameOwnSpecRef(fact.value.target.spec, spec.own)) continue
+    const { record, selector } = fact.receipt
+    const key = `${record.scope.repository}\0${record.scope.target}\0${record.recordId}\0${selector}`
     if (seen.has(key)) continue
-    const record = declarationRecord(observation, pin)
-    if (record === null) continue
-    const raw = selectedRecordValue(record, selector)
-    const declaration = criterionDeclarationSchema.safeParse(raw)
-    if (!declaration.success || !sameOwnSpecRef(declaration.data.target.spec, spec.effective.own)) continue
     seen.add(key)
-    rows.push({
-      value: declaration.data,
-      code: { repository: code.repository, commit: code.head },
-      receipt: { source: 'record', record: pin.record, selector, digest: canonicalValueDigest(raw) },
-    })
+    rows.push({ ...fact, code })
   }
   return rows
 }
@@ -158,7 +124,7 @@ export function projectUwDelivery(
     value: {
       uw,
       effective,
-      declarations: declarationRows(observation, selected.value),
+      declarations: declarationRows(selected.value, effective.value),
       verdicts: verdictRows(selected.value, observation, effective.value, diagnostics),
       diagnostics,
     },

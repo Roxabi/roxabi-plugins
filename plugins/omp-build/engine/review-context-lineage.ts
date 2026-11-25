@@ -1,4 +1,5 @@
 import { canonicalValueDigest } from './action-input.ts'
+import { sameInputRef } from './action-input-refs.ts'
 import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
@@ -25,17 +26,14 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
       item.selector === '/payload' &&
       item.digest === canonicalValueDigest(negative.payload),
   )
-  const oldRefs = new Set(before.map(canonicalValueDigest))
-  const additions = after.filter((item) => !oldRefs.has(canonicalValueDigest(item)))
-  const priorSources = new Set(
-    [
-      ...before,
-      ...old.manifest.acceptedSources,
-      ...old.manifest.deliveryData,
-      ...old.manifest.repositoryReferences,
-      ...old.stageSources,
-    ].map(canonicalValueDigest),
-  )
+  const additions = after.filter((item) => !before.some((prior) => sameInputRef(prior, item)))
+  const priorSources = [
+    ...old.manifest.acceptedSources,
+    ...old.manifest.deliveryData,
+    ...old.manifest.repositoryReferences,
+    ...old.manifest.plugin.files,
+    ...old.stageSources,
+  ]
   const slots = (value: Root['payload']) => value.slots.map(({ action: _action, ...slot }) => slot)
   return (
     root.recordId !== successor.recordId &&
@@ -50,12 +48,12 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
     same(old.stageSources, fresh.stageSources) &&
     old.fingerprint !== fresh.fingerprint &&
     ref.length === 1 &&
-    additions.some((item) => same(item, ref[0])) &&
-    before.every((item) => after.some((candidate) => same(item, candidate))) &&
+    ref.some((lineage) => additions.some((item) => sameInputRef(lineage, item))) &&
+    before.every((item) => after.some((candidate) => sameInputRef(item, candidate))) &&
     additions.some(
       (item) =>
         (item.source !== 'record' || !sameRef(item.record, negativeRef)) &&
-        !priorSources.has(canonicalValueDigest(item)),
+        !priorSources.some((prior) => sameInputRef(prior, item)),
     )
   )
 }

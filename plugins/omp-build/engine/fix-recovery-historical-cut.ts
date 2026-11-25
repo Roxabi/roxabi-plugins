@@ -35,12 +35,13 @@ export function validRecoveryHistoricalGraph(graph: FixRecoveryObservation['grap
 export function reconstructRecoveryHistoricalCut(
   cuts: FixRecoveryObservation['histories'],
   histories: readonly DecodedHistory[],
+  recordPinsBefore?: number,
 ): Result<DecodedHistory[]> {
   const snapshots: DecodedHistory[] = []
   for (const cut of cuts) {
     if (snapshots.some((snapshot) => equalScope(snapshot.source.scope, cut.scope)))
       return { ok: false, diagnostics: [diagnostic('ambiguous', 'Recovery snapshot repeats a history scope')] }
-    const snapshot = reconstructScope(cut, histories)
+    const snapshot = reconstructScope(cut, histories, recordPinsBefore)
     if (!snapshot.ok) return snapshot
     snapshots.push(snapshot.value)
   }
@@ -50,6 +51,7 @@ export function reconstructRecoveryHistoricalCut(
 function reconstructScope(
   cut: FixRecoveryObservation['histories'][number],
   histories: readonly DecodedHistory[],
+  recordPinsBefore: number | undefined,
 ): Result<DecodedHistory> {
   const matching = histories.filter((history) => equalScope(history.source.scope, cut.scope))
   // A cited read can supply raw parts only for scopes explicitly named by the finite cut.
@@ -73,7 +75,7 @@ function reconstructScope(
     diagnostics: [],
   }
   inheritObservedGitPins(actual, source)
-  inheritObservedRecordPins(actual, source)
+  inheritObservedRecordPins(actual, source, recordPinsBefore)
   return decodeHistoricalSource(source)
 }
 

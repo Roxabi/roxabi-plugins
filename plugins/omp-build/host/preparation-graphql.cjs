@@ -1,7 +1,7 @@
 'use strict'
 
 const BLOB_QUERY =
-  'query($owner:String!,$name:String!,$expression:String!){repository(owner:$owner,name:$name){object(expression:$expression){... on Blob{oid}}}}'
+  'query($owner:String!,$name:String!,$commit:GitObjectID!,$expression:String!){repository(owner:$owner,name:$name){commit:object(oid:$commit){__typename oid} object(expression:$expression){... on Blob{oid}}}}'
 const PULLS_QUERY =
   'query($owner:String!,$name:String!,$cursor:String,$branch:String){repository(owner:$owner,name:$name){pullRequests(first:100,after:$cursor,states:[OPEN,CLOSED,MERGED],headRefName:$branch){pageInfo{hasNextPage endCursor}nodes{number headRefName baseRefName repository{nameWithOwner}}}}}'
 const AUTH_COMMENT_QUERY =

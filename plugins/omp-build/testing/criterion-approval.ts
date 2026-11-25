@@ -16,7 +16,7 @@ import { criterionDispositionRecords } from './criterion-dispositions.ts'
 import { NATIVE_AUTHOR, submission } from './record-builders.ts'
 import { contribution } from './record-decisions.ts'
 import { reviewGraph } from './record-graphs.ts'
-import { observedComment } from './record-history.ts'
+import { historicalRecordFrames, observedComment } from './record-history.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
 
 /** Preserve the existing simulator comments while constructing a review fixture. */
@@ -107,6 +107,16 @@ export function criterionSatisfiedRow(options: {
   })
 }
 
+/** A final review retained from a writer that had not yet rejected the producer proof. */
+function retainedReview(record: CanonicalRecord, history: DecodedHistory, author = NATIVE_AUTHOR) {
+  const prior = history.source.comments
+  const comments = historicalRecordFrames(record).map((body, index) => {
+    const id = String(prior.length + index + 1)
+    return observedComment({ locator: `comment-${id}`, nativeId: id, body, author })
+  })
+  return { comments, history: decodeHistory({ ...history.source, comments: [...prior, ...comments] }) }
+}
+
 /** Bind independent spec judgment to the selected, immutable implementation evidence. */
 export function criterionReviewGraph(options: {
   mandate: MandateRecord
@@ -122,6 +132,7 @@ export function criterionReviewGraph(options: {
   prefix?: string
   verdict?: Verdict
   adjustCriterion?: (row: CriterionVerdict, inputs: ActionInputs) => CriterionVerdict
+  retainedFinal?: boolean
   author?: string
 }) {
   const { inputs, head, issueRecords, scope, projection } = options
@@ -221,14 +232,16 @@ export function criterionReviewGraph(options: {
     recordId: record.recordId,
   }))
   const review = { ...graph.review, payload: { ...graph.review.payload, causeDispositionRefs: refs } }
-  const final = encodeCriterionRecords(
-    [review],
-    scope,
-    projection,
-    options.author,
-    [persisted.history, ...options.contextHistories],
-    beforeReview.history,
-  )
+  const final = options.retainedFinal
+    ? retainedReview(review, beforeReview.history, options.author)
+    : encodeCriterionRecords(
+        [review],
+        scope,
+        projection,
+        options.author,
+        [persisted.history, ...options.contextHistories],
+        beforeReview.history,
+      )
   const records: CanonicalRecord[] = [...prefixRecords, review]
   return {
     ...graph,

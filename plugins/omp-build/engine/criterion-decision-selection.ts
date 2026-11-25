@@ -2,12 +2,11 @@ import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
 import { evidenceDigest } from './criterion-admission.ts'
 import { appendCorrectionSelection } from './criterion-correction-selection.ts'
-import { projectAdditiveDeclarations } from './criterion-declaration-projection.ts'
+import { type CriterionSourceSelection, projectAdditiveDeclarations } from './criterion-declaration-projection.ts'
 import {
   type CriterionDeclaration,
   type CriterionEvidence,
   criterionDeclarationSchema,
-  type EvidenceRef,
 } from './criterion-evidence-schema.ts'
 import {
   currentPlanReceipt,
@@ -26,12 +25,11 @@ import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
-import { implementationOutputSchema } from './workflow-output-schema.ts'
 import { resolveManifestMandate } from './workflow-pr-binding.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 type DeliveryRef = ActionInputs['manifest']['deliveryData'][number]
-type SelectedEvidence = { ref: EvidenceRef; value: CriterionEvidence }[]
+type CriterionSelection = CriterionSourceSelection & { declarations: CriterionDeclaration[] }
 
 function receiptEligible(record: Receipt): boolean {
   if (record.payload.action === 'plan') return planReceiptEligible(record) && record.payload.phase === 'result'
@@ -49,15 +47,6 @@ function receiptFor(
   if (bound.value.kind !== 'action-receipt' || !receiptEligible(bound.value))
     return { receipt: null, code: 'unconfirmed' }
   return { receipt: bound.value, code: 'unconfirmed' }
-}
-
-function declarationsAt(value: unknown): CriterionDeclaration[] {
-  const output = implementationOutputSchema.safeParse(value)
-  if (output.success) return [...output.data.criteria]
-  const many = criterionDeclarationSchema.array().safeParse(value)
-  if (many.success) return many.data
-  const one = criterionDeclarationSchema.safeParse(value)
-  return one.success ? [one.data] : []
 }
 
 function manifestPins(inputs: ActionInputs): PinnedFileRef[] {
@@ -107,32 +96,18 @@ function appendOneEvidence(
   pins: readonly PinnedFileRef[],
   receipt: Receipt,
   diagnostics: Diagnostic[],
-  evidence: SelectedEvidence,
+  evidence: CriterionSourceSelection['evidence'],
 ): void {
   if (value.code.commit !== head) {
     diagnostics.push(diagnostic('mismatch', `Evidence ${value.id} is not the admitted current head`))
     return
   }
-  diagnostics.push(...observationAuthenticationDiagnostics(value, histories, pins, receipt))
-  evidence.push({ ref: { receipt: ref.record, evidenceId: value.id, digest: evidenceDigest(value) }, value })
-}
-
-function appendEvidence(
-  declaration: CriterionDeclaration,
-  receipt: Receipt,
-  ref: DeliveryRef,
-  head: string,
-  histories: readonly DecodedHistory[],
-  pins: readonly PinnedFileRef[],
-  diagnostics: Diagnostic[],
-  evidence: SelectedEvidence,
-): void {
-  if (declaration.verification !== 'evidence') return
-  const payload = receipt.payload
-  if ((payload.action !== 'implement' && payload.action !== 'integrate') || payload.phase !== 'result') return
-  for (const value of declaration.evidence) {
-    appendOneEvidence(value, ref, head, histories, pins, receipt, diagnostics, evidence)
+  const problems = observationAuthenticationDiagnostics(value, histories, pins, receipt)
+  if (problems.length !== 0) {
+    diagnostics.push(...problems)
+    return
   }
+  evidence.push({ ref: { receipt: ref.record, evidenceId: value.id, digest: evidenceDigest(value) }, value })
 }
 
 function appendImplementation(
@@ -145,8 +120,7 @@ function appendImplementation(
   histories: readonly DecodedHistory[],
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
-  declarations: CriterionDeclaration[],
-  evidence: SelectedEvidence,
+  selected: CriterionSourceSelection,
 ): void {
   if (!admittedImplementation(receipt, history, head, planActionId, mandate, histories)) {
     diagnostics.push(
@@ -159,16 +133,20 @@ function appendImplementation(
     diagnostics.push(...authenticated.diagnostics)
     return
   }
-  const selected = selectedRecordValue(receipt, ref.selector)
-  if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
+  const raw = selectedRecordValue(receipt, ref.selector)
+  if (raw === undefined || canonicalValueDigest(raw) !== ref.digest) {
     diagnostics.push(
       diagnostic('mismatch', `Delivery selector ${ref.selector} does not match its authenticated digest`),
     )
     return
   }
-  for (const declaration of declarationsAt(selected)) {
-    declarations.push(declaration)
-    appendEvidence(declaration, receipt, ref, head, histories, pins, diagnostics, evidence)
+  const declaration = criterionDeclarationSchema.safeParse(raw)
+  if (!declaration.success) return
+  const { role: _role, ...source } = ref
+  selected.declarationFacts.push({ value: declaration.data, receipt: source })
+  if (declaration.data.verification !== 'evidence') return
+  for (const value of declaration.data.evidence) {
+    appendOneEvidence(value, ref, head, histories, pins, receipt, diagnostics, selected.evidence)
   }
 }
 
@@ -185,8 +163,7 @@ function appendDelivery(
   mandate: ExternalRecordRef,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
-  declarations: CriterionDeclaration[],
-  evidence: SelectedEvidence,
+  selected: CriterionSourceSelection,
 ): void {
   const history = historyFor(ref.record.scope, histories)
   const bound = receiptFor(histories, ref.record)
@@ -201,19 +178,7 @@ function appendDelivery(
     return
   }
   if (ref.role !== 'implementation' && ref.role !== 'criterion-evidence') return
-  appendImplementation(
-    ref,
-    bound.receipt,
-    history,
-    head,
-    planActionId,
-    mandate,
-    histories,
-    pins,
-    diagnostics,
-    declarations,
-    evidence,
-  )
+  appendImplementation(ref, bound.receipt, history, head, planActionId, mandate, histories, pins, diagnostics, selected)
 }
 
 function currentPlan(
@@ -236,14 +201,13 @@ export function selectedDeclarations(
   inputs: ActionInputs,
   diagnostics: Diagnostic[],
   catalogues: ReviewClassCatalogues,
-): { declarations: CriterionDeclaration[]; evidence: SelectedEvidence } {
-  const declarations: CriterionDeclaration[] = []
-  const evidence: SelectedEvidence = []
-  if (inputs.manifest.spec.kind !== 'accepted') return { declarations, evidence }
+): CriterionSelection {
+  const selected: CriterionSelection = { declarations: [], declarationFacts: [], evidence: [] }
+  if (inputs.manifest.spec.kind !== 'accepted') return selected
   const owner = resolveManifestMandate(inputs, histories)
   if (!owner.ok) {
     diagnostics.push(...owner.diagnostics)
-    return { declarations, evidence }
+    return selected
   }
   const mandate: ExternalRecordRef = {
     scope: { repository: owner.value.repository, target: owner.value.target },
@@ -251,7 +215,7 @@ export function selectedDeclarations(
     kind: 'mandate',
   }
   const current = currentPlan(histories, inputs.manifest.spec.effective.own.version, mandate, diagnostics)
-  if (current === null || current.payload.action !== 'plan') return { declarations, evidence }
+  if (current === null || current.payload.action !== 'plan') return selected
   const pins = manifestPins(inputs)
   const ownSpec = inputs.manifest.spec.effective.own
   for (const ref of inputs.manifest.deliveryData) {
@@ -266,7 +230,7 @@ export function selectedDeclarations(
         ownSpec,
         pins,
         diagnostics,
-        { declarations, evidence },
+        selected,
         catalogues,
       )
       continue
@@ -280,9 +244,9 @@ export function selectedDeclarations(
       mandate,
       pins,
       diagnostics,
-      declarations,
-      evidence,
+      selected,
     )
   }
-  return { declarations: projectAdditiveDeclarations(declarations), evidence }
+  selected.declarations = projectAdditiveDeclarations(selected.declarationFacts.map(({ value }) => value))
+  return selected
 }

@@ -118,7 +118,10 @@ export async function historicalRecoveryFixture(
   const expansion =
     foreignExpansion === undefined
       ? null
-      : { ...executableReview(leaf, originalHome, prHistory, append), foreign: await foreignRecoveryContext(append) }
+      : {
+          ...executableReview(leaf, originalHome, prHistory, append),
+          foreign: await foreignRecoveryContext(append, date),
+        }
   const home = expansion?.home ?? originalHome
   const { common, host, runId, settledId, settlement } = ownerAnchors(home)
   const { uw, pullRequest, binding, mandate, destination } = common
@@ -267,9 +270,9 @@ export async function historicalRecoveryFixture(
     withLateDecisionFragment: (history: DecodedHistory) => append(history, lateDecision, true),
     readBack: (candidate: Control = record) => append(pr, candidate),
     foreign: expansion?.foreign ?? null,
-    readBackWithForeignExpansion: (valid: boolean) => {
+    readBackWithForeignExpansion: (version: 'current' | 'changed') => {
       if (expansion === null) throw new Error('Expected a foreign expansion fixture')
-      return expansion.foreign.observe(append(pr, record), record, valid)
+      return expansion.foreign.observe(append(pr, record), record, version)
     },
   }
 }
