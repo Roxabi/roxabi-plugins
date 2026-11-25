@@ -1,5 +1,7 @@
-# The reviewed label arms GitHub native auto-merge (merge commit) on the event head.
-# The PR_Main ruleset requires ci and App-issued review on that head before merge.
+# The reviewed label arms GitHub native auto-merge (merge commit) on the event head
+# of a PR into the default branch, unless a check on that head already failed.
+# The PR_Main ruleset requires ci and App-issued review on that head before merge;
+# other branches have no ruleset, so a PR into them never arms.
 # synchronize disarms with the job token and drops the reviewed label.
 # Dependabot can arm only for semver-minor or semver-patch updates whose every
 # commit author is dependabot[bot].
@@ -96,13 +98,15 @@ jobs:
       # for a PR touching .github/workflows, workflows write.
       - name: Mint app token (roxabi-ci)
         id: app
-        if: github.event.action == 'labeled'
+        if: github.event.action == 'labeled' && github.event.pull_request.base.ref == github.event.repository.default_branch
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
         with:
           app-id: ${{ vars.ROXABI_CI_APP_ID }}
           private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+          permission-checks: read
           permission-contents: write
           permission-pull-requests: write
+          permission-statuses: read
           permission-workflows: write
 
       # Read the real update-type from Dependabot's metadata rather than parsing the
@@ -112,7 +116,10 @@ jobs:
       # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
       - name: Fetch dependabot metadata
         id: dependabot-meta
-        if: github.event.action == 'labeled' && github.event.pull_request.user.login == 'dependabot[bot]'
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch &&
+          github.event.pull_request.user.login == 'dependabot[bot]'
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98
         with:
           github-token: ${{ steps.app.outputs.token }}
@@ -124,6 +131,8 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           DEPENDABOT_UPDATE_TYPE: ${{ steps.dependabot-meta.outputs.update-type }}
         run: |
@@ -132,6 +141,11 @@ jobs:
             echo "::error::$1"
             exit 1
           }
+          # Only the default branch has a ruleset requiring ci and review; gh merges
+          # an already mergeable PR into any other branch at once.
+          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            refuse "refusing auto-merge: PR targets $BASE_REF, not $DEFAULT_BRANCH"
+          fi
           # Only verified semver-minor/patch updates with exclusively
           # Dependabot-authored commits can take the Dependabot lane.
           if [ "$AUTHOR" = "dependabot[bot]" ]; then
@@ -146,6 +160,20 @@ jobs:
               '(.commits | length > 0) and all(.commits[]; (.authors | type == "array" and length > 0 and all(.[]; .login == "dependabot[bot]")))' >/dev/null; then
               refuse 'refusing auto-merge: Dependabot PR has a non-Dependabot commit author'
             fi
+          fi
+          # Checks outside the ruleset (e.g. trufflehog) do not block native
+          # auto-merge, so a head whose check already failed does not arm.
+          if ! rollup=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json statusCheckRollup); then
+            refuse 'refusing auto-merge: could not read the checks of the head'
+          fi
+          if ! failed=$(printf '%s' "$rollup" | jq -er '[.statusCheckRollup[]
+            | select(((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
+              or ((.state // "") | ascii_downcase | IN("failure", "error")))
+            | (.name // .context)] | join(", ")'); then
+            refuse 'refusing auto-merge: could not read the checks of the head'
+          fi
+          if [ -n "$failed" ]; then
+            refuse "refusing auto-merge: failed checks on the head: $failed"
           fi
           if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             refuse 'refusing auto-merge without the reviewed commit'

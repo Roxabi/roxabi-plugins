@@ -568,8 +568,9 @@ GitHub viewer identity is fixed for one OMP process. `gh auth switch` requires a
 #### Repository auto-merge
 
 This repository's separate `.github/workflows/auto-merge.yml` arms GitHub native
-auto-merge with a merge commit when the `reviewed` label is added. The App token
-arms on the event head via `--match-head-commit`. The `PR_Main` ruleset requires
+auto-merge with a merge commit when the `reviewed` label is added to a PR into the
+default branch. The App token arms on the event head via `--match-head-commit`,
+unless a check on that head already failed. The `PR_Main` ruleset requires
 both `ci` and App-issued `review` on that head before GitHub merges. The workflow
 uses `pull_request_target`, checks out no code and does not read omp-build records.
 Synchronize disarms and drops `reviewed` with the job token; failed arming also
