@@ -154,11 +154,7 @@ export {
 export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
-export {
-  type AttemptClassification,
-  startResolution,
-  type UnresolvedAttempt,
-} from './engine/workflow-action-interruption.ts'
+export type { AttemptClassification, UnresolvedAttempt } from './engine/workflow-action-interruption.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { bindingMatchesMandate } from './engine/workflow-binding-format.ts'

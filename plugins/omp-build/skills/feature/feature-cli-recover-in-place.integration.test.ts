@@ -8,6 +8,7 @@ import {
   interruptionResolution,
   pairOf,
   receiptOf,
+  resumeOf,
 } from '../../engine/__tests__/workflow-interruption-support.ts'
 import { assessFixture, mandateAssessmentState } from '../../engine/__tests__/workflow-spec-assessment-support.ts'
 import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
@@ -128,8 +129,37 @@ it('admits and lands /feature in place without settling or rewriting an abandone
     start: receiptOf(stoppedAssessment.start),
     result: stoppedResult,
   })
-  // Reproduce a decoded control left behind after its cited pause became unavailable.
-  const appended = appendRecords(history, [stoppedAssessment.start, stoppedResult, resolution])
+  const [planOrphan] = pairOf(actions.planDraftRecords(current, 'current-plan-orphan'))
+  const missingPlanPause = fixtures.pauseRequested(current, 'current-missing-pause')
+  const missingPlanResolution = interruptionResolution({
+    mandate: current,
+    pause: fixtures.pauseConfirmed(current, missingPlanPause, 'current-missing-pause'),
+    start: planOrphan,
+    result: null,
+  })
+  const [latePlanStart, latePlanResult] = pairOf(actions.planDraftRecords(current, 'current-plan-late'))
+  const planPauseRequest = fixtures.pauseRequested(current, 'current-plan-pause')
+  const planPaused = fixtures.pauseConfirmed(current, planPauseRequest, 'current-plan-pause')
+  const latePlanResolution = interruptionResolution({
+    mandate: current,
+    pause: planPaused,
+    start: latePlanStart,
+    result: null,
+  })
+  // These invalid controls are fully decoded: two cited pauses are missing, and one RESULT arrived late.
+  const appended = appendRecords(history, [
+    stoppedAssessment.start,
+    stoppedResult,
+    resolution,
+    planOrphan,
+    missingPlanResolution,
+    latePlanStart,
+    planPauseRequest,
+    planPaused,
+    latePlanResolution,
+    resumeOf(current, planPaused, 'current-plan-pause'),
+    latePlanResult,
+  ])
   writeSim(f.box, (state) => {
     const issue = state.issues['42']
     if (!issue) throw new Error('Expected issue')
@@ -145,9 +175,10 @@ it('admits and lands /feature in place without settling or rewriting an abandone
   })
   const before = readSim(f.box).issues['42']?.comments
   const recoveryHistory = decodeHistory(await readGitHubHistory(scope, { cwd: f.cwd, gh, readAuthor: 'operator' }))
-  expect(recoveryHistory.operations).toContainEqual(
-    expect.objectContaining({ recordId: resolution.recordId, status: 'complete', authority: 'accounted' }),
-  )
+  for (const { recordId } of [resolution, missingPlanResolution, latePlanResolution])
+    expect(recoveryHistory.operations).toContainEqual(
+      expect.objectContaining({ recordId, status: 'complete', authority: 'accounted' }),
+    )
   expect(
     classifyAttempts({ histories: [recoveryHistory], scan: [recoveryHistory], actions: ['assess-spec'] }),
   ).toMatchObject({
@@ -157,6 +188,18 @@ it('admits and lands /feature in place without settling or rewriting an abandone
         code: 'interruption-resolution-invalid',
         recordId: resolution.recordId,
         message: 'Resolution predecessor does not bind one authenticated control',
+        detail: { rule: 'V10' },
+      },
+      {
+        code: 'interruption-resolution-invalid',
+        recordId: missingPlanResolution.recordId,
+        message: 'Resolution predecessor does not bind one authenticated control',
+        detail: { rule: 'V10' },
+      },
+      {
+        code: 'interruption-resolution-invalid',
+        recordId: latePlanResolution.recordId,
+        detail: { rule: 'V3', cause: 'late-result', result: latePlanResult.recordId },
       },
     ],
   })

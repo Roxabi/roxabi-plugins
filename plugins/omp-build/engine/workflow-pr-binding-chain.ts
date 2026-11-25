@@ -194,6 +194,7 @@ function invalidClaims(claims: readonly DecodedHistory['operations'][number][]):
 function validatedBindingClaim(
   operation: DecodedHistory['operations'][number],
   input: BindingInput,
+  purpose: BindingPurpose,
 ): WorkflowBindingRecord | BindingRefusal {
   const record = operation.record
   if (record === null || record.kind !== 'workflow-binding')
@@ -205,7 +206,10 @@ function validatedBindingClaim(
   }
   if (record.payload.mandate.kind !== 'mandate')
     return bindingRefusal('conflicting', [diagnostic('kind-mismatch', 'Workflow binding must name a mandate')])
-  if (record.payload.branch !== input.native.branch || record.payload.base !== input.native.base) {
+  if (
+    purpose === 'delivery' &&
+    (record.payload.branch !== input.native.branch || record.payload.base !== input.native.base)
+  ) {
     return bindingRefusal('conflicting', [
       diagnostic('native-mismatch', 'Workflow-binding branch or base does not match the PR'),
     ])
@@ -224,10 +228,11 @@ function appendDistinctBinding(records: WorkflowBindingRecord[], record: Workflo
 function recordsForClaims(
   claims: readonly DecodedHistory['operations'][number][],
   input: BindingInput,
+  purpose: BindingPurpose,
 ): BindingRefusal | WorkflowBindingRecord[] {
   const records: WorkflowBindingRecord[] = []
   for (const operation of claims) {
-    const record = validatedBindingClaim(operation, input)
+    const record = validatedBindingClaim(operation, input, purpose)
     if ('status' in record) return record
     const duplicate = appendDistinctBinding(records, record)
     if (duplicate !== null) return duplicate
@@ -235,7 +240,7 @@ function recordsForClaims(
   return records
 }
 
-export function selectWorkflowBindingClaims(input: BindingInput): BindingClaims {
+export function selectWorkflowBindingClaims(input: BindingInput, purpose: BindingPurpose = 'delivery'): BindingClaims {
   const history = historyFor(input.pullRequest, input.histories)
   if (history === null)
     return bindingRefusal('incomplete', [diagnostic('missing-history', 'Pull request history is missing')])
@@ -254,7 +259,7 @@ export function selectWorkflowBindingClaims(input: BindingInput): BindingClaims 
   }
   const invalid = invalidClaims(claims)
   if (invalid !== null) return invalid
-  return recordsForClaims(claims, input)
+  return recordsForClaims(claims, input, purpose)
 }
 
 export function selectWorkflowBindingCandidate(
@@ -264,7 +269,7 @@ export function selectWorkflowBindingCandidate(
   | BindingRefusal
   | { status: 'absent' }
   | { status: 'bound'; binding: WorkflowBindingRecord; claims: WorkflowBindingRecord[] } {
-  const records = selectWorkflowBindingClaims(input)
+  const records = selectWorkflowBindingClaims(input, purpose)
   if (!Array.isArray(records)) return records
   if (purpose === 'revocation') {
     const home = historyFor(input.pullRequest, input.histories)

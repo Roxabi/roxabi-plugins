@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
-import { bindExternalRef, decodeHistory, readGitHubHistory, resolveAcceptedSpec } from '../../dist/contracts.js'
+import {
+  bindExternalRef,
+  decodeHistory,
+  readGitHubHistory,
+  readWorkflowBinding,
+  resolveAcceptedSpec,
+} from '../../dist/contracts.js'
 import { actionInputDigest } from '../../engine/action-input.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import { ACTION_RECEIPT_FORMAT } from '../../engine/workflow-receipt-schema.ts'
@@ -285,6 +291,31 @@ it('publishes exact abandonment without reading an unavailable blob pinned by an
     ok: true,
     value: { payload: { control: 'abandon', mandate: fixtures.mandateRef(f.mandate) } },
   })
+})
+
+it('revokes the PR-bound mandate after the PR is retargeted without accepting that binding for delivery', async () => {
+  const f = world(true)
+  f.bare('update-ref', 'refs/heads/staging', f.base)
+  writeSim(f.box, (state) => {
+    const pull = state.prs[String(pr)]
+    if (!pull) throw new Error('Expected the bound pull request')
+    pull.baseRefName = 'staging'
+  })
+  const { input, approved, read } = await revocationFixture(f, prReference)
+  const prScope = { repository, target: prReference }
+  expect(await readWorkflowBinding(prScope, withRoxabiGitHubPolicy(input))).toMatchObject({
+    ok: false,
+    status: 'conflicting',
+    diagnostics: [expect.objectContaining({ code: 'native-mismatch' })],
+  })
+  expect(await admitFeature({ ...input, control: 'abandon' })).toEqual({ kind: 'abandoned', confirmed: true })
+  const [recordId] = approved
+  if (recordId === undefined) throw new Error('Expected the exact revocation')
+  expect(bindExternalRef({ scope, recordId, kind: 'operator-control' }, await read())).toMatchObject({
+    ok: true,
+    value: { payload: { control: 'abandon', mandate: fixtures.mandateRef(f.mandate) } },
+  })
+  expect(readSim(f.box).prs[String(pr)]?.baseRefName).toBe('staging')
 })
 
 it('revokes the PR-bound mandate without selecting another active mandate on the issue', async () => {

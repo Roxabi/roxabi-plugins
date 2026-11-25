@@ -1,16 +1,18 @@
 import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import { recordGitPinBytes } from '../historical-git-pins.ts'
 import { buildRecord } from '../record-construction.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { workflowContextTerminal } from '../workflow-context-terminal.ts'
-import { recordsOf } from '../workflow-control.ts'
+import { abandoned, recordsOf } from '../workflow-control.ts'
+import { ACTION_RECEIPT_FORMAT } from '../workflow-receipt-schema.ts'
 import { appendRecords, interruptionResolution, receiptOf } from './workflow-interruption-support.ts'
 import { assessFixture, mandateAssessmentState, shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
 import { history, must, pauseControls, SCOPE } from './workflow-test-support.ts'
 
-test('historical expanded assessment requires a linked completed successor after interruption', () => {
+test('historical expanded assessment requires a linked completed successor and preserves it after abandonment', () => {
   const mandated = shippedFeatureMandate()
   const initial = mandateAssessmentState(mandated)
   const proposed = {
@@ -124,7 +126,50 @@ test('historical expanded assessment requires a linked completed successor after
   )
   const completed = appendRecords(pending, [positive])
   recordGitPinBytes(completed, [added], bytes)
-  expect(resolveAcceptedSpec(mandated, [completed])).toMatchObject({ ok: true })
+  const beforeAbandonment = resolveAcceptedSpec(mandated, [completed])
+  expect(beforeAbandonment).toMatchObject({ ok: true })
+  const abandonment = must(
+    buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'abandon-expanded-assessment',
+      runId: mandated.runId,
+      operationId: 'op-abandon-expanded-assessment',
+      kind: 'operator-control',
+      payload: {
+        control: 'abandon',
+        controlId: 'abandon-expanded-assessment',
+        predecessor: null,
+        mandate: { scope: SCOPE, kind: 'mandate', recordId: mandated.recordId },
+      },
+    }),
+  )
+  const abandonedSource = appendRecords(completed, [abandonment])
+  recordGitPinBytes(abandonedSource, [added], bytes)
+  expect(abandoned(abandonedSource, mandated)).toBe(true)
+  expect(resolveAcceptedSpec(mandated, [abandonedSource])).toEqual(beforeAbandonment)
+
+  const lateResolution = interruptionResolution({
+    mandate: mandated,
+    pause: pause.confirmed,
+    start: receiptOf(successor),
+    result: null,
+  })
+  const liveWithLateResolution = appendRecords(completed, [lateResolution])
+  recordGitPinBytes(liveWithLateResolution, [added], bytes)
+  expect(resolveAcceptedSpec(mandated, [liveWithLateResolution])).toMatchObject({
+    ok: false,
+    evidence: [
+      {
+        code: 'interruption-resolution-invalid',
+        recordId: lateResolution.recordId,
+        detail: { cause: 'late-result' },
+      },
+    ],
+  })
+  const abandonedWithLateResolution = appendRecords(liveWithLateResolution, [abandonment])
+  recordGitPinBytes(abandonedWithLateResolution, [added], bytes)
+  expect(resolveAcceptedSpec(mandated, [abandonedWithLateResolution])).toEqual(beforeAbandonment)
   expect(resolveAcceptedSpec(mandated, [history([mandated, negative])])).toMatchObject({ ok: false })
   const mismatched = must(
     buildRecord({
@@ -137,4 +182,46 @@ test('historical expanded assessment requires a linked completed successor after
   expect(resolveAcceptedSpec(mandated, [history([mandated, prior.start, negative, competing])])).toMatchObject({
     ok: false,
   })
+})
+
+test.each([true, false])('a plan resolution does not affect Accepted Spec (valid: %s)', (valid) => {
+  const mandated = shippedFeatureMandate()
+  const pause = pauseControls(mandated, 'plan-interruption-pause')
+  const plan = receiptOf(
+    must(
+      buildRecord({
+        ...SCOPE,
+        version: 1,
+        recordId: 'unrelated-plan-start',
+        operationId: 'unrelated-plan-op',
+        runId: mandated.runId,
+        kind: 'action-receipt',
+        payload: {
+          format: ACTION_RECEIPT_FORMAT,
+          phase: 'start',
+          action: 'plan',
+          actionId: 'unrelated-plan',
+          mandate: { scope: SCOPE, kind: 'mandate', recordId: mandated.recordId },
+          exactInputs: {
+            mandateId: mandated.recordId,
+            specDigest: mandated.payload.ownSpec.version,
+            amendsReviewActionId: null,
+            requiredBlockers: [],
+          },
+          inputs: acceptedActionInputs(mandated, 'plan'),
+        },
+      }),
+    ),
+  )
+  const initial = history([mandated, plan, pause.requested, pause.confirmed])
+  const resolution = interruptionResolution({
+    mandate: mandated,
+    pause: pause.confirmed,
+    start: plan,
+    result: null,
+    ...(valid ? {} : { payload: (payload) => ({ ...payload, proposalDigest: '0'.repeat(64) }) }),
+  })
+  const spec = resolveAcceptedSpec(mandated, [initial])
+  expect(spec.ok).toBe(true)
+  expect(resolveAcceptedSpec(mandated, [appendRecords(initial, [resolution])])).toEqual(spec)
 })

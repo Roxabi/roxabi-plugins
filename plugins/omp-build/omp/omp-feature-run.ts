@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext, MessageStartEvent } from '@oh-my-pi/pi-coding-agent'
+import { resolveFeatureRevocation } from '../roxabi/feature-continuation-admission.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
 import {
   captureOrigin,
@@ -13,7 +14,10 @@ import type { FeatureReady } from './omp-feature-admission.ts'
 import { rootContext } from './omp-feature-session.ts'
 
 type AgentMessage = MessageStartEvent['message']
-type Delivery = Pick<FeatureReady, 'repository' | 'issue' | 'pr'> & { origin: FramingOrigin; operator: FramingOperator }
+type Delivery = Pick<FeatureReady, 'repository' | 'issue' | 'mandate'> & {
+  origin: FramingOrigin
+  operator: FramingOperator
+}
 type Running = { delivery: Delivery; message: AgentMessage; pausing?: true }
 type Runs = { pending: Map<string, Delivery>; running?: Running }
 
@@ -26,7 +30,7 @@ export function stageFeatureDelivery(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
   operator: FramingOperator,
-  { repository, issue, pr }: FeatureReady,
+  { repository, issue, mandate }: FeatureReady,
 ) {
   let state = runs.get(pi)
   if (state === undefined) {
@@ -34,7 +38,7 @@ export function stageFeatureDelivery(
     runs.set(pi, state)
   }
   const id = randomUUID()
-  const delivery = { origin: captureOrigin(ctx), operator, repository, issue, pr }
+  const delivery = { origin: captureOrigin(ctx), operator, repository, issue, mandate }
   state.pending.set(id, delivery)
   const own = state
   return {
@@ -50,19 +54,49 @@ function inOrigin(delivery: Delivery, ctx: ExtensionContext): boolean {
   return sameSession(delivery.origin, ctx) && sameLocation(delivery.origin, ctx)
 }
 
-export function takeRunningFeature(
+function activeRun(pi: OmpBuildExtensionApi, ctx: ExtensionContext): Running | undefined {
+  const running = runs.get(pi)?.running
+  return running !== undefined && !running.pausing && !ctx.isIdle() && inOrigin(running.delivery, ctx)
+    ? running
+    : undefined
+}
+
+async function matchesBoundPull(reference: string, { origin, repository, issue, mandate }: Delivery): Promise<boolean> {
+  try {
+    // Resolve the authenticated binding only; unlike abandonment, pause writes no control records.
+    const target = await resolveFeatureRevocation({ cwd: origin.cwd, reference, control: 'abandon', principal: false })
+    const bound = 'kind' in target ? undefined : target.mandate
+    return (
+      bound !== undefined &&
+      bound.scope.repository === repository &&
+      bound.scope.target === `${repository}#${issue}` &&
+      bound.recordId === mandate
+    )
+  } catch {
+    return false
+  }
+}
+
+export async function pauseRunningFeature(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
   reference: string,
-): FramingOperator | null {
-  const running = runs.get(pi)?.running
-  if (running === undefined || running.pausing || ctx.isIdle() || !inOrigin(running.delivery, ctx)) return null
-  const { repository, issue, pr, operator } = running.delivery
+  stop: (operator: FramingOperator) => void,
+): Promise<boolean> {
+  const running = activeRun(pi, ctx)
+  if (running === undefined) return false
+  const { repository, issue, operator } = running.delivery
   const parsed = classifyIssueReference(reference)
-  if ('reason' in parsed || (parsed.number !== issue && parsed.number !== pr)) return null
-  if (parsed.repository !== null && parsed.repository.toLowerCase() !== repository.toLowerCase()) return null
+  if ('reason' in parsed) return false
+  if (parsed.repository !== null && parsed.repository.toLowerCase() !== repository.toLowerCase()) return false
+  if (parsed.number !== issue) {
+    if (!(await matchesBoundPull(reference, running.delivery))) return false
+    // The lookup may outlive the prompt, even if a new run has started for the same UW.
+    if (activeRun(pi, ctx) !== running) return false
+  }
   running.pausing = true
-  return operator
+  stop(operator)
+  return true
 }
 
 /** The scoped host abort may also cancel a stop callback registered on an earlier turn. */
