@@ -27,6 +27,7 @@ import type { ContinueFeatureInput, ContinueFeatureResult } from '../roxabi/feat
 import { bindsOwnPause, inhibition } from '../roxabi/feature-control.ts'
 import { requireMandateCheckout } from '../roxabi/feature-selection.ts'
 import { withRoxabiGitHubPolicy } from '../roxabi/github-policy.ts'
+import { SUPPORTED_CONFIG_VERSIONS } from '../roxabi/workflow-graph.ts'
 import { acceptOwnMaterialDecision } from '../roxabi/workflow-material-decision.ts'
 
 export type FeatureReady = {
@@ -62,13 +63,11 @@ async function resumeSelectedFeature(
   observation: FeatureAdmissionObservation,
   mandate: MandateRecord,
 ): Promise<Admission> {
-  const { facts, evidence } = observation
+  const { evidence } = observation
   const { selection } = authority
   if (selection.status !== 'refused' || selection.reason !== 'paused') return blocked('resume-pause-missing')
-  const config = mandate.payload.config
-  if (config.productVersion !== facts.productVersion || config.digest !== facts.configDigest)
-    return blocked('config-drift')
-  if (!facts.supportedConfigVersions.includes(config.version)) return blocked('unsupported-config')
+  if (!SUPPORTED_CONFIG_VERSIONS.some((version) => version === mandate.payload.config.version))
+    return blocked('unsupported-config')
   const checkout = await requireMandateCheckout({
     cwd: input.cwd,
     git: authority.context.git,

@@ -263,8 +263,9 @@ function apiEmptyResponses(context: Context): boolean {
     emit({ required_status_checks: { contexts: [] } }, context.expression)
     return true
   }
-  if (context.sub?.includes('/rules/branches/')) {
-    emit([], context.expression)
+  const base = /^repos\/[^/]+\/[^/]+\/rules\/branches\/([^/]+)$/.exec(context.sub ?? '')?.[1]
+  if (base !== undefined) {
+    emit(context.state.branchRules?.[decodeURIComponent(base)] ?? [], context.expression)
     return true
   }
   if (context.sub?.includes('/check-runs')) {

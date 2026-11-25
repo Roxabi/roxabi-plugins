@@ -81,7 +81,7 @@ Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit p
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes or reuses the applicable leaf mandate, then hands off to the composition instructions. Re-entry re-observes Git and GitHub. |
-| `/feature resume <reference>` | Checks the runtime version and effective configuration before resuming an ordinary confirmed pause. The mandate's pinned review requirements remain in force. A review-bound or safety stop is not a pause. |
+| `/feature resume <reference>` | Resumes an ordinary confirmed pause under the same mandate, including after an installed upgrade. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the selected mandate, including when that mandate has its own confirmed pause. No automatic renewal. |
 | `/feature new <reference>` | Explicit successor over the authenticated own abandoned mandate tip. It names the antecedent, publishes `select-successor` and preserves a compatible existing PR. Historical framing is not current authority, ancestor revocation is not own abandonment, and `/feature <reference>` never renews a mandate. `new init` is this control, not init. |
@@ -136,7 +136,7 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 
 | Part | Owns | Does not own |
 |---|---|---|
-| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories and landing-mandate admission | Semantic judgement, GitHub calls, merge |
+| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories | Semantic judgement, GitHub calls, merge |
 | Roxabi (`roxabi/`) | Feature admission, mandate and worktree preparation, UW operations | A project-defined graph or an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
@@ -366,17 +366,17 @@ An explicit `adjustCauseDependency` proposal can withdraw or replace that causal
 
 Historical pending causes retain the accepted Spec that produced them. Adjudication reconstructs that origin from the complete authenticated Spec chain; current native acceptance, the exact live pending head and genuine operator confirmation remain mandatory. Immutable successor replay cannot authorize a new operation.
 
-Covered and new-policy delivery discovery searches each distinct relevant repository and mandate head branch across open, closed and merged PRs, reading every page without filtering by base. Branches locate candidates; canonical authenticated bindings establish association. A retargeted PR stays visible and is refused. Incomplete pages, ambiguous bindings or unreadable required history refuse rather than producing an apparently complete empty result.
+Covered and current-format delivery discovery searches each distinct relevant repository and mandate head branch across open, closed and merged PRs, reading every page without filtering by base. Branches locate candidates; canonical authenticated bindings establish association. A retargeted PR stays visible and is refused. Incomplete pages, ambiguous bindings or unreadable required history refuse rather than producing an apparently complete empty result.
 
-For new-policy bindings, publication and selection require a non-null mandate branch and matching mandate, binding and native PR branch and base. Historical off-branch and branchless facts remain subject to their original rules; they are not erased or made landable by this policy.
+New bindings require a non-null mandate branch and exact agreement among the mandate, binding and native PR on branch and base. Historical off-branch and branchless facts are still read under their writer's format; those records do not gain permission to land.
 
-The first succession of an uncovered legacy history retains both exhaustive repository-wide observations and examines every old mandate in the UW home, not just the selected lineage. An off-lineage, orphaned or competing mandate refuses coverage rather than being ignored or treated as covered. The transition can therefore remain expensive. A genuine successful new-policy successor control can bound a fully observed, rediscoverable old prefix; an incomplete prefix or an old mandate added after that boundary refuses explicitly. Ordinary reads do not silently launch a global fallback scan, and a version or cache alone does not prove historical absence.
+The first succession of an uncovered legacy history retains both exhaustive repository-wide observations and examines every old mandate in the UW home, not just the selected lineage. An off-lineage, orphaned or competing mandate refuses coverage rather than being ignored or treated as covered. The transition can therefore remain expensive. A confirmed current-format successor control can bound a fully observed, rediscoverable old prefix; an incomplete prefix or an old mandate added after that boundary refuses explicitly. Ordinary reads do not silently launch a global fallback scan, and a version or cache alone does not prove historical absence.
 
 Foreign claims do not veto UW **home-history coverage**. This does not relax the existing candidate PR binding guards: a foreign-only binding claim on a branch-matching candidate, including a fork PR or an unbound same-repository PR, can still refuse the delivery observation. A refused pause does not mean the own PR was disarmed. If necessary, an operator may independently verify the own PR and manually disable auto-merge and remove `reviewed` as containment only; this is not workflow authority or recovery.
 
-Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
+Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous UW home history; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and 0.21.0 through 0.21.17 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+An installed omp-build upgrade neither invalidates nor renews an existing mandate. Release bumps need no binding allowlist edit. Branch, base, accepted scope, permissions and revocation still constrain delivery.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -582,17 +582,13 @@ Kit merge-on-green and from composed Feature delivery.
 
 #### Shared tooling pin
 
-`OMP_BUILD_TOOLING_SHA` remains the shared source pin for operator-host tooling
-such as `/uw action`. It does not select code for Auto Merge. Read it with:
+`OMP_BUILD_TOOLING_SHA` pins the installed procedure bytes for `/feature` framing and the installed input files for `/uw action`. It is not required for admission or resume of an existing mandate, or for push, open-pr, land, finish or Auto Merge. Read the shared pin with:
 
 ```sh
 gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
 ```
 
-When intentionally updating the shared host pin, use the full `main` SHA that
-carries the installed distribution. A mismatched pin and installed package
-refuse host operations that require the pin. To advance the pin and update a
-shared-pin installation after authorization:
+When intentionally updating the shared pin for those pin-dependent operations, use the full `main` SHA that carries the installed distribution. A mismatched pin stops framing or action preparation, not delivery under an existing mandate. To advance the pin and update a shared-pin installation after authorization:
 
 ```sh
 gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
@@ -605,8 +601,6 @@ omp plugin upgrade omp-build@roxabi-marketplace
 When a separately installed distribution intentionally differs from the shared source pin, set the target GitHub repository's `OMP_BUILD_TOOLING_SHA` to the full lowercase 40-character source commit and run `/tooling-pin activate` in the root TUI. Review the source, installed version, package digest and target clone, then explicitly confirm. The candidate must be on the installed source repository's default-branch ancestry and match the installed package bytes. An older matching installation may qualify. A matching or unreadable shared pin, child session or headless invocation cannot activate it.
 
 `/tooling-pin status` reports the current pin. Approval lives only in this extension instance and confirming root session, scoped to the current GitHub repository and clone, including linked worktrees. A same-session `/move` retains it; a session switch, branch or tree selection, shutdown or reload requires fresh confirmation. Clearing conversation context does not itself revoke activation if the session and agent identities remain unchanged; a changed identity makes it unusable. The root and clone checks still apply. Invalidation does not replace a pin already captured by a surviving admitted operation; its existing origin, stop and control guards still apply. Activation creates no UW or workflow authority and changes no shared pin or installation.
-
-A product-version bump changes the effective workflow config digest. Complete or genuinely abandon active mandates before an incompatible activation. If the current reader cannot authenticate abandonment, retain the blocker and request an explicit owner recovery decision; a source fix or manual merge grants no cutover exception. After applicable activation prerequisites, a genuinely abandoned, conformant current-format UW can use `/feature new #N` for a fresh same-UW successor with current checks and a new config pin, not continuation of the old authority.
 
 ## Guards
 

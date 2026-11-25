@@ -97,32 +97,3 @@ export async function nativeCausal(histories: readonly DecodedHistory[], nodes: 
     ],
   })
 }
-
-export async function landingInput(
-  mandate: MandateRecord,
-  histories: readonly DecodedHistory[],
-  pullRequest: Scope,
-  parentScopes: readonly Scope[],
-  nodes: FixtureNativeWorld['nodes'],
-) {
-  const causal = await nativeCausal(histories, nodes)
-  const config = mandate.payload.config
-  return {
-    histories: causal.histories,
-    authorityHistories: causal.histories,
-    catalogues: causal.catalogues,
-    observation: causal.observation,
-    uwGraph: causal.observation.graph,
-    native: { branch: 'feature/bounded', base: 'main', pullRequest, linkedIssueScopes: [SCOPE] },
-    parentScopes,
-    current: {
-      productVersion: config.productVersion,
-      configVersion: config.version,
-      configDigest: config.digest,
-      supportedConfigVersions: [config.version],
-      proposedSpec: { ok: true as const, snapshot: nativeSnapshot },
-      currentChildren: { ok: true as const, value: [] },
-    },
-    localInhibit: null,
-  }
-}

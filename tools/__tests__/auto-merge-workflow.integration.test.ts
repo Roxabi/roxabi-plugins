@@ -286,7 +286,7 @@ describe(ARM, () => {
       runStep(ARM, { mergeStateStatus: state }),
       1,
       [
-        `refusing auto-merge: PR is already mergeable; merge it with: gh pr merge ${PR} --merge --match-head-commit ${HEAD}`,
+        `refusing auto-merge: PR is already mergeable; merge it with: gh pr merge ${PR} --repo ${REPOSITORY} --merge --match-head-commit ${HEAD}`,
       ],
       [VIEW_LIVE],
     )

@@ -11179,26 +11179,14 @@ function implementationStartPaired(history, result) {
   });
 }
 
-// plugins/omp-build/engine/workflow-binding-policy.ts
-function bindingPolicy(mandate) {
-  const match = /^(0)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(mandate.payload.config.productVersion);
+// plugins/omp-build/engine/workflow-binding-format.ts
+function usesLegacyBindingFormat(mandate) {
+  const match = /^0\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(mandate.payload.config.productVersion);
   if (match === null)
-    return "unknown";
-  const minor = Number(match[2]);
-  const patch = Number(match[3]);
-  if (!Number.isSafeInteger(minor) || !Number.isSafeInteger(patch))
-    return "unknown";
-  if (minor < 18 || minor === 18 && patch <= 7)
-    return "legacy";
-  if (minor === 18 && patch <= 11)
-    return "bounded";
-  if (minor === 19 && patch <= 3)
-    return "bounded";
-  if (minor === 20 && patch <= 1)
-    return "bounded";
-  if (minor === 21 && patch <= 17)
-    return "bounded";
-  return "unknown";
+    return false;
+  const minor = Number(match[1]);
+  const patch = Number(match[2]);
+  return Number.isSafeInteger(patch) && (minor < 18 || minor === 18 && patch <= 7);
 }
 function bindingMatchesMandate(mandate, branch, base) {
   return mandate.payload.branch !== null && mandate.payload.branch === branch && mandate.payload.base === base;
@@ -11405,13 +11393,7 @@ function validateBindingClaims(claims, histories) {
         status: "incomplete",
         diagnostics: [diagnostic2("incomplete", "Binding mandate record is not confirmed")]
       };
-    const policy = bindingPolicy(mandate);
-    if (policy === "unknown")
-      return {
-        status: "incompatible-format",
-        diagnostics: [diagnostic2("incompatible-format", "Binding mandate policy version is unknown")]
-      };
-    if (policy === "bounded" && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
+    if (!usesLegacyBindingFormat(mandate) && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
       return {
         status: "conflicting",
         diagnostics: [diagnostic2("mandate-mismatch", "Workflow-binding branch or base does not match its mandate")]
@@ -17655,16 +17637,6 @@ function pauseConfirmationFor(history, mandate, request) {
     kind: "mandate"
   }) && record.payload.predecessor !== null && sameRef2(record.payload.predecessor, requestRef) && record.payload.disarm.observed === true) ?? null;
 }
-function confirmedPause(history, mandate) {
-  for (const request of controlsOf(history)) {
-    if (!pauseRequestFor(mandate, request))
-      continue;
-    const confirmation = pauseConfirmationFor(history, mandate, request);
-    if (confirmation !== null)
-      return confirmation;
-  }
-  return null;
-}
 function unliftedPause(history, mandate) {
   for (const request of controlsOf(history)) {
     if (!pauseRequestFor(mandate, request))
@@ -21264,9 +21236,8 @@ function authenticateBindingRecord(binding, common, pr, histories) {
   const bindingMandate = confirmedAccountedMandate(mandateHome, binding.payload.mandate);
   if (!boundMandate.ok || bindingMandate === null)
     return refuse("Binding mandate is not authenticated");
-  const policy = bindingPolicy(bindingMandate);
-  if (policy === "unknown" || policy === "bounded" && !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base))
-    return refuse("Recorded binding contradicts its mandate policy");
+  if (!usesLegacyBindingFormat(bindingMandate) && !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base))
+    return refuse("Recorded binding branch or base differs from its mandate");
   return null;
 }
 function authenticateBinding(common, pr, histories) {
@@ -26318,8 +26289,6 @@ function collectMandates(home, operations) {
     const indexes = operation.parts.map((part) => home.source.comments.findIndex((comment) => comment.locator === part.locator));
     if (indexes.length === 0 || indexes.some((index) => index < 0))
       return refused2("UW mandate ordering is incomplete");
-    if (bindingPolicy(record) === "unknown")
-      return refused2(`UW mandate ${record.recordId} has an unknown policy`);
     mandates.push({ record, first: Math.min(...indexes), last: Math.max(...indexes) });
   }
   return { ok: true, mandates };
@@ -26380,7 +26349,7 @@ function controlBoundary(home, operation, mandates) {
   if (operation.status !== "complete" || operation.authority !== "accounted")
     return refused2("Successor control is not accounted");
   const successor = mandates.find(({ record }) => record.recordId === payload.successor.recordId && equalScope(payload.successor.scope, home.source.scope));
-  if (successor === undefined || bindingPolicy(successor.record) !== "bounded")
+  if (successor === undefined || usesLegacyBindingFormat(successor.record))
     return { ok: true, boundary: null };
   const predecessor = payload.predecessor;
   if (predecessor.kind !== "mandate" || !equalScope(predecessor.scope, home.source.scope) || successor.record.payload.antecedent === null || !sameRef2(successor.record.payload.antecedent, predecessor) || !sameRef2(payload.mandate, predecessor) || !mandates.some(({ record }) => record.recordId === predecessor.recordId))
@@ -26428,7 +26397,7 @@ function deliveryCoverage(home) {
   const branches = [
     ...new Set(mandates.flatMap(({ record }) => record.payload.branch === null ? [] : [record.payload.branch]))
   ];
-  const legacy = mandates.filter(({ record }) => bindingPolicy(record) === "legacy");
+  const legacy = mandates.filter(({ record }) => usesLegacyBindingFormat(record));
   if (legacy.length === 0)
     return { ok: true, branches, uncovered: false };
   const coverageBoundary = findBoundary(home, operations, mandates);
@@ -31189,235 +31158,6 @@ function inspectCapturedWorkForAssessment(evidence, mandate, replay) {
     return plans;
   return inspectCapturedDeliveries(inventory.value, evidence.causal.histories, replay);
 }
-// plugins/omp-build/engine/workflow-landing-binding.ts
-function landingBindingReason(selection) {
-  if (selection.status === "conflicting")
-    return "conflict";
-  if (selection.status === "incompatible-format")
-    return "incompatible-format";
-  if (selection.status === "incomplete")
-    return "incomplete";
-  return "unknown-binding";
-}
-function selectedCandidate(input) {
-  const selected = selectWorkflowBinding({
-    pullRequest: input.native.pullRequest,
-    histories: input.authorityHistories,
-    native: { branch: input.native.branch, base: input.native.base }
-  });
-  if (selected.status === "absent")
-    return {
-      ok: false,
-      reason: "missing",
-      evidence: [diagnostic2("missing", "No workflow binding exists on the pull request")]
-    };
-  if (selected.status !== "bound")
-    return { ok: false, reason: landingBindingReason(selected), evidence: selected.diagnostics };
-  const home = historyFor(mandateScope(selected.mandateRecord), input.authorityHistories);
-  if (home === null)
-    return {
-      ok: false,
-      reason: "missing-history",
-      evidence: [diagnostic2("missing-history", "Mandate history is missing")]
-    };
-  return { mandate: selected.mandateRecord, home };
-}
-
-// plugins/omp-build/engine/workflow-landing-admission.ts
-function landingRefusal(reason, evidence) {
-  return { ok: false, reason, evidence };
-}
-function incompleteListedParent(scopes, histories) {
-  for (const scope of scopes) {
-    const history = historyFor(scope, histories);
-    if (history !== null && !history.source.complete)
-      return landingRefusal("incomplete", [diagnostic2("incomplete", "A listed parent history is incomplete")]);
-  }
-  return null;
-}
-function landingReason(reason) {
-  switch (reason) {
-    case "config-invalid":
-      return "unsupported";
-    case "missing":
-    case "paused":
-    case "abandoned":
-    case "revoked":
-    case "unsupported":
-    case "ambiguous":
-    case "incompatible-format":
-    case "incomplete":
-    case "unconfirmed":
-    case "unknown-binding":
-    case "incompatible":
-    case "unsafe":
-    case "materially-changed":
-    case "missing-history":
-      return reason;
-  }
-}
-function directAuthority(candidate, input, causal) {
-  const { mandate, home } = candidate;
-  const omission = epicParentProblem(mandate, input.authorityHistories, causal);
-  if (omission !== null)
-    return landingRefusal(landingReason(omission.reason), omission.evidence);
-  if (input.localInhibit !== null && confirmedPause(home, mandate) === null && !abandoned(home, mandate))
-    return landingRefusal("unconfirmed", [diagnostic2("unconfirmed", "Local inhibit has no confirmed control record")]);
-  if (mandate.payload.role === "fix-only" || mandate.payload.permissions.landing === false)
-    return landingRefusal("fix-only", [diagnostic2("fix-only", "Fix-only mandate cannot land")]);
-  if (abandoned(home, mandate))
-    return landingRefusal("abandoned", [diagnostic2("abandoned", `Mandate ${mandate.recordId} is abandoned`)]);
-  if (successorOf(home, mandate) !== null)
-    return landingRefusal("revoked", [diagnostic2("revoked", `Mandate ${mandate.recordId} was superseded`)]);
-  if (unliftedPause(home, mandate) !== null)
-    return landingRefusal("paused", [diagnostic2("paused", `Mandate ${mandate.recordId} is paused`)]);
-  if (mandate.payload.branch === null || mandate.payload.branch !== input.native.branch)
-    return landingRefusal("unknown-binding", [diagnostic2("unknown-binding", "Mandate branch does not match")]);
-  if (mandate.payload.base !== input.native.base)
-    return landingRefusal("unknown-binding", [diagnostic2("unknown-binding", "Mandate base does not match")]);
-  return null;
-}
-function acceptedReason(reason) {
-  if (reason === "material-spec")
-    return "material-spec";
-  if (reason === "ambiguous")
-    return "ambiguous";
-  if (reason === "missing-history")
-    return "missing-history";
-  return "incomplete";
-}
-function parentAuthority(candidate, input, causal) {
-  const { mandate } = candidate;
-  if (mandate.payload.parent === null)
-    return null;
-  const parentHistory = historyFor(mandate.payload.parent.scope, input.authorityHistories);
-  if (parentHistory === null)
-    return landingRefusal("missing-history", [diagnostic2("missing-history", "Parent mandate history is missing")]);
-  const parent = bindExternalRef(mandate.payload.parent, parentHistory);
-  if (!parent.ok)
-    return landingRefusal("incomplete", parent.diagnostics);
-  if (parent.value.kind !== "mandate")
-    return landingRefusal("unknown-binding", [diagnostic2("kind-mismatch", "Parent reference is not a mandate")]);
-  const parentSelection = selectApplicableMandate(parentHistory, input.authorityHistories, causal);
-  if (parentSelection.status === "refused")
-    return landingRefusal(landingReason(parentSelection.reason), parentSelection.evidence);
-  if (!sameRef2({ scope: mandateScope(parentSelection.mandate), recordId: parentSelection.mandate.recordId, kind: "mandate" }, mandate.payload.parent)) {
-    return landingRefusal("revoked", [
-      diagnostic2("revoked", "Child parent reference does not name the active parent mandate")
-    ]);
-  }
-  if (mandate.payload.permissions.landing && !parent.value.payload.permissions.landing)
-    return landingRefusal("incompatible", [diagnostic2("incompatible", "Child landing exceeds the parent")]);
-  return parentChildGrantRefusal(mandate, parent.value, input.histories);
-}
-function parentChildGrantRefusal(mandate, parent, histories) {
-  const parentAccepted = resolveAcceptedSpec(parent, histories);
-  if (!parentAccepted.ok)
-    return landingRefusal(acceptedReason(parentAccepted.reason), parentAccepted.evidence);
-  const childAccepted = resolveAcceptedSpec(mandate, histories);
-  if (!childAccepted.ok)
-    return landingRefusal(acceptedReason(childAccepted.reason), childAccepted.evidence);
-  const grant = childCommitmentRefusal(mandate, parentAccepted.spec, childAccepted.spec);
-  return grant === null ? null : landingRefusal(landingReason(grant.reason), grant.evidence);
-}
-function currentAuthority(candidate, input) {
-  const { mandate } = candidate;
-  const outstandingPause = outstandingPauseInAuthority(mandate, input.authorityHistories);
-  if (outstandingPause !== null)
-    return landingRefusal("unconfirmed", [outstandingPause]);
-  if (input.current.supportedConfigVersions.length === 0 || !input.current.supportedConfigVersions.includes(mandate.payload.config.version))
-    return landingRefusal("unsupported", [diagnostic2("unsupported", "Mandate config version is not supported")]);
-  if (mandate.payload.config.productVersion !== input.current.productVersion)
-    return landingRefusal("config-drift", [
-      diagnostic2("config-drift", "Mandate product version differs from the installed package")
-    ]);
-  if (mandate.payload.config.version !== input.current.configVersion || mandate.payload.config.digest !== input.current.configDigest)
-    return landingRefusal("config-drift", [
-      diagnostic2("config-drift", "Mandate config digest differs from current config")
-    ]);
-  return null;
-}
-function uwAdmissionAuthority(candidate, input) {
-  const ownUw = candidate.mandate.payload.ownSpec.uw;
-  if (input.uwGraph.root.repository !== ownUw.repository || input.uwGraph.root.target !== ownUw.target)
-    return landingRefusal("uw-not-deliverable", [
-      diagnostic2("graph-incomplete", "Fresh native graph is not rooted at the selected own UW")
-    ]);
-  if (input.observation.status !== "complete" || input.observation.root.repository !== ownUw.repository || input.observation.root.target !== ownUw.target)
-    return landingRefusal("uw-not-deliverable", [
-      diagnostic2("observation-mismatch", "Landing must use the same complete graph and histories as its completion observation")
-    ]);
-  const ownHistory = historyFor(ownUw, input.histories);
-  if (ownHistory === null)
-    return landingRefusal("missing-history", [diagnostic2("missing-history", "Own UW identity history is missing")]);
-  const resolved = resolveAcceptedSpec(candidate.mandate, input.histories);
-  if (!resolved.ok)
-    return landingRefusal(acceptedReason(resolved.reason), resolved.evidence);
-  const accepted = { status: "accepted", value: resolved.spec };
-  const identities = resolveSpecIdentityLedger({
-    uw: ownUw,
-    history: ownHistory,
-    histories: input.histories,
-    accepted: resolved.spec
-  });
-  if (!identities.ok)
-    return landingRefusal("uw-not-deliverable", toDiagnostics(identities.diagnostics));
-  const admission = assessUwAdmission({
-    uw: ownUw,
-    graph: input.uwGraph,
-    proposed: input.current.proposedSpec,
-    accepted,
-    identities: identities.value,
-    histories: input.histories,
-    catalogues: input.catalogues,
-    completion: assessUwCompletion(input.observation),
-    phase: "landing",
-    currentChildren: input.current.currentChildren
-  });
-  if (!admission.deliverable.ok)
-    return landingRefusal("uw-not-deliverable", toDiagnostics(admission.deliverable.diagnostics));
-  return null;
-}
-function requireLandingMandate(input) {
-  if (input.observation.status !== "complete")
-    return landingRefusal("incomplete", toDiagnostics(input.observation.diagnostics));
-  if (JSON.stringify(input.observation.graph) !== JSON.stringify(input.uwGraph) || JSON.stringify(input.observation.histories) !== JSON.stringify(input.histories))
-    return landingRefusal("uw-not-deliverable", [
-      diagnostic2("observation-mismatch", "Landing must use the same complete graph and histories as its completion observation")
-    ]);
-  const causal = {
-    histories: input.histories,
-    catalogues: input.catalogues,
-    observation: input.observation
-  };
-  const causalDiagnostics = workflowCausalDiagnostics(input.authorityHistories, causal);
-  if (causalDiagnostics.length > 0)
-    return landingRefusal("incomplete", causalDiagnostics);
-  const listed = incompleteListedParent(input.parentScopes, input.authorityHistories);
-  if (listed !== null)
-    return listed;
-  const selected = selectedCandidate(input);
-  if ("ok" in selected)
-    return selected;
-  const direct = directAuthority(selected, input, causal);
-  if (direct !== null)
-    return direct;
-  const parent = parentAuthority(selected, input, causal);
-  if (parent !== null)
-    return parent;
-  const current = currentAuthority(selected, input);
-  if (current !== null)
-    return current;
-  const uw = uwAdmissionAuthority(selected, input);
-  if (uw !== null)
-    return uw;
-  return {
-    ok: true,
-    recordId: selected.mandate.recordId,
-    scope: mandateScope(selected.mandate),
-    mandate: selected.mandate
-  };
-}
 // plugins/omp-build/engine/workflow-mandate.ts
 function effectiveMandateRole(storedRole, accepted) {
   return storedRole === "fix-only" ? "fix-only" : accepted.children.length > 0 ? "epic" : "feature";
@@ -31726,8 +31466,9 @@ function canonicalJson(value) {
   }
   return JSON.stringify(value) ?? "null";
 }
-function configPinDigest(effective) {
-  return createHash19("sha256").update(canonicalJson(effective)).digest("hex");
+function configPinDigest({ productVersion: _producer, graph, ...effective }) {
+  const { productVersion: _graphProducer, ...graphConfig } = graph;
+  return createHash19("sha256").update(canonicalJson({ ...effective, graph: graphConfig })).digest("hex");
 }
 function workflowConfigDigest() {
   return createHash19("sha256").update(canonicalJson({ version: WORKFLOW_CONFIG_VERSION, ...workflowGraphData })).digest("hex");
@@ -31754,9 +31495,6 @@ function effectiveWorkflowConfig(productVersion, additionalRequirements) {
 }
 
 // plugins/omp-build/roxabi/workflow-overrides.ts
-import { execFile as execFile2 } from "node:child_process";
-import { promisify as promisify2 } from "node:util";
-var execFileAsync2 = promisify2(execFile2);
 function overrideDiagnostic(code, message) {
   return { code, message };
 }
@@ -31874,7 +31612,6 @@ export {
   authenticatedAssessResult,
   bindExternalRef,
   bindingMatchesMandate,
-  bindingPolicy,
   boundFramingCoverageIntentSchema,
   buildFramingSpecIdentity,
   buildMaterialAcceptanceControl,
@@ -32131,7 +31868,6 @@ export {
   reportPromotionInputSchema,
   reportPromotionPayloadSchema,
   requestedSourceLocatorSchema,
-  requireLandingMandate,
   resolutionIndex,
   resolveAcceptedSpec,
   resolveAdjudicationContext,

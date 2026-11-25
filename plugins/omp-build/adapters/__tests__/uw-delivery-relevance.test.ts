@@ -199,31 +199,16 @@ it('does not let an intruder modern mandate cover a legacy home', async () => {
   })
 })
 
-it.each(['partial', 'unknown-version'] as const)(
-  'does not hide a trusted %s mandate behind a foreign claim',
-  async (damage) => {
-    const { pages, options } = setup()
-    const home = pages.get(1)
-    if (!home) throw new Error('missing home fixture')
-    if (damage === 'partial') {
-      const part = home.find((entry) => entry.body.includes('kind=mandate '))
-      if (!part) throw new Error('missing mandate part')
-      part.body = part.body.replace('part=1/1', 'part=1/2')
-    } else {
-      const future = parseRecord({
-        ...current,
-        payload: { ...current.payload, config: { ...current.payload.config, productVersion: '0.999.0' } },
-      })
-      if (!future.ok) throw new Error('invalid future-version fixture')
-      pages.set(1, comments(fixture.framedBodies([future.value], 'operator')))
-    }
-    const trusted = pages.get(1)
-    if (!trusted) throw new Error('missing damaged home fixture')
-    pages.set(1, [...trusted, comment('<!-- omp-build:mandate -->', 1000, 'intruder')])
-    const observation = await readUwCompletionObservation(root, options, async () => createReviewClassCatalogues([]))
-    expect(observation).toMatchObject({ status: 'incomplete' })
-  },
-)
+it('does not hide a trusted partial mandate behind a foreign claim', async () => {
+  const { pages, options } = setup()
+  const home = pages.get(1)
+  const part = home?.find((entry) => entry.body.includes('kind=mandate '))
+  if (!home || !part) throw new Error('missing mandate part')
+  part.body = part.body.replace('part=1/1', 'part=1/2')
+  pages.set(1, [...home, comment('<!-- omp-build:mandate -->', 1000, 'intruder')])
+  const observation = await readUwCompletionObservation(root, options, async () => createReviewClassCatalogues([]))
+  expect(observation).toMatchObject({ status: 'incomplete' })
+})
 
 it('refuses a retargeted bound PR through the branch-filtered delivery observation', async () => {
   const { options, requests } = setup([12, 11])
