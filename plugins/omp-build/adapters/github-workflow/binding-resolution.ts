@@ -10,6 +10,7 @@ import {
   type WorkflowBindingSelection,
 } from '../../engine/workflow-pr-binding.ts'
 import { type BindingPurpose, refKey } from '../../engine/workflow-pr-binding-chain.ts'
+import { readDecodedGitHubHistory } from '../github/historical-pins.ts'
 import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import { diagnostic, type GitHubOptions } from '../github/types.ts'
@@ -67,7 +68,7 @@ function initialBindingSelection(
 
 async function readBindingMandateHistories(
   prHistory: DecodedHistory,
-  options: GitHubOptions,
+  readHistory: (scope: Scope) => Promise<DecodedHistory>,
 ): Promise<BindingMandateHistories> {
   const histories: DecodedHistory[] = []
   for (const operation of prHistory.operations) {
@@ -77,7 +78,7 @@ async function readBindingMandateHistories(
     const mandateScope = record.payload.mandate.scope
     if (historyFor(mandateScope, [prHistory, ...histories]) !== null) continue
 
-    const history = decodeHistory(await readGitHubHistory(mandateScope, options))
+    const history = await readHistory(mandateScope)
     if (!history.source.complete) {
       return {
         ok: false,
@@ -99,7 +100,7 @@ async function recoveryClosure(primary: DecodedHistory, options: GitHubOptions):
     )
     for (const scope of fixRecoveryDiscoveryScopes(records)) {
       if (histories.some((entry) => equalScope(entry.source.scope, scope))) continue
-      const next = decodeHistory(await readGitHubHistory(scope, options))
+      const next = await readDecodedGitHubHistory(scope, options)
       if (!next.source.complete)
         return {
           ok: false,
@@ -121,7 +122,11 @@ export async function resolveInitialWorkflowBinding(
 ): Promise<InitialBindingResolution> {
   const pr = scopeNumber(prScope)
   const pullRequest = await readNativePullRequestFacts(prScope.repository, pr, options)
-  let prHistory = decodeHistory(await readGitHubHistory(prScope, options))
+  const readHistory = (scope: Scope) =>
+    purpose === 'delivery'
+      ? readDecodedGitHubHistory(scope, options)
+      : readGitHubHistory(scope, options).then(decodeHistory)
+  let prHistory = await readHistory(prScope)
   if (!prHistory.source.complete) {
     return { ok: false, result: bindingRefusal('incomplete', [diagnostic('incomplete', 'PR history is incomplete')]) }
   }
@@ -135,7 +140,7 @@ export async function resolveInitialWorkflowBinding(
   let mandateHistories: DecodedHistory[] = closure.histories.slice(1)
   let selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose)
   if (selected.status === 'incomplete') {
-    const fetched = await readBindingMandateHistories(prHistory, options)
+    const fetched = await readBindingMandateHistories(prHistory, readHistory)
     if (!fetched.ok) return { ok: false, result: fetched.result }
     mandateHistories = uniqueHistories([...mandateHistories, ...fetched.histories])
     selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose)
@@ -180,7 +185,7 @@ export async function readParentMandateChain(
 
     let parentHistory = historyFor(parent.scope, [...knownHistories, ...parentHistories])
     if (parentHistory === null) {
-      parentHistory = decodeHistory(await readGitHubHistory(parent.scope, options))
+      parentHistory = await readDecodedGitHubHistory(parent.scope, options)
       if (!parentHistory.source.complete) {
         return {
           ok: false,

@@ -10,8 +10,7 @@ import type {
 } from '../roxabi/feature-contract.ts'
 import type { FramingOperator } from '../roxabi/feature-framing-contract.ts'
 import { featureErrorMessage } from '../roxabi/feature-presentation.ts'
-import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
-import { hostPluginPin } from './host-plugin-pin.ts'
+import type { TrustedHostPluginPin } from '../roxabi/plugin-pin-contract.ts'
 import { resolveFeatureUw } from './host-uw-operations.ts'
 import { type OmpBuildExtensionApi, reportFeatureTerminalStatus } from './omp-controller'
 import { admitFeature } from './omp-feature-admission.ts'
@@ -94,10 +93,9 @@ async function featureCommandUw(
   ctx: ExtensionContext,
   operator: CommandOperatorPort,
   options: FeatureCommandComposition['options'],
-  pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<FeatureCommandHost['uw']> {
   if (options.featureWorkflow !== undefined) return undefined
-  return resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin)
+  return resolveFeatureUw(ctx, operator, options.uwOperations)
 }
 
 async function runClassifiedFeatureCommand(
@@ -131,12 +129,11 @@ async function runFeatureEntry(
   const { pi, options } = composition
   // Read-only until the source is classified.
   beginFeatureUwIntake(pi, operator, ctx)
-  const pluginPin = await hostPluginPin(pi, ctx)
   if (!reporting.isCurrent()) return
   const deliver = deliversSkill(parsed.control)
   const body = deliver ? await compositionSkill(composition) : undefined
   if (!reporting.isCurrent() || (deliver && body === undefined)) return
-  const uw = await featureCommandUw(ctx, operator, options, pluginPin)
+  const uw = await featureCommandUw(ctx, operator, options)
   if (!reporting.isCurrent()) return
   const input: ContinueFeatureInput = {
     cwd: ctx.cwd,
@@ -145,7 +142,6 @@ async function runFeatureEntry(
     principal: isPrincipal(composition, ctx.cwd),
     owned: reporting.isCurrent,
     ...(uw === undefined ? {} : { uw }),
-    ...(pluginPin === undefined ? {} : { pluginPin }),
   }
   await runClassifiedFeatureCommand(composition, ctx, operator, input, body, reporting, args)
 }

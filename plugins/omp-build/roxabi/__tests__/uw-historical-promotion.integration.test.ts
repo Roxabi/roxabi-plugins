@@ -10,7 +10,13 @@ import {
   recordsOf,
   reviewClassCatalogueRef,
 } from '../../dist/contracts.js'
-import { causeFixtureGraph, causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
+import { fixtureCatalogueGhResponse, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
+import {
+  causeFixtureGraph,
+  causeOriginalHistory,
+  fixtureCauseGhResponse,
+  sisterRecords,
+} from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
@@ -34,13 +40,15 @@ function independentHold() {
     label: 'issue',
   })
   if (other.inputs.manifest.spec.kind !== 'accepted') throw new Error('expected accepted hold input')
-  const source = encodeCriterionRecords(
-    recordsOf(other.history).filter((record) => record.kind !== 'review'),
-    otherPr,
-    roxabiRecordFixtures().projection,
-    'operator',
-    [origin],
-  ).history
+  const source = observeFixtureCatalogue(
+    encodeCriterionRecords(
+      recordsOf(other.history).filter((record) => record.kind !== 'review'),
+      otherPr,
+      roxabiRecordFixtures().projection,
+      'operator',
+      [origin],
+    ).history,
+  )
   const decision = recordsOf(source).find(
     (record) => record.kind === 'decision' && record.recordId === other.decision.recordId,
   )
@@ -227,29 +235,33 @@ it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)
       return '{}'
     }
 
-    function handleIssueApi(endpoint: string, args: string[]): string | null {
-      if (endpoint.endsWith('/issues') && args.includes('POST')) {
-        creates += 1
-        if (parentState === 'active-after-create') activateParent()
-        issues.set(43, {
-          title: args.find((arg) => arg.startsWith('title='))?.slice(6) ?? '',
-          body: args.find((arg) => arg.startsWith('body='))?.slice(5) ?? '',
-          labels: [],
-          parent: null,
-        })
-        return '43'
-      }
+    function handleCreate(args: string[]): string {
+      creates += 1
+      if (parentState === 'active-after-create') activateParent()
+      issues.set(43, {
+        title: args.find((arg) => arg.startsWith('title='))?.slice(6) ?? '',
+        body: args.find((arg) => arg.startsWith('body='))?.slice(5) ?? '',
+        labels: [],
+        parent: null,
+      })
+      return '43'
+    }
+
+    function handleIssueEndpoint(endpoint: string, args: string[]): string | null {
+      const commentMatch = /issues\/(\d+)\/comments/.exec(endpoint)
+      if (commentMatch) return handleComments(endpoint, args, Number(commentMatch[1]))
+      if (endpoint.endsWith('/issues') && args.includes('POST')) return handleCreate(args)
       const issueMatch = /issues\/(\d+)$/.exec(endpoint)
       if (issueMatch && args.includes('PATCH')) return handlePatch(Number(issueMatch[1]), args)
       return issueMatch && args.includes('.node_id') ? `node-${issueMatch[1]}` : null
     }
 
     const gh: Gh = async (_cwd, args) => {
+      const pinned = fixtureCatalogueGhResponse(args) ?? fixtureCauseGhResponse(args)
+      if (pinned !== null) return pinned
       const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
       if (args[0] === 'api' && args[1] === 'user') return 'automation'
-      const commentMatch = /issues\/(\d+)\/comments/.exec(endpoint)
-      if (commentMatch) return handleComments(endpoint, args, Number(commentMatch[1]))
-      const issueApiResult = handleIssueApi(endpoint, args)
+      const issueApiResult = handleIssueEndpoint(endpoint, args)
       if (issueApiResult !== null) return issueApiResult
       if (args[0] === 'issue' && args[1] === 'edit') return handleLabels(args)
       if (args[1] === 'graphql') return handleGraph(args)

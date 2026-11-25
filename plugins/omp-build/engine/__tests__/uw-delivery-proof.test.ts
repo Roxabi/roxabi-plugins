@@ -350,7 +350,6 @@ test('three independently merged children remain distinct in bottom-up completio
       baseTrees: ['7', '4', '5'].map((value) => value.repeat(40)),
       mergeTrees: ['4', '5', '6'].map((value) => value.repeat(40)),
       parentTree: 'f'.repeat(40),
-      diff: new TextEncoder().encode('diff --git a/fixture.txt b/fixture.txt\n'),
     },
     [{ id: 'C1', statement: 'Save keeps the selected region' }],
     'planned',

@@ -4,7 +4,7 @@ import type { Diagnostic } from '../engine/record-values.ts'
 import type { AcceptedOwnSpec } from '../engine/workflow-accepted-spec-types.ts'
 import type { AcceptedChildCommitment, ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { FramingSourceRequest } from './feature-framing-contract.ts'
-import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { TrustedHostPluginPin } from './plugin-pin-contract.ts'
 import type { UwOperationResult, UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 

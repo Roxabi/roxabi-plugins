@@ -20,7 +20,6 @@ import type { MandateSelection } from './workflow-mandate.ts'
 import { historyRefusal, revocationHistoryRefusal } from './workflow-mandate-history.ts'
 import { epicParentProblem } from './workflow-parent.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 type MandateRefusalSelection = Extract<MandateSelection, { status: 'refused' }>
 
@@ -205,7 +204,6 @@ function controlParentAuthority(
   externalHistories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string>,
-  replayContext?: AssessmentReplayContext,
 ): Result<void> {
   if (mandate.payload.parent === null) return { ok: true, value: undefined }
   const parentHistory = historyFor(mandate.payload.parent.scope, externalHistories)
@@ -213,7 +211,7 @@ function controlParentAuthority(
   const bound = bindExternalRef(mandate.payload.parent, parentHistory)
   if (!bound.ok) return bound
   if (bound.value.kind !== 'mandate') return fail([diagnostic('kind-mismatch', 'Parent reference is not a mandate')])
-  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, causal, seen, replayContext)
+  const parent = resolveOwnSpecAuthority(parentHistory, externalHistories, causal, seen)
   if (!parent.ok) return parent
   if (
     !sameRef(
@@ -239,7 +237,6 @@ export function resolveOwnSpecAuthority(
   externalHistories: readonly DecodedHistory[],
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string> = new Set(),
-  replayContext?: AssessmentReplayContext,
 ): Result<OwnSpecAuthority> {
   const cycle = cycleRefusal(history, seen)
   if (cycle !== null) return fail(cycle.evidence)
@@ -253,9 +250,9 @@ export function resolveOwnSpecAuthority(
   if (!graph.ok) return fail(graph.diagnostics)
   const nextSeen = new Set(seen)
   nextSeen.add(`${history.source.scope.repository}\0${history.source.scope.target}`)
-  const parent = controlParentAuthority(selected, externalHistories, causal, nextSeen, replayContext)
+  const parent = controlParentAuthority(selected, externalHistories, causal, nextSeen)
   if (!parent.ok) return parent
-  const accepted = resolveAcceptedSpec(selected, causal.histories, replayContext)
+  const accepted = resolveAcceptedSpec(selected, causal.histories)
   if (!accepted.ok) return fail(accepted.evidence)
   return { ok: true, value: { mandate: selected, accepted: accepted.spec } }
 }

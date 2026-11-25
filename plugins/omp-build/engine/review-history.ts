@@ -41,7 +41,8 @@ export function spentBeforeCurrentPullRequestAttempt(
   deliveryHistory: DecodedHistory = history,
 ): boolean | null {
   const records = recordMap(history)
-  const root = latestUnfinishedPullRequestRoot(records, reviewContextLineage(history, records).superseded)
+  const lineage = reviewContextLineage(history, records, [deliveryHistory, ...externalHistories])
+  const root = latestUnfinishedPullRequestRoot(records, lineage.superseded)
   if (root === null) return null
   const rootIndex = history.operations.findIndex(
     (operation) => operation.status === 'complete' && operation.record?.recordId === root.recordId,

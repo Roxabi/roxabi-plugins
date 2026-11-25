@@ -15,6 +15,7 @@ import {
   recheckCauseDependencyAdjustmentEffect,
 } from '../dist/contracts.js'
 import type { PreparedCauseDependencyAdjustment } from '../engine/cause-dependency-adjustment-schema.ts'
+import type { ObservationRef } from '../engine/criterion-evidence-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { CauseDependencyAdjustmentInputJson } from '../engine/uw-command-schema.ts'
 import type { UwCompletionAssessment, UwCompletionObservation } from '../engine/uw-completion-types.ts'
@@ -49,7 +50,11 @@ type AdjustmentPorts = {
   operator: OperatorPort
   writer: IssueWriter
   github: GitHubOptions
-  readObservation(uw: Scope, additionalScopes: readonly Scope[]): Promise<UwCompletionObservation>
+  readObservation(
+    uw: Scope,
+    additionalScopes: readonly Scope[],
+    references?: readonly ObservationRef[],
+  ): Promise<UwCompletionObservation>
 }
 
 type AdjustmentContext = {
@@ -108,7 +113,7 @@ async function readAndCheckEffect(
 ) {
   const { input, request, recheckSeeds, accepted, effectState } = context
   const uw = request.origin
-  const after = await input.readObservation(uw, recheckSeeds)
+  const after = await input.readObservation(uw, recheckSeeds, accepted.proposal.references)
   if (checked.proposal.nativeEffect.kind === 'none') observed = rootObservation(uw, { graph: after.graph })
   if (observed === null)
     return {
@@ -144,6 +149,7 @@ async function confirmPublishedControl(
 ): Promise<CauseAdjustmentResult> {
   const { input, request, operationId, recheckSeeds } = context
   const uw = request.origin
+  // Read back the published citation independently of the live request.
   const result = await input.readObservation(uw, recheckSeeds)
   const control = { scope: uw, recordId: operationId, kind: 'operator-control' as const }
   const home = result.histories.find(
@@ -230,7 +236,7 @@ async function executeAdjustment(
 ): Promise<CauseAdjustmentResult> {
   const { input, request, accepted, recheckSeeds } = context
   const uw = request.origin
-  const fresh = await input.readObservation(uw, recheckSeeds)
+  const fresh = await input.readObservation(uw, recheckSeeds, accepted.proposal.references)
   const checked = recheckCauseDependencyAdjustment(accepted, fresh)
   if (!checked.ok) return { status: 'refused', diagnostics: checked.diagnostics }
   const target = issueRef(uw)
@@ -252,7 +258,7 @@ export function createCauseAdjustment(
     const seeds = request.change.kind === 'replace' ? [request.change.blocker] : []
     const effectState = { mayExist: false }
     try {
-      const observation = await input.readObservation(uw, seeds)
+      const observation = await input.readObservation(uw, seeds, request.references)
       const operationId = `adjust-cause-dependency:${randomUUID()}`
       const prepared = prepareCauseDependencyAdjustment({
         ...request,

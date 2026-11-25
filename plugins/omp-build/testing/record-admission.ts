@@ -125,16 +125,10 @@ export function encodedAdmissionReviewGraph(
 ) {
   const graph = admissionReviewGraph(options)
   const comments: ObservedComment[] = []
+  // Preserve the catalogue observation in the source used to authorize publication.
+  const source = { ...graph.history.source, comments }
   let nativeId = 1
   for (const record of graph.records) {
-    const source = {
-      scope: graph.history.source.scope,
-      expectedAuthor: NATIVE_AUTHOR,
-      stopAuthor: null,
-      complete: true,
-      comments,
-      diagnostics: [],
-    }
     const encoded = encodeRecord(record, source, projection)
     if (!encoded.ok)
       throw new Error(
@@ -146,14 +140,6 @@ export function encodedAdmissionReviewGraph(
         observedComment({ locator: `comment-${id}`, nativeId: id, body, createdAt: '2026-10-21T10:00:00Z' }),
       )
     }
-  }
-  const source = {
-    scope: graph.history.source.scope,
-    expectedAuthor: NATIVE_AUTHOR,
-    stopAuthor: null,
-    complete: true,
-    comments,
-    diagnostics: [],
   }
   return { ...graph, comments, history: decodeHistory(source) }
 }

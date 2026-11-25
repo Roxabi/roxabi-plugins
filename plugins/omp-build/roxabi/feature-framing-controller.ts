@@ -28,7 +28,7 @@ import { projectFraming } from './feature-framing-controller-project.ts'
 import { readIssueSource } from './feature-framing-controller-proposal.ts'
 import { submitFramingForm } from './feature-framing-controller-submit.ts'
 import { loadFramingProcedures } from './feature-framing-procedures.ts'
-import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { TrustedHostPluginPin } from './plugin-pin-contract.ts'
 import type { OperatorPort } from './uw-contract.ts'
 
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/

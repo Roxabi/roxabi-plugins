@@ -1,8 +1,9 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import { type CorrectionCriterionContext, currentCorrectionContext } from './correction-criterion-context.ts'
 import { type HistoricalCorrectionBasis, resolveHistoricalCorrectionBasis } from './correction-historical-basis.ts'
 import { correctionRecord, finalApplyAttempt } from './correction-lineage-admission.ts'
 import { genuineCorrectionSource } from './correction-native-source.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -47,28 +48,23 @@ function validApplied(
 ): boolean {
   const action = applied.payload.host.action
   const payload = input.lineage.correction.payload
-  if (
-    !action ||
-    !validateActionInputs(action.inputs).ok ||
-    inventory.payload.stage !== 'initial' ||
-    inventory.payload.purpose !== 'correction'
-  )
-    return false
+  const { inputs } = basis
+  if (!action || inventory.payload.stage !== 'initial' || inventory.payload.purpose !== 'correction') return false
   if (
     inventory.payload.requestId !== input.historical.requestRef.record.recordId ||
     !inventory.inputs.includes(input.decision.recordId) ||
     !applied.inputs.includes(inventory.recordId) ||
-    inventory.payload.actionInputDigest !== action.inputs.fingerprint
+    inventory.payload.actionInputDigest !== inputs.fingerprint
   )
     return false
   if (
-    !currentCorrectionContext(action.inputs, input.fix, input.histories, input.context) ||
-    inventory.payload.candidateGitSHA !== action.inputs.manifest.code.head ||
+    !currentCorrectionContext(inputs, input.fix, input.histories, input.context) ||
+    inventory.payload.candidateGitSHA !== inputs.manifest.code.head ||
     !samePlan(basis, input.historical)
   )
     return false
   if (
-    !action.inputs.stageSources.some(
+    !inputs.stageSources.some(
       (ref) =>
         ref.record.kind === 'decision' &&
         ref.record.recordId === input.decision.recordId &&
@@ -89,7 +85,7 @@ function validApplied(
       slot.correction.phase === 'apply' &&
       slot.correction.causeId === payload.causeId &&
       slot.action?.actionId === action.actionId &&
-      canonicalValueDigest(slot.action.inputs) === canonicalValueDigest(action.inputs),
+      canonicalValueDigest(slot.action.inputs) === canonicalValueDigest(inputs),
   )
   const output = applyActionResultSchema.safeParse(applied.payload.structured)
   return (
@@ -112,6 +108,7 @@ function validObservation(input: Input, applied: Contribution): boolean {
   const action = input.contribution.payload.host.action
   if (
     !action ||
+    !authenticateHistoricalActionInputs(action.inputs, input.histories).ok ||
     !correction.inputs.includes(input.contribution.recordId) ||
     !payload.criterionObservations?.some(
       (item) => item.sourceContributionId === input.contribution.recordId && item.head === input.context.head,

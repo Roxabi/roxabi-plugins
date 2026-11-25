@@ -1,5 +1,6 @@
 import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -138,6 +139,15 @@ export function resolveManifestMandate(
   inputs: ActionInputs,
   histories: readonly DecodedHistory[],
 ): Result<MandateRecord> {
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories)
+  if (!authenticated.ok) return authenticated
+  return resolveAuthenticatedManifestMandate(authenticated.value, histories)
+}
+
+function resolveAuthenticatedManifestMandate(
+  inputs: ActionInputs,
+  histories: readonly DecodedHistory[],
+): Result<MandateRecord> {
   const { subject, spec, acceptedSources } = inputs.manifest
   if (subject.kind !== 'uw' || spec.kind !== 'accepted' || !equalScope(spec.effective.own.uw, subject.uw))
     return fail([diagnostic('unconfirmed', 'Action inputs do not identify an accepted UW Spec')])
@@ -179,17 +189,4 @@ export function resolveManifestMandate(
   )
     return fail([diagnostic('unconfirmed', 'Execution mandate is not pinned in accepted sources')])
   return { ok: true, value: resolved.value }
-}
-
-/** Authenticate a persisted work invocation's mandate without granting review or delivery authority. */
-export function resolveCapturedWorkMandate(
-  inputs: ActionInputs,
-  histories: readonly DecodedHistory[],
-): Result<MandateRecord> {
-  const { purpose, subject } = inputs.manifest
-  if (purpose !== 'plan' && purpose !== 'plan-review' && purpose !== 'implement' && purpose !== 'integrate')
-    return fail([diagnostic('unconfirmed', 'Captured work purpose is not an inspected invocation')])
-  return subject.kind === 'uw' && subject.pullRequest === null
-    ? unboundPinnedMandate(inputs, histories)
-    : resolveManifestMandate(inputs, histories)
 }

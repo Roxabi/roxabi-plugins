@@ -2,53 +2,38 @@ import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
 import { evidenceDigest } from './criterion-admission.ts'
 import { appendCorrectionSelection } from './criterion-correction-selection.ts'
-import { projectAdditiveDeclarations } from './criterion-declaration-projection.ts'
+import { type CriterionSourceSelection, projectAdditiveDeclarations } from './criterion-declaration-projection.ts'
 import {
   type CriterionDeclaration,
   type CriterionEvidence,
   criterionDeclarationSchema,
-  type EvidenceRef,
 } from './criterion-evidence-schema.ts'
 import {
   currentPlanReceipt,
   implementationReceiptEligible,
-  implementationStartPaired,
   integrationReceiptEligible,
-  integrationStartPaired,
   observationAuthenticationDiagnostics,
   planReceiptEligible,
+  planReviewReceiptEligible,
 } from './delivery-eligibility.ts'
+import { selectedRecordValue } from './historical-action-inputs.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
-import { implementationOutputSchema } from './workflow-output-schema.ts'
 import { resolveManifestMandate } from './workflow-pr-binding.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 type DeliveryRef = ActionInputs['manifest']['deliveryData'][number]
-type SelectedEvidence = { ref: EvidenceRef; value: CriterionEvidence }[]
-
-function pointer(value: unknown, selector: string): unknown {
-  if (selector === '') return value
-  let current = value
-  for (const raw of selector.slice(1).split('/')) {
-    const key = raw.replaceAll('~1', '/').replaceAll('~0', '~')
-    if (Array.isArray(current)) {
-      current = current[Number(key)]
-      continue
-    }
-    if (current === null || typeof current !== 'object' || !Object.hasOwn(current, key)) return undefined
-    current = Object.getOwnPropertyDescriptor(current, key)?.value
-  }
-  return current
-}
+type CriterionSelection = CriterionSourceSelection & { declarations: CriterionDeclaration[] }
 
 function receiptEligible(record: Receipt): boolean {
   if (record.payload.action === 'plan') return planReceiptEligible(record) && record.payload.phase === 'result'
+  if (record.payload.action === 'plan-review') return planReviewReceiptEligible(record)
   return implementationReceiptEligible(record) || integrationReceiptEligible(record)
 }
 
@@ -65,15 +50,6 @@ function receiptFor(
   return { receipt: bound.value, code: 'unconfirmed' }
 }
 
-function declarationsAt(value: unknown): CriterionDeclaration[] {
-  const output = implementationOutputSchema.safeParse(value)
-  if (output.success) return [...output.data.criteria]
-  const many = criterionDeclarationSchema.array().safeParse(value)
-  if (many.success) return many.data
-  const one = criterionDeclarationSchema.safeParse(value)
-  return one.success ? [one.data] : []
-}
-
 function manifestPins(inputs: ActionInputs): PinnedFileRef[] {
   return [
     ...inputs.manifest.repositoryReferences,
@@ -84,7 +60,6 @@ function manifestPins(inputs: ActionInputs): PinnedFileRef[] {
 
 function admittedImplementation(
   receipt: Receipt,
-  history: DecodedHistory,
   head: string,
   planActionId: string,
   mandate: ExternalRecordRef,
@@ -102,12 +77,7 @@ function admittedImplementation(
     payload.exactInputs.mandateId !== mandate.recordId
   )
     return false
-  if (
-    payload.action === 'integrate'
-      ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt)
-      : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt)
-  )
-    return false
+  if (!implementationReceiptEligible(receipt) && !integrationReceiptEligible(receipt)) return false
   if (payload.admission?.remoteTip !== head) return false
   return payload.exactInputs.planActionId === planActionId
 }
@@ -120,32 +90,18 @@ function appendOneEvidence(
   pins: readonly PinnedFileRef[],
   receipt: Receipt,
   diagnostics: Diagnostic[],
-  evidence: SelectedEvidence,
+  evidence: CriterionSourceSelection['evidence'],
 ): void {
   if (value.code.commit !== head) {
     diagnostics.push(diagnostic('mismatch', `Evidence ${value.id} is not the admitted current head`))
     return
   }
-  diagnostics.push(...observationAuthenticationDiagnostics(value, histories, pins, receipt))
-  evidence.push({ ref: { receipt: ref.record, evidenceId: value.id, digest: evidenceDigest(value) }, value })
-}
-
-function appendEvidence(
-  declaration: CriterionDeclaration,
-  receipt: Receipt,
-  ref: DeliveryRef,
-  head: string,
-  histories: readonly DecodedHistory[],
-  pins: readonly PinnedFileRef[],
-  diagnostics: Diagnostic[],
-  evidence: SelectedEvidence,
-): void {
-  if (declaration.verification !== 'evidence') return
-  const payload = receipt.payload
-  if ((payload.action !== 'implement' && payload.action !== 'integrate') || payload.phase !== 'result') return
-  for (const value of declaration.evidence) {
-    appendOneEvidence(value, ref, head, histories, pins, receipt, diagnostics, evidence)
+  const problems = observationAuthenticationDiagnostics(value, histories, pins, receipt)
+  if (problems.length !== 0) {
+    diagnostics.push(...problems)
+    return
   }
+  evidence.push({ ref: { receipt: ref.record, evidenceId: value.id, digest: evidenceDigest(value) }, value })
 }
 
 function appendImplementation(
@@ -158,25 +114,33 @@ function appendImplementation(
   histories: readonly DecodedHistory[],
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
-  declarations: CriterionDeclaration[],
-  evidence: SelectedEvidence,
+  selected: CriterionSourceSelection,
 ): void {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
+  if (!admittedImplementation(receipt, head, planActionId, mandate)) {
     diagnostics.push(
       diagnostic('unconfirmed', `Delivery record ${ref.record.recordId} is not the admitted current head`),
     )
     return
   }
-  const selected = pointer(receipt, ref.selector)
-  if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
+  const authenticated = authenticateHistoricalReceiptStart(history, receipt, histories)
+  if (!authenticated.ok) {
+    diagnostics.push(...authenticated.diagnostics)
+    return
+  }
+  const raw = selectedRecordValue(receipt, ref.selector)
+  if (raw === undefined || canonicalValueDigest(raw) !== ref.digest) {
     diagnostics.push(
       diagnostic('mismatch', `Delivery selector ${ref.selector} does not match its authenticated digest`),
     )
     return
   }
-  for (const declaration of declarationsAt(selected)) {
-    declarations.push(declaration)
-    appendEvidence(declaration, receipt, ref, head, histories, pins, diagnostics, evidence)
+  const declaration = criterionDeclarationSchema.safeParse(raw)
+  if (!declaration.success) return
+  const { role: _role, ...source } = ref
+  selected.declarationFacts.push({ value: declaration.data, receipt: source })
+  if (declaration.data.verification !== 'evidence') return
+  for (const value of declaration.data.evidence) {
+    appendOneEvidence(value, ref, head, histories, pins, receipt, diagnostics, selected.evidence)
   }
 }
 
@@ -184,17 +148,43 @@ function refuseUnbound(ref: DeliveryRef, code: string, diagnostics: Diagnostic[]
   diagnostics.push(diagnostic(code, `Delivery record ${ref.record.recordId} is not an authenticated action receipt`))
 }
 
+function appendPlanReview(
+  history: DecodedHistory,
+  receipt: Receipt,
+  current: Receipt,
+  histories: readonly DecodedHistory[],
+  diagnostics: Diagnostic[],
+): void {
+  const review = receipt.payload
+  const plan = current.payload
+  if (
+    review.action !== 'plan-review' ||
+    review.phase !== 'result' ||
+    plan.action !== 'plan' ||
+    plan.phase !== 'result' ||
+    !sameRef(review.mandate, plan.mandate) ||
+    review.exactInputs.specDigest !== plan.exactInputs.specDigest ||
+    (plan.exactInputs.amendsReviewActionId === null
+      ? review.exactInputs.draftActionId !== plan.actionId
+      : review.actionId !== plan.exactInputs.amendsReviewActionId)
+  ) {
+    diagnostics.push(diagnostic('mismatch', `Delivery record ${receipt.recordId} does not review the current plan`))
+    return
+  }
+  const start = authenticateHistoricalReceiptStart(history, receipt, histories)
+  if (!start.ok) diagnostics.push(...start.diagnostics)
+}
+
 function appendDelivery(
   ref: DeliveryRef,
   histories: readonly DecodedHistory[],
-  currentRecordId: string,
+  current: Receipt,
   head: string,
   planActionId: string,
   mandate: ExternalRecordRef,
   pins: readonly PinnedFileRef[],
   diagnostics: Diagnostic[],
-  declarations: CriterionDeclaration[],
-  evidence: SelectedEvidence,
+  selected: CriterionSourceSelection,
 ): void {
   const history = historyFor(ref.record.scope, histories)
   const bound = receiptFor(histories, ref.record)
@@ -202,26 +192,18 @@ function appendDelivery(
     refuseUnbound(ref, bound.code, diagnostics)
     return
   }
-  if (ref.role === 'plan' || ref.role === 'plan-review') {
-    if (ref.record.recordId !== currentRecordId) {
+  if (ref.role === 'plan-review') {
+    appendPlanReview(history, bound.receipt, current, histories, diagnostics)
+    return
+  }
+  if (ref.role === 'plan') {
+    if (!equalScope(ref.record.scope, current) || ref.record.recordId !== current.recordId) {
       diagnostics.push(diagnostic('mismatch', `Delivery record ${ref.record.recordId} is not the current plan`))
     }
     return
   }
   if (ref.role !== 'implementation' && ref.role !== 'criterion-evidence') return
-  appendImplementation(
-    ref,
-    bound.receipt,
-    history,
-    head,
-    planActionId,
-    mandate,
-    histories,
-    pins,
-    diagnostics,
-    declarations,
-    evidence,
-  )
+  appendImplementation(ref, bound.receipt, history, head, planActionId, mandate, histories, pins, diagnostics, selected)
 }
 
 function currentPlan(
@@ -230,8 +212,12 @@ function currentPlan(
   mandate: ExternalRecordRef,
   diagnostics: Diagnostic[],
 ): Receipt | null {
-  const current = currentPlanReceipt(histories, version, mandate)
-  if (!current.ok || current.value === null) {
+  const current = currentPlanReceipt(histories, version, mandate, diagnostics)
+  if (!current.ok) {
+    diagnostics.push(...current.diagnostics)
+    return null
+  }
+  if (current.value === null) {
     diagnostics.push(diagnostic('ambiguous', 'No unique current plan is bound to the accepted Spec'))
     return null
   }
@@ -244,14 +230,13 @@ export function selectedDeclarations(
   inputs: ActionInputs,
   diagnostics: Diagnostic[],
   catalogues: ReviewClassCatalogues,
-): { declarations: CriterionDeclaration[]; evidence: SelectedEvidence } {
-  const declarations: CriterionDeclaration[] = []
-  const evidence: SelectedEvidence = []
-  if (inputs.manifest.spec.kind !== 'accepted') return { declarations, evidence }
+): CriterionSelection {
+  const selected: CriterionSelection = { declarations: [], declarationFacts: [], evidence: [] }
+  if (inputs.manifest.spec.kind !== 'accepted') return selected
   const owner = resolveManifestMandate(inputs, histories)
   if (!owner.ok) {
     diagnostics.push(...owner.diagnostics)
-    return { declarations, evidence }
+    return selected
   }
   const mandate: ExternalRecordRef = {
     scope: { repository: owner.value.repository, target: owner.value.target },
@@ -259,7 +244,7 @@ export function selectedDeclarations(
     kind: 'mandate',
   }
   const current = currentPlan(histories, inputs.manifest.spec.effective.own.version, mandate, diagnostics)
-  if (current === null || current.payload.action !== 'plan') return { declarations, evidence }
+  if (current === null || current.payload.action !== 'plan') return selected
   const pins = manifestPins(inputs)
   const ownSpec = inputs.manifest.spec.effective.own
   for (const ref of inputs.manifest.deliveryData) {
@@ -274,7 +259,7 @@ export function selectedDeclarations(
         ownSpec,
         pins,
         diagnostics,
-        { declarations, evidence },
+        selected,
         catalogues,
       )
       continue
@@ -282,15 +267,15 @@ export function selectedDeclarations(
     appendDelivery(
       ref,
       histories,
-      current.recordId,
+      current,
       inputs.manifest.code.head,
       current.payload.actionId,
       mandate,
       pins,
       diagnostics,
-      declarations,
-      evidence,
+      selected,
     )
   }
-  return { declarations: projectAdditiveDeclarations(declarations), evidence }
+  selected.declarations = projectAdditiveDeclarations(selected.declarationFacts.map(({ value }) => value))
+  return selected
 }

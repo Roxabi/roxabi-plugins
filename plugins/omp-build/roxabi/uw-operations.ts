@@ -8,7 +8,6 @@ import type { resolveSpecEffective } from '../engine/spec-effective.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { prepareSpecAllocation } from '../engine/uw-identity.ts'
 import type { OperatorConfirmationEvidence } from '../engine/uw-identity-schema.ts'
-import { type ActionOperationPorts, actionOperationMethods } from './uw-action-operations.ts'
 import type { CauseEffectGuard } from './uw-cause-guard.ts'
 import type {
   CreatedUwRead,
@@ -21,6 +20,7 @@ import type {
   UwProposalInput,
   UwRead,
 } from './uw-contract.ts'
+import { readUwDelivery, type UwDeliveryReadPorts } from './uw-delivery-read.ts'
 import { executeFraming } from './uw-framing-executor.ts'
 import type { FramingPublicationPorts } from './uw-framing-ports.ts'
 import { prepareFraming } from './uw-framing-prepare.ts'
@@ -78,8 +78,7 @@ export type UwOperationsPorts = {
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
   /** New issues need an immediate complete UW read after their real identity is known. */
   scopeOf(issue: IssueRef): Scope
-  actions?: ActionOperationPorts['actions']
-  delivery?: ActionOperationPorts['delivery']
+  delivery?: UwDeliveryReadPorts
   /** Installed receipt and /2 identity publisher; without it framing refuses before any effect. */
   framingPublication?: FramingPublicationPorts
 }
@@ -206,7 +205,20 @@ export function createUwOperations(ports: UwOperationsPorts): UwOperations {
       )
     },
     acceptMaterial: ports.acceptMaterial,
-    ...actionOperationMethods(ports),
+    readDelivery: async (uw) =>
+      ports.delivery === undefined
+        ? {
+            ok: false,
+            diagnostics: [
+              {
+                code: 'action-input-missing',
+                message: 'Delivery ports are not installed',
+                location: { kind: 'native', uw, connection: 'state' },
+                related: [],
+              },
+            ],
+          }
+        : readUwDelivery(uw, ports.delivery),
   }
   return operations
 }

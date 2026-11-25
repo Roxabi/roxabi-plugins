@@ -173,16 +173,12 @@ _Avoid_: the UW itself, proof of delivery from native closure
 An immutable record retaining an untreated cause, finding or rule error on its UW of origin with its reason and code version. It is readable for that UW and its descendants. Promotion requires operator confirmation and fresh creation admission; it is suspended under an active parent.
 _Avoid_: an automatically created follow-up issue, global search without an index, a satisfied criterion
 
-**Instantané**:
-A read-only dossier of pinned inputs for one action, providing its UW data, references and an index of obligations and files. It exposes the action's exact assessment or CI-attribution operands when applicable, and relevant pinned repository instructions and glossaries. Its local byte integrity is distinct from the durable identity of the action's inputs.
-_Avoid_: a dev-core snapshot, a mutable cache, an independent operand authority, the durable review fingerprint
-
 **Manifeste d'entrées**:
-The durable, portable identities and versions of the inputs actually supplied to an action, including its code, effective Spec, delivery data, pinned references and applicable exact assessment or CI-attribution operands. Its canonical digest identifies those inputs independently of the local Instantané and excludes the action's own outputs.
-_Avoid_: the local dossier's byte digest, a PR description, a list that silently omits supplied context
+The identities and versions of inputs cited by a historical action, including its code, effective Spec, delivery data and pinned references. Its canonical digest identifies the inputs, not the action's outputs.
+_Avoid_: a PR description, an action's output, a list that silently omits supplied context
 
 **Contexte élargi**:
-Additional pinned inputs supplied to a newly prepared action after necessary information was reported missing. They do not change accepted obligations or grant execution or publication authority.
+Additional pinned inputs recorded for a historical action after necessary information was reported missing. They do not change accepted obligations or grant execution or publication authority.
 _Avoid_: silently modified inputs, a renewed mandate, a satisfied criterion
 
 **Données de livraison**:
@@ -320,7 +316,7 @@ The historical canonical `review` payload, read by record identity. It names the
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The SHA-256 on a historical canonical review, or null. Prefix `omp-build:review-input/4` covers the observed code and semantic inputs, not the review outputs. A null input is not approval. Admission reconstructs the input and requires equality; the digest checks inputs, not authorship.
+The SHA-256 on a historical canonical review, or null. The `omp-build:review-input/4` binding covers the observed code and semantic inputs, not the review outputs. Admission validates the embedded input manifest and requires its canonical fingerprint to match the recorded digest; it does not reconstruct the inputs from current state. A null input is not approval, and the digest binds inputs, not authorship.
 
 Missing or older input formats refuse with `incompatible-format`; they are not migrated, re-reviewed, or exempted.
 

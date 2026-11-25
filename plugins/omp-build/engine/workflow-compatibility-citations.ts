@@ -1,5 +1,6 @@
 import { canonicalValueDigest } from './canonical-value.ts'
 import { observationRefDiagnostics } from './delivery-observation-authentication.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import type { SpecAssessment } from './workflow-output-schema.ts'
 import type { AssessResultRecord } from './workflow-spec-assessment.ts'
@@ -37,7 +38,9 @@ function citationsProblem(
     compatibility.state === 'conflicting'
       ? compatibility.conflicts.flatMap((conflict) => conflict.references)
       : compatibility.references
-  const manifest = record.payload.inputs.manifest
+  const authenticated = authenticateHistoricalActionInputs(record.payload.inputs, histories)
+  if (!authenticated.ok) return 'Compatibility assessment inputs are not authenticated'
+  const { manifest, stageSources } = authenticated.value
   const pins = [
     ...manifest.repositoryReferences,
     ...manifest.plugin.files,
@@ -47,7 +50,7 @@ function citationsProblem(
     ...manifest.acceptedSources,
     ...manifest.deliveryData,
     ...manifest.expandedContext,
-    ...record.payload.inputs.stageSources,
+    ...stageSources,
   ]
   for (const ref of references) {
     if (

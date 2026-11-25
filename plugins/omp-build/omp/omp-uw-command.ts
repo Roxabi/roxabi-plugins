@@ -9,11 +9,9 @@ import {
   uwCreateInputSchema,
   uwProposalInputSchema,
 } from '../dist/contracts.js'
-import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
 import { executeDurableUwCommand, parseDurableUwCommand } from '../roxabi/uw-command-read.ts'
 import type { OperatorPort, UwCreateInput, UwOperations, UwProposalInput } from '../roxabi/uw-contract.ts'
 import { UwGraphUnavailableError } from '../roxabi/uw-read-port.ts'
-import { hostPluginPin } from './host-plugin-pin.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
 import {
   beginFeatureUwOperation,
@@ -28,8 +26,6 @@ import { reportResult, reportStopped } from './omp-uw-result.ts'
 export type UwOperationsFactory = (input: {
   cwd: string
   operator: OperatorPort
-  artifactsDir: string | null
-  pluginPin?: TrustedHostPluginPin
 }) => Promise<UwOperations> | UwOperations
 
 export function parseUwCommand(args: string): ParsedUwCommand {
@@ -37,6 +33,8 @@ export function parseUwCommand(args: string): ParsedUwCommand {
   const durable = parseDurableUwCommand(command, tokens)
   if (durable !== null) return durable
   switch (command) {
+    case 'action':
+      return { kind: 'invalid', reason: 'uw-action-retired' }
     case 'read':
     case 'reports':
     case 'read-effective':
@@ -109,7 +107,7 @@ async function executeUwCommand(
   parsed: Exclude<ParsedUwCommand, { kind: 'invalid' }>,
   operations: UwOperations,
 ): Promise<CommandOutcome> {
-  if (parsed.kind === 'action' || parsed.kind === 'evidence' || parsed.kind === 'verdicts') {
+  if (parsed.kind === 'evidence' || parsed.kind === 'verdicts') {
     return executeDurableUwCommand(parsed, operations)
   }
   switch (parsed.kind) {
@@ -186,7 +184,6 @@ async function runOrdinaryCommand(
   factory: UwOperationsFactory,
   privateOperator: CommandOperatorPort,
   ownsRootCapability: boolean,
-  pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<void> {
   const cwd = ctx.cwd
   let sessionId: string | undefined
@@ -207,8 +204,6 @@ async function runOrdinaryCommand(
         await factory({
           cwd: ctx.cwd,
           operator,
-          artifactsDir: ctx.localProtocolOptions?.getArtifactsDir?.() ?? null,
-          ...(pluginPin === undefined ? {} : { pluginPin }),
         }),
       )
       if (isCurrent()) reportOutcome(pi, ctx, outcome)
@@ -245,8 +240,7 @@ export function registerUwCommand(pi: OmpBuildExtensionApi, factory: UwOperation
         'repository' in parsed ? ` ${parsed.repository}${'number' in parsed ? `#${parsed.number}` : ''}` : ''
       privateOperator.progress(`/uw ${parsed.kind}${target}`)
       const ownsRootCapability = rootContext(ctx)
-      const pluginPin = await hostPluginPin(pi, ctx)
-      await runOrdinaryCommand(pi, ctx, parsed, factory, privateOperator, ownsRootCapability, pluginPin)
+      await runOrdinaryCommand(pi, ctx, parsed, factory, privateOperator, ownsRootCapability)
     },
   })
 }

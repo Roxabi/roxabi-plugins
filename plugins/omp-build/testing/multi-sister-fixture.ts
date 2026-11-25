@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
+import type { PinnedFileRef } from '../engine/action-input-refs.ts'
 import { assessCauseDispositions } from '../engine/cause-disposition.ts'
+import { recordGitPinBytes } from '../engine/historical-git-pins.ts'
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import { createReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
 import { acceptedActionInputs } from './action-input-fixtures.ts'
+import { causeEvidence as evidence, observeCauseFixtureEvidence } from './cause-input-fixture.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
 import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { must, sisterSpecWorld } from './multi-sister-spec-fixture.ts'
@@ -14,11 +17,14 @@ import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
 import { operation } from './record-history.ts'
 import { roxabiRecordFixtures } from './roxabi-presets.ts'
 
+export type SisterRepositoryFile = { ref: PinnedFileRef; bytes: Buffer }
+
 /** One or two independently actionable sister causes from one authenticated review. */
 export function multiSisterFixture(
   count: 1 | 2 = 2,
   disposition: 'sister-blocking' | 'report' = 'sister-blocking',
   composedParent = false,
+  repositoryFiles: readonly SisterRepositoryFile[] = [],
 ) {
   const {
     fixtures,
@@ -60,13 +66,6 @@ export function multiSisterFixture(
     label,
     inputs: seedInputs,
   })
-  const evidence = {
-    source: 'git-file' as const,
-    repository: uw.repository,
-    commit: '1'.repeat(40),
-    path: 'src/region.ts',
-    digest: 'a'.repeat(64),
-  }
   const catalogueBytes = readFileSync(new URL('../skills/dev-review/review-classes.yml', import.meta.url))
   const plugin = base.inputs.manifest.plugin
   const catalogueRef = {
@@ -79,7 +78,7 @@ export function multiSisterFixture(
   const catalogues = createReviewClassCatalogues([{ ref: catalogueRef, contents: { ok: true, value: catalogueBytes } }])
   const manifest = {
     ...base.inputs.manifest,
-    repositoryReferences: [evidence],
+    repositoryReferences: [evidence, ...repositoryFiles.map(({ ref }) => ref)],
     plugin: { ...plugin, files: [...plugin.files.filter((file) => file.path !== catalogueRef.path), catalogueRef] },
   }
   const inputs = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }
@@ -192,6 +191,9 @@ export function multiSisterFixture(
     'automation',
     [own, ...inheritedHistories],
   ).history
+  observeCauseFixtureEvidence(source)
+  recordGitPinBytes(source, [catalogueRef], catalogueBytes)
+  for (const { ref, bytes } of repositoryFiles) recordGitPinBytes(source, [ref], bytes)
   const assessment = must(
     assessCauseDispositions({
       context,

@@ -1,10 +1,13 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { canonicalValueDigest } from '../../engine/canonical-value.ts'
 import { buildRecord, parseRecord } from '../../engine/record-construction.ts'
 import { createReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
 import { assessUwCompletion } from '../../engine/uw-completion.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { selectWorkflowBinding } from '../../engine/workflow-pr-binding.ts'
+import * as gitBytes from '../../roxabi/uw-git-bytes.ts'
+import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
+import { historicalRecordFrames } from '../../testing/record-history.ts'
 import { createWorkflowFixtures } from '../../testing/workflow-fixtures.ts'
 import { githubScope } from '../github/transport.ts'
 import { createUwDeliveryFactReader } from '../github-workflow/uw-delivery-facts.ts'
@@ -398,6 +401,27 @@ it('uses exhaustive relevance only for an explicit uncovered legacy succession',
   expect(requests.some((args) => args.some((arg) => arg.includes('/issues/12/comments')))).toBe(true)
   if (!result.ok) return
   expect(result.value.histories.map((history) => history.source.scope)).not.toContainEqual(unrelatedPr)
+})
+
+it('does not fetch historical action pins from an unrelated enumerated PR', async () => {
+  const readBlob = vi.spyOn(gitBytes, 'readGitFileBytes').mockResolvedValue({ ok: false, diagnostics: [] })
+  try {
+    const { reader, pages } = setup([12, 11], true)
+    const binding = legacyFixture.workflowBinding(relevantPr, legacyCurrent, 'feature/1', 'main')
+    const outsideReview = acceptedPullRequestReviewGraph({ mandate: outside, binding: outsideBinding })
+    pages.set(11, comments(legacyFixture.framedBodies([binding], 'operator', [legacyHistory])))
+    pages.set(
+      12,
+      comments([outsideBinding, ...outsideReview.records].flatMap((record) => historicalRecordFrames(record))),
+    )
+    expect(await reader.read(root, [legacyHistory], 'legacy-succession')).toMatchObject({
+      ok: true,
+      value: { facts: { uw: root, pullRequests: [{ pullRequest: relevantPr }] } },
+    })
+    expect(readBlob).not.toHaveBeenCalled()
+  } finally {
+    readBlob.mockRestore()
+  }
 })
 
 it('keeps explicit succession branch-filtered for a new-policy home', async () => {

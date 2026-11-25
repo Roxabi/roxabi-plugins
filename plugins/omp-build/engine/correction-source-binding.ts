@@ -78,10 +78,10 @@ export function admitCorrectionSourceBinding(
   const observation = native?.observation
   const action = source.host.action
   if (!native || !observation || !action || !genuineCorrectionSource(contribution)) return invalid()
-  const manifest = action.inputs.manifest
+  const { inputs } = historical
   if (
-    !currentCorrectionContext(action.inputs, fix, histories, context) ||
-    !correctionCurrentPlan(manifest, histories, context)
+    !currentCorrectionContext(inputs, fix, histories, context) ||
+    !correctionCurrentPlan(inputs.manifest, histories, context)
   )
     return invalid()
   const inventory =
@@ -90,7 +90,7 @@ export function admitCorrectionSourceBinding(
     inventory?.payload.stage !== 'initial' ||
     inventory.payload.purpose !== 'correction' ||
     inventory.payload.requestId !== request.recordId ||
-    inventory.payload.actionInputDigest !== action.inputs.fingerprint ||
+    inventory.payload.actionInputDigest !== inputs.fingerprint ||
     !inventory.inputs.includes(decision.recordId) ||
     !contribution.inputs.includes(inventory.recordId)
   )
@@ -102,7 +102,7 @@ export function admitCorrectionSourceBinding(
     (item) =>
       item.output === 'action-result' &&
       item.action?.actionId === action.actionId &&
-      canonicalValueDigest(item.action.inputs) === canonicalValueDigest(action.inputs),
+      canonicalValueDigest(item.action.inputs) === canonicalValueDigest(inputs),
   )
   if (
     slots.length !== 1 ||

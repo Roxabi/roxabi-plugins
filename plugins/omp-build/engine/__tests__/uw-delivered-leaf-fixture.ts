@@ -6,6 +6,8 @@ import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { eligiblePlanAt } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
+import type { DecodedHistory } from '../history-schema.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
 import type { Verdict } from '../record-values.ts'
 import { resolveSpecEffective } from '../spec-effective.ts'
 import type { UwCompletionObservation } from '../uw-completion-types.ts'
@@ -13,8 +15,18 @@ import type { UwGraphObservation } from '../uw-graph.ts'
 import { canonicalSpec } from '../uw-spec.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { leafNativeFacts } from './uw-leaf-native-facts.ts'
+
+type ObservedProducer = { records: readonly CanonicalRecord[]; history: DecodedHistory }
+
 /** A declared GitHub world; every record is encoded and decoded by the native fixture transport. */
-export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', number = 42, inherited = false) {
+export async function buildDeliveredLeaf(
+  verdict: Verdict = 'Approve (clean)',
+  number = 42,
+  inherited = false,
+  adjustCriterion?: Parameters<typeof criterionReviewGraph>[0]['adjustCriterion'],
+  adjustProducer?: (producer: ObservedProducer) => ObservedProducer,
+  planRecordsAt: typeof eligiblePlanAt = eligiblePlanAt,
+) {
   const uw = { repository: 'acme/app', target: `acme/app#${number}` }
   const pullRequest = { repository: uw.repository, target: `acme/app#${number + 100}` }
   const workflow = roxabiWorkflowFixtures()
@@ -152,7 +164,7 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
   const base = 'a'.repeat(40)
   const head = '1'.repeat(40)
   const planned = workflow.historyFrom(
-    eligiblePlanAt(mandate, base, [mandateHistory, ...parentHistories], effectiveBefore.value),
+    planRecordsAt(mandate, base, [mandateHistory, ...parentHistories], effectiveBefore.value),
     'operator',
     'operator',
     parentHistories,
@@ -186,8 +198,7 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
     command: 'bun test fixture-c1.test.ts',
     output: 'PASS C1 fixture scenario',
   })
-  const issueRecords = produced.records
-  const origin = produced.history
+  const { records: issueRecords, history: origin } = adjustProducer?.(produced) ?? produced
   const implementation = issueRecords.find(
     (record) =>
       record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'result',
@@ -237,6 +248,8 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
     graph,
     prefix: `delivery-${number}`,
     author: 'operator',
+    ...(adjustCriterion === undefined ? {} : { adjustCriterion }),
+    retainedFinal: adjustProducer !== undefined,
     verdict,
     contextHistories: parentHistories,
   })

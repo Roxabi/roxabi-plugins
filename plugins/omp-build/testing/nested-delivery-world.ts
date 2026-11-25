@@ -1,8 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import type { NativeEpicPullRequest } from '../adapters/github-native/epic-children.ts'
 import type { Scope } from '../engine/record-values.ts'
-import { standaloneReviewInputs } from './action-input-fixtures.ts'
 import { nativeImplementationGit } from './native-implementation-git.ts'
 import { withNativeImplementationWorld } from './native-implementation-world.ts'
 import { nestedDeliveryFactsFixture } from './nested-delivery-facts.ts'
@@ -54,19 +51,6 @@ type Context = {
 
 function checkout(branch: string | null, head: string, baseTip: string) {
   return { branch, head, base: 'main', baseTip, remoteTip: head }
-}
-
-function repositoryFiles(context: Context) {
-  const { git, scenario, leafMerge } = context
-  const bytes = execFileSync('git', ['-C', git.cwd, 'show', `${leafMerge}:fixture.txt`])
-  const ref = {
-    source: 'git-file' as const,
-    repository: scenario.root.repository,
-    commit: leafMerge,
-    path: 'fixture.txt',
-    digest: createHash('sha256').update(bytes).digest('hex'),
-  }
-  return [{ ref, bytes }]
 }
 
 function postComments(world: World) {
@@ -186,11 +170,6 @@ async function runInWorld(context: Context, shared: World) {
   return { ...commonResult(context, middle), final: null, rootProof: null }
 }
 
-function leafDiff(context: Context) {
-  const { git, leafHead } = context
-  return { base: git.p0, head: leafHead, bytes: git.diff(git.p0, leafHead) }
-}
-
 function leafPullMetadata(context: Context) {
   return {
     mergedAt: '2026-10-27T12:10:00Z',
@@ -236,13 +215,10 @@ function worldSeed(context: Context) {
   return {
     ...scenario.facts,
     anchor: scenario.leaf,
-    repositoryFiles: repositoryFiles(context),
     originUrl: git.originUrl,
     cwd: parent.cwd,
-    plugin: standaloneReviewInputs().manifest.plugin,
     checkout: checkout('feature/202-leaf', git.p0, git.p0),
     epic: epicSeed(context),
-    diffs: [leafDiff(context)],
   }
 }
 

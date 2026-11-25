@@ -1,6 +1,6 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { defaultGh } from '../roxabi/feature-engine.ts'
-import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
+import type { TrustedHostPluginPin } from '../roxabi/plugin-pin-contract.ts'
 import { activePin, invalidateActivation } from './tooling-pin-state.ts'
 
 export type HostPluginPin = TrustedHostPluginPin

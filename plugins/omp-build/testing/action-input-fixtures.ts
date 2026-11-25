@@ -1,22 +1,20 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import {
   ACTION_BINDING_FORMAT,
   ACTION_INPUT_FORMAT,
   type ActionInputs,
   type ActionPurpose,
+  type PinnedFileRef,
 } from '../engine/action-input-schema.ts'
+import { recordGitPinBytes } from '../engine/historical-git-pins.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { createReviewClassCatalogues, type ReviewCatalogueRead } from '../engine/review-class-catalogue.ts'
 import { type SpecEffective, specEffectiveSchema } from '../engine/spec-effective-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { mandateScope } from '../engine/workflow-control.ts'
-import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
-import { sealActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
 import { observeDeclaredNativeWorld } from './declared-native-observation.ts'
 
@@ -32,26 +30,40 @@ const catalogueRef = {
   digest: createHash('sha256').update(catalogueBytes).digest('hex'),
 }
 
-/** Respond only to this local fixture's fictional GitHub blob lookup and blob fetch. */
-export function fixtureCatalogueGhResponse(args: readonly string[]): string | null {
-  const oid = createHash('sha1').update(`blob ${catalogueBytes.byteLength}\0`).update(catalogueBytes).digest('hex')
+/** Respond only to the declared commit/path lookup and its exact Git blob fetch. */
+export function fixtureGitBlobGhResponse(args: readonly string[], ref: PinnedFileRef, bytes: Buffer): string | null {
+  const [owner, name] = ref.repository.split('/')
+  const oid = createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex')
   if (
     args[0] === 'api' &&
     args[1] === 'graphql' &&
-    args.some((arg) => arg.includes('object(expression:$expression)')) &&
-    args.includes('owner=Roxabi') &&
-    args.includes('name=roxabi-plugins') &&
-    args.includes(`expression=${catalogueRef.commit}:${catalogueRef.path}`)
+    args.some((arg) => arg.includes('commit:object(oid:$commit)') && arg.includes('object(expression:$expression)')) &&
+    args.includes(`owner=${owner}`) &&
+    args.includes(`name=${name}`) &&
+    args.includes(`commit=${ref.commit}`) &&
+    args.includes(`expression=${ref.commit}:${ref.path}`)
   )
-    return JSON.stringify({ data: { repository: { object: { oid } } } })
-  if (args[0] === 'api' && args.includes(`repos/${catalogueRef.repository}/git/blobs/${oid}`))
+    return JSON.stringify({
+      data: { repository: { commit: { __typename: 'Commit', oid: ref.commit }, object: { oid } } },
+    })
+  if (args[0] === 'api' && args.includes(`repos/${ref.repository}/git/blobs/${oid}`))
     return JSON.stringify({
       sha: oid,
       encoding: 'base64',
-      size: catalogueBytes.byteLength,
-      content: catalogueBytes.toString('base64'),
+      size: bytes.byteLength,
+      content: bytes.toString('base64'),
     })
   return null
+}
+
+export function fixtureCatalogueGhResponse(args: readonly string[]): string | null {
+  return fixtureGitBlobGhResponse(args, catalogueRef, catalogueBytes)
+}
+
+/** Publish the fixture's declared catalogue bytes into a native history observation. */
+export function observeFixtureCatalogue(history: DecodedHistory): DecodedHistory {
+  recordGitPinBytes(history, [catalogueRef], catalogueBytes)
+  return history
 }
 
 export function fixtureReviewCatalogueReads() {
@@ -203,6 +215,7 @@ export function acceptedActionInputs(
   const base = pin()
   const manifest = {
     ...base,
+    plugin: purpose === 'review' || purpose === 'correction' ? base.plugin : { ...base.plugin, files: [] },
     code: codeRange ?? { ...base.code, repository: own.uw.repository },
     acceptedSources: [
       {
@@ -224,31 +237,8 @@ export function acceptedActionInputs(
   }
 }
 
-export function fixturePreparedAction(actionId = 'action'): PreparedUwAction {
-  const inputs = standaloneReviewInputs()
-  const directory = join(tmpdir(), `omp-prepared-${randomUUID()}`)
-  mkdirSync(directory)
-  const bytes = new TextEncoder().encode(`# ${actionId}\n`)
-  const indexPath = join(directory, 'index.md')
-  writeFileSync(indexPath, bytes)
-  const sealed = sealActionSnapshot(
-    {
-      id: `fixture-${actionId}`,
-      actionId,
-      manifestDigest: inputs.fingerprint,
-      indexPath,
-      location: 'local',
-    },
-    [{ path: 'index.md', bytes }],
-  )
-  if (!sealed.ok) throw new Error(sealed.diagnostics.map((item) => item.code).join(','))
-  return { inputs, snapshot: sealed.value }
-}
-
-/** Closed UW port. Action methods default to refusal; unexpected calls throw. */
-export function fixtureUwOperations(
-  prepareAction: UwOperations['prepareAction'] = async () => ({ ok: false, diagnostics: [] }),
-): UwOperations {
+/** Closed UW port: unexpected calls throw. */
+export function fixtureUwOperations(): UwOperations {
   const unexpected = async (): Promise<never> => {
     throw new Error('unexpected UW operation')
   }
@@ -271,8 +261,6 @@ export function fixtureUwOperations(
     write: unexpected,
     create: unexpected,
     acceptMaterial: unexpected,
-    prepareAction,
-    replayActionInputs: async () => ({ ok: false, diagnostics: [] }),
     readDelivery: unexpected,
   }
 }

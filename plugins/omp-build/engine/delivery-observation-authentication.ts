@@ -1,7 +1,10 @@
 import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './action-input.ts'
-import type { PinnedFileRef, RecordInputRef } from './action-input-schema.ts'
+import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
 import type { CriterionEvidence, ObservationRef } from './criterion-evidence-schema.ts'
+import type { CriterionVerdict, EvidenceCodeLink } from './criterion-verdict-schema.ts'
+import { authenticateHistoricalActionInputs, recordRefDiagnostics } from './historical-action-inputs.ts'
+import { hasObservedGitPin } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerSourceDiagnostics } from './observation-input-authentication.ts'
 import { diagnostic } from './record-diagnostics.ts'
@@ -74,19 +77,18 @@ export function citedOperationIntegrity(history: DecodedHistory, recordId: strin
   return integrity === null ? null : diagnostic(integrity.reason, integrity.detail)
 }
 
-function pinKey(pin: PinnedFileRef): string {
-  return [pin.repository, pin.commit, pin.path, pin.digest].join('\0')
+function unauthenticatedPinnedSource(evidenceId: string): Diagnostic[] {
+  return [diagnostic('unknown-reference', `Evidence ${evidenceId} cites an unauthenticated pinned source`)]
 }
 
-function pointer(value: unknown, selector: string): unknown {
-  if (selector === '') return value
-  let current = value
-  for (const raw of selector.split('/').slice(1)) {
-    if (current === null || typeof current !== 'object') return undefined
-    const key = raw.replaceAll('~1', '/').replaceAll('~0', '~')
-    current = Array.isArray(current) ? current[Number(key)] : (current as Record<string, unknown>)[key]
-  }
-  return current
+function producerTestVersionRefDiagnostics(
+  evidenceId: string,
+  ref: ObservationRef,
+  histories: readonly DecodedHistory[],
+): Diagnostic[] {
+  // Producer version claims name exact Git bytes independently of manifest inputs.
+  if (ref.source === 'git-file') return hasObservedGitPin(histories, ref) ? [] : unauthenticatedPinnedSource(evidenceId)
+  return recordRefDiagnostics(evidenceId, ref, histories)
 }
 
 export function observationRefDiagnostics(
@@ -96,21 +98,60 @@ export function observationRefDiagnostics(
   pins: readonly PinnedFileRef[],
 ): Diagnostic[] {
   if (ref.source === 'git-file') {
-    if (!new Set(pins.map(pinKey)).has(pinKey(ref))) {
-      return [diagnostic('unknown-reference', `Evidence ${evidenceId} cites an unauthenticated pinned source`)]
-    }
+    const selected = pins.some(
+      (pin) =>
+        pin.repository === ref.repository &&
+        pin.commit === ref.commit &&
+        pin.path === ref.path &&
+        pin.digest === ref.digest,
+    )
+    if (!selected || !hasObservedGitPin(histories, ref)) return unauthenticatedPinnedSource(evidenceId)
     return []
   }
   return recordRefDiagnostics(evidenceId, ref, histories)
 }
 
-function versionClaimReferences(evidence: CriterionEvidence): ObservationRef[] {
-  if (evidence.method !== 'test') return []
+const noGitPins: readonly PinnedFileRef[] = []
+
+function criterionManifestPins(inputs: ActionInputs | null): readonly PinnedFileRef[] {
+  if (inputs === null) return noGitPins
+  const { repositoryReferences, plugin, expandedContext } = inputs.manifest
+  return [...repositoryReferences, ...plugin.files, ...expandedContext.filter((ref) => ref.source === 'git-file')]
+}
+
+function codeLinkJudgments(link: EvidenceCodeLink) {
+  if (link.method === 'observation') return [link.current]
+  return link.before === null ? [link.after] : [link.after, link.before]
+}
+
+export function criterionVerdictCitationDiagnostics(
+  verdict: CriterionVerdict,
+  histories: readonly DecodedHistory[],
+  inputs: ActionInputs | null,
+): Diagnostic[] {
+  let pins: readonly PinnedFileRef[] | undefined
+  const diagnostics: Diagnostic[] = []
+  for (const { codeLink } of verdict.examined) {
+    for (const link of codeLinkJudgments(codeLink)) {
+      for (const ref of link.references) {
+        if (ref.source === 'git-file') pins ??= criterionManifestPins(inputs)
+        diagnostics.push(...observationRefDiagnostics(verdict.target.id, ref, histories, pins ?? noGitPins))
+      }
+    }
+  }
+  return diagnostics
+}
+
+export function producerTestVersionDiagnostics(
+  evidence: Extract<CriterionEvidence, { method: 'test' }>,
+  histories: readonly DecodedHistory[],
+): Diagnostic[] {
   return [
     ...evidence.after.versionClaim.references,
     ...(evidence.before === null ? [] : evidence.before.versionClaim.references),
-  ]
+  ].flatMap((ref) => producerTestVersionRefDiagnostics(evidence.id, ref, histories))
 }
+
 function submissionMatchesCapture(
   observation: NonNullable<
     Extract<Receipt['payload'], { action: 'implement' | 'integrate'; phase: 'result' }>['native']['observation']
@@ -222,28 +263,18 @@ export function observationAuthenticationDiagnostics(
   pins: readonly PinnedFileRef[],
   receipt: Receipt,
 ): Diagnostic[] {
-  const diagnostics = versionClaimReferences(evidence).flatMap((ref) =>
-    observationRefDiagnostics(evidence.id, ref, histories, pins),
-  )
+  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
+  if (!authenticated.ok) return authenticated.diagnostics
   if (evidence.method === 'test') {
+    const diagnostics = producerTestVersionDiagnostics(evidence, histories)
     if (!testRunsMatchHostCapture(evidence, receipt))
       diagnostics.push(diagnostic('unconfirmed', `Evidence ${evidence.id} test runs are not in the host capture`))
     return diagnostics
   }
-  const knownPins = new Set(pins.map(pinKey))
+  const diagnostics: Diagnostic[] = []
   const refs = evidence.references
   diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, receipt.payload.inputs))
-  for (const ref of refs) {
-    if (ref.source === 'git-file') {
-      if (!knownPins.has(pinKey(ref))) {
-        diagnostics.push(
-          diagnostic('unknown-reference', `Evidence ${evidence.id} cites an unauthenticated pinned source`),
-        )
-      }
-      continue
-    }
-    diagnostics.push(...recordRefDiagnostics(evidence.id, ref, histories))
-  }
+  for (const ref of refs) diagnostics.push(...observationRefDiagnostics(evidence.id, ref, histories, pins))
   if (evidence.provenance.kind === 'operator') {
     diagnostics.push(...recordSourceDiagnostics(evidence.id, evidence.provenance.source, histories))
   }
@@ -266,23 +297,4 @@ function recordSourceDiagnostics(
   if (!bound.ok) return [...bound.diagnostics]
   const integrity = citedOperationIntegrity(history, ref.recordId)
   return integrity === null ? [] : [integrity]
-}
-
-export function recordRefDiagnostics(
-  evidenceId: string,
-  ref: RecordInputRef,
-  histories: readonly DecodedHistory[],
-): Diagnostic[] {
-  const history = historyFor(ref.record.scope, histories)
-  if (history === null)
-    return [diagnostic('missing-history', `Evidence ${evidenceId} has no history for ${ref.record.recordId}`)]
-  const bound = bindExternalRef(ref.record, history)
-  if (!bound.ok) return [...bound.diagnostics]
-  const integrity = citedOperationIntegrity(history, ref.record.recordId)
-  if (integrity !== null) return [integrity]
-  const selected = pointer(bound.value, ref.selector)
-  if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
-    return [diagnostic('mismatch', `Evidence ${evidenceId} observation digest does not match ${ref.record.recordId}`)]
-  }
-  return []
 }

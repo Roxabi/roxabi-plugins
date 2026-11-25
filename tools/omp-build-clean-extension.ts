@@ -23,6 +23,10 @@ export function verifyCleanPlugin(checkout: string, owned: string): void {
   for (const path of [
     'vendor/kit-head-authorization/index.cjs',
     'vendor/kit-head-authorization/LICENSE',
+    'skills/dev-fix/SKILL.md',
+    'skills/dev-review/SKILL.md',
+    'skills/dev-review/review-classes.yml',
+    'skills/feature/SKILL.md',
     'skills/feature/head-authorization.cjs',
     'skills/feature/head-authorization-reader.cjs',
     'skills/feature/head-authorization-cli.js',

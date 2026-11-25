@@ -9,6 +9,7 @@ import {
   principalRefusalMessage,
 } from '../roxabi/feature-presentation.ts'
 import { featureSpecDigest } from '../roxabi/feature-spec-digest.ts'
+import { hostPluginPin } from './host-plugin-pin.ts'
 import { type OmpBuildExtensionApi, reportFeatureTerminalStatus } from './omp-controller'
 import type { Admission, FeatureReady } from './omp-feature-admission.ts'
 import type { FeatureOperationReportGuard } from './omp-feature-composition.ts'
@@ -40,7 +41,9 @@ export async function deliverAdmission(
     return
   }
   if (result.kind === 'framing') {
-    await framing.start({ ctx, operator, originalArgs, pluginPin: input.pluginPin }, result.source, guard.handoff)
+    const pluginPin = input.pluginPin ?? (await hostPluginPin(pi, ctx))
+    if (!guard.isCurrent()) return
+    await framing.start({ ctx, operator, originalArgs, pluginPin }, result.source, guard.handoff)
     return
   }
   reportAdmissionStop(pi, ctx, input, result)

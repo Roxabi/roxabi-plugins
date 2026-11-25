@@ -12,7 +12,7 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { ReviewSummary } from './result.ts'
-import { reviewInputsFromInventory, reviewRootFromDecision } from './review-inventory-input.ts'
+import { reviewRootFromDecision } from './review-inventory-input.ts'
 import { selectedReviewOperations, summarizeReviews } from './review-state.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
 import type { UwCompletionObservation } from './uw-completion-types.ts'
@@ -122,15 +122,14 @@ function selectedInputs(
   selected: Pick<SelectedDeliveryReview, 'decision'>,
   history: DecodedHistory,
   kind: 'pull-request' | 'epic-range',
+  histories: readonly DecodedHistory[],
 ): UwResult<ActionInputs> {
   const judgment = selected.decision.payload.judgment
   if (judgment.purpose !== 'review')
     return deliveryFailure(uw, 'delivery-review-incomplete', 'Selected review decision is absent')
-  const inputs = reviewInputsFromInventory(judgment, history)
-  const root = reviewRootFromDecision(selected.decision, history)
+  const root = reviewRootFromDecision(selected.decision, history, histories)
   const inventory = root.ok ? root.value.payload : null
   if (
-    inputs === null ||
     inventory === null ||
     inventory.stage !== 'initial' ||
     inventory.purpose !== 'review' ||
@@ -141,6 +140,7 @@ function selectedInputs(
       'delivery-review-input-unbound',
       'Final review lacks its authenticated subject and action inputs',
     )
+  const inputs = inventory.inputSnapshot
   const code = inputs.manifest.code
   if (inventory.subject.kind === 'epic-range' && inventory.subject.range !== `${code.base}..${code.head}`)
     return deliveryFailure(
@@ -245,7 +245,7 @@ function readDeliveryReview(
     )
   const selected = selectedReviewRecords(history, summary.value.reviewId)
   if (selected === null) return deliveryFailure(uw, 'delivery-review-incomplete', 'Selected review decision is absent')
-  const inputs = selectedInputs(uw, selected, history, kind)
+  const inputs = selectedInputs(uw, selected, history, kind, observation.histories)
   if (!inputs.ok) return inputs
   const problem = inputProblem(observation, uw, effective, summary.value, inputs.value)
   if (problem !== null) return problem

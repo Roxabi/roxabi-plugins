@@ -25,11 +25,30 @@ function blobOid(tools: string, expression: string): string | null {
   try {
     return execFileSync(
       'git',
-      ['-C', tools, 'rev-parse', `${expression.slice(0, split)}:${expression.slice(split + 1)}`],
+      [
+        '-C',
+        tools,
+        '--no-replace-objects',
+        'rev-parse',
+        `${expression.slice(0, split)}:${expression.slice(split + 1)}`,
+      ],
       {
         encoding: 'utf8',
       },
     ).trim()
+  } catch {
+    return null
+  }
+}
+
+function objectIdentity(tools: string, oid: string | undefined): { __typename: string; oid: string } | null {
+  if (oid === undefined || !/^[0-9a-f]{40}$/.test(oid)) return null
+  try {
+    const type = execFileSync('git', ['-C', tools, '--no-replace-objects', 'cat-file', '-t', oid], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+    return { __typename: type.charAt(0).toUpperCase() + type.slice(1), oid }
   } catch {
     return null
   }
@@ -47,13 +66,15 @@ function toolingGraphql(argv: readonly string[], tools: string | undefined): str
   if (fields.length === 0) return undefined
   if (form(argv, 'owner') !== 'Roxabi' || form(argv, 'name') !== 'roxabi-plugins') return undefined
   const repository: Record<string, unknown> = {}
+  if (query.includes('commit:object(oid:$commit)'))
+    repository.commit = objectIdentity(requireTools(tools), form(argv, 'commit'))
   for (const field of fields) {
     const oid = blobOid(requireTools(tools), form(argv, field[2] ?? '') ?? '')
     if (oid === null) {
       repository[field[1] ?? 'object'] = null
       continue
     }
-    const bytes = execFileSync('git', ['-C', requireTools(tools), 'cat-file', 'blob', oid])
+    const bytes = execFileSync('git', ['-C', requireTools(tools), '--no-replace-objects', 'cat-file', 'blob', oid])
     const text = bytes.toString('utf8')
     const isBinary = bytes.includes(0) || !Buffer.from(text).equals(bytes)
     repository[field[1] ?? 'object'] = {
@@ -73,7 +94,7 @@ function toolingBlob(argv: readonly string[], tools: string | undefined): string
   const blob = argv.find((arg) => BLOB.test(arg))
   if (argv[0] !== 'api' || blob === undefined) return undefined
   const oid = blob.slice(blob.lastIndexOf('/') + 1)
-  const bytes = execFileSync('git', ['-C', requireTools(tools), 'cat-file', 'blob', oid])
+  const bytes = execFileSync('git', ['-C', requireTools(tools), '--no-replace-objects', 'cat-file', 'blob', oid])
   return `${JSON.stringify({
     sha: oid,
     size: bytes.byteLength,

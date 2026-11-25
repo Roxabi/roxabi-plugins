@@ -1,27 +1,30 @@
-import { z } from 'zod'
-import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
+import { canonicalValueDigest } from './action-input.ts'
+import type { ActionInputs } from './action-input-schema.ts'
 import { assessCriterionReview } from './criterion-admission.ts'
 import { selectedDeclarations } from './criterion-decision-selection.ts'
-import type { CriterionDeclaration, CriterionEvidence, EvidenceRef } from './criterion-evidence-schema.ts'
+import type { CriterionSourceSelection } from './criterion-declaration-projection.ts'
+import type { CriterionDeclaration } from './criterion-evidence-schema.ts'
 import type { CriterionVerdict } from './criterion-verdict-schema.ts'
-import { criterionVerdictSchema } from './criterion-verdict-schema.ts'
-import { observationRefDiagnostics } from './delivery-eligibility.ts'
+import { criterionVerdictCitationDiagnostics } from './delivery-observation-authentication.ts'
 import { validateExclusionClaims } from './exclusion-claims.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameOwnSpecRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import { type Diagnostic, specReportSchema } from './record-values.ts'
+import type { Diagnostic, SpecReport } from './record-values.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { reviewInputsFromInventory } from './review-inventory-input.ts'
+import { reviewCriterionReport } from './review-original-action.ts'
 import type { Decision } from './review-schema.ts'
 import { recordsOf } from './workflow-control.ts'
 
 type ReviewDecision = Extract<Decision, { purpose: 'review' }>
+type VerdictSource = { contributionId: string; selector: string; digest: string }
 
-export type CriterionDecisionFacts = {
+export type CriterionDecisionFacts = CriterionSourceSelection & {
   declarations: CriterionDeclaration[]
-  evidence: { ref: EvidenceRef; value: CriterionEvidence }[]
   verdicts: CriterionVerdict[]
+  verdictSources?: ReadonlyMap<CriterionVerdict, VerdictSource>
   diagnostics: Diagnostic[]
 }
 
@@ -29,56 +32,34 @@ function sameTarget(left: CriterionVerdict['target'], right: CriterionVerdict['t
   return sameOwnSpecRef(left.spec, right.spec) && left.id === right.id
 }
 
-function specRows(candidate: unknown): unknown[] {
-  const report = specReportSchema.safeParse(candidate)
-  if (report.success) return report.data.specRows
-  if (candidate === null || typeof candidate !== 'object' || !('specRows' in candidate)) return [candidate]
-  return z.object({ specRows: z.array(z.unknown()) }).safeParse(candidate).data?.specRows ?? [candidate]
-}
-
-function matchingVerdicts(rows: readonly unknown[], target: CriterionVerdict['target']): CriterionVerdict[] {
-  const matches: CriterionVerdict[] = []
-  for (const row of rows) {
-    const parsed = criterionVerdictSchema.safeParse(row)
-    if (parsed.success && sameTarget(parsed.data.target, target)) matches.push(parsed.data)
-  }
-  return matches
-}
-
-function verdictsForTarget(
-  contribution: Extract<CanonicalRecord, { kind: 'contribution' }>,
-  target: CriterionVerdict['target'],
-): CriterionVerdict[] {
-  const candidates: unknown[] = []
-  if (contribution.payload.structured !== null) candidates.push(contribution.payload.structured)
-  for (const finding of contribution.payload.findings ?? []) candidates.push(finding.data)
-  return candidates.flatMap((candidate) => matchingVerdicts(specRows(candidate), target))
-}
-
-function reviewContribution(
+function criterionReport(
   records: readonly CanonicalRecord[],
   contributionId: string,
-  bound: ReadonlySet<string>,
-): Extract<CanonicalRecord, { kind: 'contribution' }> | null {
+  decision: ReviewDecision,
+  inputs: ActionInputs | null,
+  history: DecodedHistory,
+): SpecReport | null {
+  if (inputs === null || !decision.sourceContributionIds.includes(contributionId)) return null
   const contribution = records.find((record) => record.kind === 'contribution' && record.recordId === contributionId)
-  if (contribution?.kind !== 'contribution' || !bound.has(contribution.recordId)) return null
-  if (contribution.payload.host.role !== 'R-review-spec') return null
-  return contribution
+  return contribution?.kind === 'contribution' ? reviewCriterionReport(contribution, history, inputs) : null
 }
 
 function appendVerdict(
-  records: readonly CanonicalRecord[],
-  bound: ReadonlySet<string>,
+  report: SpecReport | null,
   ref: ReviewDecision['criterionVerdicts'][number],
-  verdicts: CriterionVerdict[],
+  verdicts: Map<CriterionVerdict, VerdictSource>,
   diagnostics: Diagnostic[],
 ): void {
-  const contribution = reviewContribution(records, ref.contributionId, bound)
-  if (contribution === null) {
-    diagnostics.push(diagnostic('malformed', `Verdict ${ref.target.id} is not an authenticated R-review-spec row`))
+  if (report === null) {
+    diagnostics.push(
+      diagnostic(
+        'malformed',
+        `Verdict ${ref.target.id} from contribution ${ref.contributionId} is not an authenticated R-review-spec row`,
+      ),
+    )
     return
   }
-  const matches = verdictsForTarget(contribution, ref.target)
+  const matches = report.specRows.flatMap((row, index) => (sameTarget(row.target, ref.target) ? [{ row, index }] : []))
   if (matches.length !== 1) {
     diagnostics.push(
       diagnostic(
@@ -88,12 +69,18 @@ function appendVerdict(
     )
     return
   }
-  const verdict = matches[0]
-  if (verdict === undefined || verdicts.some((item) => sameTarget(item.target, verdict.target))) {
+  const match = matches[0]
+  if (match === undefined) return
+  for (const verdict of verdicts.keys()) {
+    if (!sameTarget(verdict.target, match.row.target)) continue
     diagnostics.push(diagnostic('duplicate-reference', `Criterion ${ref.target.id} is cited more than once`))
     return
   }
-  verdicts.push(verdict)
+  verdicts.set(match.row, {
+    contributionId: ref.contributionId,
+    selector: `/payload/structured/specRows/${match.index}`,
+    digest: canonicalValueDigest(match.row),
+  })
 }
 
 function retainedFindingIds(records: readonly CanonicalRecord[], bound: ReadonlySet<string>): Set<string> {
@@ -132,42 +119,26 @@ export function authenticatedCriterionFacts(
 ): CriterionDecisionFacts {
   const records = recordsOf(history)
   const diagnostics: Diagnostic[] = []
-  const inputs = reviewInputsFromInventory(decision, history)
+  const histories = [deliveryHistory, ...externalHistories]
+  const inputs = reviewInputsFromInventory(decision, history, histories)
   const selected =
     inputs === null
-      ? { declarations: [], evidence: [] }
-      : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics, catalogues)
+      ? { declarations: [], declarationFacts: [], evidence: [] }
+      : selectedDeclarations(histories, inputs, diagnostics, catalogues)
   const bound = new Set(decision.sourceContributionIds)
   if (originalContributionId !== null) bound.add(originalContributionId)
-  const verdicts: CriterionVerdict[] = []
-  for (const ref of decision.criterionVerdicts) appendVerdict(records, bound, ref, verdicts, diagnostics)
+  const reports = new Map<string, SpecReport | null>()
+  const verdictSources = new Map<CriterionVerdict, VerdictSource>()
+  for (const ref of decision.criterionVerdicts) {
+    let report = reports.get(ref.contributionId)
+    if (report === undefined) {
+      report = criterionReport(records, ref.contributionId, decision, inputs, history)
+      reports.set(ref.contributionId, report)
+    }
+    appendVerdict(report, ref, verdictSources, diagnostics)
+  }
   if (inputs !== null) retainExclusions(decision, inputs, records, bound, diagnostics)
-  return { declarations: selected.declarations, evidence: selected.evidence, verdicts, diagnostics }
-}
-
-function manifestPins(inputs: ActionInputs | null): PinnedFileRef[] {
-  if (inputs === null) return []
-  return [
-    ...inputs.manifest.repositoryReferences,
-    ...inputs.manifest.plugin.files,
-    ...inputs.manifest.expandedContext.flatMap((ref) => (ref.source === 'git-file' ? [ref] : [])),
-  ]
-}
-
-function codeLinkReferenceDiagnostics(
-  verdicts: readonly CriterionVerdict[],
-  histories: readonly DecodedHistory[],
-  pins: readonly PinnedFileRef[],
-): Diagnostic[] {
-  return verdicts.flatMap((verdict) =>
-    verdict.examined.flatMap((row) => {
-      const references =
-        row.codeLink.method === 'test'
-          ? [...row.codeLink.after.references, ...(row.codeLink.before?.references ?? [])]
-          : row.codeLink.current.references
-      return references.flatMap((ref) => observationRefDiagnostics(verdict.target.id, ref, histories, pins))
-    }),
-  )
+  return { ...selected, verdicts: [...verdictSources.keys()], verdictSources, diagnostics }
 }
 
 function assessStandalone(
@@ -202,19 +173,31 @@ function assessStandalone(
 export function criterionAssessmentForDecision(
   decision: Decision,
   inputs: ActionInputs | null,
-  facts: CriterionDecisionFacts,
+  facts: Pick<CriterionDecisionFacts, 'declarations' | 'evidence' | 'verdicts' | 'diagnostics'>,
   code: { repository: string; commit: string } | null,
   histories: readonly DecodedHistory[] = [],
 ): { forceRequestChanges: boolean; diagnostics: Diagnostic[] } {
-  const diagnostics = [
-    ...facts.diagnostics,
-    ...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins(inputs)),
-  ]
-  if (decision.purpose !== 'review') return { forceRequestChanges: false, diagnostics }
+  const diagnostics = [...facts.diagnostics]
+  if (decision.purpose !== 'review') {
+    diagnostics.push(
+      ...facts.verdicts.flatMap((verdict) => criterionVerdictCitationDiagnostics(verdict, histories, inputs)),
+    )
+    return { forceRequestChanges: false, diagnostics }
+  }
   if (inputs === null) {
     diagnostics.push(diagnostic('malformed', 'Review decision lacks an authenticated action-input binding'))
     return { forceRequestChanges: true, diagnostics }
   }
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories)
+  if (!authenticated.ok) {
+    diagnostics.push(...authenticated.diagnostics)
+    return { forceRequestChanges: true, diagnostics }
+  }
+  diagnostics.push(
+    ...facts.verdicts.flatMap((verdict) =>
+      criterionVerdictCitationDiagnostics(verdict, histories, authenticated.value),
+    ),
+  )
   if (inputs.manifest.spec.kind === 'absent') return assessStandalone(decision, inputs, code, diagnostics)
   if (inputs.manifest.spec.kind !== 'accepted') {
     diagnostics.push(diagnostic('spec-not-accepted', 'A proposed Spec cannot approve delivery'))

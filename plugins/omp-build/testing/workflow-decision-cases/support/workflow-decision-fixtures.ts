@@ -9,8 +9,8 @@ import type { SpecEffective } from '../../../engine/spec-effective-schema.ts'
 import { resolveAcceptedSpec } from '../../../engine/workflow-accepted-spec.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
 import type { PlanOutput } from '../../../engine/workflow-output-schema.ts'
-import { pinAcceptedSources } from '../../../roxabi/uw-action-observe.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
+import { pinAcceptedSources } from '../../workflow-record-pins.ts'
 
 const WORKFLOW_FIXTURES = roxabiWorkflowFixtures()
 

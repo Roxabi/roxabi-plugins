@@ -64,7 +64,6 @@ test('historical parent integration pin binds its published START candidate', as
         baseTrees: [checkout.p0, firstMerge, secondMerge].map(checkout.tree),
         mergeTrees: checkout.merges.map(checkout.tree),
         parentTree: checkout.tree(checkout.parentHead),
-        diff: checkout.diff(thirdMerge, checkout.parentHead),
       },
       [{ id: 'C1', statement: 'Save keeps the selected region' }],
       'planned',

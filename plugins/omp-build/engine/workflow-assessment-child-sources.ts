@@ -17,7 +17,6 @@ import {
 import { selectedMandate } from './workflow-mandate-admission.ts'
 import type { AcceptedChildCommitment } from './workflow-mandate-schema.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 export type CapturedAssessmentChildSources = {
   childOwnSources: AssessSpecExact['childOwnSources']
@@ -52,9 +51,8 @@ function currentChildSource(
   selected: MandateRecord,
   commitment: AssessSpecExact['proposed']['children'][number] | undefined,
   histories: readonly DecodedHistory[],
-  assessmentReplay?: AssessmentReplayContext,
 ): ChildSource | null {
-  const own = resolveAcceptedSpec(selected, histories, assessmentReplay)
+  const own = resolveAcceptedSpec(selected, histories)
   if (!own.ok) return null
   if (commitment === undefined || 'kind' in commitment || !matchesCommitment(own.spec, commitment)) return null
   return { own: own.spec.ref, sourceRefs: own.spec.sourceRefs }
@@ -66,9 +64,8 @@ function abandonedChildSource(
   mandates: readonly MandateRecord[],
   prior: AcceptedChildCommitment,
   histories: readonly DecodedHistory[],
-  assessmentReplay?: AssessmentReplayContext,
 ): ChildSource | null {
-  const candidates = historicalChildCandidates(mandates, prior, histories, assessmentReplay)
+  const candidates = historicalChildCandidates(mandates, prior, histories)
   if (candidates === null) return null
   const [candidate] = candidates
   if (candidates.length !== 1 || candidate === undefined) return null
@@ -92,7 +89,6 @@ function captureChildSource(
   proposed: AssessSpecExact['proposed'],
   histories: readonly DecodedHistory[],
   attachedChildren: AssessSpecExact['attachedChildren'],
-  assessmentReplay?: AssessmentReplayContext,
 ): ChildSource | null {
   const history = childHistory(uw, histories)
   if (history === null) return null
@@ -122,10 +118,10 @@ function captureChildSource(
       prior ??
       proposed.children.find((child) => !('kind' in child) && equalScope(child.scope, uw)) ??
       attachedChildren.find((child) => equalScope(child.scope, uw))
-    return currentChildSource(selected, commitment, histories, assessmentReplay)
+    return currentChildSource(selected, commitment, histories)
   }
   if ('kind' in selected || selected.reason !== 'abandoned') return null
-  return abandonedChildSource(uw, history, mandates, prior, histories, assessmentReplay)
+  return abandonedChildSource(uw, history, mandates, prior, histories)
 }
 
 /** Capture current authority or the exact abandoned historical engagement, never inferred absence. */
@@ -134,7 +130,6 @@ export function capturedChildOwnSources(
   proposed: AssessSpecExact['proposed'],
   histories: readonly DecodedHistory[],
   attachedChildren: AssessSpecExact['attachedChildren'],
-  assessmentReplay?: AssessmentReplayContext,
 ): CapturedAssessmentChildSources | null {
   const scopes = [
     ...accepted.children.map((child) => child.scope),
@@ -145,7 +140,7 @@ export function capturedChildOwnSources(
   const sourceRefs: ExternalRecordRef[] = []
   for (const uw of scopes) {
     if (childOwnSources.some((entry) => equalScope(entry.uw, uw))) continue
-    const source = captureChildSource(uw, accepted, proposed, histories, attachedChildren, assessmentReplay)
+    const source = captureChildSource(uw, accepted, proposed, histories, attachedChildren)
     if (source === null) return null
     childOwnSources.push({ uw, own: source.own })
     sourceRefs.push(...source.sourceRefs)
@@ -172,11 +167,10 @@ function historicalChildCandidates(
   mandates: readonly MandateRecord[],
   prior: AcceptedChildCommitment,
   histories: readonly DecodedHistory[],
-  assessmentReplay?: AssessmentReplayContext,
 ): { mandate: MandateRecord; prefix: AcceptedOwnSpec }[] | null {
   const candidates: { mandate: MandateRecord; prefix: AcceptedOwnSpec }[] = []
   for (const mandate of mandates) {
-    const prefixes = resolveAcceptedSpecPrefixes(mandate, histories, assessmentReplay)
+    const prefixes = resolveAcceptedSpecPrefixes(mandate, histories)
     if (!prefixes.ok) return null
     for (const prefix of prefixes.prefixes) {
       if (!matchesCommitment(prefix, prior)) continue

@@ -13,6 +13,14 @@ import type { CanonicalRecord } from '../record-schema.ts'
 import type { Result } from '../result.ts'
 import { scopeKey } from '../uw-graph.ts'
 import { recoveryAssociationFixture } from './fix-recovery-association-fixture.ts'
+import {
+  correctionInputs,
+  executableReview,
+  foreignRecoveryContext,
+  graphFacts,
+  ownerAnchors,
+  withObservedEvidence,
+} from './fix-recovery-native-adoption-fixture.ts'
 
 type Phase = 'close-predecision' | 'adopt-decision'
 type Control = Extract<CanonicalRecord, { kind: 'fix-recovery' }>
@@ -95,82 +103,49 @@ function frameAppender() {
 }
 
 /** Seed historical envelopes only; no preparation, publication, or simulated operator approval API. */
-export async function historicalRecoveryFixture(phase: Phase, withExecutionEvidence = false) {
+export async function historicalRecoveryFixture(
+  phase: Phase,
+  withExecutionEvidence = false,
+  foreignExpansion?: 'pin-only' | 'finite-cut',
+  catalogueDigest?: string,
+) {
   const adoption = phase === 'adopt-decision'
-  const fixture = await recoveryAssociationFixture(adoption)
+  const fixture = await recoveryAssociationFixture(adoption && foreignExpansion === undefined)
   const { leaf, requestId, decisionId } = fixture
   const { input, prHistory } = fixture.observe({ review: adoption })
-  const [home] = input.histories
-  if (!home || input.graph.status !== 'complete') throw new Error('Missing historical recovery sources')
-  const opening = home.operations.find(
-    ({ record }) => record?.kind === 'fix-owner' && record.payload.phase === 'opened',
-  )?.record
-  const settled = home.operations.find(
-    ({ record }) => record?.kind === 'fix-owner' && record.payload.phase === 'settled',
-  )?.record
-  if (
-    opening?.kind !== 'fix-owner' ||
-    opening.payload.phase !== 'opened' ||
-    settled?.kind !== 'fix-owner' ||
-    settled.payload.phase !== 'settled'
-  ) {
-    throw new Error('Missing historical owner anchors')
-  }
-  const { common } = opening.payload
-  const { host, uw, pullRequest, binding, mandate, destination } = common
-  if (host.kind !== 'linux-qualified') throw new Error('Expected a qualified structural host')
-  if (leaf.binding.kind !== 'workflow-binding') throw new Error('Missing historical workflow binding')
-  const settlement = settled.payload
-  const opened = settlement.opened
-  const selectedDecision = leaf.review.decision
+  const [originalHome] = input.histories
+  if (!originalHome || input.graph.status !== 'complete') throw new Error('Missing historical recovery sources')
   const append = frameAppender()
-  const evidence = withExecutionEvidence
-    ? required(
-        buildRecord({
-          ...pullRequest,
-          version: 1,
-          kind: 'correction-result',
-          recordId: 'historical-apply-result',
-          operationId: 'historical-apply-operation',
-          runId: opening.runId,
-          payload: {
-            decisionId: selectedDecision.recordId,
-            causeDisposition: { scope: uw, kind: 'cause-disposition', recordId: 'historical-disposition' },
-            causeId: 'historical-cause',
-            attempt: 1,
-            outcome: 'failed',
-            commitSHAs: [],
-            raw: {},
-          },
-        }),
-      )
-    : null
-  // Evidence belongs to the control's finite observation, not to a later live read.
-  const pr = evidence === null ? prHistory : append(prHistory, evidence)
+  const expansion =
+    foreignExpansion === undefined
+      ? null
+      : {
+          ...executableReview(leaf, originalHome, prHistory, append),
+          foreign: await foreignRecoveryContext(append, date),
+        }
+  const home = expansion?.home ?? originalHome
+  const { common, host, runId, settledId, settlement } = ownerAnchors(home)
+  const { uw, pullRequest, binding, mandate, destination } = common
+  if (leaf.binding.kind !== 'workflow-binding') throw new Error('Missing historical workflow binding')
+  const opened = settlement.opened
+  const selectedDecision = expansion?.decision ?? leaf.review.decision
+  const { pr, evidence } = withObservedEvidence(expansion?.pr ?? prHistory, append, {
+    withExecutionEvidence,
+    runId,
+    decisionId: selectedDecision.recordId,
+    uw,
+  })
   const histories = [home, pr].sort((a, b) => compare(scopeKey(a.source.scope), scopeKey(b.source.scope)))
-  const { root, nodes } = input.graph
-  const node = nodes[0]
-  if (nodes.length !== 1 || !node) throw new Error('Expected a single UW in the recovery fixture')
-  const { reference, body, bodySha256 } = node.raw
+  const observedHistories =
+    expansion !== null && foreignExpansion === 'finite-cut'
+      ? [...histories, expansion.foreign.original].sort((a, b) =>
+          compare(scopeKey(a.source.scope), scopeKey(b.source.scope)),
+        )
+      : histories
   const observation: FixRecoveryObservation = {
     format: 'omp-build-fix-recovery-observation/1',
-    histories: histories.map(historyCut),
-    graph: {
-      root,
-      nodes: [
-        {
-          uw: node.uw,
-          title: node.title,
-          raw: { reference, body, bodySha256 },
-          labels: [...node.labels].sort(),
-          wayfinderLabels: [...node.wayfinderLabels].sort(),
-          parent: node.parent,
-          children: [...node.children],
-          blockers: [...node.blockers],
-          native: node.native,
-        },
-      ],
-    },
+    histories: observedHistories.map(historyCut),
+    graph: graphFacts(input.graph),
     authority: {
       mandate: completePin(home, 'mandate', mandate.recordId),
       binding: completePin(pr, 'workflow-binding', binding.recordId),
@@ -185,7 +160,7 @@ export async function historicalRecoveryFixture(phase: Phase, withExecutionEvide
     },
     ...(adoption && {
       catalogues: fixtureReviewCatalogueReads().map(({ ref, contents }) => ({
-        ref,
+        ref: catalogueDigest === undefined ? ref : { ...ref, digest: catalogueDigest },
         contents: new TextDecoder().decode(contents.value),
       })),
     }),
@@ -213,12 +188,21 @@ export async function historicalRecoveryFixture(phase: Phase, withExecutionEvide
     source: completePin(pr, 'contribution', fixture.sourceId.recordId),
     request: completePin(pr, 'fix-request', requestId.recordId),
   }
+  const nativePreparation =
+    expansion !== null
+      ? {
+          kind: 'prepared' as const,
+          causeId: expansion.causeId,
+          actionId: 'historical-native-correction',
+          inputs: correctionInputs(leaf, expansion.decision, expansion.foreign.ref),
+        }
+      : { kind: 'no-native-action' as const }
   const phaseFacts = adoption
     ? ({
         phase: 'adopt-decision',
         target: { ...target, kind: 'decided', decision: completePin(pr, 'decision', selectedDecision.recordId) },
         claimReservation: fixture.identity('fix-owner', 'historical-adoption-claim', uw),
-        nativePreparation: { kind: 'no-native-action' },
+        nativePreparation,
       } as const)
     : ({
         phase: 'close-predecision',
@@ -235,7 +219,7 @@ export async function historicalRecoveryFixture(phase: Phase, withExecutionEvide
     mandate,
     predecessor: null,
     opened,
-    settled: { scope: uw, kind: 'fix-owner' as const, recordId: settled.recordId },
+    settled: { scope: uw, kind: 'fix-owner' as const, recordId: settledId },
     cuts: publicationCuts(histories, settlement),
     observation,
     observationDigest: canonicalValueDigest(observation),
@@ -286,6 +270,11 @@ export async function historicalRecoveryFixture(phase: Phase, withExecutionEvide
     decisionId: adoption ? selectedDecision.recordId : decisionId.recordId,
     withLateDecisionFragment: (history: DecodedHistory) => append(history, lateDecision, true),
     readBack: (candidate: Control = record) => append(pr, candidate),
+    foreign: expansion?.foreign ?? null,
+    readBackWithForeignExpansion: (version: 'current' | 'changed') => {
+      if (expansion === null) throw new Error('Expected a foreign expansion fixture')
+      return expansion.foreign.observe(append(pr, record), record, version)
+    },
   }
 }
 

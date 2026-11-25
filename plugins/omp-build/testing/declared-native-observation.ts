@@ -1,7 +1,7 @@
 import { readUwCompletionObservation } from '../adapters/github-workflow/uw-observation.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { ReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
-import type { FixtureNativeWorld } from './action-input-fixtures.ts'
+import { type FixtureNativeWorld, fixtureCatalogueGhResponse } from './action-input-fixtures.ts'
 export async function readDeclaredNativeWorld(
   world: FixtureNativeWorld,
   catalogues: () => ReviewClassCatalogues,
@@ -139,6 +139,8 @@ export async function readDeclaredNativeWorld(
       readAuthor: 'operator',
       ...options,
       gh: async (_cwd, args) => {
+        const catalogue = fixtureCatalogueGhResponse(args)
+        if (catalogue !== null) return catalogue
         if (args[1] === 'graphql') return graphql(args)
         if (args[0] === 'pr' && args[1] === 'view') return pullResponse(args)
         const commitMatch = /^repos\/([^/]+\/[^/]+)\/git\/commits\/([a-f0-9]{40})$/.exec(args[1] ?? '')

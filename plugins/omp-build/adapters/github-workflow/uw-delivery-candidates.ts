@@ -5,6 +5,7 @@ import type { Result } from '../../engine/result.ts'
 import type { UwDeliveryFacts } from '../../engine/uw-completion-types.ts'
 import { selectWorkflowBinding } from '../../engine/workflow-pr-binding.ts'
 import { selectWorkflowBindingClaims } from '../../engine/workflow-pr-binding-chain.ts'
+import { observeHistoricalPins, readDecodedGitHubHistory } from '../github/historical-pins.ts'
 import { decodeHistory } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import { type GitHubOptions, gh } from '../github/types.ts'
@@ -17,9 +18,12 @@ function actionFailure(code: string, message: string): Result<never> {
   return { ok: false, diagnostics: [{ code, message }] }
 }
 
-async function decodeScope(scope: Scope, options: GitHubOptions): Promise<Result<DecodedHistory>> {
+async function decodeScope(scope: Scope, options: GitHubOptions, hydrate = true): Promise<Result<DecodedHistory>> {
   try {
-    return { ok: true, value: decodeHistory(await readGitHubHistory(scope, options)) }
+    const value = hydrate
+      ? await readDecodedGitHubHistory(scope, options)
+      : decodeHistory(await readGitHubHistory(scope, options))
+    return { ok: true, value }
   } catch (error) {
     return actionFailure(
       'record-unreadable',
@@ -70,7 +74,7 @@ async function candidateHistory(
   const key = `${candidate.scope.repository}\0${candidate.scope.target}`
   const previous = loaded.get(key)
   if (previous !== undefined) return { ok: true, value: previous }
-  const read = await decodeScope(candidate.scope, options)
+  const read = await decodeScope(candidate.scope, options, false)
   if (read.ok) loaded.set(key, read.value)
   return read
 }
@@ -214,6 +218,8 @@ export async function collectDeliveryCandidates(
     if (!binding.value) continue
     const native = await readCandidateNative(candidate, options)
     if (!native.ok) return native
+    const selected = loaded.get(`${candidate.scope.repository}\0${candidate.scope.target}`)
+    if (selected !== undefined) await observeHistoricalPins(selected, options)
     pulls.push(native.value)
   }
   return { ok: true, value: undefined }

@@ -18,7 +18,6 @@ import type { Scope } from '../engine/record-values.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { AssessResultRecord } from '../engine/workflow-spec-assessment.ts'
-import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { ParentCoverageRequest } from './feature-contract.ts'
 import type { UwRead } from './uw-contract.ts'
 import type { CurrentOwnSpecFacts, CurrentOwnSpecFactsResult } from './uw-current-facts.ts'
@@ -69,13 +68,7 @@ function matchingCoverageCandidates(
     if (!matchesAssessmentInputs(exact, accepted, framing)) continue
     const auth = authenticatedAssessResult(record, histories, mandate)
     const parsed = specAssessmentSchema.safeParse(record.payload.structured)
-    const sources = capturedChildOwnSources(
-      exact.accepted,
-      exact.proposed,
-      histories,
-      exact.attachedChildren,
-      input.assessmentReplay,
-    )
+    const sources = capturedChildOwnSources(exact.accepted, exact.proposed, histories, exact.attachedChildren)
     const frozenCoverage = parentCoverageSchema.nullable().safeParse(exact.proposed.coverage)
     if (
       !frozenCoverage.success ||
@@ -167,7 +160,6 @@ export function assessmentCoverageFacts(
   input: {
     uw: Scope
     read: UwRead
-    assessmentReplay?: AssessmentReplayContext
     coverage?: ParentCoverage | null
     basis?: ParentCoverageRequest
   },
