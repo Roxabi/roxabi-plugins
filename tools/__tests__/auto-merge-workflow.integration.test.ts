@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 const ARM = 'Enable auto-merge (merge commit)'
 const DISARM = 'Disarm auto-merge on a moved head'
 const CLEANUP = 'Disarm after failed arming'
+const WORKFLOW_NAME = 'Auto Merge'
 const REPOSITORY = 'Roxabi/roxabi-plugins'
 const PR = '42'
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -16,9 +17,40 @@ const PATCH_ENV = { AUTHOR: BOT, DEPENDABOT_UPDATE_TYPE: 'version-update:semver-
 const REVIEWED = { name: 'reviewed' }
 const OTHER_LABEL = { name: 'documentation' }
 const ARMED = { mergeMethod: 'MERGE' }
-const SUCCESS_AND_PENDING = [
-  { __typename: 'CheckRun', name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' },
-  { __typename: 'StatusContext', context: 'deployment', state: 'PENDING' },
+const EARLIER = '2026-10-25T09:29:49Z'
+const LATER = '2026-10-25T09:32:58Z'
+
+interface CheckRun {
+  __typename: 'CheckRun'
+  workflowName: string
+  name: string
+  startedAt: string
+  status: string
+  conclusion: string
+}
+
+interface StatusContext {
+  __typename: 'StatusContext'
+  context: string
+  startedAt: string
+  state: string
+}
+
+type Check = CheckRun | StatusContext
+
+function checkRun(
+  workflowName: string,
+  name: string,
+  conclusion: string,
+  startedAt = LATER,
+  status = 'COMPLETED',
+): CheckRun {
+  return { __typename: 'CheckRun', workflowName, name, startedAt, status, conclusion }
+}
+
+const SUCCESS_AND_PENDING: Check[] = [
+  checkRun('CI', 'ci', 'SUCCESS'),
+  { __typename: 'StatusContext', context: 'deployment', startedAt: LATER, state: 'PENDING' },
 ]
 
 interface WorkflowStep {
@@ -38,7 +70,9 @@ interface CommandResult {
 
 interface Scenario {
   commits?: { authors: { login: string }[] }[]
-  statusCheckRollup?: Record<string, string>[]
+  baseRefName?: string
+  headRefOid?: string
+  statusCheckRollup?: Check[]
   autoMergeRequest?: typeof ARMED | null
   labels?: { name: string }[]
   arm?: CommandResult[]
@@ -73,8 +107,12 @@ function run() {
   switch (shape) {
     case 'view ' + repo + ' --json commits':
       return { commits: scenario.commits ?? [] }
-    case 'view ' + repo + ' --json statusCheckRollup':
-      return { statusCheckRollup: scenario.statusCheckRollup }
+    case 'view ' + repo + ' --json baseRefName,headRefOid,statusCheckRollup':
+      return {
+        baseRefName: scenario.baseRefName,
+        headRefOid: scenario.headRefOid,
+        statusCheckRollup: scenario.statusCheckRollup,
+      }
     case 'view ' + repo + ' --json autoMergeRequest,labels':
       return { ...state, labels: scenario.labels ?? [] }
     case 'view ' + repo + ' --json autoMergeRequest':
@@ -112,7 +150,7 @@ if (payload === false) {
 `
 
 const VIEW_COMMITS = ['pr', 'view', PR, '--repo', REPOSITORY, '--json', 'commits']
-const VIEW_CHECKS = ['pr', 'view', PR, '--repo', REPOSITORY, '--json', 'statusCheckRollup']
+const VIEW_LIVE = ['pr', 'view', PR, '--repo', REPOSITORY, '--json', 'baseRefName,headRefOid,statusCheckRollup']
 const ENABLE = ['pr', 'merge', PR, '--auto', '--merge', '--repo', REPOSITORY, '--match-head-commit', HEAD]
 const DISABLE = ['pr', 'merge', PR, '--repo', REPOSITORY, '--disable-auto']
 const REMOVE_LABEL = ['pr', 'edit', PR, '--repo', REPOSITORY, '--remove-label', 'reviewed']
@@ -150,6 +188,7 @@ function runStep(name: string, scenario: Scenario = {}, overrides: Record<string
   }
   const env: NodeJS.ProcessEnv = {
     GITHUB_REPOSITORY: REPOSITORY,
+    GITHUB_WORKFLOW: WORKFLOW_NAME,
     PATH: [scratch, process.env.PATH].join(delimiter),
   }
   for (const key of Object.keys(step.env)) {
@@ -158,7 +197,10 @@ function runStep(name: string, scenario: Scenario = {}, overrides: Record<string
     env[key] = value
   }
   writeFileSync(join(scratch, 'step.sh'), step.run)
-  writeFileSync(join(scratch, 'scenario.json'), JSON.stringify({ statusCheckRollup: SUCCESS_AND_PENDING, ...scenario }))
+  writeFileSync(
+    join(scratch, 'scenario.json'),
+    JSON.stringify({ baseRefName: 'main', headRefOid: HEAD, statusCheckRollup: SUCCESS_AND_PENDING, ...scenario }),
+  )
   writeFileSync(join(scratch, 'gh.jsonl'), '')
 
   const result = spawnSync('bash', ['-e', '-o', 'pipefail', 'step.sh'], {
@@ -194,22 +236,88 @@ function eventState(autoMerge: typeof ARMED | null, labels: { name: string }[]) 
 
 describe(ARM, () => {
   it('arms a PR into the default branch with successful and pending checks', () => {
-    expectStep(runStep(ARM), 0, [], [VIEW_CHECKS, ENABLE])
+    expectStep(runStep(ARM), 0, [], [VIEW_LIVE, ENABLE])
   })
 
   it('refuses a PR into a non-default branch before calling gh', () => {
     expectStep(runStep(ARM, {}, { BASE_REF: 'release' }), 1, ['refusing auto-merge: PR targets release, not main'], [])
   })
 
+  it('refuses if the PR was retargeted off the default branch after the label', () => {
+    expectStep(
+      runStep(ARM, { baseRefName: 'feature/x' }),
+      1,
+      ['refusing auto-merge: PR now targets feature/x, not main'],
+      [VIEW_LIVE],
+    )
+  })
+
+  it('refuses if the live head differs from the reviewed head', () => {
+    expectStep(
+      runStep(ARM, { headRefOid: 'fedcba9876543210fedcba9876543210fedcba98' }),
+      1,
+      ['refusing auto-merge: the head moved after the label'],
+      [VIEW_LIVE],
+    )
+  })
+
+  it('ignores a previous failure of the Auto Merge workflow', () => {
+    const rollup = [...SUCCESS_AND_PENDING, checkRun(WORKFLOW_NAME, 'Enable auto-merge', 'FAILURE', EARLIER)]
+    expectStep(runStep(ARM, { statusCheckRollup: rollup }), 0, [], [VIEW_LIVE, ENABLE])
+  })
+
+  it('ignores a failed check when the same check has a newer success', () => {
+    const rollup = [
+      ...SUCCESS_AND_PENDING,
+      checkRun('PR Title', 'Validate PR Title', 'SUCCESS', LATER),
+      checkRun('PR Title', 'Validate PR Title', 'FAILURE', EARLIER),
+    ]
+    expectStep(runStep(ARM, { statusCheckRollup: rollup }), 0, [], [VIEW_LIVE, ENABLE])
+  })
+
+  it('refuses when the same check has a newer failure', () => {
+    const rollup = [
+      ...SUCCESS_AND_PENDING,
+      checkRun('PR Title', 'Validate PR Title', 'SUCCESS', EARLIER),
+      checkRun('PR Title', 'Validate PR Title', 'FAILURE', LATER),
+    ]
+    expectStep(
+      runStep(ARM, { statusCheckRollup: rollup }),
+      1,
+      ['refusing auto-merge: failed checks on the head: Validate PR Title'],
+      [VIEW_LIVE],
+    )
+  })
+
+  it('keeps checks with the same name in different workflows separate', () => {
+    const rollup = [
+      ...SUCCESS_AND_PENDING,
+      checkRun('Secret Scan', 'trufflehog', 'FAILURE', EARLIER),
+      checkRun('Secondary Scan', 'trufflehog', 'SUCCESS', LATER),
+    ]
+    expectStep(
+      runStep(ARM, { statusCheckRollup: rollup }),
+      1,
+      ['refusing auto-merge: failed checks on the head: trufflehog'],
+      [VIEW_LIVE],
+    )
+  })
+
+  const statusError: StatusContext = {
+    __typename: 'StatusContext',
+    context: 'external-ci',
+    startedAt: LATER,
+    state: 'ERROR',
+  }
   it.each([
-    { name: 'trufflehog', check: { __typename: 'CheckRun', name: 'trufflehog', conclusion: 'FAILURE' } },
-    { name: 'external-ci', check: { __typename: 'StatusContext', context: 'external-ci', state: 'ERROR' } },
+    { name: 'trufflehog', check: checkRun('Secret Scan', 'trufflehog', 'FAILURE') },
+    { name: 'external-ci', check: statusError },
   ])('refuses when the $name check failed', ({ name, check }) => {
     expectStep(
       runStep(ARM, { statusCheckRollup: [...SUCCESS_AND_PENDING, check] }),
       1,
       [`refusing auto-merge: failed checks on the head: ${name}`],
-      [VIEW_CHECKS],
+      [VIEW_LIVE],
     )
   })
 
@@ -218,14 +326,14 @@ describe(ARM, () => {
       runStep(ARM, {
         statusCheckRollup: [
           ...SUCCESS_AND_PENDING,
-          { __typename: 'CheckRun', name: 'docs', status: 'COMPLETED', conclusion: 'SKIPPED' },
-          { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'NEUTRAL' },
-          { __typename: 'CheckRun', name: 'tests', status: 'IN_PROGRESS', conclusion: '' },
+          checkRun('CI', 'docs', 'SKIPPED'),
+          checkRun('CI', 'lint', 'NEUTRAL'),
+          checkRun('CI', 'tests', '', LATER, 'IN_PROGRESS'),
         ],
       }),
       0,
       [],
-      [VIEW_CHECKS, ENABLE],
+      [VIEW_LIVE, ENABLE],
     )
   })
 
@@ -238,7 +346,7 @@ describe(ARM, () => {
         runStep(ARM, { commits }, { ...PATCH_ENV, DEPENDABOT_UPDATE_TYPE: updateType }),
         0,
         [],
-        [VIEW_COMMITS, VIEW_CHECKS, ENABLE],
+        [VIEW_COMMITS, VIEW_LIVE, ENABLE],
       )
     },
   )
@@ -267,10 +375,10 @@ describe(ARM, () => {
 
   it.each(['0123456', `g${HEAD.slice(1)}`])('refuses an invalid reviewed head SHA %s', (sha) => {
     expectStep(
-      runStep(ARM, {}, { HEAD_SHA: sha }),
+      runStep(ARM, { headRefOid: sha }, { HEAD_SHA: sha }),
       1,
       ['refusing auto-merge without the reviewed commit'],
-      [VIEW_CHECKS],
+      [VIEW_LIVE],
     )
   })
 
@@ -279,7 +387,7 @@ describe(ARM, () => {
       runStep(ARM, { arm: [{ code: 1, stderr: 'auto-merge already enabled' }] }),
       0,
       [],
-      [VIEW_CHECKS, ENABLE, DISABLE, ENABLE],
+      [VIEW_LIVE, ENABLE, DISABLE, ENABLE],
     )
   })
 
@@ -293,7 +401,7 @@ describe(ARM, () => {
       }),
       1,
       ['refusing to enable auto-merge without the reviewed commit'],
-      [VIEW_CHECKS, ENABLE, DISABLE, ENABLE],
+      [VIEW_LIVE, ENABLE, DISABLE, ENABLE],
     )
   })
 
@@ -302,7 +410,7 @@ describe(ARM, () => {
       runStep(ARM, { arm: [{ code: 1, stderr: 'head SHA does not match' }] }),
       1,
       ['refusing to enable auto-merge without the reviewed commit'],
-      [VIEW_CHECKS, ENABLE],
+      [VIEW_LIVE, ENABLE],
     )
   })
 })
@@ -312,16 +420,16 @@ describe(DISARM, () => {
     { reason: 'armed and reviewed', autoMerge: ARMED, labels: [REVIEWED], calls: [DISABLE, REMOVE_LABEL, VIEW_ARMED] },
     { reason: 'only armed', autoMerge: ARMED, labels: [OTHER_LABEL], calls: [DISABLE, VIEW_ARMED] },
     { reason: 'only reviewed', autoMerge: null, labels: [REVIEWED], calls: [DISABLE, REMOVE_LABEL, VIEW_ARMED] },
-  ])('disarms a moved head that was $reason and stops the run', ({ autoMerge, labels, calls }) => {
+  ])('disarms a moved head or base that was $reason and stops the run', ({ autoMerge, labels, calls }) => {
     expectStep(
       runStep(DISARM, {}, eventState(autoMerge, labels)),
       1,
-      ['head moved after review — auto-merge disarmed'],
+      ['head or base moved after review — auto-merge disarmed'],
       calls,
     )
   })
 
-  it('succeeds when the moved head was neither armed nor reviewed', () => {
+  it('succeeds when the PR was neither armed nor reviewed before the move', () => {
     expectStep(runStep(DISARM, {}, eventState(null, [OTHER_LABEL])), 0, [], [DISABLE, VIEW_ARMED])
   })
 
@@ -331,7 +439,7 @@ describe(DISARM, () => {
       expectStep(
         runStep(DISARM, { disable: { code: 1, stderr } }, eventState(null, [REVIEWED])),
         1,
-        ['head moved after review — auto-merge disarmed'],
+        ['head or base moved after review — auto-merge disarmed'],
         [DISABLE, REMOVE_LABEL, VIEW_ARMED],
       )
     },

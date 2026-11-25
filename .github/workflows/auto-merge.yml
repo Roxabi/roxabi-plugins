@@ -2,7 +2,8 @@
 # of a PR into the default branch, unless a check on that head already failed.
 # The PR_Main ruleset requires ci and App-issued review on that head before merge;
 # other branches have no ruleset, so a PR into them never arms.
-# synchronize disarms with the job token and drops the reviewed label.
+# A head change (synchronize) or a base change (edited) disarms with the job
+# token and drops the reviewed label.
 # Dependabot can arm only for semver-minor or semver-patch updates whose every
 # commit author is dependabot[bot].
 #
@@ -12,7 +13,7 @@ name: Auto Merge
 on:
   # This privileged workflow runs from the base repository and checks out no code.
   pull_request_target:
-    types: [labeled, synchronize]
+    types: [labeled, synchronize, edited]
 
 # Each job receives only the permissions it needs.
 permissions: {}
@@ -31,15 +32,17 @@ jobs:
       issues: write
     if: >-
       github.event_name == 'pull_request_target' &&
-      (github.event.action == 'synchronize' || github.event.label.name == 'reviewed')
+      (github.event.action == 'synchronize' ||
+        (github.event.action == 'edited' && github.event.changes.base != null) ||
+        github.event.label.name == 'reviewed')
     timeout-minutes: 5
     steps:
-      # Moved head: disable auto-merge before dropping a reviewed label.
+      # Moved head or base: disable auto-merge before dropping a reviewed label.
       # GH_TOKEN is the job token (contents and pull-requests write), not the app token,
       # so a mint failure cannot leave the merge armed.
       # always() keeps the step reachable if a prior step failed.
       - name: Disarm auto-merge on a moved head
-        if: always() && github.event.action == 'synchronize'
+        if: always() && github.event.action != 'labeled'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -89,7 +92,7 @@ jobs:
             armed=1
           fi
           if [ "$armed" -eq 1 ] || [ "$labeled" -eq 1 ]; then
-            echo "::error::head moved after review — auto-merge disarmed"
+            echo "::error::head or base moved after review — auto-merge disarmed"
             exit 1
           fi
 
@@ -161,15 +164,27 @@ jobs:
               refuse 'refusing auto-merge: Dependabot PR has a non-Dependabot commit author'
             fi
           fi
-          # Checks outside the ruleset (e.g. trufflehog) do not block native
-          # auto-merge, so a head whose check already failed does not arm.
-          if ! rollup=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json statusCheckRollup); then
-            refuse 'refusing auto-merge: could not read the checks of the head'
+          # One live read: the label event may be stale. GitHub offers no expected
+          # base on merge, so the base and head are checked here, right before it.
+          if ! live=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json baseRefName,headRefOid,statusCheckRollup); then
+            refuse 'refusing auto-merge: could not read the pull request'
           fi
-          if ! failed=$(printf '%s' "$rollup" | jq -er '[.statusCheckRollup[]
-            | select(((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
-              or ((.state // "") | ascii_downcase | IN("failure", "error")))
-            | (.name // .context)] | join(", ")'); then
+          if ! live_base=$(printf '%s' "$live" | jq -er '.baseRefName') || [ "$live_base" != "$DEFAULT_BRANCH" ]; then
+            refuse "refusing auto-merge: PR now targets ${live_base:-an unknown branch}, not $DEFAULT_BRANCH"
+          fi
+          if ! live_head=$(printf '%s' "$live" | jq -er '.headRefOid') || [ "$live_head" != "$HEAD_SHA" ]; then
+            refuse 'refusing auto-merge: the head moved after the label'
+          fi
+          # Checks outside the ruleset (e.g. trufflehog) do not block native
+          # auto-merge, so a head whose check already failed does not arm. Only the
+          # latest run of each check counts, and this workflow's own runs (a
+          # disarm fails on purpose) never do.
+          if ! failed=$(printf '%s' "$live" | jq -er --arg self "$GITHUB_WORKFLOW" '[.statusCheckRollup[]
+            | select((.workflowName // "") != $self)
+            | {key: [(.workflowName // ""), (.name // .context // "")], at: (.startedAt // ""),
+               failed: (((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
+                 or ((.state // "") | ascii_downcase | IN("failure", "error")))}]
+            | group_by(.key) | map(max_by(.at)) | map(select(.failed) | .key[1]) | join(", ")'); then
             refuse 'refusing auto-merge: could not read the checks of the head'
           fi
           if [ -n "$failed" ]; then

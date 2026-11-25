@@ -569,12 +569,13 @@ GitHub viewer identity is fixed for one OMP process. `gh auth switch` requires a
 
 This repository's separate `.github/workflows/auto-merge.yml` arms GitHub native
 auto-merge with a merge commit when the `reviewed` label is added to a PR into the
-default branch. The App token arms on the event head via `--match-head-commit`,
-unless a check on that head already failed. The `PR_Main` ruleset requires
-both `ci` and App-issued `review` on that head before GitHub merges. The workflow
-uses `pull_request_target`, checks out no code and does not read omp-build records.
-Synchronize disarms and drops `reviewed` with the job token; failed arming also
-uses job-token cleanup. Dependabot can arm only for semver-minor or semver-patch
+default branch. The App token arms on the event head via `--match-head-commit`
+after a live read confirms the base and head and finds no failed check on that
+head (the latest run of each check, outside this workflow). The `PR_Main` ruleset
+requires both `ci` and App-issued `review` on that head before GitHub merges. The
+workflow uses `pull_request_target`, checks out no code and does not read omp-build
+records. A head or base change disarms and drops `reviewed` with the job token;
+failed arming also uses job-token cleanup. Dependabot can arm only for semver-minor or semver-patch
 updates whose every commit author is `dependabot[bot]`. This lane is separate from
 Kit merge-on-green and from composed Feature delivery.
 
