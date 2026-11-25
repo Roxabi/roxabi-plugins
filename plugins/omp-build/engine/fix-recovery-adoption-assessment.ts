@@ -5,7 +5,7 @@ import { decisionCauseCapture } from './cause-capture-authentication.ts'
 import { readCauseDispositionHeads } from './cause-heads.ts'
 import { validateCauseDispositionRecords } from './cause-record-validation.ts'
 import { resolveCorrectionRequestBasis } from './correction-request-basis.ts'
-import { fixRecoveryDecisionCatalogueRefs, readFixRecoveryCatalogues } from './fix-recovery-catalogues.ts'
+import { readFixRecoveryCatalogues } from './fix-recovery-catalogues.ts'
 import type { FixRecoveryProposal } from './fix-recovery-control-schema.ts'
 import { selectFixRecoveryDispositionPlan } from './fix-recovery-disposition-plan.ts'
 import { hasSpentOrAmbiguousCorrectionEvidence } from './fix-recovery-spent-evidence.ts'
@@ -31,6 +31,7 @@ function resolveAdoptionBasis(
   decision: Extract<CanonicalRecord, { kind: 'decision' }>
   catalogues: ReviewClassCatalogues
   capture: RecordInputRef
+  histories: readonly DecodedHistory[]
 }> {
   const request = proposal.target.request.identity
   const decision = proposal.target.decision.identity
@@ -44,21 +45,25 @@ function resolveAdoptionBasis(
   if (!decisionRecord.ok) return decisionRecord
   if (requestRecord.value.kind !== 'fix-request' || decisionRecord.value.kind !== 'decision')
     return fail('request or decision kind does not match its reference')
-  const refs = fixRecoveryDecisionCatalogueRefs({ decision: decisionRecord.value, history: home, histories })
-  if (!refs.ok) return refs
-  const catalogues = readFixRecoveryCatalogues({ observation: proposal.observation, required: refs.value })
+  const catalogues = readFixRecoveryCatalogues({
+    observation: proposal.observation,
+    decision: decisionRecord.value,
+    history: home,
+    histories,
+  })
   if (!catalogues.ok) return catalogues
+  const observed = catalogues.value
   const requestBasis = resolveCorrectionRequestBasis(
     home,
     requestRecord.value,
     decisionRecord.value,
-    catalogues.value,
-    histories,
+    observed.catalogues,
+    observed.histories,
   )
   if (!requestBasis.ok) return requestBasis
-  const capture = decisionCauseCapture(decisionRecord.value, histories)
+  const capture = decisionCauseCapture(decisionRecord.value, observed.histories)
   if (!capture.ok) return capture
-  return { ok: true, value: { decision: decisionRecord.value, catalogues: catalogues.value, capture: capture.value } }
+  return { ok: true, value: { ...observed, decision: decisionRecord.value, capture: capture.value } }
 }
 
 function validateNativePreparation(
@@ -96,21 +101,21 @@ export function validateRecoveryAdoptionPlan(input: {
   histories: readonly DecodedHistory[]
   graph?: UwGraphObservation
 }): Result<true> {
-  const { proposal, histories } = input
+  const { proposal } = input
   const observation = proposal.observation
   const request = proposal.target.request.identity
   const decision = proposal.target.decision.identity
   if (
     hasSpentOrAmbiguousCorrectionEvidence(
-      histories,
+      input.histories,
       { scope: request.scope, kind: 'fix-request', recordId: request.recordId },
       { scope: decision.scope, kind: 'decision', recordId: decision.recordId },
     )
   )
     return fail('request or decision has spent or ambiguous correction evidence')
-  const resolved = resolveAdoptionBasis(proposal, histories)
+  const resolved = resolveAdoptionBasis(proposal, input.histories)
   if (!resolved.ok) return resolved
-  const { decision: decisionRecord, catalogues, capture } = resolved.value
+  const { decision: decisionRecord, catalogues, capture, histories } = resolved.value
   const source = { kind: 'decision' as const, decision: decisionRecord }
   const context = { original: observation.authority.accepted.own.uw, effective: observation.authority.accepted }
   const records = histories.flatMap((history) =>

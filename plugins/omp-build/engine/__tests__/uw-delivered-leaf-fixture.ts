@@ -25,6 +25,7 @@ export async function buildDeliveredLeaf(
   inherited = false,
   adjustCriterion?: Parameters<typeof criterionReviewGraph>[0]['adjustCriterion'],
   adjustProducer?: (producer: ObservedProducer) => ObservedProducer,
+  planRecordsAt: typeof eligiblePlanAt = eligiblePlanAt,
 ) {
   const uw = { repository: 'acme/app', target: `acme/app#${number}` }
   const pullRequest = { repository: uw.repository, target: `acme/app#${number + 100}` }
@@ -163,7 +164,7 @@ export async function buildDeliveredLeaf(
   const base = 'a'.repeat(40)
   const head = '1'.repeat(40)
   const planned = workflow.historyFrom(
-    eligiblePlanAt(mandate, base, [mandateHistory, ...parentHistories], effectiveBefore.value),
+    planRecordsAt(mandate, base, [mandateHistory, ...parentHistories], effectiveBefore.value),
     'operator',
     'operator',
     parentHistories,

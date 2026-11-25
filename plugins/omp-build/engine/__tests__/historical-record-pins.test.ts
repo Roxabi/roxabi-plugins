@@ -119,3 +119,35 @@ test.each(['added foreign comment', 'edited foreign comment', 'replaced cited re
     )
   },
 )
+
+test.each(['native edit', 'deletion'] as const)(
+  'refuses an earlier pin after observing its cited record %s',
+  async (change) => {
+    const { issue: first, foreign, expanded, cited } = fixture()
+    const { issue: second } = fixture()
+    const changed = must(
+      buildRecord({ ...cited, payload: { ...cited.payload, config: { ...cited.payload.config, version: 'edited' } } }),
+    )
+    const comments =
+      change === 'deletion'
+        ? []
+        : history([changed], other).source.comments.map((comment) => ({
+            ...comment,
+            updatedAt: '2026-10-27T12:01:00.000Z',
+          }))
+    const revised = { ...foreign, source: { ...foreign.source, comments } }
+    await observeHistoricalPins(first, {
+      cwd: '/fixture',
+      gh: servesForeign(foreign),
+      readAuthor: 'operator',
+    })
+    await observeHistoricalPins(second, {
+      cwd: '/fixture',
+      gh: servesForeign(revised),
+      readAuthor: 'operator',
+    })
+    expect(authenticateHistoricalActionInputs(expanded, [first]).ok).toBe(true)
+    expect(authenticateHistoricalActionInputs(expanded, [second]).ok).toBe(false)
+    expect(authenticateHistoricalActionInputs(expanded, [first, second]).ok).toBe(false)
+  },
+)

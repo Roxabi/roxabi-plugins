@@ -28,6 +28,18 @@ export function recordGitPinBytes(history: DecodedHistory, pins: Iterable<Pinned
   }
 }
 
+/** Add locally verified evidence without widening the original native observation. */
+export function withGitPinBytes(
+  history: DecodedHistory,
+  files: Iterable<{ ref: PinnedFileRef; bytes: Uint8Array }>,
+): DecodedHistory {
+  const original: ObservedHistory = history.source
+  const source: ObservedHistory = { ...original, [observedPins]: new Set(original[observedPins]) }
+  const scoped = { ...history, source }
+  for (const { ref, bytes } of files) recordGitPinBytes(scoped, [ref], bytes)
+  return scoped
+}
+
 /** Keep trusted adapter evidence through wire-schema validation, which clones the source. */
 export function inheritObservedGitPins(original: ObservedHistory, parsed: History) {
   const verified = original[observedPins]

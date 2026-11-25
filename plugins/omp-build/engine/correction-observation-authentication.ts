@@ -1,7 +1,7 @@
 import { canonicalValueDigest } from './action-input.ts'
 import type { PinnedFileRef } from './action-input-schema.ts'
-import type { CriterionEvidence, ObservationRef } from './criterion-evidence-schema.ts'
-import { observationRefDiagnostics } from './delivery-eligibility.ts'
+import type { CriterionEvidence } from './criterion-evidence-schema.ts'
+import { observationRefDiagnostics, producerTestVersionDiagnostics } from './delivery-observation-authentication.ts'
 import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerSourceDiagnostics } from './observation-input-authentication.ts'
@@ -138,12 +138,12 @@ export function correctionObservationAuthenticationDiagnostics(
   const payload = contribution.payload
   const native = payload.native
   const binding = payload.host.action
-  const refs: ObservationRef[] =
+  const diagnostics =
     evidence.method === 'test'
-      ? [...evidence.after.versionClaim.references, ...(evidence.before?.versionClaim.references ?? [])]
-      : evidence.references
-  const diagnostics = refs.flatMap((ref) => observationRefDiagnostics(evidence.id, ref, histories, pins))
-  if (binding !== undefined) diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, binding.inputs))
+      ? producerTestVersionDiagnostics(evidence, histories)
+      : evidence.references.flatMap((ref) => observationRefDiagnostics(evidence.id, ref, histories, pins))
+  if (evidence.method !== 'test' && binding !== undefined)
+    diagnostics.push(...producerSourceDiagnostics(evidence.id, evidence.references, binding.inputs))
   const observation = native?.observation
   const submission = observation?.submission
   if (

@@ -107,6 +107,7 @@ export async function historicalRecoveryFixture(
   phase: Phase,
   withExecutionEvidence = false,
   foreignExpansion?: 'pin-only' | 'finite-cut',
+  catalogueDigest?: string,
 ) {
   const adoption = phase === 'adopt-decision'
   const fixture = await recoveryAssociationFixture(adoption && foreignExpansion === undefined)
@@ -159,7 +160,7 @@ export async function historicalRecoveryFixture(
     },
     ...(adoption && {
       catalogues: fixtureReviewCatalogueReads().map(({ ref, contents }) => ({
-        ref,
+        ref: catalogueDigest === undefined ? ref : { ...ref, digest: catalogueDigest },
         contents: new TextDecoder().decode(contents.value),
       })),
     }),

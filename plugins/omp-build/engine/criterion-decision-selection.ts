@@ -11,15 +11,15 @@ import {
 import {
   currentPlanReceipt,
   implementationReceiptEligible,
-  implementationStartPaired,
   integrationReceiptEligible,
-  integrationStartPaired,
   observationAuthenticationDiagnostics,
   planReceiptEligible,
+  planReviewReceiptEligible,
 } from './delivery-eligibility.ts'
-import { authenticateHistoricalActionInputs, selectedRecordValue } from './historical-action-inputs.ts'
+import { selectedRecordValue } from './historical-action-inputs.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, sameRef } from './record-diagnostics.ts'
+import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
@@ -33,6 +33,7 @@ type CriterionSelection = CriterionSourceSelection & { declarations: CriterionDe
 
 function receiptEligible(record: Receipt): boolean {
   if (record.payload.action === 'plan') return planReceiptEligible(record) && record.payload.phase === 'result'
+  if (record.payload.action === 'plan-review') return planReviewReceiptEligible(record)
   return implementationReceiptEligible(record) || integrationReceiptEligible(record)
 }
 
@@ -59,7 +60,6 @@ function manifestPins(inputs: ActionInputs): PinnedFileRef[] {
 
 function admittedImplementation(
   receipt: Receipt,
-  history: DecodedHistory,
   head: string,
   planActionId: string,
   mandate: ExternalRecordRef,
@@ -77,12 +77,7 @@ function admittedImplementation(
     payload.exactInputs.mandateId !== mandate.recordId
   )
     return false
-  if (
-    payload.action === 'integrate'
-      ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt)
-      : !implementationReceiptEligible(receipt)
-  )
-    return false
+  if (!implementationReceiptEligible(receipt) && !integrationReceiptEligible(receipt)) return false
   if (payload.admission?.remoteTip !== head) return false
   return payload.exactInputs.planActionId === planActionId
 }
@@ -121,16 +116,13 @@ function appendImplementation(
   diagnostics: Diagnostic[],
   selected: CriterionSourceSelection,
 ): void {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
+  if (!admittedImplementation(receipt, head, planActionId, mandate)) {
     diagnostics.push(
       diagnostic('unconfirmed', `Delivery record ${ref.record.recordId} is not the admitted current head`),
     )
     return
   }
-  const authenticated =
-    receipt.payload.action === 'implement'
-      ? implementationStartPaired(history, receipt, histories)
-      : authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
+  const authenticated = authenticateHistoricalReceiptStart(history, receipt, histories)
   if (!authenticated.ok) {
     diagnostics.push(...authenticated.diagnostics)
     return
@@ -156,10 +148,37 @@ function refuseUnbound(ref: DeliveryRef, code: string, diagnostics: Diagnostic[]
   diagnostics.push(diagnostic(code, `Delivery record ${ref.record.recordId} is not an authenticated action receipt`))
 }
 
+function appendPlanReview(
+  history: DecodedHistory,
+  receipt: Receipt,
+  current: Receipt,
+  histories: readonly DecodedHistory[],
+  diagnostics: Diagnostic[],
+): void {
+  const review = receipt.payload
+  const plan = current.payload
+  if (
+    review.action !== 'plan-review' ||
+    review.phase !== 'result' ||
+    plan.action !== 'plan' ||
+    plan.phase !== 'result' ||
+    !sameRef(review.mandate, plan.mandate) ||
+    review.exactInputs.specDigest !== plan.exactInputs.specDigest ||
+    (plan.exactInputs.amendsReviewActionId === null
+      ? review.exactInputs.draftActionId !== plan.actionId
+      : review.actionId !== plan.exactInputs.amendsReviewActionId)
+  ) {
+    diagnostics.push(diagnostic('mismatch', `Delivery record ${receipt.recordId} does not review the current plan`))
+    return
+  }
+  const start = authenticateHistoricalReceiptStart(history, receipt, histories)
+  if (!start.ok) diagnostics.push(...start.diagnostics)
+}
+
 function appendDelivery(
   ref: DeliveryRef,
   histories: readonly DecodedHistory[],
-  currentRecordId: string,
+  current: Receipt,
   head: string,
   planActionId: string,
   mandate: ExternalRecordRef,
@@ -173,8 +192,12 @@ function appendDelivery(
     refuseUnbound(ref, bound.code, diagnostics)
     return
   }
-  if (ref.role === 'plan' || ref.role === 'plan-review') {
-    if (ref.record.recordId !== currentRecordId) {
+  if (ref.role === 'plan-review') {
+    appendPlanReview(history, bound.receipt, current, histories, diagnostics)
+    return
+  }
+  if (ref.role === 'plan') {
+    if (!equalScope(ref.record.scope, current) || ref.record.recordId !== current.recordId) {
       diagnostics.push(diagnostic('mismatch', `Delivery record ${ref.record.recordId} is not the current plan`))
     }
     return
@@ -244,7 +267,7 @@ export function selectedDeclarations(
     appendDelivery(
       ref,
       histories,
-      current.recordId,
+      current,
       inputs.manifest.code.head,
       current.payload.actionId,
       mandate,

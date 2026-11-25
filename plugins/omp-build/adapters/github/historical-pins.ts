@@ -95,14 +95,13 @@ export async function observeHistoricalPins(
     const cited = decodeHistory(source)
     for (const ref of refs) {
       const bound = bindExternalRef(ref.record, cited)
-      if (!bound.ok) continue
-      const selected = selectedRecordValue(bound.value, ref.selector)
-      // Preserve authentic disagreement even if the selected digest no longer matches.
+      const selected = bound.ok ? selectedRecordValue(bound.value, ref.selector) : undefined
+      // Never let a previous observation survive a complete read that cannot bind the cited record.
       noteObservedRecordPin(
         history.source,
         ref,
         cited,
-        selected !== undefined && canonicalValueDigest(selected) === ref.digest,
+        bound.ok ? selected !== undefined && canonicalValueDigest(selected) === ref.digest : null,
       )
     }
   }

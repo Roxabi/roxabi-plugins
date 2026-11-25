@@ -8725,6 +8725,14 @@ function recordGitPinBytes(history, pins, bytes) {
     verified.add(gitPinKey(pin));
   }
 }
+function withGitPinBytes(history, files) {
+  const original = history.source;
+  const source = { ...original, [observedPins]: new Set(original[observedPins]) };
+  const scoped = { ...history, source };
+  for (const { ref, bytes } of files)
+    recordGitPinBytes(scoped, [ref], bytes);
+  return scoped;
+}
 function inheritObservedGitPins(original, parsed) {
   const verified = original[observedPins];
   if (verified !== undefined)
@@ -8733,814 +8741,6 @@ function inheritObservedGitPins(original, parsed) {
 function hasObservedGitPin(histories, pin) {
   const key = gitPinKey(pin);
   return histories.some(({ source }) => source[observedPins]?.has(key) === true);
-}
-
-// plugins/omp-build/engine/historical-record-pins.ts
-import { isDeepStrictEqual } from "node:util";
-
-// plugins/omp-build/engine/record-integrity.ts
-var NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-function nativeInstant(value) {
-  if (typeof value !== "string" || !NATIVE_INSTANT.test(value))
-    return null;
-  const time = Date.parse(value);
-  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19))
-    return null;
-  return time;
-}
-function recordIntegrity(parts, { kind, recordId }) {
-  if (parts.length === 0) {
-    return { reason: "record-unreadable", detail: `${kind} record ${recordId} has no native parts` };
-  }
-  for (const [index, part] of parts.entries()) {
-    const created = nativeInstant(part.createdAt);
-    const updated = nativeInstant(part.updatedAt);
-    const identity = `${kind} record ${recordId} part ${index + 1}/${parts.length}`;
-    if (created === null || updated === null || updated < created) {
-      return {
-        reason: "record-unreadable",
-        detail: `${identity} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)})`
-      };
-    }
-    if (updated !== created)
-      return { reason: "record-edited", detail: `${identity} was revised after publication` };
-  }
-  return null;
-}
-
-// plugins/omp-build/engine/historical-record-pins.ts
-var observedRecords = Symbol.for("omp-build.historical-record-pins");
-var recordPinCutoff = Symbol.for("omp-build.historical-record-pin-cutoff");
-var scopeKey3 = ({ repository, target }) => JSON.stringify([repository, target]);
-var citedRecordKey = ({ kind, recordId }) => JSON.stringify([kind, recordId]);
-var recordKey = (ref) => JSON.stringify([scopeKey3(ref.record.scope), citedRecordKey(ref.record), ref.selector, ref.digest]);
-function latestRecordPart(parts) {
-  let latest = -Infinity;
-  for (const part of parts) {
-    const created = nativeInstant(part.createdAt);
-    if (created === null || part.updatedAt !== part.createdAt)
-      return null;
-    latest = Math.max(latest, created);
-  }
-  return Number.isFinite(latest) ? latest : null;
-}
-function noteObservedRecordPin(source, ref, cited, digestMatches) {
-  let verified = source[observedRecords];
-  if (verified === undefined) {
-    verified = { selected: new Map, cited: new Map };
-    Object.defineProperty(source, observedRecords, { enumerable: true, value: verified });
-  }
-  const key = scopeKey3(ref.record.scope);
-  let records = verified.cited.get(key);
-  if (records === undefined) {
-    records = new Map;
-    verified.cited.set(key, records);
-  }
-  const identity = citedRecordKey(ref.record);
-  const comments = cited.operations.filter(({ authority, record, status }) => authority !== "foreign" && status === "complete" && record?.recordId === ref.record.recordId && record.kind === ref.record.kind).flatMap(({ parts }) => parts).sort((left, right) => (left.nativeId ?? "").localeCompare(right.nativeId ?? ""));
-  const { expectedAuthor, stopAuthor } = cited.source;
-  const read = { expectedAuthor, stopAuthor, comments, digestMatched: digestMatches };
-  const previous = records.get(identity);
-  records.set(identity, previous === undefined ? read : mergeCitedRecord(previous, read));
-  if (digestMatches)
-    verified.selected.set(recordKey(ref), latestRecordPart(comments));
-}
-function mergeCitedRecord(left, right) {
-  if (left === right)
-    return left;
-  if (left === null || right === null || left.expectedAuthor !== right.expectedAuthor || !isDeepStrictEqual(left.comments, right.comments))
-    return null;
-  return {
-    ...left,
-    stopAuthor: left.stopAuthor === right.stopAuthor ? left.stopAuthor : null,
-    digestMatched: left.digestMatched || right.digestMatched
-  };
-}
-function inheritObservedRecordPins(original, parsed, before) {
-  const verified = original[observedRecords];
-  if (verified !== undefined)
-    Object.defineProperty(parsed, observedRecords, { enumerable: true, value: verified });
-  const inherited = original[recordPinCutoff];
-  const cutoff = before === undefined ? inherited : Math.min(before, inherited ?? before);
-  if (cutoff !== undefined)
-    Object.defineProperty(parsed, recordPinCutoff, { enumerable: true, value: cutoff });
-}
-function* citedRecords(histories, scope) {
-  const key = scopeKey3(scope);
-  for (const { source } of histories) {
-    const records = source[observedRecords]?.cited.get(key);
-    if (records !== undefined)
-      yield records;
-  }
-}
-function hasObservedRecordPin(histories, ref) {
-  const key = recordKey(ref);
-  const selected = histories.some(({ source }) => {
-    const observedAt = source[observedRecords]?.selected.get(key);
-    const cutoff = source[recordPinCutoff];
-    return observedAt !== undefined && (cutoff === undefined || observedAt !== null && observedAt < cutoff);
-  });
-  if (!selected)
-    return false;
-  const identity = citedRecordKey(ref.record);
-  let merged;
-  for (const records of citedRecords(histories, ref.record.scope)) {
-    const record = records.get(identity);
-    if (record === undefined)
-      continue;
-    const next = merged === undefined ? record : mergeCitedRecord(merged, record);
-    if (next === null)
-      return false;
-    merged = next;
-  }
-  return merged !== undefined;
-}
-function mergedCitedRecords(histories, scope) {
-  const merged = new Map;
-  for (const records of citedRecords(histories, scope)) {
-    for (const [identity, record] of records) {
-      const previous = merged.get(identity);
-      merged.set(identity, previous === undefined ? record : mergeCitedRecord(previous, record));
-    }
-  }
-  return merged.values();
-}
-function getObservedRecordHistory(histories, scope) {
-  const comments = [];
-  let metadata;
-  for (const record of mergedCitedRecords(histories, scope)) {
-    if (record === null || !record.digestMatched)
-      continue;
-    const { expectedAuthor, stopAuthor } = record;
-    if (metadata === undefined)
-      metadata = { expectedAuthor, stopAuthor };
-    else if (metadata.expectedAuthor !== expectedAuthor)
-      return null;
-    else if (metadata.stopAuthor !== stopAuthor)
-      metadata.stopAuthor = null;
-    comments.push(...record.comments);
-  }
-  return metadata === undefined ? null : { ...metadata, scope, complete: true, comments, diagnostics: [] };
-}
-
-// plugins/omp-build/engine/history-graph-operation.ts
-function incompleteOperation(operation, diagnostics) {
-  if (operation.status === "complete" && operation.record !== null)
-    return false;
-  diagnostics.push(diagnostic2(operation.status === "legacy" ? "legacy-format" : operation.status, `Operation ${operation.operationId ?? "unknown"} is not a complete canonical record`));
-  return true;
-}
-function refuseOperationIdentity(operation, diagnostics) {
-  const record = operation.record;
-  if (record === null)
-    return;
-  if (operation.operationId !== record.operationId || operation.recordId !== record.recordId || operation.kind !== record.kind) {
-    diagnostics.push(diagnostic2("unbound", `Observed operation metadata does not identify record ${record.recordId}`));
-  }
-}
-function missingNativeId(operation) {
-  return operation.parts.length === 0 || operation.parts.some((part) => part.nativeId === null || part.nativeId.length === 0);
-}
-function refuseMissingNativeIdentity(operation, diagnostics) {
-  const record = operation.record;
-  if (record === null)
-    return;
-  if (missingNativeId(operation))
-    diagnostics.push(diagnostic2("unbound", `Record ${record.recordId} has no native identity`));
-}
-function authorAllowed(operation, history, author) {
-  if (author === history.source.expectedAuthor)
-    return true;
-  return operation.record?.kind === "stop" && history.source.stopAuthor !== null && author === history.source.stopAuthor;
-}
-function refuseUnauthorizedAuthor(operation, history, diagnostics) {
-  if (operation.parts.some((part) => !authorAllowed(operation, history, part.author))) {
-    diagnostics.push(diagnostic2("unbound", `Operation ${operation.operationId} has an unauthorized native author`));
-  }
-}
-function sameRecord(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function refuseDuplicateOperation(operation, operationsById, recordsById, diagnostics) {
-  const record = operation.record;
-  if (record === null)
-    return;
-  const priorOperation = operationsById.get(record.operationId);
-  const priorRecord = recordsById.get(record.recordId);
-  if (priorOperation !== undefined && !sameRecord(priorOperation, record)) {
-    diagnostics.push(duplicateDiagnostic(record));
-    return;
-  }
-  if (priorRecord !== undefined && !sameRecord(priorRecord, record))
-    diagnostics.push(duplicateDiagnostic(record));
-}
-function duplicateDiagnostic(record) {
-  return diagnostic2("duplicate-reference", `Operation ${record.operationId} or record ${record.recordId} appears more than once with different content`);
-}
-
-// plugins/omp-build/engine/workflow-control.ts
-var WORKTREE_ACTIONS = new Set([
-  "frame",
-  "assess-spec",
-  "plan",
-  "implement",
-  "publish",
-  "review",
-  "fix",
-  "attribute-ci",
-  "epic-next",
-  "epic-final",
-  "hook",
-  "report"
-]);
-function refused(reason, evidence) {
-  return { status: "refused", reason, evidence };
-}
-function recordsOf(history) {
-  const records = [];
-  const seen = new Set;
-  for (const operation of history.operations) {
-    if (operation.status !== "complete" || operation.record === null || operation.authority === "foreign")
-      continue;
-    if (seen.has(operation.record.recordId))
-      continue;
-    seen.add(operation.record.recordId);
-    records.push(operation.record);
-  }
-  return records;
-}
-function hasIncompatibleFormat(history, operation) {
-  return history.diagnostics.some((entry) => entry.code === incompatibleFormat && entry.operationId === operation.operationId);
-}
-function operationProblem(history, operation) {
-  if (operation.authority === "foreign")
-    return null;
-  const kind = operation.record?.kind ?? operation.kind;
-  if (!isWorkflowKind(kind ?? "") && !operation.claimedKinds.some((claim) => isWorkflowKind(claim)))
-    return null;
-  if (operation.status === "conflict")
-    return "ambiguous";
-  if (hasIncompatibleFormat(history, operation))
-    return incompatibleFormat;
-  if (operation.status === "incomplete" || operation.status === "invalid" || operation.status === "legacy")
-    return "unconfirmed";
-  return null;
-}
-function workflowOperationProblem(history) {
-  if (!history.source.complete)
-    return "incomplete";
-  for (const operation of history.operations) {
-    const problem = operationProblem(history, operation);
-    if (problem !== null)
-      return problem;
-  }
-  return null;
-}
-function bindExternalRef(ref, foreignHistory) {
-  if (!equalScope(ref.scope, foreignHistory.source.scope))
-    return fail([
-      diagnostic2("missing-history", `No history was supplied for ${ref.scope.repository} ${ref.scope.target}`)
-    ]);
-  if (!foreignHistory.source.complete)
-    return fail([diagnostic2("incomplete", "External history pagination is incomplete")]);
-  const matchingObservations = foreignHistory.operations.filter((operation) => operation.recordId === ref.recordId || operation.record?.recordId === ref.recordId);
-  const matches = matchingObservations.filter((operation) => operation.authority !== "foreign");
-  if (matches.length === 0) {
-    if (matchingObservations.length > 0)
-      return fail([diagnostic2("foreign", `Record ${ref.recordId} is not from the expected author`)]);
-    return fail([diagnostic2("unknown", `Record ${ref.recordId} is not in the foreign history`)]);
-  }
-  if (matches.some((operation) => operation.status === "conflict"))
-    return fail([diagnostic2("conflict", `Record ${ref.recordId} has conflicting parts`)]);
-  if (matches.some((operation) => operation.status !== "complete" || operation.record === null))
-    return fail([diagnostic2("unconfirmed", `Record ${ref.recordId} is not a complete authenticated record`)]);
-  const bodies = matches.map((operation) => JSON.stringify(operation.record));
-  if (new Set(bodies).size !== 1)
-    return fail([diagnostic2("ambiguous", `Record ${ref.recordId} has incompatible duplicates`)]);
-  const record = matches[0]?.record;
-  if (record === null || record === undefined)
-    return fail([diagnostic2("unconfirmed", `Record ${ref.recordId} has no body`)]);
-  if (record.kind !== ref.kind)
-    return fail([diagnostic2("kind-mismatch", `Record ${ref.recordId} is ${record.kind}, not ${ref.kind}`)]);
-  const identity = [];
-  for (const operation of matches) {
-    refuseOperationIdentity(operation, identity);
-    refuseUnauthorizedAuthor(operation, foreignHistory, identity);
-  }
-  if (identity.length > 0)
-    return fail(identity);
-  const integrity = matches.flatMap((operation) => {
-    if (operation.record === null)
-      return [];
-    if (operation.parts.some((part) => part.nativeId === null || part.nativeId === "")) {
-      return [diagnostic2("unconfirmed", `Record ${ref.recordId} has no native part identity`)];
-    }
-    const checked = recordIntegrity(operation.parts, operation.record);
-    return checked === null ? [] : [diagnostic2(checked.reason, checked.detail)];
-  });
-  if (integrity.length > 0)
-    return fail(integrity);
-  return { ok: true, value: record };
-}
-function historyFor(scope, histories) {
-  return histories.find((history) => equalScope(history.source.scope, scope)) ?? null;
-}
-function scopedStartKey(ref) {
-  return `${ref.scope.repository}\x00${ref.scope.target}\x00${ref.recordId}`;
-}
-function receiptStartKey(receipt) {
-  const payload = receipt.payload;
-  if (payload.phase === "result")
-    return scopedStartKey(payload.start);
-  return scopedStartKey({
-    scope: { repository: receipt.repository, target: receipt.target },
-    recordId: receipt.recordId
-  });
-}
-function excludedReceipt(receipt, excluded) {
-  return excluded !== undefined && excluded.size > 0 && excluded.has(receiptStartKey(receipt));
-}
-function controlsOf(history) {
-  return recordsOf(history).filter((record) => record.kind === "operator-control");
-}
-function mandatesOf(history) {
-  return recordsOf(history).filter((record) => record.kind === "mandate");
-}
-function mandateScope(record) {
-  return { repository: record.repository, target: record.target };
-}
-function abandoned(history, mandate) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  return controlsOf(history).some((record) => record.payload.control === "abandon" && sameRef2(record.payload.mandate, mandateRef));
-}
-function successorOf(history, mandate) {
-  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-  const control = controlsOf(history).find((record) => record.payload.control === "select-successor" && sameRef2(record.payload.predecessor, mandateRef));
-  return control?.payload.control === "select-successor" ? control.payload.successor : null;
-}
-function successorClaim(history, mandate) {
-  const controls = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" && sameRef2(operation.record.payload.predecessor, mandate));
-  if (controls.length === 0)
-    return { status: "none" };
-  if (controls.some((operation) => operation.status !== "complete" || operation.authority !== "accounted" || operation.record === null)) {
-    return {
-      status: "incomplete",
-      diagnostics: [diagnostic2("unconfirmed", "A select-successor claim does not confirm an authorized binding chain")]
-    };
-  }
-  const refs = controls.flatMap((operation) => operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" ? [operation.record.payload.successor] : []);
-  const first = refs[0];
-  if (first === undefined || first.kind !== "mandate" || refs.some((ref) => !sameRef2(ref, first))) {
-    return {
-      status: "conflicting",
-      diagnostics: [diagnostic2("conflicting", "Select-successor controls do not name one mandate")]
-    };
-  }
-  return { status: "next", ref: first };
-}
-
-// plugins/omp-build/engine/historical-action-inputs.ts
-function selectedRecordValue(value, selector) {
-  if (!selector.startsWith("/"))
-    return;
-  let current = value;
-  for (const token of selector.slice(1).split("/")) {
-    if (current === null || typeof current !== "object")
-      return;
-    if (/~(?![01])/.test(token))
-      return;
-    const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
-    if (Array.isArray(current) && !/^(0|[1-9]\d*)$/.test(key))
-      return;
-    if (!Object.hasOwn(current, key))
-      return;
-    current = current[key];
-  }
-  return current;
-}
-function recordRefDiagnostics(label, ref, histories) {
-  const history = historyFor(ref.record.scope, histories);
-  if (history === null)
-    return [diagnostic2("missing-history", `${label} has no history for ${ref.record.recordId}`)];
-  const bound = bindExternalRef(ref.record, history);
-  if (!bound.ok)
-    return [...bound.diagnostics];
-  if (!equalScope({ repository: bound.value.repository, target: bound.value.target }, ref.record.scope))
-    return [diagnostic2("unbound", `${label} record ${ref.record.recordId} belongs to another scope`)];
-  const selected = selectedRecordValue(bound.value, ref.selector);
-  return selected !== undefined && canonicalValueDigest(selected) === ref.digest ? [] : [diagnostic2("mismatch", `${label} observation digest does not match ${ref.record.recordId}`)];
-}
-var payloadOnlyKinds = {
-  "operator-control": true,
-  "spec-identity": true,
-  "cause-disposition": true,
-  "cause-operation": true,
-  mandate: true,
-  "workflow-binding": true,
-  decision: true,
-  review: true,
-  "fix-request": true,
-  "correction-result": true,
-  "falsification-result": true
-};
-function expandedSelectorAllowed({ record: { kind }, selector }) {
-  if (selector.includes("/native") || selector.includes("/rawAttempts"))
-    return false;
-  if (Object.hasOwn(payloadOnlyKinds, kind))
-    return selector === "/payload";
-  if (kind === "contribution")
-    return selector === "/payload" || /^\/payload\/findings(?:\/\d+)?$/.test(selector);
-  if (kind === "review-attempt")
-    return /^\/payload(?:\/inputSnapshot(?:\/.*)?)?$/.test(selector);
-  if (kind !== "action-receipt" && kind !== "fix-result")
-    return false;
-  return selector === "/payload" || kind === "action-receipt" && (selectorAdmitted("plan", selector) || selectorAdmitted("plan-review", selector)) || selectorAdmitted("implementation", selector) || selectorAdmitted("integration", selector) || selectorAdmitted("criterion-evidence", selector);
-}
-function expandedRecordDiagnostics(ref, histories) {
-  if (!expandedSelectorAllowed(ref))
-    return [diagnostic2("unconfirmed", "Historical action manifest cites an unsupported record selector")];
-  if (historyFor(ref.record.scope, histories) === null && hasObservedRecordPin(histories, ref))
-    return [];
-  return recordRefDiagnostics("Historical action manifest", ref, histories);
-}
-function authenticateHistoricalActionInputs(inputs, histories) {
-  const valid = validateActionInputs(inputs);
-  if (!valid.ok)
-    return valid;
-  const { repositoryReferences, plugin, expandedContext } = valid.value.manifest;
-  for (const ref of repositoryReferences)
-    if (!hasObservedGitPin(histories, ref))
-      return unobservedGitPin(ref.path);
-  for (const ref of plugin.files)
-    if (!hasObservedGitPin(histories, ref))
-      return unobservedGitPin(ref.path);
-  for (const ref of expandedContext) {
-    if (ref.source === "record") {
-      const diagnostics = expandedRecordDiagnostics(ref, histories);
-      if (diagnostics.length !== 0)
-        return { ok: false, diagnostics };
-    } else if (!hasObservedGitPin(histories, ref))
-      return unobservedGitPin(ref.path);
-  }
-  return valid;
-}
-function unobservedGitPin(path) {
-  return {
-    ok: false,
-    diagnostics: [diagnostic2("unconfirmed", `Historical action manifest has no authenticated bytes for ${path}`)]
-  };
-}
-function authenticatedReceiptActionInputs(payload, histories) {
-  return authenticateHistoricalActionInputs(payload.inputs, histories).ok && (payload.action !== "plan-review" || payload.slots.every((slot) => !slot.action || authenticateHistoricalActionInputs(slot.action.inputs, histories).ok));
-}
-
-// plugins/omp-build/roxabi/uw-git-bytes.ts
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-// plugins/omp-build/roxabi/workflow-config-digest.ts
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-function shippedProductVersion() {
-  const start = dirname(fileURLToPath(import.meta.url));
-  for (const path of [join(start, "package.json"), join(start, "..", "package.json")]) {
-    try {
-      const parsed = JSON.parse(readFileSync(path, "utf8"));
-      if (parsed.name === "omp-build" && typeof parsed.version === "string" && parsed.version.length > 0)
-        return parsed.version;
-    } catch {}
-  }
-  throw new Error("omp-build package.json version is missing");
-}
-
-// plugins/omp-build/roxabi/uw-action-result.ts
-function actionFailure(code, message, detail) {
-  const diagnostic = detail === undefined ? { code, message } : { code, message, detail };
-  return { ok: false, diagnostics: [diagnostic] };
-}
-function isGitSha(value) {
-  return /^[0-9a-f]{40}$/.test(value);
-}
-
-// plugins/omp-build/roxabi/uw-github-blobs.ts
-var import_preparation_graphql = __toESM(require_preparation_graphql(), 1);
-import { createHash as createHash5 } from "node:crypto";
-function gitBlobSha(bytes) {
-  return createHash5("sha1").update(`blob ${bytes.byteLength}\x00`).update(bytes).digest("hex");
-}
-function decodeBase64(value, size) {
-  const compact = value.replace(/[ \t\r\n]/g, "");
-  if (compact.length === 0)
-    return size === 0 ? new Uint8Array : null;
-  if (compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact))
-    return null;
-  const bytes = Buffer.from(compact, "base64");
-  if (bytes.toString("base64") !== compact || bytes.byteLength !== size)
-    return null;
-  return bytes;
-}
-function record2(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function blobOid(parsed, expectedCommit) {
-  if (!record2(parsed) || !("data" in parsed) || "errors" in parsed && (!Array.isArray(parsed.errors) || parsed.errors.length > 0))
-    return "unreadable";
-  const data = parsed.data;
-  if (!record2(data) || !("repository" in data))
-    return "unreadable";
-  const repository = data.repository;
-  if (!record2(repository) || !("commit" in repository) || !("object" in repository))
-    return "unreadable";
-  const commit = repository.commit;
-  if (!record2(commit) || commit.__typename !== "Commit" || commit.oid !== expectedCommit)
-    return "invalid-commit";
-  if (repository.object === null)
-    return "absent";
-  const object = repository.object;
-  if (!record2(object) || !("oid" in object) || typeof object.oid !== "string" || !isGitSha(object.oid))
-    return "absent";
-  return object.oid;
-}
-function blobBody(parsed) {
-  if (!record2(parsed) || parsed.encoding !== "base64" || typeof parsed.content !== "string" || typeof parsed.sha !== "string")
-    return null;
-  if (typeof parsed.size !== "number" || !Number.isSafeInteger(parsed.size) || parsed.size < 0)
-    return null;
-  return { content: parsed.content, size: parsed.size, sha: parsed.sha };
-}
-function ghFailure(error, missing) {
-  const detail = error instanceof Error ? error.message : "no local fallback";
-  return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}. ${detail}`);
-}
-async function ghText(gh, cwd, args, missing) {
-  try {
-    return { ok: true, value: await gh(cwd ?? "", args) };
-  } catch (error) {
-    return ghFailure(error, missing);
-  }
-}
-function jsonBody(raw, missing, label) {
-  try {
-    return { ok: true, value: JSON.parse(raw) };
-  } catch {
-    return actionFailure("pinned-file-unreadable", `GitHub ${label} is not JSON for ${missing}`);
-  }
-}
-async function readGitHubBlob(request) {
-  const missing = `${request.repository}@${request.commit}:${request.path}`;
-  const slash = request.repository.indexOf("/");
-  const located = await ghText(request.gh, request.cwd, [
-    "api",
-    "graphql",
-    "-f",
-    `query=${import_preparation_graphql.BLOB_QUERY}`,
-    "-f",
-    `owner=${request.repository.slice(0, slash)}`,
-    "-f",
-    `name=${request.repository.slice(slash + 1)}`,
-    "-f",
-    `commit=${request.commit}`,
-    "-f",
-    `expression=${request.commit}:${request.path}`
-  ], missing);
-  if (!located.ok)
-    return located;
-  const lookup = jsonBody(located.value, missing, "blob lookup");
-  if (!lookup.ok)
-    return lookup;
-  const oid = blobOid(lookup.value, request.commit);
-  if (oid === "unreadable")
-    return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}`);
-  if (oid === "invalid-commit")
-    return actionFailure("pinned-file-incomplete", `Pinned object is not the requested Git commit: ${missing}`);
-  if (oid === "absent")
-    return actionFailure("pinned-file-incomplete", `Pinned path is not a Git blob: ${missing}`);
-  return fetchGitHubBlob(request, oid);
-}
-async function fetchGitHubBlob(request, oid) {
-  const missing = `${request.repository}@${request.commit}:${request.path}`;
-  const raw = await ghText(request.gh, request.cwd, [
-    "api",
-    "--method",
-    "GET",
-    `repos/${request.repository}/git/blobs/${oid}`,
-    "-H",
-    "Accept: application/vnd.github+json"
-  ], missing);
-  if (!raw.ok)
-    return raw;
-  const parsed = jsonBody(raw.value, missing, "blob response");
-  if (!parsed.ok)
-    return parsed;
-  const body = blobBody(parsed.value);
-  if (body === null || body.sha !== oid)
-    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
-  const bytes = decodeBase64(body.content, body.size);
-  if (bytes === null || gitBlobSha(bytes) !== oid)
-    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
-  return { ok: true, value: bytes };
-}
-
-// plugins/omp-build/roxabi/uw-git-bytes.ts
-var execFileAsync = promisify(execFile);
-var REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-function githubRepository(url) {
-  const match = url.trim().match(/^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/);
-  return match?.[1] ?? null;
-}
-async function git(cwd, args) {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-      encoding: "buffer",
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 30000
-    });
-    return { ok: true, stdout };
-  } catch {
-    return { ok: false };
-  }
-}
-async function checkoutRepository(cwd) {
-  const shown = await git(cwd, ["config", "--get", "remote.origin.url"]);
-  if (!shown.ok)
-    return null;
-  return githubRepository(shown.stdout.toString("utf8"));
-}
-function pathSegments(path) {
-  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path))
-    return false;
-  const segments = path.split("/");
-  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
-}
-async function readGitFileBytes(request) {
-  if (!REPOSITORY.test(request.repository) || !isGitSha(request.commit) || !repoRelativePathPattern.test(request.path) || !pathSegments(request.path)) {
-    return actionFailure("pinned-file-unreadable", "Pinned file coordinates are incomplete");
-  }
-  if (request.cwd !== undefined && await checkoutRepository(request.cwd) === request.repository) {
-    const type = await git(request.cwd, ["--no-replace-objects", "cat-file", "-t", request.commit]);
-    if (type.ok) {
-      if (type.stdout.toString("ascii") !== `commit
-`)
-        return actionFailure("pinned-file-incomplete", "Pinned object is not a Git commit");
-      const expression = `${request.commit}:${request.path}`;
-      const local = await git(request.cwd, ["--no-replace-objects", "cat-file", "blob", expression]);
-      if (local.ok)
-        return { ok: true, value: local.stdout };
-    }
-  }
-  return readGitHubBlob(request);
-}
-
-// plugins/omp-build/engine/fix-recovery-part-pins.ts
-import { createHash as createHash6 } from "node:crypto";
-var PART_HEADER = /^<!-- omp-build-record v=1 kind=[a-z][a-z0-9-]* id=[^\s<>]+ operationId=[^\s<>]+ part=([1-9][0-9]*)\/([1-9][0-9]*) data=[A-Za-z0-9_-]+ -->\n/;
-function commentAsPartPin(comment) {
-  const match = PART_HEADER.exec(comment.body);
-  if (match === null || !comment.author || !comment.nativeId || !comment.locator)
-    return null;
-  const part = Number(match[1]);
-  const total = Number(match[2]);
-  if (!Number.isSafeInteger(part) || !Number.isSafeInteger(total) || part > total)
-    return null;
-  return {
-    locator: comment.locator,
-    nativeId: comment.nativeId,
-    author: comment.author,
-    createdAt: comment.createdAt,
-    updatedAt: comment.updatedAt,
-    bodyDigest: createHash6("sha256").update(comment.body, "utf8").digest("hex"),
-    part,
-    total
-  };
-}
-function partPinsEqual(left, right) {
-  return left.locator === right.locator && left.nativeId === right.nativeId && left.author === right.author && left.createdAt === right.createdAt && left.updatedAt === right.updatedAt && left.bodyDigest === right.bodyDigest && left.part === right.part && left.total === right.total;
-}
-function observedPartsMatch(expected, operation, exact = true) {
-  const observed = operation.parts.map(commentAsPartPin);
-  if (exact && observed.length !== expected.length || observed.some((entry) => entry === null))
-    return false;
-  const remaining = [...observed];
-  for (const pin of expected) {
-    const index = remaining.findIndex((entry) => entry !== null && partPinsEqual(entry, pin));
-    if (index < 0)
-      return false;
-    remaining.splice(index, 1);
-  }
-  return true;
-}
-
-// plugins/omp-build/engine/fix-recovery-discovery-records.ts
-var scopeKey4 = (scope) => `${scope.repository}\x00${scope.target}`;
-function identityKey(identity) {
-  return `${scopeKey4(identity.scope)}\x00${identity.kind}\x00${identity.runId}\x00${identity.operationId}\x00${identity.recordId}`;
-}
-function asOpenedRef(record) {
-  return {
-    scope: { repository: record.repository, target: record.target },
-    kind: "fix-owner",
-    recordId: record.recordId
-  };
-}
-function asSettledRef(record) {
-  return {
-    scope: { repository: record.repository, target: record.target },
-    kind: "fix-owner",
-    recordId: record.recordId
-  };
-}
-function completeTrustedRecords(histories) {
-  const records = [];
-  for (const history of histories) {
-    for (const operation of history.operations) {
-      if (operation.authority === "foreign")
-        continue;
-      if (operation.status !== "complete" || operation.record === null || recordIntegrity(operation.parts, operation.record) !== null || operation.parts.some((part) => commentAsPartPin(part) === null))
-        continue;
-      records.push(operation.record);
-    }
-  }
-  return records;
-}
-function pairForSettlement(settlement, opened) {
-  if (settlement.payload.phase !== "settled")
-    return null;
-  if (!sameRef2(settlement.payload.opened, settlement.payload.interrupted.opened))
-    return null;
-  const key = `${scopeKey4(settlement.payload.opened.scope)}\x00${settlement.payload.opened.recordId}`;
-  const openings = opened.get(key) ?? [];
-  if (openings.length !== 1)
-    return null;
-  const opening = openings[0];
-  if (opening === undefined || opening.payload.phase !== "opened")
-    return null;
-  if (opening.payload.common.owner.recordId !== opening.recordId || opening.payload.common.owner.runId !== opening.runId || opening.payload.common.owner.operationId !== opening.operationId || scopeKey4(opening.payload.common.owner.scope) !== scopeKey4({ repository: opening.repository, target: opening.target }))
-    return null;
-  return { opened: opening, settled: settlement };
-}
-function findOwnerPairs(records) {
-  const opened = new Map;
-  const settled = [];
-  for (const record of records) {
-    if (record.kind !== "fix-owner")
-      continue;
-    if (record.payload.phase === "opened") {
-      const key = `${scopeKey4({ repository: record.repository, target: record.target })}\x00${record.recordId}`;
-      opened.set(key, [...opened.get(key) ?? [], { ...record, payload: record.payload }]);
-    } else
-      settled.push({ ...record, payload: record.payload });
-  }
-  const pairs = [];
-  for (const settlement of settled) {
-    const pair = pairForSettlement(settlement, opened);
-    if (pair !== null)
-      pairs.push(pair);
-  }
-  return pairs;
-}
-function sameIdentity(left, right) {
-  return left.kind === right.kind && left.runId === right.runId && left.operationId === right.operationId && left.recordId === right.recordId && equalScope(left.scope, { repository: right.repository, target: right.target });
-}
-function findOperation(histories, identity) {
-  for (const history of histories) {
-    if (!equalScope(history.source.scope, identity.scope))
-      continue;
-    const operation = history.operations.find((entry) => entry.authority !== "foreign" && entry.operationId === identity.operationId && entry.recordId === identity.recordId && (entry.kind === null || entry.kind === identity.kind));
-    if (operation !== undefined)
-      return operation;
-  }
-  return null;
-}
-function findCompleteRecord(histories, identity) {
-  const operation = findOperation(histories, identity);
-  if (operation === null || operation.status !== "complete" || operation.record === null || recordIntegrity(operation.parts, operation.record) !== null || operation.parts.some((part) => commentAsPartPin(part) === null))
-    return null;
-  if (!sameIdentity(identity, operation.record))
-    return null;
-  const home = histories.find((history) => equalScope(history.source.scope, identity.scope));
-  if (home === undefined)
-    return null;
-  const bound = bindExternalRef({ scope: identity.scope, kind: operation.record.kind, recordId: identity.recordId }, home);
-  if (!bound.ok || canonicalValueDigest(bound.value) !== canonicalValueDigest(operation.record))
-    return null;
-  return operation.record;
-}
-function pinForComplete(identity, record, operation) {
-  const parts = operation.parts.map(commentAsPartPin);
-  if (parts.some((entry) => entry === null)) {
-    throw new Error("complete operation lacks pinable publication parts");
-  }
-  return {
-    identity,
-    envelopeDigest: canonicalValueDigest(record),
-    parts
-  };
-}
-function matchesCompletePin(histories, pin) {
-  const record = findCompleteRecord(histories, pin.identity);
-  const operation = findOperation(histories, pin.identity);
-  return record !== null && operation !== null && canonicalValueDigest(record) === pin.envelopeDigest && observedPartsMatch(pin.parts, operation);
 }
 
 // plugins/omp-build/engine/action-context.ts
@@ -9804,7 +9004,7 @@ function recordPinSchema(kind) {
 // plugins/omp-build/engine/fix-recovery-phase-schema.ts
 var openedRefSchema = externalRecordRefSchema.extend({ kind: literal("fix-owner") });
 var recoveryRefSchema = externalRecordRefSchema.extend({ kind: literal("fix-recovery") });
-var scopeKey5 = (scope) => `${scope.repository}\x00${scope.target}`;
+var scopeKey3 = (scope) => `${scope.repository}\x00${scope.target}`;
 var closeRecoveryRefSchema = recoveryRefSchema;
 var freshIntakeIntentSchema = strictObject({
   kind: literal("fresh-intake"),
@@ -9911,7 +9111,7 @@ var outboundOperationSchema = strictObject({
 }).superRefine((value, context) => {
   if (value.publication.state === "confirmed") {
     const identity = value.publication.record.identity;
-    if (identity.kind !== value.identity.kind || identity.runId !== value.identity.runId || identity.operationId !== value.identity.operationId || identity.recordId !== value.identity.recordId || scopeKey5(identity.scope) !== scopeKey5(value.identity.scope)) {
+    if (identity.kind !== value.identity.kind || identity.runId !== value.identity.runId || identity.operationId !== value.identity.operationId || identity.recordId !== value.identity.recordId || scopeKey3(identity.scope) !== scopeKey3(value.identity.scope)) {
       context.addIssue({
         code: "custom",
         path: ["publication", "record", "identity"],
@@ -9932,7 +9132,7 @@ var ref = (kind) => externalRecordRefSchema.extend({ kind: literal(kind) });
 var openedRefSchema2 = ref("fix-owner");
 var mandateRefSchema = ref("mandate");
 var bindingRefSchema = ref("workflow-binding");
-var scopeKey6 = (scope) => `${scope.repository}\x00${scope.target}`;
+var scopeKey4 = (scope) => `${scope.repository}\x00${scope.target}`;
 var processLifetimeSchema = strictObject({
   bootId: identifierSchema,
   userNamespace: identifierSchema,
@@ -10023,29 +9223,29 @@ var ownerCommonSchema = strictObject({
   accepted: specEffectiveSchema,
   acceptedDigest: sha256Schema
 }).superRefine((value, context) => {
-  if (scopeKey6(value.owner.scope) !== scopeKey6(value.uw)) {
+  if (scopeKey4(value.owner.scope) !== scopeKey4(value.uw)) {
     context.addIssue({ code: "custom", path: ["owner", "scope"], message: "Owner scope must be the UW" });
   }
-  const keys = value.writeScopes.map(scopeKey6);
+  const keys = value.writeScopes.map(scopeKey4);
   if (new Set(keys).size !== keys.length) {
     context.addIssue({ code: "custom", path: ["writeScopes"], message: "Write scopes must be distinct" });
   }
   const write = new Set(keys);
-  if (!write.has(scopeKey6(value.uw)) || !write.has(scopeKey6(value.pullRequest)) || keys.some((key) => key !== scopeKey6(value.uw) && key !== scopeKey6(value.pullRequest))) {
+  if (!write.has(scopeKey4(value.uw)) || !write.has(scopeKey4(value.pullRequest)) || keys.some((key) => key !== scopeKey4(value.uw) && key !== scopeKey4(value.pullRequest))) {
     context.addIssue({
       code: "custom",
       path: ["writeScopes"],
       message: "Write scopes must be exactly the distinct UW and pull request scopes"
     });
   }
-  if (scopeKey6(value.binding.scope) !== scopeKey6(value.pullRequest)) {
+  if (scopeKey4(value.binding.scope) !== scopeKey4(value.pullRequest)) {
     context.addIssue({
       code: "custom",
       path: ["binding"],
       message: "Binding scope must match the pull request"
     });
   }
-  if (scopeKey6(value.mandate.scope) !== scopeKey6(value.uw)) {
+  if (scopeKey4(value.mandate.scope) !== scopeKey4(value.uw)) {
     context.addIssue({ code: "custom", path: ["mandate"], message: "Mandate scope must match the UW" });
   }
 });
@@ -10924,6 +10124,984 @@ function labelIsKnown(value) {
   ].includes(value);
 }
 
+// plugins/omp-build/engine/workflow-context-output.ts
+var outputFor = {
+  frame: "spec",
+  plan: "plan",
+  "assess-spec": "spec-assessment",
+  "attribute-ci": "ci-attribution",
+  implement: "delivery-execution",
+  integrate: "delivery-execution"
+};
+function workflowContextNegative(result) {
+  const payload = result.payload;
+  if (payload.phase !== "result")
+    return false;
+  if (payload.action === "plan-review") {
+    return producerOutputValid("plan-review", payload.structured) && missingContextOf(payload.structured) !== null || payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
+  }
+  if (!(payload.action in outputFor))
+    return false;
+  const output = outputFor[payload.action];
+  return (producerOutputValid(output, payload.structured) || payload.action === "implement" && implementationOutputSchema.safeParse(payload.structured).success) && missingContextOf(payload.structured) !== null;
+}
+function validPositiveSuccessor(successor) {
+  const payload = successor.payload;
+  if (payload.phase !== "result")
+    return false;
+  if (payload.action === "plan-review")
+    return positiveReviewSuccessor(payload);
+  if (payload.action === "implement") {
+    const parsed = implementationOutputSchema.safeParse(payload.structured);
+    return parsed.success && parsed.data.outcome === "implemented" && payload.admission?.admitted === true && payload.admission.remoteTip !== null;
+  }
+  if (payload.action === "integrate")
+    return integrationOutputSchema.safeParse(payload.structured).success && payload.admission?.admitted === true && payload.admission.remoteTip !== null;
+  if (payload.action === "frame" && payload.structured === null)
+    return true;
+  if (!(payload.action in outputFor))
+    return true;
+  const output = outputFor[payload.action];
+  return producerOutputValid(output, payload.structured);
+}
+function positiveReviewSuccessor(payload) {
+  return payload.slots.every((slot) => {
+    const contributions = payload.contributions.filter((contribution) => contribution.host.slotId === slot.slotId);
+    const contribution = contributions[0];
+    return contributions.length === 1 && contribution !== undefined && producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) === null;
+  }) && payload.contributions.length === payload.slots.length;
+}
+
+// plugins/omp-build/engine/workflow-context-review.ts
+function reviewContextPairValid(start, result, negative) {
+  const payload = result.payload;
+  if (payload.action !== "plan-review" || payload.phase !== "result")
+    return true;
+  if (start.payload.action !== "plan-review" || start.payload.phase !== "start")
+    return false;
+  if (canonicalValueDigest(start.payload.slots) !== canonicalValueDigest(payload.slots))
+    return false;
+  if (!negative)
+    return true;
+  const negatives = payload.contributions.filter((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
+  const contribution = negatives[0];
+  if (negatives.length !== 1 || contribution === undefined)
+    return false;
+  if (!reviewChildValid(payload.slots.find((item) => item.slotId === contribution.host.slotId), contribution))
+    return false;
+  return payload.structured === null || canonicalValueDigest(contribution.structured) === canonicalValueDigest(payload.structured);
+}
+function reviewChildValid(slot, contribution) {
+  if (slot?.action == null || contribution.host.action == null)
+    return false;
+  if (contribution.host.origin !== "native" || contribution.host.role !== slot.specialist)
+    return false;
+  if (contribution.native?.completion !== "completed" || contribution.native.strict !== "valid")
+    return false;
+  return validateActionInputs(slot.action.inputs).ok && canonicalValueDigest(slot.action) === canonicalValueDigest(contribution.host.action);
+}
+
+// plugins/omp-build/engine/history-graph-operation.ts
+function incompleteOperation(operation, diagnostics) {
+  if (operation.status === "complete" && operation.record !== null)
+    return false;
+  diagnostics.push(diagnostic2(operation.status === "legacy" ? "legacy-format" : operation.status, `Operation ${operation.operationId ?? "unknown"} is not a complete canonical record`));
+  return true;
+}
+function refuseOperationIdentity(operation, diagnostics) {
+  const record = operation.record;
+  if (record === null)
+    return;
+  if (operation.operationId !== record.operationId || operation.recordId !== record.recordId || operation.kind !== record.kind) {
+    diagnostics.push(diagnostic2("unbound", `Observed operation metadata does not identify record ${record.recordId}`));
+  }
+}
+function missingNativeId(operation) {
+  return operation.parts.length === 0 || operation.parts.some((part) => part.nativeId === null || part.nativeId.length === 0);
+}
+function refuseMissingNativeIdentity(operation, diagnostics) {
+  const record = operation.record;
+  if (record === null)
+    return;
+  if (missingNativeId(operation))
+    diagnostics.push(diagnostic2("unbound", `Record ${record.recordId} has no native identity`));
+}
+function authorAllowed(operation, history, author) {
+  if (author === history.source.expectedAuthor)
+    return true;
+  return operation.record?.kind === "stop" && history.source.stopAuthor !== null && author === history.source.stopAuthor;
+}
+function refuseUnauthorizedAuthor(operation, history, diagnostics) {
+  if (operation.parts.some((part) => !authorAllowed(operation, history, part.author))) {
+    diagnostics.push(diagnostic2("unbound", `Operation ${operation.operationId} has an unauthorized native author`));
+  }
+}
+function sameRecord(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function refuseDuplicateOperation(operation, operationsById, recordsById, diagnostics) {
+  const record = operation.record;
+  if (record === null)
+    return;
+  const priorOperation = operationsById.get(record.operationId);
+  const priorRecord = recordsById.get(record.recordId);
+  if (priorOperation !== undefined && !sameRecord(priorOperation, record)) {
+    diagnostics.push(duplicateDiagnostic(record));
+    return;
+  }
+  if (priorRecord !== undefined && !sameRecord(priorRecord, record))
+    diagnostics.push(duplicateDiagnostic(record));
+}
+function duplicateDiagnostic(record) {
+  return diagnostic2("duplicate-reference", `Operation ${record.operationId} or record ${record.recordId} appears more than once with different content`);
+}
+
+// plugins/omp-build/engine/record-integrity.ts
+var NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+function nativeInstant(value) {
+  if (typeof value !== "string" || !NATIVE_INSTANT.test(value))
+    return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19))
+    return null;
+  return time;
+}
+function recordIntegrity(parts, { kind, recordId }) {
+  if (parts.length === 0) {
+    return { reason: "record-unreadable", detail: `${kind} record ${recordId} has no native parts` };
+  }
+  for (const [index, part] of parts.entries()) {
+    const created = nativeInstant(part.createdAt);
+    const updated = nativeInstant(part.updatedAt);
+    const identity = `${kind} record ${recordId} part ${index + 1}/${parts.length}`;
+    if (created === null || updated === null || updated < created) {
+      return {
+        reason: "record-unreadable",
+        detail: `${identity} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)})`
+      };
+    }
+    if (updated !== created)
+      return { reason: "record-edited", detail: `${identity} was revised after publication` };
+  }
+  return null;
+}
+
+// plugins/omp-build/engine/workflow-control.ts
+var WORKTREE_ACTIONS = new Set([
+  "frame",
+  "assess-spec",
+  "plan",
+  "implement",
+  "publish",
+  "review",
+  "fix",
+  "attribute-ci",
+  "epic-next",
+  "epic-final",
+  "hook",
+  "report"
+]);
+function refused(reason, evidence) {
+  return { status: "refused", reason, evidence };
+}
+function recordsOf(history) {
+  const records = [];
+  const seen = new Set;
+  for (const operation of history.operations) {
+    if (operation.status !== "complete" || operation.record === null || operation.authority === "foreign")
+      continue;
+    if (seen.has(operation.record.recordId))
+      continue;
+    seen.add(operation.record.recordId);
+    records.push(operation.record);
+  }
+  return records;
+}
+function hasIncompatibleFormat(history, operation) {
+  return history.diagnostics.some((entry) => entry.code === incompatibleFormat && entry.operationId === operation.operationId);
+}
+function operationProblem(history, operation) {
+  if (operation.authority === "foreign")
+    return null;
+  const kind = operation.record?.kind ?? operation.kind;
+  if (!isWorkflowKind(kind ?? "") && !operation.claimedKinds.some((claim) => isWorkflowKind(claim)))
+    return null;
+  if (operation.status === "conflict")
+    return "ambiguous";
+  if (hasIncompatibleFormat(history, operation))
+    return incompatibleFormat;
+  if (operation.status === "incomplete" || operation.status === "invalid" || operation.status === "legacy")
+    return "unconfirmed";
+  return null;
+}
+function workflowOperationProblem(history) {
+  if (!history.source.complete)
+    return "incomplete";
+  for (const operation of history.operations) {
+    const problem = operationProblem(history, operation);
+    if (problem !== null)
+      return problem;
+  }
+  return null;
+}
+function bindExternalRef(ref, foreignHistory) {
+  if (!equalScope(ref.scope, foreignHistory.source.scope))
+    return fail([
+      diagnostic2("missing-history", `No history was supplied for ${ref.scope.repository} ${ref.scope.target}`)
+    ]);
+  if (!foreignHistory.source.complete)
+    return fail([diagnostic2("incomplete", "External history pagination is incomplete")]);
+  const matchingObservations = foreignHistory.operations.filter((operation) => operation.recordId === ref.recordId || operation.record?.recordId === ref.recordId);
+  const matches = matchingObservations.filter((operation) => operation.authority !== "foreign");
+  if (matches.length === 0) {
+    if (matchingObservations.length > 0)
+      return fail([diagnostic2("foreign", `Record ${ref.recordId} is not from the expected author`)]);
+    return fail([diagnostic2("unknown", `Record ${ref.recordId} is not in the foreign history`)]);
+  }
+  if (matches.some((operation) => operation.status === "conflict"))
+    return fail([diagnostic2("conflict", `Record ${ref.recordId} has conflicting parts`)]);
+  if (matches.some((operation) => operation.status !== "complete" || operation.record === null))
+    return fail([diagnostic2("unconfirmed", `Record ${ref.recordId} is not a complete authenticated record`)]);
+  const bodies = matches.map((operation) => JSON.stringify(operation.record));
+  if (new Set(bodies).size !== 1)
+    return fail([diagnostic2("ambiguous", `Record ${ref.recordId} has incompatible duplicates`)]);
+  const record = matches[0]?.record;
+  if (record === null || record === undefined)
+    return fail([diagnostic2("unconfirmed", `Record ${ref.recordId} has no body`)]);
+  if (record.kind !== ref.kind)
+    return fail([diagnostic2("kind-mismatch", `Record ${ref.recordId} is ${record.kind}, not ${ref.kind}`)]);
+  const identity = [];
+  for (const operation of matches) {
+    refuseOperationIdentity(operation, identity);
+    refuseUnauthorizedAuthor(operation, foreignHistory, identity);
+  }
+  if (identity.length > 0)
+    return fail(identity);
+  const integrity = matches.flatMap((operation) => {
+    if (operation.record === null)
+      return [];
+    if (operation.parts.some((part) => part.nativeId === null || part.nativeId === "")) {
+      return [diagnostic2("unconfirmed", `Record ${ref.recordId} has no native part identity`)];
+    }
+    const checked = recordIntegrity(operation.parts, operation.record);
+    return checked === null ? [] : [diagnostic2(checked.reason, checked.detail)];
+  });
+  if (integrity.length > 0)
+    return fail(integrity);
+  return { ok: true, value: record };
+}
+function historyFor(scope, histories) {
+  return histories.find((history) => equalScope(history.source.scope, scope)) ?? null;
+}
+function scopedStartKey(ref) {
+  return `${ref.scope.repository}\x00${ref.scope.target}\x00${ref.recordId}`;
+}
+function receiptStartKey(receipt) {
+  const payload = receipt.payload;
+  if (payload.phase === "result")
+    return scopedStartKey(payload.start);
+  return scopedStartKey({
+    scope: { repository: receipt.repository, target: receipt.target },
+    recordId: receipt.recordId
+  });
+}
+function excludedReceipt(receipt, excluded) {
+  return excluded !== undefined && excluded.size > 0 && excluded.has(receiptStartKey(receipt));
+}
+function controlsOf(history) {
+  return recordsOf(history).filter((record) => record.kind === "operator-control");
+}
+function mandatesOf(history) {
+  return recordsOf(history).filter((record) => record.kind === "mandate");
+}
+function mandateScope(record) {
+  return { repository: record.repository, target: record.target };
+}
+function abandoned(history, mandate) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  return controlsOf(history).some((record) => record.payload.control === "abandon" && sameRef2(record.payload.mandate, mandateRef));
+}
+function successorOf(history, mandate) {
+  const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+  const control = controlsOf(history).find((record) => record.payload.control === "select-successor" && sameRef2(record.payload.predecessor, mandateRef));
+  return control?.payload.control === "select-successor" ? control.payload.successor : null;
+}
+function successorClaim(history, mandate) {
+  const controls = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" && sameRef2(operation.record.payload.predecessor, mandate));
+  if (controls.length === 0)
+    return { status: "none" };
+  if (controls.some((operation) => operation.status !== "complete" || operation.authority !== "accounted" || operation.record === null)) {
+    return {
+      status: "incomplete",
+      diagnostics: [diagnostic2("unconfirmed", "A select-successor claim does not confirm an authorized binding chain")]
+    };
+  }
+  const refs = controls.flatMap((operation) => operation.record?.kind === "operator-control" && operation.record.payload.control === "select-successor" ? [operation.record.payload.successor] : []);
+  const first = refs[0];
+  if (first === undefined || first.kind !== "mandate" || refs.some((ref) => !sameRef2(ref, first))) {
+    return {
+      status: "conflicting",
+      diagnostics: [diagnostic2("conflicting", "Select-successor controls do not name one mandate")]
+    };
+  }
+  return { status: "next", ref: first };
+}
+
+// plugins/omp-build/engine/historical-receipt-pair.ts
+function sameCapture(start, result, payload) {
+  return start.payload.phase === "start" && start.payload.action === payload.action && start.payload.actionId === payload.actionId && canonicalValueDigest(start.payload.mandate) === canonicalValueDigest(payload.mandate) && canonicalValueDigest(start.payload.exactInputs) === canonicalValueDigest(payload.exactInputs) && canonicalValueDigest(start.payload.inputs) === canonicalValueDigest(payload.inputs) && reviewContextPairValid(start, result, workflowContextNegative(result));
+}
+function competingReceipt(history, result, payload) {
+  const mandate = canonicalValueDigest(payload.mandate);
+  return history.operations.some(({ authority, record }) => {
+    if (authority === "foreign" || record?.kind !== "action-receipt" || record.recordId === payload.start.recordId || record.recordId === result.recordId || record.payload.action !== payload.action || record.payload.actionId !== payload.actionId || canonicalValueDigest(record.payload.mandate) !== mandate)
+      return false;
+    return bindExternalRef({ ...payload.start, recordId: record.recordId }, history).ok;
+  });
+}
+function authenticateCapture(payload, histories, structural) {
+  if (structural) {
+    const valid = validateActionInputs(payload.inputs);
+    return valid.ok ? [] : valid.diagnostics;
+  }
+  const main = authenticateHistoricalActionInputs(payload.inputs, histories);
+  if (!main.ok)
+    return main.diagnostics;
+  if (payload.action === "plan-review") {
+    for (const slot of payload.slots) {
+      if (slot.action == null)
+        continue;
+      const checked = authenticateHistoricalActionInputs(slot.action.inputs, histories);
+      if (!checked.ok)
+        return checked.diagnostics;
+    }
+  }
+  return [];
+}
+function authenticateHistoricalReceiptStart(history, result, histories = [history], options = { inputs: "authenticated" }) {
+  const payload = result.payload;
+  if (payload.phase !== "result") {
+    return { ok: false, stage: "result", diagnostics: [diagnostic2("unconfirmed", "Expected a historical RESULT")] };
+  }
+  const scope = history.source.scope;
+  const action = payload.action === "implement" ? "implementation" : payload.action === "integrate" ? "integration" : payload.action;
+  const denied = (stage, message, details = []) => ({
+    ok: false,
+    stage,
+    diagnostics: [
+      diagnostic2(`${action}-start-unpaired`, `${payload.action} ${payload.actionId}: ${message}`, {
+        start: payload.start,
+        resultScope: scope
+      }),
+      ...details
+    ]
+  });
+  if (!equalScope(result, scope))
+    return denied("result", "RESULT is not in its native scope");
+  const observedResult = bindExternalRef({ scope, kind: "action-receipt", recordId: result.recordId }, history);
+  if (!observedResult.ok)
+    return denied("result", "RESULT cannot be authenticated", observedResult.diagnostics);
+  if (observedResult.value.kind !== "action-receipt" || canonicalValueDigest(observedResult.value) !== canonicalValueDigest(result))
+    return denied("result", "RESULT does not match its native readback");
+  if (payload.start.kind !== "action-receipt" || !equalScope(payload.start.scope, scope))
+    return denied("identity", "START must be an action receipt in the RESULT history");
+  const start = bindExternalRef(payload.start, history);
+  if (!start.ok)
+    return denied("start", "Cited START cannot be authenticated", start.diagnostics);
+  if (start.value.kind !== "action-receipt" || start.value.recordId !== payload.start.recordId || !equalScope(start.value, scope) || !sameCapture(start.value, result, payload))
+    return denied("capture", "Cited START does not match the RESULT action, mandate, exact inputs, and complete capture");
+  if (competingReceipt(history, result, payload))
+    return denied("identity", "RESULT has a competing authenticated receipt for the same invocation");
+  const problems = authenticateCapture(payload, histories, options.inputs === "structural");
+  if (problems.length !== 0)
+    return denied("manifest", "START inputs are not authenticated", problems);
+  return { ok: true, value: { start: start.value, result: observedResult.value } };
+}
+
+// plugins/omp-build/engine/historical-record-pins.ts
+import { isDeepStrictEqual } from "node:util";
+var observedRecords = Symbol.for("omp-build.historical-record-pins");
+var recordPinCutoff = Symbol.for("omp-build.historical-record-pin-cutoff");
+var scopeKey5 = ({ repository, target }) => JSON.stringify([repository, target]);
+var citedRecordKey = ({ kind, recordId }) => JSON.stringify([kind, recordId]);
+var recordKey = (ref) => JSON.stringify([scopeKey5(ref.record.scope), citedRecordKey(ref.record), ref.selector, ref.digest]);
+function latestRecordPart(parts) {
+  let latest = -Infinity;
+  for (const part of parts) {
+    const created = nativeInstant(part.createdAt);
+    if (created === null || part.updatedAt !== part.createdAt)
+      return null;
+    latest = Math.max(latest, created);
+  }
+  return Number.isFinite(latest) ? latest : null;
+}
+function noteObservedRecordPin(source, ref, cited, digestMatches) {
+  let verified = source[observedRecords];
+  if (verified === undefined) {
+    verified = { selected: new Map, cited: new Map };
+    Object.defineProperty(source, observedRecords, { enumerable: true, value: verified });
+  }
+  const key = scopeKey5(ref.record.scope);
+  let records = verified.cited.get(key);
+  if (records === undefined) {
+    records = new Map;
+    verified.cited.set(key, records);
+  }
+  const identity = citedRecordKey(ref.record);
+  if (digestMatches === null) {
+    records.set(identity, null);
+    return;
+  }
+  const comments = cited.operations.filter(({ authority, record, status }) => authority !== "foreign" && status === "complete" && record?.recordId === ref.record.recordId && record.kind === ref.record.kind).flatMap(({ parts }) => parts).sort((left, right) => (left.nativeId ?? "").localeCompare(right.nativeId ?? ""));
+  const { expectedAuthor, stopAuthor } = cited.source;
+  const read = { expectedAuthor, stopAuthor, comments, digestMatched: digestMatches };
+  const previous = records.get(identity);
+  records.set(identity, previous === undefined ? read : mergeCitedRecord(previous, read));
+  if (digestMatches)
+    verified.selected.set(recordKey(ref), latestRecordPart(comments));
+}
+function mergeCitedRecord(left, right) {
+  if (left === right)
+    return left;
+  if (left === null || right === null || left.expectedAuthor !== right.expectedAuthor || !isDeepStrictEqual(left.comments, right.comments))
+    return null;
+  return {
+    ...left,
+    stopAuthor: left.stopAuthor === right.stopAuthor ? left.stopAuthor : null,
+    digestMatched: left.digestMatched || right.digestMatched
+  };
+}
+function inheritObservedRecordPins(original, parsed, before) {
+  const verified = original[observedRecords];
+  if (verified !== undefined)
+    Object.defineProperty(parsed, observedRecords, { enumerable: true, value: verified });
+  const inherited = original[recordPinCutoff];
+  const cutoff = before === undefined ? inherited : Math.min(before, inherited ?? before);
+  if (cutoff !== undefined)
+    Object.defineProperty(parsed, recordPinCutoff, { enumerable: true, value: cutoff });
+}
+function* citedRecords(histories, scope) {
+  const key = scopeKey5(scope);
+  for (const { source } of histories) {
+    const records = source[observedRecords]?.cited.get(key);
+    if (records !== undefined)
+      yield records;
+  }
+}
+function hasObservedRecordPin(histories, ref) {
+  const key = recordKey(ref);
+  const selected = histories.some(({ source }) => {
+    const observedAt = source[observedRecords]?.selected.get(key);
+    const cutoff = source[recordPinCutoff];
+    return observedAt !== undefined && (cutoff === undefined || observedAt !== null && observedAt < cutoff);
+  });
+  if (!selected)
+    return false;
+  const identity = citedRecordKey(ref.record);
+  let merged;
+  for (const records of citedRecords(histories, ref.record.scope)) {
+    const record = records.get(identity);
+    if (record === undefined)
+      continue;
+    const next = merged === undefined ? record : mergeCitedRecord(merged, record);
+    if (next === null)
+      return false;
+    merged = next;
+  }
+  return merged !== undefined;
+}
+function mergedCitedRecords(histories, scope) {
+  const merged = new Map;
+  for (const records of citedRecords(histories, scope)) {
+    for (const [identity, record] of records) {
+      const previous = merged.get(identity);
+      merged.set(identity, previous === undefined ? record : mergeCitedRecord(previous, record));
+    }
+  }
+  return merged.values();
+}
+function getObservedRecordHistory(histories, scope) {
+  const comments = [];
+  let metadata;
+  for (const record of mergedCitedRecords(histories, scope)) {
+    if (record === null || !record.digestMatched)
+      continue;
+    const { expectedAuthor, stopAuthor } = record;
+    if (metadata === undefined)
+      metadata = { expectedAuthor, stopAuthor };
+    else if (metadata.expectedAuthor !== expectedAuthor)
+      return null;
+    else if (metadata.stopAuthor !== stopAuthor)
+      metadata.stopAuthor = null;
+    comments.push(...record.comments);
+  }
+  return metadata === undefined ? null : { ...metadata, scope, complete: true, comments, diagnostics: [] };
+}
+
+// plugins/omp-build/engine/historical-action-inputs.ts
+function selectedRecordValue(value, selector) {
+  if (!selector.startsWith("/"))
+    return;
+  let current = value;
+  for (const token of selector.slice(1).split("/")) {
+    if (current === null || typeof current !== "object")
+      return;
+    if (/~(?![01])/.test(token))
+      return;
+    const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (Array.isArray(current) && !/^(0|[1-9]\d*)$/.test(key))
+      return;
+    if (!Object.hasOwn(current, key))
+      return;
+    current = current[key];
+  }
+  return current;
+}
+function recordRefDiagnostics(label, ref, histories) {
+  const history = historyFor(ref.record.scope, histories);
+  if (history === null)
+    return [diagnostic2("missing-history", `${label} has no history for ${ref.record.recordId}`)];
+  const bound = bindExternalRef(ref.record, history);
+  if (!bound.ok)
+    return [...bound.diagnostics];
+  if (!equalScope({ repository: bound.value.repository, target: bound.value.target }, ref.record.scope))
+    return [diagnostic2("unbound", `${label} record ${ref.record.recordId} belongs to another scope`)];
+  const selected = selectedRecordValue(bound.value, ref.selector);
+  return selected !== undefined && canonicalValueDigest(selected) === ref.digest ? [] : [diagnostic2("mismatch", `${label} observation digest does not match ${ref.record.recordId}`)];
+}
+var payloadOnlyKinds = {
+  "operator-control": true,
+  "spec-identity": true,
+  "cause-disposition": true,
+  "cause-operation": true,
+  mandate: true,
+  "workflow-binding": true,
+  decision: true,
+  review: true,
+  "fix-request": true,
+  "correction-result": true,
+  "falsification-result": true
+};
+function expandedSelectorAllowed({ record: { kind }, selector }) {
+  if (selector.includes("/native") || selector.includes("/rawAttempts"))
+    return false;
+  if (Object.hasOwn(payloadOnlyKinds, kind))
+    return selector === "/payload";
+  if (kind === "contribution")
+    return selector === "/payload" || /^\/payload\/findings(?:\/\d+)?$/.test(selector);
+  if (kind === "review-attempt")
+    return /^\/payload(?:\/inputSnapshot(?:\/.*)?)?$/.test(selector);
+  if (kind !== "action-receipt" && kind !== "fix-result")
+    return false;
+  return selector === "/payload" || kind === "action-receipt" && (selectorAdmitted("plan", selector) || selectorAdmitted("plan-review", selector)) || selectorAdmitted("implementation", selector) || selectorAdmitted("integration", selector) || selectorAdmitted("criterion-evidence", selector);
+}
+function expandedRecordDiagnostics(ref, histories) {
+  if (!expandedSelectorAllowed(ref))
+    return [diagnostic2("unconfirmed", "Historical action manifest cites an unsupported record selector")];
+  if (historyFor(ref.record.scope, histories) === null && hasObservedRecordPin(histories, ref))
+    return [];
+  return recordRefDiagnostics("Historical action manifest", ref, histories);
+}
+function correctionStageReceiptDiagnostics(ref, histories) {
+  const home = historyFor(ref.record.scope, histories);
+  if (home === null)
+    return [diagnostic2("missing-history", "Historical CI attribution history is missing")];
+  const record = bindExternalRef(ref.record, home);
+  if (!record.ok)
+    return record.diagnostics;
+  if (record.value.kind !== "action-receipt" || record.value.payload.action !== "attribute-ci" || record.value.payload.phase !== "result" || record.value.payload.inputs.manifest.purpose !== "attribute-ci" || ref.selector !== "/payload" || canonicalValueDigest(record.value.payload) !== ref.digest)
+    return [diagnostic2("unconfirmed", "Historical correction does not cite its exact CI attribution RESULT")];
+  const pair = authenticateHistoricalReceiptStart(home, record.value, histories);
+  return pair.ok ? [] : pair.diagnostics;
+}
+function correctionStageDiagnostics(inputs, histories) {
+  if (inputs.manifest.purpose !== "correction")
+    return [];
+  for (const ref of inputs.stageSources) {
+    if (ref.record.kind !== "action-receipt")
+      continue;
+    const diagnostics = correctionStageReceiptDiagnostics(ref, histories);
+    if (diagnostics.length !== 0)
+      return diagnostics;
+  }
+  return [];
+}
+function authenticateHistoricalActionInputs(inputs, histories) {
+  const valid = validateActionInputs(inputs);
+  if (!valid.ok)
+    return valid;
+  const { repositoryReferences, plugin, expandedContext } = valid.value.manifest;
+  const unobserved = (refs) => refs.find((ref) => !hasObservedGitPin(histories, ref));
+  const git = unobserved(repositoryReferences) ?? unobserved(plugin.files);
+  if (git !== undefined)
+    return unobservedGitPin(git.path);
+  for (const ref of expandedContext) {
+    if (ref.source === "record") {
+      const diagnostics = expandedRecordDiagnostics(ref, histories);
+      if (diagnostics.length !== 0)
+        return { ok: false, diagnostics };
+    } else if (!hasObservedGitPin(histories, ref))
+      return unobservedGitPin(ref.path);
+  }
+  const diagnostics = correctionStageDiagnostics(valid.value, histories);
+  return diagnostics.length === 0 ? valid : { ok: false, diagnostics };
+}
+function unobservedGitPin(path) {
+  return {
+    ok: false,
+    diagnostics: [diagnostic2("unconfirmed", `Historical action manifest has no authenticated bytes for ${path}`)]
+  };
+}
+
+// plugins/omp-build/roxabi/uw-git-bytes.ts
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+// plugins/omp-build/roxabi/workflow-config-digest.ts
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+function shippedProductVersion() {
+  const start = dirname(fileURLToPath(import.meta.url));
+  for (const path of [join(start, "package.json"), join(start, "..", "package.json")]) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      if (parsed.name === "omp-build" && typeof parsed.version === "string" && parsed.version.length > 0)
+        return parsed.version;
+    } catch {}
+  }
+  throw new Error("omp-build package.json version is missing");
+}
+
+// plugins/omp-build/roxabi/uw-action-result.ts
+function actionFailure(code, message, detail) {
+  const diagnostic = detail === undefined ? { code, message } : { code, message, detail };
+  return { ok: false, diagnostics: [diagnostic] };
+}
+function isGitSha(value) {
+  return /^[0-9a-f]{40}$/.test(value);
+}
+
+// plugins/omp-build/roxabi/uw-github-blobs.ts
+var import_preparation_graphql = __toESM(require_preparation_graphql(), 1);
+import { createHash as createHash5 } from "node:crypto";
+function gitBlobSha(bytes) {
+  return createHash5("sha1").update(`blob ${bytes.byteLength}\x00`).update(bytes).digest("hex");
+}
+function decodeBase64(value, size) {
+  const compact = value.replace(/[ \t\r\n]/g, "");
+  if (compact.length === 0)
+    return size === 0 ? new Uint8Array : null;
+  if (compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact))
+    return null;
+  const bytes = Buffer.from(compact, "base64");
+  if (bytes.toString("base64") !== compact || bytes.byteLength !== size)
+    return null;
+  return bytes;
+}
+function record2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function blobOid(parsed, expectedCommit) {
+  if (!record2(parsed) || !("data" in parsed) || "errors" in parsed && (!Array.isArray(parsed.errors) || parsed.errors.length > 0))
+    return "unreadable";
+  const data = parsed.data;
+  if (!record2(data) || !("repository" in data))
+    return "unreadable";
+  const repository = data.repository;
+  if (!record2(repository) || !("commit" in repository) || !("object" in repository))
+    return "unreadable";
+  const commit = repository.commit;
+  if (!record2(commit) || commit.__typename !== "Commit" || commit.oid !== expectedCommit)
+    return "invalid-commit";
+  if (repository.object === null)
+    return "absent";
+  const object = repository.object;
+  if (!record2(object) || !("oid" in object) || typeof object.oid !== "string" || !isGitSha(object.oid))
+    return "absent";
+  return object.oid;
+}
+function blobBody(parsed) {
+  if (!record2(parsed) || parsed.encoding !== "base64" || typeof parsed.content !== "string" || typeof parsed.sha !== "string")
+    return null;
+  if (typeof parsed.size !== "number" || !Number.isSafeInteger(parsed.size) || parsed.size < 0)
+    return null;
+  return { content: parsed.content, size: parsed.size, sha: parsed.sha };
+}
+function ghFailure(error, missing) {
+  const detail = error instanceof Error ? error.message : "no local fallback";
+  return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}. ${detail}`);
+}
+async function ghText(gh, cwd, args, missing) {
+  try {
+    return { ok: true, value: await gh(cwd ?? "", args) };
+  } catch (error) {
+    return ghFailure(error, missing);
+  }
+}
+function jsonBody(raw, missing, label) {
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch {
+    return actionFailure("pinned-file-unreadable", `GitHub ${label} is not JSON for ${missing}`);
+  }
+}
+async function readGitHubBlob(request) {
+  const missing = `${request.repository}@${request.commit}:${request.path}`;
+  const slash = request.repository.indexOf("/");
+  const located = await ghText(request.gh, request.cwd, [
+    "api",
+    "graphql",
+    "-f",
+    `query=${import_preparation_graphql.BLOB_QUERY}`,
+    "-f",
+    `owner=${request.repository.slice(0, slash)}`,
+    "-f",
+    `name=${request.repository.slice(slash + 1)}`,
+    "-f",
+    `commit=${request.commit}`,
+    "-f",
+    `expression=${request.commit}:${request.path}`
+  ], missing);
+  if (!located.ok)
+    return located;
+  const lookup = jsonBody(located.value, missing, "blob lookup");
+  if (!lookup.ok)
+    return lookup;
+  const oid = blobOid(lookup.value, request.commit);
+  if (oid === "unreadable")
+    return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}`);
+  if (oid === "invalid-commit")
+    return actionFailure("pinned-file-incomplete", `Pinned object is not the requested Git commit: ${missing}`);
+  if (oid === "absent")
+    return actionFailure("pinned-file-incomplete", `Pinned path is not a Git blob: ${missing}`);
+  return fetchGitHubBlob(request, oid);
+}
+async function fetchGitHubBlob(request, oid) {
+  const missing = `${request.repository}@${request.commit}:${request.path}`;
+  const raw = await ghText(request.gh, request.cwd, [
+    "api",
+    "--method",
+    "GET",
+    `repos/${request.repository}/git/blobs/${oid}`,
+    "-H",
+    "Accept: application/vnd.github+json"
+  ], missing);
+  if (!raw.ok)
+    return raw;
+  const parsed = jsonBody(raw.value, missing, "blob response");
+  if (!parsed.ok)
+    return parsed;
+  const body = blobBody(parsed.value);
+  if (body === null || body.sha !== oid)
+    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
+  const bytes = decodeBase64(body.content, body.size);
+  if (bytes === null || gitBlobSha(bytes) !== oid)
+    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
+  return { ok: true, value: bytes };
+}
+
+// plugins/omp-build/roxabi/uw-git-bytes.ts
+var execFileAsync = promisify(execFile);
+var REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+function githubRepository(url) {
+  const match = url.trim().match(/^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/);
+  return match?.[1] ?? null;
+}
+async function git(cwd, args) {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+      encoding: "buffer",
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: 30000
+    });
+    return { ok: true, stdout };
+  } catch {
+    return { ok: false };
+  }
+}
+async function checkoutRepository(cwd) {
+  const shown = await git(cwd, ["config", "--get", "remote.origin.url"]);
+  if (!shown.ok)
+    return null;
+  return githubRepository(shown.stdout.toString("utf8"));
+}
+function pathSegments(path) {
+  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path))
+    return false;
+  const segments = path.split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+async function readGitFileBytes(request) {
+  if (!REPOSITORY.test(request.repository) || !isGitSha(request.commit) || !repoRelativePathPattern.test(request.path) || !pathSegments(request.path)) {
+    return actionFailure("pinned-file-unreadable", "Pinned file coordinates are incomplete");
+  }
+  if (request.cwd !== undefined && await checkoutRepository(request.cwd) === request.repository) {
+    const type = await git(request.cwd, ["--no-replace-objects", "cat-file", "-t", request.commit]);
+    if (type.ok) {
+      if (type.stdout.toString("ascii") !== `commit
+`)
+        return actionFailure("pinned-file-incomplete", "Pinned object is not a Git commit");
+      const expression = `${request.commit}:${request.path}`;
+      const local = await git(request.cwd, ["--no-replace-objects", "cat-file", "blob", expression]);
+      if (local.ok)
+        return { ok: true, value: local.stdout };
+    }
+  }
+  return readGitHubBlob(request);
+}
+
+// plugins/omp-build/engine/fix-recovery-part-pins.ts
+import { createHash as createHash6 } from "node:crypto";
+var PART_HEADER = /^<!-- omp-build-record v=1 kind=[a-z][a-z0-9-]* id=[^\s<>]+ operationId=[^\s<>]+ part=([1-9][0-9]*)\/([1-9][0-9]*) data=[A-Za-z0-9_-]+ -->\n/;
+function commentAsPartPin(comment) {
+  const match = PART_HEADER.exec(comment.body);
+  if (match === null || !comment.author || !comment.nativeId || !comment.locator)
+    return null;
+  const part = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isSafeInteger(part) || !Number.isSafeInteger(total) || part > total)
+    return null;
+  return {
+    locator: comment.locator,
+    nativeId: comment.nativeId,
+    author: comment.author,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    bodyDigest: createHash6("sha256").update(comment.body, "utf8").digest("hex"),
+    part,
+    total
+  };
+}
+function partPinsEqual(left, right) {
+  return left.locator === right.locator && left.nativeId === right.nativeId && left.author === right.author && left.createdAt === right.createdAt && left.updatedAt === right.updatedAt && left.bodyDigest === right.bodyDigest && left.part === right.part && left.total === right.total;
+}
+function observedPartsMatch(expected, operation, exact = true) {
+  const observed = operation.parts.map(commentAsPartPin);
+  if (exact && observed.length !== expected.length || observed.some((entry) => entry === null))
+    return false;
+  const remaining = [...observed];
+  for (const pin of expected) {
+    const index = remaining.findIndex((entry) => entry !== null && partPinsEqual(entry, pin));
+    if (index < 0)
+      return false;
+    remaining.splice(index, 1);
+  }
+  return true;
+}
+
+// plugins/omp-build/engine/fix-recovery-discovery-records.ts
+var scopeKey6 = (scope) => `${scope.repository}\x00${scope.target}`;
+function identityKey(identity) {
+  return `${scopeKey6(identity.scope)}\x00${identity.kind}\x00${identity.runId}\x00${identity.operationId}\x00${identity.recordId}`;
+}
+function asOpenedRef(record) {
+  return {
+    scope: { repository: record.repository, target: record.target },
+    kind: "fix-owner",
+    recordId: record.recordId
+  };
+}
+function asSettledRef(record) {
+  return {
+    scope: { repository: record.repository, target: record.target },
+    kind: "fix-owner",
+    recordId: record.recordId
+  };
+}
+function completeTrustedRecords(histories) {
+  const records = [];
+  for (const history of histories) {
+    for (const operation of history.operations) {
+      if (operation.authority === "foreign")
+        continue;
+      if (operation.status !== "complete" || operation.record === null || recordIntegrity(operation.parts, operation.record) !== null || operation.parts.some((part) => commentAsPartPin(part) === null))
+        continue;
+      records.push(operation.record);
+    }
+  }
+  return records;
+}
+function pairForSettlement(settlement, opened) {
+  if (settlement.payload.phase !== "settled")
+    return null;
+  if (!sameRef2(settlement.payload.opened, settlement.payload.interrupted.opened))
+    return null;
+  const key = `${scopeKey6(settlement.payload.opened.scope)}\x00${settlement.payload.opened.recordId}`;
+  const openings = opened.get(key) ?? [];
+  if (openings.length !== 1)
+    return null;
+  const opening = openings[0];
+  if (opening === undefined || opening.payload.phase !== "opened")
+    return null;
+  if (opening.payload.common.owner.recordId !== opening.recordId || opening.payload.common.owner.runId !== opening.runId || opening.payload.common.owner.operationId !== opening.operationId || scopeKey6(opening.payload.common.owner.scope) !== scopeKey6({ repository: opening.repository, target: opening.target }))
+    return null;
+  return { opened: opening, settled: settlement };
+}
+function findOwnerPairs(records) {
+  const opened = new Map;
+  const settled = [];
+  for (const record of records) {
+    if (record.kind !== "fix-owner")
+      continue;
+    if (record.payload.phase === "opened") {
+      const key = `${scopeKey6({ repository: record.repository, target: record.target })}\x00${record.recordId}`;
+      opened.set(key, [...opened.get(key) ?? [], { ...record, payload: record.payload }]);
+    } else
+      settled.push({ ...record, payload: record.payload });
+  }
+  const pairs = [];
+  for (const settlement of settled) {
+    const pair = pairForSettlement(settlement, opened);
+    if (pair !== null)
+      pairs.push(pair);
+  }
+  return pairs;
+}
+function sameIdentity(left, right) {
+  return left.kind === right.kind && left.runId === right.runId && left.operationId === right.operationId && left.recordId === right.recordId && equalScope(left.scope, { repository: right.repository, target: right.target });
+}
+function findOperation(histories, identity) {
+  for (const history of histories) {
+    if (!equalScope(history.source.scope, identity.scope))
+      continue;
+    const operation = history.operations.find((entry) => entry.authority !== "foreign" && entry.operationId === identity.operationId && entry.recordId === identity.recordId && (entry.kind === null || entry.kind === identity.kind));
+    if (operation !== undefined)
+      return operation;
+  }
+  return null;
+}
+function findCompleteRecord(histories, identity) {
+  const operation = findOperation(histories, identity);
+  if (operation === null || operation.status !== "complete" || operation.record === null || recordIntegrity(operation.parts, operation.record) !== null || operation.parts.some((part) => commentAsPartPin(part) === null))
+    return null;
+  if (!sameIdentity(identity, operation.record))
+    return null;
+  const home = histories.find((history) => equalScope(history.source.scope, identity.scope));
+  if (home === undefined)
+    return null;
+  const bound = bindExternalRef({ scope: identity.scope, kind: operation.record.kind, recordId: identity.recordId }, home);
+  if (!bound.ok || canonicalValueDigest(bound.value) !== canonicalValueDigest(operation.record))
+    return null;
+  return operation.record;
+}
+function pinForComplete(identity, record, operation) {
+  const parts = operation.parts.map(commentAsPartPin);
+  if (parts.some((entry) => entry === null)) {
+    throw new Error("complete operation lacks pinable publication parts");
+  }
+  return {
+    identity,
+    envelopeDigest: canonicalValueDigest(record),
+    parts
+  };
+}
+function matchesCompletePin(histories, pin) {
+  const record = findCompleteRecord(histories, pin.identity);
+  const operation = findOperation(histories, pin.identity);
+  return record !== null && operation !== null && canonicalValueDigest(record) === pin.envelopeDigest && observedPartsMatch(pin.parts, operation);
+}
+
 // plugins/omp-build/engine/history-conservation.ts
 function inventoryRoot(records, inventory) {
   const root = records.get(inventory.payload.rootAttemptId);
@@ -11464,273 +11642,6 @@ function assessExclusion({
   return { ok: true, value: claim };
 }
 
-// plugins/omp-build/engine/observation-input-authentication.ts
-function producerSourceDiagnostics(evidenceId, references, inputs) {
-  const sourceRefs = [
-    ...inputs.manifest.repositoryReferences,
-    ...inputs.manifest.plugin.files,
-    ...inputs.manifest.expandedContext,
-    ...inputs.manifest.acceptedSources,
-    ...inputs.manifest.deliveryData.map(({ role: _role, ...ref }) => ref),
-    ...inputs.stageSources
-  ];
-  const sourceDigests = new Set(sourceRefs.map((ref) => canonicalValueDigest(ref)));
-  return references.flatMap((ref) => sourceDigests.has(canonicalValueDigest(ref)) ? [] : [
-    diagnostic2("unknown-reference", `Evidence ${evidenceId} cites a source absent from the producing action inputs`)
-  ]);
-}
-
-// plugins/omp-build/engine/delivery-observation-authentication.ts
-function nativeResultValid(record) {
-  return record.payload.phase === "result" && record.payload.native.completion === "completed" && record.payload.native.strict === "valid";
-}
-function implementationReceiptEligible(record) {
-  return record.payload.format === "omp-build-action-receipt/2" && record.payload.action === "implement" && record.payload.phase === "result" && record.payload.admission?.admitted === true && missingContextOf(record.payload.structured) === null && nativeResultValid(record);
-}
-function integrationReceiptEligible(record) {
-  return record.payload.format === "omp-build-action-receipt/2" && record.payload.action === "integrate" && record.payload.phase === "result" && record.payload.inputs.manifest.purpose === "integrate" && record.payload.admission?.admitted === true && nativeResultValid(record) && integrationOutputSchema.safeParse(record.payload.structured).success;
-}
-function citedOperationIntegrity(history, recordId) {
-  const matches = history.operations.filter((operation) => operation.recordId === recordId || operation.record?.recordId === recordId);
-  const operation = matches[0];
-  if (operation === undefined || operation.record === null) {
-    return diagnostic2("unconfirmed", `Record ${recordId} has no observed operation`);
-  }
-  if (operation.operationId !== operation.record.operationId || operation.recordId !== operation.record.recordId || operation.kind !== operation.record.kind) {
-    return diagnostic2("unbound", `Observed operation metadata does not identify record ${recordId}`);
-  }
-  if (operation.parts.some((part) => part.nativeId === null || part.nativeId.length === 0)) {
-    return diagnostic2("unconfirmed", `Operation ${operation.operationId ?? recordId} lacks a native comment identity`);
-  }
-  const expected = history.source.expectedAuthor;
-  const stopAuthor = history.source.stopAuthor;
-  const authorized = (author) => author === expected || operation.record?.kind === "stop" && stopAuthor !== null && author === stopAuthor;
-  if (operation.parts.some((part) => !authorized(part.author))) {
-    return diagnostic2("unbound", `Operation ${operation.operationId ?? recordId} has an unauthorized native author`);
-  }
-  const integrity = recordIntegrity(operation.parts, operation.record);
-  return integrity === null ? null : diagnostic2(integrity.reason, integrity.detail);
-}
-function unauthenticatedPinnedSource(evidenceId) {
-  return [diagnostic2("unknown-reference", `Evidence ${evidenceId} cites an unauthenticated pinned source`)];
-}
-function producerTestVersionRefDiagnostics(evidenceId, ref, histories) {
-  if (ref.source === "git-file")
-    return hasObservedGitPin(histories, ref) ? [] : unauthenticatedPinnedSource(evidenceId);
-  return recordRefDiagnostics(evidenceId, ref, histories);
-}
-function observationRefDiagnostics(evidenceId, ref, histories, pins) {
-  if (ref.source === "git-file") {
-    const selected = pins.some((pin) => pin.repository === ref.repository && pin.commit === ref.commit && pin.path === ref.path && pin.digest === ref.digest);
-    if (!selected || !hasObservedGitPin(histories, ref))
-      return unauthenticatedPinnedSource(evidenceId);
-    return [];
-  }
-  return recordRefDiagnostics(evidenceId, ref, histories);
-}
-var noGitPins = [];
-function criterionManifestPins(inputs) {
-  if (inputs === null)
-    return noGitPins;
-  const { repositoryReferences, plugin, expandedContext } = inputs.manifest;
-  return [...repositoryReferences, ...plugin.files, ...expandedContext.filter((ref) => ref.source === "git-file")];
-}
-function codeLinkJudgments(link) {
-  if (link.method === "observation")
-    return [link.current];
-  return link.before === null ? [link.after] : [link.after, link.before];
-}
-function criterionVerdictCitationDiagnostics(verdict, histories, inputs) {
-  let pins;
-  const diagnostics = [];
-  for (const { codeLink } of verdict.examined) {
-    for (const link of codeLinkJudgments(codeLink)) {
-      for (const ref of link.references) {
-        if (ref.source === "git-file")
-          pins ??= criterionManifestPins(inputs);
-        diagnostics.push(...observationRefDiagnostics(verdict.target.id, ref, histories, pins ?? noGitPins));
-      }
-    }
-  }
-  return diagnostics;
-}
-function versionClaimReferences(evidence) {
-  return [
-    ...evidence.after.versionClaim.references,
-    ...evidence.before === null ? [] : evidence.before.versionClaim.references
-  ];
-}
-function submissionMatchesCapture(observation) {
-  const submissionRaw = observation.submission.raw;
-  if (submissionRaw === null || typeof submissionRaw !== "object" || Array.isArray(submissionRaw) || typeof submissionRaw.toolCallId !== "string" || submissionRaw.toolCallId.length === 0)
-    return false;
-  const executed = submissionRaw.executionArguments;
-  return !(executed === null || typeof executed !== "object" || Array.isArray(executed) || executed.data === undefined || canonicalValueDigest(executed.data) !== canonicalValueDigest(observation.submission.data));
-}
-function nativeObservationMatches(evidence, receipt) {
-  const payload = receipt.payload;
-  if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !(implementationReceiptEligible(receipt) || integrationReceiptEligible(receipt)))
-    return false;
-  const provenance = evidence.provenance;
-  if (provenance.kind !== "native")
-    return false;
-  const observation = payload.native.observation;
-  if (observation === undefined || provenance.actionId !== payload.actionId || observation.actionId !== payload.actionId || provenance.childId !== observation.childId || provenance.submissionIndex !== observation.submissionIndex || observation.submission.attemptIndex !== observation.submissionIndex || provenance.toolCallIds.some((id) => !(payload.native.bashCalls ?? []).some((call) => call.toolCallId === id)))
-    return false;
-  const raw = payload.native.raw;
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw))
-    return false;
-  const structured = raw.structuredOutput;
-  if (raw.id !== observation.childId || structured === null || typeof structured !== "object" || Array.isArray(structured) || structured.status !== "valid" || structured.data === undefined || canonicalValueDigest(structured.data) !== canonicalValueDigest(observation.submission.data))
-    return false;
-  if (!submissionMatchesCapture(observation))
-    return false;
-  const data = observation.submission.data;
-  if (data === null || typeof data !== "object" || Array.isArray(data) || !Array.isArray(data.criteria))
-    return false;
-  const { provenance: _provenance, ...producerEvidence } = evidence;
-  const digest = canonicalValueDigest(producerEvidence);
-  return data.criteria.some((declaration) => declaration !== null && typeof declaration === "object" && !Array.isArray(declaration) && declaration.verification === "evidence" && Array.isArray(declaration.evidence) && declaration.evidence.some((item) => canonicalValueDigest(item) === digest));
-}
-function testRunsMatchHostCapture(evidence, receipt) {
-  const payload = receipt.payload;
-  if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !(implementationReceiptEligible(receipt) || integrationReceiptEligible(receipt)) || evidence.provenance.kind !== "native" || evidence.provenance.actionId !== payload.actionId)
-    return false;
-  const provenance = evidence.provenance;
-  const runs = [evidence.after.run, ...evidence.before === null ? [] : [evidence.before.run]];
-  const calls = payload.native.bashCalls ?? [];
-  return runs.every((run) => provenance.toolCallIds.includes(run.toolCallId) && calls.some((call) => {
-    const input = call.input;
-    return call.toolCallId === run.toolCallId && call.result !== null && call.exitCode === run.exitCode && input !== null && typeof input === "object" && !Array.isArray(input) && input.command === run.command;
-  }));
-}
-function observationAuthenticationDiagnostics(evidence, histories, pins, receipt) {
-  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
-  if (!authenticated.ok)
-    return authenticated.diagnostics;
-  const diagnostics = [];
-  if (evidence.method === "test") {
-    for (const ref of versionClaimReferences(evidence))
-      diagnostics.push(...producerTestVersionRefDiagnostics(evidence.id, ref, histories));
-    if (!testRunsMatchHostCapture(evidence, receipt))
-      diagnostics.push(diagnostic2("unconfirmed", `Evidence ${evidence.id} test runs are not in the host capture`));
-    return diagnostics;
-  }
-  const refs = evidence.references;
-  diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, receipt.payload.inputs));
-  for (const ref of refs)
-    diagnostics.push(...observationRefDiagnostics(evidence.id, ref, histories, pins));
-  if (evidence.provenance.kind === "operator") {
-    diagnostics.push(...recordSourceDiagnostics(evidence.id, evidence.provenance.source, histories));
-  }
-  if (evidence.provenance.kind === "native" && !nativeObservationMatches(evidence, receipt)) {
-    diagnostics.push(diagnostic2("unconfirmed", `Evidence ${evidence.id} native provenance is not the admitted host observation`));
-  }
-  return diagnostics;
-}
-function recordSourceDiagnostics(evidenceId, ref, histories) {
-  const history = historyFor(ref.scope, histories);
-  if (history === null)
-    return [diagnostic2("missing-history", `Evidence ${evidenceId} has no history for its source`)];
-  const bound = bindExternalRef(ref, history);
-  if (!bound.ok)
-    return [...bound.diagnostics];
-  const integrity = citedOperationIntegrity(history, ref.recordId);
-  return integrity === null ? [] : [integrity];
-}
-
-// plugins/omp-build/engine/delivery-eligibility.ts
-function uniqueAccounted(items, label) {
-  if (items.length === 0)
-    return { ok: true, value: null };
-  if (items.length > 1)
-    return fail([diagnostic2("ambiguous", `${label} has unordered applicability`)]);
-  return { ok: true, value: items[0] ?? null };
-}
-function planReceiptEligible(record) {
-  return record.payload.format === "omp-build-action-receipt/2" && record.payload.action === "plan" && nativeResultValid(record) && record.payload.phase === "result" && planOutputSchema.safeParse(record.payload.structured).success;
-}
-function integrationStartPaired(history, result) {
-  if (result.payload.action !== "integrate" || result.payload.phase !== "result")
-    return false;
-  const payload = result.payload;
-  const bound = bindExternalRef(payload.start, history);
-  if (!bound.ok)
-    return false;
-  const record = bound.value;
-  return record.kind === "action-receipt" && record.payload.action === "integrate" && record.payload.phase === "start" && record.recordId === payload.start.recordId && record.repository === payload.start.scope.repository && record.target === payload.start.scope.target && record.payload.actionId === payload.actionId && sameRef2(record.payload.mandate, payload.mandate) && canonicalValueDigest(record.payload.inputs) === canonicalValueDigest(payload.inputs) && canonicalValueDigest(record.payload.exactInputs) === canonicalValueDigest(payload.exactInputs);
-}
-function hasCompetingHistoricalStart(history, result) {
-  return recordsOf(history).some((record) => record.kind === "action-receipt" && record.recordId !== result.start.recordId && record.payload.phase === "start" && record.payload.action === result.action && record.payload.actionId === result.actionId && sameRef2(record.payload.mandate, result.mandate) && bindExternalRef({ ...result.start, recordId: record.recordId }, history).ok);
-}
-function historicalStartPair(history, result, histories) {
-  const unpaired = (message, diagnostics = []) => fail([
-    diagnostic2(result.action === "plan" ? "plan-start-unpaired" : "implementation-start-unpaired", `${result.action} ${result.actionId}: ${message}`, { start: result.start, resultScope: history.source.scope }),
-    ...diagnostics
-  ]);
-  if (result.start.kind !== "action-receipt" || !equalScope(result.start.scope, history.source.scope))
-    return unpaired("START must be an action receipt in the RESULT history");
-  const bound = bindExternalRef(result.start, history);
-  if (!bound.ok)
-    return unpaired("Cited START cannot be authenticated", bound.diagnostics);
-  const start = bound.value;
-  if (start.kind !== "action-receipt" || start.recordId !== result.start.recordId || start.repository !== result.start.scope.repository || start.target !== result.start.scope.target || start.payload.phase !== "start" || start.payload.action !== result.action || start.payload.actionId !== result.actionId || !sameRef2(start.payload.mandate, result.mandate) || canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(result.exactInputs) || canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(result.inputs))
-    return unpaired("Cited START does not match the RESULT action, mandate, exact inputs, and manifest capture");
-  if (hasCompetingHistoricalStart(history, result))
-    return unpaired("More than one authenticated START identifies this action invocation");
-  const authenticated = authenticateHistoricalActionInputs(start.payload.inputs, histories);
-  return authenticated.ok ? { ok: true, value: undefined } : unpaired("START inputs are not authenticated", authenticated.diagnostics);
-}
-function currentPlanCandidate(record, specDigest, mandate, history) {
-  if (record.kind !== "action-receipt" || !planReceiptEligible(record))
-    return [];
-  if (record.payload.action !== "plan" || record.payload.phase !== "result")
-    return [];
-  if (!sameRef2(record.payload.mandate, mandate))
-    return [];
-  if (!("amendsReviewActionId" in record.payload.exactInputs) || !("specDigest" in record.payload.exactInputs))
-    return [];
-  if (record.payload.exactInputs.specDigest !== specDigest)
-    return [];
-  return [{ record, payload: record.payload, history }];
-}
-function uniquePairedPlan(candidates, label, histories, diagnostics) {
-  const paired = candidates.filter(({ history, payload }) => {
-    const start = historicalStartPair(history, payload, histories);
-    if (!start.ok)
-      diagnostics.push(...start.diagnostics);
-    return start.ok;
-  });
-  return uniqueAccounted(paired, label);
-}
-function currentPlanReceipt(histories, specDigest, mandate, diagnostics) {
-  const plans = histories.flatMap((history) => recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate, history)));
-  const drafts = uniquePairedPlan(plans.filter((row) => row.payload.exactInputs.amendsReviewActionId === null), "current plan draft", histories, diagnostics);
-  if (!drafts.ok)
-    return drafts;
-  if (drafts.value === null)
-    return { ok: true, value: null };
-  const draft = drafts.value;
-  const amendments = plans.filter((row) => row.payload.exactInputs.amendsReviewActionId !== null && histories.some((history) => recordsOf(history).some((review) => {
-    if (review.kind !== "action-receipt" || review.payload.action !== "plan-review" || review.payload.phase !== "result")
-      return false;
-    if (!sameRef2(review.payload.mandate, mandate))
-      return false;
-    if (!("draftActionId" in review.payload.exactInputs))
-      return false;
-    return review.payload.actionId === row.payload.exactInputs.amendsReviewActionId && review.payload.exactInputs.draftActionId === draft.payload.actionId && authenticatedReceiptActionInputs(review.payload, histories);
-  })));
-  const selected = uniquePairedPlan(amendments, "current plan amendment", histories, diagnostics);
-  if (!selected.ok)
-    return selected;
-  return { ok: true, value: selected.value?.record ?? draft.record };
-}
-function implementationStartPaired(history, result, histories = [history]) {
-  if (result.payload.action !== "implement" || result.payload.phase !== "result")
-    return fail([diagnostic2("unconfirmed", "Expected an implementation RESULT")]);
-  return historicalStartPair(history, result.payload, histories);
-}
-
 // plugins/omp-build/engine/workflow-binding-format.ts
 function usesLegacyBindingFormat(mandate) {
   const match = /^0\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(mandate.payload.config.productVersion);
@@ -12086,13 +11997,13 @@ function correctionCurrentPlan(manifest, histories, context) {
     if (ref.role !== "plan" || ref.selector !== "/payload/structured")
       return false;
     const history = historyFor(ref.record.scope, histories);
-    if (history === null || citedOperationIntegrity(history, ref.record.recordId) !== null)
+    if (history === null)
       return false;
     const result = bindExternalRef(ref.record, history);
     if (!result.ok || result.value.kind !== "action-receipt")
       return false;
     const payload = result.value.payload;
-    return payload.action === "plan" && payload.phase === "result" && payload.actionId === context.planActionId && sameRef2(payload.mandate, context.mandate) && "specDigest" in payload.exactInputs && payload.exactInputs.specDigest === context.ownSpec.version && ref.digest === canonicalValueDigest(payload.structured);
+    return payload.action === "plan" && payload.phase === "result" && payload.actionId === context.planActionId && sameRef2(payload.mandate, context.mandate) && "specDigest" in payload.exactInputs && payload.exactInputs.specDigest === context.ownSpec.version && ref.digest === canonicalValueDigest(payload.structured) && authenticateHistoricalReceiptStart(history, result.value, histories).ok;
   });
 }
 
@@ -12209,6 +12120,238 @@ function resolveHistoricalCorrectionBasis(input) {
     ok: true,
     value: { inputs, requestRef: ref2(fix), decisionRef, ...basis, bindingRef, lineage }
   };
+}
+
+// plugins/omp-build/engine/observation-input-authentication.ts
+function producerSourceDiagnostics(evidenceId, references, inputs) {
+  const sourceRefs = [
+    ...inputs.manifest.repositoryReferences,
+    ...inputs.manifest.plugin.files,
+    ...inputs.manifest.expandedContext,
+    ...inputs.manifest.acceptedSources,
+    ...inputs.manifest.deliveryData.map(({ role: _role, ...ref }) => ref),
+    ...inputs.stageSources
+  ];
+  const sourceDigests = new Set(sourceRefs.map((ref) => canonicalValueDigest(ref)));
+  return references.flatMap((ref) => sourceDigests.has(canonicalValueDigest(ref)) ? [] : [
+    diagnostic2("unknown-reference", `Evidence ${evidenceId} cites a source absent from the producing action inputs`)
+  ]);
+}
+
+// plugins/omp-build/engine/delivery-observation-authentication.ts
+function nativeResultValid(record) {
+  return record.payload.phase === "result" && record.payload.native.completion === "completed" && record.payload.native.strict === "valid";
+}
+function implementationReceiptEligible(record) {
+  return record.payload.format === "omp-build-action-receipt/2" && record.payload.action === "implement" && record.payload.phase === "result" && record.payload.admission?.admitted === true && missingContextOf(record.payload.structured) === null && nativeResultValid(record);
+}
+function integrationReceiptEligible(record) {
+  return record.payload.format === "omp-build-action-receipt/2" && record.payload.action === "integrate" && record.payload.phase === "result" && record.payload.inputs.manifest.purpose === "integrate" && record.payload.admission?.admitted === true && nativeResultValid(record) && integrationOutputSchema.safeParse(record.payload.structured).success;
+}
+function citedOperationIntegrity(history, recordId) {
+  const matches = history.operations.filter((operation) => operation.recordId === recordId || operation.record?.recordId === recordId);
+  const operation = matches[0];
+  if (operation === undefined || operation.record === null) {
+    return diagnostic2("unconfirmed", `Record ${recordId} has no observed operation`);
+  }
+  if (operation.operationId !== operation.record.operationId || operation.recordId !== operation.record.recordId || operation.kind !== operation.record.kind) {
+    return diagnostic2("unbound", `Observed operation metadata does not identify record ${recordId}`);
+  }
+  if (operation.parts.some((part) => part.nativeId === null || part.nativeId.length === 0)) {
+    return diagnostic2("unconfirmed", `Operation ${operation.operationId ?? recordId} lacks a native comment identity`);
+  }
+  const expected = history.source.expectedAuthor;
+  const stopAuthor = history.source.stopAuthor;
+  const authorized = (author) => author === expected || operation.record?.kind === "stop" && stopAuthor !== null && author === stopAuthor;
+  if (operation.parts.some((part) => !authorized(part.author))) {
+    return diagnostic2("unbound", `Operation ${operation.operationId ?? recordId} has an unauthorized native author`);
+  }
+  const integrity = recordIntegrity(operation.parts, operation.record);
+  return integrity === null ? null : diagnostic2(integrity.reason, integrity.detail);
+}
+function unauthenticatedPinnedSource(evidenceId) {
+  return [diagnostic2("unknown-reference", `Evidence ${evidenceId} cites an unauthenticated pinned source`)];
+}
+function producerTestVersionRefDiagnostics(evidenceId, ref, histories) {
+  if (ref.source === "git-file")
+    return hasObservedGitPin(histories, ref) ? [] : unauthenticatedPinnedSource(evidenceId);
+  return recordRefDiagnostics(evidenceId, ref, histories);
+}
+function observationRefDiagnostics(evidenceId, ref, histories, pins) {
+  if (ref.source === "git-file") {
+    const selected = pins.some((pin) => pin.repository === ref.repository && pin.commit === ref.commit && pin.path === ref.path && pin.digest === ref.digest);
+    if (!selected || !hasObservedGitPin(histories, ref))
+      return unauthenticatedPinnedSource(evidenceId);
+    return [];
+  }
+  return recordRefDiagnostics(evidenceId, ref, histories);
+}
+var noGitPins = [];
+function criterionManifestPins(inputs) {
+  if (inputs === null)
+    return noGitPins;
+  const { repositoryReferences, plugin, expandedContext } = inputs.manifest;
+  return [...repositoryReferences, ...plugin.files, ...expandedContext.filter((ref) => ref.source === "git-file")];
+}
+function codeLinkJudgments(link) {
+  if (link.method === "observation")
+    return [link.current];
+  return link.before === null ? [link.after] : [link.after, link.before];
+}
+function criterionVerdictCitationDiagnostics(verdict, histories, inputs) {
+  let pins;
+  const diagnostics = [];
+  for (const { codeLink } of verdict.examined) {
+    for (const link of codeLinkJudgments(codeLink)) {
+      for (const ref of link.references) {
+        if (ref.source === "git-file")
+          pins ??= criterionManifestPins(inputs);
+        diagnostics.push(...observationRefDiagnostics(verdict.target.id, ref, histories, pins ?? noGitPins));
+      }
+    }
+  }
+  return diagnostics;
+}
+function producerTestVersionDiagnostics(evidence, histories) {
+  return [
+    ...evidence.after.versionClaim.references,
+    ...evidence.before === null ? [] : evidence.before.versionClaim.references
+  ].flatMap((ref) => producerTestVersionRefDiagnostics(evidence.id, ref, histories));
+}
+function submissionMatchesCapture(observation) {
+  const submissionRaw = observation.submission.raw;
+  if (submissionRaw === null || typeof submissionRaw !== "object" || Array.isArray(submissionRaw) || typeof submissionRaw.toolCallId !== "string" || submissionRaw.toolCallId.length === 0)
+    return false;
+  const executed = submissionRaw.executionArguments;
+  return !(executed === null || typeof executed !== "object" || Array.isArray(executed) || executed.data === undefined || canonicalValueDigest(executed.data) !== canonicalValueDigest(observation.submission.data));
+}
+function nativeObservationMatches(evidence, receipt) {
+  const payload = receipt.payload;
+  if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !(implementationReceiptEligible(receipt) || integrationReceiptEligible(receipt)))
+    return false;
+  const provenance = evidence.provenance;
+  if (provenance.kind !== "native")
+    return false;
+  const observation = payload.native.observation;
+  if (observation === undefined || provenance.actionId !== payload.actionId || observation.actionId !== payload.actionId || provenance.childId !== observation.childId || provenance.submissionIndex !== observation.submissionIndex || observation.submission.attemptIndex !== observation.submissionIndex || provenance.toolCallIds.some((id) => !(payload.native.bashCalls ?? []).some((call) => call.toolCallId === id)))
+    return false;
+  const raw = payload.native.raw;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+    return false;
+  const structured = raw.structuredOutput;
+  if (raw.id !== observation.childId || structured === null || typeof structured !== "object" || Array.isArray(structured) || structured.status !== "valid" || structured.data === undefined || canonicalValueDigest(structured.data) !== canonicalValueDigest(observation.submission.data))
+    return false;
+  if (!submissionMatchesCapture(observation))
+    return false;
+  const data = observation.submission.data;
+  if (data === null || typeof data !== "object" || Array.isArray(data) || !Array.isArray(data.criteria))
+    return false;
+  const { provenance: _provenance, ...producerEvidence } = evidence;
+  const digest = canonicalValueDigest(producerEvidence);
+  return data.criteria.some((declaration) => declaration !== null && typeof declaration === "object" && !Array.isArray(declaration) && declaration.verification === "evidence" && Array.isArray(declaration.evidence) && declaration.evidence.some((item) => canonicalValueDigest(item) === digest));
+}
+function testRunsMatchHostCapture(evidence, receipt) {
+  const payload = receipt.payload;
+  if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !(implementationReceiptEligible(receipt) || integrationReceiptEligible(receipt)) || evidence.provenance.kind !== "native" || evidence.provenance.actionId !== payload.actionId)
+    return false;
+  const provenance = evidence.provenance;
+  const runs = [evidence.after.run, ...evidence.before === null ? [] : [evidence.before.run]];
+  const calls = payload.native.bashCalls ?? [];
+  return runs.every((run) => provenance.toolCallIds.includes(run.toolCallId) && calls.some((call) => {
+    const input = call.input;
+    return call.toolCallId === run.toolCallId && call.result !== null && call.exitCode === run.exitCode && input !== null && typeof input === "object" && !Array.isArray(input) && input.command === run.command;
+  }));
+}
+function observationAuthenticationDiagnostics(evidence, histories, pins, receipt) {
+  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
+  if (!authenticated.ok)
+    return authenticated.diagnostics;
+  if (evidence.method === "test") {
+    const diagnostics = producerTestVersionDiagnostics(evidence, histories);
+    if (!testRunsMatchHostCapture(evidence, receipt))
+      diagnostics.push(diagnostic2("unconfirmed", `Evidence ${evidence.id} test runs are not in the host capture`));
+    return diagnostics;
+  }
+  const diagnostics = [];
+  const refs = evidence.references;
+  diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, receipt.payload.inputs));
+  for (const ref of refs)
+    diagnostics.push(...observationRefDiagnostics(evidence.id, ref, histories, pins));
+  if (evidence.provenance.kind === "operator") {
+    diagnostics.push(...recordSourceDiagnostics(evidence.id, evidence.provenance.source, histories));
+  }
+  if (evidence.provenance.kind === "native" && !nativeObservationMatches(evidence, receipt)) {
+    diagnostics.push(diagnostic2("unconfirmed", `Evidence ${evidence.id} native provenance is not the admitted host observation`));
+  }
+  return diagnostics;
+}
+function recordSourceDiagnostics(evidenceId, ref, histories) {
+  const history = historyFor(ref.scope, histories);
+  if (history === null)
+    return [diagnostic2("missing-history", `Evidence ${evidenceId} has no history for its source`)];
+  const bound = bindExternalRef(ref, history);
+  if (!bound.ok)
+    return [...bound.diagnostics];
+  const integrity = citedOperationIntegrity(history, ref.recordId);
+  return integrity === null ? [] : [integrity];
+}
+
+// plugins/omp-build/engine/delivery-eligibility.ts
+function uniqueAccounted(items, label) {
+  if (items.length === 0)
+    return { ok: true, value: null };
+  if (items.length > 1)
+    return fail([diagnostic2("ambiguous", `${label} has unordered applicability`)]);
+  return { ok: true, value: items[0] ?? null };
+}
+function planReceiptEligible(record) {
+  return record.payload.format === "omp-build-action-receipt/2" && record.payload.action === "plan" && nativeResultValid(record) && record.payload.phase === "result" && planOutputSchema.safeParse(record.payload.structured).success;
+}
+function planReviewReceiptEligible(record) {
+  return record.payload.action === "plan-review" && nativeResultValid(record) && !workflowContextNegative(record);
+}
+function currentPlanCandidate(record, specDigest, mandate, history) {
+  if (record.kind !== "action-receipt" || !planReceiptEligible(record))
+    return [];
+  if (record.payload.action !== "plan" || record.payload.phase !== "result")
+    return [];
+  if (!sameRef2(record.payload.mandate, mandate))
+    return [];
+  if (!("amendsReviewActionId" in record.payload.exactInputs) || !("specDigest" in record.payload.exactInputs))
+    return [];
+  if (record.payload.exactInputs.specDigest !== specDigest)
+    return [];
+  return [{ record, payload: record.payload, history }];
+}
+function uniquePairedPlan(candidates, label, histories, diagnostics) {
+  const paired = candidates.filter(({ history, record }) => {
+    const start = authenticateHistoricalReceiptStart(history, record, histories);
+    if (!start.ok)
+      diagnostics.push(...start.diagnostics);
+    return start.ok;
+  });
+  return uniqueAccounted(paired, label);
+}
+function currentPlanReceipt(histories, specDigest, mandate, diagnostics) {
+  const plans = histories.flatMap((history) => recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate, history)));
+  const drafts = uniquePairedPlan(plans.filter((row) => row.payload.exactInputs.amendsReviewActionId === null), "current plan draft", histories, diagnostics);
+  if (!drafts.ok)
+    return drafts;
+  if (drafts.value === null)
+    return { ok: true, value: null };
+  const draft = drafts.value;
+  const amendments = plans.filter((row) => row.payload.exactInputs.amendsReviewActionId !== null && histories.some((history) => recordsOf(history).some((review) => {
+    if (review.kind !== "action-receipt" || review.payload.action !== "plan-review" || review.payload.phase !== "result" || !planReviewReceiptEligible(review) || !sameRef2(review.payload.mandate, mandate) || review.payload.exactInputs.specDigest !== specDigest || review.payload.actionId !== row.payload.exactInputs.amendsReviewActionId || review.payload.exactInputs.draftActionId !== draft.payload.actionId)
+      return false;
+    const start = authenticateHistoricalReceiptStart(history, review, histories);
+    if (!start.ok)
+      diagnostics.push(...start.diagnostics);
+    return start.ok;
+  })));
+  const selected = uniquePairedPlan(amendments, "current plan amendment", histories, diagnostics);
+  if (!selected.ok)
+    return selected;
+  return { ok: true, value: selected.value?.record ?? draft.record };
 }
 
 // plugins/omp-build/engine/correction-lineage-admission.ts
@@ -12646,10 +12789,9 @@ function correctionObservationAuthenticationDiagnostics(evidence, histories, pin
   const payload = contribution.payload;
   const native = payload.native;
   const binding = payload.host.action;
-  const refs = evidence.method === "test" ? [...evidence.after.versionClaim.references, ...evidence.before?.versionClaim.references ?? []] : evidence.references;
-  const diagnostics = refs.flatMap((ref) => observationRefDiagnostics(evidence.id, ref, histories, pins));
-  if (binding !== undefined)
-    diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, binding.inputs));
+  const diagnostics = evidence.method === "test" ? producerTestVersionDiagnostics(evidence, histories) : evidence.references.flatMap((ref) => observationRefDiagnostics(evidence.id, ref, histories, pins));
+  if (evidence.method !== "test" && binding !== undefined)
+    diagnostics.push(...producerSourceDiagnostics(evidence.id, evidence.references, binding.inputs));
   const observation = native?.observation;
   const submission = observation?.submission;
   if (!authenticatedSubmission(payload, histories) || observation === undefined || native === null || native === undefined || binding === undefined) {
@@ -12746,6 +12888,8 @@ function appendCorrectionSelection(ref, histories, inputs, planActionId, mandate
 function receiptEligible(record) {
   if (record.payload.action === "plan")
     return planReceiptEligible(record) && record.payload.phase === "result";
+  if (record.payload.action === "plan-review")
+    return planReviewReceiptEligible(record);
   return implementationReceiptEligible(record) || integrationReceiptEligible(record);
 }
 function receiptFor(histories, ref) {
@@ -12766,13 +12910,13 @@ function manifestPins(inputs) {
     ...inputs.manifest.expandedContext.flatMap((ref) => ref.source === "git-file" ? [ref] : [])
   ];
 }
-function admittedImplementation(receipt, history, head, planActionId, mandate) {
+function admittedImplementation(receipt, head, planActionId, mandate) {
   const payload = receipt.payload;
   if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !("planActionId" in payload.exactInputs))
     return false;
   if (!sameRef2(payload.mandate, mandate) || !("mandateId" in payload.exactInputs) || payload.exactInputs.mandateId !== mandate.recordId)
     return false;
-  if (payload.action === "integrate" ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt) : !implementationReceiptEligible(receipt))
+  if (!implementationReceiptEligible(receipt) && !integrationReceiptEligible(receipt))
     return false;
   if (payload.admission?.remoteTip !== head)
     return false;
@@ -12791,11 +12935,11 @@ function appendOneEvidence(value, ref, head, histories, pins, receipt, diagnosti
   evidence.push({ ref: { receipt: ref.record, evidenceId: value.id, digest: evidenceDigest(value) }, value });
 }
 function appendImplementation(ref, receipt, history, head, planActionId, mandate, histories, pins, diagnostics, selected) {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
+  if (!admittedImplementation(receipt, head, planActionId, mandate)) {
     diagnostics.push(diagnostic2("unconfirmed", `Delivery record ${ref.record.recordId} is not the admitted current head`));
     return;
   }
-  const authenticated = receipt.payload.action === "implement" ? implementationStartPaired(history, receipt, histories) : authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
+  const authenticated = authenticateHistoricalReceiptStart(history, receipt, histories);
   if (!authenticated.ok) {
     diagnostics.push(...authenticated.diagnostics);
     return;
@@ -12819,15 +12963,30 @@ function appendImplementation(ref, receipt, history, head, planActionId, mandate
 function refuseUnbound(ref, code, diagnostics) {
   diagnostics.push(diagnostic2(code, `Delivery record ${ref.record.recordId} is not an authenticated action receipt`));
 }
-function appendDelivery(ref, histories, currentRecordId, head, planActionId, mandate, pins, diagnostics, selected) {
+function appendPlanReview(history, receipt, current, histories, diagnostics) {
+  const review = receipt.payload;
+  const plan = current.payload;
+  if (review.action !== "plan-review" || review.phase !== "result" || plan.action !== "plan" || plan.phase !== "result" || !sameRef2(review.mandate, plan.mandate) || review.exactInputs.specDigest !== plan.exactInputs.specDigest || (plan.exactInputs.amendsReviewActionId === null ? review.exactInputs.draftActionId !== plan.actionId : review.actionId !== plan.exactInputs.amendsReviewActionId)) {
+    diagnostics.push(diagnostic2("mismatch", `Delivery record ${receipt.recordId} does not review the current plan`));
+    return;
+  }
+  const start = authenticateHistoricalReceiptStart(history, receipt, histories);
+  if (!start.ok)
+    diagnostics.push(...start.diagnostics);
+}
+function appendDelivery(ref, histories, current, head, planActionId, mandate, pins, diagnostics, selected) {
   const history = historyFor(ref.record.scope, histories);
   const bound = receiptFor(histories, ref.record);
   if (bound.receipt === null || history === null) {
     refuseUnbound(ref, bound.code, diagnostics);
     return;
   }
-  if (ref.role === "plan" || ref.role === "plan-review") {
-    if (ref.record.recordId !== currentRecordId) {
+  if (ref.role === "plan-review") {
+    appendPlanReview(history, bound.receipt, current, histories, diagnostics);
+    return;
+  }
+  if (ref.role === "plan") {
+    if (!equalScope(ref.record.scope, current) || ref.record.recordId !== current.recordId) {
       diagnostics.push(diagnostic2("mismatch", `Delivery record ${ref.record.recordId} is not the current plan`));
     }
     return;
@@ -12876,7 +13035,7 @@ function selectedDeclarations(histories, inputs, diagnostics, catalogues) {
       appendCorrectionSelection(ref, histories, inputs, current.payload.actionId, mandate, ownSpec, pins, diagnostics, selected, catalogues);
       continue;
     }
-    appendDelivery(ref, histories, current.recordId, inputs.manifest.code.head, current.payload.actionId, mandate, pins, diagnostics, selected);
+    appendDelivery(ref, histories, current, inputs.manifest.code.head, current.payload.actionId, mandate, pins, diagnostics, selected);
   }
   selected.declarations = projectAdditiveDeclarations(selected.declarationFacts.map(({ value }) => value));
   return selected;
@@ -15270,54 +15429,6 @@ function currentOwnSpecProblem(node, accepted) {
   return tiers === 1 && matching ? null : "tier-changed";
 }
 
-// plugins/omp-build/engine/workflow-context-output.ts
-var outputFor = {
-  frame: "spec",
-  plan: "plan",
-  "assess-spec": "spec-assessment",
-  "attribute-ci": "ci-attribution",
-  implement: "delivery-execution",
-  integrate: "delivery-execution"
-};
-function workflowContextNegative(result) {
-  const payload = result.payload;
-  if (payload.phase !== "result")
-    return false;
-  if (payload.action === "plan-review") {
-    return producerOutputValid("plan-review", payload.structured) && missingContextOf(payload.structured) !== null || payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
-  }
-  if (!(payload.action in outputFor))
-    return false;
-  const output = outputFor[payload.action];
-  return (producerOutputValid(output, payload.structured) || payload.action === "implement" && implementationOutputSchema.safeParse(payload.structured).success) && missingContextOf(payload.structured) !== null;
-}
-function validPositiveSuccessor(successor) {
-  const payload = successor.payload;
-  if (payload.phase !== "result")
-    return false;
-  if (payload.action === "plan-review")
-    return positiveReviewSuccessor(payload);
-  if (payload.action === "implement") {
-    const parsed = implementationOutputSchema.safeParse(payload.structured);
-    return parsed.success && parsed.data.outcome === "implemented" && payload.admission?.admitted === true && payload.admission.remoteTip !== null;
-  }
-  if (payload.action === "integrate")
-    return integrationOutputSchema.safeParse(payload.structured).success && payload.admission?.admitted === true && payload.admission.remoteTip !== null;
-  if (payload.action === "frame" && payload.structured === null)
-    return true;
-  if (!(payload.action in outputFor))
-    return true;
-  const output = outputFor[payload.action];
-  return producerOutputValid(output, payload.structured);
-}
-function positiveReviewSuccessor(payload) {
-  return payload.slots.every((slot) => {
-    const contributions = payload.contributions.filter((contribution) => contribution.host.slotId === slot.slotId);
-    const contribution = contributions[0];
-    return contributions.length === 1 && contribution !== undefined && producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) === null;
-  }) && payload.contributions.length === payload.slots.length;
-}
-
 // plugins/omp-build/engine/workflow-spec-projections.ts
 function refProjection(ref) {
   return {
@@ -15544,53 +15655,26 @@ function boundFailure(diagnostics) {
 function mismatchedStart() {
   return specChainFailure("incomplete", "Spec assessment start does not match its result", "unconfirmed");
 }
-function authenticateStart(confirmed, home, mandateRef, histories) {
-  const startRef = confirmed.payload.start;
-  if (!equalScope(startRef.scope, confirmed) || !equalScope(startRef.scope, mandateRef.scope))
+function authenticatedRecord(assessed, histories) {
+  const home = historyFor(assessed, histories);
+  if (home === null)
+    return specChainFailure("missing-history", "Spec assessment history is missing");
+  if (assessed.payload.native.completion !== "completed" || assessed.payload.native.strict !== "valid")
+    return specChainFailure("incomplete", "Spec assessment is not a confirmed native result", "unconfirmed");
+  const paired = authenticateHistoricalReceiptStart(home, assessed, histories);
+  if (!paired.ok) {
+    if (paired.stage === "start")
+      return specChainFailure("incomplete", "Spec assessment start is unresolved", "unconfirmed");
+    if (paired.stage === "result" || paired.stage === "manifest")
+      return boundFailure(paired.diagnostics.length > 1 ? paired.diagnostics.slice(1) : paired.diagnostics);
     return mismatchedStart();
-  const start = bindExternalRef(startRef, home);
-  if (!start.ok)
-    return specChainFailure("incomplete", "Spec assessment start is unresolved", "unconfirmed");
-  if (start.value.kind !== "action-receipt")
-    return mismatchedStart();
-  const startPayload = start.value.payload;
-  if (startPayload.action !== "assess-spec" || startPayload.phase !== "start")
-    return mismatchedStart();
-  if (startPayload.actionId !== confirmed.payload.actionId)
-    return mismatchedStart();
-  if (!sameRef2(startPayload.mandate, mandateRef))
-    return mismatchedStart();
-  if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs))
-    return mismatchedStart();
-  if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
-    return mismatchedStart();
-  const authenticated = authenticateHistoricalActionInputs(confirmed.payload.inputs, histories);
-  if (!authenticated.ok)
-    return boundFailure(authenticated.diagnostics);
+  }
+  const confirmed = paired.value.result;
+  if (!isAssessResult(confirmed))
+    return specChainFailure("incomplete", "Spec assessment is not a result");
   const operands = confirmed.payload.inputs.manifest.operands;
   if (operands?.action !== "assess-spec" || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
     return mismatchedStart();
-  return { ok: true };
-}
-function authenticatedRecord(assessed, histories, mandateRef) {
-  const home = historyFor({ repository: assessed.repository, target: assessed.target }, histories);
-  if (home === null)
-    return specChainFailure("missing-history", "Spec assessment history is missing");
-  const bound = bindExternalRef({
-    scope: { repository: assessed.repository, target: assessed.target },
-    recordId: assessed.recordId,
-    kind: assessed.kind
-  }, home);
-  if (!bound.ok)
-    return boundFailure(bound.diagnostics);
-  if (!isAssessResult(bound.value))
-    return specChainFailure("incomplete", "Spec assessment is not a result");
-  const confirmed = bound.value;
-  if (confirmed.payload.native.completion !== "completed" || confirmed.payload.native.strict !== "valid")
-    return specChainFailure("incomplete", "Spec assessment is not a confirmed native result", "unconfirmed");
-  const start = authenticateStart(confirmed, home, mandateRef, histories);
-  if (!start.ok)
-    return start;
   return { ok: true, record: confirmed };
 }
 function authenticatedAssessResult(record, histories, mandateRef) {
@@ -15599,7 +15683,9 @@ function authenticatedAssessResult(record, histories, mandateRef) {
   const assessed = record;
   if (!sameRef2(assessed.payload.mandate, mandateRef))
     return specChainFailure("ambiguous", "Spec assessment names a different mandate");
-  return authenticatedRecord(assessed, histories, mandateRef);
+  if (!equalScope(assessed, mandateRef.scope))
+    return mismatchedStart();
+  return authenticatedRecord(assessed, histories);
 }
 
 // plugins/omp-build/engine/workflow-editorial-qualification.ts
@@ -15683,10 +15769,12 @@ function creationContextProblem(outer, consent, input) {
   if (parentObservation === null || parentObservation.state !== "active" || !equalScope(parentObservation.parent, consent.parent) || parentObservation.historyDigest !== consent.historyDigest || parentObservation.nativeDigest !== consent.nativeObservationDigest)
     return "Creation context does not bind the same active parent observation";
   const assessmentHistory = historyFor(input.proposal.assessment.scope, input.histories);
-  const assessment = assessmentHistory === null ? null : bindExternalRef(input.proposal.assessment, assessmentHistory);
-  if (assessment === null || !assessment.ok || !isAssessResult(assessment.value))
+  if (assessmentHistory === null)
     return "Composed assessment result is unavailable";
-  if (!authenticateHistoricalActionInputs(assessment.value.payload.inputs, input.histories).ok)
+  const assessment = bindExternalRef(input.proposal.assessment, assessmentHistory);
+  if (!assessment.ok || !isAssessResult(assessment.value))
+    return "Composed assessment result is unavailable";
+  if (!authenticateHistoricalReceiptStart(assessmentHistory, assessment.value, input.histories).ok)
     return "Composed assessment input context is not authenticated";
   const operands = assessment.value.payload.inputs.manifest.operands;
   if (operands?.action !== "assess-spec" || operands.origin.kind !== "cause-created-child")
@@ -15934,73 +16022,31 @@ function hasNewLineageContext(history, old, oldInputs, newInputs) {
   return newRefs.some((ref) => (ref.source !== "record" || !sameRef2(ref.record, negative)) && !priorRefs.some((oldRef) => sameInputRef(oldRef, ref)));
 }
 
-// plugins/omp-build/engine/workflow-context-review.ts
-function reviewContextPairValid(start, result, negative) {
-  const payload = result.payload;
-  if (payload.action !== "plan-review" || payload.phase !== "result")
-    return true;
-  if (start.payload.action !== "plan-review" || start.payload.phase !== "start")
-    return false;
-  if (canonicalValueDigest(start.payload.slots) !== canonicalValueDigest(payload.slots))
-    return false;
-  if (!negative)
-    return true;
-  const negatives = payload.contributions.filter((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null);
-  const contribution = negatives[0];
-  if (negatives.length !== 1 || contribution === undefined)
-    return false;
-  if (!reviewChildValid(payload.slots.find((item) => item.slotId === contribution.host.slotId), contribution))
-    return false;
-  return payload.structured === null || canonicalValueDigest(contribution.structured) === canonicalValueDigest(payload.structured);
-}
-function reviewChildValid(slot, contribution) {
-  if (slot?.action == null || contribution.host.action == null)
-    return false;
-  if (contribution.host.origin !== "native" || contribution.host.role !== slot.specialist)
-    return false;
-  if (contribution.native?.completion !== "completed" || contribution.native.strict !== "valid")
-    return false;
-  return validateActionInputs(slot.action.inputs).ok && canonicalValueDigest(slot.action) === canonicalValueDigest(contribution.host.action);
-}
-
 // plugins/omp-build/engine/workflow-context-terminal.ts
 function authenticateWorkflowReceiptPair(history, result, options = { native: "valid" }) {
-  const refusal = () => ({
-    ok: false,
-    diagnostics: [diagnostic2("unconfirmed", "Workflow receipt pair is not uniquely authenticated")]
-  });
   const payload = result.payload;
-  if (payload.phase !== "result" || !history.source.complete || options.native === "valid" && !nativeResultValid(result) || citedOperationIntegrity(history, result.recordId) !== null || workflowContextNegative(result) && payload.admission !== null)
-    return refusal();
-  const operations = history.operations.filter((operation) => operation.authority !== "foreign" && operation.record?.kind === "action-receipt" && operation.record.payload.action === payload.action && operation.record.payload.actionId === payload.actionId);
-  if (operations.length !== 2 || operations.some((operation) => operation.authority !== "accounted" || operation.status !== "complete"))
-    return refusal();
-  const receipts = operations.map((operation) => operation.record).filter((record) => record !== null && record.kind === "action-receipt");
-  const starts = matchingReceipts(receipts, result, "start");
-  if (starts.length !== 1 || matchingReceipts(receipts, result, "result").length !== 1)
-    return refusal();
-  const start = starts[0];
-  if (start === undefined || start.payload.phase !== "start" || !reviewContextPairValid(start, result, workflowContextNegative(result)))
-    return refusal();
-  const boundStart = bindExternalRef({ scope: history.source.scope, kind: "action-receipt", recordId: start.recordId }, history);
-  const boundResult = bindExternalRef({ scope: history.source.scope, kind: "action-receipt", recordId: result.recordId }, history);
-  if (!boundStart.ok || !boundResult.ok || canonicalValueDigest(boundResult.value) !== canonicalValueDigest(result) || payload.start.kind !== "action-receipt" || payload.start.recordId !== start.recordId || !equalScope(payload.start.scope, history.source.scope) || citedOperationIntegrity(history, start.recordId) !== null || !validateActionInputs(payload.inputs).ok || canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(payload.inputs) || canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(payload.exactInputs) || canonicalValueDigest(start.payload.mandate) !== canonicalValueDigest(payload.mandate))
-    return refusal();
-  if (options.native === "valid" && !workflowContextNegative(result) && !authenticatedReceiptActionInputs(payload, [history]))
-    return refusal();
-  return { ok: true, value: { start, result } };
+  const negative = workflowContextNegative(result);
+  if (payload.phase !== "result" || options.native === "valid" && !nativeResultValid(result) || negative && payload.admission !== null)
+    return fail([diagnostic2("unconfirmed", "Workflow receipt pair is not uniquely authenticated")]);
+  return authenticateHistoricalReceiptStart(history, result, [history], {
+    inputs: options.native === "unchecked" || negative ? "structural" : "authenticated"
+  });
 }
-function paired(history, result, _receipts) {
+function paired(history, result) {
   return authenticateWorkflowReceiptPair(history, result).ok;
 }
-function matchingReceipts(receipts, result, phase) {
-  return receipts.filter((record) => record.payload.phase === phase && record.payload.action === result.payload.action && record.payload.actionId === result.payload.actionId);
-}
-function hasUnpairedStart(receipts) {
-  return receipts.some((record) => record.payload.phase === "start" && !receipts.some((result) => result.payload.phase === "result" && result.payload.actionId === record.payload.actionId));
+function hasUnpairedStart(history, receipts) {
+  const terminal = new Set;
+  for (const receipt of receipts) {
+    if (receipt.payload.phase !== "result")
+      continue;
+    if (authenticateHistoricalReceiptStart(history, receipt, [history], { inputs: "structural" }).ok)
+      terminal.add(receiptStartKey(receipt));
+  }
+  return receipts.some((record) => record.payload.phase === "start" && !terminal.has(receiptStartKey(record)));
 }
 function otherMandateNegativeUnpaired(history, actionReceipts, scoped) {
-  return actionReceipts.some((record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record, actionReceipts));
+  return actionReceipts.some((record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record));
 }
 function workflowContextTerminal(history, action, mandate, excluded) {
   const actionReceipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && !excludedReceipt(record, excluded));
@@ -16016,18 +16062,18 @@ function workflowContextTerminal(history, action, mandate, excluded) {
   return "clear";
 }
 function resolveContextNegative(history, negative, receipts, seen) {
-  if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
+  if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative))
     return "uncertain";
   seen.add(negative.recordId);
   const successors = receipts.filter((candidate) => succeeds(history, negative, candidate));
   if (successors.length > 1)
     return "ambiguous";
-  if (hasUnpairedStart(receipts))
+  if (hasUnpairedStart(history, receipts))
     return "uncertain";
   const successor = successors[0];
   if (successor === undefined)
     return "missing";
-  if (!paired(history, successor, receipts))
+  if (!paired(history, successor))
     return "uncertain";
   if (workflowContextNegative(successor))
     return resolveContextNegative(history, successor, receipts, seen);
@@ -18480,16 +18526,18 @@ function authenticateActionCapture(input) {
   if (errors.length)
     return { ok: false, diagnostics: errors };
   const history = histories.find((item) => equalScope(item.source.scope, capture.record.scope));
-  const record = history && bindExternalRef(capture.record, history);
-  if (!record?.ok)
+  if (history === undefined)
+    return refusal3("Cause capture record is unavailable");
+  const record = bindExternalRef(capture.record, history);
+  if (!record.ok)
     return refusal3("Cause capture record is unavailable");
   const parsed = parseCapturedActionInputs(record.value, capture.selector);
   if (!parsed.ok)
     return parsed;
-  const authenticated = authenticateHistoricalActionInputs(parsed.value, histories);
+  const authenticated = record.value.kind === "action-receipt" && record.value.payload.phase === "result" ? authenticateHistoricalReceiptStart(history, record.value, histories) : authenticateHistoricalActionInputs(parsed.value, histories);
   if (!authenticated.ok)
     return authenticated;
-  const action = authenticated.value;
+  const action = parsed.value;
   if (action.manifest.spec.kind !== "accepted" || canonicalValueDigest(action.manifest.spec.effective) !== canonicalValueDigest(input.context.effective))
     return refusal3("Cause capture does not bind the complete effective Spec");
   return { ok: true, value: action };
@@ -20187,20 +20235,6 @@ function integrationVersionMatchesReview(inputs, subject, spec) {
   const integratedSubject = inputs.manifest.subject;
   return integratedSubject.kind === "uw" && canonicalValueDigest(integratedSubject) === canonicalValueDigest(subject) && inputs.manifest.spec.kind === "accepted" && canonicalValueDigest(inputs.manifest.spec) === canonicalValueDigest(spec);
 }
-function authenticateIntegrationStart(payload, pin, history) {
-  const invalid = (message) => fail([diagnostic2("integration-start-unpaired", message)]);
-  if (payload.start.kind !== "action-receipt" || !equalScope(payload.start.scope, pin.record.scope))
-    return invalid("Integration start must be in the selected result history");
-  const matching = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === "integrate" && record.payload.actionId === payload.actionId);
-  if (matching.filter((record) => record.kind === "action-receipt" && record.payload.phase === "start").length !== 1 || matching.filter((record) => record.kind === "action-receipt" && record.payload.phase === "result").length !== 1)
-    return invalid("Integration action must have one start and one result");
-  const start = bindExternalRef(payload.start, history);
-  if (!start.ok)
-    return start;
-  if (start.value.kind !== "action-receipt" || start.value.payload.action !== "integrate" || start.value.payload.phase !== "start" || start.value.payload.actionId !== payload.actionId || !sameRef2(start.value.payload.mandate, payload.mandate) || canonicalValueDigest(start.value.payload.inputs) !== canonicalValueDigest(payload.inputs) || canonicalValueDigest(start.value.payload.exactInputs) !== canonicalValueDigest(payload.exactInputs))
-    return invalid("Integration result does not bind its exact authenticated start and complete inputs");
-  return { ok: true, value: undefined };
-}
 function authenticateIntegrationPin(pin, expected, histories) {
   const invalid = (code, message) => fail([diagnostic2(code, message)]);
   const { subject, spec, mandate } = expected;
@@ -20221,16 +20255,13 @@ function authenticateIntegrationPin(pin, expected, histories) {
   const output = integrationOutputSchema.safeParse(payload.structured);
   if (!output.success || pin.digest !== canonicalValueDigest(output.data.code))
     return invalid("integration-code-unbound", "Selected integration code digest does not match the receipt");
-  const authenticatedInputs = authenticateHistoricalActionInputs(payload.inputs, histories);
-  if (!authenticatedInputs.ok)
-    return authenticatedInputs;
   if (!integrationCodeMatchesProducer(payload.inputs.manifest.code, output.data.code, payload.admission?.remoteTip))
     return invalid("integration-code-mismatch", "Integration code range or action-specific reference commit does not match its producer");
   if (!integrationVersionMatchesReview(payload.inputs, subject, spec))
     return invalid("integration-version-mismatch", "Integration and review do not bind the same accepted UW and full version vector");
   if (!sameRef2(payload.mandate, mandate))
     return invalid("integration-mandate-mismatch", "Integration and review do not bind the same execution mandate");
-  const start = authenticateIntegrationStart(payload, pin, history);
+  const start = authenticateHistoricalReceiptStart(history, receipt, histories);
   if (!start.ok)
     return start;
   return { ok: true, value: { source: pin.record, output: output.data } };
@@ -20645,10 +20676,9 @@ function validDispositions(result, source, histories, resolve) {
 }
 
 // plugins/omp-build/engine/fix-recovery-historical-facts.ts
-import { createHash as createHash20 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 
 // plugins/omp-build/engine/fix-recovery-catalogues.ts
-import { createHash as createHash18 } from "node:crypto";
 var fail2 = (message) => ({ ok: false, diagnostics: [diagnostic2("unconfirmed", message)] });
 var coordinate = (ref) => JSON.stringify([ref.repository, ref.commit, ref.path]);
 var identity = (ref) => JSON.stringify([ref.repository, ref.commit, ref.path, ref.digest]);
@@ -20680,25 +20710,33 @@ function fixRecoveryDecisionCatalogueRefs(input) {
 }
 function readFixRecoveryCatalogues(input) {
   const entries = input.observation.catalogues ?? [];
-  const required = new Map(input.required.map((ref) => [identity(ref), ref]));
-  if (required.size !== input.required.length || entries.length !== required.size)
-    return fail2("Historical catalogue pins do not match the selected decision");
+  const files = [];
   const seen = new Set;
-  const coordinates = new Map;
-  const reads = [];
+  const coordinates = new Set;
   for (const entry of entries) {
     const id = identity(entry.ref);
     const coord = coordinate(entry.ref);
-    if (!required.has(id) || seen.has(id) || coordinates.has(coord) && coordinates.get(coord) !== entry.ref.digest)
+    if (seen.has(id) || coordinates.has(coord))
       return fail2("Historical catalogue pin is duplicate, foreign or conflicting");
     seen.add(id);
-    coordinates.set(coord, entry.ref.digest);
+    coordinates.add(coord);
     const bytes = new TextEncoder().encode(entry.contents);
-    if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) !== entry.contents || createHash18("sha256").update(bytes).digest("hex") !== entry.ref.digest || !parseReviewClassCatalogue(entry.contents).ok)
+    if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) !== entry.contents)
       return fail2("Historical catalogue contents are not the exact valid pinned UTF-8 bytes");
-    reads.push({ ref: entry.ref, contents: { ok: true, value: bytes } });
+    files.push({ ref: entry.ref, bytes });
   }
-  return { ok: true, value: createReviewClassCatalogues(reads) };
+  const catalogues = createReviewClassCatalogues(files.map(({ ref, bytes }) => ({ ref, contents: { ok: true, value: bytes } })));
+  for (const id of seen)
+    if (!catalogues.lookup(id)?.ok)
+      return fail2("Historical catalogue contents are not the exact valid pinned UTF-8 bytes");
+  const home = files.length === 0 ? input.history : withGitPinBytes(input.history, files);
+  const histories = home === input.history ? input.histories : input.histories.map((entry) => entry === input.history ? home : entry);
+  const required = fixRecoveryDecisionCatalogueRefs({ decision: input.decision, history: home, histories });
+  if (!required.ok)
+    return required;
+  if (required.value.length !== seen.size || required.value.some((ref) => !seen.has(identity(ref))))
+    return fail2("Historical catalogue pins do not match the selected decision");
+  return { ok: true, value: { catalogues, histories } };
 }
 
 // plugins/omp-build/engine/fix-recovery-disposition-plan.ts
@@ -20805,19 +20843,22 @@ function resolveAdoptionBasis(proposal, histories) {
     return decisionRecord;
   if (requestRecord.value.kind !== "fix-request" || decisionRecord.value.kind !== "decision")
     return fail3("request or decision kind does not match its reference");
-  const refs = fixRecoveryDecisionCatalogueRefs({ decision: decisionRecord.value, history: home, histories });
-  if (!refs.ok)
-    return refs;
-  const catalogues = readFixRecoveryCatalogues({ observation: proposal.observation, required: refs.value });
+  const catalogues = readFixRecoveryCatalogues({
+    observation: proposal.observation,
+    decision: decisionRecord.value,
+    history: home,
+    histories
+  });
   if (!catalogues.ok)
     return catalogues;
-  const requestBasis = resolveCorrectionRequestBasis(home, requestRecord.value, decisionRecord.value, catalogues.value, histories);
+  const observed = catalogues.value;
+  const requestBasis = resolveCorrectionRequestBasis(home, requestRecord.value, decisionRecord.value, observed.catalogues, observed.histories);
   if (!requestBasis.ok)
     return requestBasis;
-  const capture = decisionCauseCapture(decisionRecord.value, histories);
+  const capture = decisionCauseCapture(decisionRecord.value, observed.histories);
   if (!capture.ok)
     return capture;
-  return { ok: true, value: { decision: decisionRecord.value, catalogues: catalogues.value, capture: capture.value } };
+  return { ok: true, value: { ...observed, decision: decisionRecord.value, capture: capture.value } };
 }
 function validateNativePreparation(proposal, decision, executableCauseIds, histories) {
   const observation = proposal.observation;
@@ -20845,16 +20886,16 @@ function validateNativePreparation(proposal, decision, executableCauseIds, histo
   return { ok: true, value: true };
 }
 function validateRecoveryAdoptionPlan(input) {
-  const { proposal, histories } = input;
+  const { proposal } = input;
   const observation = proposal.observation;
   const request = proposal.target.request.identity;
   const decision = proposal.target.decision.identity;
-  if (hasSpentOrAmbiguousCorrectionEvidence(histories, { scope: request.scope, kind: "fix-request", recordId: request.recordId }, { scope: decision.scope, kind: "decision", recordId: decision.recordId }))
+  if (hasSpentOrAmbiguousCorrectionEvidence(input.histories, { scope: request.scope, kind: "fix-request", recordId: request.recordId }, { scope: decision.scope, kind: "decision", recordId: decision.recordId }))
     return fail3("request or decision has spent or ambiguous correction evidence");
-  const resolved = resolveAdoptionBasis(proposal, histories);
+  const resolved = resolveAdoptionBasis(proposal, input.histories);
   if (!resolved.ok)
     return resolved;
-  const { decision: decisionRecord, catalogues, capture } = resolved.value;
+  const { decision: decisionRecord, catalogues, capture, histories } = resolved.value;
   const source = { kind: "decision", decision: decisionRecord };
   const context = { original: observation.authority.accepted.own.uw, effective: observation.authority.accepted };
   const records = histories.flatMap((history) => history.operations.flatMap((operation) => operation.authority !== "foreign" && operation.status === "complete" && operation.record !== null ? [operation.record] : []));
@@ -21576,7 +21617,7 @@ function deriveObservedPhase(pair, histories) {
 // plugins/omp-build/engine/fix-recovery-discovery.ts
 function fixRecoveryDiscoveryScopes(records) {
   const scopes = new Map;
-  const add = (scope) => scopes.set(scopeKey4(scope), scope);
+  const add = (scope) => scopes.set(scopeKey6(scope), scope);
   for (const record of records) {
     if (record.kind === "fix-owner" && record.payload.phase === "opened") {
       add(record.payload.common.uw);
@@ -21595,7 +21636,7 @@ function duplicateOpenings(ownerRecords) {
   for (const record of ownerRecords) {
     if (record.kind !== "fix-owner" || record.payload.phase !== "opened")
       continue;
-    const key = `${scopeKey4(record)}\x00${record.recordId}`;
+    const key = `${scopeKey6(record)}\x00${record.recordId}`;
     if (openingKeys.has(key))
       return true;
     openingKeys.add(key);
@@ -21670,7 +21711,7 @@ function validateOwnerSources(input, pair, histories, byScope) {
       diagnostics: [diagnostic2("unbound", "Settlement does not belong to its opening run and UW")]
     };
   for (const scope of common.writeScopes) {
-    const history = byScope.get(scopeKey4(scope));
+    const history = byScope.get(scopeKey6(scope));
     if (history === undefined || !history.source.complete)
       return {
         status: "blocked",
@@ -21682,7 +21723,7 @@ function validateOwnerSources(input, pair, histories, byScope) {
     return { status: "blocked", diagnostics: [sourceProblem] };
   for (const anchor of [pair.opened, pair.settled]) {
     for (const reference of scopedRefsOf(anchor)) {
-      const home = byScope.get(scopeKey4(reference.scope));
+      const home = byScope.get(scopeKey6(reference.scope));
       if (home === undefined || !bindExternalRef(reference, home).ok)
         return {
           status: "blocked",
@@ -21701,8 +21742,8 @@ function validateOutboundIdentities(pair, histories) {
   const outboundRecordKeys = new Set;
   for (const outbound of pair.settled.payload.outbound) {
     const key = identityKey(outbound.identity);
-    const operationKey = `${scopeKey4(outbound.identity.scope)}\x00${outbound.identity.operationId}`;
-    const recordKey = `${scopeKey4(outbound.identity.scope)}\x00${outbound.identity.recordId}`;
+    const operationKey = `${scopeKey6(outbound.identity.scope)}\x00${outbound.identity.operationId}`;
+    const recordKey = `${scopeKey6(outbound.identity.scope)}\x00${outbound.identity.recordId}`;
     if (outboundKeys.has(key) || outboundOperationKeys.has(operationKey) || outboundRecordKeys.has(recordKey) || outbound.identity.runId !== pair.opened.runId || !common.writeScopes.some((scope) => equalScope(scope, outbound.identity.scope)))
       return {
         status: "blocked",
@@ -21723,7 +21764,7 @@ function validateOutboundIdentities(pair, histories) {
 function discoverSnapshot(input) {
   const byScope = new Map;
   for (const history of input.histories) {
-    const key = scopeKey4(history.source.scope);
+    const key = scopeKey6(history.source.scope);
     const previous = byScope.get(key);
     if (previous !== undefined && canonicalValueDigest(previous) !== canonicalValueDigest(history))
       return {
@@ -21759,7 +21800,7 @@ function discoverRecoveryHistoricalSnapshot(input) {
 }
 
 // plugins/omp-build/engine/fix-recovery-historical-cut.ts
-import { createHash as createHash19 } from "node:crypto";
+import { createHash as createHash18 } from "node:crypto";
 
 // plugins/omp-build/engine/history-wire-types.ts
 var WIRE_PREFIX = "<!-- omp-build-record ";
@@ -23065,7 +23106,7 @@ function validRecoveryHistoricalGraph(graph) {
   });
   if (!ordered(graph.nodes.map((node) => scopeKey(node.uw))) || !validateUwGraphContents(graph.root, graph.nodes).ok)
     return false;
-  return graph.nodes.every((node) => createHash19("sha256").update(node.raw.body, "utf8").digest("hex") === node.raw.bodySha256 && ordered(node.labels) && ordered(node.wayfinderLabels) && ordered(node.children.map(scopeKey)) && ordered(node.blockers.map(scopeKey)));
+  return graph.nodes.every((node) => createHash18("sha256").update(node.raw.body, "utf8").digest("hex") === node.raw.bodySha256 && ordered(node.labels) && ordered(node.wayfinderLabels) && ordered(node.children.map(scopeKey)) && ordered(node.blockers.map(scopeKey)));
 }
 function reconstructRecoveryHistoricalCut(cuts, histories, recordPinsBefore) {
   const snapshots = [];
@@ -23273,7 +23314,7 @@ function validateHistoricalObservation(proposal) {
     return fail4("control operation identity differs from proposal");
   if (canonicalValueDigest(observation) !== proposal.observationDigest)
     return fail4("observation digest differs from proposal");
-  if (createHash20("sha256").update(observation.local.status.stdout, "utf8").digest("hex") !== observation.local.statusDigest)
+  if (createHash19("sha256").update(observation.local.status.stdout, "utf8").digest("hex") !== observation.local.statusDigest)
     return fail4("local status digest differs from stdout");
   if (observation.local.clean !== (observation.local.status.stdout.trim() === ""))
     return fail4("local cleanliness differs from stdout");
@@ -24662,10 +24703,8 @@ async function observeHistoricalPins(history, options, additional) {
     const cited = decodeHistory(source);
     for (const ref of refs) {
       const bound = bindExternalRef(ref.record, cited);
-      if (!bound.ok)
-        continue;
-      const selected = selectedRecordValue(bound.value, ref.selector);
-      noteObservedRecordPin(history.source, ref, cited, selected !== undefined && canonicalValueDigest(selected) === ref.digest);
+      const selected = bound.ok ? selectedRecordValue(bound.value, ref.selector) : undefined;
+      noteObservedRecordPin(history.source, ref, cited, bound.ok ? selected !== undefined && canonicalValueDigest(selected) === ref.digest : null);
     }
   }
   return history;

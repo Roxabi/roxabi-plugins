@@ -31,7 +31,7 @@ export function noteObservedRecordPin(
   source: ObservedHistory,
   ref: RecordInputRef,
   cited: DecodedHistory,
-  digestMatches: boolean,
+  digestMatches: boolean | null,
 ) {
   let verified = source[observedRecords]
   if (verified === undefined) {
@@ -45,6 +45,11 @@ export function noteObservedRecordPin(
     verified.cited.set(key, records)
   }
   const identity = citedRecordKey(ref.record)
+  // A complete read that cannot bind the cited identity disputes any earlier readback.
+  if (digestMatches === null) {
+    records.set(identity, null)
+    return
+  }
   const comments = cited.operations
     .filter(
       ({ authority, record, status }) =>

@@ -1,13 +1,13 @@
-import { canonicalValueDigest } from './action-input.ts'
 import { nativeResultValid } from './delivery-observation-authentication.ts'
-import { authenticatedReceiptActionInputs, authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
+import { diagnostic, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
-import { bindExternalRef, recordsOf } from './workflow-control.ts'
+import { workflowContextNegative } from './workflow-context-output.ts'
+import { recordsOf } from './workflow-control.ts'
 import { planOutputSchema } from './workflow-output-schema.ts'
 import type { ActionReceiptPayload } from './workflow-receipt-schema.ts'
 
@@ -21,7 +21,7 @@ export {
 } from './delivery-observation-authentication.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
-type HistoricalDeliveryResult = Extract<ActionReceiptPayload, { action: 'plan' | 'implement'; phase: 'result' }>
+type PlanResult = Extract<ActionReceiptPayload, { action: 'plan'; phase: 'result' }>
 
 export function uniqueAccounted<T>(items: readonly T[], label: string): Result<T | null> {
   if (items.length === 0) return { ok: true, value: null }
@@ -39,82 +39,13 @@ export function planReceiptEligible(record: Receipt): boolean {
   )
 }
 
-export function integrationStartPaired(history: DecodedHistory, result: Receipt): boolean {
-  if (result.payload.action !== 'integrate' || result.payload.phase !== 'result') return false
-  const payload = result.payload
-  const bound = bindExternalRef(payload.start, history)
-  if (!bound.ok) return false
-  const record = bound.value
-  return (
-    record.kind === 'action-receipt' &&
-    record.payload.action === 'integrate' &&
-    record.payload.phase === 'start' &&
-    record.recordId === payload.start.recordId &&
-    record.repository === payload.start.scope.repository &&
-    record.target === payload.start.scope.target &&
-    record.payload.actionId === payload.actionId &&
-    sameRef(record.payload.mandate, payload.mandate) &&
-    canonicalValueDigest(record.payload.inputs) === canonicalValueDigest(payload.inputs) &&
-    canonicalValueDigest(record.payload.exactInputs) === canonicalValueDigest(payload.exactInputs)
-  )
-}
-
-function hasCompetingHistoricalStart(history: DecodedHistory, result: HistoricalDeliveryResult): boolean {
-  return recordsOf(history).some(
-    (record) =>
-      record.kind === 'action-receipt' &&
-      record.recordId !== result.start.recordId &&
-      record.payload.phase === 'start' &&
-      record.payload.action === result.action &&
-      record.payload.actionId === result.actionId &&
-      sameRef(record.payload.mandate, result.mandate) &&
-      bindExternalRef({ ...result.start, recordId: record.recordId }, history).ok,
-  )
-}
-
-function historicalStartPair(
-  history: DecodedHistory,
-  result: HistoricalDeliveryResult,
-  histories: readonly DecodedHistory[],
-): Result<void> {
-  const unpaired = (message: string, diagnostics: Diagnostic[] = []): Result<never> =>
-    fail([
-      diagnostic(
-        result.action === 'plan' ? 'plan-start-unpaired' : 'implementation-start-unpaired',
-        `${result.action} ${result.actionId}: ${message}`,
-        { start: result.start, resultScope: history.source.scope },
-      ),
-      ...diagnostics,
-    ])
-  if (result.start.kind !== 'action-receipt' || !equalScope(result.start.scope, history.source.scope))
-    return unpaired('START must be an action receipt in the RESULT history')
-  const bound = bindExternalRef(result.start, history)
-  if (!bound.ok) return unpaired('Cited START cannot be authenticated', bound.diagnostics)
-  const start = bound.value
-  if (
-    start.kind !== 'action-receipt' ||
-    start.recordId !== result.start.recordId ||
-    start.repository !== result.start.scope.repository ||
-    start.target !== result.start.scope.target ||
-    start.payload.phase !== 'start' ||
-    start.payload.action !== result.action ||
-    start.payload.actionId !== result.actionId ||
-    !sameRef(start.payload.mandate, result.mandate) ||
-    canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(result.exactInputs) ||
-    canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(result.inputs)
-  )
-    return unpaired('Cited START does not match the RESULT action, mandate, exact inputs, and manifest capture')
-  if (hasCompetingHistoricalStart(history, result))
-    return unpaired('More than one authenticated START identifies this action invocation')
-  const authenticated = authenticateHistoricalActionInputs(start.payload.inputs, histories)
-  return authenticated.ok
-    ? { ok: true, value: undefined }
-    : unpaired('START inputs are not authenticated', authenticated.diagnostics)
+export function planReviewReceiptEligible(record: Receipt): boolean {
+  return record.payload.action === 'plan-review' && nativeResultValid(record) && !workflowContextNegative(record)
 }
 
 type PlanCandidate = {
   record: Receipt
-  payload: Extract<HistoricalDeliveryResult, { action: 'plan' }>
+  payload: PlanResult
   history: DecodedHistory
 }
 
@@ -139,8 +70,8 @@ function uniquePairedPlan(
   histories: readonly DecodedHistory[],
   diagnostics: Diagnostic[],
 ): Result<PlanCandidate | null> {
-  const paired = candidates.filter(({ history, payload }) => {
-    const start = historicalStartPair(history, payload, histories)
+  const paired = candidates.filter(({ history, record }) => {
+    const start = authenticateHistoricalReceiptStart(history, record, histories)
     if (!start.ok) diagnostics.push(...start.diagnostics)
     return start.ok
   })
@@ -173,30 +104,21 @@ export function currentPlanReceipt(
           if (
             review.kind !== 'action-receipt' ||
             review.payload.action !== 'plan-review' ||
-            review.payload.phase !== 'result'
+            review.payload.phase !== 'result' ||
+            !planReviewReceiptEligible(review) ||
+            !sameRef(review.payload.mandate, mandate) ||
+            review.payload.exactInputs.specDigest !== specDigest ||
+            review.payload.actionId !== row.payload.exactInputs.amendsReviewActionId ||
+            review.payload.exactInputs.draftActionId !== draft.payload.actionId
           )
             return false
-          if (!sameRef(review.payload.mandate, mandate)) return false
-          if (!('draftActionId' in review.payload.exactInputs)) return false
-          return (
-            review.payload.actionId === row.payload.exactInputs.amendsReviewActionId &&
-            review.payload.exactInputs.draftActionId === draft.payload.actionId &&
-            authenticatedReceiptActionInputs(review.payload, histories)
-          )
+          const start = authenticateHistoricalReceiptStart(history, review, histories)
+          if (!start.ok) diagnostics.push(...start.diagnostics)
+          return start.ok
         }),
       ),
   )
   const selected = uniquePairedPlan(amendments, 'current plan amendment', histories, diagnostics)
   if (!selected.ok) return selected
   return { ok: true, value: selected.value?.record ?? draft.record }
-}
-
-export function implementationStartPaired(
-  history: DecodedHistory,
-  result: Receipt,
-  histories: readonly DecodedHistory[] = [history],
-): Result<void> {
-  if (result.payload.action !== 'implement' || result.payload.phase !== 'result')
-    return fail([diagnostic('unconfirmed', 'Expected an implementation RESULT')])
-  return historicalStartPair(history, result.payload, histories)
 }

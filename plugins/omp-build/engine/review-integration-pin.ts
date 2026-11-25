@@ -2,15 +2,15 @@ import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs, ActionSpecInput, ActionSubject, RecordInputRef } from './action-input-schema.ts'
 import { integrationReceiptEligible } from './delivery-observation-authentication.ts'
 import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
+import { diagnostic, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Result } from './result.ts'
 import { hasIntegrationReviewPin } from './review-subject-binding.ts'
 import { type IntegrationOutput, integrationOutputSchema } from './uw-integration-schema.ts'
-import { bindExternalRef, historyFor, recordsOf } from './workflow-control.ts'
+import { bindExternalRef, historyFor } from './workflow-control.ts'
 import { resolveManifestMandate } from './workflow-pr-binding.ts'
-import type { ActionReceiptPayload } from './workflow-receipt-schema.ts'
 
 function integrationCodeMatchesProducer(
   producer: ActionInputs['manifest']['code'],
@@ -35,40 +35,6 @@ function integrationVersionMatchesReview(inputs: ActionInputs, subject: ActionSu
     inputs.manifest.spec.kind === 'accepted' &&
     canonicalValueDigest(inputs.manifest.spec) === canonicalValueDigest(spec)
   )
-}
-
-function authenticateIntegrationStart(
-  payload: Extract<ActionReceiptPayload, { action: 'integrate'; phase: 'result' }>,
-  pin: RecordInputRef,
-  history: DecodedHistory,
-): Result<void> {
-  const invalid = (message: string): Result<never> => fail([diagnostic('integration-start-unpaired', message)])
-  if (payload.start.kind !== 'action-receipt' || !equalScope(payload.start.scope, pin.record.scope))
-    return invalid('Integration start must be in the selected result history')
-  const matching = recordsOf(history).filter(
-    (record) =>
-      record.kind === 'action-receipt' &&
-      record.payload.action === 'integrate' &&
-      record.payload.actionId === payload.actionId,
-  )
-  if (
-    matching.filter((record) => record.kind === 'action-receipt' && record.payload.phase === 'start').length !== 1 ||
-    matching.filter((record) => record.kind === 'action-receipt' && record.payload.phase === 'result').length !== 1
-  )
-    return invalid('Integration action must have one start and one result')
-  const start = bindExternalRef(payload.start, history)
-  if (!start.ok) return start
-  if (
-    start.value.kind !== 'action-receipt' ||
-    start.value.payload.action !== 'integrate' ||
-    start.value.payload.phase !== 'start' ||
-    start.value.payload.actionId !== payload.actionId ||
-    !sameRef(start.value.payload.mandate, payload.mandate) ||
-    canonicalValueDigest(start.value.payload.inputs) !== canonicalValueDigest(payload.inputs) ||
-    canonicalValueDigest(start.value.payload.exactInputs) !== canonicalValueDigest(payload.exactInputs)
-  )
-    return invalid('Integration result does not bind its exact authenticated start and complete inputs')
-  return { ok: true, value: undefined }
 }
 
 /** Authenticate the selected admitted integration and its exact producer chain. */
@@ -101,8 +67,6 @@ export function authenticateIntegrationPin(
   const output = integrationOutputSchema.safeParse(payload.structured)
   if (!output.success || pin.digest !== canonicalValueDigest(output.data.code))
     return invalid('integration-code-unbound', 'Selected integration code digest does not match the receipt')
-  const authenticatedInputs = authenticateHistoricalActionInputs(payload.inputs, histories)
-  if (!authenticatedInputs.ok) return authenticatedInputs
   if (!integrationCodeMatchesProducer(payload.inputs.manifest.code, output.data.code, payload.admission?.remoteTip))
     return invalid(
       'integration-code-mismatch',
@@ -115,7 +79,7 @@ export function authenticateIntegrationPin(
     )
   if (!sameRef(payload.mandate, mandate))
     return invalid('integration-mandate-mismatch', 'Integration and review do not bind the same execution mandate')
-  const start = authenticateIntegrationStart(payload, pin, history)
+  const start = authenticateHistoricalReceiptStart(history, receipt, histories)
   if (!start.ok) return start
   return { ok: true, value: { source: pin.record, output: output.data } }
 }

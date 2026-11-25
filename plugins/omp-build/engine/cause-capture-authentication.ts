@@ -9,6 +9,7 @@ import {
   recordRefDiagnostics,
   selectedRecordValue,
 } from './historical-action-inputs.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -95,13 +96,17 @@ function authenticateActionCapture(input: CaptureAuthentication): Result<ActionI
   const errors = recordRefDiagnostics('cause capture', capture, histories)
   if (errors.length) return { ok: false, diagnostics: errors }
   const history = histories.find((item) => equalScope(item.source.scope, capture.record.scope))
-  const record = history && bindExternalRef(capture.record, history)
-  if (!record?.ok) return refusal('Cause capture record is unavailable')
+  if (history === undefined) return refusal('Cause capture record is unavailable')
+  const record = bindExternalRef(capture.record, history)
+  if (!record.ok) return refusal('Cause capture record is unavailable')
   const parsed = parseCapturedActionInputs(record.value, capture.selector)
   if (!parsed.ok) return parsed
-  const authenticated = authenticateHistoricalActionInputs(parsed.value, histories)
+  const authenticated =
+    record.value.kind === 'action-receipt' && record.value.payload.phase === 'result'
+      ? authenticateHistoricalReceiptStart(history, record.value, histories)
+      : authenticateHistoricalActionInputs(parsed.value, histories)
   if (!authenticated.ok) return authenticated
-  const action = authenticated.value
+  const action = parsed.value
   if (
     action.manifest.spec.kind !== 'accepted' ||
     canonicalValueDigest(action.manifest.spec.effective) !== canonicalValueDigest(input.context.effective)

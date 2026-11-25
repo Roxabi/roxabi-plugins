@@ -1,6 +1,6 @@
 import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
-import { citedOperationIntegrity } from './delivery-eligibility.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -55,7 +55,7 @@ export function correctionCurrentPlan(
   return manifest.deliveryData.some((ref) => {
     if (ref.role !== 'plan' || ref.selector !== '/payload/structured') return false
     const history = historyFor(ref.record.scope, histories)
-    if (history === null || citedOperationIntegrity(history, ref.record.recordId) !== null) return false
+    if (history === null) return false
     const result = bindExternalRef(ref.record, history)
     if (!result.ok || result.value.kind !== 'action-receipt') return false
     const payload = result.value.payload
@@ -66,7 +66,8 @@ export function correctionCurrentPlan(
       sameRef(payload.mandate, context.mandate) &&
       'specDigest' in payload.exactInputs &&
       payload.exactInputs.specDigest === context.ownSpec.version &&
-      ref.digest === canonicalValueDigest(payload.structured)
+      ref.digest === canonicalValueDigest(payload.structured) &&
+      authenticateHistoricalReceiptStart(history, result.value, histories).ok
     )
   })
 }

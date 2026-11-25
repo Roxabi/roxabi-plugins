@@ -1,6 +1,12 @@
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { observeHistoricalPins } from '../../adapters/github/historical-pins.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../engine/action-input.ts'
-import type { DeliveryDataRef } from '../../engine/action-input-schema.ts'
+import type { DeliveryDataRef, PinnedFileRef } from '../../engine/action-input-schema.ts'
 import { assessHistoricalCauseDispositions } from '../../engine/cause-assessment.ts'
 import { decisionCauseCapture } from '../../engine/cause-capture-authentication.ts'
 import { resolveAdmittedCorrectionCriterionSource } from '../../engine/correction-criterion-source.ts'
@@ -75,8 +81,12 @@ function pin(
   return { source: 'record', record: recordRef(record), role, selector, digest: canonicalValueDigest(value) }
 }
 
-function correctedEvidenceWorld(variant: Case) {
-  const proof = historicalCorrectionProof(undefined, variant === 'unknown producer proof' ? [unobservedCorrection] : [])
+function correctedEvidenceWorld(
+  variant: Case,
+  citation = variant === 'unknown producer proof' ? unobservedCorrection : undefined,
+  correctedHead?: string,
+) {
+  const proof = historicalCorrectionProof(undefined, citation === undefined ? [] : [citation], correctedHead)
   const { mandate, binding, result, head, planActionId, spec, contextHistory, request } = proof
   const uw = spec.effective.own.uw
   const pullRequest = proof.review.source.scope
@@ -135,7 +145,7 @@ function correctedEvidenceWorld(variant: Case) {
     graph,
     prefix: 'corrected-delivery',
     verdict: 'Request changes',
-    retainedFinal: variant === 'unknown producer proof',
+    retainedFinal: citation !== undefined,
     adjustCriterion: (row) =>
       variant === 'missing lineage'
         ? { ...row, verdict: 'unverified', examined: [], reason: 'Correction lineage is not proven' }
@@ -167,7 +177,7 @@ function correctedEvidenceWorld(variant: Case) {
       },
     ],
   }
-  return { observation, uw, receipt, declaration, head }
+  return { observation, uw, receipt, declaration, head, inputs, source: proof.source }
 }
 
 test.each(['admitted', 'missing lineage', 'unknown producer proof'] as const)(
@@ -200,5 +210,84 @@ test.each(['admitted', 'missing lineage', 'unknown producer proof'] as const)(
     expect(projected.value.verdicts.map(({ value }) => value.verdict)).toEqual(
       variant === 'unknown producer proof' ? [] : [variant === 'admitted' ? 'satisfied' : 'unverified'],
     )
+  },
+)
+
+test.each(['exact commit', 'wrong digest', 'tree OID'] as const)(
+  '/uw verdicts authenticates an unlisted correction test citation: %s',
+  async (variant) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'omp-correction-test-citation-'))
+    const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+    const { repository, path } = unobservedCorrection
+    const bytes = 'Correction preserves the selected region.\n'
+    const replacementBytes = 'This is not the captured test.\n'
+    try {
+      git('init', '-q')
+      git('remote', 'add', 'origin', `https://github.com/${repository}.git`)
+      writeFileSync(join(cwd, path), bytes)
+      git('add', '--', path)
+      git('-c', 'user.name=Git Citations', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'Seed proof')
+      const commit = git('rev-parse', 'HEAD')
+      const tree = git('rev-parse', 'HEAD^{tree}')
+      const replacement = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+        cwd,
+        encoding: 'utf8',
+        input: replacementBytes,
+      }).trim()
+      git('config', 'core.useReplaceRefs', 'true')
+      git('replace', git('rev-parse', `${commit}:${path}`), replacement)
+      expect(git('cat-file', 'blob', `${commit}:${path}`)).toBe(replacementBytes.trim())
+      expect(git('--no-replace-objects', 'cat-file', 'blob', `${tree}:${path}`)).toBe(bytes.trim())
+      const citation: PinnedFileRef = {
+        source: 'git-file',
+        repository,
+        commit: variant === 'tree OID' ? tree : commit,
+        path,
+        digest: createHash('sha256')
+          .update(variant === 'wrong digest' ? replacementBytes : bytes)
+          .digest('hex'),
+      }
+      const { observation, uw, inputs, source } = correctedEvidenceWorld('admitted', citation, commit)
+      const producerInputs = source.payload.host.action?.inputs
+      if (producerInputs === undefined) throw new Error('Expected bound correction inputs')
+      for (const { manifest, stageSources } of [inputs, producerInputs]) {
+        const selected = [...manifest.repositoryReferences, ...manifest.plugin.files, ...manifest.expandedContext]
+        expect([...selected, ...stageSources]).not.toContainEqual(citation)
+      }
+      const options = {
+        cwd,
+        readAuthor: 'operator',
+        gh: async () => {
+          throw new Error('Fixture has no remote Git objects')
+        },
+      }
+      for (const history of observation.histories) await observeHistoricalPins(history, options)
+      const projected = projectUwDelivery(observation, assessUwCompletion(observation), uw)
+      if (!projected.ok) throw new Error('Expected read-only correction projection')
+      const result = await executeDurableUwCommand(
+        { kind: 'verdicts', repository, number: 7 },
+        { ...fixtureUwOperations(), readDelivery: async () => projected },
+      )
+      const denied = expect.objectContaining({
+        code: 'unknown-reference',
+        message: 'Evidence region-proof cites an unauthenticated pinned source',
+      })
+      if (variant === 'exact commit') {
+        expect(projected.value.declarations).toHaveLength(1)
+        expect(result.value).toMatchObject({
+          status: 'verdicts',
+          verdicts: [{ code: { repository, commit }, value: { target: { id: 'C1' }, verdict: 'satisfied' } }],
+        })
+        expect(projected.value.diagnostics).not.toContainEqual(denied)
+      } else {
+        expect(result.value).toMatchObject({
+          status: 'verdicts',
+          verdicts: [],
+          diagnostics: expect.arrayContaining([denied]),
+        })
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   },
 )

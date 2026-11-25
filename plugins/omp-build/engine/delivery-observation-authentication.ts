@@ -142,12 +142,16 @@ export function criterionVerdictCitationDiagnostics(
   return diagnostics
 }
 
-function versionClaimReferences(evidence: Extract<CriterionEvidence, { method: 'test' }>): ObservationRef[] {
+export function producerTestVersionDiagnostics(
+  evidence: Extract<CriterionEvidence, { method: 'test' }>,
+  histories: readonly DecodedHistory[],
+): Diagnostic[] {
   return [
     ...evidence.after.versionClaim.references,
     ...(evidence.before === null ? [] : evidence.before.versionClaim.references),
-  ]
+  ].flatMap((ref) => producerTestVersionRefDiagnostics(evidence.id, ref, histories))
 }
+
 function submissionMatchesCapture(
   observation: NonNullable<
     Extract<Receipt['payload'], { action: 'implement' | 'integrate'; phase: 'result' }>['native']['observation']
@@ -261,14 +265,13 @@ export function observationAuthenticationDiagnostics(
 ): Diagnostic[] {
   const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
   if (!authenticated.ok) return authenticated.diagnostics
-  const diagnostics: Diagnostic[] = []
   if (evidence.method === 'test') {
-    for (const ref of versionClaimReferences(evidence))
-      diagnostics.push(...producerTestVersionRefDiagnostics(evidence.id, ref, histories))
+    const diagnostics = producerTestVersionDiagnostics(evidence, histories)
     if (!testRunsMatchHostCapture(evidence, receipt))
       diagnostics.push(diagnostic('unconfirmed', `Evidence ${evidence.id} test runs are not in the host capture`))
     return diagnostics
   }
+  const diagnostics: Diagnostic[] = []
   const refs = evidence.references
   diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, receipt.payload.inputs))
   for (const ref of refs) diagnostics.push(...observationRefDiagnostics(evidence.id, ref, histories, pins))

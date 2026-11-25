@@ -1,13 +1,12 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
-import { citedOperationIntegrity, nativeResultValid } from './delivery-eligibility.ts'
-import { authenticatedReceiptActionInputs } from './historical-action-inputs.ts'
+import { canonicalValueDigest } from './action-input.ts'
+import { nativeResultValid } from './delivery-observation-authentication.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { diagnostic, fail } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import { succeeds } from './workflow-context-lineage.ts'
 import { validPositiveSuccessor, workflowContextNegative } from './workflow-context-output.ts'
-import { reviewContextPairValid } from './workflow-context-review.ts'
-import { bindExternalRef, excludedReceipt, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { excludedReceipt, type ReceiptRecord, receiptStartKey, recordsOf } from './workflow-control.ts'
 
 /**
  * Authenticate the unique START/RESULT pair of one invocation. `native: 'unchecked'` is reserved for the
@@ -20,99 +19,32 @@ export function authenticateWorkflowReceiptPair(
   result: ReceiptRecord,
   options: { native: 'valid' | 'unchecked' } = { native: 'valid' },
 ): Result<{ start: ReceiptRecord; result: ReceiptRecord }> {
-  const refusal = (): Result<never> => ({
-    ok: false,
-    diagnostics: [diagnostic('unconfirmed', 'Workflow receipt pair is not uniquely authenticated')],
-  })
   const payload = result.payload
+  const negative = workflowContextNegative(result)
   if (
     payload.phase !== 'result' ||
-    !history.source.complete ||
     (options.native === 'valid' && !nativeResultValid(result)) ||
-    citedOperationIntegrity(history, result.recordId) !== null ||
-    (workflowContextNegative(result) && payload.admission !== null)
+    (negative && payload.admission !== null)
   )
-    return refusal()
-  const operations = history.operations.filter(
-    (operation) =>
-      operation.authority !== 'foreign' &&
-      operation.record?.kind === 'action-receipt' &&
-      operation.record.payload.action === payload.action &&
-      operation.record.payload.actionId === payload.actionId,
-  )
-  if (
-    operations.length !== 2 ||
-    operations.some((operation) => operation.authority !== 'accounted' || operation.status !== 'complete')
-  )
-    return refusal()
-  const receipts = operations
-    .map((operation) => operation.record)
-    .filter((record): record is ReceiptRecord => record !== null && record.kind === 'action-receipt')
-  const starts = matchingReceipts(receipts, result, 'start')
-  if (starts.length !== 1 || matchingReceipts(receipts, result, 'result').length !== 1) return refusal()
-  const start = starts[0]
-  if (
-    start === undefined ||
-    start.payload.phase !== 'start' ||
-    !reviewContextPairValid(start, result, workflowContextNegative(result))
-  )
-    return refusal()
-  const boundStart = bindExternalRef(
-    { scope: history.source.scope, kind: 'action-receipt', recordId: start.recordId },
-    history,
-  )
-  const boundResult = bindExternalRef(
-    { scope: history.source.scope, kind: 'action-receipt', recordId: result.recordId },
-    history,
-  )
-  if (
-    !boundStart.ok ||
-    !boundResult.ok ||
-    canonicalValueDigest(boundResult.value) !== canonicalValueDigest(result) ||
-    payload.start.kind !== 'action-receipt' ||
-    payload.start.recordId !== start.recordId ||
-    !equalScope(payload.start.scope, history.source.scope) ||
-    citedOperationIntegrity(history, start.recordId) !== null ||
-    !validateActionInputs(payload.inputs).ok ||
-    canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(payload.inputs) ||
-    canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(payload.exactInputs) ||
-    canonicalValueDigest(start.payload.mandate) !== canonicalValueDigest(payload.mandate)
-  )
-    return refusal()
-  if (
-    options.native === 'valid' &&
-    !workflowContextNegative(result) &&
-    !authenticatedReceiptActionInputs(payload, [history])
-  )
-    return refusal()
-  return { ok: true, value: { start, result } }
+    return fail([diagnostic('unconfirmed', 'Workflow receipt pair is not uniquely authenticated')])
+  return authenticateHistoricalReceiptStart(history, result, [history], {
+    inputs: options.native === 'unchecked' || negative ? 'structural' : 'authenticated',
+  })
 }
 
-function paired(history: DecodedHistory, result: ReceiptRecord, _receipts: readonly ReceiptRecord[]): boolean {
+function paired(history: DecodedHistory, result: ReceiptRecord): boolean {
   return authenticateWorkflowReceiptPair(history, result).ok
 }
 
-function matchingReceipts(
-  receipts: readonly ReceiptRecord[],
-  result: ReceiptRecord,
-  phase: 'start' | 'result',
-): ReceiptRecord[] {
-  return receipts.filter(
-    (record) =>
-      record.payload.phase === phase &&
-      record.payload.action === result.payload.action &&
-      record.payload.actionId === result.payload.actionId,
-  )
-}
-
-function hasUnpairedStart(receipts: readonly ReceiptRecord[]): boolean {
-  return receipts.some(
-    (record) =>
-      record.payload.phase === 'start' &&
-      !receipts.some(
-        (result) => result.payload.phase === 'result' && result.payload.actionId === record.payload.actionId,
-      ),
-  )
+function hasUnpairedStart(history: DecodedHistory, receipts: readonly ReceiptRecord[]): boolean {
+  const terminal = new Set<string>()
+  for (const receipt of receipts) {
+    // A recorded outcome distinguishes a missing successor from an unfinished attempt; admitting that outcome is separate.
+    if (receipt.payload.phase !== 'result') continue
+    if (authenticateHistoricalReceiptStart(history, receipt, [history], { inputs: 'structural' }).ok)
+      terminal.add(receiptStartKey(receipt))
+  }
+  return receipts.some((record) => record.payload.phase === 'start' && !terminal.has(receiptStartKey(record)))
 }
 
 /** Another mandate's negative no longer blocks, but it must still be an authenticated pair. */
@@ -122,7 +54,7 @@ function otherMandateNegativeUnpaired(
   scoped: readonly ReceiptRecord[],
 ): boolean {
   return actionReceipts.some(
-    (record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record, actionReceipts),
+    (record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record),
   )
 }
 
@@ -160,15 +92,15 @@ function resolveContextNegative(
   receipts: readonly ReceiptRecord[],
   seen: Set<string>,
 ): ContextResolution {
-  if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
+  if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative))
     return 'uncertain'
   seen.add(negative.recordId)
   const successors = receipts.filter((candidate) => succeeds(history, negative, candidate))
   if (successors.length > 1) return 'ambiguous'
-  if (hasUnpairedStart(receipts)) return 'uncertain'
+  if (hasUnpairedStart(history, receipts)) return 'uncertain'
   const successor = successors[0]
   if (successor === undefined) return 'missing'
-  if (!paired(history, successor, receipts)) return 'uncertain'
+  if (!paired(history, successor)) return 'uncertain'
   if (workflowContextNegative(successor)) return resolveContextNegative(history, successor, receipts, seen)
   return validPositiveSuccessor(successor) ? 'clear' : 'uncertain'
 }

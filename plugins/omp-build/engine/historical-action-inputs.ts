@@ -1,13 +1,13 @@
 import { canonicalValueDigest, selectorAdmitted, validateActionInputs } from './action-input.ts'
 import type { ActionInputs, RecordInputRef } from './action-input-schema.ts'
 import { hasObservedGitPin } from './historical-git-pins.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import { hasObservedRecordPin } from './historical-record-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import type { Result } from './result.ts'
 import { bindExternalRef, historyFor } from './workflow-control.ts'
-import type { ActionReceiptPayload } from './workflow-receipt-schema.ts'
 
 export function selectedRecordValue(value: unknown, selector: string): unknown {
   if (!selector.startsWith('/')) return undefined
@@ -76,6 +76,34 @@ function expandedRecordDiagnostics(ref: RecordInputRef, histories: readonly Deco
   return recordRefDiagnostics('Historical action manifest', ref, histories)
 }
 
+function correctionStageReceiptDiagnostics(ref: RecordInputRef, histories: readonly DecodedHistory[]): Diagnostic[] {
+  const home = historyFor(ref.record.scope, histories)
+  if (home === null) return [diagnostic('missing-history', 'Historical CI attribution history is missing')]
+  const record = bindExternalRef(ref.record, home)
+  if (!record.ok) return record.diagnostics
+  if (
+    record.value.kind !== 'action-receipt' ||
+    record.value.payload.action !== 'attribute-ci' ||
+    record.value.payload.phase !== 'result' ||
+    record.value.payload.inputs.manifest.purpose !== 'attribute-ci' ||
+    ref.selector !== '/payload' ||
+    canonicalValueDigest(record.value.payload) !== ref.digest
+  )
+    return [diagnostic('unconfirmed', 'Historical correction does not cite its exact CI attribution RESULT')]
+  const pair = authenticateHistoricalReceiptStart(home, record.value, histories)
+  return pair.ok ? [] : pair.diagnostics
+}
+
+function correctionStageDiagnostics(inputs: ActionInputs, histories: readonly DecodedHistory[]): Diagnostic[] {
+  if (inputs.manifest.purpose !== 'correction') return []
+  for (const ref of inputs.stageSources) {
+    if (ref.record.kind !== 'action-receipt') continue
+    const diagnostics = correctionStageReceiptDiagnostics(ref, histories)
+    if (diagnostics.length !== 0) return diagnostics
+  }
+  return []
+}
+
 /** Historical authority requires every manifest Git file and expanded record to be re-observed. */
 export function authenticateHistoricalActionInputs(
   inputs: ActionInputs,
@@ -84,15 +112,17 @@ export function authenticateHistoricalActionInputs(
   const valid = validateActionInputs(inputs)
   if (!valid.ok) return valid
   const { repositoryReferences, plugin, expandedContext } = valid.value.manifest
-  for (const ref of repositoryReferences) if (!hasObservedGitPin(histories, ref)) return unobservedGitPin(ref.path)
-  for (const ref of plugin.files) if (!hasObservedGitPin(histories, ref)) return unobservedGitPin(ref.path)
+  const unobserved = (refs: typeof repositoryReferences) => refs.find((ref) => !hasObservedGitPin(histories, ref))
+  const git = unobserved(repositoryReferences) ?? unobserved(plugin.files)
+  if (git !== undefined) return unobservedGitPin(git.path)
   for (const ref of expandedContext) {
     if (ref.source === 'record') {
       const diagnostics = expandedRecordDiagnostics(ref, histories)
       if (diagnostics.length !== 0) return { ok: false, diagnostics }
     } else if (!hasObservedGitPin(histories, ref)) return unobservedGitPin(ref.path)
   }
-  return valid
+  const diagnostics = correctionStageDiagnostics(valid.value, histories)
+  return diagnostics.length === 0 ? valid : { ok: false, diagnostics }
 }
 
 function unobservedGitPin(path: string): Result<never> {
@@ -100,17 +130,4 @@ function unobservedGitPin(path: string): Result<never> {
     ok: false,
     diagnostics: [diagnostic('unconfirmed', `Historical action manifest has no authenticated bytes for ${path}`)],
   }
-}
-
-export function authenticatedReceiptActionInputs(
-  payload: ActionReceiptPayload,
-  histories: readonly DecodedHistory[],
-): boolean {
-  return (
-    authenticateHistoricalActionInputs(payload.inputs, histories).ok &&
-    (payload.action !== 'plan-review' ||
-      payload.slots.every(
-        (slot) => !slot.action || authenticateHistoricalActionInputs(slot.action.inputs, histories).ok,
-      ))
-  )
 }
