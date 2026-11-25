@@ -81,7 +81,7 @@ Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit p
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes or reuses the applicable leaf mandate, then hands off to the composition instructions. Re-entry re-observes Git and GitHub. |
-| `/feature resume <reference>` | Resumes an ordinary confirmed pause under the same mandate, including after an installed upgrade. The mandate's pinned review requirements remain in force. A review-bound or safety stop is not a pause. |
+| `/feature resume <reference>` | Resumes an ordinary confirmed pause under the same mandate, including after an installed upgrade. A review-bound or safety stop is not a pause. |
 | `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
 | `/feature abandon <reference>` | Revokes the selected mandate, including when that mandate has its own confirmed pause. No automatic renewal. |
 | `/feature new <reference>` | Explicit successor over the authenticated own abandoned mandate tip. It names the antecedent, publishes `select-successor` and preserves a compatible existing PR. Historical framing is not current authority, ancestor revocation is not own abandonment, and `/feature <reference>` never renews a mandate. `new init` is this control, not init. |
@@ -136,7 +136,7 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 
 | Part | Owns | Does not own |
 |---|---|---|
-| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories and landing-mandate admission | Semantic judgement, GitHub calls, merge |
+| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories | Semantic judgement, GitHub calls, merge |
 | Roxabi (`roxabi/`) | Feature admission, mandate and worktree preparation, UW operations | A project-defined graph or an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 

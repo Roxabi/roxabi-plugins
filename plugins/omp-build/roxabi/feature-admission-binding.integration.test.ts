@@ -23,9 +23,10 @@ afterEach(() => {
   roots.clear()
 })
 
-it.each(['valid', 'branch', 'base', 'branchless', 'existing-branch'] as const)(
+it.each(['valid', 'branch', 'base', 'branchless', 'existing-branch', 'legacy-branch', 'legacy-branchless'] as const)(
   'confirms or refuses the %s mandate through the public binding producer',
   async (scenario) => {
+    const legacy = scenario === 'legacy-branch' || scenario === 'legacy-branchless'
     const spec = nativeFeatureSpec(root, 'deliver the change')
     const box = sandbox({
       base: { '.dev/stack.yml': 'package_manager: bun\n', 'README.md': 'base\n' },
@@ -46,12 +47,13 @@ it.each(['valid', 'branch', 'base', 'branchless', 'existing-branch'] as const)(
       payload: {
         ...seed.payload,
         branch:
-          scenario === 'branchless'
+          scenario === 'branchless' || scenario === 'legacy-branchless'
             ? null
-            : scenario === 'branch' || scenario === 'existing-branch'
+            : scenario === 'branch' || scenario === 'existing-branch' || scenario === 'legacy-branch'
               ? 'feature/other'
               : branch,
         base: scenario === 'base' ? 'other-base' : 'main',
+        ...(legacy ? { config: { ...seed.payload.config, productVersion: '0.18.7' } } : {}),
       },
     })
     if (!parsed.ok || parsed.value.kind !== 'mandate') throw new Error('invalid mandate fixture')
@@ -64,7 +66,7 @@ it.each(['valid', 'branch', 'base', 'branchless', 'existing-branch'] as const)(
       if (!issue || !pr) throw new Error('missing native fixture')
       issue.body = spec.body
       issue.comments = fixtures.framedBodies([mandate], 'operator').map((body) => ({ author: 'operator', body }))
-      if (scenario === 'existing-branch')
+      if (legacy || scenario === 'existing-branch')
         pr.comments = fixtures.framedBodies([binding], 'operator', [home]).map((body) => ({ author: 'operator', body }))
     })
     const gh = async (cwd: string, args: string[]) => (await exec('gh', args, { cwd, env: box.env })).stdout
@@ -78,8 +80,25 @@ it.each(['valid', 'branch', 'base', 'branchless', 'existing-branch'] as const)(
         args.includes('POST') &&
         args.some((arg) => arg === 'repos/acme/app/issues/7/comments'),
     )
+    if (legacy) {
+      const observed = decodeHistory(await readGitHubHistory(pull, { cwd: box.principal, gh, readAuthor: 'operator' }))
+      expect(
+        selectWorkflowBinding({ pullRequest: pull, histories: [observed, home], native: { branch, base: 'main' } }),
+      ).toMatchObject({
+        status: 'bound',
+        mandate: fixtures.mandateRef(mandate),
+        binding: { recordId: binding.recordId },
+      })
+      expect(result).toEqual({ ok: false, reason: 'fix-own-uw-unsettled' })
+      expect(posts).toEqual([])
+      expect(state.prs['7']?.comments.map(({ author, body }) => ({ author, body }))).toEqual(before)
+      return
+    }
     if (scenario !== 'valid') {
-      expect(result).toEqual({ ok: false, reason: 'mandate-metadata-mismatch' })
+      expect(result).toEqual({
+        ok: false,
+        reason: scenario === 'existing-branch' ? 'binding-conflict' : 'mandate-metadata-mismatch',
+      })
       expect(posts).toEqual([])
       expect(state.prs['7']?.comments.map(({ author, body }) => ({ author, body }))).toEqual(before)
       return

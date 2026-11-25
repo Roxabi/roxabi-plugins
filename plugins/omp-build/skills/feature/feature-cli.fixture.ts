@@ -44,6 +44,25 @@ export function seedAuthority(box: Box, records: CanonicalRecord[]) {
   })
 }
 
+export function seedLandingChecks(box: Box, base: string, head: string, app: number): void {
+  writeSim(box, (state) => {
+    state.branchRules = {
+      ...state.branchRules,
+      [base]: [
+        {
+          type: 'required_status_checks',
+          parameters: { required_status_checks: [{ context: 'review', integration_id: app }, { context: 'ci' }] },
+        },
+      ],
+    }
+    const passed = { status: 'completed', conclusion: 'success', startedAt: date }
+    state.checks[head] = [
+      { ...passed, name: 'review', workflowName: 'review', appId: app },
+      { ...passed, name: 'ci', workflowName: 'ci' },
+    ]
+  })
+}
+
 export function world(bound = false, baseBranch = 'main', config?: MandateRecord['payload']['config']) {
   const box = sandbox({
     base: { '.dev/stack.yml': 'release:\n  model: trunk\n', 'README.md': 'base\n' },

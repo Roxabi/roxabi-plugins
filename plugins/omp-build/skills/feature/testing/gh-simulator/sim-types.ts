@@ -18,6 +18,7 @@ export type Check = {
   conclusion: string
   workflowName: string
   startedAt: string
+  appId?: number
   /** Native GraphQL node id; null preserves an intentional identity gap. */
   id?: string | null
   kind?: 'check-run' | 'status-context'
@@ -82,6 +83,13 @@ export type State = {
   /** Explicit remote refs for transport-only fixtures without a Git origin. */
   remoteRefs?: Record<string, string>
   requiredChecks: string[]
+  branchRules?: Record<
+    string,
+    {
+      type: 'required_status_checks'
+      parameters: { required_status_checks: { context: string; integration_id?: number }[] }
+    }[]
+  >
   nextPr: number
   clock: number
   nextCommentId?: number
