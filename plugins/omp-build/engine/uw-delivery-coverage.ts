@@ -1,7 +1,7 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
-import { bindingPolicy } from './workflow-binding-policy.ts'
+import { usesLegacyBindingFormat } from './workflow-binding-format.ts'
 import { bindExternalRef, type MandateRecord, successorClaim, workflowOperationProblem } from './workflow-control.ts'
 
 export type DeliveryCoverage =
@@ -35,7 +35,6 @@ function collectMandates(
       home.source.comments.findIndex((comment) => comment.locator === part.locator),
     )
     if (indexes.length === 0 || indexes.some((index) => index < 0)) return refused('UW mandate ordering is incomplete')
-    if (bindingPolicy(record) === 'unknown') return refused(`UW mandate ${record.recordId} has an unknown policy`)
     mandates.push({ record, first: Math.min(...indexes), last: Math.max(...indexes) })
   }
   return { ok: true, mandates }
@@ -128,7 +127,7 @@ function controlBoundary(
     ({ record }) =>
       record.recordId === payload.successor.recordId && equalScope(payload.successor.scope, home.source.scope),
   )
-  if (successor === undefined || bindingPolicy(successor.record) !== 'bounded') return { ok: true, boundary: null }
+  if (successor === undefined || usesLegacyBindingFormat(successor.record)) return { ok: true, boundary: null }
   const predecessor = payload.predecessor
   if (
     predecessor.kind !== 'mandate' ||
@@ -169,7 +168,7 @@ function findBoundary(
   return { ok: true, boundary }
 }
 
-/** A new-policy successor control certifies rediscoverability, not completion of its PR rebinding. */
+/** A bounded successor control certifies rediscoverability, not completion of its PR rebinding. */
 export function deliveryCoverage(home: DecodedHistory): DeliveryCoverage {
   if (workflowOperationProblem(home) !== null) return refused('UW home history is incomplete or ambiguous')
   const operations = home.operations.filter((operation) => operation.authority !== 'foreign')
@@ -186,7 +185,7 @@ export function deliveryCoverage(home: DecodedHistory): DeliveryCoverage {
   const branches = [
     ...new Set(mandates.flatMap(({ record }) => (record.payload.branch === null ? [] : [record.payload.branch]))),
   ]
-  const legacy = mandates.filter(({ record }) => bindingPolicy(record) === 'legacy')
+  const legacy = mandates.filter(({ record }) => usesLegacyBindingFormat(record))
   if (legacy.length === 0) return { ok: true, branches, uncovered: false }
   const coverageBoundary = findBoundary(home, operations, mandates)
   if (!coverageBoundary.ok) return coverageBoundary

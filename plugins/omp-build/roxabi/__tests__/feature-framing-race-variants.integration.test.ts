@@ -1,6 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
-import { readUwCompletionObservation, recordsOf, requireLandingMandate } from '../../dist/contracts.js'
 import { admitFeature as continueFeature } from '../../omp/omp-feature-admission.ts'
 import { dispose } from '../../skills/feature/testing/goal/goal-scenario-sandbox.ts'
 import {
@@ -12,9 +11,7 @@ import {
   prepare,
   uwMember,
 } from '../../testing/framing-runtime-fixture.ts'
-import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { createInput } from '../../testing/uw-operations-fixture.ts'
-import type { UwRead } from '../uw-contract.ts'
 import { buildFramingSourceBinding } from '../uw-framing-prepare.ts'
 import { writtenBoundary } from './feature-framing-controller-world.ts'
 
@@ -22,65 +19,6 @@ afterEach(() => {
   vi.unstubAllEnvs()
   dispose()
 })
-
-/** Declared PR fixture; the UW Mandate and all framing records come from the real publishers. */
-async function landingDecision(read: UwRead, gh: Gh) {
-  const own = read.histories.find((history) => history.source.scope.target === read.uw.target)
-  const mandate = own && recordsOf(own).find((record) => record.kind === 'mandate')
-  if (!own || !mandate || mandate.kind !== 'mandate' || mandate.payload.branch === null)
-    throw new Error('Expected the actual first Mandate')
-  const pr = { repository: read.uw.repository, target: `${read.uw.repository}#99` }
-  const workflow = roxabiWorkflowFixtures()
-  const binding = workflow.workflowBinding(pr, mandate, mandate.payload.branch, mandate.payload.base)
-  const prHistory = workflow.historyFrom([binding], 'automation', 'automation', read.histories)
-  const prGh: Gh = async (cwd, args) => {
-    if (args.some((arg) => arg.startsWith('repos/acme/app/issues/99/comments?'))) {
-      return JSON.stringify(
-        prHistory.source.comments.map((comment) => ({
-          id: comment.nativeId,
-          body: comment.body,
-          user: { login: comment.author },
-          created_at: comment.createdAt,
-          updated_at: comment.updatedAt,
-        })),
-      )
-    }
-    return gh(cwd, args)
-  }
-  const observation = await readUwCompletionObservation(
-    read.uw,
-    { cwd: '/fixture', gh: prGh, readAuthor: 'automation' },
-    async () => read.catalogues,
-    [],
-    [prHistory],
-  )
-  if (observation.status !== 'complete')
-    throw new Error(`Landing observation incomplete: ${JSON.stringify(observation.diagnostics)}`)
-  const config = mandate.payload.config
-  return requireLandingMandate({
-    histories: observation.histories,
-    authorityHistories: observation.histories,
-    catalogues: observation.catalogues,
-    observation,
-    uwGraph: observation.graph,
-    native: {
-      branch: mandate.payload.branch,
-      base: mandate.payload.base,
-      pullRequest: pr,
-      linkedIssueScopes: [read.uw],
-    },
-    parentScopes: [],
-    current: {
-      productVersion: config.productVersion,
-      configVersion: config.version,
-      configDigest: config.digest,
-      supportedConfigVersions: [config.version],
-      proposedSpec: read.proposed,
-      currentChildren: { ok: true, value: [] },
-    },
-    localInhibit: null,
-  })
-}
 
 it.each(['changed-spec', 'before-claim'] as const)(
   'holds the first-Mandate publishing run when concurrent framing stops at %s',
@@ -215,11 +153,6 @@ it.each(['changed-spec', 'before-claim'] as const)(
       expect(after.proposed.snapshot.spec.version).not.toBe(after.accepted.value.snapshot.spec.version)
     }
     expect(result).toMatchObject({ kind: 'blocked', reason: heldCode })
-    const landing = await landingDecision(after, native.gh)
-    expect(landing.ok, JSON.stringify(landing)).toBe(false)
-    if (landing.ok) throw new Error('Expected the real landing caller to refuse')
-    expect(landing.reason).toBe('uw-not-deliverable')
-    expect(landing.evidence.map((entry) => entry.code)).toContain(heldCode)
     expect(native.comments.get(numberOf(root))?.some((comment) => comment.body.includes('kind=action-receipt'))).toBe(
       false,
     )
@@ -272,7 +205,5 @@ it.each(['root', 'foundation'] as const)(
     expect(after.accepted.status).toBe('accepted')
     expect(after.admission.aggregate).toMatchObject({ status: 'complete', member: key })
     expect(result).toMatchObject({ kind: 'ready', worktree: move.path })
-    const landing = await landingDecision(after, native.gh)
-    expect(landing.ok, JSON.stringify(landing)).toBe(true)
   },
 )

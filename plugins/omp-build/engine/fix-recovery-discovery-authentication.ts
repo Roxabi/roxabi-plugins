@@ -6,7 +6,7 @@ import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveSpecEffective, resolveSpecEffectiveAtGraph } from './spec-effective.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import { bindingMatchesMandate, bindingPolicy } from './workflow-binding-policy.ts'
+import { bindingMatchesMandate, usesLegacyBindingFormat } from './workflow-binding-format.ts'
 import {
   bindExternalRef,
   type MandateRecord,
@@ -55,12 +55,11 @@ function authenticateBindingRecord(
   const boundMandate = bindExternalRef(binding.payload.mandate, mandateHome)
   const bindingMandate = confirmedAccountedMandate(mandateHome, binding.payload.mandate)
   if (!boundMandate.ok || bindingMandate === null) return refuse('Binding mandate is not authenticated')
-  const policy = bindingPolicy(bindingMandate)
   if (
-    policy === 'unknown' ||
-    (policy === 'bounded' && !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base))
+    !usesLegacyBindingFormat(bindingMandate) &&
+    !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base)
   )
-    return refuse('Recorded binding contradicts its mandate policy')
+    return refuse('Recorded binding branch or base differs from its mandate')
   return null
 }
 

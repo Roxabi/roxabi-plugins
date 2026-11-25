@@ -1,22 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import { parseRecord } from '../record-construction.ts'
 import type { WorkflowGraph } from '../workflow-graph.ts'
-import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { selectWorkflowBinding } from '../workflow-pr-binding.ts'
-import { binding, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
-import {
-  childCommitment,
-  featureMandate,
-  landingFixtures,
-  landingInput,
-  nativeBody,
-  nativeCausal,
-  parentNodes,
-  parentSnapshot,
-  pr,
-  rootNode,
-} from './workflow-transition-native-fixture.ts'
+import { binding, history, must, SCOPE } from './workflow-test-support.ts'
+import { featureMandate, nativeCausal, pr, rootNode } from './workflow-transition-native-fixture.ts'
 
 describe('workflow transition behavior', () => {
   test('refuses a mandate published with the grouped-fix graph unless it was already abandoned', async () => {
@@ -60,22 +48,8 @@ describe('workflow transition behavior', () => {
     })
   })
 
-  test('lands a standalone feature through one binding and refuses absence, conflict, and an omitted epic parent', async () => {
+  test('refuses conflicting workflow bindings on the same pull request', () => {
     const feature = featureMandate()
-    expect(
-      requireLandingMandate(
-        await landingInput(feature, [history([feature]), history([binding(feature, pr)], pr)], pr, [], [rootNode]),
-      ),
-    ).toMatchObject({
-      ok: true,
-      recordId: feature.recordId,
-    })
-    expect(
-      requireLandingMandate(await landingInput(feature, [history([feature]), history([], pr)], pr, [], [rootNode])),
-    ).toMatchObject({
-      ok: false,
-      reason: 'missing',
-    })
     const other = must(parseRecord({ ...feature, recordId: 'mandate-2', operationId: 'op-mandate-2' }))
     expect(
       selectWorkflowBinding({
@@ -84,100 +58,5 @@ describe('workflow transition behavior', () => {
         native: { branch: 'feature/bounded', base: 'main' },
       }).status,
     ).toBe('conflicting')
-    const epic = landingFixtures.epicMandate(PARENT, [childCommitment], {
-      recordId: 'epic-1',
-      runId: 'abcd1234',
-      operationId: 'op-epic',
-      body: nativeBody,
-      ownSpec: landingFixtures.ownSpecFromSnapshot(PARENT, parentSnapshot),
-    })
-    expect(
-      requireLandingMandate(
-        await landingInput(
-          feature,
-          [history([feature]), history([binding(feature, pr)], pr), history([epic], PARENT)],
-          pr,
-          [],
-          parentNodes,
-        ),
-      ),
-    ).toMatchObject({ ok: false, reason: 'missing' })
-    const parent = landingFixtures.epicMandate(PARENT, [childCommitment], {
-      recordId: 'parent-mandate',
-      runId: 'run-1',
-      operationId: 'op-parent',
-      branch: 'feature/bounded',
-      base: 'main',
-      lineageHead: null,
-      body: nativeBody,
-      ownSpec: landingFixtures.ownSpecFromSnapshot(PARENT, parentSnapshot),
-    })
-    const requested = must(
-      parseRecord({
-        version: 1,
-        repository: PARENT.repository,
-        target: PARENT.target,
-        recordId: 'parent-pause-requested',
-        runId: 'run-1',
-        operationId: 'op-parent-pause-requested',
-        kind: 'operator-control',
-        inputs: [parent.recordId],
-        payload: {
-          control: 'pause-requested',
-          controlId: 'parent-control',
-          predecessor: null,
-          mandate: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
-        },
-      }),
-    )
-    const confirmed = must(
-      parseRecord({
-        version: 1,
-        repository: PARENT.repository,
-        target: PARENT.target,
-        recordId: 'parent-pause-confirmed',
-        runId: 'run-1',
-        operationId: 'op-parent-pause-confirmed',
-        kind: 'operator-control',
-        inputs: [parent.recordId, requested.recordId],
-        payload: {
-          control: 'pause-confirmed',
-          controlId: 'parent-control',
-          predecessor: { scope: PARENT, recordId: requested.recordId, kind: 'operator-control' },
-          disarm: { observed: true, evidence: { source: 'host' } },
-          mandate: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
-        },
-      }),
-    )
-    const child = must(
-      parseRecord({
-        ...feature,
-        recordId: 'child-mandate',
-        operationId: 'op-child',
-        payload: {
-          ...feature.payload,
-          parent: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
-          inheritedOwnSpecRefs: [
-            {
-              uw: PARENT,
-              version: parent.payload.ownSpec.version,
-              sourceAccepted: { scope: PARENT, recordId: parent.recordId, kind: 'mandate' },
-            },
-          ],
-        },
-      }),
-    )
-    if (child.kind !== 'mandate') throw new Error('fixture is not a mandate')
-    expect(
-      requireLandingMandate(
-        await landingInput(
-          child,
-          [history([child]), history([binding(child, pr)], pr), history([parent, requested, confirmed], PARENT)],
-          pr,
-          [PARENT],
-          parentNodes,
-        ),
-      ),
-    ).toMatchObject({ ok: false, reason: 'paused' })
   })
 })

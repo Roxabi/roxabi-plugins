@@ -164,7 +164,7 @@ export {
 } from './engine/workflow-action-interruption.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
-export { bindingMatchesMandate, bindingPolicy } from './engine/workflow-binding-policy.ts'
+export { bindingMatchesMandate } from './engine/workflow-binding-format.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
 export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
@@ -196,8 +196,6 @@ export {
   type ResolutionRecord,
 } from './engine/workflow-interruption-proof.ts'
 export { resolutionIndex } from './engine/workflow-interruption-resolution.ts'
-export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
-export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
 export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
 export {

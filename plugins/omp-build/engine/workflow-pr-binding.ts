@@ -5,7 +5,7 @@ import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { Result } from './result.ts'
-import { bindingMatchesMandate, bindingPolicy } from './workflow-binding-policy.ts'
+import { bindingMatchesMandate, usesLegacyBindingFormat } from './workflow-binding-format.ts'
 import {
   bindExternalRef,
   historyFor,
@@ -52,13 +52,7 @@ function validateBindingClaims(
         status: 'incomplete',
         diagnostics: [diagnostic('incomplete', 'Binding mandate record is not confirmed')],
       }
-    const policy = bindingPolicy(mandate)
-    if (policy === 'unknown')
-      return {
-        status: 'incompatible-format',
-        diagnostics: [diagnostic('incompatible-format', 'Binding mandate policy version is unknown')],
-      }
-    if (policy === 'bounded' && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
+    if (!usesLegacyBindingFormat(mandate) && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
       return {
         status: 'conflicting',
         diagnostics: [diagnostic('mandate-mismatch', 'Workflow-binding branch or base does not match its mandate')],

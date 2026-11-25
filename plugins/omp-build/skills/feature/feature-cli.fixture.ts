@@ -7,6 +7,7 @@ import type { Gh } from '../../adapters/github/types.ts'
 import { resolveAcceptedSpec, resolveSpecEffective } from '../../dist/contracts.js'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import type { MandateRecord } from '../../engine/workflow-control.ts'
 import { featureSpecDigest } from '../../roxabi/feature-spec-digest.ts'
 import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
 import { nativeFeatureSpec } from '../../testing/feature-review-fixture.ts'
@@ -43,9 +44,9 @@ export function seedAuthority(box: Box, records: CanonicalRecord[]) {
   })
 }
 
-export function world(bound = false, baseBranch = 'main') {
+export function world(bound = false, baseBranch = 'main', config?: MandateRecord['payload']['config']) {
   const box = sandbox({
-    base: { 'README.md': 'base\n' },
+    base: { '.dev/stack.yml': 'release:\n  model: trunk\n', 'README.md': 'base\n' },
     branches: [
       ...(baseBranch === 'main' ? [] : [{ name: baseBranch, from: 'main', commits: [] }]),
       { name: branch, from: baseBranch, commits: [{ message: 'feat: UW #42', files: { 'README.md': 'work\n' } }] },
@@ -56,6 +57,7 @@ export function world(bound = false, baseBranch = 'main') {
       : [],
   })
   roots.push(box.root)
+  git(box, box.principal, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
   const cwd = join(box.root, 'feature')
   git(box, box.principal, ['worktree', 'add', '-q', cwd, branch])
   const tip = git(box, cwd, ['rev-parse', 'HEAD'])
@@ -67,6 +69,7 @@ export function world(bound = false, baseBranch = 'main') {
     branch,
     base: baseBranch,
     lineageHead: base,
+    ...(config === undefined ? {} : { config }),
   })
   seedAuthority(box, [mandate])
   writeSim(box, (state) => {

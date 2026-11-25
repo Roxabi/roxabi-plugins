@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.18 (unreleased)
+
+- Keep existing Feature mandates valid across omp-build upgrades, including resume, push and composed landing (#1046 C1). Remove the release allowlist and the retired landing admission path; preserve exact delivery locks and historical binding reads.
+
 ## 0.21.17 (unreleased)
 
 - Move hosted merge gating out of omp-build (#1046 C7): the `reviewed` label arms GitHub native auto-merge and the repository ruleset requires `ci` and App-issued `review` on the head. Keep the Dependabot lane and fix its commit-author check: a jq syntax error (`"dependabot[bot"]`) refused every Dependabot PR since `e9ff6166`.

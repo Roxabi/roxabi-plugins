@@ -59,7 +59,7 @@ export type LandingFactsRead =
       /** Binding, own UW and explicit parent observations used for authority selection. */
       authorityHistories: DecodedHistory[]
       catalogues: ReviewClassCatalogues
-      /** Exact requireLandingMandate.native; GH numbers stay adapter-private. */
+      /** Native PR coordinates; GH numbers stay adapter-private. */
       native: { branch: string; base: string; pullRequest: Scope; linkedIssueScopes: Scope[] }
       /** Observed PR tips for product gates; never copied into engine native. */
       observed: { head: string; baseTip: string }

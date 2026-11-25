@@ -38,7 +38,7 @@ Leaf UW delivery under a live mandate. `/feature` prepares authority and the wor
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
 **Mandate**:
-The operator's accepted authority to deliver or correct a defined scope under a specified configuration. A correction-only mandate does not authorize landing.
+The operator's accepted authority to deliver or correct a defined scope, independent of the installed plugin release. A correction-only mandate does not authorize landing.
 _Avoid_: a session goal, a review verdict, a permission inferred from missing data
 
 **Pause**:
@@ -74,7 +74,7 @@ A confirmed START or RESULT record for a historical action. Plan and implementat
 _Avoid_: a review record, a transcript, a local cache
 
 **Workflow binding**:
-The confirmed link on a pull request to one mandate, branch, and base. It adds no permission.
+The confirmed link on a pull request to one mandate and its exact branch and base. It adds no permission.
 _Avoid_: a closing keyword, a branch name, a body parse
 
 **Additional requirements**:

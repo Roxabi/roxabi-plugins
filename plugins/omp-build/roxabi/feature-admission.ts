@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
-import { bindingMatchesMandate, bindingPolicy, selectWorkflowBinding } from '../dist/contracts.js'
+import { bindingMatchesMandate, type MandateRecord, selectWorkflowBinding } from '../dist/contracts.js'
 import { explicitParentHistories } from './feature-context.ts'
 import { type Contracts, type History, isRecord, loadContracts } from './feature-engine.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
@@ -158,7 +158,7 @@ function bindingRecords(history: History) {
 
 function existingBinding(
   history: History,
-  mandate: Parameters<typeof bindingPolicy>[0],
+  mandate: MandateRecord,
   branch: string,
   base: string,
 ): { ok: true; recordId: string } | { ok: false; reason: string } | null {
@@ -167,11 +167,8 @@ function existingBinding(
   const matches = bindings.filter((item) => bindingMatches(item.payload, mandate.recordId, branch, base))
   if (bindings.length > 1 || (bindings.length === 1 && matches.length === 0))
     return { ok: false, reason: 'binding-conflict' }
-  const policy = bindingPolicy(mandate)
-  if (policy === 'unknown') return { ok: false, reason: 'mandate-policy-unknown' }
   const existing = matches[0]
-  if ((existing === undefined || policy === 'bounded') && !bindingMatchesMandate(mandate, branch, base))
-    return { ok: false, reason: 'mandate-metadata-mismatch' }
+  if (!bindingMatchesMandate(mandate, branch, base)) return { ok: false, reason: 'mandate-metadata-mismatch' }
   return existing ? { ok: true, recordId: existing.recordId } : null
 }
 

@@ -4,14 +4,12 @@ import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
 import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
-import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { unliftedPause } from '../workflow-pause.ts'
 import { binding, history, must, PARENT, pauseControls, SCOPE } from './workflow-test-support.ts'
 import {
   childCommitment,
   featureMandate,
   landingFixtures,
-  landingInput,
   nativeBody,
   nativeCausal,
   parentNodes,
@@ -33,8 +31,6 @@ describe('workflow transition pause behavior', () => {
         native,
         causal: await nativeCausal(histories, [rootNode]),
       })
-    const landing = async (histories: DecodedHistory[]) =>
-      requireLandingMandate(await landingInput(feature, histories, pr, [], [rootNode]))
     const ownFirstPause = pauseControls(feature, 'feature-first-pause')
     const ownResumed = [
       history([feature, ownFirstPause.requested, ownFirstPause.confirmed, ownFirstPause.resumed]),
@@ -44,7 +40,6 @@ describe('workflow transition pause behavior', () => {
       status: 'applicable',
       mandate: { recordId: feature.recordId },
     })
-    expect(await landing(ownResumed)).toMatchObject({ ok: true, recordId: feature.recordId })
     const ownSecondPause = pauseControls(feature, 'feature-second-pause')
     const ownPending = [
       history([
@@ -62,11 +57,6 @@ describe('workflow transition pause behavior', () => {
       evidence: [expect.objectContaining({ code: 'pause-unconfirmed' })],
     })
     expect(await bound(ownPending, 'correction')).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
-    expect(await landing(ownPending)).toMatchObject({
-      ok: false,
-      reason: 'unconfirmed',
-      evidence: [expect.objectContaining({ code: 'pause-unconfirmed' })],
-    })
     const ownConfirmedHistory = history([
       feature,
       ownFirstPause.requested,
@@ -77,7 +67,6 @@ describe('workflow transition pause behavior', () => {
     ])
     const ownConfirmed = [ownConfirmedHistory, history([binding(feature, pr)], pr)]
     expect(await bound(ownConfirmed, 'review')).toMatchObject({ status: 'refused', reason: 'paused' })
-    expect(await landing(ownConfirmed)).toMatchObject({ ok: false, reason: 'paused' })
     expect(unliftedPause(ownConfirmedHistory, feature)?.recordId).toBe(ownSecondPause.confirmed.recordId)
     const antecedent = featureMandate()
     const antecedentPause = pauseControls(antecedent, 'antecedent-pause')
@@ -201,9 +190,6 @@ describe('workflow transition pause behavior', () => {
           native: { branch: 'feature/bounded', base: 'main' },
         }),
       ).toMatchObject({ status: 'refused' })
-    expect(requireLandingMandate(await landingInput(child, pendingHistories, pr, [PARENT], parentNodes))).toMatchObject(
-      { ok: false },
-    )
     const wrongChildResume = must(
       parseRecord({
         version: 1,
@@ -237,8 +223,5 @@ describe('workflow transition pause behavior', () => {
         native: { branch: 'feature/bounded', base: 'main' },
       }),
     ).toMatchObject({ status: 'refused' })
-    expect(requireLandingMandate(await landingInput(child, pausedHistories, pr, [PARENT], parentNodes))).toMatchObject({
-      ok: false,
-    })
   })
 })
