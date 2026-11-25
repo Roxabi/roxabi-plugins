@@ -134,7 +134,7 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 
 | Part | Owns | Does not own |
 |---|---|---|
-| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories and landing-mandate admission | Semantic judgement, GitHub calls, merge |
+| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories | Semantic judgement, GitHub calls, merge |
 | Roxabi (`roxabi/`) | Feature admission, mandate and worktree preparation, UW operations | A project-defined graph or an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 

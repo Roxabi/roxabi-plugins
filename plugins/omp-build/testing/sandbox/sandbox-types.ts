@@ -1,3 +1,5 @@
+import type { State } from '../../skills/feature/testing/gh-simulator/sim-types.ts'
+
 /** File contents by path; `null` deletes (a directory recursively). */
 export type Files = Record<string, string | null>
 export type Commit = { message: string; files: Files }
@@ -57,12 +59,8 @@ export type SimState = {
   repositoryUrls?: Record<string, string>
   prs: Record<string, SimPull>
   issues: Record<string, SimIssue>
-  checks: Record<
-    string,
-    { name: string; status: string; conclusion: string; workflowName: string; startedAt: string }[]
-  >
   calls: string[][]
-}
+} & Pick<State, 'branchRules' | 'checks'>
 
 export type Box = {
   root: string
