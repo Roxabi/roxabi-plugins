@@ -14,7 +14,12 @@ import { canonicalSpec } from '../uw-spec.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { leafNativeFacts } from './uw-leaf-native-facts.ts'
 /** A declared GitHub world; every record is encoded and decoded by the native fixture transport. */
-export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', number = 42, inherited = false) {
+export async function buildDeliveredLeaf(
+  verdict: Verdict = 'Approve (clean)',
+  number = 42,
+  inherited = false,
+  adjustCriterion?: Parameters<typeof criterionReviewGraph>[0]['adjustCriterion'],
+) {
   const uw = { repository: 'acme/app', target: `acme/app#${number}` }
   const pullRequest = { repository: uw.repository, target: `acme/app#${number + 100}` }
   const workflow = roxabiWorkflowFixtures()
@@ -237,6 +242,7 @@ export async function buildDeliveredLeaf(verdict: Verdict = 'Approve (clean)', n
     graph,
     prefix: `delivery-${number}`,
     author: 'operator',
+    ...(adjustCriterion === undefined ? {} : { adjustCriterion }),
     verdict,
     contextHistories: parentHistories,
   })

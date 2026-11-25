@@ -2,7 +2,8 @@ import { expect, it } from 'vitest'
 import { nativeComment, wire } from '../../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../../adapters/github/types.ts'
 import { recordsOf, summarizeReviews, validateCauseDispositionRecords } from '../../dist/contracts.js'
-import { sisterRecords } from '../../testing/cause-input-fixture.ts'
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { fixtureCauseGhResponse, sisterRecords } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { operation as observedOperation } from '../../testing/record-history.ts'
@@ -30,6 +31,8 @@ it('loads a confirmed sister identity through the review input causal closure', 
   ])
   const requested: number[] = []
   const gh: Gh = async (_cwd, args) => {
+    const pinned = fixtureCatalogueGhResponse(args) ?? fixtureCauseGhResponse(args)
+    if (pinned !== null) return pinned
     if (args[0] === 'api' && args[1] === 'user') return 'automation'
     const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
     const number = Number(/issues\/(\d+)\/comments/.exec(endpoint)?.[1])

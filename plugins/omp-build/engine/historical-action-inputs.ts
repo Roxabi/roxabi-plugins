@@ -76,27 +76,30 @@ function expandedRecordDiagnostics(ref: RecordInputRef, histories: readonly Deco
   return recordRefDiagnostics('Historical action manifest', ref, histories)
 }
 
-/** Historical expansions only confer authority after every selected record value and Git blob is re-observed. */
+/** Historical authority requires every manifest Git file and expanded record to be re-observed. */
 export function authenticateHistoricalActionInputs(
   inputs: ActionInputs,
   histories: readonly DecodedHistory[],
 ): Result<ActionInputs> {
   const valid = validateActionInputs(inputs)
   if (!valid.ok) return valid
-  for (const ref of valid.value.manifest.expandedContext) {
+  const { repositoryReferences, plugin, expandedContext } = valid.value.manifest
+  for (const ref of repositoryReferences) if (!hasObservedGitPin(histories, ref)) return unobservedGitPin(ref.path)
+  for (const ref of plugin.files) if (!hasObservedGitPin(histories, ref)) return unobservedGitPin(ref.path)
+  for (const ref of expandedContext) {
     if (ref.source === 'record') {
       const diagnostics = expandedRecordDiagnostics(ref, histories)
       if (diagnostics.length !== 0) return { ok: false, diagnostics }
-    } else if (!hasObservedGitPin(histories, ref)) {
-      return {
-        ok: false,
-        diagnostics: [
-          diagnostic('unconfirmed', `Historical action manifest has no authenticated bytes for ${ref.path}`),
-        ],
-      }
-    }
+    } else if (!hasObservedGitPin(histories, ref)) return unobservedGitPin(ref.path)
   }
   return valid
+}
+
+function unobservedGitPin(path: string): Result<never> {
+  return {
+    ok: false,
+    diagnostics: [diagnostic('unconfirmed', `Historical action manifest has no authenticated bytes for ${path}`)],
+  }
 }
 
 export function authenticatedReceiptActionInputs(

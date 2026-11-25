@@ -9,10 +9,11 @@ import { decodeHistory } from '../adapters/github/history-codec.ts'
 import type { MissingContextOutput } from '../engine/action-context.ts'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import type { ActionInputs, PinnedFileRef } from '../engine/action-input-schema.ts'
+import { authenticateHistoricalActionInputs } from '../engine/historical-action-inputs.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import { reviewContextLineage } from '../engine/review-context-lineage.ts'
-import { standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
+import { fixtureCatalogueGhResponse, standaloneReviewInputs } from '../testing/action-input-fixtures.ts'
 import { NATIVE_AUTHOR, reviewRoot, submission, TEST_SCOPE } from '../testing/record-builders.ts'
 import { contribution, finalReview } from '../testing/record-decisions.ts'
 import { historicalRecordFrames, observedComment } from '../testing/record-history.ts'
@@ -51,8 +52,10 @@ function observe(decoded: DecodedHistory) {
   return observeHistoricalPins(decoded, {
     cwd,
     readAuthor: NATIVE_AUTHOR,
-    gh: async () => {
-      throw new Error('Fixture has no remote Git objects')
+    gh: async (_cwd, args) => {
+      const catalogue = fixtureCatalogueGhResponse(args)
+      if (catalogue !== null) return catalogue
+      throw new Error('Fixture has no other remote Git objects')
     },
   })
 }
@@ -80,7 +83,11 @@ function history(records: CanonicalRecord[]) {
   })
 }
 
-function expanded(inputs: ActionInputs, entry: Contribution, gitPin: PinnedFileRef): ActionInputs {
+function expanded(
+  inputs: ActionInputs,
+  entry: Contribution,
+  addedContext: ActionInputs['manifest']['expandedContext'][number],
+): ActionInputs {
   const manifest = {
     ...inputs.manifest,
     expandedContext: [
@@ -91,7 +98,7 @@ function expanded(inputs: ActionInputs, entry: Contribution, gitPin: PinnedFileR
         selector: '/payload',
         digest: canonicalValueDigest(entry.payload),
       },
-      gitPin,
+      addedContext,
     ],
   }
   return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
@@ -150,6 +157,24 @@ describe('authenticated review context lineage', () => {
     const result = await lineage([a.root, a.entry, b.root, b.entry, c.root, c.entry])
     expect(result.diagnostics).toEqual([])
     expect(result.superseded).toEqual(new Set([a.root.recordId, b.root.recordId]))
+  })
+
+  it('does not supersede a negative using another selector into that contribution', async () => {
+    const inputs = standaloneReviewInputs(TEST_SCOPE, commit)
+    const a = historicalReview(inputs, 'same-record-a', negative)
+    const bInputs = expanded(inputs, a.entry, {
+      source: 'record',
+      record: { scope: TEST_SCOPE, kind: 'contribution', recordId: a.entry.recordId },
+      selector: '/payload/findings',
+      digest: canonicalValueDigest(a.entry.payload.findings),
+    })
+    const b = historicalReview(bInputs, 'same-record-b', { findings: [] })
+    const records = [a.root, a.entry, b.root, b.entry]
+    const observed = await observe(history(records))
+    expect(authenticateHistoricalActionInputs(bInputs, [observed]).ok).toBe(true)
+    const result = reviewContextLineage(observed, new Map(records.map((record) => [record.recordId, record])))
+    expect(result.diagnostics).toEqual([])
+    expect(result.superseded).toEqual(new Set())
   })
 
   it('continues authenticated context expansion despite a foreign copied contribution identity', async () => {

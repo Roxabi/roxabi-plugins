@@ -70,6 +70,10 @@ function statusSummary(record: object, status: string, resultValue: object | nul
     scope(property(object(property(record, 'control')), 'scope'))
   const diagnostics = diagnosticCodes(record)
   const suffix = diagnostics.length === 0 ? '' : ` diagnostics=${diagnostics.join(',')}`
+  if (status === 'verdicts') {
+    const verdicts = property(record, 'verdicts')
+    if (Array.isArray(verdicts)) return `uw-verdicts: ${target ?? 'unknown'} count=${verdicts.length}${suffix}`
+  }
   if (status === 'deferred')
     return `uw-deferred: no approval${target === null ? '' : ` for ${target}`}; re-enter the /uw command${suffix}`
   return `uw-${status}: ${target ?? 'no-trustworthy-uw'}${suffix}`

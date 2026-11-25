@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { projectRecoveryHistories } from '../../adapters/github/history-codec.ts'
+import { inspectRecoveryHistoricalFacts } from '../fix-recovery-historical-facts.ts'
+import { fixRecoveryProposalFromControl } from '../fix-recovery-proposal.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
+import { equalScope } from '../record-diagnostics.ts'
 import { historicalRecoveryFixture, required } from './fix-recovery-historical-reader-fixture.ts'
 
 function operation(history: DecodedHistory, recordId: string) {
@@ -32,6 +35,42 @@ describe('legacy correction recovery history', () => {
     expect(operation(effective, fixture.record.recordId)?.record).toEqual(fixture.record)
     expect(operation(effective, fixture.requestId)?.status).toBe('complete')
     expect(operation(effective, fixture.decisionId)?.status).toBe('complete')
+  })
+
+  it.each(['pin-only', 'finite-cut'] as const)(
+    'replays a native-action adoption with authenticated %s foreign expansion',
+    async (mode) => {
+      const fixture = await historicalRecoveryFixture('adopt-decision', false, mode)
+      const foreign = fixture.foreign
+      if (foreign === null) throw new Error('Expected an independently observed foreign source')
+      const pr = await fixture.readBackWithForeignExpansion(true)
+      const raw = [fixture.home, pr]
+      const proposal = required(fixRecoveryProposalFromControl(fixture.record))
+      const facts = required(inspectRecoveryHistoricalFacts(proposal, raw))
+      const cited = facts.histories.find((history) => equalScope(history.source.scope, foreign.ref.record.scope))
+
+      if (mode === 'pin-only') expect(cited).toBeUndefined()
+      else {
+        expect(cited?.source.comments).toEqual(foreign.original.source.comments)
+        expect(cited?.operations.map((entry) => entry.recordId)).toEqual([foreign.ref.record.recordId])
+      }
+      const [, effective] = required(projectRecoveryHistories(raw))
+      if (!effective) throw new Error('Expected projected pull-request history')
+      expect(operation(effective, fixture.record.recordId)?.record).toEqual(fixture.record)
+    },
+  )
+
+  it.each([
+    { mode: 'pin-only', code: 'missing-history' },
+    { mode: 'finite-cut', code: 'incomplete' },
+  ] as const)('rejects native-action adoption with changed foreign content ($mode)', async ({ mode, code }) => {
+    const fixture = await historicalRecoveryFixture('adopt-decision', false, mode)
+    const pr = await fixture.readBackWithForeignExpansion(false)
+    expect(operation(pr, fixture.record.recordId)?.record).toEqual(fixture.record)
+    expect(projectRecoveryHistories([fixture.home, pr])).toMatchObject({
+      ok: false,
+      diagnostics: [{ code }],
+    })
   })
 
   it.each(['close-predecision', 'adopt-decision'] as const)(

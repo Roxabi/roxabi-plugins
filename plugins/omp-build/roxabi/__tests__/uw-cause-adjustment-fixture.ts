@@ -17,12 +17,14 @@ import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 /** Execute inside one isolated declared transport; returned values contain no live resources. */
 export async function runCauseAdjustmentScenario(
   mode: 'confirm' | 'decline' | 'lost-delta' = 'confirm',
-  citation?: { ref: PinnedFileRef; bytes: Buffer },
+  citation?: { ref: PinnedFileRef; bytes: Buffer; unavailable?: boolean; requestOnly?: boolean },
 ) {
   const artifacts = mkdtempSync(join(tmpdir(), 'omp-cause-adjustment-'))
   try {
     const references = citation === undefined ? [] : [citation.ref]
-    const world = await installedMultiSisterFixture(1, { repositoryReferences: references })
+    const world = await installedMultiSisterFixture(1, {
+      repositoryFiles: citation === undefined || citation.requestOnly ? [] : [citation],
+    })
     const created = await world.operations.createSister(world.request(0))
     if (created.status !== 'created' || created.receipt.kind !== 'debt-receipt')
       throw new Error(`Could not establish the causal sister: ${JSON.stringify(created)}`)
@@ -48,7 +50,10 @@ export async function runCauseAdjustmentScenario(
     const readCitedBlob = (args: string[]) => {
       if (citation === undefined) return undefined
       const pin = fixtureGitBlobGhResponse(args, citation.ref, citation.bytes)
-      if (pin && args[1] !== 'graphql') citedBlobReads += 1
+      if (pin && args[1] !== 'graphql') {
+        citedBlobReads += 1
+        if (citation.unavailable) throw new Error('Pinned dependency migration note unavailable')
+      }
       return pin
     }
     const gh: Gh = async (cwd, args) => {

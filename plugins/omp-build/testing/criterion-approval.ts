@@ -1,7 +1,7 @@
 import { decodeHistory, encodeRecord } from '../adapters/github/history-codec.ts'
 import type { ActionInputs } from '../engine/action-input-schema.ts'
 import { evidenceDigest } from '../engine/criterion-admission.ts'
-import { criterionVerdictSchema } from '../engine/criterion-verdict-schema.ts'
+import { type CriterionVerdict, criterionVerdictSchema } from '../engine/criterion-verdict-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope, Verdict } from '../engine/record-values.ts'
@@ -10,6 +10,7 @@ import type { ObservedComment } from '../engine/review-schema.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
+import { observeFixtureCatalogue } from './action-input-fixtures.ts'
 import { capturedCriterionEvidence } from './criterion-captured-evidence.ts'
 import { criterionDispositionRecords } from './criterion-dispositions.ts'
 import { NATIVE_AUTHOR, submission } from './record-builders.ts'
@@ -57,10 +58,11 @@ export function encodeCriterionRecords(
 ) {
   const comments: ObservedComment[] = [...(priorHistory?.source.comments ?? [])]
   const priorCount = comments.length
+  const source = priorHistory
+    ? { ...priorHistory.source, comments }
+    : { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
+  observeFixtureCatalogue(decodeHistory(source))
   for (const record of records) {
-    const source = priorHistory
-      ? { ...priorHistory.source, comments }
-      : { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
     const encoded = encodeRecord(record, source, projection, externalHistories)
     if (!encoded.ok)
       throw new Error(
@@ -71,9 +73,6 @@ export function encodeCriterionRecords(
       comments.push(observedComment({ locator: `comment-${id}`, nativeId: id, body, author }))
     }
   }
-  const source = priorHistory
-    ? { ...priorHistory.source, comments }
-    : { scope, expectedAuthor: author, stopAuthor: null, complete: true, comments, diagnostics: [] }
   return { comments: comments.slice(priorCount), history: decodeHistory(source) }
 }
 
@@ -122,10 +121,12 @@ export function criterionReviewGraph(options: {
   contextHistories: readonly DecodedHistory[]
   prefix?: string
   verdict?: Verdict
+  adjustCriterion?: (row: CriterionVerdict, inputs: ActionInputs) => CriterionVerdict
   author?: string
 }) {
   const { inputs, head, issueRecords, scope, projection } = options
-  const row = criterionSatisfiedRow(options)
+  const originalRow = criterionSatisfiedRow(options)
+  const row = options.adjustCriterion?.(originalRow, inputs) ?? originalRow
   const verdict = options.verdict ?? 'Approve (clean)'
   const label = verdict === 'Request changes' ? 'issue(blocking)' : 'suggestion'
   const graph = reviewGraph({

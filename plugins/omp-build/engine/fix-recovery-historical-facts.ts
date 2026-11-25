@@ -30,6 +30,7 @@ export function inspectRecoveryHistoricalFacts(
   const observation = proposal.observation
   const result = reconstructRecoveryHistoricalCut(observation.histories, histories)
   if (!result.ok) return result
+  // Cite only this cut's decoded membership; foreign expansion pins are carried separately on its sources.
   const snapshot = result.value
   const discovered = validateHistoricalDiscovery(proposal, snapshot)
   if (!discovered.ok) return discovered
@@ -54,8 +55,6 @@ export function inspectRecoveryHistoricalFacts(
   if (!cuts.ok) return cuts
   if (canonicalValueDigest(cuts.value) !== canonicalValueDigest(proposal.cuts))
     return fail('reconstructed publication cuts differ from proposal')
-  const keys = observation.histories.map((cut) => scopeKey(cut.scope))
-  if (!strictlyOrdered(keys)) return fail('historical source scopes are not uniquely ordered')
   return { ok: true, value: { histories: snapshot, opening, settlement } }
 }
 
@@ -73,6 +72,8 @@ function strictlyOrdered(values: readonly string[]): boolean {
 
 function validateHistoricalObservation(proposal: FixRecoveryProposal): Result<true> {
   const observation = proposal.observation
+  if (!strictlyOrdered(observation.histories.map((cut) => scopeKey(cut.scope))))
+    return fail('historical source scopes are not uniquely ordered')
   if (!validRecoveryHistoricalGraph(observation.graph)) return fail('historical graph validation failed')
   if (!equalScope(observation.graph.root, proposal.uw)) return fail('historical graph root differs from proposal UW')
   if (canonicalValueDigest(proposal.expected) !== canonicalValueDigest(fixRecoveryExpected(observation)))

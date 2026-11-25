@@ -13,7 +13,7 @@ import { readGitHubHistory } from './transport.ts'
 import { type GitHubOptions, gh } from './types.ts'
 
 type PinRequest = { candidate?: CanonicalRecord; references?: readonly ObservationRef[]; includeHistory?: boolean }
-// Current positive evidence consumes explicit references and expanded context, not the entire old dossier.
+// Match historical authority manifests and explicit producer citations; raw executor logs are not authority.
 function collectPins(value: unknown, add: (pin: ObservationRef) => void): void {
   if (Array.isArray(value)) {
     for (const item of value) collectPins(item, add)
@@ -23,14 +23,18 @@ function collectPins(value: unknown, add: (pin: ObservationRef) => void): void {
   const fields = value as Record<string, unknown>
   for (const [key, entry] of Object.entries(fields)) {
     if (key === 'references') collectRefs(entry, add, false)
-    else if (key === 'manifest') collectExpandedContext(entry, add)
-    else if (key !== 'raw') collectPins(entry, add)
+    else if (key === 'manifest') collectManifestPins(entry, add)
+    else if (key !== 'raw' && key !== 'rawAttempts') collectPins(entry, add)
   }
 }
 
-function collectExpandedContext(value: unknown, add: (pin: ObservationRef) => void) {
-  if (value !== null && typeof value === 'object' && 'expandedContext' in value)
-    collectRefs(value.expandedContext, add, true)
+function collectManifestPins(value: unknown, add: (pin: ObservationRef) => void) {
+  if (value === null || typeof value !== 'object') return
+  const manifest = value as Record<string, unknown>
+  collectRefs(manifest.expandedContext, add, true)
+  collectRefs(manifest.repositoryReferences, add, false)
+  if (manifest.plugin !== null && typeof manifest.plugin === 'object' && 'files' in manifest.plugin)
+    collectRefs(manifest.plugin.files, add, false)
 }
 
 function collectRefs(value: unknown, add: (pin: ObservationRef) => void, records: boolean): void {
@@ -89,7 +93,7 @@ export async function observeHistoricalPins(
     const cited = decodeHistory(source)
     for (const ref of refs) {
       if (recordRefDiagnostics('Historical action manifest', ref, [cited]).length === 0)
-        noteObservedRecordPin(history.source, ref)
+        noteObservedRecordPin(history.source, ref, cited.source)
     }
   }
   return history

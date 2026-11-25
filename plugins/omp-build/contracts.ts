@@ -198,7 +198,6 @@ export {
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
-export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
 export { selectWorkflowBindingClaims } from './engine/workflow-pr-binding-chain.ts'
 export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'

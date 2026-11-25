@@ -9,7 +9,7 @@ import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
-import { fixtureReviewClassCatalogues } from './action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, observeFixtureCatalogue } from './action-input-fixtures.ts'
 import { causeEvidence, observeCauseFixtureEvidence } from './cause-git-fixture.ts'
 import { causeFixtureMandate, causeFixtureSnapshot, causeFixtureScope as uw } from './cause-input-specification.ts'
 import { synthesisActionCapture } from './criterion-dispositions.ts'
@@ -102,7 +102,7 @@ export function authenticatedReview(sisterDisposition = false) {
   const graph = {
     ...generated,
     decision,
-    history: observeCauseFixtureEvidence(framedHistory(foreign, recordsOf(generated.history))),
+    history: observeFixtureCatalogue(observeCauseFixtureEvidence(framedHistory(foreign, recordsOf(generated.history)))),
   }
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   if (!sisterDisposition) return { graph, context }
@@ -154,7 +154,7 @@ export function authenticatedReview(sisterDisposition = false) {
     graph: {
       ...graph,
       decision: changedDecision,
-      history: observeCauseFixtureEvidence(framedHistory(foreign, recordsOf(updatedHistory))),
+      history: observeFixtureCatalogue(observeCauseFixtureEvidence(framedHistory(foreign, recordsOf(updatedHistory)))),
     },
     context,
   }

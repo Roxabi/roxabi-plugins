@@ -159,7 +159,7 @@ export async function scenario(
     const assessment = must(
       assessCauseDispositions({
         context,
-        capture: synthesisActionCapture(graph.decision, [source]),
+        capture: synthesisActionCapture(graph.decision, [own, source]),
         graph: causeFixtureGraph(nativeBody),
         source: { kind: 'decision', decision: graph.decision },
         histories: [own, source],

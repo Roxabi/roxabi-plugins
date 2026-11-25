@@ -202,7 +202,7 @@ The fixed action footer offers `C Confirmer`, `R Refuser` and `Esc Plus tard`. T
 
 The same dialog confirms abandon, reopen, proposal write or creation, material acceptance, cause adjudication and causal-dependency adjustment. Each summary asks a direct question, then names the target and the effects the current writer actually performs. Supplied text stays quoted. Captured JSON, digests and the detail reference stay under `D Détails`.
 
-Read-only `/uw evidence` and `/uw verdicts` results use a compact successful record count, including zero; the full arrays remain in the consultable detail.
+Read-only `/uw evidence` and `/uw verdicts` results use a compact successful record count, including zero. The consultable verdict detail includes the authenticated rows and any diagnostics; the summary lists their codes.
 
 Generated feature and promotion bodies do not request issue closure; their neutral issue references are not approved bindings. No prose-driven auto-close job replaces calculated termination. A person can still write a keyword that GitHub acts on at the default branch; that native state remains an observation, not proof of UW completion.
 
@@ -559,7 +559,7 @@ Kit merge-on-green and from composed Feature delivery.
 gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
 ```
 
-The pin does not advance automatically on a release or installation upgrade. To enable shared framing on the new installation, update the pin explicitly after operator authorization. Use a full `main` commit SHA whose package metadata and prescribed procedure files match the installation byte for byte.
+To repair a shared framing pin, use a full `main` commit SHA whose package metadata and prescribed procedure files match the installation byte for byte. Updating this variable requires operator authorization.
 
 ```sh
 gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"

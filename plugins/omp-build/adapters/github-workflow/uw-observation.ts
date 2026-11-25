@@ -91,7 +91,7 @@ class UwObservationCollector {
         evaluationRoots: this.evaluationRoots,
       })
       this.requireGraphs(waits.requiredScopes)
-      // Finish native and typed-history closure before requesting any completion dossier.
+      // Finish native and typed-history closure before requesting delivery facts.
       if (this.pendingGraph.size > 0 || progressed) continue
       progressed = await this.readDeliveries(waits.deliveryScopes)
       if (this.pendingGraph.size === 0 && !progressed) break

@@ -165,7 +165,6 @@ export {
   type PlanReview,
   type PlanStep,
   planBlockerRefSchema,
-  planDigest,
   planOutputSchema,
   planResolutionSchema,
   planReviewSchema,

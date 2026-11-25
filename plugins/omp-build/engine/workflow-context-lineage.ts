@@ -4,7 +4,7 @@ import type { ActionInputs } from './action-input-schema.ts'
 import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
-import { equalScope } from './record-diagnostics.ts'
+import { sameRef } from './record-diagnostics.ts'
 import type { ReceiptRecord } from './workflow-control.ts'
 
 export function succeeds(history: DecodedHistory, old: ReceiptRecord, candidate: ReceiptRecord): boolean {
@@ -57,13 +57,12 @@ function hasNewLineageContext(
     return false
   if (!oldRefs.every((ref) => newRefs.some((nextRef) => canonicalValueDigest(ref) === canonicalValueDigest(nextRef))))
     return false
+  const negative = { kind: old.kind, recordId: old.recordId, scope: history.source.scope }
   const lineage = newRefs.filter(
     (ref) =>
       ref.source === 'record' &&
+      sameRef(ref.record, negative) &&
       ref.selector === '/payload' &&
-      ref.record.kind === 'action-receipt' &&
-      ref.record.recordId === old.recordId &&
-      equalScope(ref.record.scope, history.source.scope) &&
       ref.digest === canonicalValueDigest(old.payload),
   )
   if (lineage.length !== 1) return false
@@ -76,7 +75,7 @@ function hasNewLineageContext(
   ]
   return newRefs.some(
     (ref) =>
-      canonicalValueDigest(ref) !== canonicalValueDigest(lineage[0]) &&
+      (ref.source !== 'record' || !sameRef(ref.record, negative)) &&
       !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)),
   )
 }

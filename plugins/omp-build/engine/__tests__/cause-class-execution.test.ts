@@ -1,11 +1,12 @@
 import { expect, it } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { authenticatedReview, observeCauseFixtureEvidence } from '../../testing/cause-input-fixture.ts'
 import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
-import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { actionInputDigest } from '../action-input.ts'
+import { decisionCauseCapture } from '../cause-capture-authentication.ts'
 import { assessCauseDispositions } from '../cause-disposition.ts'
 import { parseRecord } from '../record-construction.ts'
 import { recordsOf } from '../workflow-control.ts'
@@ -114,9 +115,12 @@ function assessClass(originalClass: string, downgrade = false, catalogue: 'valid
     graph.history.source.scope,
   )
   observeCauseFixtureEvidence(source)
+  observeFixtureCatalogue(source)
+  const capture = decisionCauseCapture(decision, [source])
+  if (!capture.ok) return capture
   return assessCauseDispositions({
     context,
-    capture: synthesisActionCapture(decision, [source]),
+    capture: capture.value,
     graph: {
       status: 'complete',
       root: context.original,
@@ -184,7 +188,10 @@ it('allows a canonical-class original to be downgraded', () => {
 
 it.each(['absent', 'forged'] as const)('does not execute when the pinned canonical catalogue is %s', (catalogue) => {
   const result = assessClass('test-tautology', false, catalogue)
-  if (!result.ok) return
+  if (!result.ok) {
+    expect(result.diagnostics.map((item) => item.code)).toContain('unconfirmed')
+    return
+  }
   expect(result.value.executableCauseIds).toEqual([])
   expect(result.value.outcomes).toEqual(
     expect.arrayContaining([

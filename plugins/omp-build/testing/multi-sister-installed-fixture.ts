@@ -6,12 +6,12 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { onTestFinished } from 'vitest'
 import { nativeComment } from '../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../adapters/github/types.ts'
-import type { PinnedFileRef } from '../engine/action-input-refs.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
+import { fixtureGitBlobGhResponse } from './action-input-fixtures.ts'
 import { fixtureCauseGhResponse } from './cause-input-fixture.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
-import { multiSisterFixture } from './multi-sister-fixture.ts'
+import { multiSisterFixture, type SisterRepositoryFile } from './multi-sister-fixture.ts'
 import { type NativeIssue, sisterGraphTransport, sisterIssueTransport } from './multi-sister-graph-fixture.ts'
 import { sisterNativeGitRequest } from './multi-sister-native-git.ts'
 import { sisterImplementationHistory } from './multi-sister-plan-fixture.ts'
@@ -38,7 +38,7 @@ export async function installedMultiSisterFixture(
     composedParent?: boolean
     cwd?: string
     confirm?: (title: string, detail: string) => Promise<boolean>
-    repositoryReferences?: readonly PinnedFileRef[]
+    repositoryFiles?: readonly SisterRepositoryFile[]
     afterParentRelation?: (parent: number, child: number) => void
   } = {},
 ) {
@@ -46,7 +46,7 @@ export async function installedMultiSisterFixture(
     count,
     options.report ? 'report' : 'sister-blocking',
     options.composedParent ?? false,
-    options.repositoryReferences,
+    options.repositoryFiles,
   )
   const head = options.head ?? 'a'.repeat(40)
   const base = options.base ?? 'b'.repeat(40)
@@ -168,9 +168,18 @@ export async function installedMultiSisterFixture(
     failedCheck: () => failedCheck,
     linked: () => linked,
   })
-  function deliveryRequest(args: string[], endpoint: string): string | null {
+  function repositoryPinRequest(args: string[]): string | null {
     const citation = fixtureCauseGhResponse(args)
     if (citation !== null) return citation
+    for (const { ref, bytes } of options.repositoryFiles ?? []) {
+      const file = fixtureGitBlobGhResponse(args, ref, bytes)
+      if (file !== null) return file
+    }
+    return null
+  }
+  function deliveryRequest(args: string[], endpoint: string): string | null {
+    const pin = repositoryPinRequest(args)
+    if (pin !== null) return pin
     const gitResponse = sisterNativeGitRequest(endpoint, options.workflow ? options.commits : undefined, delivery)
     if (gitResponse !== null) return gitResponse
     const declaredPull = sisterDeclaredPull(args, delivery?.pulls)

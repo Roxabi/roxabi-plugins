@@ -6,8 +6,10 @@ import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { observeHistoricalPins } from '../../adapters/github/historical-pins.ts'
 import type { Gh } from '../../adapters/github/types.ts'
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import type { ActionInputs } from '../action-input-schema.ts'
+import { authenticateHistoricalActionInputs } from '../historical-action-inputs.ts'
 import { buildRecord } from '../record-construction.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
@@ -49,6 +51,11 @@ function expandedAssessment(commit: string, policyDigest: string) {
     selector: '/payload',
     digest: canonicalValueDigest(negative.payload),
   }
+  const sameNegativeSelector = {
+    ...lineage,
+    selector: '/payload/structured',
+    digest: canonicalValueDigest(negativePayload.structured),
+  }
   const added = {
     source: 'git-file' as const,
     repository: SCOPE.repository,
@@ -84,9 +91,17 @@ function expandedAssessment(commit: string, policyDigest: string) {
         payload: { ...prior.result.payload, actionId, inputs, start: startRef },
       }),
     )
-    return { start, result }
+    return { start, result, inputs }
   }
-  return { mandated, prior: [mandated, prior.start, negative], manifest, lineage, added, successor }
+  return {
+    mandated,
+    prior: [mandated, prior.start, negative],
+    manifest,
+    lineage,
+    sameNegativeSelector,
+    added,
+    successor,
+  }
 }
 
 test('historical assessments require observed bytes and intact expanded-context provenance', async () => {
@@ -95,6 +110,8 @@ test('historical assessments require observed bytes and intact expanded-context 
   const requests: string[][] = []
   const gh: Gh = async (_cwd, args) => {
     requests.push(args)
+    const catalogue = fixtureCatalogueGhResponse(args)
+    if (catalogue !== null) return catalogue
     throw new Error('Fixture has no remote policy blob')
   }
   const observe = (records: CanonicalRecord[]) =>
@@ -115,12 +132,12 @@ test('historical assessments require observed bytes and intact expanded-context 
     const commit = git('rev-parse', 'HEAD')
     writeFileSync(path, currentPolicy)
 
-    const { mandated, prior, manifest, lineage, added, successor } = expandedAssessment(
+    const { mandated, prior, manifest, lineage, sameNegativeSelector, added, successor } = expandedAssessment(
       commit,
       createHash('sha256').update(retainedPolicy).digest('hex'),
     )
     const mandateRef = { scope: SCOPE, kind: mandated.kind, recordId: mandated.recordId }
-    const { start, result } = successor(manifest)
+    const { start, result } = successor({ ...manifest, expandedContext: [lineage, sameNegativeSelector, added] })
     const pending = await observe([...prior, start])
     expect(workflowContextTerminal(pending, 'assess-spec', mandateRef)).toBe('uncertain')
     expect(resolveAcceptedSpec(mandated, [pending])).toMatchObject({ ok: false })
@@ -129,6 +146,17 @@ test('historical assessments require observed bytes and intact expanded-context 
     expect(resolveAcceptedSpec(mandated, [observed])).toMatchObject({
       ok: true,
       spec: { ref: { sourceAccepted: { scope: SCOPE, kind: result.kind, recordId: result.recordId } } },
+    })
+
+    const sameNegative = successor({ ...manifest, expandedContext: [lineage, sameNegativeSelector] })
+    const repeated = await observe([...prior, sameNegative.start, sameNegative.result])
+    expect(authenticateHistoricalActionInputs(sameNegative.inputs, [repeated]).ok).toBe(true)
+    expect(workflowContextTerminal(repeated, 'assess-spec', mandateRef), 'selector into the same negative').toBe(
+      'missing',
+    )
+    expect(resolveAcceptedSpec(mandated, [repeated])).toMatchObject({
+      ok: false,
+      evidence: [{ code: 'action-context-missing' }],
     })
 
     const stageRef = { ...lineage, record: { ...lineage.record, recordId: 'other-stage' } }

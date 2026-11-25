@@ -140,7 +140,7 @@ describe('epic review owner admission', () => {
       )
       expect(bound, JSON.stringify(bound)).toMatchObject({ ok: true })
     }
-    expect(reviewCandidateCode(fixture.judgment, fixture.observed)).toEqual({
+    expect(reviewCandidateCode(fixture.judgment, fixture.observed, [fixture.observed, ...fixture.external])).toEqual({
       repository: fixture.mandate.repository,
       commit: fixture.graph.inputs.manifest.code.head,
     })

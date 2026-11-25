@@ -5,6 +5,7 @@ import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-dr
 import {
   acceptedActionInputs,
   fixtureReviewClassCatalogues,
+  observeFixtureCatalogue,
   observeFixtureNativeWorld,
 } from '../../testing/action-input-fixtures.ts'
 import { criterionImplementationRecords } from '../../testing/criterion-accepted-plan.ts'
@@ -226,7 +227,7 @@ function selectSuccessor(
 ) {
   const problems: Diagnostic[] = []
   const result = selectedDeclarations(
-    histories,
+    histories.map(observeFixtureCatalogue),
     { ...fixture.base, manifest, fingerprint: actionInputDigest(manifest) },
     problems,
     fixtureReviewClassCatalogues(),

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { observeHistoricalPins } from '../../adapters/github/historical-pins.ts'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { decision } from '../../testing/record-decisions.ts'
 import { actionInputDigest } from '../action-input.ts'
 import type { ActionInputs, PinnedFileRef } from '../action-input-schema.ts'
@@ -32,7 +32,7 @@ function selectPin(inputs: ActionInputs, pin: PinnedFileRef, expansion?: PinnedF
   return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
 }
 
-test('Git citations require manifest selection and ignore local blob replacements', async () => {
+test('Git citations require manifest selection and a commit, and ignore local blob replacements', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'omp-git-citations-'))
   const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
   const bytes = 'Reload keeps the selected region.\n'
@@ -66,6 +66,9 @@ test('Git citations require manifest selection and ignore local blob replacement
     expect(git('cat-file', 'blob', expression)).toBe(replacementBytes.trim())
     const replacedDigest = { ...valid, digest: createHash('sha256').update(replacementBytes).digest('hex') }
     const missingObject = { ...valid, commit: '0'.repeat(40) }
+    const tree = git('rev-parse', 'HEAD^{tree}')
+    const treePin = { ...valid, commit: tree }
+    expect(git('--no-replace-objects', 'cat-file', 'blob', `${tree}:${path}`)).toBe(bytes.trim())
     const mandate = featureMandate()
     const accepted = mandateAssessmentState(mandate)
     const proposed = proposedAssessmentState(accepted, { body: 'Keep the selected region on reload' })
@@ -97,6 +100,7 @@ test('Git citations require manifest selection and ignore local blob replacement
         { label: 'valid', pin: valid, validAfterObservation: true },
         { label: 'replacedDigest', pin: replacedDigest, validAfterObservation: false },
         { label: 'missingObject', pin: missingObject, validAfterObservation: false },
+        { label: 'treeInsteadOfCommit', pin: treePin, validAfterObservation: false },
         { label: 'completeExpansion', pin: valid, expansion: validExpansion, validAfterObservation: true },
         {
           label: 'absentExpansion',
@@ -130,14 +134,14 @@ test('Git citations require manifest selection and ignore local blob replacement
       }
       return { label, pin, expansion, result, assessment, verdict, validAfterObservation }
     })
-    const decoded = history([mandate, ...cases.map(({ result }) => result)])
+    const decoded = observeFixtureCatalogue(history([mandate, ...cases.map(({ result }) => result)]))
     const assertAdmission = (
       { label, pin, expansion, result, assessment, verdict, validAfterObservation }: (typeof cases)[number],
       observed: boolean,
     ) => {
       const authorized = observed && validAfterObservation
       const citationAuthorized = observed && (authorized || expansion !== undefined)
-      const unauthenticatedExpansion = expansion !== undefined && !authorized
+      const unobservedPath = citationAuthorized && expansion !== undefined ? expansion.path : pin.path
       const denial = expect.objectContaining({
         code: 'unknown-reference',
         message: expect.stringContaining('pinned source'),
@@ -145,11 +149,7 @@ test('Git citations require manifest selection and ignore local blob replacement
       const pins = result.payload.inputs.manifest.repositoryReferences
       expect(observationRefDiagnostics(label, pin, [decoded], pins), label).toEqual(citationAuthorized ? [] : [denial])
       expect(constraintExaminationProblem(assessment.compatibility.examined, result, assessment, [decoded])).toBe(
-        authorized
-          ? null
-          : unauthenticatedExpansion
-            ? 'Compatibility assessment inputs are not authenticated'
-            : 'Compatibility citation is not authenticated',
+        authorized ? null : 'Compatibility assessment inputs are not authenticated',
       )
       const assessed = criterionAssessmentForDecision(
         judgment,
@@ -163,22 +163,27 @@ test('Git citations require manifest selection and ignore local blob replacement
         code,
         [decoded],
       )
-      const expectedDiagnostic = unauthenticatedExpansion
-        ? expect.objectContaining({ code: 'unconfirmed', message: expect.stringContaining(expansion.path) })
-        : denial
+      const expectedDiagnostic = expect.objectContaining({
+        code: 'unconfirmed',
+        message: expect.stringContaining(unobservedPath),
+      })
       expect(assessed, label).toEqual({
         forceRequestChanges: !authorized,
         diagnostics: authorized ? [] : [expectedDiagnostic],
       })
     }
     for (const candidate of cases) assertAdmission(candidate, false)
+    const fallbackExpressions: string[] = []
     await observeHistoricalPins(decoded, {
       cwd,
       readAuthor: 'operator',
-      gh: async () => {
+      gh: async (_cwd, args) => {
+        fallbackExpressions.push(...args.filter((arg) => arg.startsWith('expression=')))
         throw new Error('Fixture has no remote Git objects')
       },
     })
+    expect(fallbackExpressions).not.toContain(`expression=${tree}:${path}`)
+    expect(fallbackExpressions).toContain(`expression=${missingObject.commit}:${path}`)
     for (const candidate of cases) assertAdmission(candidate, true)
     expect(observationRefDiagnostics('unselected', valid, [decoded], [])).toEqual([
       expect.objectContaining({ code: 'unknown-reference' }),

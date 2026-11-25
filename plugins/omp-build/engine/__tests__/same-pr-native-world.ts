@@ -8,7 +8,7 @@ import {
   WORKTREE,
 } from '../../skills/feature/review-record-git-fixture.js'
 import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
-import { fixtureGitBlobGhResponse } from '../../testing/action-input-fixtures.ts'
+import { fixtureCatalogueGhResponse, fixtureGitBlobGhResponse } from '../../testing/action-input-fixtures.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { historicalAcceptedInputs } from '../../testing/native-history-records.ts'
 import { produceNativeImplementation } from '../../testing/native-implementation-producer.ts'
@@ -70,7 +70,8 @@ export async function withSamePrNativeWorld<T>(
     path: 'first.txt',
     digest: createHash('sha256').update(bytes).digest('hex'),
   }
-  const gitBlobResponse = (args: readonly string[]) => fixtureGitBlobGhResponse(args, ref, bytes)
+  const gitBlobResponse = (args: readonly string[]) =>
+    fixtureGitBlobGhResponse(args, ref, bytes) ?? fixtureCatalogueGhResponse(args)
   const pull = {
     scope: seed.graph.history.source.scope,
     branch: 'feat/42-save',
@@ -251,7 +252,7 @@ export async function withSamePrNativeWorld<T>(
         await observeHistoricalPins(
           produced.history,
           { cwd: world.cwd, gh: world.gh, readAuthor: 'operator' },
-          { references: [ref] },
+          { references: [...manifest.repositoryReferences, ...manifest.plugin.files] },
         )
         return {
           records: [...planRecords, start, produced.receipt],

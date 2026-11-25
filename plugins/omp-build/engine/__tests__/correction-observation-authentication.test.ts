@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { shippedMandate } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { actionInputDigest } from '../action-input.ts'
 import type { PinnedFileRef } from '../action-input-schema.ts'
@@ -97,7 +97,8 @@ function fixture(method: 'test' | 'content-reading') {
       structured: data,
     },
   } as unknown as Contribution
-  const histories = method === 'content-reading' ? [observeFixtureContentReading(history([]))] : []
+  const observed = observeFixtureCatalogue(history([]))
+  const histories = [method === 'content-reading' ? observeFixtureContentReading(observed) : observed]
   return { evidence, refs, contribution, native, inputs, data, submission, histories }
 }
 

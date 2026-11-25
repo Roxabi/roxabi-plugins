@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import type { PinnedFileRef } from '../engine/action-input-refs.ts'
 import { assessCauseDispositions } from '../engine/cause-disposition.ts'
+import { recordGitPinBytes } from '../engine/historical-git-pins.ts'
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import { createReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
@@ -16,12 +17,14 @@ import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
 import { operation } from './record-history.ts'
 import { roxabiRecordFixtures } from './roxabi-presets.ts'
 
+export type SisterRepositoryFile = { ref: PinnedFileRef; bytes: Buffer }
+
 /** One or two independently actionable sister causes from one authenticated review. */
 export function multiSisterFixture(
   count: 1 | 2 = 2,
   disposition: 'sister-blocking' | 'report' = 'sister-blocking',
   composedParent = false,
-  repositoryReferences: readonly PinnedFileRef[] = [],
+  repositoryFiles: readonly SisterRepositoryFile[] = [],
 ) {
   const {
     fixtures,
@@ -75,7 +78,7 @@ export function multiSisterFixture(
   const catalogues = createReviewClassCatalogues([{ ref: catalogueRef, contents: { ok: true, value: catalogueBytes } }])
   const manifest = {
     ...base.inputs.manifest,
-    repositoryReferences: [evidence, ...repositoryReferences],
+    repositoryReferences: [evidence, ...repositoryFiles.map(({ ref }) => ref)],
     plugin: { ...plugin, files: [...plugin.files.filter((file) => file.path !== catalogueRef.path), catalogueRef] },
   }
   const inputs = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }
@@ -189,6 +192,8 @@ export function multiSisterFixture(
     [own, ...inheritedHistories],
   ).history
   observeCauseFixtureEvidence(source)
+  recordGitPinBytes(source, [catalogueRef], catalogueBytes)
+  for (const { ref, bytes } of repositoryFiles) recordGitPinBytes(source, [ref], bytes)
   const assessment = must(
     assessCauseDispositions({
       context,

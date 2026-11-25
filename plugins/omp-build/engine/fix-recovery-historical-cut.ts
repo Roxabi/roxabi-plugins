@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto'
 import type { FixRecoveryObservation } from './fix-recovery-control-schema.ts'
 import { commentAsPartPin, partPinsEqual } from './fix-recovery-part-pins.ts'
 import { inheritObservedGitPins } from './historical-git-pins.ts'
+import { getObservedRecordHistory, inheritObservedRecordPins } from './historical-record-pins.ts'
 import { looseHeaderClue, operationAuthority, withClaimedKinds } from './history-authority.ts'
 import { decodeParts, frameFrom } from './history-framing.ts'
 import type { DecodedHistory, History } from './history-schema.ts'
 import type { Frame } from './history-wire-types.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { recordIntegrity } from './record-integrity.ts'
 import type { Result } from './result.ts'
 import { scopeKey, validateUwGraphContents } from './uw-graph.ts'
 
@@ -50,30 +52,38 @@ function reconstructScope(
   histories: readonly DecodedHistory[],
 ): Result<DecodedHistory> {
   const matching = histories.filter((history) => equalScope(history.source.scope, cut.scope))
-  const actual = matching[0]
-  if (matching.length !== 1 || actual === undefined || !actual.source.complete)
+  // A cited read can supply raw parts only for scopes explicitly named by the finite cut.
+  const actual = matching.length === 0 ? getObservedRecordHistory(histories, cut.scope) : matching[0]?.source
+  if (matching.length > 1 || actual === null || actual === undefined || !actual.complete)
     return { ok: false, diagnostics: [diagnostic('incomplete', 'Recovery snapshot source is unavailable')] }
+  if (actual.expectedAuthor !== cut.expectedAuthor)
+    return {
+      ok: false,
+      diagnostics: [diagnostic('unbound', 'Recovery snapshot author differs from the native source')],
+    }
   const selected = selectComments(cut, actual)
   if (!selected.ok) return selected
   const source: History = {
     scope: cut.scope,
     expectedAuthor: cut.expectedAuthor,
-    stopAuthor: cut.stopAuthor,
+    // Different read ports may omit a stop delegate. Do not activate a delegate unless both reads agree.
+    stopAuthor: cut.stopAuthor === actual.stopAuthor ? cut.stopAuthor : null,
     complete: true,
     comments: selected.value,
     diagnostics: [],
   }
-  inheritObservedGitPins(actual.source, source)
+  inheritObservedGitPins(actual, source)
+  inheritObservedRecordPins(actual, source)
   return decodeHistoricalSource(source)
 }
 
 function selectComments(
   cut: FixRecoveryObservation['histories'][number],
-  actual: DecodedHistory,
+  actual: History,
 ): Result<History['comments']> {
   const comments: History['comments'] = []
   for (const pin of cut.parts) {
-    const matches = actual.source.comments.filter((comment) => {
+    const matches = actual.comments.filter((comment) => {
       const actualPin = commentAsPartPin(comment)
       return actualPin !== null && partPinsEqual(actualPin, pin)
     })
@@ -110,7 +120,8 @@ function decodeHistoricalSource(source: History): Result<DecodedHistory> {
       authority === 'foreign' ||
       claimed.status === 'conflict' ||
       claimed.status === 'invalid' ||
-      claimed.status === 'legacy'
+      claimed.status === 'legacy' ||
+      (claimed.record !== null && recordIntegrity(claimed.parts, claimed.record) !== null)
     )
       return {
         ok: false,

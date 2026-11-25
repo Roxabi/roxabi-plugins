@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { observeHistoricalPins } from '../../adapters/github/historical-pins.ts'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { authenticatedReview, causeOriginalHistory } from '../../testing/cause-input-fixture.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -27,12 +27,14 @@ import { recordsOf } from '../workflow-control.ts'
 function nativeHistory(seed: DecodedHistory, records: readonly CanonicalRecord[]) {
   const author = seed.source.expectedAuthor
   const comments = records.flatMap((record) => historicalRecordFrames(record))
-  return decodeHistory({
-    ...seed.source,
-    comments: comments.map((body, index) =>
-      observedComment({ locator: `comment-${index + 1}`, nativeId: String(index + 1), author, body }),
-    ),
-  })
+  return observeFixtureCatalogue(
+    decodeHistory({
+      ...seed.source,
+      comments: comments.map((body, index) =>
+        observedComment({ locator: `comment-${index + 1}`, nativeId: String(index + 1), author, body }),
+      ),
+    }),
+  )
 }
 
 function fixture(expandedContext: ActionInputs['manifest']['expandedContext']) {

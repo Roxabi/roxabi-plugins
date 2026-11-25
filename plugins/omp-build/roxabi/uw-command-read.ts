@@ -34,5 +34,7 @@ export async function executeDurableUwCommand(
 ): Promise<{ kind: 'result'; value: unknown }> {
   const read = await operations.readDelivery(scopeOf(command.repository, command.number))
   if (!read.ok) return { kind: 'result', value: read }
-  return { kind: 'result', value: command.kind === 'evidence' ? read.value.declarations : read.value.verdicts }
+  if (command.kind === 'evidence') return { kind: 'result', value: read.value.declarations }
+  const { uw, verdicts, diagnostics } = read.value
+  return { kind: 'result', value: { status: 'verdicts', uw, verdicts, diagnostics } }
 }

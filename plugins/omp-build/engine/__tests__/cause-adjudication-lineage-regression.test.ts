@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -162,6 +163,7 @@ it('does not carry an authenticated rejection from accepted Spec A into a fresh 
     label: 'issue',
     inputs: action,
   })
+  observeFixtureCatalogue(fresh.history)
   const histories = [own, result.source, fresh.history]
   const observed = must(
     assessCauseDispositions({

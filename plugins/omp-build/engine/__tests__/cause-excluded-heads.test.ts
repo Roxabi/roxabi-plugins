@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { causeEvidence as citation, observeCauseFixtureEvidence } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
@@ -168,6 +169,7 @@ function mixedFixture(includeExclusion = true) {
     ),
   }
   observeCauseFixtureEvidence(source)
+  observeFixtureCatalogue(source)
   let own = fixtures.historyFrom([mandate])
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   const assessment = must(

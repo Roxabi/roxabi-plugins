@@ -1,7 +1,7 @@
 import { canonicalValueDigest } from './action-input.ts'
 import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { accounted, negativeFor, same } from './review-context-authentication.ts'
@@ -17,12 +17,11 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
   const fresh = successor.payload.inputSnapshot
   const { expandedContext: before, ...oldManifest } = old.manifest
   const { expandedContext: after, ...newManifest } = fresh.manifest
+  const negativeRef = { kind: negative.kind, recordId: negative.recordId, scope: negative }
   const ref = after.filter(
     (item) =>
       item.source === 'record' &&
-      item.record.kind === 'contribution' &&
-      item.record.recordId === negative.recordId &&
-      equalScope(item.record.scope, negative) &&
+      sameRef(item.record, negativeRef) &&
       item.selector === '/payload' &&
       item.digest === canonicalValueDigest(negative.payload),
   )
@@ -53,7 +52,11 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
     ref.length === 1 &&
     additions.some((item) => same(item, ref[0])) &&
     before.every((item) => after.some((candidate) => same(item, candidate))) &&
-    additions.some((item) => !same(item, ref[0]) && !priorSources.has(canonicalValueDigest(item)))
+    additions.some(
+      (item) =>
+        (item.source !== 'record' || !sameRef(item.record, negativeRef)) &&
+        !priorSources.has(canonicalValueDigest(item)),
+    )
   )
 }
 

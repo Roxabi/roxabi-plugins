@@ -4,6 +4,7 @@ import { CRITERION_EVIDENCE_FORMAT } from '../../engine/criterion-evidence-schem
 import { FINDING_TARGET_FORMAT } from '../../engine/finding-target-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
+import { observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { NATIVE_AUTHOR } from '../../testing/record-builders.ts'
 import { historicalRecordFrames, observedComment } from '../../testing/record-history.ts'
 
@@ -14,14 +15,16 @@ export function correctionProofHistory(scope: Scope, records: readonly Canonical
       const nativeId = String(index + 100)
       return observedComment({ locator: `${scope.target}:${nativeId}`, nativeId, body })
     })
-  return decodeHistory({
-    scope,
-    expectedAuthor: NATIVE_AUTHOR,
-    stopAuthor: null,
-    complete: true,
-    comments,
-    diagnostics: [],
-  })
+  return observeFixtureCatalogue(
+    decodeHistory({
+      scope,
+      expectedAuthor: NATIVE_AUTHOR,
+      stopAuthor: null,
+      complete: true,
+      comments,
+      diagnostics: [],
+    }),
+  )
 }
 
 export function proofData(

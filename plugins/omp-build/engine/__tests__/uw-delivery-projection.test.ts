@@ -8,6 +8,7 @@ import { specReportSchema } from '../record-values.ts'
 import { assessUwCompletion } from '../uw-completion.ts'
 import { projectUwDelivery } from '../uw-delivery-projection.ts'
 import { scopeKey } from '../uw-graph.ts'
+import { buildDeliveredLeaf } from './uw-delivered-leaf-fixture.ts'
 import { deliveredLeaf } from './uw-delivery-proof-fixture.ts'
 
 test('does not project criterion proof or completion for an accepted leaf without a PR', async () => {
@@ -107,3 +108,59 @@ test('read-only delivery inspection shows authentic Request changes without comp
   expect(JSON.stringify(fixture.observation)).toBe(before)
   expect(projected.value.diagnostics.map((item) => item.code)).toContain('delivery-review-not-approved')
 })
+
+test.each([true, false])('projects a cited verdict only when its historical digest matches: %s', async (matches) => {
+  const fixture = await buildDeliveredLeaf('Request changes', 42, false, (row, { manifest }) => {
+    const [judgment] = row.examined
+    const [ref] = manifest.deliveryData
+    if (ref === undefined || judgment?.codeLink.method !== 'test')
+      throw new Error('Expected selected implementation declaration and its test judgment')
+    const reference = {
+      source: ref.source,
+      record: ref.record,
+      selector: ref.selector,
+      digest: matches ? ref.digest : '0'.repeat(64),
+    }
+    const codeLink = { ...judgment.codeLink, after: { ...judgment.codeLink.after, references: [reference] } }
+    return { ...row, examined: [{ ...judgment, codeLink }] }
+  })
+  const assessment = assessUwCompletion(fixture.observation)
+  const projected = projectUwDelivery(fixture.observation, assessment, fixture.uw)
+  if (!projected.ok) throw new Error('Expected read-only delivery projection')
+  expect(projected.value.declarations).toHaveLength(1)
+  expect(projected.value.diagnostics).toContainEqual(expect.objectContaining({ code: 'delivery-review-not-approved' }))
+  if (matches) {
+    expect(projected.value.verdicts).toMatchObject([{ value: { verdict: 'satisfied' } }])
+  } else {
+    expect(projected.value.verdicts).toEqual([])
+    expect(projected.value.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'mismatch',
+        message: expect.stringContaining('observation digest does not match'),
+      }),
+    )
+  }
+})
+
+test.each(['satisfied', 'unverified'] as const)(
+  'does not mistake an inconclusive examination for an authenticated satisfied verdict: %s',
+  async (verdict) => {
+    const fixture = await buildDeliveredLeaf('Request changes', 42, false, (row) => ({
+      ...row,
+      verdict,
+      examined: row.examined.map((item) => ({ ...item, truth: 'unknown' })),
+      reason: 'The test examination could not establish the criterion.',
+    }))
+    const assessment = assessUwCompletion(fixture.observation)
+    const projected = projectUwDelivery(fixture.observation, assessment, fixture.uw)
+    if (!projected.ok) throw new Error('Expected read-only delivery projection')
+    if (verdict === 'unverified') {
+      expect(projected.value.verdicts).toMatchObject([{ value: { verdict } }])
+    } else {
+      expect(projected.value.verdicts).toEqual([])
+      expect(projected.value.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'delivery-verdict-unauthenticated' }),
+      )
+    }
+  },
+)

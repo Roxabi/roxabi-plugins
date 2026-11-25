@@ -1,7 +1,8 @@
 import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './action-input.ts'
-import type { PinnedFileRef } from './action-input-schema.ts'
+import type { ActionInputs, PinnedFileRef } from './action-input-schema.ts'
 import type { CriterionEvidence, ObservationRef } from './criterion-evidence-schema.ts'
+import type { CriterionVerdict, EvidenceCodeLink } from './criterion-verdict-schema.ts'
 import { authenticateHistoricalActionInputs, recordRefDiagnostics } from './historical-action-inputs.ts'
 import { hasObservedGitPin } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -96,6 +97,37 @@ export function observationRefDiagnostics(
     return []
   }
   return recordRefDiagnostics(evidenceId, ref, histories)
+}
+
+const noGitPins: readonly PinnedFileRef[] = []
+
+function criterionManifestPins(inputs: ActionInputs | null): readonly PinnedFileRef[] {
+  if (inputs === null) return noGitPins
+  const { repositoryReferences, plugin, expandedContext } = inputs.manifest
+  return [...repositoryReferences, ...plugin.files, ...expandedContext.filter((ref) => ref.source === 'git-file')]
+}
+
+function codeLinkJudgments(link: EvidenceCodeLink) {
+  if (link.method === 'observation') return [link.current]
+  return link.before === null ? [link.after] : [link.after, link.before]
+}
+
+export function criterionVerdictCitationDiagnostics(
+  verdict: CriterionVerdict,
+  histories: readonly DecodedHistory[],
+  inputs: ActionInputs | null,
+): Diagnostic[] {
+  let pins: readonly PinnedFileRef[] | undefined
+  const diagnostics: Diagnostic[] = []
+  for (const { codeLink } of verdict.examined) {
+    for (const link of codeLinkJudgments(codeLink)) {
+      for (const ref of link.references) {
+        if (ref.source === 'git-file') pins ??= criterionManifestPins(inputs)
+        diagnostics.push(...observationRefDiagnostics(verdict.target.id, ref, histories, pins ?? noGitPins))
+      }
+    }
+  }
+  return diagnostics
 }
 
 function versionClaimReferences(evidence: CriterionEvidence): ObservationRef[] {

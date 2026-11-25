@@ -8,6 +8,7 @@ import {
   type ActionPurpose,
   type PinnedFileRef,
 } from '../engine/action-input-schema.ts'
+import { recordGitPinBytes } from '../engine/historical-git-pins.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { createReviewClassCatalogues, type ReviewCatalogueRead } from '../engine/review-class-catalogue.ts'
@@ -54,6 +55,12 @@ export function fixtureGitBlobGhResponse(args: readonly string[], ref: PinnedFil
 
 export function fixtureCatalogueGhResponse(args: readonly string[]): string | null {
   return fixtureGitBlobGhResponse(args, catalogueRef, catalogueBytes)
+}
+
+/** Publish the fixture's declared catalogue bytes into a native history observation. */
+export function observeFixtureCatalogue(history: DecodedHistory): DecodedHistory {
+  recordGitPinBytes(history, [catalogueRef], catalogueBytes)
+  return history
 }
 
 export function fixtureReviewCatalogueReads() {
@@ -205,6 +212,7 @@ export function acceptedActionInputs(
   const base = pin()
   const manifest = {
     ...base,
+    plugin: purpose === 'review' || purpose === 'correction' ? base.plugin : { ...base.plugin, files: [] },
     code: codeRange ?? { ...base.code, repository: own.uw.repository },
     acceptedSources: [
       {

@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'vitest'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import {
   acceptedActionInputs,
   fixtureReviewClassCatalogues,
+  observeFixtureCatalogue,
   standaloneReviewInputs,
 } from '../../testing/action-input-fixtures.ts'
 import { NATIVE_AUTHOR, reviewRoot, TEST_HEAD } from '../../testing/record-builders.ts'
 import { contribution, decision, finalReview } from '../../testing/record-decisions.ts'
-import { history, observedComment, operation } from '../../testing/record-history.ts'
+import { historicalRecordFrames, history, observedComment, operation } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import {
   eligiblePlan,
@@ -19,7 +21,7 @@ import { criterionAssessmentForDecision } from '../criterion-decision.ts'
 import { selectedDeclarations } from '../criterion-decision-selection.ts'
 import { criterionEvidenceSchema } from '../criterion-evidence-schema.ts'
 import { criterionVerdictSchema } from '../criterion-verdict-schema.ts'
-import { validateProspectiveRecord } from '../history-graph.ts'
+import { validateProspectiveRecord, validateRecordGraph } from '../history-graph.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Diagnostic } from '../record-values.ts'
@@ -116,6 +118,72 @@ function withDeliveryData(inputs: ActionInputs, deliveryData: DeliveryDataRef[])
 }
 
 describe('authorized criterion delivery admission', () => {
+  test('historical criterion approval requires the empty-findings producer to bind its slot and full action', async () => {
+    const fixture = await deliveredLeaf()
+    const { review } = fixture
+    const source = review.history.source
+    const records = recordsOf(review.history)
+    const slotAction = review.root.payload.slots.find((slot) => slot.slotId === 'spec-0')?.action
+    if (slotAction === undefined) throw new Error('Expected captured criterion producer action')
+    expect(review.spec.payload.findings).toEqual([])
+
+    const wrongAction = {
+      ...review.spec,
+      payload: {
+        ...review.spec.payload,
+        host: { ...review.spec.payload.host, action: { ...slotAction, actionId: 'other-producer' } },
+      },
+    }
+    const otherStageSource = recordInputRefSchema.parse({
+      source: 'record',
+      record: { scope: source.scope, kind: 'contribution', recordId: review.panel.recordId },
+      selector: '/payload',
+      digest: canonicalValueDigest(review.panel.payload),
+    })
+    const changedSlotCapture = {
+      ...slotAction,
+      inputs: { ...slotAction.inputs, stageSources: [otherStageSource] },
+    }
+    const wrongSnapshot = {
+      ...review.root,
+      payload: {
+        ...review.root.payload,
+        slots: review.root.payload.slots.map((slot) =>
+          slot.slotId === 'spec-0' ? { ...slot, action: changedSlotCapture } : slot,
+        ),
+      },
+    }
+    const matchingWrongAction = {
+      ...review.spec,
+      payload: { ...review.spec.payload, host: { ...review.spec.payload.host, action: changedSlotCapture } },
+    }
+    for (const replacements of [[], [wrongAction], [wrongSnapshot, matchingWrongAction]]) {
+      const frames = records.flatMap((record) =>
+        historicalRecordFrames(replacements.find((changed) => changed.recordId === record.recordId) ?? record),
+      )
+      const historical = decodeHistory({
+        ...source,
+        comments: frames.map((body, index) => {
+          const id = String(index + 1)
+          return observedComment({ locator: `comment-${id}`, nativeId: id, author: source.expectedAuthor, body })
+        }),
+      })
+      expect(validateRecordGraph(historical).ok).toBe(true)
+      const observed = recordsOf(historical).find((record) => record.recordId === review.decision.recordId)
+      if (observed?.kind !== 'decision') throw new Error('Expected native historical decision')
+      const assessed = validateDecision(observed, historical, fixtureReviewClassCatalogues(), null, [
+        review.issueHistory,
+      ])
+      if (replacements.length === 0) expect(assessed).toMatchObject({ admissible: true, verdict: 'Approve (clean)' })
+      else {
+        expect(assessed).toMatchObject({ admissible: false, verdict: null })
+        expect(assessed.diagnostics).toContainEqual(
+          expect.objectContaining({ code: 'malformed', message: expect.stringContaining(review.spec.recordId) }),
+        )
+      }
+    }
+  })
+
   test('keeps a produced plan with a null admission eligible', () => {
     const mandate = shippedMandate()
     const plan = planResult(mandate)
@@ -281,13 +349,14 @@ describe('authorized criterion delivery admission', () => {
       findings: [],
     })
     if (verdict.payload.judgment.purpose !== 'review') throw new Error('expected a review decision')
-    const observed = history([root, source, verdict])
+    const observed = observeFixtureCatalogue(history([root, source, verdict]))
     const code = reviewCandidateCode(verdict.payload.judgment, observed)
     const assessment = criterionAssessmentForDecision(
       verdict.payload.judgment,
       stored,
       { declarations: [], evidence: [], verdicts: [], diagnostics: [] },
       code,
+      [observed],
     )
     const admitted = validateDecision(verdict, observed, fixtureReviewClassCatalogues(), null)
     expect(root.payload.candidateGitSHA).toBe(TEST_HEAD)
@@ -337,11 +406,13 @@ describe('authorized criterion delivery admission', () => {
     const refusedReceipt = withCriteria(unresolved)
     const refusedDiagnostics: Diagnostic[] = []
     const original = fixture.review.issueHistory
-    const forgedHistory = roxabiWorkflowFixtures().historyFrom(
+    const rewritten = roxabiWorkflowFixtures().historyFrom(
       recordsOf(original).map((record) => (record.recordId === receipt.recordId ? refusedReceipt : record)),
       'operator',
       'operator',
     )
+    // The version-claim mutation does not change the Git bytes independently observed for the real action.
+    const forgedHistory = decodeHistory({ ...original.source, comments: rewritten.source.comments })
     selectedDeclarations(
       [
         forgedHistory,
@@ -404,7 +475,6 @@ describe('authorized criterion delivery admission', () => {
         },
       },
     }
-    const graph = scoped([spec, linked], mandate)
     const examined = stored.examined[0]
     if (examined === undefined) throw new Error('expected examined evidence')
     const assessed = criterionAssessmentForDecision(
@@ -417,7 +487,7 @@ describe('authorized criterion delivery admission', () => {
         diagnostics: [],
       },
       { repository: inputs.manifest.code.repository, commit: head },
-      [graph],
+      fixture.observation.histories,
     )
     expect(clearDiagnostics).toEqual([])
     expect(codes(refusedDiagnostics)).toContain('unknown')

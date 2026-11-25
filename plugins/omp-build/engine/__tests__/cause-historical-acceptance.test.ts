@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { fixtureReviewClassCatalogues, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
+import {
+  authenticatedReview,
+  causeFixtureGraph,
+  observeCauseFixtureEvidence,
+} from '../../testing/cause-input-fixture.ts'
 import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
 import { contributionActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
@@ -47,6 +51,8 @@ it.each(['editorial', 'material'] as const)(
       recordsOf(graph.history).map((record) => (record.recordId === panel.recordId ? panel : record)),
       graph.history.source.scope,
     )
+    observeCauseFixtureEvidence(source)
+    observeFixtureCatalogue(source)
     const initial = history([mandate])
     const assessed = must(
       assessCauseDispositions({

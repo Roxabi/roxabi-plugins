@@ -50,20 +50,52 @@ it('withdraws the causal wait only after the confirmed native blocker removal an
   expect(proof.replay?.completion?.state).not.toBe('complete')
 })
 
-it('observes a previously uncited producer repository reference before requesting confirmation', async () => {
-  const bytes = Buffer.from('The original review retained this dependency migration note.\n')
-  const ref = {
-    ...causeEvidence,
-    path: 'docs/dependency-migration.txt',
-    digest: createHash('sha256').update(bytes).digest('hex'),
-  }
-  const proof = await runCauseAdjustmentScenario('confirm', { ref, bytes })
+const migrationBytes = Buffer.from('The original review retained this dependency migration note.\n')
+const migrationPin = {
+  ...causeEvidence,
+  path: 'docs/dependency-migration.txt',
+  digest: createHash('sha256').update(migrationBytes).digest('hex'),
+}
+
+it.each([true, false])(
+  'authenticates a previously uncited producer repository pin; bytes available=%s',
+  async (available) => {
+    const proof = await runCauseAdjustmentScenario('confirm', {
+      ref: migrationPin,
+      bytes: migrationBytes,
+      unavailable: !available,
+    })
+    expect(proof.citedBlobReadsBeforeRequest).toBeGreaterThan(0)
+    if (!available) {
+      expect(proof.before.wait?.state).not.toBe('required')
+      expect(proof.result.status, JSON.stringify(proof.result)).toBe('refused')
+      expect(proof.confirmations).toEqual([])
+      expect(proof.journal).toEqual([])
+      expect(proof.after.node?.blockers).toEqual([proof.sister])
+      expect(proof.after.controlRecords).toEqual([])
+      return
+    }
+    expect(proof.before.wait).toMatchObject({ state: 'required' })
+    expect(proof.confirmations).toHaveLength(1)
+    expect(proof.citedBlobReadsAtConfirmation).toBeGreaterThan(proof.citedBlobReadsBeforeRequest)
+    expect(proof.result.status, JSON.stringify(proof.result)).toBe('adjusted')
+    expect(proof.canonicalControl).toMatchObject({ payload: { proposal: { references: [migrationPin] } } })
+  },
+)
+
+it('does not read or grant authority to a caller-only Git pin during an unrelated history read', async () => {
+  const proof = await runCauseAdjustmentScenario('confirm', {
+    ref: migrationPin,
+    bytes: migrationBytes,
+    requestOnly: true,
+  })
   expect(proof.before.wait).toMatchObject({ state: 'required' })
   expect(proof.citedBlobReadsBeforeRequest).toBe(0)
-  expect(proof.confirmations).toHaveLength(1)
-  expect(proof.citedBlobReadsAtConfirmation).toBe(1)
-  expect(proof.result.status, JSON.stringify(proof.result)).toBe('adjusted')
-  expect(proof.canonicalControl).toMatchObject({ payload: { proposal: { references: [ref] } } })
+  expect(proof.result.status, JSON.stringify(proof.result)).toBe('refused')
+  expect(proof.confirmations).toEqual([])
+  expect(proof.journal).toEqual([])
+  expect(proof.after.node?.blockers).toEqual([proof.sister])
+  expect(proof.after.controlRecords).toEqual([])
 })
 
 it('declining the native confirmation leaves the graph and causal chain untouched', async () => {
