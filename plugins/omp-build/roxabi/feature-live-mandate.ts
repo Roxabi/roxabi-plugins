@@ -1,5 +1,5 @@
 import type { Gh } from '../adapters/github/types.ts'
-import { githubScope, outstandingPauseInAuthority, resolveSpecEffective } from '../dist/contracts.js'
+import { githubScope, resolveSpecEffective } from '../dist/contracts.js'
 import type { Scope } from '../engine/record-values.ts'
 import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
 import { type FeatureAuthority, resolveFeatureAuthority } from './feature-continuation-admission.ts'
@@ -30,8 +30,6 @@ export async function readLiveFeatureMandate(
   if ('kind' in result) throw new Error('reason' in result ? result.reason : 'exact-mandate-not-applicable')
   if (result.target.status !== 'issue' || result.selection.status !== 'applicable')
     throw new Error('exact-mandate-not-applicable')
-  if (outstandingPauseInAuthority(result.selection.mandate, [result.history, ...result.parentHistories]) !== null)
-    throw new Error('exact-mandate-pause-unconfirmed')
   const acceptedOwn = requireCurrentLeaf(result)
   const { base, branch, role, ownSpec } = result.selection.mandate.payload
   if (

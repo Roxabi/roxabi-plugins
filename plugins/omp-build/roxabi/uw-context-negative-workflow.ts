@@ -4,10 +4,8 @@ import {
   excludedReceipt,
   historyFor,
   missingContextOutputSchema,
-  outstandingPauseRequest,
   recordsOf,
   resolutionIndex,
-  unliftedPause,
   workflowContextDirectSuccessor,
   workflowContextResolution,
   workflowContextTerminal,
@@ -217,11 +215,6 @@ function validateCurrentMandate(
       !equal({ repository: current.value.repository, target: current.value.target }, body.mandate.scope))
   )
     return actionFailure('review-input-changed', 'Workflow mandate is no longer current')
-  if (
-    current.ok &&
-    (outstandingPauseRequest(issue, current.value) !== null || unliftedPause(issue, current.value) !== null)
-  )
-    return actionFailure('action-input-missing', 'Workflow authority has an outstanding or active pause')
   return { ok: true, value: true }
 }
 

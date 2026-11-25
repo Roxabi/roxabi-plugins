@@ -1,87 +1,17 @@
-import type { ScopedRecordRef } from '../engine/record-references.ts'
-import { mandatesInHistory } from './feature-context.ts'
-import type { FeatureAuthority } from './feature-continuation-admission.ts'
-import type { ContinueFeatureResult } from './feature-contract.ts'
-import { bindsOwnPause, publishConfirmedPause, releaseInhibition } from './feature-control.ts'
-import { disarmKnownTarget } from './feature-disarm.ts'
-import { mandateBranch } from './feature-selection.ts'
-import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import type { UwOperationResult, UwOperations } from './uw-contract.ts'
+import { resolveFeatureRevocation } from './feature-continuation-admission.ts'
+import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
+import type { UwOperationResult } from './uw-contract.ts'
 
-/** Publishes the source pause or abandon control after authority admission. */
-export async function applyFeatureControl(
-  control: 'pause' | 'abandon',
-  authority: FeatureAuthority,
-  uw?: UwOperations,
-): Promise<ContinueFeatureResult> {
-  const { context, history, scope, selection, target, parentHistories } = authority
-  const pausedOwnMandateId = ownPausedMandateId(control, authority)
-  const pausedOwnMandate =
-    pausedOwnMandateId === null
-      ? null
-      : (mandatesInHistory(history).find((candidate) => candidate.recordId === pausedOwnMandateId) ?? null)
-  const mandate = selection.status === 'applicable' ? selection.mandate : pausedOwnMandate
-  if (mandate === null) {
-    await disarmKnownTarget(context.gh, context.cwd, target, null)
-    return { kind: 'blocked', reason: control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
-  }
-  const accepted = context.engine.resolveAcceptedSpec(mandate, authority.causal.histories)
-  if (!accepted.ok) {
-    await disarmKnownTarget(context.gh, context.cwd, target, null)
-    return { kind: 'blocked', reason: control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
-  }
-  const role = context.engine.effectiveMandateRole(mandate.payload.role, accepted.spec)
-  const branch = mandateBranch(mandate)
-  const mandateRef: ScopedRecordRef & { kind: 'mandate' } = {
-    scope: history.source.scope,
-    recordId: mandate.recordId,
-    kind: 'mandate',
-  }
-  if (control === 'pause') {
-    return publishConfirmedPause({
-      loaded: context.engine,
-      history,
-      scope,
-      target,
-      gh: context.gh,
-      cwd: context.cwd,
-      parentHistories,
-      mandate: mandateRef,
-      role,
-      branch,
-      options: withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }),
-    })
-  }
-  if (uw === undefined) {
-    await disarmKnownTarget(context.gh, context.cwd, target, role, branch, {
-      loaded: context.engine,
-      mandate: mandateRef,
-    })
-    return { kind: 'abandoned', confirmed: false }
-  }
-  const result = await uw.abandon(scope, mandateRef)
+/** An authenticated revocation record is the only durable stop. */
+export async function revokeFeatureMandate(input: ContinueFeatureInput): Promise<ContinueFeatureResult> {
+  const target = await resolveFeatureRevocation(input)
+  if ('kind' in target) return target
+  if (input.owned?.() === false) return { kind: 'blocked', reason: 'continuation-owner-revoked' }
+  if (input.uw === undefined) return { kind: 'blocked', reason: 'uw-operations-required' }
+  const result = await input.uw.abandon(target.scope, target.mandate)
   if (result.status === 'deferred')
     return { kind: 'blocked', reason: 'operator-confirmation-deferred', diagnostics: result.diagnostics }
-  if (result.status !== 'abandoned') return failedAbandonment(result)
-  const disarmed = await disarmKnownTarget(context.gh, context.cwd, target, role, branch, {
-    loaded: context.engine,
-    mandate: mandateRef,
-  })
-  if (!disarmed.clean)
-    return { kind: 'abandoned', confirmed: false, failure: { phase: 'disarm', evidence: disarmed.evidence } }
-  // The confirmed record now refuses the abandoned mandate; the local hold must not outlive it into `/feature new`.
-  releaseInhibition(scope)
-  return { kind: 'abandoned', confirmed: true }
-}
-
-function ownPausedMandateId(control: 'pause' | 'abandon', authority: FeatureAuthority): string | null {
-  const { context, selection, history, scope } = authority
-  return control === 'abandon' &&
-    selection.status === 'refused' &&
-    selection.reason === 'paused' &&
-    bindsOwnPause(context.engine, selection, history, scope)
-    ? selection.pause.mandate.recordId
-    : null
+  return result.status === 'abandoned' ? { kind: 'abandoned', confirmed: true } : failedAbandonment(result)
 }
 
 function failedAbandonment(
@@ -90,6 +20,6 @@ function failedAbandonment(
   return {
     kind: 'abandoned',
     confirmed: false,
-    failure: { phase: 'uw', status: result.status, diagnostics: 'diagnostics' in result ? result.diagnostics : [] },
+    failure: { status: result.status, diagnostics: 'diagnostics' in result ? result.diagnostics : [] },
   }
 }

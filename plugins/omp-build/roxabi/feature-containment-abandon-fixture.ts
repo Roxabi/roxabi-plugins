@@ -4,35 +4,14 @@ import { loadExtensions } from '@oh-my-pi/pi-coding-agent/extensibility/extensio
 import { ExtensionRunner } from '@oh-my-pi/pi-coding-agent/extensibility/extensions/runner'
 import { AuthStorage, SqliteAuthCredentialStore } from '@oh-my-pi/pi-coding-agent/session/auth-storage'
 import { SessionManager } from '@oh-my-pi/pi-coding-agent/session/session-manager'
+import { admitFeature } from '../omp/omp-feature-admission.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { operatorDialogUi } from '../testing/operator-dialog-ui.ts'
-import { resolveFeatureAuthority } from './feature-continuation-admission.ts'
-import { applyFeatureControl } from './feature-continuation-controls.ts'
 import { createInstalledUwOperations } from './uw-installed-operations.ts'
 
 const cwd = process.argv[2]
 const artifacts = process.argv[3]
 const mode = process.argv[4]
-if (mode === 'pause' || mode === 'abandon') {
-  const operations = await createInstalledUwOperations({
-    cwd,
-    operator: {
-      async executeConfirmed() {
-        throw new Error('unexpected-uw-write')
-      },
-    },
-  })
-  const authority = await resolveFeatureAuthority({
-    cwd,
-    reference: '#42',
-    control: mode,
-    principal: false,
-    uw: operations,
-  })
-  const result = 'kind' in authority ? authority : await applyFeatureControl(mode, authority, operations)
-  console.log(JSON.stringify(result))
-  process.exit(0)
-}
 const root = mode === 'root'
 const target = root
   ? { repository: 'acme/app', target: 'acme/app#42' }
@@ -87,32 +66,32 @@ runner.initialize(
 const operator = createOperatorConfirmation(runner.createContext())
 const operations = await createInstalledUwOperations({ cwd, operator })
 if (root) {
-  const authority = await resolveFeatureAuthority({
+  const result = await admitFeature({
     cwd,
     reference: '#42',
     control: 'abandon',
     principal: false,
     uw: operations,
   })
-  if ('kind' in authority) throw new Error(`Root authority refused: ${JSON.stringify(authority)}`)
-  const result = await applyFeatureControl('abandon', authority, operations)
-  const read = await operations.readUw(target)
-  if (read.observation.status !== 'complete')
-    throw new Error(
-      `Root observation incomplete after abandonment: ${JSON.stringify({ result, diagnostics: read.observation.diagnostics })}`,
+  if (result.kind !== 'abandoned' || !result.confirmed) {
+    if (displayed !== '') throw new Error('Unexpected confirmation for a refused abandonment')
+    console.log(JSON.stringify({ result }))
+  } else {
+    const read = await operations.readUw(target)
+    if (read.observation.status !== 'complete')
+      throw new Error(`Root observation incomplete: ${JSON.stringify(read.observation.diagnostics)}`)
+    const history = read.histories.find((entry) => entry.source.scope.target === target.target)
+    if (!history) throw new Error('Root abandonment history missing')
+    const records = history.operations.flatMap((entry) =>
+      entry.status === 'complete' &&
+      entry.record?.kind === 'operator-control' &&
+      entry.record.payload.control === 'abandon'
+        ? [entry.record]
+        : [],
     )
-  const history = read.histories.find((entry) => entry.source.scope.target === target.target)
-  if (
-    !history?.operations.some(
-      (entry) =>
-        entry.record?.kind === 'operator-control' &&
-        entry.record.payload.control === 'abandon' &&
-        entry.record.payload.mandate.recordId === mandateId &&
-        entry.status === 'complete',
-    )
-  )
-    throw new Error('Root abandonment control not confirmed on readback')
-  console.log(JSON.stringify(result))
+    assertConfirmation()
+    console.log(JSON.stringify({ result, records }))
+  }
 } else {
   const result = await operations.abandon(target, { scope: target, recordId: mandateId, kind: 'mandate' })
   if (result.status !== 'abandoned') throw new Error(`Child abandonment refused: ${JSON.stringify(result)}`)
@@ -120,9 +99,12 @@ if (root) {
   if (read.observation.status !== 'complete') throw new Error('Child observation incomplete after abandonment')
   const history = read.histories.find((entry) => entry.source.scope.target === target.target)
   if (!history) throw new Error('Child abandonment history missing')
+  assertConfirmation()
   console.log(JSON.stringify(history))
 }
-const observed = displayed.replace(/\s+/g, '')
-if (!observed.includes(target.target) || !observed.includes(mandateId) || !observed.includes('abandon'))
-  throw new Error('Abandon confirmation omitted the target, mandate, or operation')
+function assertConfirmation() {
+  const observed = displayed.replace(/\s+/g, '')
+  if (!observed.includes(target.target) || !observed.includes(mandateId) || !observed.includes('abandon'))
+    throw new Error('Abandon confirmation omitted the target, mandate, or operation')
+}
 database.close()

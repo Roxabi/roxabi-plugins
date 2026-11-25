@@ -4,13 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as contracts from '../../dist/contracts.js'
 import type { FeatureAuthority } from '../../roxabi/feature-continuation-admission.ts'
 import * as admission from '../../roxabi/feature-continuation-admission.ts'
-import { applyFeatureControl } from '../../roxabi/feature-continuation-controls.ts'
 import * as observation from '../../roxabi/feature-continuation-observation.ts'
 import * as selection from '../../roxabi/feature-continuation-selection.ts'
 import type { ContinueFeatureInput, FeatureWorkflow } from '../../roxabi/feature-contract'
 import * as checkout from '../../roxabi/feature-selection.ts'
-import { createUwAbandon } from '../../roxabi/uw-abandon.ts'
-import type { OperatorPort, UwOperations } from '../../roxabi/uw-contract.ts'
+import type { UwOperations } from '../../roxabi/uw-contract.ts'
 import * as issues from '../../roxabi/uw-spec/index.ts'
 import { createExtensionApiStub } from '../../testing/extension-api-stub'
 import { consultableAgentRoot, consultableProtocolOptions } from '../../testing/protocol-retention.unit.ts'
@@ -288,7 +286,6 @@ describe('installed /feature command', () => {
   })
 
   it.each([
-    ['resume #12', 'resume'],
     ['new #12', 'new'],
     ['material-decision #12', 'material-decision'],
   ])('routes %s without dispatching native work', async (args, control) => {
@@ -302,91 +299,45 @@ describe('installed /feature command', () => {
     expect(host.sent).toEqual(['feature-stopped: fixture-control'])
   })
 
-  it('refuses resolution without entering the workflow and names the explicit replacement route', async () => {
-    const continueFeature = vi.fn(async () => ({ kind: 'blocked', reason: 'unexpected' }) as const)
+  it.each(['resume #12', 'resolve-interruption #12 --start start-12'])(
+    'refuses %s before UW admission',
+    async (args) => {
+      const uwOperations = vi.fn(async () => {
+        throw new Error('Unexpected UW operation creation')
+      })
+      const host = installed({ uwOperations })
+      await host.commands.get('feature')?.handler(args, root)
+      expect(uwOperations).not.toHaveBeenCalled()
+      expect(host.sent).toEqual(['feature-stopped: feature-control-retired'])
+    },
+  )
+
+  it('aborts the active session for pause without creating UW operations', async () => {
+    const uwOperations = vi.fn(async () => {
+      throw new Error('Unexpected UW operation creation')
+    })
+    const exec = vi.fn()
+    const host = installed({ uwOperations }, exec)
+    const abort = vi.fn(() => expect(host.sent).toEqual([]))
+    const ctx = { ...root, isIdle: () => false, abort }
+    await host.commands.get('feature')?.handler('pause #12', ctx)
+    expect(abort).toHaveBeenCalledOnce()
+    expect(uwOperations).not.toHaveBeenCalled()
+    expect(exec).not.toHaveBeenCalled()
+    expect(host.sent).toEqual(['feature-paused: session only'])
+  })
+
+  it.each([
+    [false, 'feature-stopped: abandon-unconfirmed'],
+    [true, 'feature-abandoned'],
+  ] as const)('reports abandonment with publication confirmed=%s', async (confirmed, message) => {
+    const continueFeature = vi.fn(async (_input: ContinueFeatureInput) => ({ kind: 'abandoned', confirmed }) as const)
     const host = installed({ featureWorkflow: workflow({ continueFeature }) })
-    await host.commands.get('feature')?.handler('resolve-interruption #12 --start start-12', root)
-    expect(continueFeature).not.toHaveBeenCalled()
-    expect(host.sent).toEqual([
-      'feature-stopped: interruption-dispatch-unproven. Native dispatch cannot be verified. To replace the paused mandate, run /feature abandon 12, then /feature new 12 once abandonment is confirmed.',
-    ])
-  })
-
-  it('confirms pause only from the product and never prints disarmed for an unconfirmed pause', async () => {
-    const confirmed = installed({
-      featureWorkflow: workflow({
-        continueFeature: async () => ({ kind: 'paused', confirmed: true, reason: 'operator' }),
-      }),
-    })
-    await confirmed.commands.get('feature')?.handler('pause #12', root)
-    expect(confirmed.sent).toEqual(['pause-confirmed: operator'])
-
-    const unconfirmed = installed({
-      featureWorkflow: workflow({
-        continueFeature: async () => ({ kind: 'paused', confirmed: false, reason: 'product said disarmed' }),
-      }),
-    })
-    await unconfirmed.commands.get('feature')?.handler('pause #12', root)
-    expect(unconfirmed.sent).toEqual(['pause-unconfirmed: pause-unconfirmed'])
-    expect(unconfirmed.sent.join('\n')).not.toContain('disarmed')
-  })
-
-  it('does not claim abandoned unless the product confirmed publication', async () => {
-    const host = installed({
-      featureWorkflow: workflow({
-        continueFeature: async () => ({ kind: 'abandoned', confirmed: false }),
-      }),
-    })
     await host.commands.get('feature')?.handler('abandon #12', root)
-    expect(host.sent).toEqual(['feature-stopped: abandon-unconfirmed'])
-    expect(host.sent.join('\n')).not.toContain('feature-abandoned')
-  })
-
-  it('reports the UW refusal diagnostic through /feature abandon without publishing or continuing', async () => {
-    const scope = { repository: 'acme/app', target: 'acme/app#12' }
-    const mandate = { kind: 'mandate', recordId: 'mandate-1', payload: { role: 'leaf', branch: 'work' } }
-    const gh = vi.fn(async () => {
-      throw new Error('Unexpected GitHub publication')
-    })
-    const confirm = vi.fn()
-    const readUw = vi.fn(async () => {
-      throw new Error('Native authority read failed: connection reset')
-    })
-    const abandon = createUwAbandon({
-      reader: { readUw },
-      operator: { executeConfirmed: confirm } as unknown as OperatorPort,
-      github: { cwd: root.cwd, gh },
-    })
-    const authority = {
-      context: {
-        cwd: root.cwd,
-        gh,
-        engine: { resolveAcceptedSpec: () => ({ ok: true, spec: {} }), effectiveMandateRole: () => 'leaf' },
-      },
-      history: { source: { scope } },
-      scope,
-      selection: { status: 'applicable', mandate },
-      target: null,
-      parentHistories: [],
-      causal: { histories: [] },
-    } as unknown as FeatureAuthority
-    const continuation = vi.fn(async (input: { control: string }) => {
-      expect(input.control).toBe('abandon')
-      return applyFeatureControl('abandon', authority, { abandon } as unknown as UwOperations)
-    })
-    const host = installed({ featureWorkflow: workflow({ continueFeature: continuation }) })
-
-    await host.commands.get('feature')?.handler('abandon #12', root)
-
-    expect(readUw).toHaveBeenCalledOnce()
-    expect(confirm).not.toHaveBeenCalled()
-    expect(gh).not.toHaveBeenCalled()
-    expect(continuation).toHaveBeenCalledOnce()
-    expect(host.sent).toHaveLength(1)
-    expect(host.sent[0]).toContain('refused')
-    expect(host.sent[0]).toContain('abandon-unconfirmed')
-    expect(host.sent[0]).toContain('Native authority read failed: connection reset')
-    expect(host.sent[0]).not.toContain('feature-abandoned')
+    expect(continueFeature).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ control: 'abandon', reference: '12' }),
+    )
+    expect(host.sent).toEqual([message])
   })
 
   it('rejects an argv material decision at the /uw UI boundary before creating operations', async () => {

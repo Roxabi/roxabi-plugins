@@ -1,19 +1,19 @@
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, sameRef } from './record-diagnostics.ts'
+import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
-import type { Diagnostic } from './record-values.ts'
-import {
-  bindExternalRef,
-  type ControlRecord,
-  controlsOf,
-  historyFor,
-  type MandateRecord,
-  mandateScope,
-} from './workflow-control.ts'
+import type { CanonicalRecord } from './record-schema.ts'
+import { type ControlRecord, controlsOf, type MandateRecord, mandateScope } from './workflow-control.ts'
 
-export type PauseBinding = {
-  mandate: ExternalRecordRef
-  confirmation: ExternalRecordRef
+/** Identifies the old continuation controls without granting them live authority. */
+export function isHistoricalContinuationControl(record: CanonicalRecord | null): boolean {
+  if (record?.kind !== 'operator-control') return false
+  const { control } = record.payload
+  return (
+    control === 'pause-requested' ||
+    control === 'pause-confirmed' ||
+    control === 'resume' ||
+    control === 'resolve-interruption'
+  )
 }
 
 function pauseRequestFor(mandate: MandateRecord, record: ControlRecord): boolean {
@@ -52,15 +52,7 @@ function pauseConfirmationFor(
   )
 }
 
-export function confirmedPause(history: DecodedHistory, mandate: MandateRecord): ControlRecord | null {
-  for (const request of controlsOf(history)) {
-    if (!pauseRequestFor(mandate, request)) continue
-    const confirmation = pauseConfirmationFor(history, mandate, request)
-    if (confirmation !== null) return confirmation
-  }
-  return null
-}
-
+/** Historical classification only: this pause does not constrain current authority. */
 export function unliftedPause(history: DecodedHistory, mandate: MandateRecord): ControlRecord | null {
   for (const request of controlsOf(history)) {
     if (!pauseRequestFor(mandate, request)) continue
@@ -68,36 +60,6 @@ export function unliftedPause(history: DecodedHistory, mandate: MandateRecord): 
     if (confirmation !== null && !pauseLifted(history, confirmation)) return confirmation
   }
   return null
-}
-
-export function outstandingPauseRequest(history: DecodedHistory, mandate: MandateRecord): ControlRecord | null {
-  return (
-    controlsOf(history).find(
-      (record) => pauseRequestFor(mandate, record) && pauseConfirmationFor(history, mandate, record) === null,
-    ) ?? null
-  )
-}
-
-export function outstandingPauseInAuthority(
-  mandate: MandateRecord,
-  histories: readonly DecodedHistory[],
-  seen: ReadonlySet<string> = new Set(),
-): Diagnostic | null {
-  const scope = mandateScope(mandate)
-  const key = `${scope.repository}\0${scope.target}\0${mandate.recordId}`
-  if (seen.has(key)) return null
-  const home = historyFor(scope, histories)
-  if (home === null) return null
-  if (outstandingPauseRequest(home, mandate) !== null)
-    return diagnostic('pause-unconfirmed', `Mandate ${mandate.recordId} has an unconfirmed pause request`)
-  if (mandate.payload.parent === null) return null
-  const parentHistory = historyFor(mandate.payload.parent.scope, histories)
-  if (parentHistory === null) return null
-  const parent = bindExternalRef(mandate.payload.parent, parentHistory)
-  if (!parent.ok || parent.value.kind !== 'mandate') return null
-  const nextSeen = new Set(seen)
-  nextSeen.add(key)
-  return outstandingPauseInAuthority(parent.value, histories, nextSeen)
 }
 
 function pauseLifted(history: DecodedHistory, confirmation: ControlRecord): boolean {

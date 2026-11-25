@@ -19,6 +19,7 @@ import {
   beginFeatureUwContinuation,
   beginFeatureUwIntake,
   beginFeatureUwOperation,
+  cancelFeatureSession,
   cancelFeatureUwOperation,
   createFeatureOperationReportGuard,
   type FeatureOperationReportGuard,
@@ -92,10 +93,9 @@ async function featureCommandUw(
   ctx: ExtensionContext,
   operator: CommandOperatorPort,
   options: FeatureCommandComposition['options'],
-  control: string,
   pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<FeatureCommandHost['uw']> {
-  if (control === 'pause' || options.featureWorkflow !== undefined) return undefined
+  if (options.featureWorkflow !== undefined) return undefined
   return resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin)
 }
 
@@ -135,7 +135,7 @@ async function runFeatureEntry(
   const deliver = deliversSkill(parsed.control)
   const body = deliver ? await compositionSkill(composition) : undefined
   if (!reporting.isCurrent() || (deliver && body === undefined)) return
-  const uw = await featureCommandUw(ctx, operator, options, parsed.control, pluginPin)
+  const uw = await featureCommandUw(ctx, operator, options, pluginPin)
   if (!reporting.isCurrent()) return
   const input: ContinueFeatureInput = {
     cwd: ctx.cwd,
@@ -161,11 +161,10 @@ export async function runFeatureCommand(
     reportFeatureTerminalStatus(pi, `feature-stopped: ${parsed.reason}`)
     return
   }
-  if (parsed.control === 'resolve-interruption') {
-    reportFeatureTerminalStatus(
-      pi,
-      `feature-stopped: interruption-dispatch-unproven. Native dispatch cannot be verified. To replace the paused mandate, run /feature abandon ${parsed.reference}, then /feature new ${parsed.reference} once abandonment is confirmed.`,
-    )
+  if (parsed.control === 'pause') {
+    cancelFeatureSession(pi, ctx, 'feature-paused')
+    ctx.abort()
+    reportFeatureTerminalStatus(pi, 'feature-paused: session only')
     return
   }
   const operator = createOperatorConfirmation(ctx)

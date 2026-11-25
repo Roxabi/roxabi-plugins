@@ -31,13 +31,14 @@ const recordedConfig = {
   effective: previousConfig,
 }
 
-it('resumes, pushes, opens and lands the same mandate after an installed package and catalog upgrade', async () => {
+it('selects, pushes, opens and lands the same mandate after an installed package and catalog upgrade', async () => {
   const installedVersion = shippedProductVersion()
   expect(installedVersion).not.toBe(previousVersion)
   expect(marketplace.plugins.find((plugin) => plugin.name === 'omp-build')?.version).toBe(installedVersion)
 
   const f = world(false, 'main', recordedConfig)
   expect(f.mandate.payload.config).toMatchObject({ productVersion: previousVersion, digest: recordedConfig.digest })
+  // Already-recorded pause markers must not require a resume or a replacement mandate after upgrade.
   const pause = fixtures.pauseRequested(f.mandate)
   seedAuthority(f.box, [f.mandate, pause, fixtures.pauseConfirmed(f.mandate, pause)])
   f.bare('update-ref', '-d', ref)
@@ -91,7 +92,7 @@ it('resumes, pushes, opens and lands the same mandate after an installed package
   const admission = await admitFeature({
     cwd: f.cwd,
     reference: `${repository}#42`,
-    control: 'resume',
+    control: 'select',
     principal: false,
     gh,
     git: f.gitRunner,

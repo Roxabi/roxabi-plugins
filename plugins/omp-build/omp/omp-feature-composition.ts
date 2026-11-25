@@ -230,6 +230,19 @@ function currentOccupant(pi: OmpBuildExtensionApi): Occupant | null {
   return operationSlots.get(pi)?.occupant ?? null
 }
 
+export function cancelFeatureSession(
+  pi: OmpBuildExtensionApi,
+  ctx: ExtensionContext,
+  reason: string,
+  clearPin = false,
+) {
+  if (clearPin) invalidateActivation(pi)
+  else invalidatePendingActivation(pi)
+  const occupant = currentOccupant(pi)
+  if (occupant !== null) invalidateExact(pi, occupant.generation, reason)
+  cancelOperatorConfirmations(ctx, reason)
+}
+
 export function featureOperationOccupied(pi: OmpBuildExtensionApi): boolean {
   return currentOccupant(pi) !== null
 }
@@ -250,31 +263,19 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
   const invalidate =
     (reason: string) =>
     (_event: unknown, ctx: ExtensionContext): void => {
-      if (!rootContext(ctx)) return
-      invalidateActivation(pi)
-      const occupant = currentOccupant(pi)
-      if (occupant !== null) invalidateExact(pi, occupant.generation, reason)
-      cancelOperatorConfirmations(ctx, reason)
+      if (rootContext(ctx)) cancelFeatureSession(pi, ctx, reason, true)
     }
   pi.on('session_stop', (event: SessionStopEvent, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
+    if (event.signal.aborted) return cancelFeatureSession(pi, ctx, 'session-stop-aborted')
     const occupant = currentOccupant(pi)
-    if (event.signal.aborted) {
-      invalidatePendingActivation(pi)
-      if (occupant !== null) invalidateExact(pi, occupant.generation, 'session-stop-aborted')
-      cancelOperatorConfirmations(ctx, 'session-stop-aborted')
-      return
-    }
-    if (occupant === null) return
-    if (settleRevokedFraming(pi, 'session-stop-settled')) return
+    if (occupant === null || settleRevokedFraming(pi, 'session-stop-settled')) return
     const generation = occupant.generation
     event.signal.addEventListener(
       'abort',
       () => {
         if (currentOccupant(pi)?.generation !== generation) return
-        invalidatePendingActivation(pi)
-        invalidateExact(pi, generation, 'session-stop-aborted')
-        cancelOperatorConfirmations(ctx, 'session-stop-aborted')
+        cancelFeatureSession(pi, ctx, 'session-stop-aborted')
       },
       { once: true },
     )

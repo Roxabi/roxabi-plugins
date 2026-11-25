@@ -7,7 +7,6 @@ import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import {
   abandoned,
   bindExternalRef,
-  type ControlRecord,
   historyFor,
   type MandateRecord,
   mandateScope,
@@ -17,9 +16,8 @@ import {
 } from './workflow-control.ts'
 import { executableGraph } from './workflow-graph.ts'
 import type { MandateSelection } from './workflow-mandate.ts'
-import { historyRefusal } from './workflow-mandate-history.ts'
+import { historyRefusal, revocationHistoryRefusal } from './workflow-mandate-history.ts'
 import { epicParentProblem } from './workflow-parent.ts'
-import { unliftedPause } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
@@ -57,21 +55,14 @@ export function selectedMandate(history: DecodedHistory): MandateRecord | Mandat
   return mandate
 }
 
-function pauseRefusal(mandate: MandateRecord, pause: ControlRecord): MandateRefusalSelection {
-  return {
-    status: 'refused',
-    reason: 'paused',
-    evidence: [diagnostic('paused', `Mandate ${mandate.recordId} is paused`)],
-    pause: {
-      mandate: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' },
-      confirmation: {
-        scope: { repository: pause.repository, target: pause.target },
-        recordId: pause.recordId,
-        kind: 'operator-control',
-      },
-    },
-  }
+/** Select only the local record authority that can be revoked, even when it cannot execute. */
+export function selectRevocableMandate(history: DecodedHistory): MandateSelection {
+  const problem = revocationHistoryRefusal(history)
+  if (problem !== null) return problem
+  const mandate = selectedMandate(history)
+  return 'status' in mandate ? mandate : { status: 'applicable', mandate }
 }
+
 function acceptedRefusal(result: Exclude<AcceptedSpecResult, { ok: true }>): MandateRefusalSelection {
   return refused(
     result.reason === 'ambiguous'
@@ -162,8 +153,6 @@ function mandateAdmission(
   causal: WorkflowCausalContext,
   seen: ReadonlySet<string>,
 ): MandateSelection {
-  const pause = unliftedPause(history, mandate)
-  if (pause !== null) return pauseRefusal(mandate, pause)
   const graph = executableGraph(mandate)
   if (!graph.ok) return refused('unsupported', graph.diagnostics)
   const omission = epicParentProblem(mandate, [history, ...externalHistories], causal)
@@ -245,8 +234,6 @@ export function resolveOwnSpecAuthority(
   if (drift.length) return fail(drift)
   const selected = selectedMandate(history)
   if ('status' in selected) return fail(selected.evidence)
-  const pause = unliftedPause(history, selected)
-  if (pause !== null) return fail(pauseRefusal(selected, pause).evidence)
   const graph = executableGraph(selected)
   if (!graph.ok) return fail(graph.diagnostics)
   const nextSeen = new Set(seen)

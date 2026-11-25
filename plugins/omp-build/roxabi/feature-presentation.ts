@@ -20,21 +20,14 @@ export function featureStopMessage(result: ContinueFeatureResult): string | null
       return result.reason === 'done'
         ? withDiagnostics('feature-done: done', result.diagnostics)
         : featureStoppedWithDiagnostics(result.reason, result.diagnostics)
-    case 'paused':
-      return featurePauseMessage(result)
     case 'abandoned':
       if (result.confirmed) return 'feature-abandoned'
-      if (result.failure?.phase === 'uw') {
+      if (result.failure !== undefined) {
         const diagnostics = result.failure.diagnostics.map(
           (item) => `${safeOperatorError(item.code)}: ${safeOperatorError(item.message)}`,
         )
         return [`feature-stopped: abandon-unconfirmed: uw-${result.failure.status}`, ...diagnostics].join('\n')
       }
-      if (result.failure?.phase === 'disarm')
-        return [
-          'feature-stopped: abandon-unconfirmed: uw-abandoned; disarm-unconfirmed',
-          ...disarmMessages(result.failure.evidence),
-        ].join('\n')
       return 'feature-stopped: abandon-unconfirmed'
     default:
       return null
@@ -51,21 +44,10 @@ export function principalRefusalMessage(cwd: string, stop: string): string {
   return `session-cwd ${cwd}\nfeature-stopped: principal-dispatch-refused: ${reason}`
 }
 
-export function featurePauseMessage(result: Extract<ContinueFeatureResult, { kind: 'paused' }>): string {
-  if (result.confirmed === true) return `pause-confirmed: ${result.reason}`
-  const safe = result.reason.toLowerCase().includes('disarmed') ? 'pause-unconfirmed' : result.reason
-  return `pause-unconfirmed: ${safe}`
-}
-
 /** Project an already-decided workflow result without changing its owner. */
 export function featureResultStatus(reference: string, result: ContinueFeatureResult): string | undefined {
   if (result.kind === 'blocked') {
     return `UW ${reference} · ${result.reason} · next: inspect and resolve`
-  }
-  if (result.kind === 'paused') {
-    return result.confirmed
-      ? `UW ${reference} · paused (${result.reason}) · next: /feature resume ${reference}`
-      : `UW ${reference} · pause unconfirmed (${result.reason}) · next: inspect`
   }
   return undefined
 }
@@ -76,70 +58,6 @@ function isMoveInstruction(result: Extract<ContinueFeatureResult, { kind: 'sessi
 
 export function featureSessionCwdMessage(cwd: string, instruction: string): string {
   return `session-cwd ${cwd}\n${instruction}`
-}
-
-/** Project only documented disarm fields; the retained evidence itself is not an operator payload. */
-function disarmMessages(evidence: unknown): string[] {
-  if (!isObject(evidence)) return []
-  const lines: string[] = []
-  if (evidence.note === 'pull-request-list-incomplete') lines.push(evidence.note)
-  if (Array.isArray(evidence.disarmed)) {
-    for (const item of evidence.disarmed) {
-      reportDisarmEvidence(lines, item, 'disarm')
-      if (isObject(item) && isObject(item.result)) {
-        const pr = pullRequestLabel(item)
-        reportDisarmEvidence(lines, item.result, `disarm${pr} result`)
-      }
-    }
-  }
-  if (isObject(evidence.discovery)) {
-    for (const part of ['own', 'children'] as const) {
-      reportDiscovery(lines, evidence.discovery[part], part)
-    }
-  }
-  return lines
-}
-
-function reportDiscovery(lines: string[], discovery: unknown, part: string): void {
-  if (!isObject(discovery)) return
-  if (discovery.incomplete === true) lines.push(`${part} discovery incomplete`)
-  if (!Array.isArray(discovery.evidence)) {
-    reportDisarmEvidence(lines, discovery.evidence, `${part} discovery`)
-    return
-  }
-  for (const item of discovery.evidence) {
-    if (!isObject(item)) continue
-    const source = item.source === 'linked' || item.source === 'branch' ? ` ${item.source}` : ''
-    reportDisarmEvidence(lines, item, `${part} discovery${source}`)
-    if (Array.isArray(item.ownership)) {
-      for (const owner of item.ownership) reportDisarmEvidence(lines, owner, `${part} ownership`)
-    }
-  }
-}
-
-function pullRequestLabel(value: Record<string, unknown>): string {
-  return typeof value.pr === 'number' && Number.isSafeInteger(value.pr) && value.pr > 0 ? ` PR #${value.pr}` : ''
-}
-
-function reportDisarmEvidence(lines: string[], value: unknown, label: string): void {
-  if (!isObject(value)) return
-  const pr = pullRequestLabel(value)
-  const status = codedDisarmField(value.status)
-  const reason = codedDisarmField(value.reason)
-  const code = codedDisarmField(value.code)
-  const message = typeof value.error === 'string' ? value.error : value.message
-  const error = typeof message === 'string' ? `: ${safeOperatorError(message)}` : ''
-  const state = ['disarmed', 'unarmed', 'closed', 'merged'].filter((name) => value[name] === true).join(' ')
-  const description = [status, reason, code, state].filter(Boolean).join(' ')
-  if (description || error || pr) lines.push(`${label}${pr}${description ? ` ${description}` : ''}${error}`)
-}
-
-function codedDisarmField(value: unknown): string {
-  return typeof value === 'string' && /^[a-z][a-z-]*$/.test(value) ? value : ''
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function featureStoppedWithDiagnostics(reason: string, diagnostics: readonly Diagnostic[] | undefined): string {

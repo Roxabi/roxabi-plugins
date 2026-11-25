@@ -197,13 +197,16 @@ export {
 } from './engine/workflow-interruption-proof.ts'
 export { resolutionIndex } from './engine/workflow-interruption-resolution.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
-export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
+export {
+  resolveOwnSpecAuthority,
+  selectApplicableMandate,
+  selectRevocableMandate,
+} from './engine/workflow-mandate-admission.ts'
 export {
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
-export { outstandingPauseInAuthority, type PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'

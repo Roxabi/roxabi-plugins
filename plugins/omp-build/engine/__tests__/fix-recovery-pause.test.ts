@@ -6,7 +6,7 @@ import { recoveryAssociationFixture } from './fix-recovery-association-fixture.t
 import { associationFrames } from './fix-recovery-association-source.ts'
 import { pauseControls } from './workflow-test-support.ts'
 
-it('holds neutral recovery for an outstanding or confirmed pause and permits an authenticated resume', async () => {
+it('does not gate recovery on historical pause or resume controls', async () => {
   const fixture = await recoveryAssociationFixture()
   const observed = fixture.observe()
   const initial = discoverFixRecovery(observed.input)
@@ -31,11 +31,10 @@ it('holds neutral recovery for an outstanding or confirmed pause and permits an 
   const requested = inputWith([controls.requested])
   const paused = inputWith([controls.requested, controls.confirmed])
   const resumed = inputWith([controls.requested, controls.confirmed, controls.resumed])
-  for (const input of [requested, paused]) {
-    expect(discoverFixRecovery(input).status).toBe('blocked')
+  for (const input of [requested, paused, resumed]) {
+    expect(discoverFixRecovery(input)).toMatchObject({
+      status: 'interrupted',
+      phase: { kind: 'request-before-decision' },
+    })
   }
-  expect(discoverFixRecovery(resumed)).toMatchObject({
-    status: 'interrupted',
-    phase: { kind: 'request-before-decision' },
-  })
 })

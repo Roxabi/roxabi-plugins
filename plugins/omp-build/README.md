@@ -67,12 +67,12 @@ The thin `/feature` handler resolves the issue, manages framing and operator con
 
 | Stage | Session action |
 |---|---|
-| Resume from facts | Compare local, remote and PR tips with the selected base. Match PRs across states by repository, branch and base; confirm the canonical binding. Preserve dirty files and existing commits. A fresh checkout recovers only published work. |
+| Continue from facts | Compare local, remote and PR tips with the selected base. Match PRs across states by repository, branch and base; confirm the canonical binding. Preserve dirty files and existing commits. A fresh checkout recovers only published work. |
 | Plan and implement | Map each accepted criterion and invariant to code and a targeted check. Implement what is missing, verify the exact committed tip, then use `push` and `open-pr` from the [trusted delivery CLI](#trusted-feature-delivery-cli). |
 | Review and correct | Follow the installed `/dev-review` and `/dev-fix` instructions without nested slash commands. Review every new head independently. Stop after two automatic correction rounds per invocation, or earlier if scope conflicts or progress stalls. |
 | Land and finish | Observe the exact head, base and required checks. `land` makes one head-pinned merge attempt under the base ruleset. An already merged bound PR goes straight to `finish`, which closes the UW through `closeLinked` with its delivery proof. |
 
-Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit pause. Stop on ambiguous, divergent, closed-unmerged or uncertain delivery until the facts are reconciled. [Parent delivery is suspended](#parent-uw-delivery).
+Re-running `/feature <reference>` re-observes Git and GitHub and can continue under the same live mandate after a session stop. Stop on ambiguous, divergent, closed-unmerged or uncertain delivery until the facts are reconciled. [Parent delivery is suspended](#parent-uw-delivery).
 
 ### Controls
 
@@ -81,32 +81,30 @@ Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit p
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes or reuses the applicable leaf mandate, then hands off to the composition instructions. Re-entry re-observes Git and GitHub. |
-| `/feature resume <reference>` | Resumes an ordinary confirmed pause under the same mandate, including after an installed upgrade. The mandate's pinned review requirements remain in force. A review-bound or safety stop is not a pause. |
-| `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
-| `/feature abandon <reference>` | Revokes the selected mandate, including when that mandate has its own confirmed pause. No automatic renewal. |
+| `/feature pause <reference>` | Stops the running Feature session only. No remote write, PR disarm or mandate change. |
+| `/feature abandon <reference>` | Publishes and reads back the exact mandate's `operator-control: abandon` revocation, even if its Accepted Spec is unreadable or missing. It does not disarm PRs or renew the mandate. |
 | `/feature new <reference>` | Explicit successor over the authenticated own abandoned mandate tip. It names the antecedent, publishes `select-successor` and preserves a compatible existing PR. Historical framing is not current authority, ancestor revocation is not own abandonment, and `/feature <reference>` never renews a mandate. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the genuine operator-confirmation route for the exact authenticated material or unknown assessment. An `accept`/`reject` argv suffix is not authority and is refused. `/uw accept-material` uses the same acceptance chain. |
-| `/feature resolve-interruption <reference> [--start <recordId>]` | Always refuses: the current plugin cannot prove non-dispatch of a historical START. |
 | `/feature init` | Preview of the invoking checkout; not framing or mandate preparation. |
 
-Historical START and resolution records remain readable. To restart an eligible leaf, run `/feature abandon <reference>` and wait for confirmed abandonment before running `/feature new <reference>`.
+Historical pause, resume, START, RESULT and interruption records remain readable as evidence. They neither grant nor block composed delivery. An abandoned predecessor's historical assessment does not hold the current mandate; the current Spec and delivery locks still apply. Recover in place with `/feature <reference>`, not by replacing a live mandate.
 
 Explicit leaf succession retains compatibility checks for accepted obligations and ordered inherited references. Parent delivery and parent succession via `/feature` are suspended.
 
 An existing PR is not automatically replaced:
 - Complete own-UW PR facts are collected even when ordinary terminal-state observation omits that scope. Their commitments must survive bootstrap unchanged. Closed, ambiguous, mismatched or unproved bindings stop before publication. Compatible open or merged requests retain their identity; native facts and authenticated binding parts are rechecked before later writes. Publication is sequential, not atomic: a later refusal may retain the new Mandate or selection control, without rollback or automatic replay.
 
-Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`.
+Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. There is no `/wt`.
 
 The editor shows the next action while a framing proposal is ready or the worktree move is pending. The framing confirmation lists the destination and publication effects first, then the final Spec. `Détails` (D) opens the framing audit trail and the exact captured proposal, digest and reference.
 
 The confirmation starts on `Plus tard`. Tab/Left/Right selects an action, Enter activates it; C confirms, R refuses and Escape defers. Up/Down/PageUp/PageDown scroll the current view. Supplied values are quoted with visible line-break and bidirectional-control escapes, without changing the prepared payload. Wrapped continuation rows retain a `| ` marker even when their origin has scrolled away.
 
-Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
+Select and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
 
-During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `resume`, `material-decision`, `resolve-interruption` and `init` are parsed as controls, not framed as free text.
+During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `material-decision` and `init` are parsed as controls, not framed as free text.
 
-A local interruption is not a mandate pause and does not roll back a write already started. Use `/feature pause` or `/feature abandon` to record an operator stop.
+A session stop cannot roll back a write already started. Use `/feature abandon <reference>` for a durable stop of the exact mandate.
 
 Interactive `/feature` and `/uw` confirmations belong to their root command. The session becoming idle leaves a confirmation open; abort, switch, shutdown or command replacement invalidates it. Escape or `Plus tard` keeps the exact proposal pending. `ctrl+alt+u` reopens it in the same live session and location; it does not approve it. A command that was not deferred this way still requires explicit re-entry.
 
@@ -293,11 +291,11 @@ Accepted retirements are issue-lifetime facts replayed from authenticated histor
 Current child commitments also remain observable when their historical parent grant becomes inactive, but only with authenticated historical provenance. Reading these facts does not renew the grant or restore the child's delivery authority.
 
 Assisted framing retains source obligations with explicit kept/reworded/new/removed accounting. One genuine operator confirmation covers the entire aggregate, including members, relationships and coverage. Existing issues are converted in place. Incomplete aggregates stay held; partial or uncertain effects are reported without retry or rollback. Framing and identity allocation do not accept a Spec or authorize delivery.
-If a framing aggregate is held, delivery, landing and continuation transitions are refused, including after a concurrently published first Mandate; pause, abandon and stop remain available.
+If a framing aggregate is held, delivery, landing and continuation transitions are refused, including after a concurrently published first Mandate; the session can still stop and the exact Mandate can still be revoked.
 
 Before first acceptance, a framed member's title, Spec body, tier label and recorded edges are pinned: `/uw` proposal writes refuse it with `framing-result-pinned`, and a manual GitHub edit holds it as `framing-result-drift`, with no release in this version.
 
-Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore a paused or inactive Mandate or bypass the Parent engagement guard.
+Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore an inactive Mandate or bypass the Parent engagement guard.
 
 The three installed framing procedures are pinned and byte-checked; a mismatch stops continuation. Context projection and typed forms are procedural controls, not proof of provider receipt or human reasoning. Real host and provider behavior requires separate qualification.
 `/feature new` refuses an abandoned or revoked UW with a nonconformant body as `successor-spec-nonconformant`, with parser diagnostics and no write, checkout or bootstrap. omp-build has no in-place conversion for an inactive UW: `/uw write` is refused while its mandate is abandoned or revoked, and framing does not admit it. Start the work again as a new UW with `/feature <text>`. A body that already parses as conformant with confirmed identities follows the existing successor path; ordinary continuation cannot renew an inactive mandate. Nonconformant initial selections enter confirmed framing.
@@ -309,7 +307,7 @@ A UW is framed by a unique native tier, at least one valid criterion and no open
 
 Manual native closure never completes a managed UW without its authenticated delivery proof. The reader reports `native-closure-unproven`; the operator must reopen it or record abandonment. Confirmed reopening writes and reads back `OPEN` / `REOPENED`, but does not manufacture missing criterion, review, merge or parent-integration evidence.
 
-Advancing transitions and final admission recheck blockers and authority. Pause, abandonment and proposal repair remain available. Pre-read and readback detect conflicts but are not atomic. A foreign copy cannot impersonate a selected authenticated record; a new append can still change the observed history.
+Advancing transitions and final admission recheck blockers and authority. Session stop, exact abandonment and proposal repair remain available. Pre-read and readback detect conflicts but are not atomic. A foreign copy cannot impersonate a selected authenticated record; a new append can still change the observed history.
 An authenticated assessment of a mechanically material change still requires the existing operator decision when its classification says `editorial`; the label cannot override the canonical delta.
 
 ### UW operator command
@@ -372,9 +370,9 @@ New bindings require a non-null mandate branch and exact agreement among the man
 
 The first succession of an uncovered legacy history retains both exhaustive repository-wide observations and examines every old mandate in the UW home, not just the selected lineage. An off-lineage, orphaned or competing mandate refuses coverage rather than being ignored or treated as covered. The transition can therefore remain expensive. A confirmed current-format successor control can bound a fully observed, rediscoverable old prefix; an incomplete prefix or an old mandate added after that boundary refuses explicitly. Ordinary reads do not silently launch a global fallback scan, and a version or cache alone does not prove historical absence.
 
-Foreign claims do not veto UW **home-history coverage**. This does not relax the existing candidate PR binding guards: a foreign-only binding claim on a branch-matching candidate, including a fork PR or an unbound same-repository PR, can still refuse the delivery observation. A refused pause does not mean the own PR was disarmed. If necessary, an operator may independently verify the own PR and manually disable auto-merge and remove `reviewed` as containment only; this is not workflow authority or recovery.
+Foreign claims do not veto UW **home-history coverage**. This does not relax the existing candidate PR binding guards: a foreign-only binding claim on a branch-matching candidate, including a fork PR or an unbound same-repository PR, can still refuse the delivery observation.
 
-Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous UW home history; it does not justify ignoring history or automatically migrating it.
+The one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous UW home history; it does not justify ignoring history or automatically migrating it.
 
 An installed omp-build upgrade neither invalidates nor renews an existing mandate. Release bumps need no binding allowlist edit. Branch, base, accepted scope, permissions and revocation still constrain delivery.
 
@@ -425,7 +423,7 @@ Parent `/feature` delivery is suspended until slice 6 of [#1031](https://github.
 
 Historical `epic-event` records remain readable: `goal-stop` is a UW stop; `goal-report` records a shared-state stop or report; `epic-review` and `post-merge` retain integration evidence. An `epic-drop` report is a stop; `epic-fix` is diagnostic only.
 
-Parent pause and abandonment still contain armed descendant PRs. Containment checks applicable own and accepted child PRs against authenticated bindings; issue links and branches are discovery hints. Incomplete discovery cannot confirm disarm.
+Revoking a parent Mandate does not write separate revocations for its descendants or disarm their PRs. Existing parent-authority and accepted-child checks still apply.
 
 Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds the checkout with `defaultInitDeps(repository, checkout)`. It does not relabel existing issues; standalone issue-triage retains its own init behavior. The resolver is `triage-runtime.ts`; a missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime. The generated `dist/issue-triage/` slice ships with omp-build.
 
@@ -555,7 +553,7 @@ authority for one head never authorizes another.
 
 #### Existing arms and disarm
 
-The surviving `workflow-gate.js` reads native PR state and, where configured, Kit authorization. Pause and abandon use its disarm checks: disable auto-merge and remove `reviewed` when present, withdraw applicable authorization, and confirm the result by readback. An unreadable or still-armed PR is not a confirmed disarm. This code does not arm a new merge.
+Feature pause and abandonment do not withdraw separate Kit grants, disable GitHub auto-merge or remove `reviewed`. If needed, the operator can verify the PR and clear those arms separately; doing so does not grant or restore Feature authority.
 
 Standalone `/ci-watch` observes the existing merge state using `workflow-readiness.js`: committed base `landing.mode`, otherwise `merge-on-green` if that workflow exists on the base, otherwise `native`. It does not advance Feature or restore an arm.
 
@@ -579,7 +577,7 @@ Kit merge-on-green and from composed Feature delivery.
 
 #### Shared tooling pin
 
-`OMP_BUILD_TOOLING_SHA` pins the installed procedure bytes for `/feature` framing and the installed input files for `/uw action`. It is not required for admission or resume of an existing mandate, or for push, open-pr, land, finish or Auto Merge. Read the shared pin with:
+`OMP_BUILD_TOOLING_SHA` pins the installed procedure bytes for `/feature` framing and the installed input files for `/uw action`. It is not required for delivery under an existing mandate, or for push, open-pr, land, finish or Auto Merge. Read the shared pin with:
 
 ```sh
 gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
@@ -619,7 +617,7 @@ The guards and authored review agents are maintained locally. omp-build does not
 
 ## Worktree bootstrap
 
-`skills/feature/worktree-bootstrap.sh` is the bootstrap contract. `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs it in the foreground after worktree identity is valid and before the Feature handoff: before successor publication on `/feature new`, on the first mandate, and on select, resume or new in an already valid worktree. It refuses the principal. `omp-build-bootstrapped` and `omp-build-bootstrap.lock` are environment cache, not business records. `/feature init`, bare checkout preparation and session or agent start do not run it. Do not run it as a second process.
+`skills/feature/worktree-bootstrap.sh` is the bootstrap contract. `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs it in the foreground after worktree identity is valid and before the Feature handoff: before successor publication on `/feature new`, on the first mandate, and on select or new in an already valid worktree. It refuses the principal. `omp-build-bootstrapped` and `omp-build-bootstrap.lock` are environment cache, not business records. `/feature init`, bare checkout preparation and session or agent start do not run it. Do not run it as a second process.
 
 - The script holds a lock in the git dir, so repeated explicit calls wait for a running invocation and then no-op.
 - omp-build does not automatically copy or build a ccc or codegraph index and requires neither CLI. Project-configured `worktree.copy`, `worktree.seed` and setup still run normally.

@@ -1,7 +1,6 @@
 import { expect, test } from 'vitest'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { pauseControls } from '../../engine/__tests__/workflow-test-support.ts'
 import type { FramingAggregateInput } from '../../engine/uw-framing-schema.ts'
 import { nativeGitHub } from '../../testing/framing-native-github.ts'
 import {
@@ -184,27 +183,20 @@ test('an accepted fixture ancestor admits the exact planned commitment and seals
   expect(native.issues.get(42)?.parent).toBe(41)
 })
 
-test('a paused fixture ancestor is unqualified with the exact inheritance reason', async () => {
+test('an abandoned fixture ancestor is unqualified with the exact inheritance reason', async () => {
   const { native, input, operations, confirmations, parent } = await acceptedParentFixture()
-  const pause = pauseControls(parent, 'ancestor-pause')
-  for (const record of [pause.requested, pause.confirmed]) {
-    const encoded = encodeParts(record, record.kind, 65_536)
-    if (!encoded.ok) throw new Error('Cannot encode pause control')
-    for (const body of encoded.value)
-      await native.gh('/fixture', [
-        'api',
-        '--method',
-        'POST',
-        'repos/acme/app/issues/41/comments',
-        '--raw-field',
-        `body=${body}`,
-      ])
-  }
+  const actor = await installed(native)
+  const abandonment = await actor.operations.abandon(scope(41), {
+    scope: scope(41),
+    recordId: parent.recordId,
+    kind: 'mandate',
+  })
+  expect(abandonment).toEqual({ status: 'abandoned', uw: scope(41) })
   native.writes.length = 0
-  const pausedRead = await operations.readUw(scope(42))
-  const pausedSource = buildFramingSourceBinding(pausedRead, [])
-  if (!pausedSource.ok) throw new Error(JSON.stringify(pausedSource.diagnostics))
-  input.source = pausedSource.value
+  const read = await operations.readUw(scope(42))
+  const source = buildFramingSourceBinding(read, [])
+  if (!source.ok) throw new Error(JSON.stringify(source.diagnostics))
+  input.source = source.value
   const refused = await operations.prepareFraming(input, invocation(input.source))
   expect(refused.ok).toBe(false)
   if (!refused.ok)
@@ -212,7 +204,7 @@ test('a paused fixture ancestor is unqualified with the exact inheritance reason
       expect.arrayContaining([
         expect.objectContaining({
           code: 'framing-ancestor-unqualified',
-          message: expect.stringContaining('parent-anchor-ancestor-unconfirmed'),
+          message: expect.stringContaining('current-inheritance-unavailable'),
         }),
       ]),
     )

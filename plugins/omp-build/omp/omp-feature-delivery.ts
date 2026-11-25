@@ -69,7 +69,7 @@ function acceptedSpecContext({ acceptedSpec, acceptedBodySha256, liveIssueBodyDi
 }
 
 export function deliversSkill(control: ContinueFeatureInput['control']): boolean {
-  return control === 'select' || control === 'resume' || control === 'new'
+  return control === 'select' || control === 'new'
 }
 
 function reportAdmissionStop(
@@ -89,7 +89,7 @@ function reportAdmissionStop(
   }
   const principalDispatch = input.principal && deliversSkill(input.control)
   const message = stop ?? `feature-stopped: workflow-result: ${result.kind}`
-  if (result.kind === 'blocked' || result.kind === 'paused') {
+  if (result.kind === 'blocked') {
     ctx.ui?.setStatus?.('omp-build-watch', featureResultStatus(input.reference, result))
   }
   reportFeatureTerminalStatus(pi, principalDispatch ? principalRefusalMessage(ctx.cwd, message) : message)

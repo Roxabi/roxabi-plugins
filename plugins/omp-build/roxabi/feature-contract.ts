@@ -8,7 +8,7 @@ import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import type { UwOperationResult, UwOperations, UwReadPort } from './uw-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
 
-export type FeatureControl = 'select' | 'continue' | 'resume' | 'pause' | 'abandon' | 'new' | 'material-decision'
+export type FeatureControl = 'select' | 'continue' | 'abandon' | 'new' | 'material-decision'
 
 export type ParentCoverageRequest = {
   parent: ParentCoverage['parent']
@@ -29,17 +29,13 @@ export type ContinueFeatureResult =
       reason: string
       diagnostics?: readonly Diagnostic[]
     }
-  | { kind: 'paused'; confirmed: boolean; reason: string }
   | {
       kind: 'abandoned'
       confirmed: boolean
-      failure?:
-        | {
-            phase: 'uw'
-            status: Exclude<UwOperationResult['status'], 'abandoned' | 'deferred'>
-            diagnostics: readonly Diagnostic[]
-          }
-        | { phase: 'disarm'; evidence: unknown }
+      failure?: {
+        status: Exclude<UwOperationResult['status'], 'abandoned' | 'deferred'>
+        diagnostics: readonly Diagnostic[]
+      }
     }
   | { kind: 'terminal'; reason: string; diagnostics?: readonly Diagnostic[] }
   | { kind: 'session-cwd'; path: string; instruction: string }
@@ -67,7 +63,7 @@ export type FeatureWorkflow = {
 
 export type ParsedFeatureCommand =
   | { ok: true; control: FeatureControl; reference: string }
-  | { ok: true; control: 'resolve-interruption'; reference: string; start?: string }
+  | { ok: true; control: 'pause'; reference: string }
   | { ok: true; control: 'init'; args: readonly string[] }
   | { ok: false; reason: string }
 

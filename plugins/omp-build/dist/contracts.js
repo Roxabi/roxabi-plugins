@@ -17576,6 +17576,34 @@ function historyRefusal(history) {
     return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
   return null;
 }
+function claimsRevocableAuthority(operation) {
+  const record = operation.record;
+  if (record?.kind === "mandate" || operation.kind === "mandate" || operation.claimedKinds.includes("mandate"))
+    return true;
+  if (record?.kind === "operator-control") {
+    const { control } = record.payload;
+    return control === "abandon" || control === "select-successor";
+  }
+  return operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control");
+}
+function revocationHistoryRefusal(history) {
+  if (!history.source.complete)
+    return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
+  for (const operation of history.operations) {
+    if (operation.authority === "foreign" || !claimsRevocableAuthority(operation))
+      continue;
+    if (operation.status === "conflict")
+      return refused("ambiguous", [diagnostic2("ambiguous", "Mandate authority records conflict")]);
+    const format = history.diagnostics.find((entry) => entry.code === incompatibleFormat && entry.operationId === operation.operationId);
+    if (format !== undefined)
+      return refused(incompatibleFormat, [format]);
+    if (operation.status !== "complete" || operation.record === null)
+      return refused("unconfirmed", [diagnostic2("unconfirmed", "A mandate authority record is incomplete")]);
+    if (operation.authority !== "accounted" || !equalScope(history.source.scope, operation.record))
+      return refused("ambiguous", [diagnostic2("ambiguous", "A mandate authority record is not uniquely accounted")]);
+  }
+  return null;
+}
 
 // plugins/omp-build/engine/workflow-parent.ts
 function parentListings(mandate, histories, causal) {
@@ -17618,71 +17646,6 @@ function epicParentProblem(mandate, histories, causal) {
   return null;
 }
 
-// plugins/omp-build/engine/workflow-pause.ts
-function pauseRequestFor(mandate, record) {
-  return record.payload.control === "pause-requested" && sameRef2(record.payload.mandate, { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" });
-}
-function pauseConfirmationFor(history, mandate, request) {
-  if (request.payload.control !== "pause-requested")
-    return null;
-  const controlId = request.payload.controlId;
-  const requestRef = {
-    scope: { repository: request.repository, target: request.target },
-    recordId: request.recordId,
-    kind: "operator-control"
-  };
-  return controlsOf(history).find((record) => record.payload.control === "pause-confirmed" && record.payload.controlId === controlId && sameRef2(record.payload.mandate, {
-    scope: mandateScope(mandate),
-    recordId: mandate.recordId,
-    kind: "mandate"
-  }) && record.payload.predecessor !== null && sameRef2(record.payload.predecessor, requestRef) && record.payload.disarm.observed === true) ?? null;
-}
-function unliftedPause(history, mandate) {
-  for (const request of controlsOf(history)) {
-    if (!pauseRequestFor(mandate, request))
-      continue;
-    const confirmation = pauseConfirmationFor(history, mandate, request);
-    if (confirmation !== null && !pauseLifted(history, confirmation))
-      return confirmation;
-  }
-  return null;
-}
-function outstandingPauseRequest(history, mandate) {
-  return controlsOf(history).find((record) => pauseRequestFor(mandate, record) && pauseConfirmationFor(history, mandate, record) === null) ?? null;
-}
-function outstandingPauseInAuthority(mandate, histories, seen = new Set) {
-  const scope = mandateScope(mandate);
-  const key = `${scope.repository}\x00${scope.target}\x00${mandate.recordId}`;
-  if (seen.has(key))
-    return null;
-  const home = historyFor(scope, histories);
-  if (home === null)
-    return null;
-  if (outstandingPauseRequest(home, mandate) !== null)
-    return diagnostic2("pause-unconfirmed", `Mandate ${mandate.recordId} has an unconfirmed pause request`);
-  if (mandate.payload.parent === null)
-    return null;
-  const parentHistory = historyFor(mandate.payload.parent.scope, histories);
-  if (parentHistory === null)
-    return null;
-  const parent = bindExternalRef(mandate.payload.parent, parentHistory);
-  if (!parent.ok || parent.value.kind !== "mandate")
-    return null;
-  const nextSeen = new Set(seen);
-  nextSeen.add(key);
-  return outstandingPauseInAuthority(parent.value, histories, nextSeen);
-}
-function pauseLifted(history, confirmation) {
-  if (confirmation.payload.control !== "pause-confirmed")
-    return false;
-  const { controlId, mandate } = confirmation.payload;
-  return controlsOf(history).some((record) => record.payload.control === "resume" && record.payload.controlId === controlId && sameRef2(record.payload.mandate, mandate) && sameRef2(record.payload.predecessor, {
-    scope: { repository: confirmation.repository, target: confirmation.target },
-    recordId: confirmation.recordId,
-    kind: "operator-control"
-  }));
-}
-
 // plugins/omp-build/engine/workflow-mandate-admission.ts
 function cycleRefusal(history, seen) {
   const scopeKey = `${history.source.scope.repository}\x00${history.source.scope.target}`;
@@ -17712,20 +17675,12 @@ function selectedMandate(history) {
     return refused("abandoned", [diagnostic2("abandoned", `Mandate ${mandate.recordId} is abandoned`)]);
   return mandate;
 }
-function pauseRefusal(mandate, pause) {
-  return {
-    status: "refused",
-    reason: "paused",
-    evidence: [diagnostic2("paused", `Mandate ${mandate.recordId} is paused`)],
-    pause: {
-      mandate: { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" },
-      confirmation: {
-        scope: { repository: pause.repository, target: pause.target },
-        recordId: pause.recordId,
-        kind: "operator-control"
-      }
-    }
-  };
+function selectRevocableMandate(history) {
+  const problem = revocationHistoryRefusal(history);
+  if (problem !== null)
+    return problem;
+  const mandate = selectedMandate(history);
+  return "status" in mandate ? mandate : { status: "applicable", mandate };
 }
 function acceptedRefusal(result) {
   return refused(result.reason === "ambiguous" ? "ambiguous" : result.reason === "missing-history" ? "missing-history" : "incomplete", result.evidence);
@@ -17785,9 +17740,6 @@ function parentAdmission(mandate, externalHistories, causal, seen) {
   return policy;
 }
 function mandateAdmission(mandate, history, externalHistories, causal, seen) {
-  const pause = unliftedPause(history, mandate);
-  if (pause !== null)
-    return pauseRefusal(mandate, pause);
   const graph = executableGraph(mandate);
   if (!graph.ok)
     return refused("unsupported", graph.diagnostics);
@@ -17849,9 +17801,6 @@ function resolveOwnSpecAuthority(history, externalHistories, causal, seen = new 
   const selected = selectedMandate(history);
   if ("status" in selected)
     return fail(selected.evidence);
-  const pause = unliftedPause(history, selected);
-  if (pause !== null)
-    return fail(pauseRefusal(selected, pause).evidence);
   const graph = executableGraph(selected);
   if (!graph.ok)
     return fail(graph.diagnostics);
@@ -21210,11 +21159,19 @@ function uniqueCutParts(parts, home) {
   });
 }
 
+// plugins/omp-build/engine/workflow-pause.ts
+function isHistoricalContinuationControl(record) {
+  if (record?.kind !== "operator-control")
+    return false;
+  const { control } = record.payload;
+  return control === "pause-requested" || control === "pause-confirmed" || control === "resume" || control === "resolve-interruption";
+}
+
 // plugins/omp-build/engine/fix-recovery-discovery-authentication.ts
 var refuse = (message) => diagnostic2("unconfirmed", message);
 function authenticateAnchors(pair, home) {
   for (const operation of home.operations) {
-    if (operation.authority === "foreign" || operation.record === null || operation.record.kind !== "mandate" && operation.record.kind !== "operator-control")
+    if (operation.authority === "foreign" || operation.record === null || operation.record.kind !== "mandate" && operation.record.kind !== "operator-control" || isHistoricalContinuationControl(operation.record))
       continue;
     const record = operation.record;
     if (!bindExternalRef({ kind: record.kind, scope: home.source.scope, recordId: record.recordId }, home).ok)
@@ -21281,32 +21238,29 @@ function authenticateSpec(input, common, mandate, histories) {
     return refuse("Historical effective Spec does not match the recorded observation");
   return null;
 }
-function pauseHomeProblem(current, histories) {
+function mandateAuthorityProblem(current, histories) {
   const home = histories.find((history) => equalScope(history.source.scope, current));
   if (home === undefined || !home.source.complete || workflowOperationProblem(home) !== null)
-    return refuse("Mandate pause authority history is missing or incomplete");
+    return refuse("Mandate authority history is missing or incomplete");
   for (const operation of home.operations) {
-    if (operation.authority === "foreign" || operation.record?.kind !== "operator-control")
+    if (operation.authority === "foreign" || operation.record?.kind !== "operator-control" || isHistoricalContinuationControl(operation.record))
       continue;
     if (!bindExternalRef({ kind: "operator-control", scope: home.source.scope, recordId: operation.record.recordId }, home).ok)
-      return refuse("Mandate pause control source is not authenticated");
+      return refuse("Mandate control source is not authenticated");
   }
-  return unliftedPause(home, current) !== null ? diagnostic2("paused", `Mandate ${current.recordId} is paused`) : null;
+  return null;
 }
-function pauseParent(parent, histories) {
+function authenticateParentMandate(parent, histories) {
   const parentHome = histories.find((history) => equalScope(history.source.scope, parent.scope));
   if (parentHome === undefined || !parentHome.source.complete || workflowOperationProblem(parentHome) !== null)
-    return { problem: refuse("Parent mandate pause authority history is missing or incomplete") };
+    return { problem: refuse("Parent mandate authority history is missing or incomplete") };
   const bound = bindExternalRef(parent, parentHome);
   const selected = selectedMandate(parentHome);
   if (!bound.ok || bound.value.kind !== "mandate" || "status" in selected || selected.recordId !== parent.recordId || canonicalValueDigest(bound.value) !== canonicalValueDigest(selected))
-    return { problem: refuse("Parent mandate pause authority is not authenticated") };
+    return { problem: refuse("Parent mandate authority is not authenticated") };
   return { mandate: selected };
 }
-function authenticatePauseAuthority(mandate, histories) {
-  const outstanding = outstandingPauseInAuthority(mandate, histories);
-  if (outstanding !== null)
-    return outstanding;
+function authenticateMandateAuthority(mandate, histories) {
   const seen = new Set;
   let current = mandate;
   while (true) {
@@ -21314,13 +21268,13 @@ function authenticatePauseAuthority(mandate, histories) {
     if (seen.has(key))
       return refuse("Mandate parent chain cycles");
     seen.add(key);
-    const problem = pauseHomeProblem(current, histories);
+    const problem = mandateAuthorityProblem(current, histories);
     if (problem !== null)
       return problem;
     const parent = current.payload.parent;
     if (parent === null)
       return null;
-    const result = pauseParent(parent, histories);
+    const result = authenticateParentMandate(parent, histories);
     if ("problem" in result)
       return result.problem;
     current = result.mandate;
@@ -21361,7 +21315,7 @@ function authenticateSourceBasis(input, pair, histories) {
   const specProblem = authenticateSpec(input, common, mandate, histories);
   if (specProblem !== null)
     return specProblem;
-  return authenticatePauseAuthority(mandate, histories);
+  return authenticateMandateAuthority(mandate, histories);
 }
 
 // plugins/omp-build/engine/fix-recovery-discovery-decision-phase.ts
@@ -30025,13 +29979,10 @@ function assessParentInsertionEngagement(evidence) {
   const own = found.own;
   const selected = selectedMandate(own);
   if ("status" in selected) {
-    if (selected.reason === "missing" && !own.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control"))))
+    if (selected.reason === "missing" && !own.operations.some((operation) => operation.authority !== "foreign" && (operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control")) && !isHistoricalContinuationControl(operation.record)))
       return { state: "inactive", diagnostics: selected.evidence };
     return { state: "indeterminate", diagnostics: selected.evidence };
   }
-  const pause = unliftedPause(own, selected);
-  if (pause !== null)
-    return indeterminate("Parent mandate is paused");
   const graphResult = executableGraph(selected);
   if (!graphResult.ok)
     return { state: "indeterminate", diagnostics: graphResult.diagnostics };
@@ -30237,9 +30188,6 @@ function applicableBoundWork(input, mandate, permissions, acceptedSpec, configId
   };
 }
 function authorizedBoundWork(input, mandate) {
-  const pause = outstandingPauseInAuthority(mandate, input.histories);
-  if (pause !== null)
-    return { status: "refused", reason: "unconfirmed", evidence: [pause] };
   const permissions = {
     landing: mandate.payload.permissions.landing && mandate.payload.role !== "fix-only",
     correct: mandate.payload.permissions.correct
@@ -31788,8 +31736,6 @@ export {
   operatorConfirmationEvidenceSchema,
   operatorControlPayloadSchema,
   originalFindingSchema,
-  outstandingPauseInAuthority,
-  outstandingPauseRequest,
   parentAdditionObservationSchema,
   parentCoverageIntentSchema,
   parentCoverageSchema,
@@ -31902,6 +31848,7 @@ export {
   scopedRefsOf,
   scopedStartKey,
   selectApplicableMandate,
+  selectRevocableMandate,
   selectWorkflowBinding,
   selectWorkflowBindingClaims,
   selectedReviewOperations,
@@ -31935,7 +31882,6 @@ export {
   toDiagnostics,
   unframedParserSchema,
   unknownWayfinderLabels,
-  unliftedPause,
   uwCreateInputSchema,
   uwDiagnosticSchema,
   uwLocationSchema,
