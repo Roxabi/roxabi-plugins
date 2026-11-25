@@ -156,6 +156,23 @@ function green(state: State, sha: string): boolean {
   })
 }
 
+function missingBranchCheck(state: State, pr: Pull): string | undefined {
+  const rules = state.branchRules?.[pr.baseRefName] ?? []
+  const rows = state.checks[pr.headRefOid] ?? []
+  for (const rule of rules) {
+    for (const { context, integration_id: app } of rule.parameters.required_status_checks) {
+      const matching = collapsed(
+        rows.filter((check) => check.name === context && (app === undefined || check.appId === app)),
+      )
+      if (
+        matching.length === 0 ||
+        matching.some((check) => check.status !== 'completed' || check.conclusion !== 'success')
+      )
+        return context
+    }
+  }
+}
+
 export function refreshHead(state: State, pr: Pull): void {
   const sha = tip(state.origin, pr.headRefName)
   if (sha) pr.headRefOid = sha
@@ -170,7 +187,6 @@ export function recordedBase(state: State, pr: Pull): string | null {
 }
 
 function mergeIntoOrigin(state: State, pr: Pull): void {
-  refreshHead(state, pr)
   if (!pr.headRefOid) fail(`gh: PR #${pr.number} has no head`)
   const scratch = join(
     currentInvocation().env.TMPDIR || tmpdir(),
@@ -226,6 +242,13 @@ function mergeIntoOrigin(state: State, pr: Pull): void {
       rmSync(scratch, { recursive: true, force: true })
     }
   }
+}
+
+export function mergeCheckedHead(state: State, pr: Pull): void {
+  if (pr.state !== 'OPEN') fail(`gh: PR #${pr.number} is not open`)
+  const missing = missingBranchCheck(state, pr)
+  if (missing !== undefined) fail(`gh: required status check "${missing}" is not successful on ${pr.headRefOid}`)
+  mergeIntoOrigin(state, pr)
 }
 
 function readyToSettle(state: State, pr: Pull): boolean {

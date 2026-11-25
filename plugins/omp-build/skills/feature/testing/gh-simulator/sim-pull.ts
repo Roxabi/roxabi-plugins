@@ -1,5 +1,5 @@
 import { type Context, type Route, readBodyFile } from './sim-command-context.ts'
-import { refreshHead, settle, settleAll } from './sim-git.ts'
+import { mergeCheckedHead, refreshHead, settle, settleAll } from './sim-git.ts'
 import { emit, fields, one } from './sim-graphql.ts'
 import { closesOf, fail, fullName, GITHUB_COMMENT_LIMIT, type Pull, stamp } from './sim-types.ts'
 
@@ -91,11 +91,15 @@ function prMerge(context: Context): boolean {
     context.writeStdout('\n')
     return true
   }
-  if (!context.bool.has('--auto') || !context.bool.has('--merge')) return false
+  if (!context.bool.has('--merge')) return false
   const pin = one(context.flag, '--match-head-commit')
   refreshHead(context.state, pr)
   if (pin !== undefined && pin !== pr.headRefOid) {
     fail(`match-head-commit ${pin} does not match head ${pr.headRefOid}`)
+  }
+  if (!context.bool.has('--auto')) {
+    mergeCheckedHead(context.state, pr)
+    return true
   }
   if (pr.autoMerge) fail('auto-merge already enabled')
   pr.autoMerge = { enabledAt: stamp(context.state), ...(pin ? { matchHeadCommit: pin } : {}) }

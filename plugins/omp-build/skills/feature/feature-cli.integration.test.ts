@@ -23,6 +23,7 @@ import {
   repository,
   revoke,
   seedAuthority,
+  seedLandingChecks,
   world,
 } from './feature-cli.fixture.ts'
 
@@ -495,6 +496,7 @@ it('rejects a mid-run Spec amendment until the digest is refreshed and requires 
   let reviewStatus = 'completed'
   let reviewRules: unknown = rules
   let closeCalls = 0
+  seedLandingChecks(f.box, 'main', f.tip, app)
   const gh: Gh = async (cwd, args) => {
     const catalogue = fixtureCatalogueGhResponse(args)
     if (catalogue !== null) return catalogue
@@ -527,16 +529,7 @@ it('rejects a mid-run Spec amendment until the digest is refreshed and requires 
     if (args[0] === 'pr' && args[1] === 'merge') {
       mergeCalls++
       expect(args).toEqual(['pr', 'merge', String(pr), '--repo', repository, '--merge', '--match-head-commit', f.tip])
-      git(f.box, f.box.principal, ['merge', '--no-ff', '-qm', 'Merge PR', f.tip])
-      const merged = git(f.box, f.box.principal, ['rev-parse', 'HEAD'])
-      git(f.box, f.box.principal, ['push', '-q', 'origin', 'main'])
-      writeSim(f.box, (state) => {
-        const pull = state.prs[String(pr)]
-        if (!pull) throw new Error('Expected PR')
-        pull.state = 'MERGED'
-        pull.mergeCommit = { oid: merged, parents: [f.base, f.tip] }
-      })
-      return ''
+      return f.gh(cwd, args)
     }
     if (args[0] === 'api' && args[2] === 'PATCH' && args[3] === `repos/${repository}/issues/42`) {
       closeCalls++

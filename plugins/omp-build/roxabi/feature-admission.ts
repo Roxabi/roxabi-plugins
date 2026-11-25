@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
-import { bindingMatchesMandate, type MandateRecord, selectWorkflowBinding } from '../dist/contracts.js'
+import { bindingMatchesMandate, selectWorkflowBinding } from '../dist/contracts.js'
 import { explicitParentHistories } from './feature-context.ts'
-import { type Contracts, type History, isRecord, loadContracts } from './feature-engine.ts'
+import { type Contracts, isRecord, loadContracts } from './feature-engine.ts'
 import { readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { createPublicationContextResolver } from './publication-context.ts'
@@ -15,12 +15,6 @@ function defaultGh(): Gh {
     const out = await execFileAsync('gh', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
     return out.stdout
   }
-}
-
-function bindingMatches(payload: Record<string, unknown>, mandateId: string, branch: string, base: string): boolean {
-  const mandate = payload.mandate
-  if (mandate === null || typeof mandate !== 'object' || !('recordId' in mandate)) return false
-  return mandate.recordId === mandateId && payload.branch === branch && payload.base === base
 }
 
 type BindingFailure = { ok: false; reason: string }
@@ -147,32 +141,7 @@ async function readBindingContext(
   return { ok: true as const, issueScope, prScope, issueHistory, parents, history, mandate: selected.mandate }
 }
 
-function bindingRecords(history: History) {
-  return history.operations.flatMap((operation) => {
-    const record = operation.record
-    return record === null || record.kind !== 'workflow-binding'
-      ? []
-      : [{ status: operation.status, recordId: record.recordId, payload: record.payload }]
-  })
-}
-
 function existingBinding(
-  history: History,
-  mandate: MandateRecord,
-  branch: string,
-  base: string,
-): { ok: true; recordId: string } | { ok: false; reason: string } | null {
-  const bindings = bindingRecords(history)
-  if (bindings.some((item) => item.status !== 'complete')) return { ok: false, reason: 'binding-partial' }
-  const matches = bindings.filter((item) => bindingMatches(item.payload, mandate.recordId, branch, base))
-  if (bindings.length > 1 || (bindings.length === 1 && matches.length === 0))
-    return { ok: false, reason: 'binding-conflict' }
-  const existing = matches[0]
-  if (!bindingMatchesMandate(mandate, branch, base)) return { ok: false, reason: 'mandate-metadata-mismatch' }
-  return existing ? { ok: true, recordId: existing.recordId } : null
-}
-
-function existingExactBinding(
   context: Extract<Awaited<ReturnType<typeof readBindingContext>>, { ok: true }>,
   native: {
     branch: string
@@ -184,7 +153,11 @@ function existingExactBinding(
     histories: [context.history, ...context.issueHistory.histories, ...context.parents.parents],
     native,
   })
-  if (selected.status === 'absent') return existingBinding(context.history, context.mandate, native.branch, native.base)
+  if (selected.status === 'absent') {
+    return bindingMatchesMandate(context.mandate, native.branch, native.base)
+      ? null
+      : { ok: false as const, reason: 'mandate-metadata-mismatch' }
+  }
   if (selected.status === 'bound') {
     const { scope, recordId } = selected.mandate
     if (
@@ -229,10 +202,7 @@ export async function confirmWorkflowBinding(input: {
   if (!context.ok) return context
   if ((expected?.mandate ?? context.mandate.recordId) !== context.mandate.recordId)
     return { ok: false, reason: 'exact-mandate-not-applicable' }
-  const existing =
-    expected === undefined
-      ? existingBinding(context.history, context.mandate, input.branch, input.base)
-      : existingExactBinding(context, input)
+  const existing = existingBinding(context, input)
   if (existing !== null) {
     if (existing.ok) await verify()
     return existing

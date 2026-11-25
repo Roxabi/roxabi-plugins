@@ -18,6 +18,7 @@ import {
   repository,
   revoke,
   seedAuthority,
+  seedLandingChecks,
   world,
 } from './feature-cli.fixture.ts'
 
@@ -44,40 +45,11 @@ it('selects, pushes, opens and lands the same mandate after an installed package
   f.bare('update-ref', '-d', ref)
 
   const openedPr = 100
-  const rules = [
-    {
-      type: 'required_status_checks',
-      parameters: { required_status_checks: [{ context: 'review', integration_id: 17 }, { context: 'ci' }] },
-    },
-  ]
+  seedLandingChecks(f.box, 'main', f.tip, 17)
   const gh: Gh = async (cwd, args) => {
     const catalogue = fixtureCatalogueGhResponse(args)
     if (catalogue !== null) return catalogue
-    if (args[1] === `repos/${repository}/rules/branches/main`) return JSON.stringify(rules)
     if (args.some((arg) => arg.includes('OMP_BUILD_TOOLING_SHA'))) throw new Error('Host pin is stale')
-    if (args[0] === 'pr' && args[1] === 'merge') {
-      expect(args).toEqual([
-        'pr',
-        'merge',
-        String(openedPr),
-        '--repo',
-        repository,
-        '--merge',
-        '--match-head-commit',
-        f.tip,
-      ])
-      expect(f.bare('rev-parse', ref)).toBe(f.tip)
-      git(f.box, f.box.principal, ['merge', '--no-ff', '-qm', 'Merge PR', f.tip])
-      const merged = git(f.box, f.box.principal, ['rev-parse', 'HEAD'])
-      git(f.box, f.box.principal, ['push', '-q', 'origin', 'main'])
-      writeSim(f.box, (state) => {
-        const pull = state.prs[String(openedPr)]
-        if (!pull) throw new Error('Expected the composed flow to open the PR')
-        pull.state = 'MERGED'
-        pull.mergeCommit = { oid: merged, parents: [f.base, f.tip] }
-      })
-      return ''
-    }
     return f.gh(cwd, args)
   }
   const uw = await createInstalledUwOperations({
@@ -118,6 +90,57 @@ it('selects, pushes, opens and lands the same mandate after an installed package
     head: f.tip,
   })
   expect(readSim(f.box).prs[String(openedPr)]?.state).toBe('MERGED')
+  expect(f.bare('rev-parse', 'main^2')).toBe(f.tip)
+  expect(readSim(f.box).calls).toContainEqual([
+    'pr',
+    'merge',
+    String(openedPr),
+    '--repo',
+    repository,
+    '--merge',
+    '--match-head-commit',
+    f.tip,
+  ])
+})
+
+it('keeps the PR open when only the previous head passed the repository merge lock', async () => {
+  const f = world(true, 'main', recordedConfig)
+  seedLandingChecks(f.box, 'main', f.tip, 17)
+  git(f.box, f.cwd, ['commit', '--allow-empty', '-qm', 'Advance PR after review'])
+  const head = git(f.box, f.cwd, ['rev-parse', 'HEAD'])
+  git(f.box, f.cwd, ['push', '-q', 'origin', branch])
+  expect(head).not.toBe(f.tip)
+  expect(f.bare('rev-parse', ref)).toBe(head)
+
+  const merges: string[][] = []
+  const gh: Gh = async (cwd, args) => {
+    if (args[0] === 'pr' && args[1] === 'merge') merges.push(args)
+    return f.gh(cwd, args)
+  }
+  const spec = acceptedDigest(f)
+  const land = (candidate: string) =>
+    invoke(f, 'land', ['--pr', String(pr), '--head', candidate, '--spec', spec], { gh })
+  const expectMergeLock = async () => {
+    expect(await land(head)).toMatchObject({ code: 1, status: 'waiting', reason: 'merge-refused' })
+    expect(readSim(f.box).prs[String(pr)]).toMatchObject({ state: 'OPEN', mergeCommit: null })
+    expect(f.bare('rev-parse', 'main')).toBe(f.base)
+  }
+  await expectMergeLock()
+  writeSim(f.box, (state) => {
+    state.checks[head] = (state.checks[f.tip] ?? []).map((check) =>
+      check.name === 'review' ? { ...check, appId: 42 } : check,
+    )
+  })
+  await expectMergeLock()
+  writeSim(f.box, (state) => {
+    state.checks[head] = (state.checks[f.tip] ?? []).filter((check) => check.name === 'review')
+  })
+  await expectMergeLock()
+  const expectedMerge = ['pr', 'merge', String(pr), '--repo', repository, '--merge', '--match-head-commit', head]
+  expect(merges).toEqual([expectedMerge, expectedMerge, expectedMerge])
+  expect(await land(f.tip)).toMatchObject({ code: 1, status: 'refused', reason: 'pr-head-mismatch' })
+  expect(merges).toHaveLength(3)
+  expect(readSim(f.box).prs[String(pr)]).toMatchObject({ state: 'OPEN', mergeCommit: null })
 })
 
 it('keeps the branch, base, correction-only and revocation locks on pre-upgrade authority', async () => {
