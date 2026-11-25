@@ -201,7 +201,7 @@ jobs:
             # this read. A PR that is mergeable now is merged by a person.
             case "$(printf '%s' "$live" | jq -r '.mergeStateStatus')" in
               CLEAN | UNSTABLE | HAS_HOOKS)
-                refuse "refusing auto-merge: PR is already mergeable; merge it with: gh pr merge $PR_NUMBER --merge --match-head-commit $HEAD_SHA" ;;
+                refuse "refusing auto-merge: PR is already mergeable; merge it with: gh pr merge $PR_NUMBER --repo $GITHUB_REPOSITORY --merge --match-head-commit $HEAD_SHA" ;;
             esac
           }
           arm() {
