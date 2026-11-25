@@ -1,5 +1,6 @@
 import type { DecodedHistory, History, OperationRead } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
+import { bindExternalRef } from '../../engine/workflow-control.ts'
 import { encodeRecord } from './history-codec.ts'
 import type { PublicationContextResolver } from './publication-context.ts'
 import { freshHistory, publishMissingBodies } from './publication-writer.ts'
@@ -13,6 +14,12 @@ import {
   sameOperation,
 } from './publisher-validation.ts'
 import { diagnostic, expectedReadAuthor, type GitHubOptions, viewer } from './types.ts'
+
+function authenticateReadBack(record: CanonicalRecord, history: DecodedHistory): PublicationFailure | null {
+  const { repository, target, recordId, kind } = record
+  const bound = bindExternalRef({ scope: { repository, target }, recordId, kind }, history)
+  return bound.ok ? null : publicationFailure('uncertain', history, bound.diagnostics)
+}
 
 async function confirmReadBack(
   record: CanonicalRecord,
@@ -28,6 +35,8 @@ async function confirmReadBack(
         `Operation ${record.operationId} was not completely confirmed by native read-back`,
       ),
     ])
+  const unconfirmed = authenticateReadBack(record, current)
+  if (unconfirmed !== null) return unconfirmed
   try {
     const latest = await resolveContext({ record, history: current, externalHistories })
     if (!latest.ok) return publicationFailure('uncertain', current, latest.diagnostics)
@@ -142,7 +151,9 @@ export async function publishGitHubRecord(
   const ownParts = confirmed === undefined ? incomplete : [...incomplete, confirmed]
   const encoded = await encodePublication(record, current, ownParts, resolveContext, externalHistories)
   if (encoded.status !== 'ready') return encoded
-  if (confirmed !== undefined && sameId.length === 1) return { status: 'confirmed', operation: confirmed }
+  if (confirmed !== undefined && sameId.length === 1) {
+    return authenticateReadBack(record, current) ?? { status: 'confirmed', operation: confirmed }
+  }
 
   const retainedDiagnostics = retainedPartConflictDiagnostics(record, incomplete, new Set(encoded.bodies))
   if (retainedDiagnostics !== null) return publicationFailure('refused', current, retainedDiagnostics)

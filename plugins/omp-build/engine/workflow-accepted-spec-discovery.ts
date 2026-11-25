@@ -4,6 +4,7 @@ import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpecChain } from './workflow-accepted-spec-chain.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import {
+  abandoned,
   historyFor,
   type MandateRecord,
   mandateScope,
@@ -68,9 +69,9 @@ function structuralReplay(mandate: MandateRecord, histories: readonly DecodedHis
     confirmed.payload.ownSpec.uw.target !== scope.target
   )
     return specChainFailure('material-spec', 'Mandate own Spec does not belong to its mandate scope')
-  const pairs = confirmedAssessPairs(home, histories, mandateRef)
+  const pairs = confirmedAssessPairs(home, histories, mandateRef, abandoned(home, confirmed))
   if (!pairs.ok) return pairs
-  return recordedReplay({ confirmed, home, histories, mandateRef, scope })
+  return recordedReplay({ confirmed, home, histories, mandateRef, scope, excludedResults: pairs.excludedResults })
 }
 
 function recordedReplay(

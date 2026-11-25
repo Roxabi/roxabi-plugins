@@ -433,33 +433,13 @@ it.each(['review', 'ci'])('will not land a changed head with only the prior head
   git(f.box, f.cwd, ['commit', '-qm', 'fix: new head', '--allow-empty'])
   const head = git(f.box, f.cwd, ['rev-parse', 'HEAD'])
   git(f.box, f.cwd, ['push', '-q', 'origin', `HEAD:${ref}`])
-  const required = [{ context: 'review', integration_id: app }, { context: 'ci' }]
-  const checks = required.map(({ context: name }) => ({
-    name,
-    status: 'completed',
-    conclusion: 'success',
-    workflowName: name,
-    startedAt: date,
-  }))
+  seedLandingChecks(f.box, 'main', f.tip, app)
+  seedLandingChecks(f.box, 'main', head, app)
   writeSim(f.box, (state) => {
-    state.checks[f.tip] = checks
-    state.checks[head] = checks.filter((check) => check.name !== stale)
+    state.checks[head] = state.checks[head]?.filter((check) => check.name !== stale) ?? []
   })
-  const gh: Gh = (cwd, args) => {
-    if (args[1] === `repos/${repository}/rules/branches/main`)
-      return Promise.resolve(
-        JSON.stringify([{ type: 'required_status_checks', parameters: { required_status_checks: required } }]),
-      )
-    if (args[0] === 'pr' && args[1] === 'merge') {
-      const state = readSim(f.box)
-      expect(args).toEqual(['pr', 'merge', String(pr), '--repo', repository, '--merge', '--match-head-commit', head])
-      if (required.some(({ context }) => !state.checks[head]?.some((check) => check.name === context)))
-        throw new Error('required status check is pending')
-    }
-    return f.gh(cwd, args)
-  }
   const land = (candidate: string) =>
-    invoke(f, 'land', ['--pr', String(pr), '--head', candidate, '--spec', acceptedDigest(f)], { gh })
+    invoke(f, 'land', ['--pr', String(pr), '--head', candidate, '--spec', acceptedDigest(f)])
   expect(await land(f.tip)).toMatchObject({ code: 1, reason: 'pr-head-mismatch' })
   expect(await land(head)).toMatchObject({ code: 1, status: 'waiting', reason: 'merge-refused' })
   expect(readSim(f.box).prs[String(pr)]?.state).toBe('OPEN')

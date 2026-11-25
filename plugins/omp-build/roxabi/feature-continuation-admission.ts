@@ -1,4 +1,4 @@
-import { readWorkflowBinding } from '../dist/contracts.js'
+import { readWorkflowBinding, readWorkflowBindingForRevocation } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { MandateSelection } from '../engine/workflow-mandate.ts'
@@ -84,12 +84,9 @@ export async function resolveFeatureRevocation(
   const target = await resolveFeatureNativeTarget(input.reference, context)
   if ('kind' in target) return target
   if (target.status === 'issue') return { scope: target.scope }
-  const bound = await readWorkflowBinding(target.scope, withRoxabiGitHubPolicy(context))
+  const bound = await readWorkflowBindingForRevocation(target.scope, withRoxabiGitHubPolicy(context))
   if (!bound.ok) return { kind: 'blocked', reason: bound.status === 'absent' ? 'binding-missing' : bound.status }
-  const { binding } = bound.value
-  if (binding.kind !== 'workflow-binding' || binding.payload.mandate.kind !== 'mandate')
-    return { kind: 'blocked', reason: 'binding-incomplete' }
-  const mandate = { ...binding.payload.mandate, kind: 'mandate' as const }
+  const { mandate } = bound
   return { scope: mandate.scope, mandate }
 }
 

@@ -69,7 +69,7 @@ Stop on inactive authority, material/coverage hold, ambiguous or divergent refs,
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Selects or establishes a leaf mandate. Repeating it continues under a live mandate from current Git and GitHub facts. Parent delivery is suspended. |
-| `/feature pause <reference>` | Stops this session's running Feature without remote writes or a mandate change. |
+| `/feature pause <reference>` | Stops only the matching Feature in this session. If none matches, nothing changes. No remote write or mandate change. |
 | `/feature abandon <reference>` | Publishes and reads back exact mandate revocation, with no PR disarm or automatic renewal. |
 | `/feature new <reference>` | Selects a successor over an intact abandoned or revoked mandate and conformant Spec. |
 | `/feature material-decision <reference>` | Requires genuine operator confirmation of the exact pending Spec proposal. |

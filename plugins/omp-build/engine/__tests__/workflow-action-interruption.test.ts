@@ -7,7 +7,7 @@ import {
   planWorld,
 } from '../../testing/workflow-interruption-world.ts'
 import { startResolution } from '../workflow-action-interruption.ts'
-import { unliftedPause } from '../workflow-pause.ts'
+import { controlsOf } from '../workflow-control.ts'
 import { interruptedResult, interruptionResolution, withPayload } from './workflow-interruption-support.ts'
 
 const ADOPTED_HEAD = 'c'.repeat(40)
@@ -101,7 +101,7 @@ describe('completed results stay on their own paths', () => {
 })
 
 describe('neutral operator resolution', () => {
-  it('excludes a resolved attempt without lifting the confirmed pause', () => {
+  it('classifies the resolved attempt without changing the historical controls', () => {
     const world = planWorld()
     const resolution = interruptionResolution({
       mandate: world.mandate,
@@ -111,9 +111,9 @@ describe('neutral operator resolution', () => {
     })
     const attempt = [world.start, world.interrupted, ...world.paused, resolution]
     const paused = world.issue(attempt)
-    expect(unliftedPause(paused, world.mandate)?.recordId).toBe(world.pause.recordId)
+    expect(controlsOf(paused)).toContainEqual(world.pause)
     expect(classifyDeliveryAttempts(paused)).toMatchObject({ ok: true, value: { unresolved: [] } })
-    expect(unliftedPause(world.issue([...attempt, world.resume]), world.mandate)).toBeNull()
+    expect(controlsOf(world.issue([...attempt, world.resume]))).toContainEqual(world.resume)
   })
 
   it('resolves an orphan START whose RESULT is truly absent', () => {

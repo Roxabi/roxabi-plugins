@@ -42,7 +42,7 @@ The operator's accepted authority to deliver or correct a defined scope, indepen
 _Avoid_: a session goal, a review verdict, a permission inferred from missing data
 
 **Pause**:
-A stop of the running Feature session, with no change to its Mandate. A later `/feature` invocation can continue under that Mandate if it is still live.
+A stop of the running Feature for the supplied reference, with no change to its Mandate or to unrelated work. A later `/feature` invocation can continue under that Mandate if it is still live.
 _Avoid_: abandonment, durable suspension, PR disarm
 
 **Abandonment**:
@@ -70,7 +70,7 @@ A historical review attempt linked to a Replacement grant and the interrupted ro
 _Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
 
 **Action receipt**:
-A confirmed START or RESULT record for a historical action. These records remain evidence; they neither authorize nor block composed delivery.
+A confirmed START or RESULT record. Composed continuation does not replay historical attempts; receipts that establish the current Accepted Spec still apply.
 _Avoid_: a review record, a transcript, a local cache
 
 **Workflow binding**:

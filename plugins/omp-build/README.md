@@ -81,13 +81,13 @@ Re-running `/feature <reference>` re-observes Git and GitHub and can continue un
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes or reuses the applicable leaf mandate, then hands off to the composition instructions. Re-entry re-observes Git and GitHub. |
-| `/feature pause <reference>` | Stops the running Feature session only. No remote write, PR disarm or mandate change. |
+| `/feature pause <reference>` | Stops only the running Feature for that reference. If no Feature matches, nothing changes. No remote write, PR disarm or mandate change. |
 | `/feature abandon <reference>` | Publishes and reads back the exact mandate's `operator-control: abandon` revocation, even if its Accepted Spec is unreadable or missing. It does not disarm PRs or renew the mandate. |
 | `/feature new <reference>` | Explicit successor over the authenticated own abandoned mandate tip. It names the antecedent, publishes `select-successor` and preserves a compatible existing PR. Historical framing is not current authority, ancestor revocation is not own abandonment, and `/feature <reference>` never renews a mandate. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the genuine operator-confirmation route for the exact authenticated material or unknown assessment. An `accept`/`reject` argv suffix is not authority and is refused. `/uw accept-material` uses the same acceptance chain. |
 | `/feature init` | Preview of the invoking checkout; not framing or mandate preparation. |
 
-Historical pause, resume, START, RESULT and interruption records remain readable as evidence. They neither grant nor block composed delivery. An abandoned predecessor's historical assessment does not hold the current mandate; the current Spec and delivery locks still apply. Recover in place with `/feature <reference>`, not by replacing a live mandate.
+Historical pause, resume, START, RESULT and interruption records remain readable. Composed delivery does not replay them to decide whether the current mandate can continue. Receipts that establish the current Accepted Spec, such as a valid editorial assessment, still apply. Recover in place with `/feature <reference>`, not by replacing a live mandate.
 
 Explicit leaf succession retains compatibility checks for accepted obligations and ordered inherited references. Parent delivery and parent succession via `/feature` are suspended.
 
@@ -104,7 +104,7 @@ Select and new retain the `session-cwd` checkout guard and may stop with `princi
 
 During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `material-decision` and `init` are parsed as controls, not framed as free text.
 
-A session stop cannot roll back a write already started. Use `/feature abandon <reference>` for a durable stop of the exact mandate.
+Use `/feature abandon <reference>` to revoke the exact mandate. Revocation stops effects that re-read the mandate afterward. A push, PR operation or merge already past its last mandate read can still complete. Revocation does not disarm [existing auto-merge or Kit grants](#existing-arms-and-disarm).
 
 Interactive `/feature` and `/uw` confirmations belong to their root command. The session becoming idle leaves a confirmation open; abort, switch, shutdown or command replacement invalidates it. Escape or `Plus tard` keeps the exact proposal pending. `ctrl+alt+u` reopens it in the same live session and location; it does not approve it. A command that was not deferred this way still requires explicit re-entry.
 

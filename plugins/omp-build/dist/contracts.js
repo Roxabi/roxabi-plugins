@@ -11368,11 +11368,13 @@ function uniqueBindings(bindings) {
   }
   return [...byMandate.values()];
 }
-function authenticatedSuccessor(binding, histories) {
+function authenticatedSuccessor(binding, histories, purpose) {
   const home = historyFor(binding.payload.mandate.scope, histories);
   if (home === null || !home.source.complete) {
     return bindingRefusal("incomplete", [diagnostic2("incomplete", "Binding mandate history is missing or incomplete")]);
   }
+  if (purpose === "revocation")
+    return successorClaim(home, binding.payload.mandate);
   const problem = workflowOperationProblem(home);
   if (problem === "incompatible-format") {
     const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem);
@@ -11387,10 +11389,10 @@ function authenticatedSuccessor(binding, histories) {
   }
   return successorClaim(home, binding.payload.mandate);
 }
-function successors(bindings, histories) {
+function successors(bindings, histories, purpose) {
   const next = new Map;
   for (const binding of bindings) {
-    const successor = authenticatedSuccessor(binding, histories);
+    const successor = authenticatedSuccessor(binding, histories, purpose);
     if (successor.status === "incomplete" || successor.status === "conflicting" || successor.status === "incompatible-format")
       return successor;
     if (successor.status === "next") {
@@ -11435,11 +11437,11 @@ function onAuthorizedChain(bindings, next, head) {
   }
   return null;
 }
-function resolveBindingChain(bindings, histories) {
+function resolveBindingChain(bindings, histories, purpose = "delivery") {
   const unique = uniqueBindings(bindings);
   if (!Array.isArray(unique))
     return unique;
-  const next = successors(unique, histories);
+  const next = successors(unique, histories, purpose);
   if (!(next instanceof Map))
     return next;
   const head = authorizedHead(unique, next);
@@ -11519,11 +11521,24 @@ function selectWorkflowBindingClaims(input) {
     return invalid;
   return recordsForClaims(claims, input);
 }
-function selectWorkflowBindingCandidate(input) {
+function selectWorkflowBindingCandidate(input, purpose = "delivery") {
   const records = selectWorkflowBindingClaims(input);
   if (!Array.isArray(records))
     return records;
-  const candidate = resolveBindingChain(records, input.histories);
+  if (purpose === "revocation") {
+    const home = historyFor(input.pullRequest, input.histories);
+    if (home === null)
+      return bindingRefusal("incomplete", [diagnostic2("missing-history", "PR history is missing")]);
+    for (const record of records) {
+      const checked = bindExternalRef({ scope: input.pullRequest, recordId: record.recordId, kind: record.kind }, home);
+      if (!checked.ok)
+        return bindingRefusal("incomplete", checked.diagnostics);
+    }
+    const [binding] = records;
+    if (records.length === 1 && binding !== undefined)
+      return { status: "bound", binding, claims: records };
+  }
+  const candidate = resolveBindingChain(records, input.histories, purpose);
   return candidate.status === "bound" ? { ...candidate, claims: records } : candidate;
 }
 
@@ -11536,7 +11551,7 @@ function confirmedAccountedMandate(history, ref) {
   const record = matches[0]?.record;
   return record?.kind === "mandate" ? record : null;
 }
-function validateBindingClaims(claims, histories) {
+function validateBindingClaims(claims, histories, purpose) {
   for (const claim of claims) {
     const claimHome = historyFor(claim.payload.mandate.scope, histories);
     const mandate = claimHome === null ? null : confirmedAccountedMandate(claimHome, claim.payload.mandate);
@@ -11545,6 +11560,11 @@ function validateBindingClaims(claims, histories) {
         status: "incomplete",
         diagnostics: [diagnostic2("incomplete", "Binding mandate record is not confirmed")]
       };
+    if (purpose === "revocation") {
+      const authenticated = bindExternalRef(claim.payload.mandate, claimHome);
+      if (!authenticated.ok)
+        return { status: "incomplete", diagnostics: authenticated.diagnostics };
+    }
     if (!usesLegacyBindingFormat(mandate) && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
       return {
         status: "conflicting",
@@ -11553,11 +11573,11 @@ function validateBindingClaims(claims, histories) {
   }
   return null;
 }
-function selectWorkflowBinding(input) {
-  const chained = selectWorkflowBindingCandidate(input);
+function selectWorkflowBinding(input, purpose = "delivery") {
+  const chained = selectWorkflowBindingCandidate(input, purpose);
   if (chained.status !== "bound")
     return chained;
-  const claimsProblem = validateBindingClaims(chained.claims, input.histories);
+  const claimsProblem = validateBindingClaims(chained.claims, input.histories, purpose);
   if (claimsProblem !== null)
     return claimsProblem;
   const home = historyFor(chained.binding.payload.mandate.scope, input.histories);
@@ -11567,7 +11587,7 @@ function selectWorkflowBinding(input) {
       diagnostics: [diagnostic2("incomplete", "Binding mandate history is missing or incomplete")]
     };
   }
-  const problem = workflowOperationProblem(home);
+  const problem = purpose === "delivery" ? workflowOperationProblem(home) : null;
   if (problem === "incompatible-format") {
     const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem);
     return {
@@ -15058,6 +15078,576 @@ function positiveReviewSuccessor(payload) {
   }) && payload.contributions.length === payload.slots.length;
 }
 
+// plugins/omp-build/engine/workflow-spec-projections.ts
+function refProjection(ref) {
+  return {
+    scope: { repository: ref.scope.repository, target: ref.scope.target },
+    recordId: ref.recordId,
+    kind: ref.kind
+  };
+}
+function snapshotProjection(snapshot) {
+  return {
+    spec: {
+      format: snapshot.spec.format,
+      criteria: snapshot.spec.criteria.map((item) => ({ id: item.id, statement: item.statement })),
+      invariants: snapshot.spec.invariants.map((item) => ({ id: item.id, statement: item.statement })),
+      exclusions: [...snapshot.spec.exclusions],
+      openQuestions: [...snapshot.spec.openQuestions],
+      sections: { ...snapshot.spec.sections },
+      version: snapshot.spec.version
+    },
+    raw: {
+      reference: snapshot.raw.reference,
+      body: snapshot.raw.body,
+      bodySha256: snapshot.raw.bodySha256,
+      lastEditedAt: snapshot.raw.lastEditedAt
+    }
+  };
+}
+function childrenProjection(children) {
+  return children.map((child) => ("kind" in child) ? {
+    kind: child.kind,
+    operationId: child.operationId,
+    plan: child.plan,
+    planDigest: child.planDigest
+  } : {
+    scope: { repository: child.scope.repository, target: child.scope.target },
+    specVersion: child.specVersion,
+    snapshot: snapshotProjection(child.snapshot),
+    tier: child.tier
+  });
+}
+function currentSnapshotProjection(snapshot) {
+  return {
+    spec: {
+      format: snapshot.spec.format,
+      criteria: snapshot.spec.criteria.map((item) => ({ id: item.id, statement: item.statement })),
+      invariants: snapshot.spec.invariants.map((item) => ({ id: item.id, statement: item.statement })),
+      exclusions: [...snapshot.spec.exclusions],
+      openQuestions: [...snapshot.spec.openQuestions],
+      sections: { ...snapshot.spec.sections },
+      version: snapshot.spec.version
+    },
+    raw: {
+      reference: snapshot.raw.reference,
+      body: snapshot.raw.body,
+      bodySha256: snapshot.raw.bodySha256
+    }
+  };
+}
+function currentChildrenProjection(children) {
+  return children.map((child) => ("kind" in child) ? {
+    kind: child.kind,
+    operationId: child.operationId,
+    plan: child.plan,
+    planDigest: child.planDigest
+  } : {
+    scope: { repository: child.scope.repository, target: child.scope.target },
+    specVersion: child.specVersion,
+    snapshot: currentSnapshotProjection(child.snapshot),
+    tier: child.tier
+  });
+}
+
+// plugins/omp-build/engine/workflow-spec-assessment.ts
+function isAssessResult(record) {
+  return record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "result";
+}
+function itemIds(items) {
+  return items.map((item) => item.id);
+}
+function changedItemStatements(accepted, proposed) {
+  const previous = new Map(accepted.map((item) => [item.id, item.statement]));
+  return proposed.filter((item) => previous.get(item.id) !== undefined && previous.get(item.id) !== item.statement).map((item) => item.id);
+}
+function changedChildren(accepted, proposed) {
+  const key = (child) => `${child.scope.repository}\x00${child.scope.target}`;
+  if (accepted.length !== proposed.length)
+    return true;
+  const prior = new Map(accepted.map((child) => [key(child), `${child.specVersion}\x00${child.tier}`]));
+  return proposed.some((child) => ("kind" in child) || prior.get(key(child)) !== `${child.specVersion}\x00${child.tier}`);
+}
+function mechanicalSpecDelta(accepted, proposed) {
+  const acceptedCriteria = accepted.snapshot.spec.criteria;
+  const proposedCriteria = proposed.snapshot.spec.criteria;
+  const acceptedInvariants = accepted.snapshot.spec.invariants;
+  const proposedInvariants = proposed.snapshot.spec.invariants;
+  const acceptedIds = new Set([...itemIds(acceptedCriteria), ...itemIds(acceptedInvariants)]);
+  const proposedIds = new Set([...itemIds(proposedCriteria), ...itemIds(proposedInvariants)]);
+  const added = [...proposedIds].filter((id) => !acceptedIds.has(id));
+  const removed = [...acceptedIds].filter((id) => !proposedIds.has(id));
+  const changedStatements = [
+    ...changedItemStatements(acceptedCriteria, proposedCriteria),
+    ...changedItemStatements(acceptedInvariants, proposedInvariants)
+  ];
+  const sectionsOrOrderChanged = JSON.stringify(accepted.snapshot.spec.sections) !== JSON.stringify(proposed.snapshot.spec.sections) || JSON.stringify(itemIds(acceptedCriteria)) !== JSON.stringify(itemIds(proposedCriteria)) || JSON.stringify(itemIds(acceptedInvariants)) !== JSON.stringify(itemIds(proposedInvariants)) || JSON.stringify(accepted.snapshot.spec.openQuestions) !== JSON.stringify(proposed.snapshot.spec.openQuestions);
+  return {
+    added,
+    removed,
+    changedStatements,
+    exclusionsChanged: JSON.stringify(accepted.snapshot.spec.exclusions) !== JSON.stringify(proposed.snapshot.spec.exclusions),
+    tierChanged: accepted.tier !== proposed.tier,
+    childrenChanged: changedChildren(accepted.children, proposed.children),
+    inheritanceChanged: stableStringify(accepted.inheritedOwnSpecRefs) !== stableStringify(proposed.inheritedOwnSpecRefs),
+    coverageChanged: stableStringify(accepted.coverage) !== stableStringify(proposed.coverage),
+    sectionsOrOrderChanged
+  };
+}
+function sameMechanicalDelta(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function isMechanical(delta) {
+  return delta.added.length > 0 || delta.removed.length > 0 || delta.exclusionsChanged || delta.tierChanged || delta.childrenChanged || delta.inheritanceChanged || delta.coverageChanged;
+}
+function hasMaterialAcceptanceContent(delta) {
+  return isMechanical(delta) || delta.changedStatements.length > 0 || delta.sectionsOrOrderChanged;
+}
+function requiresMaterialAcceptance(delta, classification) {
+  return isMechanical(delta) || (classification === "material" || classification === "unknown") && hasMaterialAcceptanceContent(delta);
+}
+function stableStringify(value) {
+  return JSON.stringify(value, (_, entry) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry))
+      return entry;
+    return Object.fromEntries(Object.keys(entry).sort().map((key) => [key, entry[key]]));
+  });
+}
+function sameAssessedState(left, right) {
+  return stableStringify(left) === stableStringify(right);
+}
+function sameCurrentAssessedState(left, right) {
+  return JSON.stringify({
+    snapshot: currentSnapshotProjection(left.snapshot),
+    tier: left.tier,
+    children: currentChildrenProjection(left.children),
+    inheritedOwnSpecRefs: left.inheritedOwnSpecRefs,
+    coverage: left.coverage
+  }) === JSON.stringify({
+    snapshot: currentSnapshotProjection(right.snapshot),
+    tier: right.tier,
+    children: currentChildrenProjection(right.children),
+    inheritedOwnSpecRefs: right.inheritedOwnSpecRefs,
+    coverage: right.coverage
+  });
+}
+function materialAcceptanceDigest(value) {
+  const exact = value.exactInputs;
+  const projection = {
+    format: value.format,
+    operationId: value.operationId,
+    uw: { repository: value.uw.repository, target: value.uw.target },
+    mandate: refProjection(value.mandate),
+    predecessor: refProjection(value.predecessor),
+    assessment: refProjection(value.assessment),
+    classification: value.classification,
+    exactInputs: {
+      format: exact.format,
+      accepted: {
+        ref: {
+          uw: { repository: exact.accepted.ref.uw.repository, target: exact.accepted.ref.uw.target },
+          version: exact.accepted.ref.version,
+          sourceAccepted: refProjection(exact.accepted.ref.sourceAccepted)
+        },
+        snapshot: snapshotProjection(exact.accepted.snapshot),
+        tier: exact.accepted.tier,
+        children: childrenProjection(exact.accepted.children),
+        inheritedOwnSpecRefs: exact.accepted.inheritedOwnSpecRefs,
+        coverage: exact.accepted.coverage
+      },
+      proposed: {
+        snapshot: snapshotProjection(exact.proposed.snapshot),
+        tier: exact.proposed.tier,
+        children: childrenProjection(exact.proposed.children),
+        inheritedOwnSpecRefs: exact.proposed.inheritedOwnSpecRefs,
+        coverage: exact.proposed.coverage
+      },
+      attachedChildren: childrenProjection(exact.attachedChildren),
+      attachedWayfinders: exact.attachedWayfinders.map(nativeObservationDigest),
+      childOwnSources: exact.childOwnSources.map((source) => ({
+        uw: source.uw,
+        own: source.own === null ? null : {
+          uw: source.own.uw,
+          version: source.own.version,
+          sourceAccepted: refProjection(source.own.sourceAccepted)
+        }
+      })),
+      identityAllocations: exact.identityAllocations.map(refProjection),
+      mechanical: {
+        added: [...exact.mechanical.added],
+        removed: [...exact.mechanical.removed],
+        changedStatements: [...exact.mechanical.changedStatements],
+        exclusionsChanged: exact.mechanical.exclusionsChanged,
+        tierChanged: exact.mechanical.tierChanged,
+        childrenChanged: exact.mechanical.childrenChanged,
+        inheritanceChanged: exact.mechanical.inheritanceChanged,
+        coverageChanged: exact.mechanical.coverageChanged,
+        sectionsOrOrderChanged: exact.mechanical.sectionsOrOrderChanged
+      }
+    }
+  };
+  return specDigest(JSON.stringify(projection));
+}
+function sameAssessInputs(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function specChainFailure(reason, message, code) {
+  return { ok: false, reason, evidence: [diagnostic2(code ?? reason, message)] };
+}
+
+// plugins/omp-build/engine/workflow-spec-authentication-chain.ts
+function boundFailure(diagnostics) {
+  const code = diagnostics[0]?.code;
+  const reason = code === "conflict" || code === "ambiguous" ? "ambiguous" : code === "missing-history" ? "missing-history" : "incomplete";
+  return { ok: false, reason, evidence: diagnostics };
+}
+function mismatchedStart() {
+  return specChainFailure("incomplete", "Spec assessment start does not match its result", "unconfirmed");
+}
+function authenticateStart(confirmed, home, mandateRef) {
+  const startRef = confirmed.payload.start;
+  if (!equalScope(startRef.scope, confirmed) || !equalScope(startRef.scope, mandateRef.scope))
+    return mismatchedStart();
+  const start = bindExternalRef(startRef, home);
+  if (!start.ok)
+    return specChainFailure("incomplete", "Spec assessment start is unresolved", "unconfirmed");
+  if (start.value.kind !== "action-receipt")
+    return mismatchedStart();
+  const startPayload = start.value.payload;
+  if (startPayload.action !== "assess-spec" || startPayload.phase !== "start")
+    return mismatchedStart();
+  if (startPayload.actionId !== confirmed.payload.actionId)
+    return mismatchedStart();
+  if (!sameRef2(startPayload.mandate, mandateRef))
+    return mismatchedStart();
+  if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs))
+    return mismatchedStart();
+  if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
+    return mismatchedStart();
+  if (!validateActionInputs(confirmed.payload.inputs).ok)
+    return mismatchedStart();
+  if (!expandedGitPinsObserved([home], confirmed.payload.inputs))
+    return specChainFailure("incomplete", "Spec assessment cites unconfirmed expanded Git context", "unconfirmed");
+  const operands = confirmed.payload.inputs.manifest.operands;
+  if (operands?.action !== "assess-spec" || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
+    return mismatchedStart();
+  return { ok: true };
+}
+function authenticatedRecord(assessed, histories, mandateRef) {
+  const home = historyFor({ repository: assessed.repository, target: assessed.target }, histories);
+  if (home === null)
+    return specChainFailure("missing-history", "Spec assessment history is missing");
+  const bound = bindExternalRef({
+    scope: { repository: assessed.repository, target: assessed.target },
+    recordId: assessed.recordId,
+    kind: assessed.kind
+  }, home);
+  if (!bound.ok)
+    return boundFailure(bound.diagnostics);
+  if (!isAssessResult(bound.value))
+    return specChainFailure("incomplete", "Spec assessment is not a result");
+  const confirmed = bound.value;
+  if (confirmed.payload.native.completion !== "completed" || confirmed.payload.native.strict !== "valid")
+    return specChainFailure("incomplete", "Spec assessment is not a confirmed native result", "unconfirmed");
+  const start = authenticateStart(confirmed, home, mandateRef);
+  if (!start.ok)
+    return start;
+  return { ok: true, record: confirmed };
+}
+function authenticatedAssessResult(record, histories, mandateRef) {
+  if (!isAssessResult(record))
+    return specChainFailure("incomplete", "Spec assessment is not a result");
+  const assessed = record;
+  if (!sameRef2(assessed.payload.mandate, mandateRef))
+    return specChainFailure("ambiguous", "Spec assessment names a different mandate");
+  return authenticatedRecord(assessed, histories, mandateRef);
+}
+
+// plugins/omp-build/engine/workflow-editorial-qualification.ts
+function applicableAssessment(record, mandateRef, applied, accepted) {
+  return record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "result" && sameRef2(record.payload.mandate, mandateRef) && !applied.has(record.recordId) && sameAssessedState(record.payload.exactInputs.accepted, {
+    ref: accepted.ref,
+    snapshot: accepted.snapshot,
+    tier: accepted.tier,
+    children: accepted.children,
+    inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
+    coverage: accepted.coverage
+  });
+}
+function qualifyEditorialCandidate(record, input) {
+  if (!applicableAssessment(record, input.mandateRef, input.applied, input.accepted))
+    return { status: "irrelevant" };
+  const key = scopedStartKey({
+    scope: { repository: record.repository, target: record.target },
+    recordId: record.recordId
+  });
+  if (input.excludedResults.has(key))
+    return { status: "irrelevant" };
+  const authenticated = authenticatedAssessResult(record, input.histories, input.mandateRef);
+  if (!authenticated.ok)
+    return { status: "refused", result: authenticated };
+  if (workflowContextNegative(authenticated.record))
+    return { status: "irrelevant" };
+  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured);
+  if (!parsed.success)
+    return { status: "refused", result: specChainFailure("incomplete", "Applicable spec assessment is malformed") };
+  if (parsed.data.compatibility.state !== "consistent") {
+    const result = specChainFailure("material-spec", `Constraint compatibility is ${parsed.data.compatibility.state}`);
+    input.deferCompatibility(authenticated.record, parsed.data, result);
+    return { status: "refused", result };
+  }
+  input.deferCompatibility(authenticated.record, parsed.data);
+  const exact = authenticated.record.payload.exactInputs;
+  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
+  if (!sameMechanicalDelta(mechanical, exact.mechanical))
+    return {
+      status: "refused",
+      result: specChainFailure("incomplete", "Spec assessment mechanical delta does not match its exact states")
+    };
+  if (isMechanical(mechanical) || parsed.data.classification !== "editorial")
+    return { status: "material" };
+  return { status: "editorial", record: authenticated.record };
+}
+
+// plugins/omp-build/engine/workflow-composed-material-intent.ts
+var equal = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
+var invalid3 = (message) => fail([diagnostic2("material-composition-invalid", message)]);
+var issueScope = (issue) => ({
+  repository: issue.repository,
+  target: `${issue.repository}#${issue.number}`
+});
+var issueKey = (issue) => `${issue.repository}\x00${issue.number}`;
+var sorted = (items) => [...items].sort();
+function unresolvedChildClaims(history) {
+  return history.operations.some((entry) => entry.authority !== "foreign" && (entry.kind === "spec-identity" || entry.claimedKinds.includes("spec-identity") || entry.kind === "mandate" || entry.claimedKinds.includes("mandate")) && (entry.status !== "complete" || entry.record === null));
+}
+function creationRecords(input) {
+  const { authorization, histories } = input;
+  const operationHistory = historyFor(authorization.operation.scope, histories);
+  const childHistory = historyFor(authorization.binding.child, histories);
+  if (operationHistory === null || childHistory === null)
+    return invalid3("Creation intent or child identity history is missing");
+  if (workflowOperationProblem(operationHistory) !== null || workflowOperationProblem(childHistory) !== null || unresolvedChildClaims(childHistory))
+    return invalid3("Creation or child authority history contains unresolved claims");
+  const boundOperation = bindExternalRef(authorization.operation, operationHistory);
+  const boundIdentity = bindExternalRef(authorization.binding.identity, childHistory);
+  if (!boundOperation.ok || boundOperation.value.kind !== "cause-operation" || !boundIdentity.ok || boundIdentity.value.kind !== "spec-identity")
+    return invalid3("Creation intent and identity must be authenticated canonical records");
+  return { ok: true, value: { operation: boundOperation.value, identity: boundIdentity.value } };
+}
+function creationContextProblem(outer, consent, input) {
+  const source = outer.creation.kind === "sister" ? outer.creation.disposition : outer.creation.report;
+  const intendedParent = outer.creation.kind === "sister" ? outer.creation.parent : outer.creation.parentObservation?.parent ?? null;
+  if (!equalScope(input.authorization.operation.scope, source.scope) || intendedParent === null || !equalScope(intendedParent, consent.parent))
+    return "Creation intent does not belong to the source or the consented parent";
+  const parentObservation = outer.creation.parentObservation;
+  if (parentObservation === null || parentObservation.state !== "active" || !equalScope(parentObservation.parent, consent.parent) || parentObservation.historyDigest !== consent.historyDigest || parentObservation.nativeDigest !== consent.nativeObservationDigest)
+    return "Creation context does not bind the same active parent observation";
+  const assessmentHistory = historyFor(input.proposal.assessment.scope, input.histories);
+  const assessment = assessmentHistory === null ? null : bindExternalRef(input.proposal.assessment, assessmentHistory);
+  if (assessment === null || !assessment.ok || !isAssessResult(assessment.value))
+    return "Composed assessment result is unavailable";
+  const operands = assessment.value.payload.inputs.manifest.operands;
+  if (operands?.action !== "assess-spec" || operands.origin.kind !== "cause-created-child")
+    return "Composed assessment origin is not a created child";
+  const { parentObservation: _originalParent, ...originalCreation } = operands.origin.creation;
+  const { parentObservation: _finalParent, ...finalCreation } = outer.creation;
+  return equal(originalCreation, finalCreation) ? null : "Creation context differs from the context sealed in the assessment";
+}
+function confirmationBindsIntent(operation, intent, input) {
+  const { outer, consent, digest, core } = intent;
+  const { confirmation, proposal, authorization } = input;
+  const parsedCore = uwCreatePlanSchema.safeParse(core);
+  return parsedCore.success && operation.recordId === `${outer.operationId}:intent` && operation.operationId === `${outer.operationId}:intent` && operation.payload.proposalDigest === digest && equal(operation.payload.confirmation, confirmation) && confirmation.operationId === outer.operationId && confirmation.proposalDigest === digest && consent.parentOperationId === proposal.operationId && consent.parentProposalDigest === materialAcceptanceDigest(proposal) && equalScope(consent.parent, proposal.uw) && sameRef2(consent.mandate, proposal.mandate) && sameOwnSpecRef(consent.accepted, proposal.exactInputs.accepted.ref) && sameRef2(consent.predecessor, proposal.predecessor) && sameRef2(consent.assessment, proposal.assessment) && equal(consent.exactInputs, proposal.exactInputs) && equal(consent.versionVector, [consent.accepted, ...proposal.exactInputs.accepted.inheritedOwnSpecRefs]) && consent.slot.operationId === outer.operationId && equal(consent.slot, authorization.binding.slot);
+}
+function readComposedMaterialIntent(input) {
+  const records = creationRecords(input);
+  if (!records.ok)
+    return records;
+  const { operation, identity } = records.value;
+  const outer = operation.payload.proposal;
+  if (outer.operation !== "create" || outer.parentAcceptance === null)
+    return invalid3("Creation intent has no composed parent consent");
+  const consent = outer.parentAcceptance;
+  const contextProblem = creationContextProblem(outer, consent, input);
+  if (contextProblem !== null)
+    return invalid3(contextProblem);
+  const digest = specDigest(JSON.stringify(outer));
+  const { creation: _creation, parentAcceptance: _parentAcceptance, ...core } = outer;
+  const intent = { outer, consent, identity, digest, core };
+  if (!confirmationBindsIntent(operation, intent, input))
+    return invalid3("Creation confirmation or sealed parent consent does not bind the exact material proposal");
+  return { ok: true, value: intent };
+}
+function createdChildReadbackProblem(intent, binding, confirmation) {
+  const { outer, consent, identity, digest } = intent;
+  if (!equalScope(binding.identity.scope, binding.child) || !equalScope(issueScope(binding.observed.issue), binding.child) || binding.child.repository !== outer.target.repository || binding.snapshot.raw.reference !== binding.child.target || binding.snapshot.raw.body !== outer.renderedBody || binding.snapshot.raw.body !== binding.observed.body || binding.snapshot.raw.bodySha256 !== specDigest(binding.observed.body) || !equal(binding.snapshot.spec, outer.allocation.spec) || binding.observed.title !== outer.title || binding.observed.nativeState.state !== "OPEN" || binding.observed.nativeState.stateReason !== null)
+    return "Created child identity, native issue, body or Spec differs from the sealed creation plan";
+  if (identity.payload.event !== "allocate" || identity.payload.predecessor !== null || identity.operationId !== outer.operationId || identity.payload.proposalDigest !== digest || !equal(identity.payload.confirmation, confirmation) || !equal(identity.payload.allocations, outer.allocation.assignments))
+    return "Created child allocation does not bind the confirmed creation plan";
+  const relations = outer.writes.relations;
+  const expectedParent = relations.parent ?? null;
+  if (expectedParent === null || !equalScope(issueScope(expectedParent), consent.parent))
+    return "Created child native parent does not match the consented parent";
+  const labels = outer.writes.labels.add.filter((label) => !outer.writes.labels.remove.includes(label));
+  const children = relations.addChildren.filter((item) => !relations.removeChildren.some((removed) => issueKey(removed) === issueKey(item)));
+  const blockers = relations.addBlockers.filter((item) => !relations.removeBlockers.some((removed) => issueKey(removed) === issueKey(item)));
+  if (!equal(binding.observed.parent, expectedParent) || !equal(sorted(binding.observed.labels), sorted(labels)) || !equal(sorted(binding.observed.children.map(issueKey)), sorted(children.map(issueKey))) || !equal(sorted(binding.observed.blockers.map(issueKey)), sorted(blockers.map(issueKey))))
+    return "Created child readback differs from the sealed label or relation intents";
+  return null;
+}
+
+// plugins/omp-build/engine/workflow-composed-material.ts
+var equal2 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
+var invalid4 = (message) => fail([diagnostic2("material-composition-invalid", message)]);
+function validateComposedMaterialAuthorization(input) {
+  const { proposal, authorization, confirmation } = input;
+  const intent = readComposedMaterialIntent(input);
+  if (!intent.ok)
+    return intent;
+  const { outer, core } = intent.value;
+  const binding = authorization.binding;
+  const readbackProblem = createdChildReadbackProblem(intent.value, binding, confirmation);
+  if (readbackProblem !== null)
+    return invalid4(readbackProblem);
+  const proposed = proposal.exactInputs.proposed;
+  const slots = proposed.children.filter((child) => ("kind" in child));
+  const slot = slots[0];
+  if (slots.length !== 1 || slot === undefined || slot.operationId !== outer.operationId || slot.planDigest !== canonicalValueDigest(core) || !equal2(slot.plan, core) || proposed.children.some((child) => !("kind" in child) && equalScope(child.scope, binding.child)))
+    return invalid4("Parent assessment does not contain exactly the confirmed created child slot");
+  const childrenBound = proposed.children.map((child) => ("kind" in child) ? {
+    scope: binding.child,
+    specVersion: binding.snapshot.spec.version,
+    snapshot: binding.snapshot,
+    tier: outer.tier
+  } : child);
+  const coverage = proposed.coverage === null ? null : {
+    parent: proposed.coverage.parent,
+    assignments: proposed.coverage.assignments.map((row) => {
+      const [first, ...rest] = row.children;
+      const bind = (child) => ("kind" in child) ? binding.child : child;
+      const children = [bind(first), ...rest.map(bind)];
+      return { criterion: row.criterion, children };
+    })
+  };
+  const result = concreteAcceptedStateSchema.safeParse({
+    snapshot: proposed.snapshot,
+    tier: proposed.tier,
+    inheritedOwnSpecRefs: proposed.inheritedOwnSpecRefs,
+    children: childrenBound,
+    coverage
+  });
+  if (!result.success || !equal2(result.data, authorization.boundState))
+    return invalid4("Persisted bound state is not the exact slot substitution");
+  return { ok: true, value: result.data };
+}
+
+// plugins/omp-build/engine/workflow-material-continuation.ts
+function bindingFailure(diagnostics) {
+  const code = diagnostics[0]?.code;
+  return {
+    ok: false,
+    reason: code === "conflict" || code === "ambiguous" ? "ambiguous" : code === "missing-history" ? "missing-history" : "incomplete",
+    evidence: diagnostics
+  };
+}
+function authenticateMaterialAssessment(material, histories, mandateRef) {
+  const assessmentHistory = historyFor(material.payload.assessment.scope, histories);
+  if (assessmentHistory === null)
+    return specChainFailure("missing-history", "Spec assessment history is missing");
+  const problem = workflowOperationProblem(assessmentHistory);
+  if (problem === "ambiguous")
+    return specChainFailure("ambiguous", "Spec assessment history conflicts");
+  if (problem === "unconfirmed" || problem === "incomplete")
+    return specChainFailure("incomplete", "Spec assessment history is not confirmed", problem);
+  const bound = bindExternalRef(material.payload.assessment, assessmentHistory);
+  if (!bound.ok)
+    return bindingFailure(bound.diagnostics);
+  const authenticated = authenticatedAssessResult(bound.value, histories, mandateRef);
+  if (!authenticated.ok)
+    return authenticated;
+  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured);
+  if (!parsed.success)
+    return specChainFailure("incomplete", "Applicable spec assessment is malformed");
+  return { ok: true, record: authenticated.record, assessment: parsed.data };
+}
+function authorizedMaterialState(material, proposal, histories) {
+  const authorization = material.payload.authorization;
+  if (authorization.kind === "cause-creation") {
+    const result = validateComposedMaterialAuthorization({
+      proposal,
+      authorization,
+      confirmation: material.payload.confirmation,
+      histories
+    });
+    if (!result.ok)
+      return {
+        ok: false,
+        result: specChainFailure("material-spec", result.diagnostics.map((item) => item.message).join("; "))
+      };
+    return { ok: true, state: result.value };
+  }
+  const state = concreteAcceptedStateSchema.safeParse(proposal.exactInputs.proposed);
+  if (!state.success)
+    return {
+      ok: false,
+      result: specChainFailure("material-spec", "Direct acceptance cannot bind a created child slot")
+    };
+  return { ok: true, state: state.data };
+}
+function materialContinuation(material, histories, mandateRef, predecessor, accepted, deferCompatibility) {
+  const authenticated = authenticateMaterialAssessment(material, histories, mandateRef);
+  if (!authenticated.ok)
+    return { ok: false, result: authenticated };
+  const assessment = authenticated.record;
+  const parsed = authenticated.assessment;
+  const exact = assessment.payload.exactInputs;
+  if (parsed.compatibility.state !== "consistent") {
+    const result = specChainFailure("material-spec", `Constraint compatibility is ${parsed.compatibility.state}`);
+    deferCompatibility(assessment, parsed, result);
+    return { ok: false, result };
+  }
+  deferCompatibility(assessment, parsed);
+  if (!sameAssessedState(exact.accepted, {
+    ref: accepted.ref,
+    snapshot: accepted.snapshot,
+    tier: accepted.tier,
+    children: accepted.children,
+    inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
+    coverage: accepted.coverage
+  }))
+    return {
+      ok: false,
+      result: specChainFailure("material-spec", "Material assessment does not continue the accepted Spec")
+    };
+  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
+  if (!sameMechanicalDelta(mechanical, exact.mechanical))
+    return { ok: false, result: specChainFailure("incomplete", "Material assessment mechanical delta is inconsistent") };
+  if (!requiresMaterialAcceptance(mechanical, parsed.classification))
+    return {
+      ok: false,
+      result: specChainFailure("material-spec", "Material assessment does not require material acceptance")
+    };
+  const proposal = {
+    format: "omp-build-material-acceptance/2",
+    operationId: material.operationId,
+    uw: accepted.ref.uw,
+    mandate: mandateRef,
+    predecessor,
+    assessment: material.payload.assessment,
+    classification: parsed.classification,
+    exactInputs: exact
+  };
+  if (material.payload.specVersion !== exact.proposed.snapshot.spec.version || material.payload.proposalDigest !== materialAcceptanceDigest(proposal) || material.payload.authorization.kind === "direct" && (material.payload.confirmation.operationId !== proposal.operationId || material.payload.confirmation.proposalDigest !== material.payload.proposalDigest) || JSON.stringify(material.payload.identityDelta.retired) !== JSON.stringify(mechanical.removed))
+    return {
+      ok: false,
+      result: specChainFailure("material-spec", "Material acceptance does not bind the exact proposal")
+    };
+  const state = authorizedMaterialState(material, proposal, histories);
+  if (!state.ok)
+    return state;
+  return { ok: true, assessment, state: state.state };
+}
 // plugins/omp-build/engine/workflow-context-lineage.ts
 function succeeds(history, old, candidate) {
   if (old.payload.phase !== "result" || candidate.payload.phase !== "result" || old.payload.action !== candidate.payload.action || old.payload.actionId === candidate.payload.actionId)
@@ -15576,7 +16166,7 @@ function resolutionOperation(operation) {
     return true;
   return (operation.recordId ?? operation.record?.recordId ?? "").startsWith(INTERRUPTION_RESOLUTION_PREFIX);
 }
-function resolutionIndex(histories) {
+function resolutionIndex(histories, mandate) {
   const problems = [];
   const resolved = new Map;
   const observed = new Map;
@@ -15588,7 +16178,8 @@ function resolutionIndex(histories) {
       problems.push(invalidResolution(operation.recordId, "V3", "Resolution operation ownership is not authenticated"));
       continue;
     }
-    if (!observeResolutionCopy(record, observed, problems))
+    const selected = mandate === undefined || sameRef2(record.payload.mandate, mandate);
+    if (!observeResolutionCopy(record, observed, problems) || !selected)
       continue;
     const admitted = admitInterruptionResolution(record, histories);
     if (!admitted.ok) {
@@ -15626,698 +16217,6 @@ function authenticatedResolutionOperation(history, operation, record) {
   return owners.length === 1;
 }
 
-// plugins/omp-build/engine/workflow-action-interruption.ts
-function mandateRefOf(mandate) {
-  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-}
-function startResolution(histories, start) {
-  const home = historyFor(start.scope, histories);
-  if (home === null || !home.source.complete)
-    return fail([invalidResolution(null, "V3", "START history is missing or incomplete")]);
-  const index = resolutionIndex(histories);
-  if (!index.ok)
-    return index;
-  return { ok: true, value: index.value.resolved.get(scopedStartKey(start)) ?? null };
-}
-function receiptsOf(history) {
-  return recordsOf(history).filter((record) => record.kind === "action-receipt");
-}
-function classifyAttempts(input) {
-  if (input.scan.some((history) => !history.source.complete))
-    return fail([invalidResolution(null, "V3", "Attempt history is incomplete")]);
-  const index = resolutionIndex([...input.histories, ...input.scan.filter((item) => !input.histories.includes(item))]);
-  if (!index.ok)
-    return index;
-  const excluded = new Set;
-  const unresolved = [];
-  for (const history of input.scan) {
-    const receipts = receiptsOf(history).filter((receipt) => isInterruptionAction(receipt.payload.action) && input.actions.includes(receipt.payload.action) && (input.select?.(receipt) ?? true));
-    const classified = classifyHistoryAttempts(history, receipts, index.value.resolved, excluded, unresolved);
-    if (!classified.ok)
-      return classified;
-  }
-  return { ok: true, value: { excluded, unresolved } };
-}
-function classifyHistoryAttempts(history, receipts, resolved, excluded, unresolved) {
-  if (receipts.some(legacyInterruptionResult))
-    return fail([diagnostic2("action-uncertain", "Legacy interruption proof is not executable")]);
-  for (const start of receipts) {
-    const action = start.payload.action;
-    if (start.payload.phase !== "start" || !isInterruptionAction(action))
-      continue;
-    const key = receiptStartKey(start);
-    if (resolved.has(key)) {
-      excluded.add(key);
-      continue;
-    }
-    const attempt = classifyUnresolvedStart(history, receipts, start, action);
-    if (!attempt.ok)
-      return attempt;
-    if (attempt.value !== null)
-      unresolved.push(attempt.value);
-  }
-  return { ok: true, value: undefined };
-}
-function classifyUnresolvedStart(history, receipts, start, action) {
-  const results = receipts.filter((receipt) => receipt.payload.phase === "result" && receipt.payload.action === action && receipt.payload.actionId === start.payload.actionId);
-  const result = results[0];
-  if (result === undefined)
-    return { ok: true, value: { kind: "orphan", action, start } };
-  if (results.length === 1 && authenticateInterruptedReceiptPair(history, result).ok)
-    return { ok: true, value: { kind: "interrupted", action, start, result } };
-  if (results.some(interruptedResult))
-    return fail([diagnostic2("action-uncertain", `${action} interrupted receipt pairing is not authenticated`)]);
-  return { ok: true, value: null };
-}
-function legacyInterruptionResult(receipt) {
-  return receipt.payload.phase === "result" && receipt.payload.diagnostics.some((entry) => {
-    const detail = entry.detail;
-    return typeof detail === "object" && detail !== null && !Array.isArray(detail) && detail.marker === "omp-build-host-interruption/1";
-  });
-}
-function interruptionGate(classified) {
-  if (!classified.ok)
-    return { kind: "stop", completion: { status: "blocked", evidence: classified.diagnostics } };
-  const interrupted = classified.value.unresolved.find((attempt) => attempt.kind === "interrupted");
-  if (interrupted?.kind === "interrupted")
-    return {
-      kind: "stop",
-      completion: {
-        status: "blocked",
-        evidence: [
-          {
-            code: "action-interrupted",
-            message: `${interrupted.action} attempt was interrupted and awaits an operator resolution`,
-            recordId: interrupted.result.recordId,
-            detail: { action: interrupted.action, start: interrupted.start.recordId }
-          }
-        ]
-      }
-    };
-  const orphan = classified.value.unresolved.find((attempt) => attempt.kind === "orphan");
-  if (orphan !== undefined)
-    return {
-      kind: "stop",
-      completion: {
-        status: "uncertain",
-        evidence: [
-          {
-            code: "action-uncertain",
-            message: `${orphan.action} start has no result`,
-            recordId: orphan.start.recordId,
-            detail: { action: orphan.action }
-          }
-        ]
-      }
-    };
-  return { kind: "clear", excluded: classified.value.excluded };
-}
-function mandateAttempt(mandate) {
-  const ref = mandateRefOf(mandate);
-  return (receipt) => ("scope" in receipt.payload.mandate) && sameRef2(receipt.payload.mandate, ref);
-}
-function ownAttempts(classified, mandate) {
-  if (!classified.ok || mandate === null)
-    return classified;
-  const own = mandateAttempt(mandate);
-  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === "orphan" || own(attempt.start));
-  return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
-}
-
-// plugins/omp-build/engine/workflow-spec-projections.ts
-function refProjection(ref) {
-  return {
-    scope: { repository: ref.scope.repository, target: ref.scope.target },
-    recordId: ref.recordId,
-    kind: ref.kind
-  };
-}
-function snapshotProjection(snapshot) {
-  return {
-    spec: {
-      format: snapshot.spec.format,
-      criteria: snapshot.spec.criteria.map((item) => ({ id: item.id, statement: item.statement })),
-      invariants: snapshot.spec.invariants.map((item) => ({ id: item.id, statement: item.statement })),
-      exclusions: [...snapshot.spec.exclusions],
-      openQuestions: [...snapshot.spec.openQuestions],
-      sections: { ...snapshot.spec.sections },
-      version: snapshot.spec.version
-    },
-    raw: {
-      reference: snapshot.raw.reference,
-      body: snapshot.raw.body,
-      bodySha256: snapshot.raw.bodySha256,
-      lastEditedAt: snapshot.raw.lastEditedAt
-    }
-  };
-}
-function childrenProjection(children) {
-  return children.map((child) => ("kind" in child) ? {
-    kind: child.kind,
-    operationId: child.operationId,
-    plan: child.plan,
-    planDigest: child.planDigest
-  } : {
-    scope: { repository: child.scope.repository, target: child.scope.target },
-    specVersion: child.specVersion,
-    snapshot: snapshotProjection(child.snapshot),
-    tier: child.tier
-  });
-}
-function currentSnapshotProjection(snapshot) {
-  return {
-    spec: {
-      format: snapshot.spec.format,
-      criteria: snapshot.spec.criteria.map((item) => ({ id: item.id, statement: item.statement })),
-      invariants: snapshot.spec.invariants.map((item) => ({ id: item.id, statement: item.statement })),
-      exclusions: [...snapshot.spec.exclusions],
-      openQuestions: [...snapshot.spec.openQuestions],
-      sections: { ...snapshot.spec.sections },
-      version: snapshot.spec.version
-    },
-    raw: {
-      reference: snapshot.raw.reference,
-      body: snapshot.raw.body,
-      bodySha256: snapshot.raw.bodySha256
-    }
-  };
-}
-function currentChildrenProjection(children) {
-  return children.map((child) => ("kind" in child) ? {
-    kind: child.kind,
-    operationId: child.operationId,
-    plan: child.plan,
-    planDigest: child.planDigest
-  } : {
-    scope: { repository: child.scope.repository, target: child.scope.target },
-    specVersion: child.specVersion,
-    snapshot: currentSnapshotProjection(child.snapshot),
-    tier: child.tier
-  });
-}
-
-// plugins/omp-build/engine/workflow-spec-assessment.ts
-function isAssessResult(record) {
-  return record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "result";
-}
-function itemIds(items) {
-  return items.map((item) => item.id);
-}
-function changedItemStatements(accepted, proposed) {
-  const previous = new Map(accepted.map((item) => [item.id, item.statement]));
-  return proposed.filter((item) => previous.get(item.id) !== undefined && previous.get(item.id) !== item.statement).map((item) => item.id);
-}
-function changedChildren(accepted, proposed) {
-  const key = (child) => `${child.scope.repository}\x00${child.scope.target}`;
-  if (accepted.length !== proposed.length)
-    return true;
-  const prior = new Map(accepted.map((child) => [key(child), `${child.specVersion}\x00${child.tier}`]));
-  return proposed.some((child) => ("kind" in child) || prior.get(key(child)) !== `${child.specVersion}\x00${child.tier}`);
-}
-function mechanicalSpecDelta(accepted, proposed) {
-  const acceptedCriteria = accepted.snapshot.spec.criteria;
-  const proposedCriteria = proposed.snapshot.spec.criteria;
-  const acceptedInvariants = accepted.snapshot.spec.invariants;
-  const proposedInvariants = proposed.snapshot.spec.invariants;
-  const acceptedIds = new Set([...itemIds(acceptedCriteria), ...itemIds(acceptedInvariants)]);
-  const proposedIds = new Set([...itemIds(proposedCriteria), ...itemIds(proposedInvariants)]);
-  const added = [...proposedIds].filter((id) => !acceptedIds.has(id));
-  const removed = [...acceptedIds].filter((id) => !proposedIds.has(id));
-  const changedStatements = [
-    ...changedItemStatements(acceptedCriteria, proposedCriteria),
-    ...changedItemStatements(acceptedInvariants, proposedInvariants)
-  ];
-  const sectionsOrOrderChanged = JSON.stringify(accepted.snapshot.spec.sections) !== JSON.stringify(proposed.snapshot.spec.sections) || JSON.stringify(itemIds(acceptedCriteria)) !== JSON.stringify(itemIds(proposedCriteria)) || JSON.stringify(itemIds(acceptedInvariants)) !== JSON.stringify(itemIds(proposedInvariants)) || JSON.stringify(accepted.snapshot.spec.openQuestions) !== JSON.stringify(proposed.snapshot.spec.openQuestions);
-  return {
-    added,
-    removed,
-    changedStatements,
-    exclusionsChanged: JSON.stringify(accepted.snapshot.spec.exclusions) !== JSON.stringify(proposed.snapshot.spec.exclusions),
-    tierChanged: accepted.tier !== proposed.tier,
-    childrenChanged: changedChildren(accepted.children, proposed.children),
-    inheritanceChanged: stableStringify(accepted.inheritedOwnSpecRefs) !== stableStringify(proposed.inheritedOwnSpecRefs),
-    coverageChanged: stableStringify(accepted.coverage) !== stableStringify(proposed.coverage),
-    sectionsOrOrderChanged
-  };
-}
-function sameMechanicalDelta(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function isMechanical(delta) {
-  return delta.added.length > 0 || delta.removed.length > 0 || delta.exclusionsChanged || delta.tierChanged || delta.childrenChanged || delta.inheritanceChanged || delta.coverageChanged;
-}
-function hasMaterialAcceptanceContent(delta) {
-  return isMechanical(delta) || delta.changedStatements.length > 0 || delta.sectionsOrOrderChanged;
-}
-function requiresMaterialAcceptance(delta, classification) {
-  return isMechanical(delta) || (classification === "material" || classification === "unknown") && hasMaterialAcceptanceContent(delta);
-}
-function stableStringify(value) {
-  return JSON.stringify(value, (_, entry) => {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry))
-      return entry;
-    return Object.fromEntries(Object.keys(entry).sort().map((key) => [key, entry[key]]));
-  });
-}
-function sameAssessedState(left, right) {
-  return stableStringify(left) === stableStringify(right);
-}
-function sameCurrentAssessedState(left, right) {
-  return JSON.stringify({
-    snapshot: currentSnapshotProjection(left.snapshot),
-    tier: left.tier,
-    children: currentChildrenProjection(left.children),
-    inheritedOwnSpecRefs: left.inheritedOwnSpecRefs,
-    coverage: left.coverage
-  }) === JSON.stringify({
-    snapshot: currentSnapshotProjection(right.snapshot),
-    tier: right.tier,
-    children: currentChildrenProjection(right.children),
-    inheritedOwnSpecRefs: right.inheritedOwnSpecRefs,
-    coverage: right.coverage
-  });
-}
-function materialAcceptanceDigest(value) {
-  const exact = value.exactInputs;
-  const projection = {
-    format: value.format,
-    operationId: value.operationId,
-    uw: { repository: value.uw.repository, target: value.uw.target },
-    mandate: refProjection(value.mandate),
-    predecessor: refProjection(value.predecessor),
-    assessment: refProjection(value.assessment),
-    classification: value.classification,
-    exactInputs: {
-      format: exact.format,
-      accepted: {
-        ref: {
-          uw: { repository: exact.accepted.ref.uw.repository, target: exact.accepted.ref.uw.target },
-          version: exact.accepted.ref.version,
-          sourceAccepted: refProjection(exact.accepted.ref.sourceAccepted)
-        },
-        snapshot: snapshotProjection(exact.accepted.snapshot),
-        tier: exact.accepted.tier,
-        children: childrenProjection(exact.accepted.children),
-        inheritedOwnSpecRefs: exact.accepted.inheritedOwnSpecRefs,
-        coverage: exact.accepted.coverage
-      },
-      proposed: {
-        snapshot: snapshotProjection(exact.proposed.snapshot),
-        tier: exact.proposed.tier,
-        children: childrenProjection(exact.proposed.children),
-        inheritedOwnSpecRefs: exact.proposed.inheritedOwnSpecRefs,
-        coverage: exact.proposed.coverage
-      },
-      attachedChildren: childrenProjection(exact.attachedChildren),
-      attachedWayfinders: exact.attachedWayfinders.map(nativeObservationDigest),
-      childOwnSources: exact.childOwnSources.map((source) => ({
-        uw: source.uw,
-        own: source.own === null ? null : {
-          uw: source.own.uw,
-          version: source.own.version,
-          sourceAccepted: refProjection(source.own.sourceAccepted)
-        }
-      })),
-      identityAllocations: exact.identityAllocations.map(refProjection),
-      mechanical: {
-        added: [...exact.mechanical.added],
-        removed: [...exact.mechanical.removed],
-        changedStatements: [...exact.mechanical.changedStatements],
-        exclusionsChanged: exact.mechanical.exclusionsChanged,
-        tierChanged: exact.mechanical.tierChanged,
-        childrenChanged: exact.mechanical.childrenChanged,
-        inheritanceChanged: exact.mechanical.inheritanceChanged,
-        coverageChanged: exact.mechanical.coverageChanged,
-        sectionsOrOrderChanged: exact.mechanical.sectionsOrOrderChanged
-      }
-    }
-  };
-  return specDigest(JSON.stringify(projection));
-}
-function sameAssessInputs(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function specChainFailure(reason, message, code) {
-  return { ok: false, reason, evidence: [diagnostic2(code ?? reason, message)] };
-}
-
-// plugins/omp-build/engine/workflow-spec-authentication-chain.ts
-function boundFailure(diagnostics) {
-  const code = diagnostics[0]?.code;
-  const reason = code === "conflict" || code === "ambiguous" ? "ambiguous" : code === "missing-history" ? "missing-history" : "incomplete";
-  return { ok: false, reason, evidence: diagnostics };
-}
-function mismatchedStart() {
-  return specChainFailure("incomplete", "Spec assessment start does not match its result", "unconfirmed");
-}
-function authenticateStart(confirmed, home, mandateRef) {
-  const startRef = confirmed.payload.start;
-  if (!equalScope(startRef.scope, confirmed) || !equalScope(startRef.scope, mandateRef.scope))
-    return mismatchedStart();
-  const start = bindExternalRef(startRef, home);
-  if (!start.ok)
-    return specChainFailure("incomplete", "Spec assessment start is unresolved", "unconfirmed");
-  if (start.value.kind !== "action-receipt")
-    return mismatchedStart();
-  const startPayload = start.value.payload;
-  if (startPayload.action !== "assess-spec" || startPayload.phase !== "start")
-    return mismatchedStart();
-  if (startPayload.actionId !== confirmed.payload.actionId)
-    return mismatchedStart();
-  if (!sameRef2(startPayload.mandate, mandateRef))
-    return mismatchedStart();
-  if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs))
-    return mismatchedStart();
-  if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
-    return mismatchedStart();
-  if (!validateActionInputs(confirmed.payload.inputs).ok)
-    return mismatchedStart();
-  if (!expandedGitPinsObserved([home], confirmed.payload.inputs))
-    return specChainFailure("incomplete", "Spec assessment cites unconfirmed expanded Git context", "unconfirmed");
-  const operands = confirmed.payload.inputs.manifest.operands;
-  if (operands?.action !== "assess-spec" || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
-    return mismatchedStart();
-  return { ok: true };
-}
-function authenticatedRecord(assessed, histories, mandateRef) {
-  const home = historyFor({ repository: assessed.repository, target: assessed.target }, histories);
-  if (home === null)
-    return specChainFailure("missing-history", "Spec assessment history is missing");
-  const bound = bindExternalRef({
-    scope: { repository: assessed.repository, target: assessed.target },
-    recordId: assessed.recordId,
-    kind: assessed.kind
-  }, home);
-  if (!bound.ok)
-    return boundFailure(bound.diagnostics);
-  if (!isAssessResult(bound.value))
-    return specChainFailure("incomplete", "Spec assessment is not a result");
-  const confirmed = bound.value;
-  if (confirmed.payload.native.completion !== "completed" || confirmed.payload.native.strict !== "valid")
-    return specChainFailure("incomplete", "Spec assessment is not a confirmed native result", "unconfirmed");
-  const start = authenticateStart(confirmed, home, mandateRef);
-  if (!start.ok)
-    return start;
-  return { ok: true, record: confirmed };
-}
-function authenticatedAssessResult(record, histories, mandateRef) {
-  if (!isAssessResult(record))
-    return specChainFailure("incomplete", "Spec assessment is not a result");
-  const assessed = record;
-  if (!sameRef2(assessed.payload.mandate, mandateRef))
-    return specChainFailure("ambiguous", "Spec assessment names a different mandate");
-  return authenticatedRecord(assessed, histories, mandateRef);
-}
-
-// plugins/omp-build/engine/workflow-editorial-qualification.ts
-function applicableAssessment(record, mandateRef, applied, accepted) {
-  return record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "result" && sameRef2(record.payload.mandate, mandateRef) && !applied.has(record.recordId) && sameAssessedState(record.payload.exactInputs.accepted, {
-    ref: accepted.ref,
-    snapshot: accepted.snapshot,
-    tier: accepted.tier,
-    children: accepted.children,
-    inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
-    coverage: accepted.coverage
-  });
-}
-function qualifyEditorialCandidate(record, input) {
-  if (!applicableAssessment(record, input.mandateRef, input.applied, input.accepted))
-    return { status: "irrelevant" };
-  const resolution = startResolution(input.histories, record.payload.start);
-  if (!resolution.ok)
-    return { status: "refused", result: { ok: false, reason: "incomplete", evidence: resolution.diagnostics } };
-  const resolvedResult = resolution.value?.record.payload.result;
-  if (resolvedResult !== null && resolvedResult !== undefined && sameRef2(resolvedResult, {
-    scope: { repository: record.repository, target: record.target },
-    recordId: record.recordId,
-    kind: record.kind
-  }))
-    return { status: "irrelevant" };
-  const authenticated = authenticatedAssessResult(record, input.histories, input.mandateRef);
-  if (!authenticated.ok)
-    return { status: "refused", result: authenticated };
-  if (workflowContextNegative(authenticated.record))
-    return { status: "irrelevant" };
-  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured);
-  if (!parsed.success)
-    return { status: "refused", result: specChainFailure("incomplete", "Applicable spec assessment is malformed") };
-  if (parsed.data.compatibility.state !== "consistent") {
-    const result = specChainFailure("material-spec", `Constraint compatibility is ${parsed.data.compatibility.state}`);
-    input.deferCompatibility(authenticated.record, parsed.data, result);
-    return { status: "refused", result };
-  }
-  input.deferCompatibility(authenticated.record, parsed.data);
-  const exact = authenticated.record.payload.exactInputs;
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
-  if (!sameMechanicalDelta(mechanical, exact.mechanical))
-    return {
-      status: "refused",
-      result: specChainFailure("incomplete", "Spec assessment mechanical delta does not match its exact states")
-    };
-  if (isMechanical(mechanical) || parsed.data.classification !== "editorial")
-    return { status: "material" };
-  return { status: "editorial", record: authenticated.record };
-}
-
-// plugins/omp-build/engine/workflow-composed-material-intent.ts
-var equal = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
-var invalid3 = (message) => fail([diagnostic2("material-composition-invalid", message)]);
-var issueScope = (issue) => ({
-  repository: issue.repository,
-  target: `${issue.repository}#${issue.number}`
-});
-var issueKey = (issue) => `${issue.repository}\x00${issue.number}`;
-var sorted = (items) => [...items].sort();
-function unresolvedChildClaims(history) {
-  return history.operations.some((entry) => entry.authority !== "foreign" && (entry.kind === "spec-identity" || entry.claimedKinds.includes("spec-identity") || entry.kind === "mandate" || entry.claimedKinds.includes("mandate")) && (entry.status !== "complete" || entry.record === null));
-}
-function creationRecords(input) {
-  const { authorization, histories } = input;
-  const operationHistory = historyFor(authorization.operation.scope, histories);
-  const childHistory = historyFor(authorization.binding.child, histories);
-  if (operationHistory === null || childHistory === null)
-    return invalid3("Creation intent or child identity history is missing");
-  if (workflowOperationProblem(operationHistory) !== null || workflowOperationProblem(childHistory) !== null || unresolvedChildClaims(childHistory))
-    return invalid3("Creation or child authority history contains unresolved claims");
-  const boundOperation = bindExternalRef(authorization.operation, operationHistory);
-  const boundIdentity = bindExternalRef(authorization.binding.identity, childHistory);
-  if (!boundOperation.ok || boundOperation.value.kind !== "cause-operation" || !boundIdentity.ok || boundIdentity.value.kind !== "spec-identity")
-    return invalid3("Creation intent and identity must be authenticated canonical records");
-  return { ok: true, value: { operation: boundOperation.value, identity: boundIdentity.value } };
-}
-function creationContextProblem(outer, consent, input) {
-  const source = outer.creation.kind === "sister" ? outer.creation.disposition : outer.creation.report;
-  const intendedParent = outer.creation.kind === "sister" ? outer.creation.parent : outer.creation.parentObservation?.parent ?? null;
-  if (!equalScope(input.authorization.operation.scope, source.scope) || intendedParent === null || !equalScope(intendedParent, consent.parent))
-    return "Creation intent does not belong to the source or the consented parent";
-  const parentObservation = outer.creation.parentObservation;
-  if (parentObservation === null || parentObservation.state !== "active" || !equalScope(parentObservation.parent, consent.parent) || parentObservation.historyDigest !== consent.historyDigest || parentObservation.nativeDigest !== consent.nativeObservationDigest)
-    return "Creation context does not bind the same active parent observation";
-  const assessmentHistory = historyFor(input.proposal.assessment.scope, input.histories);
-  const assessment = assessmentHistory === null ? null : bindExternalRef(input.proposal.assessment, assessmentHistory);
-  if (assessment === null || !assessment.ok || !isAssessResult(assessment.value))
-    return "Composed assessment result is unavailable";
-  const operands = assessment.value.payload.inputs.manifest.operands;
-  if (operands?.action !== "assess-spec" || operands.origin.kind !== "cause-created-child")
-    return "Composed assessment origin is not a created child";
-  const { parentObservation: _originalParent, ...originalCreation } = operands.origin.creation;
-  const { parentObservation: _finalParent, ...finalCreation } = outer.creation;
-  return equal(originalCreation, finalCreation) ? null : "Creation context differs from the context sealed in the assessment";
-}
-function confirmationBindsIntent(operation, intent, input) {
-  const { outer, consent, digest, core } = intent;
-  const { confirmation, proposal, authorization } = input;
-  const parsedCore = uwCreatePlanSchema.safeParse(core);
-  return parsedCore.success && operation.recordId === `${outer.operationId}:intent` && operation.operationId === `${outer.operationId}:intent` && operation.payload.proposalDigest === digest && equal(operation.payload.confirmation, confirmation) && confirmation.operationId === outer.operationId && confirmation.proposalDigest === digest && consent.parentOperationId === proposal.operationId && consent.parentProposalDigest === materialAcceptanceDigest(proposal) && equalScope(consent.parent, proposal.uw) && sameRef2(consent.mandate, proposal.mandate) && sameOwnSpecRef(consent.accepted, proposal.exactInputs.accepted.ref) && sameRef2(consent.predecessor, proposal.predecessor) && sameRef2(consent.assessment, proposal.assessment) && equal(consent.exactInputs, proposal.exactInputs) && equal(consent.versionVector, [consent.accepted, ...proposal.exactInputs.accepted.inheritedOwnSpecRefs]) && consent.slot.operationId === outer.operationId && equal(consent.slot, authorization.binding.slot);
-}
-function readComposedMaterialIntent(input) {
-  const records = creationRecords(input);
-  if (!records.ok)
-    return records;
-  const { operation, identity } = records.value;
-  const outer = operation.payload.proposal;
-  if (outer.operation !== "create" || outer.parentAcceptance === null)
-    return invalid3("Creation intent has no composed parent consent");
-  const consent = outer.parentAcceptance;
-  const contextProblem = creationContextProblem(outer, consent, input);
-  if (contextProblem !== null)
-    return invalid3(contextProblem);
-  const digest = specDigest(JSON.stringify(outer));
-  const { creation: _creation, parentAcceptance: _parentAcceptance, ...core } = outer;
-  const intent = { outer, consent, identity, digest, core };
-  if (!confirmationBindsIntent(operation, intent, input))
-    return invalid3("Creation confirmation or sealed parent consent does not bind the exact material proposal");
-  return { ok: true, value: intent };
-}
-function createdChildReadbackProblem(intent, binding, confirmation) {
-  const { outer, consent, identity, digest } = intent;
-  if (!equalScope(binding.identity.scope, binding.child) || !equalScope(issueScope(binding.observed.issue), binding.child) || binding.child.repository !== outer.target.repository || binding.snapshot.raw.reference !== binding.child.target || binding.snapshot.raw.body !== outer.renderedBody || binding.snapshot.raw.body !== binding.observed.body || binding.snapshot.raw.bodySha256 !== specDigest(binding.observed.body) || !equal(binding.snapshot.spec, outer.allocation.spec) || binding.observed.title !== outer.title || binding.observed.nativeState.state !== "OPEN" || binding.observed.nativeState.stateReason !== null)
-    return "Created child identity, native issue, body or Spec differs from the sealed creation plan";
-  if (identity.payload.event !== "allocate" || identity.payload.predecessor !== null || identity.operationId !== outer.operationId || identity.payload.proposalDigest !== digest || !equal(identity.payload.confirmation, confirmation) || !equal(identity.payload.allocations, outer.allocation.assignments))
-    return "Created child allocation does not bind the confirmed creation plan";
-  const relations = outer.writes.relations;
-  const expectedParent = relations.parent ?? null;
-  if (expectedParent === null || !equalScope(issueScope(expectedParent), consent.parent))
-    return "Created child native parent does not match the consented parent";
-  const labels = outer.writes.labels.add.filter((label) => !outer.writes.labels.remove.includes(label));
-  const children = relations.addChildren.filter((item) => !relations.removeChildren.some((removed) => issueKey(removed) === issueKey(item)));
-  const blockers = relations.addBlockers.filter((item) => !relations.removeBlockers.some((removed) => issueKey(removed) === issueKey(item)));
-  if (!equal(binding.observed.parent, expectedParent) || !equal(sorted(binding.observed.labels), sorted(labels)) || !equal(sorted(binding.observed.children.map(issueKey)), sorted(children.map(issueKey))) || !equal(sorted(binding.observed.blockers.map(issueKey)), sorted(blockers.map(issueKey))))
-    return "Created child readback differs from the sealed label or relation intents";
-  return null;
-}
-
-// plugins/omp-build/engine/workflow-composed-material.ts
-var equal2 = (a, b) => canonicalValueDigest(a) === canonicalValueDigest(b);
-var invalid4 = (message) => fail([diagnostic2("material-composition-invalid", message)]);
-function validateComposedMaterialAuthorization(input) {
-  const { proposal, authorization, confirmation } = input;
-  const intent = readComposedMaterialIntent(input);
-  if (!intent.ok)
-    return intent;
-  const { outer, core } = intent.value;
-  const binding = authorization.binding;
-  const readbackProblem = createdChildReadbackProblem(intent.value, binding, confirmation);
-  if (readbackProblem !== null)
-    return invalid4(readbackProblem);
-  const proposed = proposal.exactInputs.proposed;
-  const slots = proposed.children.filter((child) => ("kind" in child));
-  const slot = slots[0];
-  if (slots.length !== 1 || slot === undefined || slot.operationId !== outer.operationId || slot.planDigest !== canonicalValueDigest(core) || !equal2(slot.plan, core) || proposed.children.some((child) => !("kind" in child) && equalScope(child.scope, binding.child)))
-    return invalid4("Parent assessment does not contain exactly the confirmed created child slot");
-  const childrenBound = proposed.children.map((child) => ("kind" in child) ? {
-    scope: binding.child,
-    specVersion: binding.snapshot.spec.version,
-    snapshot: binding.snapshot,
-    tier: outer.tier
-  } : child);
-  const coverage = proposed.coverage === null ? null : {
-    parent: proposed.coverage.parent,
-    assignments: proposed.coverage.assignments.map((row) => {
-      const [first, ...rest] = row.children;
-      const bind = (child) => ("kind" in child) ? binding.child : child;
-      const children = [bind(first), ...rest.map(bind)];
-      return { criterion: row.criterion, children };
-    })
-  };
-  const result = concreteAcceptedStateSchema.safeParse({
-    snapshot: proposed.snapshot,
-    tier: proposed.tier,
-    inheritedOwnSpecRefs: proposed.inheritedOwnSpecRefs,
-    children: childrenBound,
-    coverage
-  });
-  if (!result.success || !equal2(result.data, authorization.boundState))
-    return invalid4("Persisted bound state is not the exact slot substitution");
-  return { ok: true, value: result.data };
-}
-
-// plugins/omp-build/engine/workflow-material-continuation.ts
-function bindingFailure(diagnostics) {
-  const code = diagnostics[0]?.code;
-  return {
-    ok: false,
-    reason: code === "conflict" || code === "ambiguous" ? "ambiguous" : code === "missing-history" ? "missing-history" : "incomplete",
-    evidence: diagnostics
-  };
-}
-function authenticateMaterialAssessment(material, histories, mandateRef) {
-  const assessmentHistory = historyFor(material.payload.assessment.scope, histories);
-  if (assessmentHistory === null)
-    return specChainFailure("missing-history", "Spec assessment history is missing");
-  const problem = workflowOperationProblem(assessmentHistory);
-  if (problem === "ambiguous")
-    return specChainFailure("ambiguous", "Spec assessment history conflicts");
-  if (problem === "unconfirmed" || problem === "incomplete")
-    return specChainFailure("incomplete", "Spec assessment history is not confirmed", problem);
-  const bound = bindExternalRef(material.payload.assessment, assessmentHistory);
-  if (!bound.ok)
-    return bindingFailure(bound.diagnostics);
-  const authenticated = authenticatedAssessResult(bound.value, histories, mandateRef);
-  if (!authenticated.ok)
-    return authenticated;
-  const parsed = specAssessmentSchema.safeParse(authenticated.record.payload.structured);
-  if (!parsed.success)
-    return specChainFailure("incomplete", "Applicable spec assessment is malformed");
-  return { ok: true, record: authenticated.record, assessment: parsed.data };
-}
-function authorizedMaterialState(material, proposal, histories) {
-  const authorization = material.payload.authorization;
-  if (authorization.kind === "cause-creation") {
-    const result = validateComposedMaterialAuthorization({
-      proposal,
-      authorization,
-      confirmation: material.payload.confirmation,
-      histories
-    });
-    if (!result.ok)
-      return {
-        ok: false,
-        result: specChainFailure("material-spec", result.diagnostics.map((item) => item.message).join("; "))
-      };
-    return { ok: true, state: result.value };
-  }
-  const state = concreteAcceptedStateSchema.safeParse(proposal.exactInputs.proposed);
-  if (!state.success)
-    return {
-      ok: false,
-      result: specChainFailure("material-spec", "Direct acceptance cannot bind a created child slot")
-    };
-  return { ok: true, state: state.data };
-}
-function materialContinuation(material, histories, mandateRef, predecessor, accepted, deferCompatibility) {
-  const authenticated = authenticateMaterialAssessment(material, histories, mandateRef);
-  if (!authenticated.ok)
-    return { ok: false, result: authenticated };
-  const assessment = authenticated.record;
-  const parsed = authenticated.assessment;
-  const exact = assessment.payload.exactInputs;
-  if (parsed.compatibility.state !== "consistent") {
-    const result = specChainFailure("material-spec", `Constraint compatibility is ${parsed.compatibility.state}`);
-    deferCompatibility(assessment, parsed, result);
-    return { ok: false, result };
-  }
-  deferCompatibility(assessment, parsed);
-  if (!sameAssessedState(exact.accepted, {
-    ref: accepted.ref,
-    snapshot: accepted.snapshot,
-    tier: accepted.tier,
-    children: accepted.children,
-    inheritedOwnSpecRefs: accepted.inheritedOwnSpecRefs,
-    coverage: accepted.coverage
-  }))
-    return {
-      ok: false,
-      result: specChainFailure("material-spec", "Material assessment does not continue the accepted Spec")
-    };
-  const mechanical = mechanicalSpecDelta(exact.accepted, exact.proposed);
-  if (!sameMechanicalDelta(mechanical, exact.mechanical))
-    return { ok: false, result: specChainFailure("incomplete", "Material assessment mechanical delta is inconsistent") };
-  if (!requiresMaterialAcceptance(mechanical, parsed.classification))
-    return {
-      ok: false,
-      result: specChainFailure("material-spec", "Material assessment does not require material acceptance")
-    };
-  const proposal = {
-    format: "omp-build-material-acceptance/2",
-    operationId: material.operationId,
-    uw: accepted.ref.uw,
-    mandate: mandateRef,
-    predecessor,
-    assessment: material.payload.assessment,
-    classification: parsed.classification,
-    exactInputs: exact
-  };
-  if (material.payload.specVersion !== exact.proposed.snapshot.spec.version || material.payload.proposalDigest !== materialAcceptanceDigest(proposal) || material.payload.authorization.kind === "direct" && (material.payload.confirmation.operationId !== proposal.operationId || material.payload.confirmation.proposalDigest !== material.payload.proposalDigest) || JSON.stringify(material.payload.identityDelta.retired) !== JSON.stringify(mechanical.removed))
-    return {
-      ok: false,
-      result: specChainFailure("material-spec", "Material acceptance does not bind the exact proposal")
-    };
-  const state = authorizedMaterialState(material, proposal, histories);
-  if (!state.ok)
-    return state;
-  return { ok: true, assessment, state: state.state };
-}
 // plugins/omp-build/engine/workflow-spec-authentication.ts
 function receiptRef(record) {
   return {
@@ -16326,38 +16225,56 @@ function receiptRef(record) {
     kind: record.kind
   };
 }
-function confirmedAssessPairs(home, histories, mandateRef) {
-  const resolutions = resolutionIndex(histories);
-  if (!resolutions.ok)
+function confirmedAssessPairs(home, histories, mandateRef, abandoned) {
+  const resolutions = abandoned ? null : resolutionIndex(histories, mandateRef);
+  if (resolutions !== null && !resolutions.ok)
     return { ok: false, reason: "incomplete", evidence: resolutions.diagnostics };
-  const excluded = new Set(resolutions.value.resolved.keys());
+  const resolved = resolutions?.value.resolved;
+  const attempts = {
+    abandoned,
+    excludedStarts: new Set(resolved?.keys()),
+    excludedResults: new Set
+  };
+  for (const { result } of resolved?.values() ?? [])
+    if (result !== null)
+      attempts.excludedResults.add(scopedStartKey(receiptRef(result)));
   for (const record of recordsOf(home)) {
-    const checked = confirmedAssessStart(record, home, histories, mandateRef, excluded);
+    const checked = confirmedAssessStart(record, home, histories, mandateRef, attempts);
     if (!checked.ok)
       return checked;
   }
-  return { ok: true };
+  return { ok: true, excludedResults: attempts.excludedResults };
 }
-function confirmedAssessStart(record, home, histories, mandateRef, excluded) {
+function confirmedAssessStart(record, home, histories, mandateRef, attempts) {
   if (record.kind !== "action-receipt" || record.payload.action !== "assess-spec" || record.payload.phase !== "start")
     return { ok: true };
   if (!sameRef2(record.payload.mandate, mandateRef))
     return { ok: true };
   const startRef = receiptRef(record);
-  const resolution = startResolution(histories, startRef);
-  if (!resolution.ok)
-    return { ok: false, reason: "incomplete", evidence: resolution.diagnostics };
-  if (resolution.value !== null)
+  if (attempts.excludedStarts.has(scopedStartKey(startRef)))
     return { ok: true };
   const results = recordsOf(home).filter((candidate) => candidate.kind === "action-receipt" && candidate.payload.action === "assess-spec" && candidate.payload.phase === "result" && candidate.payload.actionId === record.payload.actionId && sameRef2(candidate.payload.start, startRef) && sameRef2(candidate.payload.mandate, mandateRef));
-  if (results.length === 0)
-    return specChainFailure("incomplete", "Spec assessment start has no confirmed result", "action-uncertain");
   if (results.length > 1)
     return specChainFailure("ambiguous", "Spec assessment start has competing results");
   const result = results[0];
-  if (result !== undefined && result.kind === "action-receipt" && workflowContextNegative(result))
-    return contextAssessment(home, mandateRef, excluded);
-  const authenticated = authenticatedAssessResult(result ?? record, histories, mandateRef);
+  if (result === undefined) {
+    if (attempts.abandoned)
+      return { ok: true };
+    return specChainFailure("incomplete", "Spec assessment start has no confirmed result", "action-uncertain");
+  }
+  return confirmedAssessResult(result, home, histories, mandateRef, attempts);
+}
+function confirmedAssessResult(result, home, histories, mandateRef, attempts) {
+  if (attempts.abandoned && interruptedResult(result)) {
+    const pair = authenticateInterruptedReceiptPair(home, result);
+    if (!pair.ok)
+      return { ok: false, reason: "incomplete", evidence: pair.diagnostics };
+    attempts.excludedResults.add(scopedStartKey(receiptRef(result)));
+    return { ok: true };
+  }
+  if (workflowContextNegative(result))
+    return contextAssessment(home, mandateRef, attempts.excludedStarts);
+  const authenticated = authenticatedAssessResult(result, histories, mandateRef);
   return authenticated.ok ? { ok: true } : authenticated;
 }
 function contextAssessment(home, mandateRef, excluded) {
@@ -16370,7 +16287,7 @@ function contextAssessment(home, mandateRef, excluded) {
 }
 
 // plugins/omp-build/engine/workflow-accepted-spec-chain.ts
-function editorialCandidates(home, histories, mandateRef, applied, accepted, deferCompatibility) {
+function editorialCandidates(home, histories, mandateRef, applied, excludedResults, accepted, deferCompatibility) {
   const editorials = [];
   let materialClaims = 0;
   for (const record of recordsOf(home)) {
@@ -16378,6 +16295,7 @@ function editorialCandidates(home, histories, mandateRef, applied, accepted, def
       histories,
       mandateRef,
       applied,
+      excludedResults,
       accepted,
       deferCompatibility
     });
@@ -16396,8 +16314,8 @@ function materialCandidates(home, mandateRef, applied, predecessor) {
   return recordsOf(home).filter((record) => record.kind === "operator-control" && record.payload.control === "accept-material" && sameRef2(record.payload.mandate, mandateRef) && !applied.has(record.recordId) && sameRef2(record.payload.predecessor, predecessor));
 }
 function nextAcceptedSpecStep(input) {
-  const { home, histories, mandateRef, applied, accepted, predecessor, deferCompatibility } = input;
-  const candidates = editorialCandidates(home, histories, mandateRef, applied, accepted, deferCompatibility);
+  const { home, histories, mandateRef, applied, accepted, predecessor, excludedResults, deferCompatibility } = input;
+  const candidates = editorialCandidates(home, histories, mandateRef, applied, excludedResults, accepted, deferCompatibility);
   if (candidates.status === "refused")
     return candidates;
   const materials = materialCandidates(home, mandateRef, applied, predecessor);
@@ -16495,6 +16413,7 @@ function resolveAcceptedSpecChain(input) {
       histories,
       mandateRef,
       applied,
+      excludedResults: input.excludedResults,
       accepted,
       predecessor,
       deferCompatibility: input.deferCompatibility
@@ -16560,10 +16479,10 @@ function structuralReplay(mandate, histories) {
     return specChainFailure("ambiguous", "Mandate does not match the authenticated history");
   if (confirmed.payload.ownSpec.uw.repository !== scope.repository || confirmed.payload.ownSpec.uw.target !== scope.target)
     return specChainFailure("material-spec", "Mandate own Spec does not belong to its mandate scope");
-  const pairs = confirmedAssessPairs(home, histories, mandateRef);
+  const pairs = confirmedAssessPairs(home, histories, mandateRef, abandoned(home, confirmed));
   if (!pairs.ok)
     return pairs;
-  return recordedReplay({ confirmed, home, histories, mandateRef, scope });
+  return recordedReplay({ confirmed, home, histories, mandateRef, scope, excludedResults: pairs.excludedResults });
 }
 function recordedReplay(input) {
   const prefixes = [];
@@ -17283,21 +17202,21 @@ function historyRefusal(history) {
     return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
   return null;
 }
-function claimsRevocableAuthority(operation) {
+function claimsRevocableAuthority(operation, exact) {
+  if (operation.record?.kind === "mandate" || operation.kind === "mandate" || operation.claimedKinds.includes("mandate"))
+    return exact === undefined || operation.recordId === exact.recordId || operation.record?.recordId === exact.recordId;
   const record = operation.record;
-  if (record?.kind === "mandate" || operation.kind === "mandate" || operation.claimedKinds.includes("mandate"))
-    return true;
-  if (record?.kind === "operator-control") {
-    const { control } = record.payload;
-    return control === "abandon" || control === "select-successor";
-  }
-  return operation.kind === "operator-control" || operation.claimedKinds.includes("operator-control");
+  if (record?.kind !== "operator-control")
+    return false;
+  const control = record.payload;
+  const subject = control.control === "abandon" ? control.mandate : control.control === "select-successor" ? control.predecessor : null;
+  return subject !== null && (exact === undefined || sameRef2(subject, exact));
 }
-function revocationHistoryRefusal(history) {
+function revocationHistoryRefusal(history, exact) {
   if (!history.source.complete)
     return refused("incomplete", [diagnostic2("incomplete", "History pagination is incomplete")]);
   for (const operation of history.operations) {
-    if (operation.authority === "foreign" || !claimsRevocableAuthority(operation))
+    if (operation.authority === "foreign" || !claimsRevocableAuthority(operation, exact))
       continue;
     if (operation.status === "conflict")
       return refused("ambiguous", [diagnostic2("ambiguous", "Mandate authority records conflict")]);
@@ -17382,12 +17301,28 @@ function selectedMandate(history) {
     return refused("abandoned", [diagnostic2("abandoned", `Mandate ${mandate.recordId} is abandoned`)]);
   return mandate;
 }
-function selectRevocableMandate(history) {
-  const problem = revocationHistoryRefusal(history);
+function selectRevocableMandate(history, exact) {
+  const problem = revocationHistoryRefusal(history, exact);
   if (problem !== null)
     return problem;
+  if (exact !== undefined) {
+    const bound = bindExternalRef(exact, history);
+    if (!bound.ok)
+      return refused("unconfirmed", bound.diagnostics);
+    const mandate = bound.value;
+    if (mandate.kind !== "mandate")
+      return refused("unknown-binding", [diagnostic2("kind-mismatch", "The exact authority must be a mandate")]);
+    if (abandoned(history, mandate))
+      return refused("abandoned", [diagnostic2("abandoned", `Mandate ${mandate.recordId} is abandoned`)]);
+    if (successorOf(history, mandate) !== null)
+      return refused("revoked", [diagnostic2("revoked", "The exact mandate was superseded")]);
+    return { status: "applicable", mandate };
+  }
   const mandate = selectedMandate(history);
-  return "status" in mandate ? mandate : { status: "applicable", mandate };
+  if ("status" in mandate)
+    return mandate;
+  const bound = bindExternalRef({ scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" }, history);
+  return bound.ok ? { status: "applicable", mandate } : refused("unconfirmed", bound.diagnostics);
 }
 function acceptedRefusal(result) {
   return refused(result.reason === "ambiguous" ? "ambiguous" : result.reason === "missing-history" ? "missing-history" : "incomplete", result.evidence);
@@ -24608,12 +24543,20 @@ async function publishMissingBodies(record, bodies, current, options, expectedAu
 }
 
 // plugins/omp-build/adapters/github/publish.ts
+function authenticateReadBack(record, history) {
+  const { repository, target, recordId, kind } = record;
+  const bound = bindExternalRef({ scope: { repository, target }, recordId, kind }, history);
+  return bound.ok ? null : publicationFailure("uncertain", history, bound.diagnostics);
+}
 async function confirmReadBack(record, current, resolveContext, externalHistories) {
   const readBack = current.operations.find((operation) => sameOperation(record, operation));
   if (readBack === undefined)
     return publicationFailure("uncertain", current, [
       diagnostic3("publication-unconfirmed", `Operation ${record.operationId} was not completely confirmed by native read-back`)
     ]);
+  const unconfirmed = authenticateReadBack(record, current);
+  if (unconfirmed !== null)
+    return unconfirmed;
   try {
     const latest = await resolveContext({ record, history: current, externalHistories });
     if (!latest.ok)
@@ -24689,8 +24632,9 @@ async function publishGitHubRecord(record, options, resolveContext, externalHist
   const encoded = await encodePublication(record, current, ownParts, resolveContext, externalHistories);
   if (encoded.status !== "ready")
     return encoded;
-  if (confirmed !== undefined && sameId.length === 1)
-    return { status: "confirmed", operation: confirmed };
+  if (confirmed !== undefined && sameId.length === 1) {
+    return authenticateReadBack(record, current) ?? { status: "confirmed", operation: confirmed };
+  }
   const retainedDiagnostics = retainedPartConflictDiagnostics(record, incomplete, new Set(encoded.bodies));
   if (retainedDiagnostics !== null)
     return publicationFailure("refused", current, retainedDiagnostics);
@@ -25353,14 +25297,14 @@ async function readUwSubtree(root, options) {
 function bindingRefusal2(status, diagnostics, evidence) {
   return evidence === undefined ? { ok: false, status, reason: status, diagnostics } : { ok: false, status, reason: status, diagnostics, evidence };
 }
-function initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest) {
+function initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose) {
   return selectWorkflowBinding({
     pullRequest: prScope,
     histories: [prHistory, ...mandateHistories],
     native: { branch: pullRequest.branch, base: pullRequest.base }
-  });
+  }, purpose);
 }
-async function readBindingMandateHistories(prHistory, options) {
+async function readBindingMandateHistories(prHistory, readHistory) {
   const histories = [];
   for (const operation of prHistory.operations) {
     const record = operation.record;
@@ -25369,7 +25313,7 @@ async function readBindingMandateHistories(prHistory, options) {
     const mandateScope = record.payload.mandate.scope;
     if (historyFor(mandateScope, [prHistory, ...histories]) !== null)
       continue;
-    const history = await readDecodedGitHubHistory(mandateScope, options);
+    const history = await readHistory(mandateScope);
     if (!history.source.complete) {
       return {
         ok: false,
@@ -25399,14 +25343,15 @@ async function recoveryClosure(primary, options) {
   const projected = projectRecoveryHistories(histories);
   return projected.ok ? { ok: true, histories: projected.value } : { ok: false, result: bindingRefusal2("conflicting", projected.diagnostics) };
 }
-async function resolveInitialWorkflowBinding(prScope, options) {
+async function resolveInitialWorkflowBinding(prScope, options, purpose = "delivery") {
   const pr = scopeNumber(prScope);
   const pullRequest = await readNativePullRequestFacts(prScope.repository, pr, options);
-  let prHistory = await readDecodedGitHubHistory(prScope, options);
+  const readHistory = (scope) => purpose === "delivery" ? readDecodedGitHubHistory(scope, options) : readGitHubHistory(scope, options).then(decodeHistory);
+  let prHistory = await readHistory(prScope);
   if (!prHistory.source.complete) {
     return { ok: false, result: bindingRefusal2("incomplete", [diagnostic3("incomplete", "PR history is incomplete")]) };
   }
-  const closure = await recoveryClosure(prHistory, options);
+  const closure = purpose === "delivery" ? await recoveryClosure(prHistory, options) : { ok: true, histories: [prHistory] };
   if (!closure.ok)
     return { ok: false, result: closure.result };
   const projectedPrimary = closure.histories[0];
@@ -25414,13 +25359,13 @@ async function resolveInitialWorkflowBinding(prScope, options) {
     throw new Error("Recovery closure omitted primary history");
   prHistory = projectedPrimary;
   let mandateHistories = closure.histories.slice(1);
-  let selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest);
+  let selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose);
   if (selected.status === "incomplete") {
-    const fetched = await readBindingMandateHistories(prHistory, options);
+    const fetched = await readBindingMandateHistories(prHistory, readHistory);
     if (!fetched.ok)
       return { ok: false, result: fetched.result };
     mandateHistories = uniqueHistories([...mandateHistories, ...fetched.histories]);
-    selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest);
+    selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose);
   }
   if (selected.status !== "bound") {
     return {
@@ -27119,6 +27064,20 @@ async function readWorkflowBinding(prScope, options) {
   const { root, ...value } = bound.value;
   try {
     return { ok: true, value: { ...value, uwGraph: await readUwGraph(root, options) } };
+  } catch (error) {
+    const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic3("github-read-failed", error instanceof Error ? error.message : String(error))];
+    return bindingRefusal2("unreadable", diagnostics);
+  }
+}
+async function readWorkflowBindingForRevocation(prScope, options) {
+  try {
+    const resolved = await resolveInitialWorkflowBinding(prScope, options, "revocation");
+    if (!resolved.ok)
+      return resolved.result;
+    const { mandate } = resolved.selected;
+    if (mandate.kind !== "mandate")
+      return bindingRefusal2("conflicting", [diagnostic3("kind-mismatch", "Workflow binding must name a mandate")]);
+    return { ok: true, mandate: { ...mandate, kind: "mandate" } };
   } catch (error) {
     const diagnostics = error instanceof GitHubHistoryReadError ? error.diagnostics : [diagnostic3("github-read-failed", error instanceof Error ? error.message : String(error))];
     return bindingRefusal2("unreadable", diagnostics);
@@ -30114,6 +30073,123 @@ function assessParentInsertionEngagement(evidence) {
     return { state: "indeterminate", diagnostics: graphResult.diagnostics };
   return { state: "active", diagnostics: [] };
 }
+// plugins/omp-build/engine/workflow-action-interruption.ts
+function mandateRefOf(mandate) {
+  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+}
+function startResolution(histories, start) {
+  const home = historyFor(start.scope, histories);
+  if (home === null || !home.source.complete)
+    return fail([invalidResolution(null, "V3", "START history is missing or incomplete")]);
+  const index = resolutionIndex(histories);
+  if (!index.ok)
+    return index;
+  return { ok: true, value: index.value.resolved.get(scopedStartKey(start)) ?? null };
+}
+function receiptsOf(history) {
+  return recordsOf(history).filter((record) => record.kind === "action-receipt");
+}
+function classifyAttempts(input) {
+  if (input.scan.some((history) => !history.source.complete))
+    return fail([invalidResolution(null, "V3", "Attempt history is incomplete")]);
+  const index = resolutionIndex([...input.histories, ...input.scan.filter((item) => !input.histories.includes(item))]);
+  if (!index.ok)
+    return index;
+  const excluded = new Set;
+  const unresolved = [];
+  for (const history of input.scan) {
+    const receipts = receiptsOf(history).filter((receipt) => isInterruptionAction(receipt.payload.action) && input.actions.includes(receipt.payload.action) && (input.select?.(receipt) ?? true));
+    const classified = classifyHistoryAttempts(history, receipts, index.value.resolved, excluded, unresolved);
+    if (!classified.ok)
+      return classified;
+  }
+  return { ok: true, value: { excluded, unresolved } };
+}
+function classifyHistoryAttempts(history, receipts, resolved, excluded, unresolved) {
+  if (receipts.some(legacyInterruptionResult))
+    return fail([diagnostic2("action-uncertain", "Legacy interruption proof is not executable")]);
+  for (const start of receipts) {
+    const action = start.payload.action;
+    if (start.payload.phase !== "start" || !isInterruptionAction(action))
+      continue;
+    const key = receiptStartKey(start);
+    if (resolved.has(key)) {
+      excluded.add(key);
+      continue;
+    }
+    const attempt = classifyUnresolvedStart(history, receipts, start, action);
+    if (!attempt.ok)
+      return attempt;
+    if (attempt.value !== null)
+      unresolved.push(attempt.value);
+  }
+  return { ok: true, value: undefined };
+}
+function classifyUnresolvedStart(history, receipts, start, action) {
+  const results = receipts.filter((receipt) => receipt.payload.phase === "result" && receipt.payload.action === action && receipt.payload.actionId === start.payload.actionId);
+  const result = results[0];
+  if (result === undefined)
+    return { ok: true, value: { kind: "orphan", action, start } };
+  if (results.length === 1 && authenticateInterruptedReceiptPair(history, result).ok)
+    return { ok: true, value: { kind: "interrupted", action, start, result } };
+  if (results.some(interruptedResult))
+    return fail([diagnostic2("action-uncertain", `${action} interrupted receipt pairing is not authenticated`)]);
+  return { ok: true, value: null };
+}
+function legacyInterruptionResult(receipt) {
+  return receipt.payload.phase === "result" && receipt.payload.diagnostics.some((entry) => {
+    const detail = entry.detail;
+    return typeof detail === "object" && detail !== null && !Array.isArray(detail) && detail.marker === "omp-build-host-interruption/1";
+  });
+}
+function interruptionGate(classified) {
+  if (!classified.ok)
+    return { kind: "stop", completion: { status: "blocked", evidence: classified.diagnostics } };
+  const interrupted = classified.value.unresolved.find((attempt) => attempt.kind === "interrupted");
+  if (interrupted?.kind === "interrupted")
+    return {
+      kind: "stop",
+      completion: {
+        status: "blocked",
+        evidence: [
+          {
+            code: "action-interrupted",
+            message: `${interrupted.action} attempt was interrupted and awaits an operator resolution`,
+            recordId: interrupted.result.recordId,
+            detail: { action: interrupted.action, start: interrupted.start.recordId }
+          }
+        ]
+      }
+    };
+  const orphan = classified.value.unresolved.find((attempt) => attempt.kind === "orphan");
+  if (orphan !== undefined)
+    return {
+      kind: "stop",
+      completion: {
+        status: "uncertain",
+        evidence: [
+          {
+            code: "action-uncertain",
+            message: `${orphan.action} start has no result`,
+            recordId: orphan.start.recordId,
+            detail: { action: orphan.action }
+          }
+        ]
+      }
+    };
+  return { kind: "clear", excluded: classified.value.excluded };
+}
+function mandateAttempt(mandate) {
+  const ref = mandateRefOf(mandate);
+  return (receipt) => ("scope" in receipt.payload.mandate) && sameRef2(receipt.payload.mandate, ref);
+}
+function ownAttempts(classified, mandate) {
+  if (!classified.ok || mandate === null)
+    return classified;
+  const own = mandateAttempt(mandate);
+  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === "orphan" || own(attempt.start));
+  return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
+}
 // plugins/omp-build/engine/workflow-assessment-child-sources.ts
 function childHistory(uw, histories) {
   const matching = histories.filter((history) => equalScope(history.source.scope, uw));
@@ -30683,7 +30759,6 @@ export {
   FRAMING_ADMISSION_HOLD_CODES,
   FRAMING_PROCEDURE_FILES,
   GitHubHistoryReadError,
-  INTERRUPTION_ACTIONS,
   KIND_NAMES,
   PLAN_REVIEW_SPECIALISTS,
   SPEC_CONTENT_FORMAT,
@@ -30751,7 +30826,6 @@ export {
   ciAttributionSchema,
   ciExactSchema,
   citedJudgmentSchema,
-  classifyAttempts,
   classifyHistory,
   codeLinkJudgmentSchema,
   codeRangeSchema,
@@ -30855,7 +30929,6 @@ export {
   implementationOutputSchema,
   integrationOutputSchema,
   interruptedResult,
-  interruptionGate,
   invariantIdSchema,
   inventorySchema,
   isAssessResult,
@@ -30954,6 +31027,7 @@ export {
   readUwGraph,
   readUwSubtree,
   readWorkflowBinding,
+  readWorkflowBindingForRevocation,
   recallClassSchema,
   recallPlanSchema,
   receiptStartKey,
