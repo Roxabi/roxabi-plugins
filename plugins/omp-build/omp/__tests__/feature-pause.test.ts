@@ -151,9 +151,9 @@ function readyFeature(delivery: { pr?: number } = { pr: 54 }) {
   })
 }
 
-function boundPull(repository = 'acme/widgets', issue = 12) {
+function boundPull(repository = 'acme/widgets', issue = 12, mandate = `mandate-${issue}`) {
   const scope = { repository, target: `${repository}#${issue}` }
-  return { scope, mandate: { scope, recordId: `mandate-${issue}`, kind: 'mandate' as const } }
+  return { scope, mandate: { scope, recordId: mandate, kind: 'mandate' as const } }
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -213,7 +213,7 @@ it.each([
   { ref: '#54', reference: '54', delivery: {}, when: 'opened after delivery started' },
   { ref: 'acme/widgets#54', reference: 'acme/widgets#54', delivery: {}, when: 'opened after delivery started' },
   { ref: '#54', reference: '54', delivery: { pr: 54 }, when: 'known at delivery' },
-])('pauses by $ref with a current binding for a PR $when', async ({ ref, reference, delivery }) => {
+])('pauses by $ref when a PR $when is bound to the running mandate', async ({ ref, reference, delivery }) => {
   readyFeature(delivery)
   const host = installed()
   await host.invoke('feature', '#12')
@@ -244,6 +244,28 @@ it.each([
   expect(resolve).toHaveBeenCalledOnce()
   expect(host.ctx.abort).not.toHaveBeenCalled()
   expect(host.reports.at(-1)).toBe('feature-not-running: 54')
+})
+
+it.each([
+  { binding: 'bound to another mandate', delivery: {}, recordId: 'other-mandate' },
+  { binding: 'rebound to the successor mandate', delivery: { pr: 54 }, recordId: 'successor-mandate' },
+])('does not pause by PR $binding on the same issue', async ({ delivery, recordId }) => {
+  readyFeature(delivery)
+  const resolve = vi.spyOn(continuationAdmission, 'resolveFeatureRevocation').mockResolvedValue(boundPull())
+  const host = installed()
+  await host.invoke('feature', '#12')
+  await host.start(host.dispatched())
+  resolve.mockResolvedValue(boundPull('acme/widgets', 12, recordId))
+
+  await host.invoke('feature', 'pause #54')
+
+  expect(resolve).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ reference: '54' }))
+  expect(host.ctx.abort).not.toHaveBeenCalled()
+  expect(host.reports.at(-1)).toBe('feature-not-running: 54')
+
+  await host.invoke('feature', 'pause #12')
+  expect(host.ctx.abort).toHaveBeenCalledOnce()
+  expect(host.reports.at(-1)).toBe('feature-paused: session only')
 })
 
 it.each(['replacement run of the same UW', 'session change'])(

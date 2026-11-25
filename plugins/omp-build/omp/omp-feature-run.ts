@@ -14,7 +14,10 @@ import type { FeatureReady } from './omp-feature-admission.ts'
 import { rootContext } from './omp-feature-session.ts'
 
 type AgentMessage = MessageStartEvent['message']
-type Delivery = Pick<FeatureReady, 'repository' | 'issue'> & { origin: FramingOrigin; operator: FramingOperator }
+type Delivery = Pick<FeatureReady, 'repository' | 'issue' | 'mandate'> & {
+  origin: FramingOrigin
+  operator: FramingOperator
+}
 type Running = { delivery: Delivery; message: AgentMessage; pausing?: true }
 type Runs = { pending: Map<string, Delivery>; running?: Running }
 
@@ -27,7 +30,7 @@ export function stageFeatureDelivery(
   pi: OmpBuildExtensionApi,
   ctx: ExtensionContext,
   operator: FramingOperator,
-  { repository, issue }: FeatureReady,
+  { repository, issue, mandate }: FeatureReady,
 ) {
   let state = runs.get(pi)
   if (state === undefined) {
@@ -35,7 +38,7 @@ export function stageFeatureDelivery(
     runs.set(pi, state)
   }
   const id = randomUUID()
-  const delivery = { origin: captureOrigin(ctx), operator, repository, issue }
+  const delivery = { origin: captureOrigin(ctx), operator, repository, issue, mandate }
   state.pending.set(id, delivery)
   const own = state
   return {
@@ -58,15 +61,16 @@ function activeRun(pi: OmpBuildExtensionApi, ctx: ExtensionContext): Running | u
     : undefined
 }
 
-async function matchesBoundPull(reference: string, { origin, repository, issue }: Delivery): Promise<boolean> {
+async function matchesBoundPull(reference: string, { origin, repository, issue, mandate }: Delivery): Promise<boolean> {
   try {
     // Resolve the authenticated binding only; unlike abandonment, pause writes no control records.
     const target = await resolveFeatureRevocation({ cwd: origin.cwd, reference, control: 'abandon', principal: false })
+    const bound = 'kind' in target ? undefined : target.mandate
     return (
-      !('kind' in target) &&
-      target.mandate !== undefined &&
-      target.scope.repository === repository &&
-      target.scope.target === `${repository}#${issue}`
+      bound !== undefined &&
+      bound.scope.repository === repository &&
+      bound.scope.target === `${repository}#${issue}` &&
+      bound.recordId === mandate
     )
   } catch {
     return false
