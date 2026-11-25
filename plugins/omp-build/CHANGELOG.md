@@ -2,7 +2,7 @@
 
 ## 0.21.19 (unreleased)
 
-- `/feature pause` stops only the running session and makes no remote writes. Continue with `/feature <reference>` under the same live mandate; remove the separate `resume` and `resolve-interruption` commands. Historical pauses, interruptions, rejected results and predecessor assessments remain readable without gating composed delivery (#1046 C2).
+- `/feature pause <reference>` stops only the matching running Feature and makes no remote writes. Continue with `/feature <reference>` under the same live mandate; remove the separate `resume` and `resolve-interruption` commands. Composed continuation no longer replays historical attempts; their records remain readable (#1046 C2).
 - `/feature abandon` publishes and reads back exact mandate revocation without depending on the Accepted Spec or PR disarm. Revoked authority cannot push or land, and abandonment leaves no session hold on a later mandate (#1046 C3).
 
 ## 0.21.18 (unreleased)

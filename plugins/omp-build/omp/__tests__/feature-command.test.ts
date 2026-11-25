@@ -197,11 +197,12 @@ describe('installed /feature command', () => {
       ),
       '```',
     ].join('\n')
+    const withoutDeliveryMarker = () => host.sent.map((text) => text.replace(/^delivery: [a-f0-9-]{36}\n/m, ''))
     await host.commands.get('feature')?.handler('#12', root)
-    expect(host.sent).toEqual([message])
+    expect(withoutDeliveryMarker()).toEqual([message])
     issue.body = current.snapshot.raw.body
     await host.commands.get('feature')?.handler('#12', root)
-    expect(host.sent).toEqual([
+    expect(withoutDeliveryMarker()).toEqual([
       message,
       message.replace('The live issue body differs from the accepted snapshot.\n', ''),
     ])
@@ -249,7 +250,11 @@ describe('installed /feature command', () => {
     expect(vectorBefore).toMatch(/^[0-9a-f]{64}$/)
     expect(vectorAfter).toMatch(/^[0-9a-f]{64}$/)
     expect(vectorAfter).not.toBe(vectorBefore)
-    expect(host.sent[5]).toBe(host.sent[4]?.replace(`spec: ${vectorBefore}`, `spec: ${vectorAfter}`))
+    const [before, after] = withoutDeliveryMarker().slice(4)
+    expect(after).toBe(before?.replace(`spec: ${vectorBefore}`, `spec: ${vectorAfter}`))
+    const deliveryIds = host.sent.map((text) => text.match(/^delivery: ([a-f0-9-]{36})$/m)?.[1])
+    expect(deliveryIds).not.toContain(undefined)
+    expect(new Set(deliveryIds).size).toBe(6)
     expect(exec).not.toHaveBeenCalled()
     expect(readPr).toHaveBeenCalledTimes(prState === 'unbound' ? 0 : 6)
   })
@@ -312,19 +317,21 @@ describe('installed /feature command', () => {
     },
   )
 
-  it('aborts the active session for pause without creating UW operations', async () => {
+  it('reports no matching Feature without aborting or creating UW operations', async () => {
     const uwOperations = vi.fn(async () => {
       throw new Error('Unexpected UW operation creation')
     })
     const exec = vi.fn()
     const host = installed({ uwOperations }, exec)
-    const abort = vi.fn(() => expect(host.sent).toEqual([]))
-    const ctx = { ...root, isIdle: () => false, abort }
+    const abort = vi.fn()
+    const notify = vi.fn()
+    const ctx = { ...root, isIdle: () => false, abort, ui: { notify } }
     await host.commands.get('feature')?.handler('pause #12', ctx)
-    expect(abort).toHaveBeenCalledOnce()
+    expect(abort).not.toHaveBeenCalled()
     expect(uwOperations).not.toHaveBeenCalled()
     expect(exec).not.toHaveBeenCalled()
-    expect(host.sent).toEqual(['feature-paused: session only'])
+    expect(notify).toHaveBeenCalledExactlyOnceWith('feature-not-running: 12', 'info')
+    expect(host.sent).toEqual([])
   })
 
   it.each([

@@ -1,5 +1,6 @@
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Result } from './result.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
@@ -55,12 +56,26 @@ export function selectedMandate(history: DecodedHistory): MandateRecord | Mandat
   return mandate
 }
 
-/** Select only the local record authority that can be revoked, even when it cannot execute. */
-export function selectRevocableMandate(history: DecodedHistory): MandateSelection {
-  const problem = revocationHistoryRefusal(history)
+/** Revoke local authority even if it cannot execute, without falling back from an exact ref. */
+export function selectRevocableMandate(history: DecodedHistory, exact?: ExternalRecordRef): MandateSelection {
+  const problem = revocationHistoryRefusal(history, exact)
   if (problem !== null) return problem
+  if (exact !== undefined) {
+    const bound = bindExternalRef(exact, history)
+    if (!bound.ok) return refused('unconfirmed', bound.diagnostics)
+    const mandate = bound.value
+    if (mandate.kind !== 'mandate')
+      return refused('unknown-binding', [diagnostic('kind-mismatch', 'The exact authority must be a mandate')])
+    if (abandoned(history, mandate))
+      return refused('abandoned', [diagnostic('abandoned', `Mandate ${mandate.recordId} is abandoned`)])
+    if (successorOf(history, mandate) !== null)
+      return refused('revoked', [diagnostic('revoked', 'The exact mandate was superseded')])
+    return { status: 'applicable', mandate }
+  }
   const mandate = selectedMandate(history)
-  return 'status' in mandate ? mandate : { status: 'applicable', mandate }
+  if ('status' in mandate) return mandate
+  const bound = bindExternalRef({ scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }, history)
+  return bound.ok ? { status: 'applicable', mandate } : refused('unconfirmed', bound.diagnostics)
 }
 
 function acceptedRefusal(result: Exclude<AcceptedSpecResult, { ok: true }>): MandateRefusalSelection {

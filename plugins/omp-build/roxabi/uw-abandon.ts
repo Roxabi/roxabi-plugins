@@ -19,20 +19,8 @@ function problem(uw: Scope, code: string, message: string): UwDiagnostic {
   return { code, message, location: { kind: 'native', uw, connection: 'state' }, related: [] }
 }
 
-async function readRevocable(uw: Scope, options: GitHubOptions) {
-  return selectRevocableMandate(decodeHistory(await readGitHubHistory(uw, options)))
-}
-
-function expectedMandateMatches(
-  expected: (ExternalRecordRef & { kind: 'mandate' }) | undefined,
-  mandate: ExternalRecordRef,
-): boolean {
-  return (
-    expected === undefined ||
-    (expected.recordId === mandate.recordId &&
-      expected.scope.repository === mandate.scope.repository &&
-      expected.scope.target === mandate.scope.target)
-  )
+async function readRevocable(uw: Scope, options: GitHubOptions, exact?: MandateRef) {
+  return selectRevocableMandate(decodeHistory(await readGitHubHistory(uw, options)), exact)
 }
 
 async function publishAbandonment(
@@ -40,8 +28,9 @@ async function publishAbandonment(
   uw: Scope,
   proposal: PreparedUwAbandon['proposal'],
   publication: { mayExist: boolean },
+  expectedMandate: MandateRef | undefined,
 ): Promise<UwOperationResult> {
-  const current = await readRevocable(uw, github)
+  const current = await readRevocable(uw, github, expectedMandate)
   if (current.status !== 'applicable' || canonicalValueDigest(current.mandate) !== proposal.mandateDigest)
     return {
       status: 'refused',
@@ -85,7 +74,7 @@ async function prepareAbandonment(
   uw: Scope,
   expectedMandate: MandateRef | undefined,
 ): Promise<{ ok: true; proposal: PreparedUwAbandon['proposal'] } | { ok: false; result: UwOperationResult }> {
-  const authority = await readRevocable(uw, github)
+  const authority = await readRevocable(uw, github, expectedMandate)
   if (authority.status !== 'applicable')
     return {
       ok: false,
@@ -95,14 +84,6 @@ async function prepareAbandonment(
       },
     }
   const mandate = { scope: uw, recordId: authority.mandate.recordId, kind: 'mandate' as const }
-  if (!expectedMandateMatches(expectedMandate, mandate))
-    return {
-      ok: false,
-      result: {
-        status: 'refused',
-        diagnostics: [problem(uw, 'abandon-mandate-stale', 'The selected mandate changed before abandonment')],
-      },
-    }
   const proposal: PreparedUwAbandon['proposal'] = {
     format: 'omp-build-uw-abandon/1',
     operationId: `abandon:${randomUUID()}`,
@@ -126,7 +107,7 @@ export function createUwAbandon(input: {
       const proposal = preparation.proposal
       const prepared: PreparedUwAbandon = { proposal, digest: canonicalValueDigest(proposal) }
       const confirmed = await input.operator.executeConfirmed(prepared, () =>
-        publishAbandonment(input.github, uw, proposal, publication),
+        publishAbandonment(input.github, uw, proposal, publication, expectedMandate),
       )
       return confirmed.status === 'confirmed' ? confirmed.value : confirmed
     } catch (error) {

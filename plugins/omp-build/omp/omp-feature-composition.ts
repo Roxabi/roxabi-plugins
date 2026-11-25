@@ -8,6 +8,12 @@ import {
   sameSession,
 } from '../roxabi/feature-framing-controller-lease.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
+import {
+  clearFeatureRuns,
+  featurePausePending,
+  finishFeatureRun,
+  installFeatureRunLifecycle,
+} from './omp-feature-run.ts'
 import { rootContext } from './omp-feature-session.ts'
 import { cancelOperatorConfirmations } from './omp-operator-confirmation.ts'
 import { invalidateActivation, invalidatePendingActivation } from './tooling-pin-state.ts'
@@ -41,10 +47,7 @@ function originOf(ctx: ExtensionContext): FeatureOperationOrigin {
   return Object.freeze({ sessionId: ctx.sessionManager.getSessionId(), agentId: ctx.agent.id })
 }
 
-/**
- * The ONE owner slot per extension instance. The next occupant is installed before its predecessor is
- * told, so a predecessor's own settlement can never clear its successor.
- */
+/** Install the next owner before notifying its predecessor, so stale settlement cannot clear it. */
 function occupy(pi: OmpBuildExtensionApi, next: (generation: number) => Occupant): Occupant {
   const slot = slotFor(pi)
   const previous = slot.occupant
@@ -77,10 +80,7 @@ function invalidateExact(pi: OmpBuildExtensionApi, generation: number, reason: s
   occupant.operator.cancel()
 }
 
-/**
- * One interactive root UW operation owns one confirmation capability. A replacement, an aborted
- * root session, or a terminal session transition invalidates the old capability.
- */
+/** Replacement or root session interruption invalidates the command's confirmation capability. */
 export function beginFeatureUwOperation<T extends FramingOperator>(pi: OmpBuildExtensionApi, operator: T): T {
   occupy(pi, (generation) => ({ kind: 'ordinary', generation, operator, origin: null }))
   return operator
@@ -230,12 +230,9 @@ function currentOccupant(pi: OmpBuildExtensionApi): Occupant | null {
   return operationSlots.get(pi)?.occupant ?? null
 }
 
-export function cancelFeatureSession(
-  pi: OmpBuildExtensionApi,
-  ctx: ExtensionContext,
-  reason: string,
-  clearPin = false,
-) {
+function cancelFeatureSession(pi: OmpBuildExtensionApi, ctx: ExtensionContext, reason: string, clearPin = false): void {
+  if (reason === 'session-stop-aborted' && featurePausePending(pi, ctx)) return
+  clearFeatureRuns(pi)
   if (clearPin) invalidateActivation(pi)
   else invalidatePendingActivation(pi)
   const occupant = currentOccupant(pi)
@@ -250,9 +247,7 @@ export function featureOperationOccupied(pi: OmpBuildExtensionApi): boolean {
 /** Completes a revoked framing lease's settlement; a live lease is untouched. */
 function settleRevokedFraming(pi: OmpBuildExtensionApi, reason: string): boolean {
   const occupant = currentOccupant(pi)
-  if (occupant?.kind !== 'framing') return false
-  const view = occupant.controller.view()
-  if (view === null || !view.revoked) return false
+  if (occupant?.kind !== 'framing' || !occupant.controller.view()?.revoked) return false
   invalidateExact(pi, occupant.generation, reason)
   return true
 }
@@ -260,6 +255,7 @@ function settleRevokedFraming(pi: OmpBuildExtensionApi, reason: string): boolean
 export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): void {
   if (installedLifecycles.has(pi)) return
   installedLifecycles.add(pi)
+  installFeatureRunLifecycle(pi)
   const invalidate =
     (reason: string) =>
     (_event: unknown, ctx: ExtensionContext): void => {
@@ -268,6 +264,7 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
   pi.on('session_stop', (event: SessionStopEvent, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
     if (event.signal.aborted) return cancelFeatureSession(pi, ctx, 'session-stop-aborted')
+    finishFeatureRun(pi, ctx, event.messages)
     const occupant = currentOccupant(pi)
     if (occupant === null || settleRevokedFraming(pi, 'session-stop-settled')) return
     const generation = occupant.generation
@@ -280,11 +277,13 @@ export function installFeatureUwOperationLifecycle(pi: OmpBuildExtensionApi): vo
       { once: true },
     )
   })
-  pi.on('agent_end', (_event, ctx: ExtensionContext) => {
+  pi.on('agent_end', (event, ctx: ExtensionContext) => {
+    finishFeatureRun(pi, ctx, event.messages)
     if (rootContext(ctx)) settleRevokedFraming(pi, 'agent-end-settled')
   })
   pi.on('session_switch', (_event, ctx: ExtensionContext) => {
     if (!rootContext(ctx)) return
+    clearFeatureRuns(pi)
     ctx.ui?.setStatus?.('omp-build-watch', undefined)
     invalidateActivation(pi)
     const occupant = currentOccupant(pi)

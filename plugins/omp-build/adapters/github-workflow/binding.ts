@@ -1,4 +1,5 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
+import type { ExternalRecordRef } from '../../engine/record-references.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
 import type { ReviewClassCatalogues } from '../../engine/review-class-catalogue.ts'
@@ -76,6 +77,29 @@ export async function readWorkflowBinding(prScope: Scope, options: GitHubOptions
   const { root, ...value } = bound.value
   try {
     return { ok: true, value: { ...value, uwGraph: await readUwGraph(root, options) } }
+  } catch (error) {
+    const diagnostics =
+      error instanceof GitHubHistoryReadError
+        ? error.diagnostics
+        : [diagnostic('github-read-failed', error instanceof Error ? error.message : String(error))]
+    return bindingRefusal('unreadable', diagnostics)
+  }
+}
+
+/** Read only the exact native PR-to-mandate authority needed for revocation. */
+export async function readWorkflowBindingForRevocation(
+  prScope: Scope,
+  options: GitHubOptions,
+): Promise<
+  { ok: true; mandate: ExternalRecordRef & { kind: 'mandate' } } | Extract<WorkflowBindingRead, { ok: false }>
+> {
+  try {
+    const resolved = await resolveInitialWorkflowBinding(prScope, options, 'revocation')
+    if (!resolved.ok) return resolved.result
+    const { mandate } = resolved.selected
+    if (mandate.kind !== 'mandate')
+      return bindingRefusal('conflicting', [diagnostic('kind-mismatch', 'Workflow binding must name a mandate')])
+    return { ok: true, mandate: { ...mandate, kind: 'mandate' } }
   } catch (error) {
     const diagnostics =
       error instanceof GitHubHistoryReadError

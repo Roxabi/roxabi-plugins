@@ -20,6 +20,7 @@ export {
   publishConfirmedWorkflowRecord,
   readLandingFacts,
   readWorkflowBinding,
+  readWorkflowBindingForRevocation,
 } from './adapters/github-workflow/binding.ts'
 export {
   readCauseHistoryClosure,
@@ -156,9 +157,6 @@ export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engi
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export {
   type AttemptClassification,
-  classifyAttempts,
-  type InterruptionGate,
-  interruptionGate,
   startResolution,
   type UnresolvedAttempt,
 } from './engine/workflow-action-interruption.ts'
@@ -185,7 +183,6 @@ export {
 } from './engine/workflow-graph.ts'
 export {
   authenticateInterruptedReceiptPair,
-  INTERRUPTION_ACTIONS,
   type InterruptionAction,
   type InterruptionResolution,
   interruptedResult,

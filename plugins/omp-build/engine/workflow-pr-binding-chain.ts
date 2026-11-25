@@ -3,6 +3,7 @@ import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Scope } from './record-values.ts'
 import {
+  bindExternalRef,
   historyFor,
   type SuccessorClaim,
   successorClaim,
@@ -22,6 +23,8 @@ type BindingInput = {
   histories: readonly DecodedHistory[]
   native: { branch: string; base: string }
 }
+
+export type BindingPurpose = 'delivery' | 'revocation'
 
 function bindingRefusal(
   status: 'incomplete' | 'conflicting' | 'incompatible-format',
@@ -57,11 +60,16 @@ function uniqueBindings(bindings: WorkflowBindingRecord[]): BindingCandidate | W
   return [...byMandate.values()]
 }
 
-function authenticatedSuccessor(binding: WorkflowBindingRecord, histories: readonly DecodedHistory[]): SuccessorClaim {
+function authenticatedSuccessor(
+  binding: WorkflowBindingRecord,
+  histories: readonly DecodedHistory[],
+  purpose: BindingPurpose,
+): SuccessorClaim {
   const home = historyFor(binding.payload.mandate.scope, histories)
   if (home === null || !home.source.complete) {
     return bindingRefusal('incomplete', [diagnostic('incomplete', 'Binding mandate history is missing or incomplete')])
   }
+  if (purpose === 'revocation') return successorClaim(home, binding.payload.mandate)
   const problem = workflowOperationProblem(home)
   if (problem === 'incompatible-format') {
     const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem)
@@ -87,10 +95,11 @@ function authenticatedSuccessor(binding: WorkflowBindingRecord, histories: reado
 function successors(
   bindings: WorkflowBindingRecord[],
   histories: readonly DecodedHistory[],
+  purpose: BindingPurpose,
 ): BindingCandidate | Map<string, string> {
   const next = new Map<string, string>()
   for (const binding of bindings) {
-    const successor = authenticatedSuccessor(binding, histories)
+    const successor = authenticatedSuccessor(binding, histories, purpose)
     if (
       successor.status === 'incomplete' ||
       successor.status === 'conflicting' ||
@@ -152,10 +161,11 @@ function onAuthorizedChain(
 export function resolveBindingChain(
   bindings: WorkflowBindingRecord[],
   histories: readonly DecodedHistory[],
+  purpose: BindingPurpose = 'delivery',
 ): BindingCandidate {
   const unique = uniqueBindings(bindings)
   if (!Array.isArray(unique)) return unique
-  const next = successors(unique, histories)
+  const next = successors(unique, histories, purpose)
   if (!(next instanceof Map)) return next
   const head = authorizedHead(unique, next)
   if ('status' in head) return head
@@ -249,12 +259,23 @@ export function selectWorkflowBindingClaims(input: BindingInput): BindingClaims 
 
 export function selectWorkflowBindingCandidate(
   input: BindingInput,
+  purpose: BindingPurpose = 'delivery',
 ):
   | BindingRefusal
   | { status: 'absent' }
   | { status: 'bound'; binding: WorkflowBindingRecord; claims: WorkflowBindingRecord[] } {
   const records = selectWorkflowBindingClaims(input)
   if (!Array.isArray(records)) return records
-  const candidate = resolveBindingChain(records, input.histories)
+  if (purpose === 'revocation') {
+    const home = historyFor(input.pullRequest, input.histories)
+    if (home === null) return bindingRefusal('incomplete', [diagnostic('missing-history', 'PR history is missing')])
+    for (const record of records) {
+      const checked = bindExternalRef({ scope: input.pullRequest, recordId: record.recordId, kind: record.kind }, home)
+      if (!checked.ok) return bindingRefusal('incomplete', checked.diagnostics)
+    }
+    const [binding] = records
+    if (records.length === 1 && binding !== undefined) return { status: 'bound', binding, claims: records }
+  }
+  const candidate = resolveBindingChain(records, input.histories, purpose)
   return candidate.status === 'bound' ? { ...candidate, claims: records } : candidate
 }

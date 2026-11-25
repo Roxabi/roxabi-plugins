@@ -2,6 +2,7 @@ import { validateActionInputs } from './action-input.ts'
 import { canonicalValueDigest } from './canonical-value.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { equalScope, fail, sameRef } from './record-diagnostics.ts'
+import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Json } from './record-values.ts'
 import type { Result } from './result.ts'
 import {
@@ -194,10 +195,13 @@ function resolutionOperation(operation: Operation): boolean {
 }
 
 /**
- * Index every resolution of the supplied histories, rebuilt per call. Any incomplete, invalid or competing
- * resolution operation is a problem: host fences and selectors then fail closed.
+ * Index resolution operations, rebuilt per call. A mandate-bound reader may ignore accounted controls
+ * for other mandates; unreadable or unowned operations cannot safely be assigned to another mandate.
  */
-export function resolutionIndex(histories: readonly DecodedHistory[]): Result<ResolutionIndex> {
+export function resolutionIndex(
+  histories: readonly DecodedHistory[],
+  mandate?: ExternalRecordRef,
+): Result<ResolutionIndex> {
   const problems: Diagnostic[] = []
   const resolved = new Map<string, InterruptionResolution>()
   const observed = new Map<string, string>()
@@ -210,7 +214,8 @@ export function resolutionIndex(histories: readonly DecodedHistory[]): Result<Re
       problems.push(invalidResolution(operation.recordId, 'V3', 'Resolution operation ownership is not authenticated'))
       continue
     }
-    if (!observeResolutionCopy(record, observed, problems)) continue
+    const selected = mandate === undefined || sameRef(record.payload.mandate, mandate)
+    if (!observeResolutionCopy(record, observed, problems) || !selected) continue
     const admitted = admitInterruptionResolution(record, histories)
     if (!admitted.ok) {
       problems.push(...admitted.diagnostics)

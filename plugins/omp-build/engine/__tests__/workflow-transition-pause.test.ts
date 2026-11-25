@@ -4,8 +4,8 @@ import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
 import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
+import { controlsOf } from '../workflow-control.ts'
 import { resolveOwnSpecAuthority, selectRevocableMandate } from '../workflow-mandate-admission.ts'
-import { unliftedPause } from '../workflow-pause.ts'
 import { binding, history, must, PARENT, pauseControls, SCOPE } from './workflow-test-support.ts'
 import {
   childCommitment,
@@ -67,7 +67,7 @@ describe('workflow transition pause behavior', () => {
     ])
     const ownConfirmed = [ownConfirmedHistory, history([binding(feature, pr)], pr)]
     expect(await bound(ownConfirmed, 'review')).toMatchObject({ status: 'applicable' })
-    expect(unliftedPause(ownConfirmedHistory, feature)?.recordId).toBe(ownSecondPause.confirmed.recordId)
+    expect(controlsOf(ownConfirmedHistory)).toContainEqual(ownSecondPause.confirmed)
     const controlCausal = await nativeCausal(ownConfirmed, [rootNode])
     expect(resolveOwnSpecAuthority(ownConfirmedHistory, [], controlCausal).ok).toBe(true)
     expect(selectRevocableMandate(ownConfirmedHistory)).toMatchObject({ status: 'applicable', mandate: feature })
@@ -135,7 +135,8 @@ describe('workflow transition pause behavior', () => {
       successorPause.requested,
       successorPause.confirmed,
     ])
-    expect(unliftedPause(successorHistory, successor)?.recordId).toBe(successorPause.confirmed.recordId)
+    expect(controlsOf(successorHistory)).toContainEqual(successorPause.confirmed)
+    expect(selectRevocableMandate(successorHistory)).toMatchObject({ status: 'applicable', mandate: successor })
     const standaloneHistory = history([], pr)
     expect(
       resolveBoundWork({

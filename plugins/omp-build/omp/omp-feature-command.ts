@@ -19,16 +19,17 @@ import {
   beginFeatureUwContinuation,
   beginFeatureUwIntake,
   beginFeatureUwOperation,
-  cancelFeatureSession,
   cancelFeatureUwOperation,
   createFeatureOperationReportGuard,
   type FeatureOperationReportGuard,
   settleFeatureUwIntake,
 } from './omp-feature-composition.ts'
 import { deliverAdmission, deliversSkill } from './omp-feature-delivery.ts'
+import { takeRunningFeature } from './omp-feature-run.ts'
 import { rootContext } from './omp-feature-session'
 import type { FeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
+import { nativeText } from './omp-operator-confirmation-field.ts'
 import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
 import { readSkillBody } from './omp-skill-command-runtime.ts'
 import type { UwOperationsFactory } from './omp-uw-command.ts'
@@ -162,9 +163,15 @@ export async function runFeatureCommand(
     return
   }
   if (parsed.control === 'pause') {
-    cancelFeatureSession(pi, ctx, 'feature-paused')
-    ctx.abort()
-    reportFeatureTerminalStatus(pi, 'feature-paused: session only')
+    const owner = takeRunningFeature(pi, ctx, parsed.reference)
+    if (owner !== null) {
+      cancelFeatureUwOperation(pi, owner)
+      ctx.abort()
+    }
+    const status = owner === null ? `feature-not-running: ${parsed.reference}` : 'feature-paused: session only'
+    // While streaming, OMP queues even triggerTurn:false transcript messages as steers.
+    if (ctx.isIdle()) reportFeatureTerminalStatus(pi, status)
+    else ctx.ui?.notify?.(nativeText(status), 'info')
     return
   }
   const operator = createOperatorConfirmation(ctx)
