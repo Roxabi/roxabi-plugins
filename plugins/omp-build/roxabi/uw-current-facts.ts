@@ -10,7 +10,6 @@ import type { CurrentChildrenProjection } from '../engine/uw-admission.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { AssessSpecExact } from '../engine/workflow-receipt-schema.ts'
-import type { AssessmentReplayContext } from '../engine/workflow-spec-authentication.ts'
 import type { ParentCoverageRequest } from './feature-contract.ts'
 import { assessmentCoverageFacts } from './uw-assessment-coverage.ts'
 import type { UwRead } from './uw-contract.ts'
@@ -102,12 +101,11 @@ function root(
 function childCommitment(
   child: Scope,
   observation: UwRead['observation'],
-  assessmentReplay?: AssessmentReplayContext,
 ): CurrentOwnSpecFactsResult<CurrentChildCommitment | null> {
   const childRoot = root(child, observation)
   if (!childRoot.ok) return childRoot
   if (isWayfinder(childRoot.value)) return { ok: true, value: null }
-  const observed = projectObservedOwnSpecFacts(factualReadContracts, { uw: child, observation, assessmentReplay })
+  const observed = projectObservedOwnSpecFacts(factualReadContracts, { uw: child, observation })
   if (!observed.ok) return observed
   const facts = observed.value
   if (!facts.proposed.ok) return { ok: false, diagnostics: facts.proposed.diagnostics }
@@ -130,7 +128,6 @@ function childCommitment(
 export function projectObservedChildCommitments(input: {
   scopes: readonly Scope[]
   observation: UwRead['observation']
-  assessmentReplay?: AssessmentReplayContext
 }): CurrentOwnSpecFactsResult<CurrentChildCommitment[]> {
   if (input.observation.status !== 'complete') return { ok: false, diagnostics: input.observation.diagnostics }
   const commitments: CurrentChildCommitment[] = []
@@ -147,7 +144,7 @@ export function projectObservedChildCommitments(input: {
         diagnostics: [diagnostic(child, 'child-scope-duplicate', 'Candidate child scopes must be unique')],
       }
     previous = child
-    const commitment = childCommitment(child, input.observation, input.assessmentReplay)
+    const commitment = childCommitment(child, input.observation)
     if (!commitment.ok) return commitment
     if (commitment.value !== null) commitments.push(commitment.value)
   }
@@ -157,14 +154,12 @@ export function projectObservedChildCommitments(input: {
 function currentChildCommitments(input: {
   uw: Scope
   read: UwRead
-  assessmentReplay?: AssessmentReplayContext
 }): CurrentOwnSpecFactsResult<CurrentOwnSpecFacts['currentSpec']['children']> {
   const rootNode = root(input.uw, input.read.observation)
   if (!rootNode.ok) return rootNode
   return projectObservedChildCommitments({
     scopes: rootNode.value.children,
     observation: input.read.observation,
-    assessmentReplay: input.assessmentReplay,
   })
 }
 
@@ -188,11 +183,7 @@ export async function readCurrentChildrenProjection(input: {
  * from their accepted delivery states; accepted replay remains the engine's
  * baseline for material delta calculation.
  */
-export async function readCurrentFramingFacts(input: {
-  uw: Scope
-  read: UwRead
-  assessmentReplay?: AssessmentReplayContext
-}): Promise<
+export async function readCurrentFramingFacts(input: { uw: Scope; read: UwRead }): Promise<
   CurrentOwnSpecFactsResult<
     Omit<CurrentOwnSpecFacts, 'currentSpec'> & {
       currentSpec: Omit<CurrentOwnSpecFacts['currentSpec'], 'coverage'>
@@ -217,7 +208,6 @@ export async function readCurrentFramingFacts(input: {
     input.uw,
     input.read.observation.graph,
     input.read.observation.histories,
-    input.assessmentReplay,
   )
   if (!inherited.ok) return inherited
   return {
@@ -237,7 +227,6 @@ export async function readCurrentFramingFacts(input: {
 export async function readCurrentOwnSpecFacts(input: {
   uw: Scope
   read: UwRead
-  assessmentReplay?: AssessmentReplayContext
 }): Promise<CurrentOwnSpecFactsResult<CurrentOwnSpecFacts>> {
   const framing = await readCurrentFramingFacts(input)
   if (!framing.ok) return framing
@@ -260,7 +249,6 @@ export async function readCurrentOwnSpecFacts(input: {
 export async function readAssessmentSpecFacts(input: {
   uw: Scope
   read: UwRead
-  assessmentReplay?: AssessmentReplayContext
   coverage?: ParentCoverage | null
   basis?: ParentCoverageRequest
 }): Promise<

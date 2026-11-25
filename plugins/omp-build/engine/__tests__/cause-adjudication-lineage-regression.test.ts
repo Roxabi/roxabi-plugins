@@ -1,25 +1,22 @@
 import { expect, it } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
-import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
-import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { actionInputDigest } from '../action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import { assessAdjudicationSuccessor, assessHistoricalAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
 import {
   assessCauseDispositions,
-  effectiveRejectedFindingIds,
   validateCauseAdjudication,
   validateCauseDispositionRecords,
 } from '../cause-disposition.ts'
+import { historicalRejectedFindingIds } from '../cause-effective-findings.ts'
 import { causeValidationFrame } from '../cause-validation-frame.ts'
 import { resolveSpecEffective } from '../spec-effective.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { recordsOf } from '../workflow-control.ts'
-import { appendAccountedRecords } from './cause-hold-fixture.ts'
+import { appendAccountedRecords, ref } from './cause-hold-fixture.ts'
 import { lineageFixture } from './cause-lineage-fixture.ts'
 import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
 import { must } from './workflow-test-support.ts'
@@ -141,18 +138,17 @@ it('does not carry an authenticated rejection from accepted Spec A into a fresh 
     prefix: 'admission-source',
     label: 'issue',
   })
-  const request: UwActionRequest = {
-    actionId: base.root.recordId,
-    purpose: 'review',
-    subject: base.inputs.manifest.subject,
-    code: base.inputs.manifest.code,
-    stageSources: [],
-    expandedContext: [],
-  }
-  const priorHistories = [own, result.source]
-  const pins = must(
-    causeActionData(request, priorHistories, currentRootOutputRefs(request, priorHistories), result.catalogues),
-  )
+  // The archived Spec B review cited the complete adjudicated Spec A lineage.
+  const initial = result.transitions[0]?.pending
+  if (!initial) throw new Error('Expected initial Spec A disposition')
+  const lineage = [initial, ...result.transitions.flatMap(({ operation, next }) => [operation, next])]
+  const pins = lineage.map((record) => ({
+    source: 'record' as const,
+    role: 'cause-state' as const,
+    record: ref(record),
+    selector: '/payload',
+    digest: canonicalValueDigest(record.payload),
+  }))
   const manifest = {
     ...base.inputs.manifest,
     spec: { kind: 'accepted' as const, effective },
@@ -181,6 +177,6 @@ it('does not carry an authenticated rejection from accepted Spec A into a fresh 
   expect(observed.outcomes[0]?.outcome.state).toBe('pending-blocking')
   expect(fresh.decision.payload.judgment.findings[0]?.sourceFindingIds).toEqual(result.findings[0]?.sourceFindingIds)
   expect(
-    must(effectiveRejectedFindingIds({ decision: fresh.decision, action, histories, catalogues: result.catalogues })),
+    must(historicalRejectedFindingIds({ decision: fresh.decision, action, histories, catalogues: result.catalogues })),
   ).toEqual([])
 })

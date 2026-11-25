@@ -18,16 +18,15 @@ import {
   type ReviewContext,
 } from './workflow-plan-review-selection.ts'
 import { PLAN_REVIEW_SPECIALISTS } from './workflow-receipt-schema.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 export function planMacro(
   evidence: WorkflowEvidence,
   mandate: MandateRecord | null,
-  options?: { contextLeaf?: ReceiptRecord; assessmentReplay?: AssessmentReplayContext },
+  options?: { contextLeaf?: ReceiptRecord },
 ): PlanMacro {
   const empty = emptyMacro(mandate, null)
   if (mandate === null) return empty('blocked', [diagnostic('mandate-absent', 'plan macro has no mandate')])
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories, options?.assessmentReplay)
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (!accepted.ok) return empty('blocked', accepted.evidence)
   const effective = resolveSpecEffective({
     mode: 'current',

@@ -52,8 +52,6 @@ function createPin() {
 
 const pin = createPin()
 export const TOOLING_COMMIT = pin.commit
-export const TOOLING_ROOT = pin.root
-export const INSTALLED_PLUGIN = PLUGIN
 
 function flag(argv, name) {
   const index = argv.indexOf(name)

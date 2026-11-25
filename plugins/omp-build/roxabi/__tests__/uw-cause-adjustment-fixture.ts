@@ -16,7 +16,7 @@ import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | 'lost-delta' = 'confirm') {
   const artifacts = mkdtempSync(join(tmpdir(), 'omp-cause-adjustment-'))
   try {
-    const world = await installedMultiSisterFixture(1, { artifactsDir: artifacts })
+    const world = await installedMultiSisterFixture(1)
     const created = await world.operations.createSister(world.request(0))
     if (created.status !== 'created' || created.receipt.kind !== 'debt-receipt')
       throw new Error(`Could not establish the causal sister: ${JSON.stringify(created)}`)

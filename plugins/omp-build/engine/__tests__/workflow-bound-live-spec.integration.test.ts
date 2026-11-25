@@ -1,12 +1,10 @@
 import { afterAll, expect, test } from 'vitest'
 import { parseIssueSpecBody, rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { resolveReviewSemanticContext } from '../../roxabi/review-semantic-context.ts'
 import { readCurrentOwnSpecFacts } from '../../roxabi/uw-current-facts.ts'
 import { createInstalledObservedUwReadPort } from '../../roxabi/uw-read-port.ts'
 import { strictSpecBody } from '../../skills/feature/testing/epic-driver/epic-driver-records.ts'
-import { observeFixtureNativeWorld, standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
+import { observeFixtureNativeWorld } from '../../testing/action-input-fixtures.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
-import { withNativeImplementationWorld } from '../../testing/native-implementation-world.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
@@ -103,43 +101,6 @@ test('keeps bound review settled after a stable native presentation edit', async
   expect(current.snapshot.spec.version).toBe(mandated.payload.ownSpec.version)
   expect(current.snapshot.spec.criteria).toEqual(mandated.payload.ownSpec.snapshot.spec.criteria)
   expect(current.tier).toBe('S')
-  await withNativeImplementationWorld(
-    {
-      anchor: SCOPE,
-      plugin: standaloneReviewInputs().manifest.plugin,
-      author: 'operator',
-      graph: initial.observation.graph,
-      histories,
-      checkout: { branch: native.branch, head: git.p0, base: native.base, baseTip: git.p0, remoteTip: git.p0 },
-      commits: [{ sha: git.p0, parents: [], tree: '8'.repeat(40), subject: 'baseline', paths: [], config: null }],
-      pullRequests: [
-        { scope: pr, ...native, head: git.p0, baseTip: git.p0, state: 'OPEN', mergeCommit: null, author: 'operator' },
-      ],
-      comparisons: [{ base: git.p0, head: git.p0, status: 'identical', commits: [] }],
-      diffs: [],
-    },
-    async (world) => {
-      const request = {
-        cwd: world.cwd,
-        repository: pr.repository,
-        pr: 99,
-        ...native,
-        gh: world.gh,
-        automationLogin: 'operator',
-      }
-      const baselineReview = await resolveReviewSemanticContext(request)
-      expect(baselineReview).toMatchObject({
-        ok: true,
-        value: { mode: 'bound', acceptedSpec: { body: acceptedBody }, currentSpec: { body: acceptedBody } },
-      })
-      world.observeGraph(editorial.observation.graph)
-      const editorialReview = await resolveReviewSemanticContext(request)
-      expect.soft(editorialReview).toMatchObject({
-        ok: true,
-        value: { mode: 'bound', acceptedSpec: { body: acceptedBody }, currentSpec: { body: editorialBody } },
-      })
-    },
-  )
   expect.soft(resolveBoundWork({ ...input, causal: editorial, currentSpec: current })).toMatchObject({
     status: 'applicable',
     drift: 'settled',

@@ -1,72 +1,18 @@
-import { validateActionInputs } from './action-input.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { equalScope, sameRef } from './record-diagnostics.ts'
+import { sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
-import type { Scope } from './record-values.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 
 export { sameAssessInputs } from './workflow-spec-assessment.ts'
 
 import { startResolution } from './workflow-action-interruption.ts'
 import { workflowContextNegative } from './workflow-context-output.ts'
-import { observeAssessmentContextReplay, workflowContextTerminal } from './workflow-context-terminal.ts'
-import { bindExternalRef, type ReceiptRecord, recordsOf } from './workflow-control.ts'
+import { workflowContextTerminal } from './workflow-context-terminal.ts'
+import { recordsOf } from './workflow-control.ts'
 import { resolutionIndex } from './workflow-interruption-resolution.ts'
 import { specChainFailure } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
-
-export type AssessmentReplayContext = { uw: Scope; actionId: string; fingerprint: string }
-
-function authenticatedReplayStart(
-  record: CanonicalRecord,
-  home: DecodedHistory,
-  mandateRef: ExternalRecordRef,
-  context: AssessmentReplayContext | undefined,
-): boolean {
-  if (
-    context === undefined ||
-    !equalScope(context.uw, home.source.scope) ||
-    !equalScope(context.uw, mandateRef.scope) ||
-    record.kind !== 'action-receipt' ||
-    record.payload.action !== 'assess-spec' ||
-    record.payload.phase !== 'start' ||
-    record.payload.actionId !== context.actionId ||
-    !sameRef(record.payload.mandate, mandateRef) ||
-    record.payload.inputs.fingerprint !== context.fingerprint ||
-    !validateActionInputs(record.payload.inputs).ok
-  )
-    return false
-  const matchingActions = home.operations.filter(
-    (operation) =>
-      operation.authority !== 'foreign' &&
-      operation.record?.kind === 'action-receipt' &&
-      operation.record.payload.action === 'assess-spec' &&
-      operation.record.payload.actionId === context.actionId,
-  )
-  if (matchingActions.length !== 1) return false
-  if (
-    home.operations.filter(
-      (operation) => operation.authority !== 'foreign' && operation.operationId === record.operationId,
-    ).length !== 1
-  )
-    return false
-  const operation = matchingActions[0]
-  if (
-    operation === undefined ||
-    operation.authority !== 'accounted' ||
-    operation.status !== 'complete' ||
-    operation.recordId !== record.recordId ||
-    operation.operationId !== record.operationId ||
-    operation.kind !== record.kind ||
-    operation.record !== record ||
-    record.repository !== home.source.scope.repository ||
-    record.target !== home.source.scope.target
-  )
-    return false
-  const bound = bindExternalRef(receiptRef(record), home)
-  return bound.ok && bound.value === record
-}
 
 export function receiptRef(record: CanonicalRecord): ExternalRecordRef {
   return {
@@ -80,18 +26,12 @@ export function confirmedAssessPairs(
   home: DecodedHistory,
   histories: readonly DecodedHistory[],
   mandateRef: ExternalRecordRef,
-  replayContext?: AssessmentReplayContext,
 ): AcceptedSpecResult | { ok: true } {
   const resolutions = resolutionIndex(histories)
   if (!resolutions.ok) return { ok: false, reason: 'incomplete', evidence: resolutions.diagnostics }
   const excluded = new Set(resolutions.value.resolved.keys())
-  if (
-    replayContext !== undefined &&
-    !recordsOf(home).some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext))
-  )
-    return specChainFailure('incomplete', 'Spec assessment replay start is not authenticated', 'action-uncertain')
   for (const record of recordsOf(home)) {
-    const checked = confirmedAssessStart(record, home, histories, mandateRef, excluded, replayContext)
+    const checked = confirmedAssessStart(record, home, histories, mandateRef, excluded)
     if (!checked.ok) return checked
   }
   return { ok: true }
@@ -103,7 +43,6 @@ function confirmedAssessStart(
   histories: readonly DecodedHistory[],
   mandateRef: ExternalRecordRef,
   excluded: ReadonlySet<string>,
-  replayContext?: AssessmentReplayContext,
 ): AcceptedSpecResult | { ok: true } {
   if (record.kind !== 'action-receipt' || record.payload.action !== 'assess-spec' || record.payload.phase !== 'start')
     return { ok: true }
@@ -121,14 +60,12 @@ function confirmedAssessStart(
       sameRef(candidate.payload.start, startRef) &&
       sameRef(candidate.payload.mandate, mandateRef),
   )
-  if (results.length === 0) {
-    if (authenticatedReplayStart(record, home, mandateRef, replayContext)) return { ok: true }
+  if (results.length === 0)
     return specChainFailure('incomplete', 'Spec assessment start has no confirmed result', 'action-uncertain')
-  }
   if (results.length > 1) return specChainFailure('ambiguous', 'Spec assessment start has competing results')
   const result = results[0]
   if (result !== undefined && result.kind === 'action-receipt' && workflowContextNegative(result))
-    return contextAssessment(home, mandateRef, excluded, replayContext)
+    return contextAssessment(home, mandateRef, excluded)
   const authenticated = authenticatedAssessResult(result ?? record, histories, mandateRef)
   return authenticated.ok ? { ok: true } : authenticated
 }
@@ -137,17 +74,9 @@ function contextAssessment(
   home: DecodedHistory,
   mandateRef: ExternalRecordRef,
   excluded: ReadonlySet<string>,
-  replayContext?: AssessmentReplayContext,
 ): AcceptedSpecResult | { ok: true } {
-  const replayStart = recordsOf(home).find(
-    (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' && authenticatedReplayStart(record, home, mandateRef, replayContext),
-  )
-  const terminal =
-    replayStart === undefined
-      ? workflowContextTerminal(home, 'assess-spec', mandateRef, undefined, excluded)
-      : observeAssessmentContextReplay(home, replayStart, mandateRef, excluded)
-  if (terminal === 'clear' || terminal === 'observed') return { ok: true }
+  const terminal = workflowContextTerminal(home, 'assess-spec', mandateRef, undefined, excluded)
+  if (terminal === 'clear') return { ok: true }
   if (terminal === 'ambiguous') return specChainFailure('ambiguous', 'Spec assessment context has competing successors')
   return specChainFailure(
     'incomplete',

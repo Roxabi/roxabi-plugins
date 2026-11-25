@@ -11,7 +11,7 @@ import type { CanonicalRecord } from '../record-schema.ts'
 import { prepareSpecAllocation, resolveSpecIdentityLedger } from '../uw-identity.ts'
 import { canonicalSpec, validateSpecIds } from '../uw-spec.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
-import { observeAssessmentContextReplay, workflowContextTerminal } from '../workflow-context-terminal.ts'
+import { workflowContextTerminal } from '../workflow-context-terminal.ts'
 import {
   acceptMaterialFixture,
   assessFixture,
@@ -96,7 +96,7 @@ function retainedStart(issue: DecodedHistory, id: string) {
   return record
 }
 
-test('replays the current assessment without losing an authenticated historical retirement', () => {
+test('retains retired identities across authenticated historical mandates', () => {
   const first = allocation('identity-c1', null, 'C1')
   const second = allocation('identity-c2', ref(first), 'C2')
   const base = mandate({ scope: SCOPE })
@@ -164,49 +164,12 @@ test('replays the current assessment without losing an authenticated historical 
     }),
   )
   if (current.kind !== 'mandate') throw new Error('expected current mandate')
-  const state = mandateAssessmentState(current)
-  const pending = assessFixture(
-    current,
-    'current-pending',
-    state,
-    {
-      snapshot: state.snapshot,
-      tier: state.tier,
-      children: state.children,
-      inheritedOwnSpecRefs: state.inheritedOwnSpecRefs,
-      coverage: state.coverage,
-    },
-    'editorial',
-    [decode([first, second, historical, retirement.start, retirement.result, control, current])],
-  )
-  if (
-    pending.start.kind !== 'action-receipt' ||
-    pending.start.payload.action !== 'assess-spec' ||
-    pending.start.payload.phase !== 'start'
-  )
-    throw new Error('expected pending assessment')
-  const replay = {
-    uw: SCOPE,
-    actionId: pending.start.payload.actionId,
-    fingerprint: pending.start.payload.inputs.fingerprint,
-  }
-  const foreign = must(
-    buildRecord({
-      ...pending.start,
-      recordId: 'foreign-collision',
-      operationId: 'foreign-collision-op',
-      payload: { ...pending.start.payload, mandate: ref(historical) },
-    }),
-  )
-  const records = [first, second, historical, retirement.start, retirement.result, control, current, pending.start]
-  const issue = decode([...records, foreign], new Set([foreign.recordId]))
-  const accepted = resolveAcceptedSpec(current, [issue], replay)
-  if (!accepted.ok) throw new Error(`current replay refused: ${accepted.reason}`)
+  const issue = decode([first, second, historical, retirement.start, retirement.result, control, current])
+  const accepted = resolveAcceptedSpec(current, [issue])
+  if (!accepted.ok) throw new Error(`Current mandate history refused: ${accepted.reason}`)
   expect(accepted.spec.snapshot.spec.criteria.map((item) => item.id)).toEqual(['C2'])
-  expect(resolveAcceptedSpec(current, [issue])).toMatchObject({ ok: false })
   const ledgerInput = { uw: SCOPE, history: issue, histories: [issue], accepted: accepted.spec }
-  expect(resolveSpecIdentityLedger(ledgerInput)).toMatchObject({ ok: false })
-  const ledger = must(resolveSpecIdentityLedger({ ...ledgerInput, assessmentReplay: replay }))
+  const ledger = must(resolveSpecIdentityLedger(ledgerInput))
   expect(ledger.retired.get('C1')).toEqual(ref(control))
   expect(validateSpecIds(initial.spec, ledger)).toMatchObject({
     ok: false,
@@ -225,45 +188,9 @@ test('replays the current assessment without losing an authenticated historical 
     ),
   )
   expect(plan.assignments).toEqual([{ draftKey: 'replacement', id: 'C3' }])
-  const foreignOnly = decode([...records.slice(0, -1), foreign], new Set([foreign.recordId]))
-  expect(resolveAcceptedSpec(current, [foreignOnly], replay)).toMatchObject({ ok: false })
-  expect(
-    resolveSpecIdentityLedger({
-      uw: SCOPE,
-      history: foreignOnly,
-      histories: [foreignOnly],
-      accepted: accepted.spec,
-      assessmentReplay: replay,
-    }),
-  ).toMatchObject({ ok: false })
-  const other = assessFixture(
-    current,
-    'competing-pending',
-    state,
-    {
-      snapshot: state.snapshot,
-      tier: state.tier,
-      children: state.children,
-      inheritedOwnSpecRefs: state.inheritedOwnSpecRefs,
-      coverage: state.coverage,
-    },
-    'editorial',
-    [decode([first, second, historical, retirement.start, retirement.result, control, current])],
-  )
-  const competing = decode([...records, foreign, other.start], new Set([foreign.recordId]))
-  expect(resolveAcceptedSpec(current, [competing], replay)).toMatchObject({ ok: false })
-  expect(
-    resolveSpecIdentityLedger({
-      uw: SCOPE,
-      history: competing,
-      histories: [competing],
-      accepted: accepted.spec,
-      assessmentReplay: replay,
-    }),
-  ).toMatchObject({ ok: false })
 })
 
-test('active assessment replay refuses invalid negative-context successors', () => {
+test('historical assessments reject completed successors with invalid expanded-context provenance', () => {
   const mandated = shippedFeatureMandate()
   const state = mandateAssessmentState(mandated)
   const proposed = {
@@ -327,14 +254,33 @@ test('active assessment replay refuses invalid negative-context successors', () 
     pending.payload.phase !== 'start'
   )
     throw new Error('expected expanded start')
-  const replay = { uw: SCOPE, actionId: pending.payload.actionId, fingerprint: inputs.fingerprint }
+  const completed = must(
+    buildRecord({
+      ...prior.result,
+      recordId: 'expanded-result',
+      operationId: 'expanded-result-op',
+      payload: {
+        ...prior.result.payload,
+        actionId: pending.payload.actionId,
+        inputs,
+        start: ref(pending),
+      },
+    }),
+  )
+  if (
+    completed.kind !== 'action-receipt' ||
+    completed.payload.action !== 'assess-spec' ||
+    completed.payload.phase !== 'result'
+  )
+    throw new Error('Expected completed expanded-context result')
   // The mandate's allocation is part of the fixture's authenticated history.
   const base = decode([mandated, prior.start, negative, pending])
   const actual = retainedStart(base, pending.recordId)
   expect(workflowContextTerminal(base, 'assess-spec', actual.payload.mandate)).toBe('uncertain')
-  expect(observeAssessmentContextReplay(base, actual, actual.payload.mandate)).toBe('observed')
   expect(resolveAcceptedSpec(mandated, [base])).toMatchObject({ ok: false })
-  expect(resolveAcceptedSpec(mandated, [base], replay)).toMatchObject({ ok: true })
+  expect(resolveAcceptedSpec(mandated, [decode([mandated, prior.start, negative, pending, completed])])).toMatchObject({
+    ok: true,
+  })
   const stageRef = { ...lineage, record: { ...lineage.record, recordId: 'other-stage' } }
   const cases = [
     {
@@ -361,35 +307,12 @@ test('active assessment replay refuses invalid negative-context successors', () 
       fingerprint: actionInputDigest(item.manifest),
       stageSources: item.stageSources,
     }
-    const changed = must(buildRecord({ ...pending, payload: { ...pending.payload, inputs: changedInputs } }))
-    const issue = decode([mandated, prior.start, negative, changed])
-    const observed = observeAssessmentContextReplay(
-      issue,
-      retainedStart(issue, changed.recordId),
-      pending.payload.mandate,
-    )
-    expect(observed, item.name).not.toBe('observed')
-    expect(
-      resolveAcceptedSpec(mandated, [issue], {
-        uw: SCOPE,
-        actionId: replay.actionId,
-        fingerprint: changedInputs.fingerprint,
-      }),
-      item.name,
-    ).toMatchObject({ ok: false })
+    const changedStart = must(buildRecord({ ...pending, payload: { ...pending.payload, inputs: changedInputs } }))
+    const changedResult = must(buildRecord({ ...completed, payload: { ...completed.payload, inputs: changedInputs } }))
+    const issue = decode([mandated, prior.start, negative, changedStart, changedResult])
+    expect(resolveAcceptedSpec(mandated, [issue]), item.name).toMatchObject({
+      ok: false,
+      evidence: [{ code: 'action-context-missing' }],
+    })
   }
-  const completed = assessFixture(mandated, 'completed-successor', state, proposed, 'editorial', [decode([mandated])])
-  if (
-    completed.start.kind !== 'action-receipt' ||
-    completed.start.payload.action !== 'assess-spec' ||
-    completed.start.payload.phase !== 'start'
-  )
-    throw new Error('expected successor start')
-  const successorStart = must(buildRecord({ ...completed.start, payload: { ...completed.start.payload, inputs } }))
-  const successorResult = must(buildRecord({ ...completed.result, payload: { ...completed.result.payload, inputs } }))
-  const fork = decode([mandated, prior.start, negative, successorStart, successorResult, pending])
-  expect(observeAssessmentContextReplay(fork, retainedStart(fork, pending.recordId), pending.payload.mandate)).toBe(
-    'ambiguous',
-  )
-  expect(resolveAcceptedSpec(mandated, [fork], replay)).toMatchObject({ ok: false })
 })

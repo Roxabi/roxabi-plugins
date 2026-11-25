@@ -4,13 +4,13 @@ import type { ExternalRecordRef } from './record-references.ts'
 import type { Scope } from './record-values.ts'
 import type { UwDiagnostic, UwResult } from './uw-diagnostics.ts'
 import { buildNewSpecAllocationPlan, buildSpecAllocationPlan } from './uw-identity-allocation.ts'
-import { replayForMandate, replaySpecIdentityHistory, type SpecIdentityReplay } from './uw-identity-replay.ts'
+import { replaySpecIdentityHistory, type SpecIdentityReplay } from './uw-identity-replay.ts'
 import type { Spec, SpecDraft, SpecItemId } from './uw-spec.ts'
 import { specDraftSchema } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { type ControlRecord, controlsOf, mandatesOf } from './workflow-control.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
+
 export type SpecIdentityLedger = {
   uw: Scope
   head: ExternalRecordRef | null
@@ -73,16 +73,12 @@ function replayAcceptedRetirements(
   replay: SpecIdentityReplay,
   uw: Scope,
   diagnostics: UwDiagnostic[],
-  assessmentReplay?: AssessmentReplayContext,
 ): AcceptedOwnSpec[] {
   const authenticated: AcceptedOwnSpec[] = []
   const seen: ExternalRecordRef[] = []
   const controls = controlsOf(history).filter((record) => record.payload.control === 'accept-material')
-  let replayMandateFound = false
   for (const mandate of mandatesOf(history)) {
-    const isReplayMandate = replayForMandate(history, mandate, assessmentReplay)
-    replayMandateFound ||= isReplayMandate
-    const result = resolveAcceptedSpec(mandate, histories, assessmentReplay)
+    const result = resolveAcceptedSpec(mandate, histories)
     if (!result.ok) {
       diagnostics.push(
         diag(
@@ -96,8 +92,6 @@ function replayAcceptedRetirements(
     authenticated.push(result.spec)
     replayAcceptedSteps(result.spec, controls, seen, replay, uw, diagnostics)
   }
-  if (assessmentReplay !== undefined && equalScope(assessmentReplay.uw, uw) && !replayMandateFound)
-    diagnostics.push(diag(uw, 'spec-ledger-incomplete', 'Assessment replay mandate is missing'))
   return authenticated
 }
 
@@ -165,7 +159,6 @@ export function resolveSpecIdentityLedger(input: {
   history: DecodedHistory
   histories: readonly DecodedHistory[]
   accepted: AcceptedOwnSpec | null
-  assessmentReplay?: AssessmentReplayContext
 }): UwResult<SpecIdentityLedger> {
   const diagnostics: UwDiagnostic[] = []
   if (!equalScope(input.history.source.scope, input.uw))
@@ -177,14 +170,7 @@ export function resolveSpecIdentityLedger(input: {
     diagnostics.push(diag(input.uw, 'spec-ledger-incomplete', 'Identity history is incomplete'))
   const replay = replaySpecIdentityHistory(input.history, input.uw, diagnostics, input.histories)
   const active = acceptedIds(input.accepted)
-  const authenticated = replayAcceptedRetirements(
-    input.history,
-    input.histories,
-    replay,
-    input.uw,
-    diagnostics,
-    input.assessmentReplay,
-  )
+  const authenticated = replayAcceptedRetirements(input.history, input.histories, replay, input.uw, diagnostics)
   validateReferencedHistories(input.uw, input.histories, authenticated, diagnostics)
   if (input.accepted !== null && !authenticated.some((spec) => JSON.stringify(spec) === JSON.stringify(input.accepted)))
     diagnostics.push(diag(input.uw, 'spec-ledger-conflict', 'Current accepted Spec is not authenticated by history'))

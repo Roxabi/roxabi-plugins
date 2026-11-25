@@ -10,7 +10,7 @@ import type { Scope } from '../engine/schema-primitives.ts'
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { ContinueFeatureInput } from './feature-contract.ts'
 import type { FramedHandoffPreparation } from './feature-framing-handoff.ts'
-import type { PinnedFileRef, PluginPinPort, TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { PinnedFileRef, PluginPinPort, TrustedHostPluginPin } from './plugin-pin-contract.ts'
 import type { OperatorPort, UwOperations } from './uw-contract.ts'
 import type { FramingEffect } from './uw-framing-contract.ts'
 import type { GitRunner } from './workflow-checkout.ts'
@@ -129,14 +129,12 @@ export type FeatureFramingControllerHost = Readonly<{
   sendUserMessage: ExtensionAPI['sendUserMessage']
   /** The optional persistent instructions tell the operator what to do at the current human gate. */
   status(message: string, instructions?: string[]): void
-  /** Fresh cwd-bound installed pin and pinned-byte readers (`createProductionInputPorts`). */
+  /** Fresh cwd-bound installed pin and pinned-byte readers. */
   procedurePorts(location: Readonly<{ cwd: string; pluginPin?: TrustedHostPluginPin }>): FramingProcedurePorts
   /** Fresh per-context confirmation capability; only `act` ever requests it. */
   operator(ctx: ExtensionContext): FramingOperator
   /** Actual installed UW factory bound to the receiving context and the given operator. */
-  uw(
-    input: Readonly<{ ctx: ExtensionContext; operator: OperatorPort; pluginPin?: TrustedHostPluginPin }>,
-  ): Promise<UwOperations>
+  uw(input: Readonly<{ ctx: ExtensionContext; operator: OperatorPort }>): Promise<UwOperations>
   gh: Gh
   git: GitRunner
   /** Root's fresh ordinary same-UW continuation and delivery; called once per consumed ticket. */

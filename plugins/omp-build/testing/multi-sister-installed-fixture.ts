@@ -3,10 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import { onTestFinished } from 'vitest'
 import { nativeComment } from '../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../adapters/github/types.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
-import { createInstalledUwOperations, type InstalledUwOperationsOptions } from '../roxabi/uw-installed-operations.ts'
+import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
 import { multiSisterFixture } from './multi-sister-fixture.ts'
 import { type NativeIssue, sisterGraphTransport, sisterIssueTransport } from './multi-sister-graph-fixture.ts'
@@ -17,9 +18,6 @@ import { declaredNativeGit } from './native-declared-git.ts'
 import type { DeclaredCheckout, NativeWorldFacts, nativeImplementationWorld } from './native-implementation-world.ts'
 import { operatorDialogUi, operatorRootContext } from './operator-dialog-ui.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
-
-const artifacts = mkdtempSync(join(tmpdir(), 'omp-sister-protocol-'))
-process.once('exit', () => rmSync(artifacts, { recursive: true, force: true }))
 
 /** Installed operations with a stateful GitHub transport; all records are encoded and read back. */
 export async function installedMultiSisterFixture(
@@ -37,8 +35,6 @@ export async function installedMultiSisterFixture(
   ) & {
     composedParent?: boolean
     cwd?: string
-    pluginPin?: InstalledUwOperationsOptions['pluginPin']
-    artifactsDir?: string | null
     confirm?: (title: string, detail: string) => Promise<boolean>
     afterParentRelation?: (parent: number, child: number) => void
   } = {},
@@ -192,9 +188,11 @@ export async function installedMultiSisterFixture(
     throw new Error(`unexpected GitHub request: ${args.join(' ')}`)
   }
   let displayed = ''
+  const artifacts = mkdtempSync(join(tmpdir(), 'omp-sister-confirmation-'))
+  onTestFinished(() => rmSync(artifacts, { recursive: true, force: true }))
   const newCommand = async () => {
     const operator = createOperatorConfirmation({
-      ...operatorRootContext(options.cwd ?? '/fixture', { getArtifactsDir: () => options.artifactsDir ?? artifacts }),
+      ...operatorRootContext(options.cwd ?? '/fixture', { getArtifactsDir: () => artifacts }),
       hasUI: true,
       mode: 'tui',
       ui: operatorDialogUi(
@@ -212,8 +210,6 @@ export async function installedMultiSisterFixture(
       gh,
       readAuthor: 'automation',
       operator,
-      pluginPin: options.pluginPin,
-      artifactsDir: options.artifactsDir,
     })
   }
   const operations = await newCommand()

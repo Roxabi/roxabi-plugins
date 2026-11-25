@@ -1,7 +1,5 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   CHECKOUT_BASE,
   CHECKOUT_HEADS,
@@ -9,13 +7,12 @@ import {
   WORKTREE,
 } from '../../skills/feature/review-record-git-fixture.js'
 import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
-import { standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { historicalAcceptedInputs } from '../../testing/native-history-records.ts'
 import { produceNativeImplementation } from '../../testing/native-implementation-producer.ts'
 import { nativeCommitResponse, nativePullResponse } from '../../testing/native-implementation-transport-pulls.ts'
 import { withNativeImplementationWorld } from '../../testing/native-implementation-world.ts'
-import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
-import { canonicalValueDigest } from '../action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { recordsOf } from '../workflow-control.ts'
 import { lineageSeed } from './cause-lineage-fixture.ts'
@@ -63,14 +60,7 @@ export async function withSamePrNativeWorld<T>(
       commits: all.slice(index + 1, index + offset + 1),
     })),
   )
-  const diffs = all.flatMap((base, index) =>
-    all.slice(index + 1).map((head) => ({
-      base,
-      head,
-      bytes: new Uint8Array(execFileSync('git', ['diff', '--no-ext-diff', base, head], { cwd: WORKTREE })),
-    })),
-  )
-  const bytes = new Uint8Array(readFileSync(join(WORKTREE, 'first.txt')))
+  const bytes = execFileSync('git', ['show', `${initialHead}:first.txt`], { cwd: WORKTREE })
   const ref = {
     source: 'git-file' as const,
     repository: seed.context.original.repository,
@@ -101,10 +91,7 @@ export async function withSamePrNativeWorld<T>(
       checkout: checkout(CHECKOUT_BASE),
       commits,
       comparisons,
-      diffs,
-      plugin: standaloneReviewInputs().manifest.plugin,
       pullRequests: [pull],
-      repositoryFiles: [{ ref, bytes }],
       author: 'operator',
       graph: causeFixtureGraph(seed.body),
       histories: [initialHistory, parentHistory],
@@ -207,22 +194,48 @@ export async function withSamePrNativeWorld<T>(
           },
         })
         currentHead = context.head
-        const subject = acceptedPullRequestReviewGraph({ mandate: context.mandate, binding: context.binding }).inputs
-          .manifest.subject
-        const prepared = await world.operations.prepareAction({
-          actionId: `${context.prefix}-root`,
-          purpose: 'review',
-          subject,
-          code: {
-            repository: context.mandate.repository,
-            base: CHECKOUT_BASE,
-            head: context.head,
-            referenceCommit: context.head,
+        if (context.binding.kind !== 'workflow-binding' || !produced.declaration)
+          throw new Error('Historical review needs a binding and implementation declaration')
+        const code = {
+          repository: context.mandate.repository,
+          base: CHECKOUT_BASE,
+          head: context.head,
+          referenceCommit: context.head,
+        }
+        const inputs = historicalAcceptedInputs(before, context.mandate, 'review', code)
+        const manifest = {
+          ...inputs.manifest,
+          subject: {
+            kind: 'uw' as const,
+            uw: context.mandate.payload.ownSpec.uw,
+            pullRequest: context.pullRequest,
+            binding: {
+              source: 'record' as const,
+              record: {
+                scope: context.pullRequest,
+                kind: 'workflow-binding' as const,
+                recordId: context.binding.recordId,
+              },
+              selector: '/payload',
+              digest: canonicalValueDigest(context.binding.payload),
+            },
           },
-          stageSources: [],
-          expandedContext: [],
-        })
-        if (!prepared.ok) throw new Error(`Cannot prepare native review: ${JSON.stringify(prepared.diagnostics)}`)
+          deliveryData: [
+            {
+              source: 'record' as const,
+              role: 'implementation' as const,
+              record: {
+                scope: context.mandate.payload.ownSpec.uw,
+                kind: 'action-receipt' as const,
+                recordId: produced.receipt.recordId,
+              },
+              selector: '/payload/structured/criteria/0',
+              digest: canonicalValueDigest(produced.declaration),
+            },
+            ...context.causePins,
+          ],
+          repositoryReferences: [ref],
+        }
         const start = recordsOf(produced.history).find(
           (record) =>
             record.recordId === produced.opened.start.recordId &&
@@ -233,7 +246,7 @@ export async function withSamePrNativeWorld<T>(
         if (!start) throw new Error('Native readback lacks the implementation START')
         return {
           records: [...planRecords, start, produced.receipt],
-          reviewInputs: prepared.value.inputs,
+          reviewInputs: { ...inputs, manifest, fingerprint: actionInputDigest(manifest) },
           history: produced.history,
         }
       }

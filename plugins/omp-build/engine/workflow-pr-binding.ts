@@ -172,16 +172,3 @@ export function resolveManifestMandate(
     return fail([diagnostic('unconfirmed', 'Execution mandate is not pinned in accepted sources')])
   return { ok: true, value: resolved.value }
 }
-
-/** Authenticate a persisted work invocation's mandate without granting review or delivery authority. */
-export function resolveCapturedWorkMandate(
-  inputs: ActionInputs,
-  histories: readonly DecodedHistory[],
-): Result<MandateRecord> {
-  const { purpose, subject } = inputs.manifest
-  if (purpose !== 'plan' && purpose !== 'plan-review' && purpose !== 'implement' && purpose !== 'integrate')
-    return fail([diagnostic('unconfirmed', 'Captured work purpose is not an inspected invocation')])
-  return subject.kind === 'uw' && subject.pullRequest === null
-    ? unboundPinnedMandate(inputs, histories)
-    : resolveManifestMandate(inputs, histories)
-}

@@ -114,7 +114,6 @@ export { directReviewContextSuccessors } from './engine/review-context-lineage.t
 export { repoRelativePathSchema } from './engine/schema-primitives.ts'
 export { resolveSpecEffective, type SpecEffectiveRequest } from './engine/spec-effective.ts'
 export { SPEC_EFFECTIVE_FORMAT, type SpecEffective, specEffectiveSchema } from './engine/spec-effective-schema.ts'
-export { actionEnvelopeSchema, actionRequestSchema } from './engine/uw-action-command-schema.ts'
 export {
   buildObservedCommitIndex,
   deliveredChildCommit,

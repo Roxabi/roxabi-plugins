@@ -166,7 +166,6 @@ export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engin
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { bindingMatchesMandate } from './engine/workflow-binding-format.ts'
 export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
-export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
 export {
   bindExternalRef,
@@ -219,7 +218,6 @@ export {
   sameAssessedState,
   sameCurrentAssessedState,
 } from './engine/workflow-spec-assessment.ts'
-export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
 export { authenticatedAssessResult } from './engine/workflow-spec-authentication-chain.ts'
 export { type TerminalMandate, terminalMandate } from './engine/workflow-terminal-mandate.ts'
 export {
@@ -229,5 +227,4 @@ export {
   ompBuildPrepareCheckoutParametersSchema,
 } from './omp/tool-schemas.ts'
 export { readScopeIssueBody } from './roxabi/uw-spec/scope-issue.ts'
-export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'
 export { shippedProductVersion } from './roxabi/workflow-config-digest.ts'

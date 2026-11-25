@@ -1,7 +1,6 @@
 import type { Gh } from '../adapters/github/types.ts'
 import {
   actionInputsSchema,
-  readCauseHistoryClosure,
   readCauseHistoryClosureFromPrimary,
   readComposedWorkflowHistory,
   readUwCompletionObservation,
@@ -11,52 +10,22 @@ import type { ActionInputs, RecordInputRef } from '../engine/action-input-schema
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { Result } from '../engine/result.ts'
+import type { FramingProcedurePorts } from './feature-framing-contract.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
+import type { PinnedFileRef, TrustedHostPluginPin } from './plugin-pin-contract.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
-import { readSelectedRecords } from './uw-action-basis.ts'
-import { readProductionActionFactsBatch } from './uw-action-batch-facts.ts'
-import type { PinnedFileRef, TrustedHostPluginPin, UwActionPorts, UwInputReadPorts } from './uw-action-contract.ts'
-import { readProductionActionFacts, readSelectedRecord } from './uw-action-facts.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
-import { createActionSnapshotStore } from './uw-action-snapshot-store.ts'
-import { correctionObservation } from './uw-correction-observation.ts'
-import type { CreatedChildAssessment } from './uw-created-child-candidate.ts'
 import type { UwDeliveryReadPorts } from './uw-delivery-read.ts'
-import { readGitFileBytes, readGitFileBytesBatch, readPinnedDiff } from './uw-git-bytes.ts'
+import { readGitFileBytes } from './uw-git-bytes.ts'
 import { confirmCitedRefs } from './uw-input-citations.ts'
 import { pluginPinPort } from './uw-plugin-pin.ts'
-import { discoverRepositoryReferences } from './uw-repository-refs.ts'
-import type { GitRunner } from './workflow-checkout.ts'
-export type ProductionReaderOptions = {
-  cwd: string
-  gh: Gh
-  git?: GitRunner
-  readAuthor?: string
-  pluginPin?: TrustedHostPluginPin
-  artifactsDir?: string | null
-  createdChildAssessment?: CreatedChildAssessment
-}
 
-export function createProductionInputPorts(options: ProductionReaderOptions): UwInputReadPorts {
-  const source = {
-    cwd: options.cwd,
-    gh: options.gh,
-    git: options.git,
-    readAuthor: options.readAuthor,
-    createdChildAssessment: options.createdChildAssessment,
-  }
+type ProductionReaderOptions = { cwd: string; gh: Gh; readAuthor?: string }
+
+export function createFramingProcedurePorts(
+  options: Pick<ProductionReaderOptions, 'cwd' | 'gh'> & { pluginPin?: TrustedHostPluginPin },
+): FramingProcedurePorts {
   return {
-    readCurrentActionFacts: (request, reviewedFingerprint, reviewedRoot, correctionRoot) =>
-      readProductionActionFacts(
-        request,
-        { ...source, cwd: correctionObservation(request)?.cwd ?? source.cwd },
-        reviewedFingerprint,
-        reviewedRoot,
-        correctionRoot,
-      ),
-    readRecord: (ref) => readSelectedRecord(ref, source),
-    readRecords: (refs) => readSelectedRecords(refs, source),
-    readAccountedRecord: (ref) => readSelectedRecord(ref, source, true),
     readPinnedFile: async (ref: PinnedFileRef) => {
       const bytes = await readGitFileBytes({
         repository: ref.repository,
@@ -70,58 +39,10 @@ export function createProductionInputPorts(options: ProductionReaderOptions): Uw
         return actionFailure('action-input-stale', `Pinned bytes changed: ${ref.repository}@${ref.commit}:${ref.path}`)
       return bytes
     },
-    readPinnedFiles: async (refs) => {
-      const bytes = await readGitFileBytesBatch(
-        refs.map((ref) => ({
-          repository: ref.repository,
-          commit: ref.commit,
-          path: ref.path,
-          cwd: options.cwd,
-          gh: options.gh,
-        })),
-      )
-      if (!bytes.ok) return bytes
-      for (const [index, ref] of refs.entries()) {
-        if (sha256Bytes(bytes.value[index]) !== ref.digest)
-          return actionFailure(
-            'action-input-stale',
-            `Pinned bytes changed: ${ref.repository}@${ref.commit}:${ref.path}`,
-          )
-      }
-      return bytes
-    },
-    readCodeDiff: (code) =>
-      readPinnedDiff({
-        cwd: options.cwd,
-        repository: code.repository,
-        base: code.base,
-        head: code.head,
-        gh: options.gh,
-      }),
-    repositoryReferences: (request, plannedPaths) =>
-      discoverRepositoryReferences({
-        request,
-        plannedPaths,
-        cwd: correctionObservation(request)?.cwd ?? options.cwd,
-        gh: options.gh,
-      }),
     plugin: pluginPinPort({ cwd: options.cwd, gh: options.gh, trusted: options.pluginPin }),
   }
 }
 
-export function createProductionActionPorts(options: ProductionReaderOptions): UwActionPorts {
-  return {
-    ...createProductionInputPorts(options),
-    readCurrentActionFactsBatch: (requests, reviewedFingerprint, reviewedRoot) =>
-      readProductionActionFactsBatch(
-        requests,
-        { cwd: options.cwd, gh: options.gh, git: options.git, readAuthor: options.readAuthor },
-        reviewedFingerprint,
-        reviewedRoot,
-      ),
-    snapshots: createActionSnapshotStore({ artifactsDir: options.artifactsDir, cwd: options.cwd }),
-  }
-}
 export function createProductionDeliveryPorts(options: ProductionReaderOptions): UwDeliveryReadPorts {
   const github = withRoxabiGitHubPolicy({ cwd: options.cwd, gh: options.gh, readAuthor: options.readAuthor })
   return {
@@ -158,30 +79,6 @@ function citedRefs(inputs: ActionInputs): RecordInputRef[] {
   return refs
 }
 
-/** Root and manifest citations stay authoritative; typed causal references extend their histories. */
-export async function readManifestCitedHistories(input: {
-  history: DecodedHistory
-  inputs: ActionInputs
-  cwd: string
-  gh: Gh
-  readAuthor?: string
-}): Promise<Result<readonly DecodedHistory[]>> {
-  if (!input.history.source.complete) return actionFailure('record-unreadable', 'Root review history is incomplete')
-  const scopes = citedScopes(input.history, input.inputs)
-  const fetched =
-    scopes.length === 0
-      ? { ok: true as const, histories: [] as DecodedHistory[] }
-      : await readComposedWorkflowHistory(scopes, { cwd: input.cwd, gh: input.gh, readAuthor: input.readAuthor })
-  if (!fetched.ok) return { ok: false, diagnostics: fetched.diagnostics }
-  const closure = await readCauseHistoryClosure([input.history, ...fetched.histories], (required) =>
-    readComposedWorkflowHistory(required, { cwd: input.cwd, gh: input.gh, readAuthor: input.readAuthor }),
-  )
-  if (!closure.ok) return { ok: false, diagnostics: closure.diagnostics }
-  const histories = closure.histories
-  const refs = confirmCitedRefs(citedRefs(input.inputs), histories)
-  if (!refs.ok) return refs
-  return { ok: true, value: histories }
-}
 function assessedInputs(history: DecodedHistory): ActionInputs[] {
   const inputs: ActionInputs[] = []
   const add = (value: unknown) => {

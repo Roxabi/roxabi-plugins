@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.20 (unreleased)
+
+- Retire `/uw action` before request, file or pin reads and remove local dossiers, generic action-input replay and captured-work inventory production (#1046 C4). Keep `/uw evidence`, `/uw verdicts`, and historical assessment, review, correction and cause reads.
+- Keep the tooling pin for `/feature` framing procedure authentication, not composed delivery or routine release bumps. Composed implementation, review and correction use the Accepted Spec and live PR evidence (#1046 C5).
+
 ## 0.21.19 (unreleased)
 
 - `/feature pause` stops only the running session and makes no remote writes. Continue with `/feature <reference>` under the same live mandate; remove the separate `resume` and `resolve-interruption` commands. Historical pauses, interruptions, rejected results and predecessor assessments remain readable without gating composed delivery (#1046 C2).

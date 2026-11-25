@@ -1,7 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { Gh } from '../adapters/github/types.ts'
 import { captureOrigin } from '../roxabi/feature-framing-controller-lease.ts'
-import type { ToolingPinActivationProposal } from '../roxabi/uw-action-contract.ts'
+import type { ToolingPinActivationProposal } from '../roxabi/plugin-pin-contract.ts'
 import { githubRepository } from '../roxabi/uw-git-bytes.ts'
 import { installedPluginIdentity, resolvePluginPin } from '../roxabi/uw-plugin-pin.ts'
 import { composedHostPluginPin } from './host-plugin-pin.ts'

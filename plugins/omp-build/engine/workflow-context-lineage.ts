@@ -6,27 +6,17 @@ import { producerOutputValid } from './producer-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
 import type { ReceiptRecord } from './workflow-control.ts'
 
-export function succeeds(
-  history: DecodedHistory,
-  old: ReceiptRecord,
-  candidate: ReceiptRecord,
-  replayStart = false,
-): boolean {
+export function succeeds(history: DecodedHistory, old: ReceiptRecord, candidate: ReceiptRecord): boolean {
   if (
     old.payload.phase !== 'result' ||
-    (candidate.payload.phase !== 'result' &&
-      !(replayStart && candidate.payload.phase === 'start' && candidate.payload.action === 'assess-spec')) ||
+    candidate.payload.phase !== 'result' ||
     old.payload.action !== candidate.payload.action ||
     old.payload.actionId === candidate.payload.actionId
   )
     return false
   let oldInputs = old.payload.inputs
   let newInputs = candidate.payload.inputs
-  if (
-    old.payload.action === 'plan-review' &&
-    candidate.payload.action === 'plan-review' &&
-    candidate.payload.phase === 'result'
-  ) {
+  if (old.payload.action === 'plan-review' && candidate.payload.action === 'plan-review') {
     const contribution = old.payload.contributions.find(
       (item) => producerOutputValid('plan-review', item.structured) && missingContextOf(item.structured) !== null,
     )

@@ -1,14 +1,11 @@
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
-import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
-import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
-import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
 import { operation } from '../../testing/record-history.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
-import type { ActionInputs } from '../action-input-schema.ts'
+import type { ActionInputs, DeliveryDataRef } from '../action-input-schema.ts'
 import { assessCauseDispositions } from '../cause-disposition.ts'
 import type { CauseContext } from '../finding-target.ts'
 import type { DecodedHistory } from '../history-schema.ts'
@@ -48,8 +45,8 @@ export async function scenario(
       binding: SamePrCriterionFixtureOptions['binding']
       pullRequest: SamePrCriterionFixtureOptions['pullRequest']
       head: string
-      prefix: string
       histories: readonly DecodedHistory[]
+      causePins: readonly DeliveryDataRef[]
       nativeBody: string
     }): Promise<{ records: CanonicalRecord[]; history: DecodedHistory; reviewInputs: ActionInputs }>
   },
@@ -67,7 +64,7 @@ export async function scenario(
   }
   const initialProof = await createSamePrCriterionFixture({
     ...initialOptions,
-    produce: () => native.produce({ ...initialOptions, histories: seed.histories, nativeBody }),
+    produce: () => native.produce({ ...initialOptions, histories: seed.histories, causePins: [], nativeBody }),
   })
   const initial = lineageFixture(1, false, TOOLING_COMMIT, {
     inputs: initialProof.inputs,
@@ -90,6 +87,19 @@ export async function scenario(
       entry.recordId === oldReview.recordId ? operation(boundOldReview) : entry,
     ),
   }
+  const priorCauseRecords: CanonicalRecord[] = initial.transitions.flatMap(({ pending, operation, next }) => [
+    pending,
+    operation,
+    next,
+  ])
+  const causePins = (): DeliveryDataRef[] =>
+    priorCauseRecords.map((record) => ({
+      source: 'record',
+      role: 'cause-state',
+      record: ref(record),
+      selector: '/payload',
+      digest: canonicalValueDigest(record.payload),
+    }))
   const proofs = new Map<string, SamePrCriterionFixture>()
   proofs.set(`${canonicalValueDigest(initial.context.effective.own)}:${native.initialHead}`, initialProof)
   const makeProof = async (context: CauseContext, head?: string) => {
@@ -110,7 +120,7 @@ export async function scenario(
     }
     const proof = await createSamePrCriterionFixture({
       ...options,
-      produce: () => native.produce({ ...options, histories: [own, source], nativeBody }),
+      produce: () => native.produce({ ...options, histories: [own, source], causePins: causePins(), nativeBody }),
     })
     const observed = new Map(recordsOf(proof.authorityHistory).map((record) => [record.recordId, record]))
     for (const record of recordsOf(own)) {
@@ -123,32 +133,12 @@ export async function scenario(
     return proof
   }
   let own = initial.own
-  const reviewInputs = async (prefix: string, context: CauseContext, head?: string) => {
-    const proof = await makeProof(context, head)
-    const request: UwActionRequest = {
-      actionId: `${prefix}-root`,
-      purpose: 'review',
-      subject: proof.inputs.manifest.subject,
-      code: proof.inputs.manifest.code,
-      stageSources: [],
-      expandedContext: [],
-    }
-    const histories = [own, source]
-    const historicalPins =
-      canonicalValueDigest(context.effective.own) === canonicalValueDigest(initial.context.effective.own)
-        ? []
-        : must(causeActionData(request, histories, currentRootOutputRefs(request, histories), initial.catalogues))
-    for (const pin of historicalPins) {
-      if (!proof.inputs.manifest.deliveryData.some((item) => canonicalValueDigest(item) === canonicalValueDigest(pin)))
-        throw new Error('Prepared review inputs omit historical cause closure')
-    }
-    return proof.inputs
-  }
+  const reviewInputs = async (context: CauseContext, head?: string) => (await makeProof(context, head)).inputs
   const capturedInitialDecision = recordsOf(source).find((record) => record.recordId === initial.decision.recordId)
   if (capturedInitialDecision?.kind !== 'decision') throw new Error('Expected captured initial decision')
   const addReview = async (prefix: string, context: CauseContext, head?: string) => {
-    const inputs = await reviewInputs(prefix, context, head)
     const proof = await makeProof(context, head)
+    const inputs = proof.inputs
     const baseGraph = acceptedPullRequestReviewGraph({
       mandate: initial.mandate,
       binding,
@@ -191,6 +181,7 @@ export async function scenario(
       ),
     )
     own = appendAccountedRecords(own, dispositions)
+    priorCauseRecords.push(...dispositions)
     const review = must(
       parseRecord({
         ...graph.review,
@@ -270,6 +261,7 @@ export async function scenario(
     source: () => source,
     own: () => own,
     context,
+    causePins,
     addReview,
     reviewInputs,
   }

@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
 import type { Result } from '../engine/result.ts'
 import { INSTALL_ROOT } from '../omp/install-root.ts'
-import type { InstalledPluginPin, PluginPinPort, TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { InstalledPluginPin, PluginPinPort, TrustedHostPluginPin } from './plugin-pin-contract.ts'
 import { actionFailure, isGitSha, sha256Bytes } from './uw-action-result.ts'
 import { readGitFileBytes } from './uw-git-bytes.ts'
 

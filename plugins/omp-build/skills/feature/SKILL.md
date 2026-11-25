@@ -3,7 +3,7 @@ name: feature
 disable-model-invocation: true
 argument-hint: '[#N | <subject> | init | pause #N | abandon #N | new #N | material-decision #N]'
 description: Deliver a leaf UW through implementation, independent review, correction and protected merge.
-version: 0.1.21
+version: 0.1.22
 ---
 
 # Feature
@@ -37,7 +37,7 @@ A current review is the latest review evidence comment by a writer (see [../dev-
 ## Review and correct
 
 1. Read installed [../dev-review/SKILL.md](../dev-review/SKILL.md) relative to the feature skill directory. Follow its composed mode with the bound issue, repository, PR, exact head/base and `## Accepted Spec`. Await separate read-only reviewers and confirm the published review. Do not invoke a nested slash command.
-2. For a completed current review with blockers or red CI, read installed [../dev-fix/SKILL.md](../dev-fix/SKILL.md) and follow its composed mode. Review each changed head again. Stop on conflicting scope, no progress, or after **two automatic correction rounds** in this invocation. Report what remains for the operator to rerun.
+2. For a completed current review with blockers or red CI, follow the composed mode in installed [../dev-fix/SKILL.md](../dev-fix/SKILL.md). Use the authorized review comment and checks on that head to scope the correction. Review each changed head again. Stop on conflicting scope, no progress, or after **two automatic correction rounds** in this invocation. Report what remains for the operator to rerun.
 
 ## Land and finish
 

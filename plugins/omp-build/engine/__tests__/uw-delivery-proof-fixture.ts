@@ -2,7 +2,6 @@ import type { Gh } from '../../adapters/github/types.ts'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
 import type { OperatorPort, UwOperations } from '../../roxabi/uw-contract.ts'
 import type { GitRunner } from '../../roxabi/workflow-checkout.ts'
-import { standaloneReviewInputs } from '../../testing/action-input-fixtures.ts'
 import type { criterionReviewGraph } from '../../testing/criterion-approval.ts'
 import type { DeclaredCheckout } from '../../testing/native-implementation-world.ts'
 import { withNativeImplementationWorld } from '../../testing/native-implementation-world.ts'
@@ -56,7 +55,6 @@ export async function threeDeliveredChildren<T>(
     baseTrees: readonly string[]
     mergeTrees: readonly string[]
     parentTree: string
-    diff: Uint8Array
     cwd?: string
     originUrl?: string
   },
@@ -228,7 +226,6 @@ export async function threeDeliveredChildren<T>(
       comparisons,
       author: 'operator',
       anchor: parentScope,
-      plugin: standaloneReviewInputs().manifest.plugin,
       ...(operator === undefined ? {} : { operator }),
       ...(git.originUrl === undefined ? {} : { originUrl: git.originUrl }),
       checkout: {
@@ -238,10 +235,6 @@ export async function threeDeliveredChildren<T>(
         baseTip: thirdMerge,
         remoteTip: thirdMerge,
       },
-      diffs: [
-        { base: thirdMerge, head: parentHead, bytes: git.diff },
-        { base: thirdMerge, head: thirdMerge, bytes: new Uint8Array() },
-      ],
       ...(git.cwd === undefined ? {} : { cwd: git.cwd }),
     },
     async (native) => {

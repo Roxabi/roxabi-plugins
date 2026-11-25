@@ -1,7 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import {
   ACTION_BINDING_FORMAT,
@@ -15,8 +13,6 @@ import { createReviewClassCatalogues, type ReviewCatalogueRead } from '../engine
 import { type SpecEffective, specEffectiveSchema } from '../engine/spec-effective-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { mandateScope } from '../engine/workflow-control.ts'
-import type { PreparedUwAction } from '../roxabi/uw-action-contract.ts'
-import { sealActionSnapshot } from '../roxabi/uw-action-snapshot.ts'
 import type { UwOperations } from '../roxabi/uw-contract.ts'
 import { observeDeclaredNativeWorld } from './declared-native-observation.ts'
 
@@ -224,31 +220,8 @@ export function acceptedActionInputs(
   }
 }
 
-export function fixturePreparedAction(actionId = 'action'): PreparedUwAction {
-  const inputs = standaloneReviewInputs()
-  const directory = join(tmpdir(), `omp-prepared-${randomUUID()}`)
-  mkdirSync(directory)
-  const bytes = new TextEncoder().encode(`# ${actionId}\n`)
-  const indexPath = join(directory, 'index.md')
-  writeFileSync(indexPath, bytes)
-  const sealed = sealActionSnapshot(
-    {
-      id: `fixture-${actionId}`,
-      actionId,
-      manifestDigest: inputs.fingerprint,
-      indexPath,
-      location: 'local',
-    },
-    [{ path: 'index.md', bytes }],
-  )
-  if (!sealed.ok) throw new Error(sealed.diagnostics.map((item) => item.code).join(','))
-  return { inputs, snapshot: sealed.value }
-}
-
-/** Closed UW port. Action methods default to refusal; unexpected calls throw. */
-export function fixtureUwOperations(
-  prepareAction: UwOperations['prepareAction'] = async () => ({ ok: false, diagnostics: [] }),
-): UwOperations {
+/** Closed UW port: unexpected calls throw. */
+export function fixtureUwOperations(): UwOperations {
   const unexpected = async (): Promise<never> => {
     throw new Error('unexpected UW operation')
   }
@@ -271,8 +244,6 @@ export function fixtureUwOperations(
     write: unexpected,
     create: unexpected,
     acceptMaterial: unexpected,
-    prepareAction,
-    replayActionInputs: async () => ({ ok: false, diagnostics: [] }),
     readDelivery: unexpected,
   }
 }

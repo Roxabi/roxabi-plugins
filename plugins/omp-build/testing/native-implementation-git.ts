@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { Scope } from '../engine/record-values.ts'
 import { defaultGit, prepareFeatureCheckout, verifyParentCheckout } from '../roxabi/workflow-checkout.ts'
 
-/** Real isolated object graph for the production action reader's worktree-HEAD guard. */
+/** Isolated commits and worktrees for native checkout and published-candidate tests. */
 export function nativeImplementationGit(firstTicket = 201) {
   const root = mkdtempSync(join(tmpdir(), 'omp-delivery-git-'))
   const cwd = join(root, 'principal')
@@ -119,7 +119,6 @@ export function nativeImplementationGit(firstTicket = 201) {
       parentHead,
       checkout,
       tree: (sha: string) => run(['rev-parse', `${sha}^{tree}`]),
-      diff: (base: string, head: string) => new Uint8Array(execFileSync('git', ['-C', cwd, 'diff', base, head])),
       cleanup,
     }
   } catch (error) {

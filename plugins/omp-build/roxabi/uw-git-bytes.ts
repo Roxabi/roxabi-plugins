@@ -4,7 +4,7 @@ import type { Gh } from '../adapters/github/types.ts'
 import { repoRelativePathSchema } from '../dist/contracts.js'
 import type { Result } from '../engine/result.ts'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
-import { readGitHubBlob, readGitHubBlobs } from './uw-github-blobs.ts'
+import { readGitHubBlob } from './uw-github-blobs.ts'
 
 const execFileAsync = promisify(execFile)
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
@@ -46,13 +46,6 @@ export async function checkoutRepository(cwd: string): Promise<string | null> {
   return githubRepository(shown.stdout.toString('utf8'))
 }
 
-function gitPaths(stdout: Buffer): readonly string[] {
-  return stdout
-    .toString('utf8')
-    .split('\0')
-    .filter((path) => path.length > 0)
-}
-
 function pathSegments(path: string): boolean {
   if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return false
   const segments = path.split('/')
@@ -74,90 +67,4 @@ export async function readGitFileBytes(request: GitByteRequest): Promise<Result<
     if (local.ok) return { ok: true, value: local.stdout }
   }
   return readGitHubBlob(request)
-}
-
-async function localCatalogue(cwd: string, requests: readonly GitByteRequest[]): Promise<readonly Uint8Array[] | null> {
-  const bytes: Uint8Array[] = []
-  for (const request of requests) {
-    const blob = await git(cwd, ['cat-file', 'blob', `${request.commit}:${request.path}`])
-    if (!blob.ok) return null
-    bytes.push(blob.stdout)
-  }
-  return bytes
-}
-
-/** Resolve one pinned catalogue in a single observation, then verify every raw blob in order. */
-export async function readGitFileBytesBatch(
-  requests: readonly GitByteRequest[],
-): Promise<Result<readonly Uint8Array[]>> {
-  if (requests.length === 0) return { ok: true, value: [] }
-  const first = requests[0]
-  if (
-    !REPOSITORY.test(first.repository) ||
-    !isGitSha(first.commit) ||
-    requests.some(
-      (request) =>
-        request.repository !== first.repository ||
-        request.commit !== first.commit ||
-        request.cwd !== first.cwd ||
-        request.gh !== first.gh ||
-        !repoRelativePathSchema.safeParse(request.path).success ||
-        !pathSegments(request.path),
-    )
-  )
-    return actionFailure('pinned-file-unreadable', 'Pinned file coordinates are incomplete or mixed')
-
-  if (first.cwd !== undefined && (await checkoutRepository(first.cwd)) === first.repository) {
-    const local = await localCatalogue(first.cwd, requests)
-    if (local !== null) return { ok: true, value: local }
-  }
-
-  return readGitHubBlobs(requests)
-}
-
-export async function gitTreePaths(cwd: string, commit: string): Promise<Result<readonly string[]>> {
-  if (!isGitSha(commit)) return actionFailure('pinned-file-unreadable', 'Tree commit is not a Git object id')
-  const listed = await git(cwd, ['ls-tree', '-r', '-z', '--name-only', commit])
-  if (!listed.ok) return actionFailure('pinned-file-unreadable', `Cannot list ${commit} in ${cwd}`)
-  return { ok: true, value: gitPaths(listed.stdout) }
-}
-
-export async function changedPaths(cwd: string, base: string, head: string): Promise<Result<readonly string[]>> {
-  if (!isGitSha(base) || !isGitSha(head))
-    return actionFailure('action-input-missing', 'Changed paths require Git object ids')
-  const diff = await git(cwd, ['diff', '--name-only', '-z', base, head])
-  if (!diff.ok) return actionFailure('git-objects-missing', `Pinned Git objects are missing for ${base}..${head}`)
-  return { ok: true, value: gitPaths(diff.stdout) }
-}
-
-/** Direct two-dot `--binary --full-index`. GitHub three-dot compare media is not this comparison and is not called. */
-export async function readPinnedDiff(input: {
-  cwd: string
-  repository: string
-  base: string
-  head: string
-  gh: Gh
-}): Promise<Result<Uint8Array>> {
-  void input.gh
-  if (!REPOSITORY.test(input.repository) || !isGitSha(input.base) || !isGitSha(input.head)) {
-    return actionFailure('action-input-missing', 'Pinned diff requires Git object ids')
-  }
-  if ((await checkoutRepository(input.cwd)) !== input.repository) {
-    return actionFailure(
-      'git-objects-missing',
-      `Pinned diff requires local Git objects for ${input.repository}@${input.base}..${input.head}`,
-    )
-  }
-  const diff = await git(input.cwd, [
-    'diff',
-    '--no-ext-diff',
-    '--no-textconv',
-    '--binary',
-    '--full-index',
-    input.base,
-    input.head,
-  ])
-  if (!diff.ok)
-    return actionFailure('git-objects-missing', `Pinned Git objects are missing for ${input.base}..${input.head}`)
-  return { ok: true, value: diff.stdout }
 }

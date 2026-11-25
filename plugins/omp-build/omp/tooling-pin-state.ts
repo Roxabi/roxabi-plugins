@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { Gh } from '../adapters/github/types.ts'
 import { type FramingOrigin, sameSession } from '../roxabi/feature-framing-controller-lease.ts'
-import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
+import type { TrustedHostPluginPin } from '../roxabi/plugin-pin-contract.ts'
 
 type Activation = Readonly<{
   pin: TrustedHostPluginPin

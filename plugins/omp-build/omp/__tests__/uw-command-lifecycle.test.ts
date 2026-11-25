@@ -15,6 +15,19 @@ import { reportResult } from '../omp-uw-result.ts'
 
 const target = { repository: 'acme/widgets', target: 'acme/widgets#42' }
 
+it.each(['action', 'action /missing/request.json', 'action --request-file /missing/request.json'])(
+  'explicitly retires /uw %s',
+  async (args) => {
+    expect(parseUwCommand(args)).toEqual({ kind: 'invalid', reason: 'uw-action-retired' })
+    const subject = heldCommandFixture(async () => {
+      throw new Error('Retired command must not execute')
+    })
+    await subject.start(args)
+    expect(subject.messages).toEqual(['uw-stopped: uw-action-retired'])
+    expect(subject.calls()).toBe(0)
+  },
+)
+
 it('accepts only an explicit issue scope for subtree reports', () => {
   expect(parseUwCommand('reports acme/widgets#42')).toEqual({ kind: 'reports', repository: 'acme/widgets', number: 42 })
   expect(parseUwCommand('reports')).toMatchObject({ kind: 'invalid' })
@@ -129,9 +142,10 @@ function heldCommandFixture(action: () => Promise<UwOperationResult>) {
     context,
     dialog,
     messages,
-    start() {
+    calls: () => calls,
+    start(args = 'accept-material acme/widgets#42') {
       if (command === undefined) throw new Error('uw-command-missing')
-      return command.handler('accept-material acme/widgets#42', context)
+      return command.handler(args, context)
     },
     async newSession() {
       location.sessionId = 'next-session'
@@ -238,12 +252,6 @@ function lifecycleFixture() {
           return accepted
         })
         return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: result.diagnostics }
-      },
-      prepareAction: async () => {
-        throw new Error('unexpected-prepare-action')
-      },
-      replayActionInputs: async () => {
-        throw new Error('unexpected-replay')
       },
       readDelivery: async () => {
         throw new Error('unexpected-delivery')

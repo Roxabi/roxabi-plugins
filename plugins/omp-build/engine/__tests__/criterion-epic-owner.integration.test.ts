@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'vitest'
-import { sourceRef } from '../../roxabi/uw-action-observe.ts'
 import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { criterionEpicReviewGraph } from '../../testing/criterion-range-approval.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
-import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
+import {
+  historicalIntegrationReviewInputs,
+  produceParentIntegration,
+} from '../../testing/parent-integration-producer.ts'
 import { reviewRoot } from '../../testing/record-builders.ts'
+import { sourceRef } from '../../testing/workflow-record-pins.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import type { ActionInputs } from '../action-input-schema.ts'
 import { selectedDeclarations } from '../criterion-decision-selection.ts'
@@ -33,7 +36,6 @@ async function epicFixture() {
         baseTrees: [checkout.p0, firstMerge, secondMerge].map(checkout.tree),
         mergeTrees: checkout.merges.map(checkout.tree),
         parentTree: checkout.tree(checkout.parentHead),
-        diff: checkout.diff(thirdMerge, checkout.parentHead),
       },
       [{ id: 'C1', statement: 'Save keeps the selected region' }],
       'planned',
@@ -59,19 +61,15 @@ async function epicFixture() {
             integrated.payload.phase !== 'result'
           )
             throw new Error('Expected integration result')
-          return { parentHistory, integrated }
+          return parentHistory
         }
-        const { parentHistory, integrated } = integrationHistory()
-        const prepared = await world.operations.prepareAction({
-          actionId: 'owner-review',
-          purpose: 'review',
-          subject: integrated.payload.inputs.manifest.subject,
-          code: { ...code, referenceCommit: code.head },
-          stageSources: [],
-          expandedContext: [],
-        })
-        if (!prepared.ok) throw new Error(`Cannot prepare review: ${JSON.stringify(prepared.diagnostics)}`)
-        const inputs = prepared.value.inputs
+        const parentHistory = integrationHistory()
+        const inputs = historicalIntegrationReviewInputs(
+          beforeReview,
+          world.parent,
+          produced.integrationPin.record,
+          produced.output,
+        )
         const pin = inputs.manifest.acceptedSources.find((item) => item.record.recordId === world.parent.recordId)
         if (!pin || beforeReview.accepted.status !== 'accepted' || !beforeReview.accepted.value.coverage)
           throw new Error('Expected accepted parent owner and coverage')

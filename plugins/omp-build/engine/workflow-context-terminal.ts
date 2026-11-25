@@ -5,7 +5,6 @@ import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
 import { succeeds } from './workflow-context-lineage.ts'
 import { validPositiveSuccessor, workflowContextNegative } from './workflow-context-output.ts'
-import { authenticatedContextReplayStart, hasUnpairedStart } from './workflow-context-replay.ts'
 import { reviewContextPairValid } from './workflow-context-review.ts'
 import { bindExternalRef, excludedReceipt, type ReceiptRecord, recordsOf } from './workflow-control.ts'
 
@@ -99,30 +98,14 @@ function matchingReceipts(
   )
 }
 
-/**
- * Negative results terminalize their start, but only a unique, explicitly linked result supersedes them.
- * `excluded` holds exact scoped START keys of resolved interrupted attempts; they leave successor selection only.
- */
-export function workflowContextTerminal(
-  history: DecodedHistory,
-  action: string,
-  mandate: ReceiptRecord['payload']['mandate'],
-  contextLeaf?: ReceiptRecord,
-  excluded?: ReadonlySet<string>,
-): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
-  return contextTerminal(history, action, mandate, contextLeaf, undefined, excluded)
-}
-
-/** Observes a pending assessment only for replay; it does not terminalize the negative. */
-export function observeAssessmentContextReplay(
-  history: DecodedHistory,
-  replayStart: ReceiptRecord,
-  mandate: ReceiptRecord['payload']['mandate'],
-  excluded?: ReadonlySet<string>,
-): 'observed' | 'missing' | 'uncertain' | 'ambiguous' {
-  if (!authenticatedContextReplayStart(history, replayStart)) return 'uncertain'
-  const result = contextTerminal(history, 'assess-spec', mandate, undefined, replayStart, excluded)
-  return result === 'clear' ? 'observed' : result
+function hasUnpairedStart(receipts: readonly ReceiptRecord[]): boolean {
+  return receipts.some(
+    (record) =>
+      record.payload.phase === 'start' &&
+      !receipts.some(
+        (result) => result.payload.phase === 'result' && result.payload.actionId === record.payload.actionId,
+      ),
+  )
 }
 
 /** Another mandate's negative no longer blocks, but it must still be an authenticated pair. */
@@ -136,12 +119,15 @@ function otherMandateNegativeUnpaired(
   )
 }
 
-function contextTerminal(
+/**
+ * Negative results terminalize their start, but only a unique, explicitly linked result supersedes them.
+ * `excluded` holds exact scoped START keys of resolved interrupted attempts; they leave successor selection only.
+ */
+export function workflowContextTerminal(
   history: DecodedHistory,
   action: string,
   mandate: ReceiptRecord['payload']['mandate'],
   contextLeaf?: ReceiptRecord,
-  replayStart?: ReceiptRecord,
   excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
   const actionReceipts = recordsOf(history).filter(
@@ -152,17 +138,9 @@ function contextTerminal(
     (record) => canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate),
   )
   if (otherMandateNegativeUnpaired(history, actionReceipts, receipts)) return 'uncertain'
-  if (
-    replayStart !== undefined &&
-    (action !== 'assess-spec' ||
-      replayStart.payload.action !== 'assess-spec' ||
-      replayStart.payload.phase !== 'start' ||
-      !receipts.includes(replayStart))
-  )
-    return 'uncertain'
   const negatives = receipts.filter(workflowContextNegative)
   for (const item of negatives) {
-    const resolution = resolveContextNegative(history, item, receipts, new Set(), replayStart)
+    const resolution = resolveContextNegative(history, item, receipts, new Set())
     if (resolution === 'missing' && contextLeaf !== undefined) {
       const chain = workflowContextChain(history, item, mandate, excluded)
       if (
@@ -252,18 +230,16 @@ function resolveContextNegative(
   negative: ReceiptRecord,
   receipts: readonly ReceiptRecord[],
   seen: Set<string>,
-  replayStart?: ReceiptRecord,
 ): ContextResolution {
   if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
     return 'uncertain'
   seen.add(negative.recordId)
   const successors = receipts.filter((candidate) => succeeds(history, negative, candidate))
-  const pendingSuccessor = replayStart !== undefined && succeeds(history, negative, replayStart, true)
-  if (successors.length > 1 || (successors.length > 0 && pendingSuccessor)) return 'ambiguous'
-  if (hasUnpairedStart(receipts, replayStart)) return 'uncertain'
+  if (successors.length > 1) return 'ambiguous'
+  if (hasUnpairedStart(receipts)) return 'uncertain'
   const successor = successors[0]
-  if (successor === undefined) return pendingSuccessor ? 'clear' : 'missing'
+  if (successor === undefined) return 'missing'
   if (!paired(history, successor, receipts)) return 'uncertain'
-  if (workflowContextNegative(successor)) return resolveContextNegative(history, successor, receipts, seen, replayStart)
+  if (workflowContextNegative(successor)) return resolveContextNegative(history, successor, receipts, seen)
   return validPositiveSuccessor(successor) ? 'clear' : 'uncertain'
 }

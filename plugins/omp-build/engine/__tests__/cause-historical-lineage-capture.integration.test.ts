@@ -1,7 +1,4 @@
 import { expect, it } from 'vitest'
-import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
-import { currentRootOutputRefs } from '../../roxabi/uw-action-closure.ts'
-import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -23,7 +20,6 @@ import { ref } from './cause-hold-fixture.ts'
 import { scenario } from './cause-same-pr-history-fixture.ts'
 import { attachSamePrCriterionReview } from './same-pr-criterion-fixture.ts'
 import { withSamePrNativeWorld } from './same-pr-native-world.ts'
-import { must } from './workflow-test-support.ts'
 
 it.each(['editorial', 'material'] as const)(
   'captures the complete resolved A lineage for a fresh independently supported %s B review',
@@ -38,7 +34,7 @@ it.each(['editorial', 'material'] as const)(
       expect(transition.next.payload.adjudication).toEqual(ref(transition.operation))
 
       const sourceA = state.source()
-      await state.reviewInputs('lineage-B-unverified', state.context)
+      await state.reviewInputs(state.context)
       const ownA = state.own()
       const binding = recordsOf(sourceA).find((record) => record.kind === 'workflow-binding')
       if (binding?.kind !== 'workflow-binding') throw new Error('Expected PR binding')
@@ -52,28 +48,12 @@ it.each(['editorial', 'material'] as const)(
         binding,
         pullRequest: sourceA.source.scope,
         head: candidate,
-        prefix: 'lineage-B-evidence',
         histories: [ownA, sourceA],
+        causePins: state.causePins(),
         nativeBody: current.spec.snapshot.raw.body,
       })
       const inputsB = produced.reviewInputs
-      const request: UwActionRequest = {
-        actionId: 'lineage-B-root',
-        purpose: 'review',
-        subject: inputsB.manifest.subject,
-        code: inputsB.manifest.code,
-        stageSources: [],
-        expandedContext: [],
-      }
-      const historiesA = [ownA, sourceA]
-      const selected = causeActionData(
-        request,
-        historiesA,
-        currentRootOutputRefs(request, historiesA),
-        state.initial.catalogues,
-      )
-      expect(selected, JSON.stringify(selected)).toMatchObject({ ok: true })
-      const pins = must(selected)
+      const pins = inputsB.manifest.deliveryData.filter((pin) => pin.role === 'cause-state')
       expect(pins.map((pin) => pin.record.recordId).sort()).toEqual(
         [transition.pending.recordId, transition.operation.recordId, transition.next.recordId].sort(),
       )

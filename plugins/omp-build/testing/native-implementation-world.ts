@@ -1,18 +1,14 @@
-import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Gh } from '../adapters/github/types.ts'
-import type { ActionInputManifest, PinnedFileRef } from '../engine/action-input-schema.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
-import { prepareUwAction, replayUwActionInputs } from '../roxabi/uw-action-inputs.ts'
 import type { OperatorPort, UwOperations } from '../roxabi/uw-contract.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { defaultGit } from '../roxabi/workflow-checkout.ts'
-import { nativeActionFixturePorts } from './native-action-ports.ts'
 import { declaredNativeGit } from './native-declared-git.ts'
 import { arrangeNativeImplementation, type NativeImplementationInput } from './native-implementation-arrangement.ts'
 import { createNativeImplementationTransport } from './native-implementation-transport.ts'
@@ -56,10 +52,7 @@ export type DeclaredCheckout = {
 
 type NativeWorldSeed = NativeWorldFacts & {
   anchor: Scope
-  plugin: ActionInputManifest['plugin']
   checkout: DeclaredCheckout
-  diffs: readonly { base: string; head: string; bytes: Uint8Array }[]
-  repositoryFiles?: readonly { ref: PinnedFileRef; bytes: Uint8Array }[]
   operator?: OperatorPort
   originUrl?: string
   epic?: NativeEpicFacts
@@ -86,7 +79,6 @@ export async function withNativeImplementationWorld<T>(
 ): Promise<T> {
   const owned = input.cwd === undefined
   const cwd = input.cwd ?? mkdtempSync(join(tmpdir(), 'omp-native-implementation-'))
-  const artifactsDir = mkdtempSync(join(tmpdir(), 'omp-native-action-artifacts-'))
   try {
     const repository = input.anchor.repository
     const commits = new Map(input.commits.map((commit) => [commit.sha, commit]))
@@ -94,27 +86,12 @@ export async function withNativeImplementationWorld<T>(
     const comparisons = new Map(
       input.comparisons.map((comparison) => [`${comparison.base}\0${comparison.head}`, comparison]),
     )
-    const repositoryFiles = new Map(
-      (input.repositoryFiles ?? []).map(({ ref, bytes }) => {
-        if (
-          ref.repository !== repository ||
-          !commits.has(ref.commit) ||
-          createHash('sha256').update(bytes).digest('hex') !== ref.digest
-        )
-          throw new Error('Repository file does not match declared native facts')
-        return [`${ref.repository}\0${ref.commit}\0${ref.path}`, { ref, bytes }] as const
-      }),
-    )
-    if (repositoryFiles.size !== (input.repositoryFiles ?? []).length)
-      throw new Error('Duplicate declared repository files')
     if (
       commits.size !== input.commits.length ||
       pulls.size !== input.pullRequests.length ||
       comparisons.size !== input.comparisons.length
     )
       throw new Error('Duplicate declared native facts')
-    const diffs = new Map(input.diffs.map((diff) => [`${diff.base}\0${diff.head}`, diff.bytes]))
-    if (diffs.size !== input.diffs.length) throw new Error('Duplicate declared code diffs')
     const transport = createNativeImplementationTransport({
       repository,
       ...(input.originUrl === undefined ? {} : { originUrl: input.originUrl }),
@@ -141,7 +118,6 @@ export async function withNativeImplementationWorld<T>(
     const at = async (directory: string, selectedGit: GitRunner): Promise<NativeWorld> => {
       const installed = await createInstalledUwOperations({
         cwd: directory,
-        artifactsDir,
         gh,
         readAuthor: input.author,
         operator: input.operator ?? {
@@ -150,33 +126,12 @@ export async function withNativeImplementationWorld<T>(
           },
         },
       })
-      const ports = nativeActionFixturePorts({
-        cwd: directory,
-        artifactsDir,
-        gh,
-        git: selectedGit,
-        author: input.author,
-        plugin: input.plugin,
-        commits,
-        diffs,
-        repositoryFiles,
-      })
-      const operations = {
-        ...installed,
-        prepareAction: (
-          request: Parameters<typeof installed.prepareAction>[0],
-          review?: Parameters<typeof installed.prepareAction>[1],
-          correctionRoot?: Parameters<typeof installed.prepareAction>[2],
-        ) => prepareUwAction(request, ports, review, correctionRoot),
-        replayActionInputs: (request: Parameters<typeof installed.replayActionInputs>[0]) =>
-          replayUwActionInputs(request, ports),
-      }
       return {
         cwd: directory,
         gh,
         ghSync: transport.ghSync,
         git: selectedGit,
-        operations,
+        operations: installed,
         checkout,
         observeGraph: transport.observeGraph,
         observePullRequest: transport.observePullRequest,
@@ -186,7 +141,6 @@ export async function withNativeImplementationWorld<T>(
     }
     return await use(await at(cwd, git))
   } finally {
-    rmSync(artifactsDir, { recursive: true, force: true })
     if (owned) rmSync(cwd, { recursive: true, force: true })
   }
 }

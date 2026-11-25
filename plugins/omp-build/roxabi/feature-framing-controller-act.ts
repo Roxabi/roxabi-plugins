@@ -58,7 +58,7 @@ async function frameOnce(
   const operator = core.host.operator(ctx)
   let uw: UwOperations
   try {
-    uw = await core.host.uw({ ctx, operator, pluginPin: lease.pluginPin })
+    uw = await core.host.uw({ ctx, operator })
   } catch (error) {
     operator.cancel()
     throw error
