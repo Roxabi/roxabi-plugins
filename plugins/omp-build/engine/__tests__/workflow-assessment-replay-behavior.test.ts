@@ -5,13 +5,13 @@ import { buildRecord } from '../record-construction.ts'
 import { resolveSpecEffective, type SpecEffectiveRequest } from '../spec-effective.ts'
 import { resolveAcceptedSpec, resolveAcceptedSpecAt, resolveAcceptedSpecPrefixes } from '../workflow-accepted-spec.ts'
 import { observeAssessmentContextReplay, workflowContextTerminal } from '../workflow-context-terminal.ts'
-import { recordsOf } from '../workflow-control.ts'
+import { abandoned, recordsOf } from '../workflow-control.ts'
 import { resolveOwnSpecAuthority } from '../workflow-mandate-admission.ts'
 import { appendRecords, interruptionResolution, receiptOf } from './workflow-interruption-support.ts'
 import { assessFixture, mandateAssessmentState, shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
 import { BODY, history, must, pauseControls, SCOPE } from './workflow-test-support.ts'
 
-test('observes only a linked authenticated pending expanded-context assessment', async () => {
+test('observes a linked authenticated expanded-context assessment and preserves its resolved retry after abandonment', async () => {
   const mandated = shippedFeatureMandate()
   const initial = mandateAssessmentState(mandated)
   const proposed = {
@@ -130,7 +130,49 @@ test('observes only a linked authenticated pending expanded-context assessment',
     }),
   )
   const completed = appendRecords(pending, [positive])
-  expect(resolveAcceptedSpec(mandated, [completed])).toMatchObject({ ok: true })
+  const beforeAbandonment = resolveAcceptedSpec(mandated, [completed])
+  expect(beforeAbandonment).toMatchObject({ ok: true })
+  const abandonment = must(
+    buildRecord({
+      ...SCOPE,
+      version: 1,
+      recordId: 'abandon-expanded-assessment',
+      runId: mandated.runId,
+      operationId: 'op-abandon-expanded-assessment',
+      kind: 'operator-control',
+      payload: {
+        control: 'abandon',
+        controlId: 'abandon-expanded-assessment',
+        predecessor: null,
+        mandate: { scope: SCOPE, kind: 'mandate', recordId: mandated.recordId },
+      },
+    }),
+  )
+  const abandonedSource = appendRecords(completed, [abandonment])
+  expect(abandoned(abandonedSource, mandated)).toBe(true)
+  expect(resolveAcceptedSpec(mandated, [abandonedSource])).toEqual(beforeAbandonment)
+
+  const lateResolution = interruptionResolution({
+    mandate: mandated,
+    pause: pause.confirmed,
+    start: receiptOf(successor),
+    result: null,
+  })
+  const liveWithLateResolution = appendRecords(completed, [lateResolution])
+  expect(resolveAcceptedSpec(mandated, [liveWithLateResolution])).toMatchObject({
+    ok: false,
+    evidence: [
+      {
+        code: 'interruption-resolution-invalid',
+        recordId: lateResolution.recordId,
+        detail: { cause: 'late-result' },
+      },
+    ],
+  })
+  expect(resolveAcceptedSpec(mandated, [appendRecords(liveWithLateResolution, [abandonment])])).toEqual(
+    beforeAbandonment,
+  )
+
   const historical: Extract<SpecEffectiveRequest, { mode: 'historical' }> = {
     mode: 'historical',
     own: initial.ref,

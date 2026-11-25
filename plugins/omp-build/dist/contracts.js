@@ -11311,7 +11311,7 @@ function invalidClaims(claims) {
   }
   return null;
 }
-function validatedBindingClaim(operation, input) {
+function validatedBindingClaim(operation, input, purpose) {
   const record = operation.record;
   if (record === null || record.kind !== "workflow-binding")
     return bindingRefusal("conflicting", [diagnostic2("malformed", "Workflow-binding claim has no binding record")]);
@@ -11322,7 +11322,7 @@ function validatedBindingClaim(operation, input) {
   }
   if (record.payload.mandate.kind !== "mandate")
     return bindingRefusal("conflicting", [diagnostic2("kind-mismatch", "Workflow binding must name a mandate")]);
-  if (record.payload.branch !== input.native.branch || record.payload.base !== input.native.base) {
+  if (purpose === "delivery" && (record.payload.branch !== input.native.branch || record.payload.base !== input.native.base)) {
     return bindingRefusal("conflicting", [
       diagnostic2("native-mismatch", "Workflow-binding branch or base does not match the PR")
     ]);
@@ -11337,10 +11337,10 @@ function appendDistinctBinding(records, record) {
     records.push(record);
   return null;
 }
-function recordsForClaims(claims, input) {
+function recordsForClaims(claims, input, purpose) {
   const records = [];
   for (const operation of claims) {
-    const record = validatedBindingClaim(operation, input);
+    const record = validatedBindingClaim(operation, input, purpose);
     if ("status" in record)
       return record;
     const duplicate = appendDistinctBinding(records, record);
@@ -11349,7 +11349,7 @@ function recordsForClaims(claims, input) {
   }
   return records;
 }
-function selectWorkflowBindingClaims(input) {
+function selectWorkflowBindingClaims(input, purpose = "delivery") {
   const history = historyFor(input.pullRequest, input.histories);
   if (history === null)
     return bindingRefusal("incomplete", [diagnostic2("missing-history", "Pull request history is missing")]);
@@ -11367,10 +11367,10 @@ function selectWorkflowBindingClaims(input) {
   const invalid = invalidClaims(claims);
   if (invalid !== null)
     return invalid;
-  return recordsForClaims(claims, input);
+  return recordsForClaims(claims, input, purpose);
 }
 function selectWorkflowBindingCandidate(input, purpose = "delivery") {
-  const records = selectWorkflowBindingClaims(input);
+  const records = selectWorkflowBindingClaims(input, purpose);
   if (!Array.isArray(records))
     return records;
   if (purpose === "revocation") {
@@ -16428,20 +16428,30 @@ function resolutionOperation(operation) {
     return true;
   return (operation.recordId ?? operation.record?.recordId ?? "").startsWith(INTERRUPTION_RESOLUTION_PREFIX);
 }
-function resolutionIndex(histories, mandate) {
+function resolutionIndex(histories) {
+  const { resolved, diagnostics } = collectResolutions(histories, histories);
+  return diagnostics.length > 0 ? fail(diagnostics) : { ok: true, value: { resolved } };
+}
+function resolutionIndexForStarts(home, histories, startIds) {
+  const resolutionIds = new Set(Array.from(startIds, interruptionResolutionRecordId));
+  return collectResolutions(histories, [home], (operation) => {
+    const record = operation.record;
+    return operation.recordId !== null && resolutionIds.has(operation.recordId) || record !== null && resolutionIds.has(record.recordId) || isInterruptionResolution(record) && equalScope(record.payload.start.scope, home.source.scope) && startIds.has(record.payload.start.recordId);
+  });
+}
+function collectResolutions(histories, scan, applies) {
   const problems = [];
   const resolved = new Map;
   const observed = new Map;
-  for (const { history, operation } of histories.flatMap((history) => history.operations.map((operation) => ({ history, operation })))) {
-    if (!resolutionOperation(operation))
+  for (const { history, operation } of scan.flatMap((history) => history.operations.map((operation) => ({ history, operation })))) {
+    if (!resolutionOperation(operation) || applies !== undefined && !applies(operation))
       continue;
     const record = operation.record;
-    if (!isInterruptionResolution(record) || !authenticatedResolutionOperation(history, operation, record)) {
+    if (!isInterruptionResolution(record) || !authenticatedResolutionOperation(history, operation, record, applies !== undefined)) {
       problems.push(invalidResolution(operation.recordId, "V3", "Resolution operation ownership is not authenticated"));
       continue;
     }
-    const selected = mandate === undefined || sameRef2(record.payload.mandate, mandate);
-    if (!observeResolutionCopy(record, observed, problems) || !selected)
+    if (!observeResolutionCopy(record, observed, problems))
       continue;
     const admitted = admitInterruptionResolution(record, histories);
     if (!admitted.ok) {
@@ -16455,7 +16465,7 @@ function resolutionIndex(histories, mandate) {
     }
     resolved.set(key, admitted.value);
   }
-  return problems.length > 0 ? fail(problems) : { ok: true, value: { resolved } };
+  return { resolved, diagnostics: problems };
 }
 function observeResolutionCopy(record, observed, problems) {
   const identity = scopedStartKey({
@@ -16472,11 +16482,11 @@ function observeResolutionCopy(record, observed, problems) {
   observed.set(identity, digest);
   return true;
 }
-function authenticatedResolutionOperation(history, operation, record) {
+function authenticatedResolutionOperation(history, operation, record, bindRecord) {
   if (operation.status !== "complete" || operation.authority !== "accounted" || operation.recordId !== record.recordId || operation.operationId !== record.operationId)
     return false;
   const owners = history.operations.filter((candidate) => candidate.authority !== "foreign" && candidate.operationId === record.operationId);
-  return owners.length === 1;
+  return owners.length === 1 && (!bindRecord || bindExternalRef({ scope: history.source.scope, recordId: record.recordId, kind: record.kind }, history).ok);
 }
 
 // plugins/omp-build/engine/workflow-spec-authentication.ts
@@ -16502,21 +16512,21 @@ function receiptRef(record) {
   };
 }
 function confirmedAssessPairs(home, histories, mandateRef, abandoned, replayContext) {
-  const resolutions = abandoned ? null : resolutionIndex(histories, mandateRef);
-  if (resolutions !== null && !resolutions.ok)
-    return { ok: false, reason: "incomplete", evidence: resolutions.diagnostics };
-  const resolved = resolutions?.value.resolved;
+  const starts = recordsOf(home).filter((record) => record.kind === "action-receipt" && record.payload.action === "assess-spec" && record.payload.phase === "start" && sameRef2(record.payload.mandate, mandateRef));
+  const { resolved, diagnostics } = resolutionIndexForStarts(home, histories, new Set(starts.map(({ recordId }) => recordId)));
+  if (!abandoned && diagnostics.length > 0)
+    return { ok: false, reason: "incomplete", evidence: diagnostics };
   const attempts = {
     abandoned,
-    excludedStarts: new Set(resolved?.keys()),
+    excludedStarts: new Set(resolved.keys()),
     excludedResults: new Set
   };
-  for (const { result } of resolved?.values() ?? [])
+  for (const { result } of resolved.values())
     if (result !== null)
       attempts.excludedResults.add(scopedStartKey(receiptRef(result)));
-  if (replayContext !== undefined && !recordsOf(home).some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext)))
+  if (replayContext !== undefined && !starts.some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext)))
     return specChainFailure("incomplete", "Spec assessment replay start is not authenticated", "action-uncertain");
-  for (const record of recordsOf(home)) {
+  for (const record of starts) {
     const checked = confirmedAssessStart(record, home, histories, mandateRef, attempts, replayContext);
     if (!checked.ok)
       return checked;
@@ -16524,10 +16534,6 @@ function confirmedAssessPairs(home, histories, mandateRef, abandoned, replayCont
   return { ok: true, excludedResults: attempts.excludedResults };
 }
 function confirmedAssessStart(record, home, histories, mandateRef, attempts, replayContext) {
-  if (record.kind !== "action-receipt" || record.payload.action !== "assess-spec" || record.payload.phase !== "start")
-    return { ok: true };
-  if (!sameRef2(record.payload.mandate, mandateRef))
-    return { ok: true };
   const startRef = receiptRef(record);
   if (attempts.excludedStarts.has(scopedStartKey(startRef)))
     return { ok: true };
@@ -29944,123 +29950,6 @@ function assessParentInsertionEngagement(evidence) {
     return { state: "indeterminate", diagnostics: graphResult.diagnostics };
   return { state: "active", diagnostics: [] };
 }
-// plugins/omp-build/engine/workflow-action-interruption.ts
-function mandateRefOf(mandate) {
-  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
-}
-function startResolution(histories, start) {
-  const home = historyFor(start.scope, histories);
-  if (home === null || !home.source.complete)
-    return fail([invalidResolution(null, "V3", "START history is missing or incomplete")]);
-  const index = resolutionIndex(histories);
-  if (!index.ok)
-    return index;
-  return { ok: true, value: index.value.resolved.get(scopedStartKey(start)) ?? null };
-}
-function receiptsOf(history) {
-  return recordsOf(history).filter((record) => record.kind === "action-receipt");
-}
-function classifyAttempts(input) {
-  if (input.scan.some((history) => !history.source.complete))
-    return fail([invalidResolution(null, "V3", "Attempt history is incomplete")]);
-  const index = resolutionIndex([...input.histories, ...input.scan.filter((item) => !input.histories.includes(item))]);
-  if (!index.ok)
-    return index;
-  const excluded = new Set;
-  const unresolved = [];
-  for (const history of input.scan) {
-    const receipts = receiptsOf(history).filter((receipt) => isInterruptionAction(receipt.payload.action) && input.actions.includes(receipt.payload.action) && (input.select?.(receipt) ?? true));
-    const classified = classifyHistoryAttempts(history, receipts, index.value.resolved, excluded, unresolved);
-    if (!classified.ok)
-      return classified;
-  }
-  return { ok: true, value: { excluded, unresolved } };
-}
-function classifyHistoryAttempts(history, receipts, resolved, excluded, unresolved) {
-  if (receipts.some(legacyInterruptionResult))
-    return fail([diagnostic2("action-uncertain", "Legacy interruption proof is not executable")]);
-  for (const start of receipts) {
-    const action = start.payload.action;
-    if (start.payload.phase !== "start" || !isInterruptionAction(action))
-      continue;
-    const key = receiptStartKey(start);
-    if (resolved.has(key)) {
-      excluded.add(key);
-      continue;
-    }
-    const attempt = classifyUnresolvedStart(history, receipts, start, action);
-    if (!attempt.ok)
-      return attempt;
-    if (attempt.value !== null)
-      unresolved.push(attempt.value);
-  }
-  return { ok: true, value: undefined };
-}
-function classifyUnresolvedStart(history, receipts, start, action) {
-  const results = receipts.filter((receipt) => receipt.payload.phase === "result" && receipt.payload.action === action && receipt.payload.actionId === start.payload.actionId);
-  const result = results[0];
-  if (result === undefined)
-    return { ok: true, value: { kind: "orphan", action, start } };
-  if (results.length === 1 && authenticateInterruptedReceiptPair(history, result).ok)
-    return { ok: true, value: { kind: "interrupted", action, start, result } };
-  if (results.some(interruptedResult))
-    return fail([diagnostic2("action-uncertain", `${action} interrupted receipt pairing is not authenticated`)]);
-  return { ok: true, value: null };
-}
-function legacyInterruptionResult(receipt) {
-  return receipt.payload.phase === "result" && receipt.payload.diagnostics.some((entry) => {
-    const detail = entry.detail;
-    return typeof detail === "object" && detail !== null && !Array.isArray(detail) && detail.marker === "omp-build-host-interruption/1";
-  });
-}
-function interruptionGate(classified) {
-  if (!classified.ok)
-    return { kind: "stop", completion: { status: "blocked", evidence: classified.diagnostics } };
-  const interrupted = classified.value.unresolved.find((attempt) => attempt.kind === "interrupted");
-  if (interrupted?.kind === "interrupted")
-    return {
-      kind: "stop",
-      completion: {
-        status: "blocked",
-        evidence: [
-          {
-            code: "action-interrupted",
-            message: `${interrupted.action} attempt was interrupted and awaits an operator resolution`,
-            recordId: interrupted.result.recordId,
-            detail: { action: interrupted.action, start: interrupted.start.recordId }
-          }
-        ]
-      }
-    };
-  const orphan = classified.value.unresolved.find((attempt) => attempt.kind === "orphan");
-  if (orphan !== undefined)
-    return {
-      kind: "stop",
-      completion: {
-        status: "uncertain",
-        evidence: [
-          {
-            code: "action-uncertain",
-            message: `${orphan.action} start has no result`,
-            recordId: orphan.start.recordId,
-            detail: { action: orphan.action }
-          }
-        ]
-      }
-    };
-  return { kind: "clear", excluded: classified.value.excluded };
-}
-function mandateAttempt(mandate) {
-  const ref = mandateRefOf(mandate);
-  return (receipt) => ("scope" in receipt.payload.mandate) && sameRef2(receipt.payload.mandate, ref);
-}
-function ownAttempts(classified, mandate) {
-  if (!classified.ok || mandate === null)
-    return classified;
-  const own = mandateAttempt(mandate);
-  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === "orphan" || own(attempt.start));
-  return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
-}
 // plugins/omp-build/engine/workflow-assessment-child-sources.ts
 function childHistory(uw, histories) {
   const matching = histories.filter((history) => equalScope(history.source.scope, uw));
@@ -30602,6 +30491,115 @@ function inspectPlanSpecialists(item, payload, draft, histories, replay) {
   if (!actions.ok)
     return actions;
   return inspectContributions(payload);
+}
+
+// plugins/omp-build/engine/workflow-action-interruption.ts
+function mandateRefOf(mandate) {
+  return { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
+}
+function receiptsOf(history) {
+  return recordsOf(history).filter((record) => record.kind === "action-receipt");
+}
+function classifyAttempts(input) {
+  if (input.scan.some((history) => !history.source.complete))
+    return fail([invalidResolution(null, "V3", "Attempt history is incomplete")]);
+  const index = resolutionIndex([...input.histories, ...input.scan.filter((item) => !input.histories.includes(item))]);
+  if (!index.ok)
+    return index;
+  const excluded = new Set;
+  const unresolved = [];
+  for (const history of input.scan) {
+    const receipts = receiptsOf(history).filter((receipt) => isInterruptionAction(receipt.payload.action) && input.actions.includes(receipt.payload.action) && (input.select?.(receipt) ?? true));
+    const classified = classifyHistoryAttempts(history, receipts, index.value.resolved, excluded, unresolved);
+    if (!classified.ok)
+      return classified;
+  }
+  return { ok: true, value: { excluded, unresolved } };
+}
+function classifyHistoryAttempts(history, receipts, resolved, excluded, unresolved) {
+  if (receipts.some(legacyInterruptionResult))
+    return fail([diagnostic2("action-uncertain", "Legacy interruption proof is not executable")]);
+  for (const start of receipts) {
+    const action = start.payload.action;
+    if (start.payload.phase !== "start" || !isInterruptionAction(action))
+      continue;
+    const key = receiptStartKey(start);
+    if (resolved.has(key)) {
+      excluded.add(key);
+      continue;
+    }
+    const attempt = classifyUnresolvedStart(history, receipts, start, action);
+    if (!attempt.ok)
+      return attempt;
+    if (attempt.value !== null)
+      unresolved.push(attempt.value);
+  }
+  return { ok: true, value: undefined };
+}
+function classifyUnresolvedStart(history, receipts, start, action) {
+  const results = receipts.filter((receipt) => receipt.payload.phase === "result" && receipt.payload.action === action && receipt.payload.actionId === start.payload.actionId);
+  const result = results[0];
+  if (result === undefined)
+    return { ok: true, value: { kind: "orphan", action, start } };
+  if (results.length === 1 && authenticateInterruptedReceiptPair(history, result).ok)
+    return { ok: true, value: { kind: "interrupted", action, start, result } };
+  if (results.some(interruptedResult))
+    return fail([diagnostic2("action-uncertain", `${action} interrupted receipt pairing is not authenticated`)]);
+  return { ok: true, value: null };
+}
+function legacyInterruptionResult(receipt) {
+  return receipt.payload.phase === "result" && receipt.payload.diagnostics.some((entry) => {
+    const detail = entry.detail;
+    return typeof detail === "object" && detail !== null && !Array.isArray(detail) && detail.marker === "omp-build-host-interruption/1";
+  });
+}
+function interruptionGate(classified) {
+  if (!classified.ok)
+    return { kind: "stop", completion: { status: "blocked", evidence: classified.diagnostics } };
+  const interrupted = classified.value.unresolved.find((attempt) => attempt.kind === "interrupted");
+  if (interrupted?.kind === "interrupted")
+    return {
+      kind: "stop",
+      completion: {
+        status: "blocked",
+        evidence: [
+          {
+            code: "action-interrupted",
+            message: `${interrupted.action} attempt was interrupted and awaits an operator resolution`,
+            recordId: interrupted.result.recordId,
+            detail: { action: interrupted.action, start: interrupted.start.recordId }
+          }
+        ]
+      }
+    };
+  const orphan = classified.value.unresolved.find((attempt) => attempt.kind === "orphan");
+  if (orphan !== undefined)
+    return {
+      kind: "stop",
+      completion: {
+        status: "uncertain",
+        evidence: [
+          {
+            code: "action-uncertain",
+            message: `${orphan.action} start has no result`,
+            recordId: orphan.start.recordId,
+            detail: { action: orphan.action }
+          }
+        ]
+      }
+    };
+  return { kind: "clear", excluded: classified.value.excluded };
+}
+function mandateAttempt(mandate) {
+  const ref = mandateRefOf(mandate);
+  return (receipt) => ("scope" in receipt.payload.mandate) && sameRef2(receipt.payload.mandate, ref);
+}
+function ownAttempts(classified, mandate) {
+  if (!classified.ok || mandate === null)
+    return classified;
+  const own = mandateAttempt(mandate);
+  const unresolved = classified.value.unresolved.filter((attempt) => attempt.kind === "orphan" || own(attempt.start));
+  return { ok: true, value: { excluded: classified.value.excluded, unresolved } };
 }
 
 // plugins/omp-build/engine/workflow-plan-review-selection.ts
@@ -31940,7 +31938,6 @@ export {
   specSnapshotSchema,
   specVersion,
   standardsRowSchema,
-  startResolution,
   stopBotMayAuthor,
   stopSchema,
   submissionSchema,

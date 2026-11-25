@@ -2,7 +2,6 @@ import { validateActionInputs } from './action-input.ts'
 import { canonicalValueDigest } from './canonical-value.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { equalScope, fail, sameRef } from './record-diagnostics.ts'
-import type { ExternalRecordRef } from './record-references.ts'
 import type { Diagnostic, Json } from './record-values.ts'
 import type { Result } from './result.ts'
 import {
@@ -194,28 +193,52 @@ function resolutionOperation(operation: Operation): boolean {
   return (operation.recordId ?? operation.record?.recordId ?? '').startsWith(INTERRUPTION_RESOLUTION_PREFIX)
 }
 
-/**
- * Index resolution operations, rebuilt per call. A mandate-bound reader may ignore accounted controls
- * for other mandates; unreadable or unowned operations cannot safely be assigned to another mandate.
- */
-export function resolutionIndex(
+/** Classify all resolution operations strictly for action recovery. */
+export function resolutionIndex(histories: readonly DecodedHistory[]): Result<ResolutionIndex> {
+  const { resolved, diagnostics } = collectResolutions(histories, histories)
+  return diagnostics.length > 0 ? fail(diagnostics) : { ok: true, value: { resolved } }
+}
+
+/** Read applicable resolutions in the exact START scope, with non-admission diagnostics reported separately. */
+export function resolutionIndexForStarts(
+  home: DecodedHistory,
   histories: readonly DecodedHistory[],
-  mandate?: ExternalRecordRef,
-): Result<ResolutionIndex> {
+  startIds: ReadonlySet<string>,
+): ResolutionIndex & { diagnostics: Diagnostic[] } {
+  const resolutionIds = new Set(Array.from(startIds, interruptionResolutionRecordId))
+  return collectResolutions(histories, [home], (operation) => {
+    const record = operation.record
+    return (
+      (operation.recordId !== null && resolutionIds.has(operation.recordId)) ||
+      (record !== null && resolutionIds.has(record.recordId)) ||
+      (isInterruptionResolution(record) &&
+        equalScope(record.payload.start.scope, home.source.scope) &&
+        startIds.has(record.payload.start.recordId))
+    )
+  })
+}
+
+function collectResolutions(
+  histories: readonly DecodedHistory[],
+  scan: readonly DecodedHistory[],
+  applies?: (operation: Operation) => boolean,
+): ResolutionIndex & { diagnostics: Diagnostic[] } {
   const problems: Diagnostic[] = []
   const resolved = new Map<string, InterruptionResolution>()
   const observed = new Map<string, string>()
-  for (const { history, operation } of histories.flatMap((history) =>
+  for (const { history, operation } of scan.flatMap((history) =>
     history.operations.map((operation) => ({ history, operation })),
   )) {
-    if (!resolutionOperation(operation)) continue
+    if (!resolutionOperation(operation) || (applies !== undefined && !applies(operation))) continue
     const record = operation.record
-    if (!isInterruptionResolution(record) || !authenticatedResolutionOperation(history, operation, record)) {
+    if (
+      !isInterruptionResolution(record) ||
+      !authenticatedResolutionOperation(history, operation, record, applies !== undefined)
+    ) {
       problems.push(invalidResolution(operation.recordId, 'V3', 'Resolution operation ownership is not authenticated'))
       continue
     }
-    const selected = mandate === undefined || sameRef(record.payload.mandate, mandate)
-    if (!observeResolutionCopy(record, observed, problems) || !selected) continue
+    if (!observeResolutionCopy(record, observed, problems)) continue
     const admitted = admitInterruptionResolution(record, histories)
     if (!admitted.ok) {
       problems.push(...admitted.diagnostics)
@@ -228,7 +251,7 @@ export function resolutionIndex(
     }
     resolved.set(key, admitted.value)
   }
-  return problems.length > 0 ? fail(problems) : { ok: true, value: { resolved } }
+  return { resolved, diagnostics: problems }
 }
 
 function observeResolutionCopy(
@@ -254,6 +277,7 @@ function authenticatedResolutionOperation(
   history: DecodedHistory,
   operation: Operation,
   record: ResolutionRecord,
+  bindRecord: boolean,
 ): boolean {
   if (
     operation.status !== 'complete' ||
@@ -265,5 +289,9 @@ function authenticatedResolutionOperation(
   const owners = history.operations.filter(
     (candidate) => candidate.authority !== 'foreign' && candidate.operationId === record.operationId,
   )
-  return owners.length === 1
+  return (
+    owners.length === 1 &&
+    (!bindRecord ||
+      bindExternalRef({ scope: history.source.scope, recordId: record.recordId, kind: record.kind }, history).ok)
+  )
 }

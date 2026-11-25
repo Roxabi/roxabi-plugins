@@ -12,7 +12,7 @@ import { workflowContextNegative } from './workflow-context-output.ts'
 import { observeAssessmentContextReplay, workflowContextTerminal } from './workflow-context-terminal.ts'
 import { bindExternalRef, type ReceiptRecord, recordsOf, scopedStartKey } from './workflow-control.ts'
 import { authenticateInterruptedReceiptPair, interruptedResult } from './workflow-interruption-proof.ts'
-import { resolutionIndex } from './workflow-interruption-resolution.ts'
+import { resolutionIndexForStarts } from './workflow-interruption-resolution.ts'
 import { specChainFailure } from './workflow-spec-assessment.ts'
 import { authenticatedAssessResult } from './workflow-spec-authentication-chain.ts'
 
@@ -92,24 +92,33 @@ export function confirmedAssessPairs(
   abandoned: boolean,
   replayContext?: AssessmentReplayContext,
 ): AssessmentPairs {
-  // Only a live mandate needs interruption resolutions to determine which attempts may progress.
-  const resolutions = abandoned ? null : resolutionIndex(histories, mandateRef)
-  if (resolutions !== null && !resolutions.ok)
-    return { ok: false, reason: 'incomplete', evidence: resolutions.diagnostics }
-  const resolved = resolutions?.value.resolved
+  const starts = recordsOf(home).filter(
+    (record): record is ReceiptRecord =>
+      record.kind === 'action-receipt' &&
+      record.payload.action === 'assess-spec' &&
+      record.payload.phase === 'start' &&
+      sameRef(record.payload.mandate, mandateRef),
+  )
+  const { resolved, diagnostics } = resolutionIndexForStarts(
+    home,
+    histories,
+    new Set(starts.map(({ recordId }) => recordId)),
+  )
+  // Abandonment ends execution obligations, not the evidence behind a successful retry.
+  if (!abandoned && diagnostics.length > 0) return { ok: false, reason: 'incomplete', evidence: diagnostics }
   const attempts: AssessmentAttempts = {
     abandoned,
-    excludedStarts: new Set(resolved?.keys()),
+    excludedStarts: new Set(resolved.keys()),
     excludedResults: new Set(),
   }
-  for (const { result } of resolved?.values() ?? [])
+  for (const { result } of resolved.values())
     if (result !== null) attempts.excludedResults.add(scopedStartKey(receiptRef(result)))
   if (
     replayContext !== undefined &&
-    !recordsOf(home).some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext))
+    !starts.some((record) => authenticatedReplayStart(record, home, mandateRef, replayContext))
   )
     return specChainFailure('incomplete', 'Spec assessment replay start is not authenticated', 'action-uncertain')
-  for (const record of recordsOf(home)) {
+  for (const record of starts) {
     const checked = confirmedAssessStart(record, home, histories, mandateRef, attempts, replayContext)
     if (!checked.ok) return checked
   }
@@ -117,16 +126,13 @@ export function confirmedAssessPairs(
 }
 
 function confirmedAssessStart(
-  record: CanonicalRecord,
+  record: ReceiptRecord,
   home: DecodedHistory,
   histories: readonly DecodedHistory[],
   mandateRef: ExternalRecordRef,
   attempts: AssessmentAttempts,
   replayContext?: AssessmentReplayContext,
 ): AssessmentFailure | { ok: true } {
-  if (record.kind !== 'action-receipt' || record.payload.action !== 'assess-spec' || record.payload.phase !== 'start')
-    return { ok: true }
-  if (!sameRef(record.payload.mandate, mandateRef)) return { ok: true }
   const startRef = receiptRef(record)
   if (attempts.excludedStarts.has(scopedStartKey(startRef))) return { ok: true }
   const results = recordsOf(home).filter(
