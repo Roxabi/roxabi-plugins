@@ -52,9 +52,10 @@ function directory() {
 }
 
 describe('feature command grammar', () => {
-  it('accepts a reference, explicit resume, and a material decision without argv authority', () => {
+  it('accepts existing references and retained controls without argv authority', () => {
     expect(parseFeatureCommand('#12')).toEqual({ ok: true, control: 'select', reference: '12' })
-    expect(parseFeatureCommand('resume 12')).toEqual({ ok: true, control: 'resume', reference: '12' })
+    expect(parseFeatureCommand('pause #12')).toEqual({ ok: true, control: 'pause', reference: '12' })
+    expect(parseFeatureCommand('abandon #12')).toEqual({ ok: true, control: 'abandon', reference: '12' })
     expect(parseFeatureCommand('new feature-subject')).toEqual({
       ok: true,
       control: 'new',
@@ -70,6 +71,12 @@ describe('feature command grammar', () => {
       ok: false,
       reason: 'feature-material-decision-invalid',
     })
+  })
+
+  it.each(['resume', 'resolve-interruption'])('rejects retired control %s instead of selecting it', (control) => {
+    expect(parseFeatureCommand(control)).toEqual({ ok: false, reason: 'feature-control-retired' })
+    expect(parseFeatureCommand(`${control} #12`)).toEqual({ ok: false, reason: 'feature-control-retired' })
+    expect(parseFeatureCommand(`#${control}`)).toEqual({ ok: true, control: 'select', reference: control })
   })
 })
 

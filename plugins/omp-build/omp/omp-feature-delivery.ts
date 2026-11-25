@@ -12,6 +12,7 @@ import { featureSpecDigest } from '../roxabi/feature-spec-digest.ts'
 import { type OmpBuildExtensionApi, reportFeatureTerminalStatus } from './omp-controller'
 import type { Admission, FeatureReady } from './omp-feature-admission.ts'
 import type { FeatureOperationReportGuard } from './omp-feature-composition.ts'
+import { stageFeatureDelivery } from './omp-feature-run.ts'
 import type { FeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { sendSkillMessage } from './omp-skill-command-runtime.ts'
 
@@ -28,7 +29,14 @@ export async function deliverAdmission(
   const { pi, framing, skillsDir } = composition
   if (!guard.isCurrent()) return
   if (result.kind === 'ready') {
-    if (body !== undefined) await sendSkillMessage(pi, join(skillsDir, 'feature'), body, featureContext(result))
+    if (body === undefined) return
+    const delivery = stageFeatureDelivery(pi, ctx, operator, result)
+    try {
+      await sendSkillMessage(pi, join(skillsDir, 'feature'), body, featureContext(result, delivery.id))
+    } catch (error) {
+      delivery.discard()
+      throw error
+    }
     return
   }
   if (result.kind === 'framing') {
@@ -38,7 +46,7 @@ export async function deliverAdmission(
   reportAdmissionStop(pi, ctx, input, result)
 }
 
-function featureContext(result: FeatureReady): string {
+function featureContext(result: FeatureReady, deliveryId: string): string {
   const { repository, issue, mandate, branch, base, worktree, pr } = result
   return [
     '## Feature context',
@@ -48,6 +56,7 @@ function featureContext(result: FeatureReady): string {
     `branch: ${branch}`,
     `base: ${base}`,
     `worktree: ${worktree}`,
+    `delivery: ${deliveryId}`,
     ...(pr === undefined ? [] : [`pr: ${pr}`]),
     '',
     acceptedSpecContext(result),
@@ -69,7 +78,7 @@ function acceptedSpecContext({ acceptedSpec, acceptedBodySha256, liveIssueBodyDi
 }
 
 export function deliversSkill(control: ContinueFeatureInput['control']): boolean {
-  return control === 'select' || control === 'resume' || control === 'new'
+  return control === 'select' || control === 'new'
 }
 
 function reportAdmissionStop(
@@ -89,7 +98,7 @@ function reportAdmissionStop(
   }
   const principalDispatch = input.principal && deliversSkill(input.control)
   const message = stop ?? `feature-stopped: workflow-result: ${result.kind}`
-  if (result.kind === 'blocked' || result.kind === 'paused') {
+  if (result.kind === 'blocked') {
     ctx.ui?.setStatus?.('omp-build-watch', featureResultStatus(input.reference, result))
   }
   reportFeatureTerminalStatus(pi, principalDispatch ? principalRefusalMessage(ctx.cwd, message) : message)

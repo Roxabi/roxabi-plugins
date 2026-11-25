@@ -86,7 +86,7 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   }
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
-    abandon: createUwAbandon({ operator: input.operator, reader, github }),
+    abandon: createUwAbandon({ operator: input.operator, github }),
     closeLinked: createLinkedClosure({
       github,
       readLanding: (pullRequest) =>

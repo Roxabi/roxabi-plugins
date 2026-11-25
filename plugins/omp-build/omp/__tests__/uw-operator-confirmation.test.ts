@@ -352,7 +352,7 @@ describe('native operator confirmation capability', () => {
     const message = featureStopMessage({
       kind: 'abandoned',
       confirmed: false,
-      failure: { phase: 'uw', status: 'refused', diagnostics: result.diagnostics },
+      failure: { status: 'refused', diagnostics: result.diagnostics },
     })
     expect(message).toContain('\\nCause: render failed')
     for (const secret of ['gh-fake', 'github-fake', 'access-fake', 'token-fake', 'basic-fake', 'bearer-fake']) {

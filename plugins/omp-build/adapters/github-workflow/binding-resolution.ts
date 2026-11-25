@@ -9,7 +9,7 @@ import {
   selectWorkflowBinding,
   type WorkflowBindingSelection,
 } from '../../engine/workflow-pr-binding.ts'
-import { refKey } from '../../engine/workflow-pr-binding-chain.ts'
+import { type BindingPurpose, refKey } from '../../engine/workflow-pr-binding-chain.ts'
 import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
 import { readGitHubHistory } from '../github/transport.ts'
 import { diagnostic, type GitHubOptions } from '../github/types.ts'
@@ -53,12 +53,16 @@ function initialBindingSelection(
   prHistory: DecodedHistory,
   mandateHistories: readonly DecodedHistory[],
   pullRequest: NativePullRequestFacts,
+  purpose: BindingPurpose,
 ): WorkflowBindingSelection {
-  return selectWorkflowBinding({
-    pullRequest: prScope,
-    histories: [prHistory, ...mandateHistories],
-    native: { branch: pullRequest.branch, base: pullRequest.base },
-  })
+  return selectWorkflowBinding(
+    {
+      pullRequest: prScope,
+      histories: [prHistory, ...mandateHistories],
+      native: { branch: pullRequest.branch, base: pullRequest.base },
+    },
+    purpose,
+  )
 }
 
 async function readBindingMandateHistories(
@@ -113,6 +117,7 @@ async function recoveryClosure(primary: DecodedHistory, options: GitHubOptions):
 export async function resolveInitialWorkflowBinding(
   prScope: Scope,
   options: GitHubOptions,
+  purpose: BindingPurpose = 'delivery',
 ): Promise<InitialBindingResolution> {
   const pr = scopeNumber(prScope)
   const pullRequest = await readNativePullRequestFacts(prScope.repository, pr, options)
@@ -121,18 +126,19 @@ export async function resolveInitialWorkflowBinding(
     return { ok: false, result: bindingRefusal('incomplete', [diagnostic('incomplete', 'PR history is incomplete')]) }
   }
 
-  const closure = await recoveryClosure(prHistory, options)
+  const closure =
+    purpose === 'delivery' ? await recoveryClosure(prHistory, options) : { ok: true as const, histories: [prHistory] }
   if (!closure.ok) return { ok: false, result: closure.result }
   const projectedPrimary = closure.histories[0]
   if (projectedPrimary === undefined) throw new Error('Recovery closure omitted primary history')
   prHistory = projectedPrimary
   let mandateHistories: DecodedHistory[] = closure.histories.slice(1)
-  let selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest)
+  let selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose)
   if (selected.status === 'incomplete') {
     const fetched = await readBindingMandateHistories(prHistory, options)
     if (!fetched.ok) return { ok: false, result: fetched.result }
     mandateHistories = uniqueHistories([...mandateHistories, ...fetched.histories])
-    selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest)
+    selected = initialBindingSelection(prScope, prHistory, mandateHistories, pullRequest, purpose)
   }
 
   if (selected.status !== 'bound') {

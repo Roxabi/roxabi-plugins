@@ -13,7 +13,7 @@ import {
   type WorkflowBindingRecord,
   workflowOperationProblem,
 } from './workflow-control.ts'
-import { selectWorkflowBindingCandidate } from './workflow-pr-binding-chain.ts'
+import { type BindingPurpose, selectWorkflowBindingCandidate } from './workflow-pr-binding-chain.ts'
 
 export function confirmedAccountedMandate(history: DecodedHistory, ref: ExternalRecordRef): MandateRecord | null {
   const matches = history.operations.filter(
@@ -43,6 +43,7 @@ export type WorkflowBindingSelection =
 function validateBindingClaims(
   claims: WorkflowBindingRecord[],
   histories: readonly DecodedHistory[],
+  purpose: BindingPurpose,
 ): WorkflowBindingSelection | null {
   for (const claim of claims) {
     const claimHome = historyFor(claim.payload.mandate.scope, histories)
@@ -52,6 +53,10 @@ function validateBindingClaims(
         status: 'incomplete',
         diagnostics: [diagnostic('incomplete', 'Binding mandate record is not confirmed')],
       }
+    if (purpose === 'revocation') {
+      const authenticated = bindExternalRef(claim.payload.mandate, claimHome)
+      if (!authenticated.ok) return { status: 'incomplete', diagnostics: authenticated.diagnostics }
+    }
     if (!usesLegacyBindingFormat(mandate) && !bindingMatchesMandate(mandate, claim.payload.branch, claim.payload.base))
       return {
         status: 'conflicting',
@@ -61,14 +66,17 @@ function validateBindingClaims(
   return null
 }
 
-export function selectWorkflowBinding(input: {
-  pullRequest: Scope
-  histories: readonly DecodedHistory[]
-  native: { branch: string; base: string }
-}): WorkflowBindingSelection {
-  const chained = selectWorkflowBindingCandidate(input)
+export function selectWorkflowBinding(
+  input: {
+    pullRequest: Scope
+    histories: readonly DecodedHistory[]
+    native: { branch: string; base: string }
+  },
+  purpose: BindingPurpose = 'delivery',
+): WorkflowBindingSelection {
+  const chained = selectWorkflowBindingCandidate(input, purpose)
   if (chained.status !== 'bound') return chained
-  const claimsProblem = validateBindingClaims(chained.claims, input.histories)
+  const claimsProblem = validateBindingClaims(chained.claims, input.histories, purpose)
   if (claimsProblem !== null) return claimsProblem
   const home = historyFor(chained.binding.payload.mandate.scope, input.histories)
   if (home === null || !home.source.complete) {
@@ -77,7 +85,7 @@ export function selectWorkflowBinding(input: {
       diagnostics: [diagnostic('incomplete', 'Binding mandate history is missing or incomplete')],
     }
   }
-  const problem = workflowOperationProblem(home)
+  const problem = purpose === 'delivery' ? workflowOperationProblem(home) : null
   if (problem === 'incompatible-format') {
     const formatDiagnostic = home.diagnostics.find((entry) => entry.code === problem)
     return {

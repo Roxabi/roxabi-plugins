@@ -20,6 +20,7 @@ export {
   publishConfirmedWorkflowRecord,
   readLandingFacts,
   readWorkflowBinding,
+  readWorkflowBindingForRevocation,
 } from './adapters/github-workflow/binding.ts'
 export {
   readCauseHistoryClosure,
@@ -154,14 +155,7 @@ export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
 export { nativeIssueObservationFromNode } from './engine/uw-native-observation-schema.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
-export {
-  type AttemptClassification,
-  classifyAttempts,
-  type InterruptionGate,
-  interruptionGate,
-  startResolution,
-  type UnresolvedAttempt,
-} from './engine/workflow-action-interruption.ts'
+export type { AttemptClassification, UnresolvedAttempt } from './engine/workflow-action-interruption.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { bindingMatchesMandate } from './engine/workflow-binding-format.ts'
@@ -185,7 +179,6 @@ export {
 } from './engine/workflow-graph.ts'
 export {
   authenticateInterruptedReceiptPair,
-  INTERRUPTION_ACTIONS,
   type InterruptionAction,
   type InterruptionResolution,
   interruptedResult,
@@ -197,13 +190,16 @@ export {
 } from './engine/workflow-interruption-proof.ts'
 export { resolutionIndex } from './engine/workflow-interruption-resolution.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
-export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
+export {
+  resolveOwnSpecAuthority,
+  selectApplicableMandate,
+  selectRevocableMandate,
+} from './engine/workflow-mandate-admission.ts'
 export {
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
-export { outstandingPauseInAuthority, type PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
 export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'

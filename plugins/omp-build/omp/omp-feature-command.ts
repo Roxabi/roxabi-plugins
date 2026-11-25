@@ -25,9 +25,11 @@ import {
   settleFeatureUwIntake,
 } from './omp-feature-composition.ts'
 import { deliverAdmission, deliversSkill } from './omp-feature-delivery.ts'
+import { pauseRunningFeature } from './omp-feature-run.ts'
 import { rootContext } from './omp-feature-session'
 import type { FeatureFramingRuntime } from './omp-framing-runtime.ts'
 import { type CommandOperatorPort, createOperatorConfirmation, raceOperatorHold } from './omp-operator-confirmation.ts'
+import { nativeText } from './omp-operator-confirmation-field.ts'
 import { notifyOperator } from './omp-operator-confirmation-presenter.ts'
 import { readSkillBody } from './omp-skill-command-runtime.ts'
 import type { UwOperationsFactory } from './omp-uw-command.ts'
@@ -92,10 +94,9 @@ async function featureCommandUw(
   ctx: ExtensionContext,
   operator: CommandOperatorPort,
   options: FeatureCommandComposition['options'],
-  control: string,
   pluginPin: TrustedHostPluginPin | undefined,
 ): Promise<FeatureCommandHost['uw']> {
-  if (control === 'pause' || options.featureWorkflow !== undefined) return undefined
+  if (options.featureWorkflow !== undefined) return undefined
   return resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin)
 }
 
@@ -135,7 +136,7 @@ async function runFeatureEntry(
   const deliver = deliversSkill(parsed.control)
   const body = deliver ? await compositionSkill(composition) : undefined
   if (!reporting.isCurrent() || (deliver && body === undefined)) return
-  const uw = await featureCommandUw(ctx, operator, options, parsed.control, pluginPin)
+  const uw = await featureCommandUw(ctx, operator, options, pluginPin)
   if (!reporting.isCurrent()) return
   const input: ContinueFeatureInput = {
     cwd: ctx.cwd,
@@ -161,11 +162,15 @@ export async function runFeatureCommand(
     reportFeatureTerminalStatus(pi, `feature-stopped: ${parsed.reason}`)
     return
   }
-  if (parsed.control === 'resolve-interruption') {
-    reportFeatureTerminalStatus(
-      pi,
-      `feature-stopped: interruption-dispatch-unproven. Native dispatch cannot be verified. To replace the paused mandate, run /feature abandon ${parsed.reference}, then /feature new ${parsed.reference} once abandonment is confirmed.`,
-    )
+  if (parsed.control === 'pause') {
+    const paused = await pauseRunningFeature(pi, ctx, parsed.reference, (owner) => {
+      cancelFeatureUwOperation(pi, owner)
+      ctx.abort()
+    })
+    const status = paused ? 'feature-paused: session only' : `feature-not-running: ${parsed.reference}`
+    // While streaming, OMP queues even triggerTurn:false transcript messages as steers.
+    if (ctx.isIdle()) reportFeatureTerminalStatus(pi, status)
+    else ctx.ui?.notify?.(nativeText(status), 'info')
     return
   }
   const operator = createOperatorConfirmation(ctx)

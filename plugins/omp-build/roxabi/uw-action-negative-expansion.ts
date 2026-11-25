@@ -5,11 +5,9 @@ import {
   type MandateRecord,
   mandateScope,
   missingContextOutputSchema,
-  outstandingPauseRequest,
   planMacro,
   recordOperation,
   recordsOf,
-  unliftedPause,
   validateActionInputs,
   workflowContextResolution,
   workflowOperationProblem,
@@ -252,8 +250,6 @@ export function expandedPlannerMacro(
   mandate: MandateRecord,
   expansion: PlannerExpansion,
 ): Result<PlanMacro> {
-  if (outstandingPauseRequest(evidence.issue, mandate) !== null || unliftedPause(evidence.issue, mandate) !== null)
-    return actionFailure('action-input-missing', 'Planner authority has an outstanding or active pause')
   const blocked = planMacro(evidence, mandate)
   if (
     blocked.phase !== 'blocked' ||

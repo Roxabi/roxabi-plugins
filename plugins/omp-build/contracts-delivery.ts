@@ -181,7 +181,6 @@ export {
   type SpecAssessment,
   specAssessmentSchema,
 } from './engine/workflow-output-schema.ts'
-export { outstandingPauseRequest, unliftedPause } from './engine/workflow-pause.ts'
 export { confirmedAccountedMandate } from './engine/workflow-pr-binding.ts'
 export { ciExactSchema } from './engine/workflow-receipt-exact.ts'
 export {

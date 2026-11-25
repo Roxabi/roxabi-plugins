@@ -1,4 +1,3 @@
-import type { DecodedHistory } from '../../dist/contracts.js'
 import type { AcceptedOwnSpec } from '../../engine/workflow-accepted-spec-types.ts'
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { AcceptedChildCommitment } from '../../engine/workflow-mandate-schema.ts'
@@ -12,34 +11,6 @@ export function evidenceText(evidence: readonly { message?: string }[] | undefin
       .filter(Boolean)
       .join('; ') || 'mandate refused'
   )
-}
-
-export function localInhibit(history: DecodedHistory, mandateId: string): 'pause' | 'abandon' | null {
-  const confirmed = new Set<string>()
-  const controls: { id: string; control: string }[] = []
-  for (const operation of history.operations) {
-    const record = operation.record
-    if (record?.kind !== 'operator-control' || !record.payload || typeof record.payload !== 'object') continue
-    const payload = record.payload as {
-      control?: unknown
-      mandate?: { recordId?: unknown }
-      predecessor?: { recordId?: unknown }
-    }
-    if (typeof payload.control !== 'string') {
-      throw new Refused('operator-control record has no control phase; continuation is not confirmed')
-    }
-    if (typeof payload.mandate?.recordId !== 'string') {
-      throw new Refused('operator-control record has no mandate target; continuation is not confirmed')
-    }
-    if (payload.mandate.recordId !== mandateId) continue
-    if (payload.control === 'pause-confirmed' && typeof payload.predecessor?.recordId === 'string') {
-      confirmed.add(payload.predecessor.recordId)
-    }
-    controls.push({ id: record.recordId, control: payload.control })
-  }
-  if (controls.some((item) => item.control === 'abandon')) return 'abandon'
-  if (controls.some((item) => item.control === 'pause-requested' && !confirmed.has(item.id))) return 'pause'
-  return null
 }
 
 type ConfirmedEpicMandate = {

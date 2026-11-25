@@ -17,7 +17,7 @@ const { readEpicControlTarget } = vi.hoisted(() => ({ readEpicControlTarget: vi.
 vi.mock('../skills/feature/epic-driver-control.ts', () => ({ readEpicControlTarget }))
 
 import { legacyFixtures } from './__tests__/uw-successor-selection-support.ts'
-import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
+import { disarmKnownTarget } from './feature-disarm.ts'
 
 type Gate = { reviewed: boolean; autoMerge: boolean }
 type GhReply = { output: string }
@@ -178,7 +178,7 @@ beforeEach(() => {
   vi.stubEnv('HEAD_AUTH_BOT_USER_ID', '201')
 })
 
-describe('Feature pause disarm discovery', () => {
+describe('Feature and Epic disarm discovery', () => {
   it('refuses complete disarm when linked discovery fails after branch PR 9 disarms', async () => {
     const fixture = ghForDiscovery(new Error('linked query unavailable'))
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, 'feature', 'feat/42', featureAuthority())
@@ -232,7 +232,7 @@ describe('Feature pause disarm discovery', () => {
     ['epic', false],
     ['epic', true],
   ] as const)('refuses %s disarm without selected authority (empty discovery: %s)', async (role, empty) => {
-    readEpicControlTarget.mockResolvedValue({ mandateId: 'mandate-42', control: 'paused', openPrs: [] })
+    readEpicControlTarget.mockResolvedValue({ mandateId: 'mandate-42', control: 'active', openPrs: [] })
     const fixture = ghForDiscovery(JSON.stringify(empty ? [] : [{ number: 9, state: 'OPEN' }]))
 
     const result = await disarmKnownTarget(fixture.gh, '/workspace', target, role, null, null)
@@ -247,7 +247,7 @@ describe('Feature pause disarm discovery', () => {
   it('disarms parent and current approved child PRs', async () => {
     readEpicControlTarget.mockResolvedValue({
       mandateId: 'mandate-42',
-      control: 'paused',
+      control: 'abandoned',
       openPrs: [
         { ticket: 42, pr: 9 },
         { ticket: 43, pr: 10 },
@@ -282,44 +282,5 @@ describe('Feature pause disarm discovery', () => {
       clean: false,
       evidence: { note: 'pull-request-list-incomplete', discovery: { children: { incomplete: true } } },
     })
-  })
-})
-
-describe('unresolved explicit reference containment', () => {
-  function localPullRequest() {
-    const gate = { reviewed: true, autoMerge: true }
-    const gates = new Map([[42, gate]])
-    const box = openState(
-      base({
-        remoteRefs: { main: 'b'.repeat(40) },
-        prs: { 42: pull(42, 'feat/42', 'a'.repeat(40), { baseRefOid: 'b'.repeat(40) }) },
-      }),
-    )
-    simulatorRoots.push(box.root)
-    const gh = async (_cwd: string, args: string[]) => {
-      if (args[0] === 'api' || (args[0] === 'repo' && args[1] === 'view')) {
-        const response = run(box.file, args, box.root)
-        if (response.status !== 0) throw new Error(response.stderr)
-        return response.stdout.trim()
-      }
-      const reply = gateReply(args, gates)
-      if (reply !== null) return reply.output
-      throw new Error(`unexpected gh call: ${args.join(' ')}`)
-    }
-    return { gh, gate, comments: () => saved(box.file).prs['42'].comments.map((comment) => comment.body) }
-  }
-
-  it.each(['42', '#42', 'acme/app#42'])('still disarms the explicitly selected local PR %s', async (reference) => {
-    const fixture = localPullRequest()
-    await disarmUnresolved(fixture.gh, '/workspace', reference)
-    expect(fixture.gate).toEqual({ reviewed: false, autoMerge: false })
-    expect(fixture.comments().some((body) => body.includes('"kind":"withdraw"'))).toBe(true)
-  })
-
-  it('does not disarm the local PR sharing a foreign selected reference number', async () => {
-    const fixture = localPullRequest()
-    await disarmUnresolved(fixture.gh, '/workspace', 'other/service#42')
-    expect(fixture.gate).toEqual({ reviewed: true, autoMerge: true })
-    expect(fixture.comments()).toEqual([])
   })
 })

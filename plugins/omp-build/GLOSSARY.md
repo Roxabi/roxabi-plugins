@@ -42,11 +42,11 @@ The operator's accepted authority to deliver or correct a defined scope, indepen
 _Avoid_: a session goal, a review verdict, a permission inferred from missing data
 
 **Pause**:
-Temporary suspension of an otherwise valid Mandate, confirmed only after the applicable landing arms are cleared. Resumption does not clear a review-bound or safety stop.
-_Avoid_: abandonment, a spent bound, stopping the local process
+A stop of the running Feature for the supplied reference, with no change to its Mandate or to unrelated work. A later `/feature` invocation can continue under that Mandate if it is still live.
+_Avoid_: abandonment, durable suspension, PR disarm
 
 **Abandonment**:
-Explicit revocation of a Mandate, not successful completion and not removal of incoming dependencies. A successor, if one exists, retains its antecedents and does not erase their stops.
+Explicit revocation of one exact Mandate, not successful completion and not removal of incoming dependencies. A successor, if one exists, retains its antecedents and does not erase their stops.
 _Avoid_: pause, automatic renewal, resetting a bound
 
 **Successor**:
@@ -54,8 +54,8 @@ A mandate that names an abandoned or revoked antecedent on the same issue. An op
 _Avoid_: automatic renewal, a second issue, a second pull request, `/feature <reference>`
 
 **Operator control**:
-A confirmed record that pauses, resumes, abandons, names a successor, or records an explicit material-Spec decision. A local process stop is not this record.
-_Avoid_: a session goal, an unconfirmed inhibit
+A confirmed record of a durable decision, such as revoking a Mandate, naming a successor or deciding a material Spec change. Historical pause and resume controls remain readable but have no effect on current delivery.
+_Avoid_: a session goal, a session stop
 
 **Review interruption**:
 A historical record that ends an interrupted initial review inventory without a verdict. It preserves the original root and inputs.
@@ -70,7 +70,7 @@ A historical review attempt linked to a Replacement grant and the interrupted ro
 _Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
 
 **Action receipt**:
-A confirmed START or RESULT record for a historical action. Plan and implementation receipts remain evidence, not a cursor for composed delivery.
+A confirmed START or RESULT record. Composed continuation does not replay historical attempts; receipts that establish the current Accepted Spec still apply.
 _Avoid_: a review record, a transcript, a local cache
 
 **Workflow binding**:

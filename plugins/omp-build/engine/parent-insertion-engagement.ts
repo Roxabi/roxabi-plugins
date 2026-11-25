@@ -6,7 +6,7 @@ import { type UwGraphObservation, validateUwGraph } from './uw-graph.ts'
 import { executableGraph } from './workflow-graph.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
 import { historyRefusal } from './workflow-mandate-history.ts'
-import { unliftedPause } from './workflow-pause.ts'
+import { isHistoricalContinuationControl } from './workflow-pause.ts'
 
 export type ParentEngagementEvidence = Readonly<{
   parent: Scope
@@ -54,14 +54,13 @@ export function assessParentInsertionEngagement(evidence: ParentEngagementEviden
       !own.operations.some(
         (operation) =>
           operation.authority !== 'foreign' &&
-          (operation.kind === 'operator-control' || operation.claimedKinds.includes('operator-control')),
+          (operation.kind === 'operator-control' || operation.claimedKinds.includes('operator-control')) &&
+          !isHistoricalContinuationControl(operation.record),
       )
     )
       return { state: 'inactive', diagnostics: selected.evidence }
     return { state: 'indeterminate', diagnostics: selected.evidence }
   }
-  const pause = unliftedPause(own, selected)
-  if (pause !== null) return indeterminate('Parent mandate is paused')
   const graphResult = executableGraph(selected)
   if (!graphResult.ok) return { state: 'indeterminate', diagnostics: graphResult.diagnostics }
   return { state: 'active', diagnostics: [] }

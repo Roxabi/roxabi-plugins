@@ -106,9 +106,7 @@ export type PreparedUwAbandon = {
     operationId: string
     uw: Scope
     mandate: ExternalRecordRef & { kind: 'mandate' }
-    accepted: OwnSpecRef
-    historyDigest: string
-    nativeDigest: string
+    mandateDigest: string
   }
   digest: string
 }

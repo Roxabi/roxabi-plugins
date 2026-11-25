@@ -33,6 +33,7 @@ function editorialCandidates(
   histories: readonly DecodedHistory[],
   mandateRef: ExternalRecordRef,
   applied: ReadonlySet<string>,
+  excludedResults: ReadonlySet<string>,
   accepted: AcceptedOwnSpec,
   deferCompatibility: (record: AssessResultRecord, assessment: SpecAssessment, refusal?: SpecChainFailure) => void,
 ): EditorialCandidates {
@@ -43,6 +44,7 @@ function editorialCandidates(
       histories,
       mandateRef,
       applied,
+      excludedResults,
       accepted,
       deferCompatibility,
     })
@@ -77,12 +79,21 @@ function nextAcceptedSpecStep(input: {
   histories: readonly DecodedHistory[]
   mandateRef: ExternalRecordRef
   applied: ReadonlySet<string>
+  excludedResults: ReadonlySet<string>
   accepted: AcceptedOwnSpec
   predecessor: ExternalRecordRef
   deferCompatibility: (record: AssessResultRecord, assessment: SpecAssessment, refusal?: SpecChainFailure) => void
 }): Continuation {
-  const { home, histories, mandateRef, applied, accepted, predecessor, deferCompatibility } = input
-  const candidates = editorialCandidates(home, histories, mandateRef, applied, accepted, deferCompatibility)
+  const { home, histories, mandateRef, applied, accepted, predecessor, excludedResults, deferCompatibility } = input
+  const candidates = editorialCandidates(
+    home,
+    histories,
+    mandateRef,
+    applied,
+    excludedResults,
+    accepted,
+    deferCompatibility,
+  )
   if (candidates.status === 'refused') return candidates
   const materials = materialCandidates(home, mandateRef, applied, predecessor)
   if (
@@ -166,6 +177,7 @@ export function resolveAcceptedSpecChain(input: {
   home: DecodedHistory
   histories: readonly DecodedHistory[]
   mandateRef: ExternalRecordRef
+  excludedResults: ReadonlySet<string>
   target?: OwnSpecRef
   prefixes?: AcceptedOwnSpec[]
   scope: ExternalRecordRef['scope']
@@ -197,6 +209,7 @@ export function resolveAcceptedSpecChain(input: {
       histories,
       mandateRef,
       applied,
+      excludedResults: input.excludedResults,
       accepted,
       predecessor,
       deferCompatibility: input.deferCompatibility,
