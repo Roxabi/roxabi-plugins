@@ -23,6 +23,8 @@ import { criterionEvidenceSchema } from '../criterion-evidence-schema.ts'
 import { criterionVerdictSchema } from '../criterion-verdict-schema.ts'
 import { validateProspectiveRecord, validateRecordGraph } from '../history-graph.ts'
 import type { DecodedHistory } from '../history-schema.ts'
+import { buildRecord } from '../record-construction.ts'
+import type { ExternalRecordRef } from '../record-references.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import type { Diagnostic } from '../record-values.ts'
 import { validateDecision } from '../review-decision.ts'
@@ -37,7 +39,7 @@ import {
 import type { ActionReceiptPayload } from '../workflow-receipt-schema.ts'
 import { evidenceDeclaration } from './criterion-admission-fixture.ts'
 import { deliveredLeaf } from './uw-delivery-proof-fixture.ts'
-import { binding, history as nativeHistory } from './workflow-test-support.ts'
+import { binding, must, history as nativeHistory } from './workflow-test-support.ts'
 
 type PlanResult = ReceiptRecord & {
   payload: Extract<ActionReceiptPayload, { action: 'plan'; phase: 'result' }>
@@ -80,17 +82,10 @@ function boundReview(mandate: MandateRecord) {
     acceptedSources: [pin(mandate)],
   }
   const bound = { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
-  const observed = history([record])
   return {
     inputs: bound,
-    bindingHistory: { ...observed, source: { ...observed.source, scope: pullRequest } },
+    bindingHistory: nativeHistory([record], pullRequest),
   }
-}
-
-function planResult(mandate: MandateRecord): PlanResult {
-  const found = eligiblePlan(mandate, [roxabiWorkflowFixtures().historyFrom([mandate])]).find(isPlanResult)
-  if (found === undefined) throw new Error('produced plan result missing')
-  return found
 }
 
 function refFor(
@@ -115,6 +110,44 @@ function refFor(
 function withDeliveryData(inputs: ActionInputs, deliveryData: DeliveryDataRef[]): ActionInputs {
   const manifest = { ...inputs.manifest, deliveryData }
   return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+}
+
+async function historicalPair(action: 'plan' | 'implement') {
+  const fixture = await deliveredLeaf()
+  const issue = fixture.observation.histories.find((item) => item.source.scope.target === fixture.uw.target)
+  if (issue === undefined) throw new Error('Expected native delivery history')
+  const records = recordsOf(issue)
+  const result = action === 'plan' ? records.find(isPlanResult) : records.find(isImplementResult)
+  if (result === undefined) throw new Error(`Expected published ${action} RESULT`)
+  const start = records.find((record) => record.recordId === result.payload.start.recordId)
+  if (
+    start?.kind !== 'action-receipt' ||
+    start.payload.phase !== 'start' ||
+    (start.payload.action !== 'plan' && start.payload.action !== 'implement')
+  )
+    throw new Error(`Expected captured ${action} START`)
+  return { fixture, issue, records, result, start: { ...start, payload: start.payload } }
+}
+
+function selectWithNativeRecords(pair: Awaited<ReturnType<typeof historicalPair>>, records?: CanonicalRecord[]) {
+  const { fixture, issue } = pair
+  const replay =
+    records === undefined
+      ? issue
+      : decodeHistory({ ...issue.source, comments: nativeHistory(records, fixture.uw).source.comments })
+  const diagnostics: Diagnostic[] = []
+  const selected = selectedDeclarations(
+    fixture.observation.histories.map((observed) => (observed === issue ? replay : observed)),
+    fixture.inputs,
+    diagnostics,
+    fixtureReviewClassCatalogues(),
+  )
+  return { replay, diagnostics, selected }
+}
+
+function withStartReference(result: PlanResult | ImplementResult, start: ExternalRecordRef) {
+  const inputs = result.inputs.filter((input) => input !== result.payload.start.recordId)
+  return must(buildRecord({ ...result, payload: { ...result.payload, start } }, inputs))
 }
 
 describe('authorized criterion delivery admission', () => {
@@ -186,28 +219,20 @@ describe('authorized criterion delivery admission', () => {
 
   test('keeps a produced plan with a null admission eligible', () => {
     const mandate = shippedMandate()
-    const plan = planResult(mandate)
+    const workflow = roxabiWorkflowFixtures()
+    const planHistory = workflow.historyFrom(eligiblePlan(mandate, [workflow.historyFrom([mandate])]))
+    const plan = recordsOf(planHistory).find(isPlanResult)
+    if (plan === undefined) throw new Error('produced plan result missing')
     const bound = boundReview(mandate)
     expect(plan.payload.admission).toBeNull()
     const diagnostics: Diagnostic[] = []
     selectedDeclarations(
-      [
-        scoped(
-          [
-            ...recordsOf(roxabiWorkflowFixtures().historyFrom([mandate])).filter(
-              (record) => record.kind === 'spec-identity',
-            ),
-            ...eligiblePlan(mandate, [roxabiWorkflowFixtures().historyFrom([mandate])]),
-          ],
-          mandate,
-        ),
-        bound.bindingHistory,
-      ],
+      [planHistory, bound.bindingHistory],
       withDeliveryData(bound.inputs, [refFor(plan, 'plan', '/payload/structured', plan.payload.structured)]),
       diagnostics,
       fixtureReviewClassCatalogues(),
     )
-    expect(codes(diagnostics)).not.toEqual(expect.arrayContaining(['unconfirmed', 'ambiguous']))
+    expect(diagnostics).toEqual([])
   })
 
   test('refuses a prospective decision or review with dangling links', () => {
@@ -228,36 +253,111 @@ describe('authorized criterion delivery admission', () => {
     expect(validateProspectiveRecord(review, history([])).length).toBeGreaterThan(0)
   })
 
-  test('refuses an implementation start from another mandate', async () => {
-    const fixture = await deliveredLeaf()
-    const positive: Diagnostic[] = []
-    selectedDeclarations(fixture.observation.histories, fixture.inputs, positive, fixtureReviewClassCatalogues())
-    expect(positive).toEqual([])
-    const current = { ...fixture.mandate, recordId: 'mandate-current', operationId: 'mandate-current-op' }
-    const plan = planResult(current)
-    const bound = boundReview(current)
-    const inputs = bound.inputs
-    const headed = fixture.implementation
-    if (!isImplementResult(headed) || headed.payload.structured?.outcome !== 'implemented')
-      throw new Error('expected produced implementation')
-    const issue = fixture.observation.histories.find((item) => item.source.scope.target === fixture.uw.target)
-    const start =
-      issue &&
-      recordsOf(issue).find(
-        (record) =>
-          record.kind === 'action-receipt' && record.payload.action === 'implement' && record.payload.phase === 'start',
+  test.each(['plan', 'implement'] as const)('requires the exact captured historical %s START', async (action) => {
+    const pair = await historicalPair(action)
+    const { fixture, records, result, start } = pair
+    const positive = selectWithNativeRecords(pair)
+    expect(positive.diagnostics).toEqual([])
+    expect(positive.selected.evidence).toHaveLength(1)
+
+    const prior = records.filter((record) => record.recordId !== start.recordId)
+    const { payload } = start
+    const manifest = {
+      ...payload.inputs.manifest,
+      code: { ...payload.inputs.manifest.code, referenceCommit: 'f'.repeat(40) },
+    }
+    const otherMandate = { ...payload.mandate, recordId: 'other-mandate' }
+    const exactPayload =
+      payload.action === 'plan'
+        ? { ...payload, exactInputs: { ...payload.exactInputs, specDigest: 'f'.repeat(64) } }
+        : { ...payload, exactInputs: { ...payload.exactInputs, planActionId: 'other-plan-action' } }
+    const mandateCapture = fixture.inputs.manifest.acceptedSources[0]
+    if (mandateCapture === undefined) throw new Error('Expected a captured source')
+    const stageSources = payload.inputs.stageSources.length === 0 ? [mandateCapture] : []
+    const differentCapture = { ...payload.inputs, stageSources }
+    const differentManifest = { ...payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+    const substitute = { ...start, recordId: 'different-start', operationId: 'different-start-op' }
+    const cases: [string, CanonicalRecord[], boolean][] = [
+      ['missing', prior, true],
+      ['substitute', [...prior, substitute], true],
+      ['other mandate', [...prior, { ...start, payload: { ...payload, mandate: otherMandate } }], false],
+      ['different exact inputs', [...prior, { ...start, payload: exactPayload }], false],
+      ['different stage capture', [...prior, { ...start, payload: { ...payload, inputs: differentCapture } }], false],
+      ['different manifest', [...prior, { ...start, payload: { ...payload, inputs: differentManifest } }], false],
+    ]
+    for (const [label, changed, missing] of cases) {
+      const { diagnostics, selected } = selectWithNativeRecords(pair, changed)
+      expect(selected.evidence, label).toEqual([])
+      expect(diagnostics, label).toContainEqual(
+        expect.objectContaining({
+          code: action === 'plan' ? 'plan-start-unpaired' : 'implementation-start-unpaired',
+          detail: { start: result.payload.start, resultScope: fixture.uw },
+        }),
       )
-    if (!start) throw new Error('authenticated implementation start missing')
-    const diagnostics: Diagnostic[] = []
-    selectedDeclarations(
-      [scoped([current, plan, start, headed], current), bound.bindingHistory],
-      withDeliveryData(inputs, [
-        refFor(headed, 'implementation', '/payload/structured/criteria/0', headed.payload.structured.criteria[0]),
-      ]),
-      diagnostics,
-      fixtureReviewClassCatalogues(),
+      expect(codes(diagnostics).includes('unknown'), label).toBe(missing)
+    }
+  })
+
+  test.each(['plan', 'implement'] as const)('refuses redirected historical %s RESULTs', async (action) => {
+    const pair = await historicalPair(action)
+    const { records, result, start } = pair
+    for (const actionId of ['other-invocation', start.payload.actionId]) {
+      const alternate = {
+        ...start,
+        recordId: 'other-invocation-start',
+        operationId: 'other-invocation-start-op',
+        payload: { ...start.payload, actionId },
+      }
+      const reference = { ...result.payload.start, recordId: alternate.recordId }
+      const redirected = withStartReference(result, reference)
+      const changed = [
+        ...records.map((record) => (record.recordId === result.recordId ? redirected : record)),
+        alternate,
+      ]
+      const { diagnostics, replay, selected } = selectWithNativeRecords(pair, changed)
+      expect(bindExternalRef(reference, replay).ok).toBe(true)
+      expect(bindExternalRef(result.payload.start, replay).ok).toBe(true)
+      expect(selected.evidence).toEqual([])
+      expect(diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: action === 'plan' ? 'plan-start-unpaired' : 'implementation-start-unpaired',
+          detail: { start: reference, resultScope: pair.fixture.uw },
+        }),
+      )
+    }
+  })
+
+  test.each(['plan', 'implement'] as const)('refuses historical %s STARTs from another scope', async (action) => {
+    const pair = await historicalPair(action)
+    const { fixture, records, result } = pair
+    const start = { ...result.payload.start, scope: fixture.pullRequest }
+    const redirected = withStartReference(result, start)
+    const changed = records.map((record) => (record.recordId === result.recordId ? redirected : record))
+    const { replay, diagnostics, selected } = selectWithNativeRecords(pair, changed)
+    expect(recordsOf(replay).some((record) => record.recordId === result.recordId)).toBe(true)
+    expect(selected.evidence).toEqual([])
+    expect(diagnostics).toContainEqual(expect.objectContaining({ detail: { start, resultScope: fixture.uw } }))
+  })
+
+  test('retains an intact current PLAN and a diagnostic for its unpaired competitor', async () => {
+    const pair = await historicalPair('plan')
+    const { result, records } = pair
+    if (!isPlanResult(result)) throw new Error('Expected a native PLAN RESULT')
+    const start = { ...result.payload.start, recordId: 'unobserved-plan-start' }
+    const draft = { ...result, recordId: 'unpaired-plan', operationId: 'unpaired-plan-op' }
+    const unpaired = withStartReference(
+      { ...draft, payload: { ...draft.payload, actionId: 'unpaired-plan-action' } },
+      start,
     )
-    expect(codes(diagnostics)).toContain('unconfirmed')
+    const { diagnostics, selected } = selectWithNativeRecords(pair, [...records, unpaired])
+    expect(selected.evidence).toHaveLength(1)
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'plan-start-unpaired',
+        detail: { start, resultScope: pair.fixture.uw },
+      }),
+    )
+    expect(codes(diagnostics)).not.toContain('ambiguous')
   })
 
   test('requires complete historical inputs even for an implementation claim without cited evidence', async () => {

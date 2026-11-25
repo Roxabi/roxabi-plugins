@@ -1,12 +1,14 @@
+import { canonicalValueDigest } from '../../engine/action-input.ts'
 import { type PinnedFileRef, pinnedFileRefSchema, recordInputRefSchema } from '../../engine/action-input-refs.ts'
 import type { ObservationRef } from '../../engine/criterion-evidence-schema.ts'
-import { recordRefDiagnostics } from '../../engine/historical-action-inputs.ts'
+import { selectedRecordValue } from '../../engine/historical-action-inputs.ts'
 import { gitPinCoordinates, recordGitPinBytes } from '../../engine/historical-git-pins.ts'
 import { noteObservedRecordPin } from '../../engine/historical-record-pins.ts'
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import { equalScope } from '../../engine/record-diagnostics.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
+import { bindExternalRef } from '../../engine/workflow-control.ts'
 import { readGitFileBytes } from '../../roxabi/uw-git-bytes.ts'
 import { decodeHistory } from './history-codec.ts'
 import { readGitHubHistory } from './transport.ts'
@@ -92,8 +94,16 @@ export async function observeHistoricalPins(
     if (source === null || !source.complete) continue
     const cited = decodeHistory(source)
     for (const ref of refs) {
-      if (recordRefDiagnostics('Historical action manifest', ref, [cited]).length === 0)
-        noteObservedRecordPin(history.source, ref, cited)
+      const bound = bindExternalRef(ref.record, cited)
+      if (!bound.ok) continue
+      const selected = selectedRecordValue(bound.value, ref.selector)
+      // Preserve authentic disagreement even if the selected digest no longer matches.
+      noteObservedRecordPin(
+        history.source,
+        ref,
+        cited,
+        selected !== undefined && canonicalValueDigest(selected) === ref.digest,
+      )
     }
   }
   return history

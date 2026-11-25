@@ -77,6 +77,20 @@ export function citedOperationIntegrity(history: DecodedHistory, recordId: strin
   return integrity === null ? null : diagnostic(integrity.reason, integrity.detail)
 }
 
+function unauthenticatedPinnedSource(evidenceId: string): Diagnostic[] {
+  return [diagnostic('unknown-reference', `Evidence ${evidenceId} cites an unauthenticated pinned source`)]
+}
+
+function producerTestVersionRefDiagnostics(
+  evidenceId: string,
+  ref: ObservationRef,
+  histories: readonly DecodedHistory[],
+): Diagnostic[] {
+  // Producer version claims name exact Git bytes independently of manifest inputs.
+  if (ref.source === 'git-file') return hasObservedGitPin(histories, ref) ? [] : unauthenticatedPinnedSource(evidenceId)
+  return recordRefDiagnostics(evidenceId, ref, histories)
+}
+
 export function observationRefDiagnostics(
   evidenceId: string,
   ref: ObservationRef,
@@ -91,9 +105,7 @@ export function observationRefDiagnostics(
         pin.path === ref.path &&
         pin.digest === ref.digest,
     )
-    if (!selected || !hasObservedGitPin(histories, ref)) {
-      return [diagnostic('unknown-reference', `Evidence ${evidenceId} cites an unauthenticated pinned source`)]
-    }
+    if (!selected || !hasObservedGitPin(histories, ref)) return unauthenticatedPinnedSource(evidenceId)
     return []
   }
   return recordRefDiagnostics(evidenceId, ref, histories)
@@ -130,8 +142,7 @@ export function criterionVerdictCitationDiagnostics(
   return diagnostics
 }
 
-function versionClaimReferences(evidence: CriterionEvidence): ObservationRef[] {
-  if (evidence.method !== 'test') return []
+function versionClaimReferences(evidence: Extract<CriterionEvidence, { method: 'test' }>): ObservationRef[] {
   return [
     ...evidence.after.versionClaim.references,
     ...(evidence.before === null ? [] : evidence.before.versionClaim.references),
@@ -250,10 +261,10 @@ export function observationAuthenticationDiagnostics(
 ): Diagnostic[] {
   const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
   if (!authenticated.ok) return authenticated.diagnostics
-  const diagnostics = versionClaimReferences(evidence).flatMap((ref) =>
-    observationRefDiagnostics(evidence.id, ref, histories, pins),
-  )
+  const diagnostics: Diagnostic[] = []
   if (evidence.method === 'test') {
+    for (const ref of versionClaimReferences(evidence))
+      diagnostics.push(...producerTestVersionRefDiagnostics(evidence.id, ref, histories))
     if (!testRunsMatchHostCapture(evidence, receipt))
       diagnostics.push(diagnostic('unconfirmed', `Evidence ${evidence.id} test runs are not in the host capture`))
     return diagnostics

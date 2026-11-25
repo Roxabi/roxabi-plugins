@@ -3,9 +3,9 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { toolingGh as fixtureToolingGh } from '../../testing/review-gate-tooling-gh.ts'
+import { toolingGh as fixtureToolingGh } from './review-gate-tooling-gh.ts'
 
-const PLUGIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const PLUGIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REQUIRED = [
   'package.json',
   'GLOSSARY.md',

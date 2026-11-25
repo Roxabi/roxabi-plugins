@@ -63,7 +63,6 @@ function admittedImplementation(
   head: string,
   planActionId: string,
   mandate: ExternalRecordRef,
-  histories: readonly DecodedHistory[],
 ): boolean {
   const payload = receipt.payload
   if (
@@ -81,7 +80,7 @@ function admittedImplementation(
   if (
     payload.action === 'integrate'
       ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt)
-      : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt, histories)
+      : !implementationReceiptEligible(receipt)
   )
     return false
   if (payload.admission?.remoteTip !== head) return false
@@ -122,13 +121,16 @@ function appendImplementation(
   diagnostics: Diagnostic[],
   selected: CriterionSourceSelection,
 ): void {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate, histories)) {
+  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
     diagnostics.push(
       diagnostic('unconfirmed', `Delivery record ${ref.record.recordId} is not the admitted current head`),
     )
     return
   }
-  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
+  const authenticated =
+    receipt.payload.action === 'implement'
+      ? implementationStartPaired(history, receipt, histories)
+      : authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
   if (!authenticated.ok) {
     diagnostics.push(...authenticated.diagnostics)
     return
@@ -187,8 +189,12 @@ function currentPlan(
   mandate: ExternalRecordRef,
   diagnostics: Diagnostic[],
 ): Receipt | null {
-  const current = currentPlanReceipt(histories, version, mandate)
-  if (!current.ok || current.value === null) {
+  const current = currentPlanReceipt(histories, version, mandate, diagnostics)
+  if (!current.ok) {
+    diagnostics.push(...current.diagnostics)
+    return null
+  }
+  if (current.value === null) {
     diagnostics.push(diagnostic('ambiguous', 'No unique current plan is bound to the accepted Spec'))
     return null
   }

@@ -59,7 +59,7 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
 }
 
 /** Direct edges require the intervening roots to cite their own authenticated negatives. */
-export function directReviewContextSuccessors(
+function directReviewContextSuccessors(
   history: DecodedHistory,
   roots: readonly Root[],
   contributions: readonly Contribution[],

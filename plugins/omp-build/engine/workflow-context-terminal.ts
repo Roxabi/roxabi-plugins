@@ -154,34 +154,6 @@ export function workflowContextTerminal(
 
 type ContextResolution = 'clear' | 'missing' | 'uncertain' | 'ambiguous'
 
-/** Identify the immediate authenticated successor, including a still-negative successor. */
-export function workflowContextDirectSuccessor(
-  history: DecodedHistory,
-  negative: ReceiptRecord,
-  mandate: ReceiptRecord['payload']['mandate'],
-  excluded?: ReadonlySet<string>,
-): { status: 'successor'; record: ReceiptRecord } | { status: 'missing' | 'uncertain' | 'ambiguous' } {
-  const receipts = recordsOf(history).filter(
-    (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' &&
-      record.payload.action === negative.payload.action &&
-      canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) &&
-      !excludedReceipt(record, excluded),
-  )
-  const matches = receipts.filter((record) => record.recordId === negative.recordId)
-  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
-    return { status: 'uncertain' }
-  if (!workflowContextNegative(negative) || !paired(history, negative, receipts)) return { status: 'uncertain' }
-  const successors = receipts.filter((candidate) => succeeds(history, negative, candidate))
-  if (successors.length > 1) return { status: 'ambiguous' }
-  if (hasUnpairedStart(receipts)) return { status: 'uncertain' }
-  const successor = successors[0]
-  if (successor === undefined) return { status: 'missing' }
-  if (!paired(history, successor, receipts)) return { status: 'uncertain' }
-  if (!workflowContextNegative(successor) && !validPositiveSuccessor(successor)) return { status: 'uncertain' }
-  return { status: 'successor', record: successor }
-}
-
 function resolveContextNegative(
   history: DecodedHistory,
   negative: ReceiptRecord,

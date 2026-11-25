@@ -37,7 +37,7 @@ function fixture() {
   const manifest = { ...inputs.manifest, expandedContext: [ref] }
   const expanded = { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
   const start = must(buildRecord({ ...prior.start, payload: { ...prior.start.payload, inputs: expanded } }))
-  return { issue: history([mandate, start]), foreign: history([cited], other), expanded }
+  return { issue: history([mandate, start]), foreign: history([cited], other), expanded, cited }
 }
 
 function servesForeign(foreign: ReturnType<typeof history>): Gh {
@@ -69,3 +69,53 @@ test('historical expanded records must bind to an observed native value in their
   const freshMissingScope = history([], other)
   expect(authenticateHistoricalActionInputs(expanded, [observed, freshMissingScope]).ok).toBe(false)
 })
+
+test.each(['added foreign comment', 'edited foreign comment', 'replaced cited record', 'changed cited body'] as const)(
+  'authenticates agreeing cited records across separate native reads: %s',
+  async (change) => {
+    const { issue: first, foreign, expanded, cited } = fixture()
+    const { issue: second } = fixture()
+    const unrelated = {
+      locator: 'comment-99',
+      nativeId: '99',
+      author: 'outside-contributor',
+      body: 'Unrelated discussion',
+      createdAt: '2026-10-27T12:00:00.000Z',
+      updatedAt: '2026-10-27T12:00:00.000Z',
+    }
+    const before =
+      change === 'edited foreign comment' ? [...foreign.source.comments, unrelated] : foreign.source.comments
+    const changed = must(
+      buildRecord({ ...cited, payload: { ...cited.payload, config: { ...cited.payload.config, version: 'changed' } } }),
+    )
+    let after: typeof before
+    if (change === 'replaced cited record') {
+      after = foreign.source.comments.map((comment) => ({
+        ...comment,
+        nativeId: String(100 + Number(comment.nativeId)),
+      }))
+    } else if (change === 'changed cited body') {
+      after = history([changed], other).source.comments
+    } else {
+      after = [
+        ...foreign.source.comments,
+        change === 'added foreign comment'
+          ? unrelated
+          : { ...unrelated, body: 'Edited discussion', updatedAt: '2026-10-27T12:01:00.000Z' },
+      ]
+    }
+    const observe = (source: typeof first, comments: typeof before) =>
+      observeHistoricalPins(source, {
+        cwd: '/fixture',
+        gh: servesForeign({ ...foreign, source: { ...foreign.source, comments } }),
+        readAuthor: 'operator',
+      })
+    await observe(first, before)
+    await observe(second, after)
+    expect(authenticateHistoricalActionInputs(expanded, [first]).ok).toBe(true)
+    expect(authenticateHistoricalActionInputs(expanded, [second]).ok).toBe(change !== 'changed cited body')
+    expect(authenticateHistoricalActionInputs(expanded, [first, second]).ok).toBe(
+      change === 'added foreign comment' || change === 'edited foreign comment',
+    )
+  },
+)

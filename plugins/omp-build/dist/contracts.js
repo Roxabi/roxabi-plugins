@@ -591,6 +591,26 @@ function createIssueWriter(ports) {
     }
   };
 }
+// plugins/omp-build/engine/action-input.ts
+import { createHash as createHash3 } from "node:crypto";
+
+// plugins/omp-build/engine/canonical-value.ts
+import { createHash } from "node:crypto";
+function orderedCanonicalValue(value) {
+  if (Array.isArray(value))
+    return value.map(orderedCanonicalValue);
+  if (value !== null && typeof value === "object") {
+    const source = value;
+    const sorted = {};
+    for (const key of Object.keys(source).sort())
+      sorted[key] = orderedCanonicalValue(source[key]);
+    return sorted;
+  }
+  return value;
+}
+function canonicalValueDigest(value) {
+  return createHash("sha256").update(JSON.stringify(orderedCanonicalValue(value)), "utf8").digest("hex");
+}
 // node_modules/zod/v4/core/util.js
 function getEnumValues(entries) {
   const numericValues = Object.values(entries).filter((v) => typeof v === "number");
@@ -7170,26 +7190,6 @@ function sameInputRef(left, right) {
   return right.source === "git-file" && left.repository === right.repository && left.commit === right.commit && left.path === right.path;
 }
 
-// plugins/omp-build/engine/action-input.ts
-import { createHash as createHash3 } from "node:crypto";
-
-// plugins/omp-build/engine/canonical-value.ts
-import { createHash } from "node:crypto";
-function orderedCanonicalValue(value) {
-  if (Array.isArray(value))
-    return value.map(orderedCanonicalValue);
-  if (value !== null && typeof value === "object") {
-    const source = value;
-    const sorted = {};
-    for (const key of Object.keys(source).sort())
-      sorted[key] = orderedCanonicalValue(source[key]);
-    return sorted;
-  }
-  return value;
-}
-function canonicalValueDigest(value) {
-  return createHash("sha256").update(JSON.stringify(orderedCanonicalValue(value)), "utf8").digest("hex");
-}
 // plugins/omp-build/engine/code-range-schema.ts
 var codeRangeSchema = strictObject({
   repository: string2().min(1),
@@ -8772,38 +8772,49 @@ function recordIntegrity(parts, { kind, recordId }) {
 var observedRecords = Symbol.for("omp-build.historical-record-pins");
 var recordPinCutoff = Symbol.for("omp-build.historical-record-pin-cutoff");
 var scopeKey3 = ({ repository, target }) => JSON.stringify([repository, target]);
-function sameRead(left, right) {
-  return left === right || left.complete === right.complete && left.expectedAuthor === right.expectedAuthor && left.stopAuthor === right.stopAuthor && isDeepStrictEqual(left.comments, right.comments);
-}
-function recordKey(ref) {
-  const { scope, kind, recordId } = ref.record;
-  return JSON.stringify([scope.repository, scope.target, kind, recordId, ref.selector, ref.digest]);
-}
-function latestRecordPart(ref, cited) {
+var citedRecordKey = ({ kind, recordId }) => JSON.stringify([kind, recordId]);
+var recordKey = (ref) => JSON.stringify([scopeKey3(ref.record.scope), citedRecordKey(ref.record), ref.selector, ref.digest]);
+function latestRecordPart(parts) {
   let latest = -Infinity;
-  for (const operation of cited.operations) {
-    if (operation.authority === "foreign" || operation.status !== "complete" || operation.record?.recordId !== ref.record.recordId || operation.record.kind !== ref.record.kind)
-      continue;
-    for (const part of operation.parts) {
-      const created = nativeInstant(part.createdAt);
-      if (created === null || part.updatedAt !== part.createdAt)
-        return null;
-      latest = Math.max(latest, created);
-    }
+  for (const part of parts) {
+    const created = nativeInstant(part.createdAt);
+    if (created === null || part.updatedAt !== part.createdAt)
+      return null;
+    latest = Math.max(latest, created);
   }
   return Number.isFinite(latest) ? latest : null;
 }
-function noteObservedRecordPin(source, ref, cited) {
+function noteObservedRecordPin(source, ref, cited, digestMatches) {
   let verified = source[observedRecords];
   if (verified === undefined) {
     verified = { selected: new Map, cited: new Map };
     Object.defineProperty(source, observedRecords, { enumerable: true, value: verified });
   }
   const key = scopeKey3(ref.record.scope);
-  verified.selected.set(recordKey(ref), latestRecordPart(ref, cited));
-  const previous = verified.cited.get(key);
-  const read = cited.source;
-  verified.cited.set(key, previous === undefined || previous !== null && sameRead(previous, read) ? read : null);
+  let records = verified.cited.get(key);
+  if (records === undefined) {
+    records = new Map;
+    verified.cited.set(key, records);
+  }
+  const identity = citedRecordKey(ref.record);
+  const comments = cited.operations.filter(({ authority, record, status }) => authority !== "foreign" && status === "complete" && record?.recordId === ref.record.recordId && record.kind === ref.record.kind).flatMap(({ parts }) => parts).sort((left, right) => (left.nativeId ?? "").localeCompare(right.nativeId ?? ""));
+  const { expectedAuthor, stopAuthor } = cited.source;
+  const read = { expectedAuthor, stopAuthor, comments, digestMatched: digestMatches };
+  const previous = records.get(identity);
+  records.set(identity, previous === undefined ? read : mergeCitedRecord(previous, read));
+  if (digestMatches)
+    verified.selected.set(recordKey(ref), latestRecordPart(comments));
+}
+function mergeCitedRecord(left, right) {
+  if (left === right)
+    return left;
+  if (left === null || right === null || left.expectedAuthor !== right.expectedAuthor || !isDeepStrictEqual(left.comments, right.comments))
+    return null;
+  return {
+    ...left,
+    stopAuthor: left.stopAuthor === right.stopAuthor ? left.stopAuthor : null,
+    digestMatched: left.digestMatched || right.digestMatched
+  };
 }
 function inheritObservedRecordPins(original, parsed, before) {
   const verified = original[observedRecords];
@@ -8814,26 +8825,62 @@ function inheritObservedRecordPins(original, parsed, before) {
   if (cutoff !== undefined)
     Object.defineProperty(parsed, recordPinCutoff, { enumerable: true, value: cutoff });
 }
+function* citedRecords(histories, scope) {
+  const key = scopeKey3(scope);
+  for (const { source } of histories) {
+    const records = source[observedRecords]?.cited.get(key);
+    if (records !== undefined)
+      yield records;
+  }
+}
 function hasObservedRecordPin(histories, ref) {
   const key = recordKey(ref);
-  return histories.some(({ source }) => {
+  const selected = histories.some(({ source }) => {
     const observedAt = source[observedRecords]?.selected.get(key);
     const cutoff = source[recordPinCutoff];
     return observedAt !== undefined && (cutoff === undefined || observedAt !== null && observedAt < cutoff);
-  }) && getObservedRecordHistory(histories, ref.record.scope) !== null;
+  });
+  if (!selected)
+    return false;
+  const identity = citedRecordKey(ref.record);
+  let merged;
+  for (const records of citedRecords(histories, ref.record.scope)) {
+    const record = records.get(identity);
+    if (record === undefined)
+      continue;
+    const next = merged === undefined ? record : mergeCitedRecord(merged, record);
+    if (next === null)
+      return false;
+    merged = next;
+  }
+  return merged !== undefined;
+}
+function mergedCitedRecords(histories, scope) {
+  const merged = new Map;
+  for (const records of citedRecords(histories, scope)) {
+    for (const [identity, record] of records) {
+      const previous = merged.get(identity);
+      merged.set(identity, previous === undefined ? record : mergeCitedRecord(previous, record));
+    }
+  }
+  return merged.values();
 }
 function getObservedRecordHistory(histories, scope) {
-  const key = scopeKey3(scope);
-  let selected;
-  for (const { source } of histories) {
-    const cited = source[observedRecords]?.cited.get(key);
-    if (cited === undefined)
+  const comments = [];
+  let metadata;
+  for (const record of mergedCitedRecords(histories, scope)) {
+    if (record === null || !record.digestMatched)
       continue;
-    if (cited === null || selected !== undefined && !sameRead(selected, cited))
+    const { expectedAuthor, stopAuthor } = record;
+    if (metadata === undefined)
+      metadata = { expectedAuthor, stopAuthor };
+    else if (metadata.expectedAuthor !== expectedAuthor)
       return null;
-    selected = cited;
+    else if (metadata.stopAuthor !== stopAuthor)
+      metadata.stopAuthor = null;
+    comments.push(...record.comments);
   }
-  return selected ?? null;
+  return metadata === undefined ? null : { ...metadata, scope, complete: true, comments, diagnostics: [] };
 }
 
 // plugins/omp-build/engine/history-graph-operation.ts
@@ -11464,12 +11511,19 @@ function citedOperationIntegrity(history, recordId) {
   const integrity = recordIntegrity(operation.parts, operation.record);
   return integrity === null ? null : diagnostic2(integrity.reason, integrity.detail);
 }
+function unauthenticatedPinnedSource(evidenceId) {
+  return [diagnostic2("unknown-reference", `Evidence ${evidenceId} cites an unauthenticated pinned source`)];
+}
+function producerTestVersionRefDiagnostics(evidenceId, ref, histories) {
+  if (ref.source === "git-file")
+    return hasObservedGitPin(histories, ref) ? [] : unauthenticatedPinnedSource(evidenceId);
+  return recordRefDiagnostics(evidenceId, ref, histories);
+}
 function observationRefDiagnostics(evidenceId, ref, histories, pins) {
   if (ref.source === "git-file") {
     const selected = pins.some((pin) => pin.repository === ref.repository && pin.commit === ref.commit && pin.path === ref.path && pin.digest === ref.digest);
-    if (!selected || !hasObservedGitPin(histories, ref)) {
-      return [diagnostic2("unknown-reference", `Evidence ${evidenceId} cites an unauthenticated pinned source`)];
-    }
+    if (!selected || !hasObservedGitPin(histories, ref))
+      return unauthenticatedPinnedSource(evidenceId);
     return [];
   }
   return recordRefDiagnostics(evidenceId, ref, histories);
@@ -11501,8 +11555,6 @@ function criterionVerdictCitationDiagnostics(verdict, histories, inputs) {
   return diagnostics;
 }
 function versionClaimReferences(evidence) {
-  if (evidence.method !== "test")
-    return [];
   return [
     ...evidence.after.versionClaim.references,
     ...evidence.before === null ? [] : evidence.before.versionClaim.references
@@ -11556,8 +11608,10 @@ function observationAuthenticationDiagnostics(evidence, histories, pins, receipt
   const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
   if (!authenticated.ok)
     return authenticated.diagnostics;
-  const diagnostics = versionClaimReferences(evidence).flatMap((ref) => observationRefDiagnostics(evidence.id, ref, histories, pins));
+  const diagnostics = [];
   if (evidence.method === "test") {
+    for (const ref of versionClaimReferences(evidence))
+      diagnostics.push(...producerTestVersionRefDiagnostics(evidence.id, ref, histories));
     if (!testRunsMatchHostCapture(evidence, receipt))
       diagnostics.push(diagnostic2("unconfirmed", `Evidence ${evidence.id} test runs are not in the host capture`));
     return diagnostics;
@@ -11606,7 +11660,28 @@ function integrationStartPaired(history, result) {
   const record = bound.value;
   return record.kind === "action-receipt" && record.payload.action === "integrate" && record.payload.phase === "start" && record.recordId === payload.start.recordId && record.repository === payload.start.scope.repository && record.target === payload.start.scope.target && record.payload.actionId === payload.actionId && sameRef2(record.payload.mandate, payload.mandate) && canonicalValueDigest(record.payload.inputs) === canonicalValueDigest(payload.inputs) && canonicalValueDigest(record.payload.exactInputs) === canonicalValueDigest(payload.exactInputs);
 }
-function currentPlanCandidate(record, specDigest, mandate, histories) {
+function hasCompetingHistoricalStart(history, result) {
+  return recordsOf(history).some((record) => record.kind === "action-receipt" && record.recordId !== result.start.recordId && record.payload.phase === "start" && record.payload.action === result.action && record.payload.actionId === result.actionId && sameRef2(record.payload.mandate, result.mandate) && bindExternalRef({ ...result.start, recordId: record.recordId }, history).ok);
+}
+function historicalStartPair(history, result, histories) {
+  const unpaired = (message, diagnostics = []) => fail([
+    diagnostic2(result.action === "plan" ? "plan-start-unpaired" : "implementation-start-unpaired", `${result.action} ${result.actionId}: ${message}`, { start: result.start, resultScope: history.source.scope }),
+    ...diagnostics
+  ]);
+  if (result.start.kind !== "action-receipt" || !equalScope(result.start.scope, history.source.scope))
+    return unpaired("START must be an action receipt in the RESULT history");
+  const bound = bindExternalRef(result.start, history);
+  if (!bound.ok)
+    return unpaired("Cited START cannot be authenticated", bound.diagnostics);
+  const start = bound.value;
+  if (start.kind !== "action-receipt" || start.recordId !== result.start.recordId || start.repository !== result.start.scope.repository || start.target !== result.start.scope.target || start.payload.phase !== "start" || start.payload.action !== result.action || start.payload.actionId !== result.actionId || !sameRef2(start.payload.mandate, result.mandate) || canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(result.exactInputs) || canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(result.inputs))
+    return unpaired("Cited START does not match the RESULT action, mandate, exact inputs, and manifest capture");
+  if (hasCompetingHistoricalStart(history, result))
+    return unpaired("More than one authenticated START identifies this action invocation");
+  const authenticated = authenticateHistoricalActionInputs(start.payload.inputs, histories);
+  return authenticated.ok ? { ok: true, value: undefined } : unpaired("START inputs are not authenticated", authenticated.diagnostics);
+}
+function currentPlanCandidate(record, specDigest, mandate, history) {
   if (record.kind !== "action-receipt" || !planReceiptEligible(record))
     return [];
   if (record.payload.action !== "plan" || record.payload.phase !== "result")
@@ -11617,45 +11692,43 @@ function currentPlanCandidate(record, specDigest, mandate, histories) {
     return [];
   if (record.payload.exactInputs.specDigest !== specDigest)
     return [];
-  if (!authenticateHistoricalActionInputs(record.payload.inputs, histories).ok)
-    return [];
-  return [{ record, exact: record.payload.exactInputs }];
+  return [{ record, payload: record.payload, history }];
 }
-function currentPlanReceipt(histories, specDigest, mandate) {
-  const plans = histories.flatMap((history) => recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate, histories)));
-  const drafts = uniqueAccounted(plans.filter((row) => row.exact.amendsReviewActionId === null), "current plan draft");
+function uniquePairedPlan(candidates, label, histories, diagnostics) {
+  const paired = candidates.filter(({ history, payload }) => {
+    const start = historicalStartPair(history, payload, histories);
+    if (!start.ok)
+      diagnostics.push(...start.diagnostics);
+    return start.ok;
+  });
+  return uniqueAccounted(paired, label);
+}
+function currentPlanReceipt(histories, specDigest, mandate, diagnostics) {
+  const plans = histories.flatMap((history) => recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate, history)));
+  const drafts = uniquePairedPlan(plans.filter((row) => row.payload.exactInputs.amendsReviewActionId === null), "current plan draft", histories, diagnostics);
   if (!drafts.ok)
     return drafts;
   if (drafts.value === null)
     return { ok: true, value: null };
   const draft = drafts.value;
-  const amendments = plans.filter((row) => row.exact.amendsReviewActionId !== null && histories.some((history) => recordsOf(history).some((review) => {
+  const amendments = plans.filter((row) => row.payload.exactInputs.amendsReviewActionId !== null && histories.some((history) => recordsOf(history).some((review) => {
     if (review.kind !== "action-receipt" || review.payload.action !== "plan-review" || review.payload.phase !== "result")
       return false;
     if (!sameRef2(review.payload.mandate, mandate))
       return false;
     if (!("draftActionId" in review.payload.exactInputs))
       return false;
-    return review.payload.actionId === row.exact.amendsReviewActionId && review.payload.exactInputs.draftActionId === draft.record.payload.actionId && authenticatedReceiptActionInputs(review.payload, histories);
+    return review.payload.actionId === row.payload.exactInputs.amendsReviewActionId && review.payload.exactInputs.draftActionId === draft.payload.actionId && authenticatedReceiptActionInputs(review.payload, histories);
   })));
-  const selected = uniqueAccounted(amendments, "current plan amendment");
+  const selected = uniquePairedPlan(amendments, "current plan amendment", histories, diagnostics);
   if (!selected.ok)
     return selected;
   return { ok: true, value: selected.value?.record ?? draft.record };
 }
 function implementationStartPaired(history, result, histories = [history]) {
   if (result.payload.action !== "implement" || result.payload.phase !== "result")
-    return false;
-  if (!("mandateId" in result.payload.exactInputs) || !("planActionId" in result.payload.exactInputs))
-    return false;
-  const resultExact = result.payload.exactInputs;
-  return recordsOf(history).some((record) => {
-    if (record.kind !== "action-receipt" || record.payload.action !== "implement" || record.payload.phase !== "start")
-      return false;
-    if (!("mandateId" in record.payload.exactInputs) || !("planActionId" in record.payload.exactInputs))
-      return false;
-    return record.payload.actionId === result.payload.actionId && record.payload.exactInputs.mandateId === resultExact.mandateId && record.payload.exactInputs.planActionId === resultExact.planActionId && authenticateHistoricalActionInputs(record.payload.inputs, histories).ok;
-  });
+    return fail([diagnostic2("unconfirmed", "Expected an implementation RESULT")]);
+  return historicalStartPair(history, result.payload, histories);
 }
 
 // plugins/omp-build/engine/workflow-binding-format.ts
@@ -12693,13 +12766,13 @@ function manifestPins(inputs) {
     ...inputs.manifest.expandedContext.flatMap((ref) => ref.source === "git-file" ? [ref] : [])
   ];
 }
-function admittedImplementation(receipt, history, head, planActionId, mandate, histories) {
+function admittedImplementation(receipt, history, head, planActionId, mandate) {
   const payload = receipt.payload;
   if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !("planActionId" in payload.exactInputs))
     return false;
   if (!sameRef2(payload.mandate, mandate) || !("mandateId" in payload.exactInputs) || payload.exactInputs.mandateId !== mandate.recordId)
     return false;
-  if (payload.action === "integrate" ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt) : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt, histories))
+  if (payload.action === "integrate" ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt) : !implementationReceiptEligible(receipt))
     return false;
   if (payload.admission?.remoteTip !== head)
     return false;
@@ -12718,11 +12791,11 @@ function appendOneEvidence(value, ref, head, histories, pins, receipt, diagnosti
   evidence.push({ ref: { receipt: ref.record, evidenceId: value.id, digest: evidenceDigest(value) }, value });
 }
 function appendImplementation(ref, receipt, history, head, planActionId, mandate, histories, pins, diagnostics, selected) {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate, histories)) {
+  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
     diagnostics.push(diagnostic2("unconfirmed", `Delivery record ${ref.record.recordId} is not the admitted current head`));
     return;
   }
-  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
+  const authenticated = receipt.payload.action === "implement" ? implementationStartPaired(history, receipt, histories) : authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
   if (!authenticated.ok) {
     diagnostics.push(...authenticated.diagnostics);
     return;
@@ -12764,8 +12837,12 @@ function appendDelivery(ref, histories, currentRecordId, head, planActionId, man
   appendImplementation(ref, bound.receipt, history, head, planActionId, mandate, histories, pins, diagnostics, selected);
 }
 function currentPlan(histories, version, mandate, diagnostics) {
-  const current = currentPlanReceipt(histories, version, mandate);
-  if (!current.ok || current.value === null) {
+  const current = currentPlanReceipt(histories, version, mandate, diagnostics);
+  if (!current.ok) {
+    diagnostics.push(...current.diagnostics);
+    return null;
+  }
+  if (current.value === null) {
     diagnostics.push(diagnostic2("ambiguous", "No unique current plan is bound to the accepted Spec"));
     return null;
   }
@@ -15937,27 +16014,6 @@ function workflowContextTerminal(history, action, mandate, excluded) {
       return resolution;
   }
   return "clear";
-}
-function workflowContextDirectSuccessor(history, negative, mandate, excluded) {
-  const receipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === negative.payload.action && canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) && !excludedReceipt(record, excluded));
-  const matches = receipts.filter((record) => record.recordId === negative.recordId);
-  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative))
-    return { status: "uncertain" };
-  if (!workflowContextNegative(negative) || !paired(history, negative, receipts))
-    return { status: "uncertain" };
-  const successors = receipts.filter((candidate) => succeeds(history, negative, candidate));
-  if (successors.length > 1)
-    return { status: "ambiguous" };
-  if (hasUnpairedStart(receipts))
-    return { status: "uncertain" };
-  const successor = successors[0];
-  if (successor === undefined)
-    return { status: "missing" };
-  if (!paired(history, successor, receipts))
-    return { status: "uncertain" };
-  if (!workflowContextNegative(successor) && !validPositiveSuccessor(successor))
-    return { status: "uncertain" };
-  return { status: "successor", record: successor };
 }
 function resolveContextNegative(history, negative, receipts, seen) {
   if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
@@ -24605,8 +24661,11 @@ async function observeHistoricalPins(history, options, additional) {
       continue;
     const cited = decodeHistory(source);
     for (const ref of refs) {
-      if (recordRefDiagnostics("Historical action manifest", ref, [cited]).length === 0)
-        noteObservedRecordPin(history.source, ref, cited);
+      const bound = bindExternalRef(ref.record, cited);
+      if (!bound.ok)
+        continue;
+      const selected = selectedRecordValue(bound.value, ref.selector);
+      noteObservedRecordPin(history.source, ref, cited, selected !== undefined && canonicalValueDigest(selected) === ref.digest);
     }
   }
   return history;
@@ -30760,7 +30819,6 @@ export {
   deriveReviewState,
   destinationSchema,
   diagnosticSchema,
-  directReviewContextSuccessors,
   discoverFixRecovery,
   dispositionSchema,
   effectiveMandateRole,
@@ -31033,7 +31091,6 @@ export {
   viewer,
   workflowBindingPayloadSchema,
   workflowConditionSchema,
-  workflowContextDirectSuccessor,
   workflowContextTerminal,
   workflowGraphActionSchema,
   workflowGraphSchema,

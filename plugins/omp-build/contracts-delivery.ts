@@ -108,7 +108,6 @@ export {
 export { producerOutputValid } from './engine/producer-schema.ts'
 export { gitObjectIdSchema } from './engine/record-references.ts'
 export { accounted, resolvedOutputValid } from './engine/review-context-authentication.ts'
-export { directReviewContextSuccessors } from './engine/review-context-lineage.ts'
 export { repoRelativePathSchema } from './engine/schema-primitives.ts'
 export { resolveSpecEffective, type SpecEffectiveRequest } from './engine/spec-effective.ts'
 export { SPEC_EFFECTIVE_FORMAT, type SpecEffective, specEffectiveSchema } from './engine/spec-effective-schema.ts'
@@ -128,7 +127,7 @@ export {
   assessmentProposalOriginSchema,
   type CiExact,
 } from './engine/workflow-action-operands.ts'
-export { workflowContextDirectSuccessor, workflowContextTerminal } from './engine/workflow-context-terminal.ts'
+export { workflowContextTerminal } from './engine/workflow-context-terminal.ts'
 export {
   abandoned,
   historyFor,

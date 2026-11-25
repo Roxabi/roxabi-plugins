@@ -7,13 +7,13 @@ import {
   readFixtureGit,
   WORKTREE,
 } from '../../skills/feature/review-record-git-fixture.js'
-import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
 import { fixtureCatalogueGhResponse, fixtureGitBlobGhResponse } from '../../testing/action-input-fixtures.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { historicalAcceptedInputs } from '../../testing/native-history-records.ts'
 import { produceNativeImplementation } from '../../testing/native-implementation-producer.ts'
 import { nativeCommitResponse, nativePullResponse } from '../../testing/native-implementation-transport-pulls.ts'
 import { withNativeImplementationWorld } from '../../testing/native-implementation-world.ts'
+import { TOOLING_COMMIT } from '../../testing/review-record-pin.js'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
 import type { CanonicalRecord } from '../record-schema.ts'
 import { recordsOf } from '../workflow-control.ts'
