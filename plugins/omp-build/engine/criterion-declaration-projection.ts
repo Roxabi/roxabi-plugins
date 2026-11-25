@@ -1,4 +1,12 @@
-import type { CriterionDeclaration, CriterionEvidence } from './criterion-evidence-schema.ts'
+import type { RecordInputRef } from './action-input-refs.ts'
+import type { CriterionDeclaration, CriterionEvidence, EvidenceRef } from './criterion-evidence-schema.ts'
+
+/** Keep the original declarations and receipt pins separate from merged review declarations. */
+export type CriterionDeclarationFact = { value: CriterionDeclaration; receipt: RecordInputRef }
+export type CriterionSourceSelection = {
+  declarationFacts: CriterionDeclarationFact[]
+  evidence: { ref: EvidenceRef; value: CriterionEvidence }[]
+}
 
 function ordered(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(ordered)

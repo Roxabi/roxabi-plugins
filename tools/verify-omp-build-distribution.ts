@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
-import { verifyCleanExtension } from './omp-build-clean-extension.ts'
+import { verifyCleanPlugin } from './omp-build-clean-extension.ts'
 import { compare, gitBytes, headOutputs, type Snapshot, snapshot } from './omp-build-distribution-files.ts'
 
 type BuildReport = { outputs: string[]; inputs: string[] }
@@ -251,7 +251,7 @@ async function verify(root: string, probes: boolean): Promise<Receipt> {
     const b = build(checkout, join(owned, 'b-output'))
     compare('A to B', a.files, b.files)
     requireOwnedPath(requirePhysicalDependencies(checkout), join(checkout, 'node_modules/@oh-my-pi/pi-coding-agent'))
-    verifyCleanExtension(checkout, owned)
+    verifyCleanPlugin(checkout, owned)
     if (probes) negativeProbes(checkout, b.files)
   } finally {
     rmSync(owned, { recursive: true, force: true })

@@ -4,6 +4,7 @@ import type { ObservationRef } from './criterion-evidence-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 
+/** Check citation membership only; the producing action inputs must already be authenticated. */
 export function producerSourceDiagnostics(
   evidenceId: string,
   references: readonly ObservationRef[],

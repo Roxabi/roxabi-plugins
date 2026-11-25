@@ -30,7 +30,6 @@ export type InstalledUwReadOptions = {
   gh?: Gh
   /** Observed authenticated viewer identity, resolved by host composition and used for history attribution. */
   readAuthor?: string
-  assessmentReplay?: { uw: Scope; actionId: string; fingerprint: string }
 }
 
 export class UwGraphUnavailableError extends Error {
@@ -65,7 +64,7 @@ export function createUwReadPort(contracts: InstalledUwContracts, options: Insta
             : refused(uw, 'graph-root-missing', `UW graph root ${uw.target} is absent`)
         throw new UwGraphUnavailableError(diagnostics)
       }
-      const reader = createObservedUwReadPort(contracts, { observation, assessmentReplay: options.assessmentReplay })
+      const reader = createObservedUwReadPort(contracts, { observation })
       const read = await reader.readUw(uw)
       return withTransitionAdmission(contracts, read)
     },
@@ -121,7 +120,6 @@ export function createObservedUwReadPort(
   input: {
     observation: UwCompletionObservation
     history?: HistoryObservation
-    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
 ): UwReadPort {
   const observation = projectObservation(contracts, input.observation)
@@ -143,7 +141,6 @@ export function createObservedUwReadPort(
         causalObservation,
         completion,
         observedReader: reader,
-        assessmentReplay: input.assessmentReplay,
       })
     },
   }
@@ -251,9 +248,6 @@ export async function readCreatedUw(uw: Scope, options: InstalledUwReadOptions):
   return createdFacts(uw, observation?.graph ?? graph, observation?.histories ?? ownRead.histories)
 }
 
-export function createInstalledObservedUwReadPort(input: {
-  observation: UwCompletionObservation
-  assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
-}): UwReadPort {
+export function createInstalledObservedUwReadPort(input: { observation: UwCompletionObservation }): UwReadPort {
   return createObservedUwReadPort(installedUwContracts, input)
 }

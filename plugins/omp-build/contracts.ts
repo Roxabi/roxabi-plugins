@@ -1,9 +1,9 @@
 export { createGhIssueWritePorts } from '../issue-triage/skills/shared/adapters/issue-writer.ts'
 export { calculateTier } from '../issue-triage/skills/shared/domain/complexity.ts'
 export { createIssueWriter } from '../issue-triage/skills/shared/domain/issue-write.ts'
+export { observeHistoricalPins, readDecodedGitHubHistory } from './adapters/github/historical-pins.ts'
 export { decodeHistory, projectRecoveryHistories } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
-export { recordOperation } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
 export { type Gh, GitHubHistoryReadError, type GitHubOptions, gh, viewer } from './adapters/github/types.ts'
 export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
@@ -20,6 +20,7 @@ export {
   publishConfirmedWorkflowRecord,
   readLandingFacts,
   readWorkflowBinding,
+  readWorkflowBindingForRevocation,
 } from './adapters/github-workflow/binding.ts'
 export {
   readCauseHistoryClosure,
@@ -151,22 +152,12 @@ export {
   verdictSchema,
 } from './engine/record-values.ts'
 export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
-export { nativeIssueObservationFromNode } from './engine/uw-native-observation-schema.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
-export {
-  type AttemptClassification,
-  classifyAttempts,
-  type InterruptionGate,
-  interruptionGate,
-  startResolution,
-  type UnresolvedAttempt,
-} from './engine/workflow-action-interruption.ts'
+export type { AttemptClassification, UnresolvedAttempt } from './engine/workflow-action-interruption.ts'
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
-export { bindingMatchesMandate, bindingPolicy } from './engine/workflow-binding-policy.ts'
-export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
-export { inspectCapturedWorkForAssessment } from './engine/workflow-captured-work.ts'
+export { bindingMatchesMandate } from './engine/workflow-binding-format.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
 export {
   bindExternalRef,
@@ -185,7 +176,6 @@ export {
 } from './engine/workflow-graph.ts'
 export {
   authenticateInterruptedReceiptPair,
-  INTERRUPTION_ACTIONS,
   type InterruptionAction,
   type InterruptionResolution,
   interruptedResult,
@@ -196,18 +186,18 @@ export {
   type ResolutionRecord,
 } from './engine/workflow-interruption-proof.ts'
 export { resolutionIndex } from './engine/workflow-interruption-resolution.ts'
-export type { LandingMandateDecision, LandingRefusal } from './engine/workflow-landing.ts'
-export { requireLandingMandate } from './engine/workflow-landing-admission.ts'
 export { effectiveMandateRole, type MandateRefusal, type MandateSelection } from './engine/workflow-mandate.ts'
-export { resolveOwnSpecAuthority, selectApplicableMandate } from './engine/workflow-mandate-admission.ts'
+export {
+  resolveOwnSpecAuthority,
+  selectApplicableMandate,
+  selectRevocableMandate,
+} from './engine/workflow-mandate-admission.ts'
 export {
   buildMaterialAcceptanceControl,
   prepareMaterialAcceptance,
   recheckMaterialAcceptance,
 } from './engine/workflow-material-acceptance.ts'
-export { outstandingPauseInAuthority, type PauseBinding } from './engine/workflow-pause.ts'
 export type { ActionCompletion, PlanMacro, PlanMacroPhase, WorkflowEvidence } from './engine/workflow-plan.ts'
-export { planMacro } from './engine/workflow-plan-macro.ts'
 export { selectWorkflowBinding, type WorkflowBindingSelection } from './engine/workflow-pr-binding.ts'
 export { selectWorkflowBindingClaims } from './engine/workflow-pr-binding-chain.ts'
 export { partitionScopedRefs, scopedRefsOf } from './engine/workflow-record-references.ts'
@@ -218,7 +208,6 @@ export {
   sameAssessedState,
   sameCurrentAssessedState,
 } from './engine/workflow-spec-assessment.ts'
-export type { AssessmentReplayContext } from './engine/workflow-spec-authentication.ts'
 export { authenticatedAssessResult } from './engine/workflow-spec-authentication-chain.ts'
 export { type TerminalMandate, terminalMandate } from './engine/workflow-terminal-mandate.ts'
 export {
@@ -228,5 +217,4 @@ export {
   ompBuildPrepareCheckoutParametersSchema,
 } from './omp/tool-schemas.ts'
 export { readScopeIssueBody } from './roxabi/uw-spec/scope-issue.ts'
-export { readEffectiveFixConfig } from './roxabi/workflow-config.ts'
 export { shippedProductVersion } from './roxabi/workflow-config-digest.ts'

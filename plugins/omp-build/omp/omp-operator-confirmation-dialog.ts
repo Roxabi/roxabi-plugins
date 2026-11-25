@@ -3,6 +3,7 @@ import type { Component } from '@oh-my-pi/pi-tui'
 import type { DescribeContext, NativeNode, NativeScreen, NativeUiEvent } from '@oh-my-pi/pi-tui/native/node'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { nativeText } from './omp-operator-confirmation-field.ts'
+import { framingDetails } from './omp-operator-confirmation-framing.ts'
 import {
   type ConfirmationMotion,
   commitDialogInput,
@@ -57,12 +58,11 @@ export async function showOperatorProposal(
 ): Promise<OperatorChoice> {
   if (signal.aborted) throw new Error('Confirmation cancelled')
   const summary = proposalSummary(prepared)
-  const details = [
-    'Détails techniques',
-    `Référence : ${detailRef}`,
-    `Digest : ${prepared.digest}`,
-    JSON.stringify(prepared.proposal, null, 2),
-  ]
+  const proposal = prepared.proposal
+  const details = ['Détails techniques', `Référence : ${detailRef}`, `Digest : ${prepared.digest}`]
+  if (proposal.format === 'omp-build-uw-framing/1')
+    details.push(...framingDetails(proposal), '', 'Proposition exacte (JSON)')
+  details.push(JSON.stringify(proposal, null, 2))
   let abort: (() => void) | undefined
   const cancelled = Promise.withResolvers<never>()
   const rejectOnAbort = () => cancelled.reject(new Error('Confirmation cancelled'))

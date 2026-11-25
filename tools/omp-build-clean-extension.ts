@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, realpathSync, writeFileSync } from 'node
 import { basename, dirname, join } from 'node:path'
 import { FRAMING_PROCEDURE_FILES } from '../plugins/omp-build/engine/framing-context-schema.ts'
 
-export function verifyCleanExtension(checkout: string, owned: string): void {
+export function verifyCleanPlugin(checkout: string, owned: string): void {
   for (let directory = realpathSync(owned); ; directory = dirname(directory)) {
     if (existsSync(join(directory, 'node_modules')))
       throw new Error(`clean extension import has ambient dependencies: ${join(directory, 'node_modules')}`)
@@ -23,6 +23,10 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
   for (const path of [
     'vendor/kit-head-authorization/index.cjs',
     'vendor/kit-head-authorization/LICENSE',
+    'skills/dev-fix/SKILL.md',
+    'skills/dev-review/SKILL.md',
+    'skills/dev-review/review-classes.yml',
+    'skills/feature/SKILL.md',
     'skills/feature/head-authorization.cjs',
     'skills/feature/head-authorization-reader.cjs',
     'skills/feature/head-authorization-cli.js',
@@ -119,27 +123,18 @@ export function verifyCleanExtension(checkout: string, owned: string): void {
   }
   // Invoke the distributed CLI itself without arguments: its usage refusal
   // exercises the complete static import graph without reaching GitHub.
-  const gate = spawnSync(process.execPath, ['--no-install', join(destination, 'scripts/review-gate.ts')], {
-    cwd: owned,
-    env: { PATH: process.env.PATH, HOME: owned, TMPDIR: owned, BUN_INSTALL_CACHE_DIR: join(owned, 'cache') },
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  let result: unknown
-  try {
-    result = JSON.parse(gate.stdout)
-  } catch {
-    throw new Error(`clean review gate returned invalid JSON: ${gate.error?.message ?? gate.stderr}`)
-  }
-  if (
-    gate.status !== 1 ||
-    typeof result !== 'object' ||
-    result === null ||
-    (result as Record<string, unknown>).ok !== false ||
-    (result as Record<string, unknown>).allowed !== false ||
-    (result as Record<string, unknown>).reason !== 'unreadable'
+  const cli = spawnSync(
+    process.execPath,
+    ['--no-install', join(destination, 'skills/feature/head-authorization-cli.js')],
+    {
+      cwd: owned,
+      env: { PATH: process.env.PATH, HOME: owned, TMPDIR: owned, BUN_INSTALL_CACHE_DIR: join(owned, 'cache') },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
   )
+  if (cli.status !== 1 || cli.stderr.trim() !== 'invalid command or arguments' || cli.stdout !== '')
     throw new Error(
-      `clean review gate did not return its usage refusal: status=${gate.status} stdout=${gate.stdout} stderr=${gate.stderr}`,
+      `clean head authorization CLI did not return its usage refusal: status=${cli.status} stdout=${cli.stdout} stderr=${cli.error?.message ?? cli.stderr}`,
     )
 }

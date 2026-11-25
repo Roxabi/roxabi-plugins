@@ -120,7 +120,7 @@ test('an extra foreign control copy cannot veto an authenticated causal withdraw
   const artifacts = mkdtempSync(join(tmpdir(), 'omp-foreign-cause-'))
   isolateViewerToken()
   try {
-    const world = await installedMultiSisterFixture(1, { artifactsDir: artifacts })
+    const world = await installedMultiSisterFixture(1)
     const created = await world.operations.createSister(world.request(0))
     if (created.status !== 'created' || created.receipt.kind !== 'debt-receipt')
       throw new Error('Expected confirmed sister')

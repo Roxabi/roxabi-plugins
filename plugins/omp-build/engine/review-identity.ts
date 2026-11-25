@@ -60,13 +60,14 @@ type ReviewIdentity = {
 export function analyzeReviewIdentity(
   history: DecodedHistory,
   records: ReadonlyMap<string, CanonicalRecord>,
+  histories: readonly DecodedHistory[] = [history],
 ): ReviewIdentity {
   const reviews = reviewOperations(history)
   const incompleteFinal = reviews.some((review) => review.status !== 'complete' || review.record?.kind !== 'review')
   const latestOperation = incompleteFinal || reviews.length === 0 ? null : reviews[reviews.length - 1]
   const latest = latestOperation?.record?.kind === 'review' ? latestOperation.record : null
   const transportDiagnostics = [...history.diagnostics, ...history.source.diagnostics]
-  const lineage = reviewContextLineage(history, records)
+  const lineage = reviewContextLineage(history, records, histories)
   if (!history.source.complete) transportDiagnostics.push(diagnostic('incomplete', 'Review history is incomplete'))
   return {
     reviews,

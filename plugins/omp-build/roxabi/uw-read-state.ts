@@ -6,7 +6,6 @@ import type { UwCompletionAssessment, UwCompletionObservation } from '../engine/
 import type { UwDiagnostic } from '../engine/uw-diagnostics.ts'
 import type { UwGraphObservation } from '../engine/uw-graph.ts'
 import type { UwRead, UwReadPort } from './uw-contract.ts'
-import type { InstalledUwReadOptions } from './uw-read-port.ts'
 
 type InstalledUwContracts = Pick<
   typeof import('../dist/contracts.js'),
@@ -92,7 +91,6 @@ export function projectObservedOwnSpecFacts(
   input: {
     uw: Scope
     observation: UwCompletionObservation
-    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
 ): { ok: true; value: ObservedOwnSpecFacts } | { ok: false; diagnostics: readonly UwDiagnostic[] } {
   const { uw, observation } = input
@@ -121,7 +119,6 @@ export function projectObservedOwnSpecFacts(
     history: own.value,
     histories: observation.histories,
     accepted: null,
-    ...(input.assessmentReplay === undefined ? {} : { assessmentReplay: input.assessmentReplay }),
   })
   return { ok: true, value: { node, ...observedSpecProjection(contracts, uw, node), identity } }
 }
@@ -142,7 +139,6 @@ function coldAccepted(
   histories: readonly DecodedHistory[],
   catalogues: ReviewClassCatalogues,
   observation: UwCompletionObservation,
-  assessmentReplay?: { uw: Scope; actionId: string; fingerprint: string },
 ): AcceptedOwnSpecResult {
   if (observation.status !== 'complete') return { status: 'refused', diagnostics: observation.diagnostics }
   const own = histories.find(
@@ -154,8 +150,6 @@ function coldAccepted(
     own,
     histories.filter((history) => history !== own),
     { histories, catalogues, observation },
-    undefined,
-    assessmentReplay,
   )
   if (!resolved.ok) {
     const hasOwnMandateClaim = own.operations.some(
@@ -184,7 +178,6 @@ function assembleUwRead(
     causalObservation: UwRead['causalObservation']
     completion: UwCompletionAssessment
     observedReader?: UwReadPort
-    assessmentReplay?: InstalledUwReadOptions['assessmentReplay']
   },
 ): UwRead {
   const { uw, graph, history } = input
@@ -220,14 +213,7 @@ function assembleUwRead(
       ),
     }
   }
-  const accepted = coldAccepted(
-    contracts,
-    uw,
-    history.histories,
-    input.catalogues,
-    input.observation,
-    input.assessmentReplay,
-  )
+  const accepted = coldAccepted(contracts, uw, history.histories, input.catalogues, input.observation)
   const own = history.histories.find(
     (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
   )
@@ -257,7 +243,6 @@ function assembleUwRead(
     history: own,
     histories: history.histories,
     accepted: accepted.status === 'accepted' ? accepted.value : null,
-    ...(input.assessmentReplay === undefined ? {} : { assessmentReplay: input.assessmentReplay }),
   })
   const result: UwRead = {
     uw,

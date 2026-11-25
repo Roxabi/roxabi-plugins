@@ -7,11 +7,10 @@ import type { FeatureCommandHost, FeatureControl, ParsedFeatureCommand } from '.
 
 type FeatureInitHost = Pick<FeatureCommandHost, 'cwd' | 'send' | 'exec' | 'git'>
 
-const CONTROL_BY_WORD: Partial<Record<string, FeatureControl>> = {
+const CONTROL_BY_WORD: Partial<Record<string, FeatureControl | 'pause'>> = {
   pause: 'pause',
   abandon: 'abandon',
   new: 'new',
-  resume: 'resume',
   'material-decision': 'material-decision',
 }
 
@@ -30,19 +29,7 @@ function parseMaterialDecision(tokens: string[]): ParsedFeatureCommand {
   return { ok: true, control: 'material-decision', reference }
 }
 
-function parseInterruptionResolution(tokens: string[]): ParsedFeatureCommand {
-  const reference = normalizeReference(tokens[1])
-  const start = tokens.length === 4 && tokens[2] === '--start' ? tokens[3] : undefined
-  if (
-    reference === null ||
-    reference.startsWith('-') ||
-    (tokens.length !== 2 && (start === undefined || start.startsWith('-')))
-  )
-    return { ok: false, reason: 'feature-interruption-invalid' }
-  return { ok: true, control: 'resolve-interruption', reference, ...(start === undefined ? {} : { start }) }
-}
-
-function parseControlCommand(control: FeatureControl, tokens: string[]): ParsedFeatureCommand {
+function parseControlCommand(control: FeatureControl | 'pause', tokens: string[]): ParsedFeatureCommand {
   const reference = normalizeReference(tokens[1])
   if (reference === null || tokens.length !== 2) return { ok: false, reason: 'feature-reference-missing' }
   return { ok: true, control, reference }
@@ -52,7 +39,7 @@ function parseFeatureReference(args: string, tokens: string[]): ParsedFeatureCom
   if (tokens.length === 0) return { ok: false, reason: 'feature-reference-missing' }
   const head = tokens[0] ?? ''
   if (head === 'material-decision') return parseMaterialDecision(tokens)
-  if (head === 'resolve-interruption') return parseInterruptionResolution(tokens)
+  if (head === 'resume' || head === 'resolve-interruption') return { ok: false, reason: 'feature-control-retired' }
   const control = CONTROL_BY_WORD[head]
   if (control !== undefined) return parseControlCommand(control, tokens)
   if (tokens.length !== 1) return { ok: true, control: 'select', reference: args.trim() }
@@ -76,8 +63,7 @@ export function parseFeatureCommand(args: string): ParsedFeatureCommand {
 function normalizeReference(token: string | undefined): string | null {
   if (token === undefined || token.length === 0) return null
   const stripped = token.startsWith('#') ? token.slice(1) : token
-  if (stripped.length === 0 || stripped === 'resolve-interruption' || CONTROL_BY_WORD[stripped] !== undefined)
-    return null
+  if (stripped.length === 0 || CONTROL_BY_WORD[stripped] !== undefined) return null
   return stripped
 }
 

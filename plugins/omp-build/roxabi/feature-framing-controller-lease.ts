@@ -13,7 +13,7 @@ import type {
   PendingFramingHandoff,
 } from './feature-framing-contract.ts'
 import type { FramingProcedures } from './feature-framing-procedures.ts'
-import type { TrustedHostPluginPin } from './uw-action-contract.ts'
+import type { TrustedHostPluginPin } from './plugin-pin-contract.ts'
 import type { OperatorPort, UwRead } from './uw-contract.ts'
 import type { FramingOperationResult, PreparedFramingProposal } from './uw-framing-contract.ts'
 import { reservePreparedFramingProposal } from './uw-framing-prepare.ts'

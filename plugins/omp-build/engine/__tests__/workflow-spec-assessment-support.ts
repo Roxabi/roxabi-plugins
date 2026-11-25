@@ -1,4 +1,3 @@
-import { sourceRef } from '../../roxabi/uw-action-observe.ts'
 import { historicalSubmission } from '../../testing/native-action-capture.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { acceptedMetadataOwner } from '../accepted-metadata-owner.ts'
@@ -18,7 +17,7 @@ import type { AssessmentProposalOrigin } from '../workflow-action-operands.ts'
 import { capturedChildOwnSources } from '../workflow-assessment-child-sources.ts'
 import { acceptedConstraints, proposedConstraints } from '../workflow-constraint-compatibility.ts'
 import type { MandateRecord } from '../workflow-control.ts'
-import { historyFor, mandatesOf } from '../workflow-control.ts'
+import { bindExternalRef, historyFor, mandatesOf } from '../workflow-control.ts'
 import type { SpecAssessment } from '../workflow-output-schema.ts'
 import { ACTION_RECEIPT_FORMAT, type AssessSpecExact } from '../workflow-receipt-schema.ts'
 import { type AssessResultRecord, isAssessResult } from '../workflow-spec-assessment.ts'
@@ -183,7 +182,17 @@ export function assessFixture(
     reason: 'Fixture judgment covers the declared constraints',
   }
   const refs = [...own.sourceRefs, ...effective.versionVector.map((ref) => ref.sourceAccepted), ...captured.sourceRefs]
-  const pins = refs.map((ref) => must(sourceRef(sources, ref)))
+  const pins = refs.map((ref) => {
+    const source = historyFor(ref.scope, sources)
+    if (source === null) throw new Error(`Missing accepted source ${ref.scope.target}`)
+    const record = must(bindExternalRef(ref, source))
+    return {
+      source: 'record' as const,
+      record: ref,
+      selector: '/payload',
+      digest: canonicalValueDigest(record.payload),
+    }
+  })
   const acceptedSources = [...new Map(pins.map((pin) => [JSON.stringify([pin.record, pin.selector]), pin])).values()]
   const { inputs, exactInputs } = assessmentActionInputs(
     mandated,

@@ -8,11 +8,9 @@ import { parseIssueSpecBody, rawSource } from '../adapters/github-native/uw-spec
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
 import { resolveSpecEffective } from '../engine/spec-effective.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
-import { prepareUwAction, replayUwActionInputs } from '../roxabi/uw-action-inputs.ts'
 import { acceptedActionInputs } from './action-input-fixtures.ts'
 import { criterionReviewGraph, encodeCriterionRecords } from './criterion-approval.ts'
 import type { installedMultiSisterFixture } from './multi-sister-installed-fixture.ts'
-import { nativeActionFixturePorts } from './native-action-ports.ts'
 import { produceNativeImplementation } from './native-implementation-producer.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from './roxabi-presets.ts'
 import { eligiblePlanAt } from './workflow-decision-cases/support/workflow-decision-fixtures.ts'
@@ -28,20 +26,14 @@ function sisterSpecification(scope: { repository: string; target: string }, body
 /** Frame and deliver the actually created sibling in the same native comment and GitHub world. */
 export async function deliverCreatedSister(world: Awaited<ReturnType<typeof installedMultiSisterFixture>>) {
   const cwd = mkdtempSync(join(tmpdir(), 'omp-sister-delivery-'))
-  const artifactsDir = mkdtempSync(join(tmpdir(), 'omp-sister-artifacts-'))
   try {
-    return await deliverInWorld(world, cwd, artifactsDir)
+    return await deliverInWorld(world, cwd)
   } finally {
-    rmSync(artifactsDir, { recursive: true, force: true })
     rmSync(cwd, { recursive: true, force: true })
   }
 }
 
-async function deliverInWorld(
-  world: Awaited<ReturnType<typeof installedMultiSisterFixture>>,
-  cwd: string,
-  artifactsDir: string,
-) {
+async function deliverInWorld(world: Awaited<ReturnType<typeof installedMultiSisterFixture>>, cwd: string) {
   const scope = { repository: 'acme/app', target: 'acme/app#43' }
   const pull = { repository: scope.repository, target: 'acme/app#45' }
   const issue = world.issues.get(43)
@@ -149,29 +141,7 @@ async function deliverInWorld(
     framed.history,
   )
   list.push(...initial.comments.map((comment, index) => nativeComment(11000 + index, comment.body)))
-  const planStart = plan.find(
-    (record) =>
-      record.kind === 'action-receipt' && record.payload.action === 'plan' && record.payload.phase === 'start',
-  )
-  if (planStart?.kind !== 'action-receipt') throw new Error('Canonical sister plan lacks START')
-  const ports = nativeActionFixturePorts({
-    cwd,
-    artifactsDir,
-    gh: world.gh,
-    git: gitWorld.git,
-    author: 'automation',
-    plugin: planStart.payload.inputs.manifest.plugin,
-    commits: new Map(commits.map((commit) => [commit.sha, commit])),
-    diffs: new Map(),
-    repositoryFiles: new Map(),
-  })
-  const operations = {
-    ...world.operations,
-    prepareAction: (...[request, review, correctionRoot]: Parameters<typeof world.operations.prepareAction>) =>
-      prepareUwAction(request, ports, review, correctionRoot),
-    replayActionInputs: (request: Parameters<typeof world.operations.replayActionInputs>[0]) =>
-      replayUwActionInputs(request, ports),
-  }
+  const operations = world.operations
   const before = await operations.readUw(scope)
   const produced = await produceNativeImplementation({
     cwd,

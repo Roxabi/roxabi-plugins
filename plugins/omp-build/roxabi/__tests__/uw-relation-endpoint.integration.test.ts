@@ -199,7 +199,7 @@ it.each(['parent', 'blocker'] as const)(
   },
 )
 
-it('permits a historically accepted paused member as blocker after a title amendment, but not as parent', async () => {
+it('permits a historically accepted abandoned member as blocker after a title amendment, but not as parent', async () => {
   const native = nativeGitHub()
   const { operations } = await installed(native)
   const input = closure()
@@ -271,12 +271,15 @@ it('permits a historically accepted paused member as blocker after a title amend
   if (amended.accepted.status !== 'accepted') throw new Error('Amendment lost accepted authority')
   expect(amended.accepted.value.ref.sourceAccepted).toEqual(source)
   expect(amended.admission.aggregate).toMatchObject({ status: 'complete' })
-  const pause = fixtures.pauseRequested(mandate)
-  await publish([pause, fixtures.pauseConfirmed(mandate, pause)])
-  const paused = await operations.readUw(root)
-  expect(paused.accepted.status).toBe('refused')
-  expect(resolveAcceptedSpec(mandate, paused.histories).ok).toBe(true)
-  expect(paused.admission.aggregate).toMatchObject({ status: 'complete' })
+  const actor = await installed(native)
+  expect(await actor.operations.abandon(root, { scope: root, recordId: mandate.recordId, kind: 'mandate' })).toEqual({
+    status: 'abandoned',
+    uw: root,
+  })
+  const abandoned = await operations.readUw(root)
+  expect(abandoned.accepted.status).toBe('refused')
+  expect(resolveAcceptedSpec(mandate, abandoned.histories).ok).toBe(true)
+  expect(abandoned.admission.aggregate).toMatchObject({ status: 'complete' })
   const next = await installed(native)
   const created = await next.operations.create(request('blocker', numberOf(root)))
   expect(created.status, JSON.stringify(created)).toBe('created')

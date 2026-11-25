@@ -1,4 +1,5 @@
 import { assessHistoricalCauseDispositions, buildRecord, recordsOf } from '../dist/contracts.js'
+import { observeFixtureCatalogue } from './action-input-fixtures.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
 import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from './host-catalogue-fixture.ts'
@@ -13,13 +14,15 @@ export function reportFixture(number: number, sourceNumber: number) {
   const graph = acceptedPullRequestReviewGraph({ mandate, binding, prefix: `report-${number}`, label: 'suggestion' })
   if (graph.inputs.manifest.spec.kind !== 'accepted') throw new Error('accepted specification required')
   const own = f.historyFrom([mandate])
-  const nativeSource = encodeCriterionRecords(
-    recordsOf(graph.history).filter((record) => record.kind !== 'review'),
-    source,
-    roxabiRecordFixtures().projection,
-    'operator',
-    [own],
-  ).history
+  const nativeSource = observeFixtureCatalogue(
+    encodeCriterionRecords(
+      recordsOf(graph.history).filter((record) => record.kind !== 'review'),
+      source,
+      roxabiRecordFixtures().projection,
+      'operator',
+      [own],
+    ).history,
+  )
   const decision = recordsOf(nativeSource).find(
     (record) => record.kind === 'decision' && record.recordId === graph.decision.recordId,
   )

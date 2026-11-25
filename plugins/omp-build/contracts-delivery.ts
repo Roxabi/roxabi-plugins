@@ -11,9 +11,7 @@ export {
 export {
   actionInputDigest,
   canonicalActionInput,
-  canonicalActionOperands,
   canonicalValueDigest,
-  citesCurrentRootOutput,
   recordScopeIdentity,
   selectorAdmitted,
   validateActionInputs,
@@ -110,11 +108,9 @@ export {
 export { producerOutputValid } from './engine/producer-schema.ts'
 export { gitObjectIdSchema } from './engine/record-references.ts'
 export { accounted, resolvedOutputValid } from './engine/review-context-authentication.ts'
-export { directReviewContextSuccessors } from './engine/review-context-lineage.ts'
 export { repoRelativePathSchema } from './engine/schema-primitives.ts'
 export { resolveSpecEffective, type SpecEffectiveRequest } from './engine/spec-effective.ts'
 export { SPEC_EFFECTIVE_FORMAT, type SpecEffective, specEffectiveSchema } from './engine/spec-effective-schema.ts'
-export { actionEnvelopeSchema, actionRequestSchema } from './engine/uw-action-command-schema.ts'
 export {
   buildObservedCommitIndex,
   deliveredChildCommit,
@@ -131,11 +127,7 @@ export {
   assessmentProposalOriginSchema,
   type CiExact,
 } from './engine/workflow-action-operands.ts'
-export {
-  workflowContextDirectSuccessor,
-  workflowContextResolution,
-  workflowContextTerminal,
-} from './engine/workflow-context-terminal.ts'
+export { workflowContextTerminal } from './engine/workflow-context-terminal.ts'
 export {
   abandoned,
   historyFor,
@@ -172,7 +164,6 @@ export {
   type PlanReview,
   type PlanStep,
   planBlockerRefSchema,
-  planDigest,
   planOutputSchema,
   planResolutionSchema,
   planReviewSchema,
@@ -181,7 +172,6 @@ export {
   type SpecAssessment,
   specAssessmentSchema,
 } from './engine/workflow-output-schema.ts'
-export { outstandingPauseRequest, unliftedPause } from './engine/workflow-pause.ts'
 export { confirmedAccountedMandate } from './engine/workflow-pr-binding.ts'
 export { ciExactSchema } from './engine/workflow-receipt-exact.ts'
 export {

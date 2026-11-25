@@ -1,12 +1,12 @@
 import type { FramingProposal } from '../engine/uw-framing-receipt-schema.ts'
-import { accountingEffects } from './omp-operator-confirmation-accounting.ts'
-import { summaryField } from './omp-operator-confirmation-field.ts'
+import { accountingDetails } from './omp-operator-confirmation-accounting.ts'
+import { PARTIAL, summaryField } from './omp-operator-confirmation-field.ts'
 
 type Member = FramingProposal['input']['members'][number]
 type Plan = FramingProposal['members'][number]
 
-function identityEffects(plan: Plan): string[] {
-  if (!plan.allocation) return []
+function identityDetails(plan: Plan | undefined): string[] {
+  if (!plan?.allocation) return []
   const lines: string[] = []
   const before = [
     ...(plan.nativeAnalysis?.analysis.criterionSources ?? []),
@@ -18,87 +18,96 @@ function identityEffects(plan: Plan): string[] {
     lines.push(summaryField('  Identité retirée : ', `${id}${item ? ` — ${item.statement}` : ''}`))
   }
   for (const assignment of plan.allocation.assignments) {
-    const item = after.find((entry) => entry.id === assignment.id)
-    lines.push(summaryField('  Nouvelle identité : ', `${assignment.id}${item ? ` — ${item.statement}` : ''}`))
+    lines.push(summaryField('  Nouvelle identité : ', assignment.id))
   }
   for (const item of after) {
     const previous = before.find((entry) => entry.id === item.id)
     if (previous && previous.statement !== item.statement)
-      lines.push(
-        summaryField('  Identité avant : ', `${item.id} — ${previous.statement}`),
-        summaryField('  Identité après : ', `${item.id} — ${item.statement}`),
-      )
+      lines.push(summaryField('  Identité reformulée, avant : ', `${item.id} — ${previous.statement}`))
   }
   return lines
 }
 
+function memberScope(member: Member): string {
+  const slot = member.slot
+  return slot.kind === 'new' ? slot.repository : `${slot.uw.repository} : ${slot.uw.target}`
+}
+
+function existingMemberEffects(
+  kind: Member['kind'],
+  observed: Extract<Member['slot'], { kind: 'existing' }>['observed'],
+): string[] {
+  const lines = [
+    kind === 'uw'
+      ? '  Effet : remplacer le titre et le corps par le titre et la spécification proposés'
+      : '  Effet : remplacer le titre et le corps par le titre et le contenu du repère proposés',
+  ]
+  if (observed.nativeParent) lines.push(summaryField('  Parent actuel : ', observed.nativeParent.target))
+  if (observed.children.length)
+    lines.push(summaryField('  Enfants actuels : ', observed.children.map((child) => child.target).join(', ')))
+  if (observed.blockers.length)
+    lines.push(summaryField('  Blocages actuels : ', observed.blockers.map((blocker) => blocker.target).join(', ')))
+  return lines
+}
+
 function memberEffects(member: Member, plan: Plan | undefined): string[] {
-  const scope = member.slot.kind === 'new' ? member.slot.repository : member.slot.uw.target
   const action = member.slot.kind === 'new' ? 'Créer' : 'Modifier'
-  const lines = [summaryField(`${action} : `, member.title), summaryField('  Périmètre : ', scope)]
-  if (member.slot.kind === 'existing') {
-    lines.push(
-      summaryField(
-        '  Effet : ',
-        `remplacer le titre et le corps de ${scope} par ${member.title} et la spécification proposée`,
-      ),
-    )
-    const observed = member.slot.observed
-    if (observed.nativeParent) lines.push(summaryField('  Parent actuel : ', observed.nativeParent.target))
-    if (observed.children.length)
-      lines.push(summaryField('  Enfants actuels : ', observed.children.map((child) => child.target).join(', ')))
-    if (observed.blockers.length)
-      lines.push(summaryField('  Blocages actuels : ', observed.blockers.map((blocker) => blocker.target).join(', ')))
+  const lines = [summaryField(`${action} : `, member.title), summaryField('  Périmètre : ', memberScope(member))]
+  if (member.slot.kind === 'existing') lines.push(...existingMemberEffects(member.kind, member.slot.observed))
+  if (member.kind === 'wayfinder') {
+    if (member.slot.kind === 'new') lines.push('  Effet : publier le repère')
+    lines.push(summaryField('  Label de repère cible : ', member.label))
+    return lines
   }
+  if (member.slot.kind === 'new') lines.push('  Effet : publier la spécification proposée')
   if (plan?.tier) lines.push(summaryField('  Niveau proposé : ', plan.tier))
-  if (member.kind === 'wayfinder') return [...lines, summaryField('  Effet : ', `publier le repère ${member.label}`)]
-  lines.push('  Effet : publier la spécification et les relations proposées')
-  if (plan) lines.push(...identityEffects(plan))
+  const allocated = plan?.allocation?.assignments.length ?? 0
+  const retired = plan?.allocation?.retirements.length ?? 0
+  if (allocated || retired) lines.push(`  Identités : ${allocated} à attribuer, ${retired} à retirer`)
   if (member.labels.add.length) lines.push(summaryField('  Labels à ajouter : ', member.labels.add.join(', ')))
   if (member.labels.remove.length) lines.push(summaryField('  Labels à retirer : ', member.labels.remove.join(', ')))
   return lines
 }
 
-function memberContents(member: Member): string[] {
-  const lines = [summaryField('Détails métier : ', member.title)]
-  if (member.kind === 'wayfinder') return [...lines, summaryField('  Contenu du repère : ', member.body)]
-  for (const item of member.draft.criteria) lines.push(summaryField('  Critère : ', item.statement))
-  for (const item of member.draft.invariants) lines.push(summaryField('  Invariant : ', item.statement))
-  for (const item of member.draft.exclusions) lines.push(summaryField('  Exclusion : ', item))
-  for (const item of member.draft.openQuestions) lines.push(summaryField('  Question ouverte : ', item))
-  if (member.draft.sections.origin) lines.push(summaryField('  Origine : ', member.draft.sections.origin))
-  if (member.draft.sections.context) lines.push(summaryField('  Contexte : ', member.draft.sections.context))
-  if (member.draft.sections.change) lines.push(summaryField('  Changement : ', member.draft.sections.change))
+function memberContents(member: Member, plan: Plan | undefined): string[] {
+  if (member.kind === 'wayfinder') return [summaryField('Contenu du repère : ', member.body)]
+  const spec = plan?.allocation?.spec ?? member.draft
+  const lines: string[] = []
+  if (spec.criteria.length) lines.push('Critères finaux')
+  for (const item of spec.criteria) {
+    const id = 'id' in item ? item.id : item.draftKey
+    lines.push(summaryField('  ', `${id} — ${item.statement}`))
+  }
+  if (spec.invariants.length) lines.push('Invariants finaux')
+  for (const item of spec.invariants) {
+    const id = 'id' in item ? item.id : item.draftKey
+    lines.push(summaryField('  ', `${id} — ${item.statement}`))
+  }
+  for (const item of spec.exclusions) lines.push(summaryField('Exclusion : ', item))
+  for (const item of spec.openQuestions) lines.push(summaryField('Question ouverte : ', item))
+  if (spec.sections.origin) lines.push(summaryField('Origine : ', spec.sections.origin))
+  if (spec.sections.context) lines.push(summaryField('Contexte : ', spec.sections.context))
+  if (spec.sections.change) lines.push(summaryField('Changement : ', spec.sections.change))
   return lines
 }
 
 type CoverageCriterion = FramingProposal['input']['coverage'][number]['assignments'][number]['criterion']
 
-function criterionDescription(
-  criterion: CoverageCriterion,
-  member: Member | undefined,
-  plan: Plan | undefined,
-): string {
-  const id =
-    criterion.kind === 'existing'
-      ? criterion.id
-      : (plan?.allocation?.assignments.find((item) => item.draftKey === criterion.draftKey)?.id ?? criterion.draftKey)
-  const items = member?.kind === 'uw' ? [...member.draft.criteria, ...member.draft.invariants] : []
-  const item = items.find((entry) =>
-    criterion.kind === 'existing'
-      ? entry.kind === 'existing' && entry.id === criterion.id
-      : entry.kind === 'new' && entry.draftKey === criterion.draftKey,
-  )
-  return `${id}${item ? ` — ${item.statement}` : ''}`
+function criterionId(criterion: CoverageCriterion, plan: Plan | undefined): string {
+  if (criterion.kind === 'existing') return criterion.id
+  return plan?.allocation?.assignments.find((item) => item.draftKey === criterion.draftKey)?.id ?? criterion.draftKey
 }
 
-function coverageEffects(proposal: FramingProposal, names: Map<string, string>): string[] {
+function coverageEffects(
+  proposal: FramingProposal,
+  names: ReadonlyMap<string, string>,
+  plans: ReadonlyMap<string, Plan>,
+): string[] {
   const lines: string[] = []
   for (const coverage of proposal.input.coverage) {
-    const member = proposal.input.members.find((item) => item.slot.key === coverage.parent)
-    const plan = proposal.members.find((item) => item.key === coverage.parent)
+    const plan = plans.get(coverage.parent)
     for (const assignment of coverage.assignments) {
-      const criterion = criterionDescription(assignment.criterion, member, plan)
+      const criterion = criterionId(assignment.criterion, plan)
       const children = assignment.children.map((child) => names.get(child) ?? child).join(', ')
       lines.push(
         summaryField('Couverture : ', `${names.get(coverage.parent) ?? coverage.parent} — ${criterion} → ${children}`),
@@ -116,18 +125,18 @@ function coverageEffects(proposal: FramingProposal, names: Map<string, string>):
 }
 
 export function framingSummary(proposal: FramingProposal): string[] {
-  const lines = ['Proposition à examiner', 'Appliquer les créations, modifications et relations de ce cadrage ?']
+  const lines = [
+    'Proposition à examiner',
+    'Appliquer les créations, modifications et relations de ce cadrage ?',
+    'Tickets et effets',
+  ]
   const names = new Map(
-    proposal.input.members.map((member) => [
-      member.slot.key,
-      `${member.title} (${member.slot.kind === 'new' ? member.slot.repository : `${member.slot.uw.repository} : ${member.slot.uw.target}`})`,
-    ]),
+    proposal.input.members.map((member) => [member.slot.key, `${member.title} (${memberScope(member)})`]),
   )
-  for (const member of proposal.input.members) {
-    const plan = proposal.members.find((item) => item.key === member.slot.key)
-    lines.push(...memberEffects(member, plan))
-    if (member.kind === 'uw') lines.push(...accountingEffects(proposal, member, plan))
-  }
+  const plans = new Map(proposal.members.map((plan) => [plan.key, plan]))
+  for (const member of proposal.input.members) lines.push(...memberEffects(member, plans.get(member.slot.key)))
+  if (proposal.input.edges.length || proposal.input.coverage.length || proposal.input.foundations.length)
+    lines.push('', 'Relations et couverture')
   for (const edge of proposal.input.edges) {
     if (edge.kind === 'parent-child')
       lines.push(
@@ -144,8 +153,27 @@ export function framingSummary(proposal: FramingProposal): string[] {
         ),
       )
   }
-  lines.push(...coverageEffects(proposal, names))
-  for (const member of proposal.input.members) lines.push(...memberContents(member))
-  lines.push('Les effets peuvent être partiels ; aucun retour arrière automatique.')
+  lines.push(...coverageEffects(proposal, names, plans))
+  for (const member of proposal.input.members) {
+    const contents = memberContents(member, plans.get(member.slot.key))
+    if (contents.length) lines.push('', summaryField('Contenu final : ', member.title), ...contents)
+  }
+  lines.push('', PARTIAL)
+  return lines
+}
+
+export function framingDetails(proposal: FramingProposal): string[] {
+  const plans = new Map(proposal.members.map((plan) => [plan.key, plan]))
+  const lines: string[] = []
+  for (const member of proposal.input.members) {
+    if (member.kind !== 'uw') continue
+    const plan = plans.get(member.slot.key)
+    const identities = identityDetails(plan)
+    const accounting = accountingDetails(proposal, member, plan)
+    if (!identities.length && !accounting.length) continue
+    lines.push('', summaryField('Vérification du cadrage : ', member.title))
+    if (identities.length) lines.push('Identités (textes finaux dans le résumé)', ...identities)
+    lines.push(...accounting)
+  }
   return lines
 }

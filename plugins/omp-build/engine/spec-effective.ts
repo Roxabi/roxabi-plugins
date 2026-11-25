@@ -11,10 +11,9 @@ import { resolveAcceptedSpec, resolveAcceptedSpecAt } from './workflow-accepted-
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { historyFor, mandatesOf } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 export type SpecEffectiveRequest = { own: OwnSpecRef; histories: readonly DecodedHistory[] } & (
-  | { mode: 'historical'; versionVector: SpecVersionVector; assessmentReplay?: AssessmentReplayContext }
+  | { mode: 'historical'; versionVector: SpecVersionVector }
   | { mode: 'current'; graph: UwGraphObservation }
 )
 
@@ -36,7 +35,7 @@ function acceptedAt(ref: OwnSpecRef, input: SpecEffectiveRequest): AcceptedOwnSp
   }
   const matches: AcceptedOwnSpec[] = []
   for (const mandate of mandatesOf(history)) {
-    const result = resolveAcceptedSpecAt(mandate, input.histories, ref, input.assessmentReplay)
+    const result = resolveAcceptedSpecAt(mandate, input.histories, ref)
     if (result.ok && sameOwnSpecRef(result.spec.ref, ref)) matches.push(result.spec)
   }
   const [match] = matches

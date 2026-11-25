@@ -1,32 +1,24 @@
 import { missingContextOf } from './action-context.ts'
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
+import { sameInputRef } from './action-input-refs.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
-import { equalScope } from './record-diagnostics.ts'
+import { sameRef } from './record-diagnostics.ts'
 import type { ReceiptRecord } from './workflow-control.ts'
 
-export function succeeds(
-  history: DecodedHistory,
-  old: ReceiptRecord,
-  candidate: ReceiptRecord,
-  replayStart = false,
-): boolean {
+export function succeeds(history: DecodedHistory, old: ReceiptRecord, candidate: ReceiptRecord): boolean {
   if (
     old.payload.phase !== 'result' ||
-    (candidate.payload.phase !== 'result' &&
-      !(replayStart && candidate.payload.phase === 'start' && candidate.payload.action === 'assess-spec')) ||
+    candidate.payload.phase !== 'result' ||
     old.payload.action !== candidate.payload.action ||
     old.payload.actionId === candidate.payload.actionId
   )
     return false
   let oldInputs = old.payload.inputs
   let newInputs = candidate.payload.inputs
-  if (
-    old.payload.action === 'plan-review' &&
-    candidate.payload.action === 'plan-review' &&
-    candidate.payload.phase === 'result'
-  ) {
+  if (old.payload.action === 'plan-review' && candidate.payload.action === 'plan-review') {
     const contribution = old.payload.contributions.find(
       (item) => producerOutputValid('plan-review', item.structured) && missingContextOf(item.structured) !== null,
     )
@@ -39,7 +31,8 @@ export function succeeds(
     oldInputs = oldSlot.action.inputs
     newInputs = newSlot.action.inputs
   }
-  if (oldInputs.fingerprint === newInputs.fingerprint || !validateActionInputs(newInputs).ok) return false
+  if (oldInputs.fingerprint === newInputs.fingerprint || !authenticateHistoricalActionInputs(newInputs, [history]).ok)
+    return false
   if (
     canonicalValueDigest(old.payload.exactInputs) !== canonicalValueDigest(candidate.payload.exactInputs) ||
     canonicalValueDigest(old.payload.mandate) !== canonicalValueDigest(candidate.payload.mandate)
@@ -63,28 +56,27 @@ function hasNewLineageContext(
     canonicalValueDigest(oldInputs.stageSources) !== canonicalValueDigest(newInputs.stageSources)
   )
     return false
-  if (!oldRefs.every((ref) => newRefs.some((nextRef) => canonicalValueDigest(ref) === canonicalValueDigest(nextRef))))
-    return false
+  if (!oldRefs.every((ref) => newRefs.some((nextRef) => sameInputRef(ref, nextRef)))) return false
+  const negative = { kind: old.kind, recordId: old.recordId, scope: history.source.scope }
   const lineage = newRefs.filter(
     (ref) =>
       ref.source === 'record' &&
+      sameRef(ref.record, negative) &&
       ref.selector === '/payload' &&
-      ref.record.kind === 'action-receipt' &&
-      ref.record.recordId === old.recordId &&
-      equalScope(ref.record.scope, history.source.scope) &&
       ref.digest === canonicalValueDigest(old.payload),
   )
   if (lineage.length !== 1) return false
   const priorRefs = [
     ...oldRefs,
     ...previous.acceptedSources,
-    ...previous.deliveryData.map(({ role: _role, ...ref }) => ref),
+    ...previous.deliveryData,
     ...previous.repositoryReferences,
+    ...previous.plugin.files,
     ...oldInputs.stageSources,
   ]
   return newRefs.some(
     (ref) =>
-      canonicalValueDigest(ref) !== canonicalValueDigest(lineage[0]) &&
-      !priorRefs.some((oldRef) => canonicalValueDigest(oldRef) === canonicalValueDigest(ref)),
+      (ref.source !== 'record' || !sameRef(ref.record, negative)) &&
+      !priorRefs.some((oldRef) => sameInputRef(oldRef, ref)),
   )
 }

@@ -152,23 +152,20 @@ function blobBytes(oid: string): Buffer | null {
     return looseObject(oid, 'blob')
   } catch {
     try {
-      return git(toolingRepo(), ['cat-file', 'blob', oid], 'buffer')
+      return git(toolingRepo(), ['--no-replace-objects', 'cat-file', 'blob', oid], 'buffer')
     } catch {
       return null
     }
   }
 }
 
-function commitExists(oid: string): boolean {
+function objectIdentity(oid: string | undefined): { __typename: string; oid: string } | null {
+  if (oid === undefined || !SHA.test(oid)) return null
   try {
-    looseObject(oid, 'commit')
-    return true
+    const type = git(toolingRepo(), ['--no-replace-objects', 'cat-file', '-t', oid], 'utf8').trim()
+    return { __typename: type.charAt(0).toUpperCase() + type.slice(1), oid }
   } catch {
-    try {
-      return git(toolingRepo(), ['cat-file', '-t', oid], 'utf8').trim() === 'commit'
-    } catch {
-      return false
-    }
+    return null
   }
 }
 
@@ -201,7 +198,9 @@ function toolingObject(expression: string): { oid: string } | null {
       return { oid: loosePath(commit, expression.slice(41)) }
     } catch {
       // Packed objects and nonstandard fixture repositories retain Git's exact semantics.
-      const [head, oid] = git(toolingRepo(), ['rev-parse', 'HEAD', expression], 'utf8').trim().split('\n')
+      const [head, oid] = git(toolingRepo(), ['--no-replace-objects', 'rev-parse', 'HEAD', expression], 'utf8')
+        .trim()
+        .split('\n')
       if (head !== commit || oid === undefined || !SHA.test(oid)) return null
       return { oid }
     }
@@ -216,6 +215,7 @@ export function toolingGraphql(query: string, vars: Record<string, string>): unk
   if (fields.length === 0) return undefined
   const includesBlobText = /\bbyteSize\b/.test(query)
   const repository: Record<string, Record<string, unknown> | null> = {}
+  if (query.includes('commit:object(oid:$commit)')) repository.commit = objectIdentity(vars.commit)
   for (const field of fields) {
     const object = toolingObject(vars[field[2] ?? ''] ?? '')
     repository[field[1] ?? 'object'] = object !== null && includesBlobText ? blobObject(object.oid) : object
@@ -228,7 +228,8 @@ export function toolingBlobRoute(context: Context): boolean {
   if (method !== undefined && method !== 'GET') return false
   const commit = context.sub?.match(COMMIT)?.[1]
   if (commit !== undefined) {
-    if (!commitExists(commit)) fail(`gh: tooling commit ${commit} is not in the fixture repository`)
+    if (objectIdentity(commit)?.__typename !== 'Commit')
+      fail(`gh: tooling commit ${commit} is not in the fixture repository`)
     writeStdout(`${JSON.stringify({ sha: commit })}\n`)
     return true
   }

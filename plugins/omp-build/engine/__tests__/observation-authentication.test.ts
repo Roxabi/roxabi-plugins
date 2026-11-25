@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { assessCriterionReview } from '../criterion-admission.ts'
 import { criterionEvidenceSchema, producerCriterionDeclarationSchema } from '../criterion-evidence-schema.ts'
 import { observationAuthenticationDiagnostics } from '../delivery-eligibility.ts'
@@ -8,12 +10,21 @@ import {
   contentReading,
   evidenceDeclaration,
   evidenceRef,
+  observeFixtureContentReading,
   passingTest,
   satisfied,
   solo,
 } from './criterion-admission-fixture.ts'
+import { shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
+import { history } from './workflow-test-support.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
+
+function implementationInputs(repositoryReferences: Receipt['payload']['inputs']['manifest']['repositoryReferences']) {
+  const base = acceptedActionInputs(shippedFeatureMandate(), 'implement')
+  const manifest = { ...base.manifest, repositoryReferences }
+  return { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+}
 
 function fixture() {
   const evidence = criterionEvidenceSchema.parse({
@@ -50,19 +61,11 @@ function fixture() {
       actionId: 'implement-region',
       admission: { admitted: true },
       native,
-      inputs: {
-        manifest: {
-          repositoryReferences: evidence.references,
-          plugin: { files: [] },
-          expandedContext: [],
-          acceptedSources: [],
-          deliveryData: [],
-        },
-        stageSources: [],
-      },
+      inputs: implementationInputs(evidence.references),
     },
   } as unknown as Receipt
-  return { evidence, producer, data, native, receipt }
+  const histories = [observeFixtureContentReading(history([]))]
+  return { evidence, producer, data, native, receipt, histories }
 }
 
 describe('native observation authentication', () => {
@@ -77,9 +80,9 @@ describe('native observation authentication', () => {
   })
 
   test('binds the exact child, submission, evidence and pinned references', () => {
-    const { evidence, native, receipt } = fixture()
+    const { evidence, native, receipt, histories } = fixture()
     const authenticate = (candidate: Receipt, pins = evidence.references) =>
-      observationAuthenticationDiagnostics(evidence, [], pins, candidate)
+      observationAuthenticationDiagnostics(evidence, histories, pins, candidate)
     expect(authenticate(receipt)).toEqual([])
     const changed = (patch: Record<string, unknown>): Receipt =>
       ({
@@ -147,20 +150,8 @@ describe('native observation authentication', () => {
     expect(authenticate(receipt, [])).not.toEqual([])
     const noProducerPins = {
       ...receipt,
-      payload: {
-        ...receipt.payload,
-        inputs: {
-          manifest: {
-            repositoryReferences: [],
-            plugin: { files: [] },
-            expandedContext: [],
-            acceptedSources: [],
-            deliveryData: [],
-          },
-          stageSources: [],
-        },
-      },
-    } as unknown as Receipt
+      payload: { ...receipt.payload, inputs: implementationInputs([]) },
+    } as Receipt
     expect(authenticate(noProducerPins)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -172,8 +163,8 @@ describe('native observation authentication', () => {
   })
 
   test('authenticated observation still requires an independent supporting verdict', () => {
-    const { evidence, receipt } = fixture()
-    expect(observationAuthenticationDiagnostics(evidence, [], evidence.references, receipt)).toEqual([])
+    const { evidence, receipt, histories } = fixture()
+    expect(observationAuthenticationDiagnostics(evidence, histories, evidence.references, receipt)).toEqual([])
     const supported = satisfied(evidence, { criterionKind: 'content' })
     const row = supported.examined[0]
     const input = {

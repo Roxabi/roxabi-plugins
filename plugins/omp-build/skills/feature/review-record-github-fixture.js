@@ -1,7 +1,7 @@
 import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { toolingGh } from '../../testing/review-record-pin.js'
 import core from '../../vendor/kit-head-authorization/index.cjs'
 import { nativeGraphResponse } from './review-record-native-fixture.js'
-import { toolingGh } from './review-record-pin.js'
 
 const TIME = '2026-01-01T00:03:00Z'
 

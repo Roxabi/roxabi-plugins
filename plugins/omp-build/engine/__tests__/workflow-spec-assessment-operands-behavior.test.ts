@@ -6,7 +6,6 @@ import { actionInputDigest, canonicalActionOperands } from '../action-input.ts'
 import { actionInputManifestSchema } from '../action-input-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import { failedCheckEvidenceDigest } from '../record-digests.ts'
-import { actionRequestSchema } from '../uw-action-command-schema.ts'
 import { prepareMaterialAcceptance } from '../workflow-material-acceptance.ts'
 import { actionReceiptPayloadSchema } from '../workflow-receipt-schema.ts'
 import {
@@ -116,18 +115,6 @@ describe('workflow Spec assessment operand binding and freshness', () => {
       },
     }
     expect(actionInputManifestSchema.safeParse({ ...payload.inputs.manifest, operands: wrongRef }).success).toBe(false)
-    const request = {
-      actionId: 'action',
-      purpose: 'assess-spec',
-      subject: payload.inputs.manifest.subject,
-      code: payload.inputs.manifest.code,
-      stageSources: [],
-      expandedContext: [],
-      operands,
-    }
-    expect(actionRequestSchema.safeParse(request).success).toBe(true)
-    expect(actionRequestSchema.safeParse({ ...request, operands: undefined }).success).toBe(false)
-    expect(actionRequestSchema.safeParse({ ...request, purpose: 'plan' }).success).toBe(false)
   })
 
   test('binds native CI observations and rejects missing or wrong-purpose operands', () => {
@@ -163,18 +150,6 @@ describe('workflow Spec assessment operand binding and freshness', () => {
       exactInputs: { ...exactInputs, ...rerun, evidenceDigest: rerunDigest },
     }
     expect(actionInputDigest({ ...manifest, operands: changed })).not.toBe(actionInputDigest(manifest))
-    const request = {
-      actionId: 'ci',
-      purpose: 'attribute-ci',
-      subject: manifest.subject,
-      code: manifest.code,
-      stageSources: [],
-      expandedContext: [],
-      operands,
-    }
-    expect(actionRequestSchema.safeParse(request).success).toBe(true)
-    expect(actionRequestSchema.safeParse({ ...request, operands: undefined }).success).toBe(false)
-    expect(actionRequestSchema.safeParse({ ...request, operands: source.operands }).success).toBe(false)
   })
 
   test('keeps a pending authenticated material assessment through date-only current metadata drift', () => {

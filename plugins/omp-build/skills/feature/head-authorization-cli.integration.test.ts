@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { runHeadAuthorization } from './head-authorization-cli.js'
+import { PR, reviewHistory } from './review-record-fixture.js'
 import { base, dispose, openState, pull } from './testing/gh-simulator/sim-transport-fixture.ts'
 
 const head = 'a'.repeat(40)
@@ -16,9 +17,7 @@ const scope = {
   baseSha: 'b'.repeat(40),
   authorId: 3,
 }
-const clean = { source: { complete: true, diagnostics: [] }, diagnostics: [], operations: [] }
-
-function fixture(history: unknown = clean) {
+function fixture() {
   const snapshot = { scope, previous: 10 }
   const policy = { operatorIds: [5] }
   const repo = { owner: 'acme', repo: 'app' }
@@ -30,29 +29,26 @@ function fixture(history: unknown = clean) {
     issueAuthorization: vi.fn(async () => ({ id: 11 })),
     withdrawAuthorization: vi.fn(async () => ({ id: 12 })),
   }
-  const readHistory = vi.fn(async () => history)
-  const refreshAdmission = vi.fn(async () => ({ state: { admitted: head, records: { head } } }))
   const options = {
     cwd: '/repo',
     authorization: api,
     gh: vi.fn(),
-    git: vi.fn(),
-    env: {},
     operationId: () => 'operation',
-    readHistory,
-    refreshAdmission,
   }
-  return { api, options, snapshot, policy, repo, readHistory, refreshAdmission }
+  return { api, options, snapshot, policy, repo }
 }
 
 const manual = ['issue-manual', '--pr', '7', '--head', head, '--evidence', 'opaque://review/1']
 
 describe('head authorization CLI', () => {
-  it('issues, inspects and withdraws through the real CLI and GitHub-shaped gh transport', () => {
+  it.each(['ordinary', 'native-history'] as const)('issues, inspects and withdraws for a %s PR', (kind) => {
+    const history = reviewHistory(kind === 'native-history' ? [{ head, verdict: 'Request changes' }] : [])
+    expect(history.operations.length > 0).toBe(kind === 'native-history')
+    const comments = history.source.comments.map(({ body, author }) => ({ body, author }))
     const box = openState(
       base({
-        remoteRefs: { main: 'b'.repeat(40) },
-        prs: { 10: pull(10, 'feature', head, { baseRefOid: 'b'.repeat(40) }) },
+        remoteRefs: { main: scope.baseSha },
+        prs: { [PR]: pull(PR, 'feature', head, { baseRefOid: scope.baseSha, comments }) },
       }),
     )
     try {
@@ -68,17 +64,23 @@ describe('head authorization CLI', () => {
         PATH: `${bin}:${process.env.PATH}`,
         GH_SIM_STATE: box.file,
       }
-      const invoke = (args: string[]) => {
-        const result = spawnSync('bun', [cli, ...args], { cwd: box.root, env, encoding: 'utf8' })
+      const invoke = (args: string[]) => spawnSync('bun', [cli, ...args], { cwd: box.root, env, encoding: 'utf8' })
+      const read = (args: string[]) => {
+        const result = invoke(args)
         expect(result.status, result.stderr).toBe(0)
         return JSON.parse(result.stdout)
       }
-      const issued = invoke(['issue-manual', '--pr', '10', '--head', head, '--evidence', 'review:human'])
+      const pr = String(PR)
+      const wrongHead = invoke(['issue-manual', '--pr', pr, '--head', scope.baseSha, '--evidence', 'review:human'])
+      expect(wrongHead.status).toBe(1)
+      expect(wrongHead.stderr).toContain('reviewed head does not match current PR head')
+      expect(read(['inspect', '--pr', pr])).toMatchObject({ allowed: false, receipt: null })
+      const issued = read(['issue-manual', '--pr', pr, '--head', head, '--evidence', 'review:human'])
       expect(issued.record).toMatchObject({ kind: 'grant', source: 'manual', headSha: head, evidence: 'review:human' })
-      expect(invoke(['inspect', '--pr', '10'])).toMatchObject({ allowed: true, receipt: { id: issued.id } })
-      const withdrawal = invoke(['withdraw', '--pr', '10', '--reason', 'operator stop'])
+      expect(read(['inspect', '--pr', pr])).toMatchObject({ allowed: true, receipt: { id: issued.id } })
+      const withdrawal = read(['withdraw', '--pr', pr, '--reason', 'operator stop'])
       expect(withdrawal.record).toMatchObject({ kind: 'withdraw', evidence: 'operator stop' })
-      expect(invoke(['inspect', '--pr', '10'])).toMatchObject({ allowed: false, receipt: { id: withdrawal.id } })
+      expect(read(['inspect', '--pr', pr])).toMatchObject({ allowed: false, receipt: { id: withdrawal.id } })
     } finally {
       dispose(box.root)
     }
@@ -107,32 +109,6 @@ describe('head authorization CLI', () => {
     expect(result.stderr).toContain('head must be a lowercase 40-character SHA')
   })
 
-  it('requires the native owner guard for any native operation', async () => {
-    const f = fixture({ ...clean, operations: [{ authority: 'foreign' }] })
-    await runHeadAuthorization(manual, f.options)
-    expect(f.refreshAdmission).toHaveBeenCalledWith(
-      '/repo',
-      7,
-      f.options.gh,
-      f.options.git,
-      {
-        records: { head },
-        landingBase: 'main',
-        landingContext: { name: 'main', tip: scope.baseSha },
-      },
-      false,
-    )
-    expect(f.api.issueAuthorization).toHaveBeenCalledOnce()
-    expect(f.api.issueAuthorization).toHaveBeenCalledWith(expect.objectContaining({ requireBaseSha: true }))
-  })
-
-  it('refuses a spent or otherwise refused native owner', async () => {
-    const f = fixture({ ...clean, operations: [{}] })
-    f.refreshAdmission.mockResolvedValueOnce({ terminal: { result: { reason: 'review-bound' } } } as never)
-    await expect(runHeadAuthorization(manual, f.options)).rejects.toThrow('native owner did not admit')
-    expect(f.api.issueAuthorization).not.toHaveBeenCalled()
-  })
-
   it('reports uncertainty when a possibly accepted manual grant cannot be withdrawn', async () => {
     const f = fixture()
     f.api.issueAuthorization.mockRejectedValueOnce(new Error('readback unavailable'))
@@ -142,16 +118,6 @@ describe('head authorization CLI', () => {
       withdrawalOperationId: expect.any(String),
     })
     expect(f.api.withdrawAuthorization).toHaveBeenCalledOnce()
-  })
-
-  it.each([
-    { ...clean, source: { complete: false, diagnostics: [] } },
-    { ...clean, source: { complete: true, diagnostics: [{}] } },
-    { ...clean, diagnostics: [{}] },
-  ])('refuses incomplete or diagnosed source history', async (history) => {
-    const f = fixture(history)
-    await expect(runHeadAuthorization(manual, f.options)).rejects.toThrow('history is incomplete or invalid')
-    expect(f.api.issueAuthorization).not.toHaveBeenCalled()
   })
 
   it('refuses a different or malformed reviewed head before publication', async () => {
@@ -165,7 +131,7 @@ describe('head authorization CLI', () => {
     expect(f.api.issueAuthorization).not.toHaveBeenCalled()
   })
 
-  it('routes inspection and withdrawal without manufacturing admission', async () => {
+  it('routes inspection and withdrawal without capturing a grant snapshot', async () => {
     const f = fixture()
     await expect(runHeadAuthorization(['inspect', '--pr', '7'], f.options)).resolves.toEqual({ allowed: false })
     await expect(
@@ -180,6 +146,6 @@ describe('head authorization CLI', () => {
       operationId: 'operation',
       reason: 'operator stop',
     })
-    expect(f.readHistory).not.toHaveBeenCalled()
+    expect(f.api.captureAuthorization).not.toHaveBeenCalled()
   })
 })

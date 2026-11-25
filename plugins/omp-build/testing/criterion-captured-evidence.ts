@@ -4,6 +4,27 @@ import { type CriterionEvidence, criterionEvidenceSchema } from '../engine/crite
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 
+function declarationAt(record: CanonicalRecord | undefined, selector: string, mandate: MandateRecord) {
+  if (record?.kind === 'fix-result') {
+    const match = /^\/payload\/criterionReceipt\/criteria\/(0|[1-9]\d*)$/.exec(selector)
+    return match === null ? undefined : record.payload.criterionReceipt?.criteria[Number(match[1])]
+  }
+  const match = /^\/payload\/structured\/criteria\/(0|[1-9]\d*)$/.exec(selector)
+  if (
+    match === null ||
+    record?.kind !== 'action-receipt' ||
+    (record.payload.action !== 'implement' && record.payload.action !== 'integrate') ||
+    record.payload.phase !== 'result' ||
+    record.payload.admission?.admitted !== true ||
+    record.repository !== mandate.repository ||
+    record.target !== mandate.target ||
+    record.payload.structured === null ||
+    !('criteria' in record.payload.structured)
+  )
+    return undefined
+  return record.payload.structured.criteria[Number(match[1])]
+}
+
 export function capturedCriterionEvidence(options: {
   mandate: MandateRecord
   inputs: Pick<ActionInputs, 'manifest'>
@@ -32,28 +53,15 @@ export function capturedCriterionEvidence(options: {
     return evidence
   }
   const selectedEvidence = (selection: ActionInputs['manifest']['deliveryData'][number]) => {
-    if (selection.role !== 'implementation' || selection.record.kind !== 'action-receipt') return undefined
-    const match = /^\/payload\/structured\/criteria\/(0|[1-9]\d*)$/.exec(selection.selector)
-    if (match === null) return undefined
-    const implementation = issueRecords.find(
-      (record) =>
-        record.kind === 'action-receipt' &&
-        record.recordId === selection.record.recordId &&
-        record.repository === selection.record.scope.repository &&
-        record.target === selection.record.scope.target,
+    if (selection.role !== 'implementation') return undefined
+    const record = issueRecords.find(
+      (candidate) =>
+        candidate.kind === selection.record.kind &&
+        candidate.recordId === selection.record.recordId &&
+        candidate.repository === selection.record.scope.repository &&
+        candidate.target === selection.record.scope.target,
     )
-    if (
-      implementation?.kind !== 'action-receipt' ||
-      (implementation.payload.action !== 'implement' && implementation.payload.action !== 'integrate') ||
-      implementation.payload.phase !== 'result' ||
-      implementation.payload.admission?.admitted !== true ||
-      implementation.repository !== mandate.repository ||
-      implementation.target !== mandate.target ||
-      implementation.payload.structured === null ||
-      !('criteria' in implementation.payload.structured)
-    )
-      return undefined
-    const declaration = implementation.payload.structured.criteria[Number(match[1])]
+    const declaration = declarationAt(record, selection.selector, mandate)
     if (
       declaration?.target.id !== 'C1' ||
       declaration.verification !== 'evidence' ||

@@ -9,9 +9,6 @@ import type { WorkflowEvidence } from './feature-engine.ts'
 import type { UwRead } from './uw-contract.ts'
 import { type CurrentOwnSpecFacts, readAssessmentSpecFacts, readCurrentOwnSpecFacts } from './uw-current-facts.ts'
 import { createInstalledObservedUwReadPort, UwGraphUnavailableError } from './uw-read-port.ts'
-import { configPinDigest, effectiveWorkflowConfig } from './workflow-config-digest.ts'
-import { SUPPORTED_CONFIG_VERSIONS } from './workflow-graph.ts'
-import { additionalRequirementsOf } from './workflow-overrides.ts'
 
 type FreshUwDeliveryAdmission = { admission: UwAdmission } | { diagnostics: readonly UwDiagnostic[] } | null
 
@@ -21,9 +18,6 @@ export type FeatureAdmissionObservation = {
   deliveryAdmission: FreshUwDeliveryAdmission
   facts: {
     currentSpec: CurrentOwnSpecFacts['currentSpec'] | null
-    productVersion: string
-    configDigest: string
-    supportedConfigVersions: readonly string[]
   }
 }
 
@@ -109,9 +103,6 @@ export async function assembleObservationBase(
   })
   if (!assembled.ok) return { kind: 'blocked', reason: assembled.reason, diagnostics: assembled.diagnostics }
   const { evidence, delivery } = assembled
-  const productVersion = context.engine.shippedProductVersion()
-  const requirements = additionalRequirementsOf(mandate?.payload.config.effective)
-  const effectiveConfig = effectiveWorkflowConfig(productVersion, requirements)
   const current = await observedCurrentRead(selected, uwRead, evidence.causal.observation)
   if ('kind' in current) return current
   const currentFacts = await currentSpecFacts(selected, current.read, evidence.causal)
@@ -122,9 +113,6 @@ export async function assembleObservationBase(
     deliveryAdmission: currentFacts.deliveryAdmission,
     facts: {
       currentSpec: currentFacts.currentSpec,
-      productVersion,
-      configDigest: configPinDigest(effectiveConfig),
-      supportedConfigVersions: SUPPORTED_CONFIG_VERSIONS,
     },
   }
 }

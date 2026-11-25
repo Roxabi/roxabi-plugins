@@ -136,6 +136,7 @@ export function resolveCorrectionRequestBasis(
   fix: FixRequest,
   decision: Decision,
   catalogues: ReviewClassCatalogues,
+  histories: readonly DecodedHistory[] = [history],
 ): Result<{
   originalCandidate: string
   expectedRemoteHead: string
@@ -143,7 +144,7 @@ export function resolveCorrectionRequestBasis(
   base: string
 }> {
   if (!accounted(history, fix) || !accounted(history, decision)) return failure()
-  const bindings = validateDecisionBindings(decision, history, catalogues)
+  const bindings = validateDecisionBindings(decision, history, catalogues, histories)
   if (!bindings.admissible) return { ok: false, diagnostics: bindings.diagnostics }
   const basis = resolveCorrectionRootBasis(history, fix)
   return basis.ok && originalDecisionMatches(history, fix, decision, basis.value.originalCandidate) ? basis : failure()

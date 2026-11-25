@@ -6,6 +6,7 @@ import {
   causeHistoryReferences,
   gh as githubClient,
   isRetainedReportPublication,
+  observeHistoricalPins,
   readComposedWorkflowHistory,
 } from '../dist/contracts.js'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
@@ -72,8 +73,17 @@ export function createPublicationContextResolver(
     if (isRetainedReportPublication(record)) return historicalPromotionContext(record, options)
     const candidate = candidateInputs(record)
     const scopes = publicationScopes(record, history, externalHistories, candidate)
-    const cited = await readReviewInputHistories(history, { ...options, gh }, [...scopes.values()])
+    const github = { ...options, gh }
+    const cited = await readReviewInputHistories(history, github, [...scopes.values()])
     if (!cited.ok) return cited
+    // Review and live cause projections authenticate historical inputs and citations during encoding.
+    if (
+      record.kind === 'review' ||
+      record.kind === 'cause-disposition' ||
+      record.kind === 'cause-operation' ||
+      record.kind === 'debt-receipt'
+    )
+      await observeHistoricalPins(history, github, { candidate: record })
     const catalogues = await loadReviewClassCatalogues({
       histories: [history, ...cited.value],
       candidateInputs: candidate,

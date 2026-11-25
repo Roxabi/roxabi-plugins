@@ -5,9 +5,9 @@ import type { Scope } from '../engine/record-values.ts'
 import { selectedReviewOperations, summarizeReviews } from '../engine/review-state.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
-import { sourceRef } from '../roxabi/uw-action-observe.ts'
 import type { IntegrationContext } from './nested-delivery-integration.ts'
 import type { AdmittedIntegration } from './nested-delivery-integration-admission.ts'
+import { sourceRef } from './workflow-record-pins.ts'
 
 function coverageReference(scope: Scope, mandate: MandateRecord, admitted: AdmittedIntegration) {
   return {

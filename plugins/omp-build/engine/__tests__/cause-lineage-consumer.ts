@@ -1,5 +1,8 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
+import { observeHistoricalPins } from '../../adapters/github/historical-pins.ts'
+import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { fixtureCauseGhResponse } from '../../testing/cause-input-fixture.ts'
 import { assessAdjudicationSuccessor, assessHistoricalAdjudicationSuccessor } from '../cause-adjudication-successor.ts'
 import { validateCauseAdjudication, validateCauseDispositionRecords } from '../cause-disposition.ts'
 import { causeValidationFrame } from '../cause-validation-frame.ts'
@@ -11,6 +14,15 @@ const path = process.argv[2]
 if (!path) throw new Error('Expected serialized authenticated fixture')
 const fixture = JSON.parse(readFileSync(path, 'utf8')) as ReturnType<typeof lineageFixture>
 const histories = [fixture.own, fixture.source]
+const github = {
+  cwd: process.cwd(),
+  gh: async (_cwd: string, args: string[]) => {
+    const response = fixtureCauseGhResponse(args) ?? fixtureCatalogueGhResponse(args)
+    if (response === null) throw new Error(`Unexpected Git blob request: ${args.join(' ')}`)
+    return response
+  },
+}
+await Promise.all(histories.map((history) => observeHistoricalPins(history, github)))
 const catalogues = cataloguesForInputs(fixture.inputs)
 assert.deepEqual(validateCauseDispositionRecords({ records: recordsOf(fixture.own), histories, catalogues }), [])
 assert.equal(fixture.transitions.length, 16)

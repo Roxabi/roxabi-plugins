@@ -185,6 +185,7 @@ export async function readAuthenticatedCause(
   const inputs = resolveCauseActionInputs({
     decision: source.value,
     history: home(loaded, subject.decision.scope),
+    histories: loaded,
     context,
   })
   if (!inputs.ok) fail(inputs.diagnostics)

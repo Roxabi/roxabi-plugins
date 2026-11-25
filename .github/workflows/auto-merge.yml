@@ -1,23 +1,20 @@
-# Auto-merge PRs that have been reviewed and passed all required checks.
-# Enables GitHub's native auto-merge (`gh pr merge --auto --merge`) once the
-# latest code-review record by vars.OMP_BUILD_AUTOMATION_LOGIN names this head.
-# synchronize disarms first, with the job token, even if that label is gone.
-# dependabot[bot] skips the record only. A rebase still disarms — re-label after it.
-# Reviewed PRs are not retargeted.
-#
-# Dependabot guard: only semver-minor and semver-patch updates whose every
-# commit author is dependabot[bot] are eligible for auto-merge.
+# The reviewed label arms GitHub native auto-merge (merge commit) on the event head
+# of a PR into the default branch, unless a check on that head already failed.
+# The App only arms, never merges: GitHub merges once the PR_Main ruleset (ci and
+# App-issued review on that head) holds for the base in effect at that time. A PR
+# that is already mergeable is refused with the merge command to run instead.
+# A head change (synchronize) or a base change (edited) disarms with the job
+# token and drops the reviewed label.
+# Dependabot can arm only for semver-minor or semver-patch updates whose every
+# commit author is dependabot[bot].
 #
 # This workflow arms merge. It does not close issues.
 name: Auto Merge
 
 on:
-  # This privileged workflow is selected from the base repository's default
-  # branch. Candidate files are checked out only as isolated admission data.
+  # This privileged workflow runs from the base repository and checks out no code.
   pull_request_target:
-    types: [labeled, synchronize, closed]
-  push:
-    branches: [main]
+    types: [labeled, synchronize, edited]
 
 # Each job receives only the permissions it needs.
 permissions: {}
@@ -36,16 +33,17 @@ jobs:
       issues: write
     if: >-
       github.event_name == 'pull_request_target' &&
-      github.event.action != 'closed' &&
-      (github.event.action == 'synchronize' || contains(github.event.pull_request.labels.*.name, 'reviewed'))
+      (github.event.action == 'synchronize' ||
+        (github.event.action == 'edited' && github.event.changes.base != null) ||
+        github.event.label.name == 'reviewed')
     timeout-minutes: 5
     steps:
-      # Moved head: disable auto-merge before dropping a reviewed label.
+      # Moved head or base: disable auto-merge before dropping a reviewed label.
       # GH_TOKEN is the job token (contents and pull-requests write), not the app token,
       # so a mint failure cannot leave the merge armed.
       # always() keeps the step reachable if a prior step failed.
       - name: Disarm auto-merge on a moved head
-        if: always() && github.event.action == 'synchronize'
+        if: always() && github.event.action != 'labeled'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -95,26 +93,22 @@ jobs:
             armed=1
           fi
           if [ "$armed" -eq 1 ] || [ "$labeled" -eq 1 ]; then
-            echo "::error::head moved after review — auto-merge disarmed"
+            echo "::error::head or base moved after review — auto-merge disarmed"
             exit 1
           fi
 
-
       # roxabi-ci App token (ephemeral, 1 h) — pushes re-trigger CI,
-      # which GITHUB_TOKEN cannot do. Scoped to this repository and narrowed
-      # to the reader and arming calls: issue and comment reads, check and
-      # status reads, and native auto-merge, whose merge needs contents and,
+      # which GITHUB_TOKEN cannot do. Native merge needs contents write and,
       # for a PR touching .github/workflows, workflows write.
       - name: Mint app token (roxabi-ci)
         id: app
-        if: github.event.action == 'labeled'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        if: github.event.action == 'labeled' && github.event.pull_request.base.ref == github.event.repository.default_branch
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
         with:
           app-id: ${{ vars.ROXABI_CI_APP_ID }}
           private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
           permission-checks: read
           permission-contents: write
-          permission-issues: read
           permission-pull-requests: write
           permission-statuses: read
           permission-workflows: write
@@ -126,65 +120,13 @@ jobs:
       # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
       - name: Fetch dependabot metadata
         id: dependabot-meta
-        if: github.event.action == 'labeled' && github.event.pull_request.user.login == 'dependabot[bot]'
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch &&
+          github.event.pull_request.user.login == 'dependabot[bot]'
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98
         with:
           github-token: ${{ steps.app.outputs.token }}
-
-
-      # The reviewed PR's checkout is data for the admission reader only. Never
-      # run a script, package manager, config, or preload from this path. Checkout
-      # v7 requires this explicit opt-in for fork heads on pull_request_target.
-      - name: Checkout reviewed candidate data
-        id: candidate
-        if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
-        continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .omp-build-gate-candidate
-          fetch-depth: 0
-          persist-credentials: false
-          allow-unsafe-pr-checkout: true
-
-      # This path is never allowed to inherit a PR-controlled file. The gate
-      # below requires both this checkout's successful outcome and its verified
-      # repository/ref before it invokes the reader.
-      - name: Clear trusted review tooling path
-        id: clear-gate-tools
-        if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
-        continue-on-error: true
-        run: rm -rf .omp-build-gate-tools
-
-      # OMP_BUILD_TOOLING_SHA is a repository variable populated only during
-      # explicit T5 activation/bootstrap. pull_request_target keeps the workflow
-      # and arming decision base-defined; this immutable pin protects only the
-      # reader that inspects candidate data without executing it.
-      - name: Checkout pinned review tooling
-        id: gate-tools
-        if: >-
-          github.event.action == 'labeled' &&
-          github.event.pull_request.user.login != 'dependabot[bot]' &&
-          vars.OMP_BUILD_TOOLING_SHA != ''
-        continue-on-error: true
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          repository: Roxabi/roxabi-plugins
-          ref: ${{ vars.OMP_BUILD_TOOLING_SHA }}
-          path: .omp-build-gate-tools
-          fetch-depth: 1
-          persist-credentials: false
-
-      # No dependency install runs next to the app token: the pinned tooling
-      # checkout carries its committed dist/contracts.js bundle.
-      - name: Set up pinned Bun for review gate
-        id: review-gate-bun
-        if: github.event.action == 'labeled' && github.event.pull_request.user.login != 'dependabot[bot]'
-        continue-on-error: true
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
-        with:
-          bun-version: 1.4.3
-          token: ''
 
       - name: Enable auto-merge (merge commit)
         id: arm
@@ -193,28 +135,23 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          REVIEWER: ${{ vars.OMP_BUILD_AUTOMATION_LOGIN }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
-          TOOLING_SHA: ${{ vars.OMP_BUILD_TOOLING_SHA }}
-          CANDIDATE_OUTCOME: ${{ steps.candidate.outcome }}
-          CLEAR_TOOLS_OUTCOME: ${{ steps.clear-gate-tools.outcome }}
-          TOOLS_OUTCOME: ${{ steps.gate-tools.outcome }}
-          BUN_OUTCOME: ${{ steps.review-gate-bun.outcome }}
-          STOP_GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.run_id }}
           DEPENDABOT_UPDATE_TYPE: ${{ steps.dependabot-meta.outputs.update-type }}
-          BUN_OPTIONS: ''
-          BUN_PRELOAD: ''
-          NODE_OPTIONS: ''
         run: |
           set -euo pipefail
           refuse() {
             echo "::error::$1"
             exit 1
           }
-          # Dependabot does not require a review record, but only verified
-          # semver-minor/patch updates with exclusively Dependabot-authored commits
-          # can take this path.
+          # Only the default branch has a ruleset requiring ci and review; gh merges
+          # an already mergeable PR into any other branch at once.
+          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            refuse "refusing auto-merge: PR targets $BASE_REF, not $DEFAULT_BRANCH"
+          fi
+          # Only verified semver-minor/patch updates with exclusively
+          # Dependabot-authored commits can take the Dependabot lane.
           if [ "$AUTHOR" = "dependabot[bot]" ]; then
             case "$DEPENDABOT_UPDATE_TYPE" in
               version-update:semver-minor | version-update:semver-patch) ;;
@@ -224,84 +161,78 @@ jobs:
               refuse 'refusing auto-merge: could not read Dependabot commit authors'
             fi
             if ! printf '%s' "$commits" | jq -e \
-              '(.commits | length > 0) and all(.commits[]; (.authors | type == "array" and length > 0 and all(.[]; .login == "dependabot[bot"])))' >/dev/null; then
+              '(.commits | length > 0) and all(.commits[]; (.authors | type == "array" and length > 0 and all(.[]; .login == "dependabot[bot]")))' >/dev/null; then
               refuse 'refusing auto-merge: Dependabot PR has a non-Dependabot commit author'
             fi
-            SHA="$HEAD_SHA"
-          else
-            if ! [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-              refuse 'refusing auto-merge: OMP_BUILD_TOOLING_SHA must be a 40-lowercase-hex repository variable'
-            fi
-            if [ "$CLEAR_TOOLS_OUTCOME" != "success" ] || [ "$TOOLS_OUTCOME" != "success" ]; then
-              refuse 'refusing auto-merge: immutable trusted review tooling was not available'
-            fi
-            if [ "$CANDIDATE_OUTCOME" != "success" ] || [ "$BUN_OUTCOME" != "success" ]; then
-              refuse 'refusing auto-merge: candidate data checkout or pinned Bun was not available'
-            fi
-            TOOLS="$GITHUB_WORKSPACE/.omp-build-gate-tools"
-            CANDIDATE="$GITHUB_WORKSPACE/.omp-build-gate-candidate"
-            if [ ! -f "$TOOLS/plugins/omp-build/scripts/review-gate.ts" ] || [ ! -f "$TOOLS/plugins/omp-build/dist/contracts.js" ]; then
-              refuse 'refusing auto-merge: trusted review tooling is incomplete'
-            fi
-            if ! actual_tooling_sha=$(git -C "$TOOLS" rev-parse HEAD 2>/dev/null) || [ "$actual_tooling_sha" != "$TOOLING_SHA" ]; then
-              refuse 'refusing auto-merge: trusted review tooling did not resolve to OMP_BUILD_TOOLING_SHA'
-            fi
-            if ! tooling_origin=$(git -C "$TOOLS" remote get-url origin 2>/dev/null) || [ "$tooling_origin" != 'https://github.com/Roxabi/roxabi-plugins' ]; then
-              refuse 'refusing auto-merge: trusted review tooling did not come from Roxabi/roxabi-plugins'
-            fi
-            if ! candidate_sha=$(git -C "$CANDIDATE" rev-parse HEAD 2>/dev/null) || [ "$candidate_sha" != "$HEAD_SHA" ]; then
-              refuse 'refusing auto-merge: candidate data checkout did not resolve to the PR head'
-            fi
-            # Candidate data is a sibling directory. Run Bun from the immutable
-            # pinned tooling checkout, with no ambient Bun or Node preload.
-            if ! gate_result=$(cd "$TOOLS" && bun plugins/omp-build/scripts/review-gate.ts \
-              --repository "$GITHUB_REPOSITORY" \
-              --pr "$PR_NUMBER" \
-              --head "$HEAD_SHA" \
-              --automation-login "$REVIEWER" \
-              --candidate-cwd "$CANDIDATE" \
-              --tooling-sha "$TOOLING_SHA"); then
-              printf '%s\n' "$gate_result" >&2
-              if [[ "$gate_result" == *'"reason":"ci-failed"'* ]]; then
-                observation="$RUNNER_TEMP/omp-build-required-stop.json"
-                printf '%s\n' "$gate_result" > "$observation"
-                if ! (cd "$TOOLS" && bun plugins/omp-build/scripts/review-stop.ts \
-                  --repository "$GITHUB_REPOSITORY" \
-                  --pr "$PR_NUMBER" \
-                  --head "$HEAD_SHA" \
-                  --automation-login "$REVIEWER" \
-                  --run-id "$RUN_ID" \
-                  --observation "$observation"); then
-                  echo "::error::could not persist the observed ci-failed stop"
-                fi
-              fi
-              refuse 'refusing auto-merge: shared review admission refused the current PR'
-            fi
-            printf '%s\n' "$gate_result"
-            SHA="$HEAD_SHA"
           fi
-          if [ "$SHA" != "$HEAD_SHA" ] || [ "${#SHA}" -ne 40 ]; then
+          # The label event may be stale, and GitHub offers no expected base on a
+          # merge: read the live PR right before each arming call.
+          live_check() {
+            if ! live=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json id,baseRefName,headRefOid,mergeStateStatus,statusCheckRollup); then
+              refuse 'refusing auto-merge: could not read the pull request'
+            fi
+            if ! live_base=$(printf '%s' "$live" | jq -er '.baseRefName') || [ "$live_base" != "$DEFAULT_BRANCH" ]; then
+              refuse "refusing auto-merge: PR now targets ${live_base:-an unknown branch}, not $DEFAULT_BRANCH"
+            fi
+            if ! live_head=$(printf '%s' "$live" | jq -er '.headRefOid') || [ "$live_head" != "$HEAD_SHA" ]; then
+              refuse 'refusing auto-merge: the head moved after the label'
+            fi
+            if ! pr_id=$(printf '%s' "$live" | jq -er '.id'); then
+              refuse 'refusing auto-merge: could not read the pull request'
+            fi
+            # Checks outside the ruleset (e.g. trufflehog) do not block native
+            # auto-merge, so a head whose check already failed does not arm. Only the
+            # latest run of each check counts, and this workflow's own runs (a
+            # disarm fails on purpose) never do.
+            if ! failed=$(printf '%s' "$live" | jq -er --arg self "$GITHUB_WORKFLOW" '[.statusCheckRollup[]
+              | select((.workflowName // "") != $self)
+              | {key: [(.__typename // ""), (.workflowName // ""), (.name // .context // "")],
+                 at: (.startedAt // .createdAt // ""),
+                 failed: (((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
+                   or ((.state // "") | ascii_downcase | IN("failure", "error")))}]
+              | group_by(.key) | map(max_by(.at)) | map(select(.failed) | .key[2]) | join(", ")'); then
+              refuse 'refusing auto-merge: could not read the checks of the head'
+            fi
+            if [ -n "$failed" ]; then
+              refuse "refusing auto-merge: failed checks on the head: $failed"
+            fi
+            # The App only arms: a direct merge could land on a base changed after
+            # this read. A PR that is mergeable now is merged by a person.
+            case "$(printf '%s' "$live" | jq -r '.mergeStateStatus')" in
+              CLEAN | UNSTABLE | HAS_HOOKS)
+                refuse "refusing auto-merge: PR is already mergeable; merge it with: gh pr merge $PR_NUMBER --repo $GITHUB_REPOSITORY --merge --match-head-commit $HEAD_SHA" ;;
+            esac
+          }
+          arm() {
+            # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+            gh api graphql -f id="$pr_id" -f head="$HEAD_SHA" -f query='
+              mutation($id: ID!, $head: GitObjectID!) {
+                enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $head, mergeMethod: MERGE}) {
+                  pullRequest { autoMergeRequest { enabledAt } }
+                }
+              }' 2>&1
+          }
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             refuse 'refusing auto-merge without the reviewed commit'
           fi
-          set +e
-          out=$(gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA" 2>&1)
-          code=$?
-          set -e
-          if [ "$code" -ne 0 ]; then
+          live_check
+          if ! out=$(arm); then
             printf '%s\n' "$out" >&2
             if ! printf '%s' "$out" | grep -qi 'already enabled'; then
-              refuse 'refusing to enable auto-merge without the reviewed commit'
+              refuse 'refusing to enable auto-merge on the reviewed commit'
             fi
             gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-            if ! gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$SHA"; then
-              refuse 'refusing to enable auto-merge without the reviewed commit'
+            live_check
+            if ! out=$(arm); then
+              printf '%s\n' "$out" >&2
+              refuse 'refusing to enable auto-merge on the reviewed commit'
             fi
           fi
 
-      # This runs after every failed or skipped labeled-path admission, including
-      # an App-token mint failure before the reader can refuse. It uses the job
-      # token so cleanup is independent of the App token used by the reader.
-      - name: Disarm failed auto-merge admission
+      # A failed arming attempt, including App-token mint failure, is cleaned up
+      # with the independent job token.
+      - name: Disarm after failed arming
         if: always() && github.event.action == 'labeled' && steps.arm.outcome != 'success'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -337,12 +268,12 @@ jobs:
           cleanup_code=$?
           set -e
           if [ "$cleanup_code" -ne 0 ]; then
-            printf '::error::could not read failed-admission cleanup state: %s\n' "$cleanup_state"
+            printf '::error::could not read auto-merge cleanup state: %s\n' "$cleanup_state"
             exit 1
           fi
           if ! printf '%s' "$cleanup_state" | jq -e \
             '(.autoMergeRequest == null) and ([.labels[].name] | index("reviewed") | not)' >/dev/null; then
-            printf '::error::failed-admission cleanup remainder: %s\n' "$cleanup_state"
+            printf '::error::auto-merge cleanup remainder: %s\n' "$cleanup_state"
             cleanup_error=1
           fi
           if [ -n "$disable_error" ]; then
@@ -354,16 +285,3 @@ jobs:
           if [ "$cleanup_error" -ne 0 ]; then
             exit 1
           fi
-
-  update-behind-prs:
-    name: Update behind PRs
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Leave reviewed PRs on the commit that was reviewed
-        run: |
-          set -euo pipefail
-          echo "reviewed PRs are not retargeted — a new head needs a new review"
-          exit 0

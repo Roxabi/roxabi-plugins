@@ -1,24 +1,17 @@
-import { readWorkflowBinding } from '../dist/contracts.js'
+import { readWorkflowBinding, readWorkflowBindingForRevocation } from '../dist/contracts.js'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import type { ScopedRecordRef } from '../engine/record-references.ts'
 import type { MandateSelection } from '../engine/workflow-mandate.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { mandateParentHistories } from './feature-context.ts'
 import type { ContinueFeatureInput, ContinueFeatureResult } from './feature-contract.ts'
-import { bindsOwnPause, inhibit } from './feature-control.ts'
 import { asHistory } from './feature-delivery-facts.ts'
-import { disarmKnownTarget, disarmUnresolved } from './feature-disarm.ts'
-import { type Contracts, defaultGh, isRecord, loadContracts, type Scope } from './feature-engine.ts'
+import { type Contracts, defaultGh, loadContracts, type Scope } from './feature-engine.ts'
+import { type ResolvedTarget, resolveFeatureNativeTarget } from './feature-native-target.ts'
 import { issueReference } from './feature-selection.ts'
 import { type FixUwCausalContext, readFreshUwCausalContext } from './fix-uw-histories.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
-import { classifyIssueReference } from './prepare-canonical-checkout.ts'
 import { defaultGit, type SessionWorktreeIdentity, sessionWorktreeIdentity } from './workflow-checkout.ts'
-
-export type ResolvedTarget = Extract<
-  Awaited<ReturnType<Contracts['resolveNativeTarget']>>,
-  { status: 'issue' | 'pull-request' }
->
 
 export type FeatureContext = Readonly<{
   cwd: ContinueFeatureInput['cwd']
@@ -51,9 +44,9 @@ export async function resolveFeatureAuthority(
   const onPrincipal = identity.ok ? identity.onPrincipal : input.principal === true
   const context = await featureContext(input, git, gh)
   if ('kind' in context) return context
-  const resolved = await resolveNativeAuthority(input, exactMandateRef, context)
+  const resolved = await resolveNativeAuthority(input.reference, exactMandateRef, context)
   if ('kind' in resolved) return resolved
-  const histories = await readHistoryAuthority(input, exactMandateRef, resolved, context)
+  const histories = await readHistoryAuthority(exactMandateRef, resolved, context)
   if ('kind' in histories) return histories
   return { identity, onPrincipal, context, ...resolved, ...histories }
 }
@@ -63,8 +56,8 @@ function authorityFraming(
   exactMandateRef: ScopedRecordRef | undefined,
 ): ContinueFeatureResult | null {
   if (exactMandateRef !== undefined || issueReference(input.reference)) return null
-  if (input.control === 'pause' || input.control === 'abandon') {
-    return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
+  if (input.control === 'abandon') {
+    return { kind: 'blocked', reason: 'abandon-uncertain' }
   }
   return { kind: 'framing', source: { kind: 'free-text', acceptedArgs: input.reference } }
 }
@@ -76,25 +69,40 @@ async function featureContext(
 ): Promise<FeatureContext | ContinueFeatureResult> {
   const engine = await loadContracts()
   if (!('missing' in engine)) return { cwd: input.cwd, git, gh, engine }
-  if (input.control === 'pause' || input.control === 'abandon') {
-    await disarmUnresolved(gh, input.cwd, input.reference)
-    return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
-  }
   return { kind: 'blocked', reason: `engine-unavailable:${engine.missing}` }
+}
+
+/** Revocation needs the native target, not delivery authority or its Accepted Spec. */
+export async function resolveFeatureRevocation(
+  input: ContinueFeatureInput,
+): Promise<{ scope: Scope; mandate?: ScopedRecordRef & { kind: 'mandate' } } | ContinueFeatureResult> {
+  if (!issueReference(input.reference)) return { kind: 'blocked', reason: 'abandon-uncertain' }
+  const gh = input.gh ?? defaultGh()
+  const engine = await loadContracts()
+  if ('missing' in engine) return { kind: 'blocked', reason: `engine-unavailable:${engine.missing}` }
+  const context = { cwd: input.cwd, gh, engine }
+  const target = await resolveFeatureNativeTarget(input.reference, context)
+  if ('kind' in target) return target
+  if (target.status === 'issue') return { scope: target.scope }
+  const bound = await readWorkflowBindingForRevocation(target.scope, withRoxabiGitHubPolicy(context))
+  if (!bound.ok) return { kind: 'blocked', reason: bound.status === 'absent' ? 'binding-missing' : bound.status }
+  const { mandate } = bound
+  return { scope: mandate.scope, mandate }
 }
 
 type NativeAuthority = { target: ResolvedTarget; scope: Scope }
 
 async function resolveNativeAuthority(
-  input: ContinueFeatureInput,
+  reference: string,
   exactMandateRef: ScopedRecordRef | undefined,
   context: FeatureContext,
 ): Promise<NativeAuthority | ContinueFeatureResult> {
-  const target = await resolveNativeTarget(input.reference, exactMandateRef, context)
+  if (exactMandateRef !== undefined && exactMandateRef.kind !== 'mandate') {
+    return { kind: 'blocked', reason: 'exact-mandate-scope' }
+  }
+  const target = await resolveFeatureNativeTarget(reference, context, exactMandateRef?.scope)
   if ('kind' in target) return target
-  const exactProblem = await validateExactTarget(target, exactMandateRef, context)
-  if (exactProblem !== null) return exactProblem
-  const scope = await resolvePullRequestScope(input, target, context)
+  const scope = await resolvePullRequestScope(target, context)
   if ('kind' in scope) return scope
   if (
     exactMandateRef !== undefined &&
@@ -105,123 +113,33 @@ async function resolveNativeAuthority(
   return { target, scope }
 }
 
-/** Resolve an existing issue without consulting a pull request's workflow binding. */
-export async function resolveFramingReference(input: {
-  reference: string
-  cwd: FeatureContext['cwd']
-  gh: FeatureContext['gh']
-  engine: Contracts
-}): Promise<Scope | ContinueFeatureResult> {
-  const target = await resolveNativeTarget(input.reference, undefined, input)
-  if ('kind' in target) return target
-  return target.status === 'issue' ? target.scope : { kind: 'blocked', reason: 'framing-reference-not-issue' }
-}
-
-async function resolveNativeTarget(
-  reference: string,
-  exactMandateRef: ScopedRecordRef | undefined,
-  context: Pick<FeatureContext, 'cwd' | 'gh' | 'engine'>,
-): Promise<ResolvedTarget | ContinueFeatureResult> {
-  const options = { cwd: context.cwd, gh: context.gh }
-  const classified = classifyIssueReference(reference)
-  const qualified =
-    exactMandateRef === undefined && !('reason' in classified) && classified.repository !== null
-      ? context.engine.githubScope(classified.repository, classified.number)
-      : null
-  if (qualified !== null) {
-    const problem = await verifyRepository(context, qualified.repository)
-    if (problem !== null) return problem
-  }
-  const target =
-    exactMandateRef !== undefined
-      ? await context.engine.resolveNativeScope(exactMandateRef.scope, options)
-      : qualified !== null
-        ? await context.engine.resolveNativeScope(qualified, options)
-        : await context.engine.resolveNativeTarget(reference, options)
-  if (!isResolvedTarget(target)) return { kind: 'blocked', reason: target.status }
-  return target
-}
-
-async function validateExactTarget(
-  target: ResolvedTarget,
-  exactMandateRef: ScopedRecordRef | undefined,
-  context: FeatureContext,
-): Promise<ContinueFeatureResult | null> {
-  if (exactMandateRef === undefined) return null
-  if (
-    exactMandateRef.kind !== 'mandate' ||
-    target.scope.repository !== exactMandateRef.scope.repository ||
-    target.scope.target !== exactMandateRef.scope.target
-  ) {
-    return { kind: 'blocked', reason: 'exact-mandate-scope' }
-  }
-  return verifyRepository(context, exactMandateRef.scope.repository)
-}
-
 async function resolvePullRequestScope(
-  input: ContinueFeatureInput,
   target: ResolvedTarget,
   context: FeatureContext,
 ): Promise<Scope | ContinueFeatureResult> {
   if (target.status !== 'pull-request') return target.scope
   const bound = await readWorkflowBinding(target.scope, withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }))
   if (!bound.ok) {
-    if (input.control === 'pause' || input.control === 'abandon') {
-      await disarmKnownTarget(context.gh, context.cwd, target, null)
-      return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
-    }
     return { kind: 'blocked', reason: bound.status === 'absent' ? 'binding-missing' : bound.status }
   }
   const history = asHistory(bound.value.history)
   return history === null ? { kind: 'blocked', reason: 'binding-incomplete' } : history.source.scope
 }
 
-async function verifyRepository(
-  context: Pick<FeatureContext, 'cwd' | 'gh'>,
-  repository: string,
-): Promise<ContinueFeatureResult | null> {
-  try {
-    const current: unknown = JSON.parse(await context.gh(context.cwd, ['repo', 'view', '--json', 'nameWithOwner']))
-    if (!isRecord(current) || current.nameWithOwner !== repository) {
-      return { kind: 'blocked', reason: 'repository-mismatch' }
-    }
-    return null
-  } catch {
-    return { kind: 'blocked', reason: 'repository-unreadable' }
-  }
-}
-
 async function readHistoryAuthority(
-  input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   native: NativeAuthority,
   context: FeatureContext,
 ): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
-  const control = input.control
-  if (control === 'pause' || control === 'abandon') inhibit(native.scope, control)
   const options = { ...withRoxabiGitHubPolicy({ cwd: context.cwd, gh: context.gh }), gh: context.gh }
   const composed = await context.engine.readComposedWorkflowHistory([native.scope], options)
   if (!composed.ok || composed.histories[0] === undefined) {
-    return handleUnavailableHistory(input, native, context, composed.ok ? 'incomplete' : composed.reason)
+    return { kind: 'blocked', reason: composed.ok ? 'incomplete' : composed.reason }
   }
-  return selectHistoryAuthority(input, exactMandateRef, native, context, composed.histories[0], options)
-}
-
-async function handleUnavailableHistory(
-  input: ContinueFeatureInput,
-  native: NativeAuthority,
-  context: FeatureContext,
-  reason: string,
-): Promise<ContinueFeatureResult> {
-  if (input.control === 'pause' || input.control === 'abandon') {
-    await disarmKnownTarget(context.gh, context.cwd, native.target, null)
-    return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
-  }
-  return { kind: 'blocked', reason }
+  return selectHistoryAuthority(exactMandateRef, native, context, composed.histories[0], options)
 }
 
 async function selectHistoryAuthority(
-  input: ContinueFeatureInput,
   exactMandateRef: ScopedRecordRef | undefined,
   native: NativeAuthority,
   context: FeatureContext,
@@ -229,17 +147,10 @@ async function selectHistoryAuthority(
   options: { cwd: string; gh: NonNullable<ContinueFeatureInput['gh']> },
 ): Promise<Pick<FeatureAuthority, 'history' | 'parentHistories' | 'causal' | 'selection'> | ContinueFeatureResult> {
   const parents = await mandateParentHistories(context.engine, history, options)
-  if (!parents.ok) return disarmParents(input, native, context, parents.reason)
+  if (!parents.ok) return { kind: 'blocked', reason: parents.reason }
   const causal = await readFreshUwCausalContext(native.scope, [history, ...parents.parents], options)
-  if (!causal.ok) return disarmParents(input, native, context, causalRefusal(causal))
+  if (!causal.ok) return { kind: 'blocked', ...causalRefusal(causal) }
   const selection = context.engine.selectApplicableMandate(history, parents.parents, causal.value)
-  if (
-    exactMandateRef === undefined &&
-    input.control === 'pause' &&
-    bindsOwnPause(context.engine, selection, history, native.scope)
-  ) {
-    return { kind: 'paused', confirmed: true, reason: 'paused' }
-  }
   if (exactMandateRef !== undefined) {
     if (selection.status !== 'applicable') return { kind: 'blocked', reason: `exact-mandate-${selection.reason}` }
     if (selection.mandate === null || selection.mandate.recordId !== exactMandateRef.recordId) {
@@ -247,25 +158,4 @@ async function selectHistoryAuthority(
     }
   }
   return { history, parentHistories: parents.parents, causal: causal.value, selection }
-}
-
-async function disarmParents(
-  input: ContinueFeatureInput,
-  native: { target: ResolvedTarget; scope: Scope },
-  context: FeatureContext,
-  refusal: string | ReturnType<typeof causalRefusal>,
-): Promise<ContinueFeatureResult> {
-  if (input.control !== 'pause' && input.control !== 'abandon')
-    return typeof refusal === 'string' ? { kind: 'blocked', reason: refusal } : { kind: 'blocked', ...refusal }
-  await disarmKnownTarget(context.gh, context.cwd, native.target, null)
-  return { kind: 'blocked', reason: input.control === 'pause' ? 'pause-uncertain' : 'abandon-uncertain' }
-}
-
-function isResolvedTarget(value: unknown): value is ResolvedTarget {
-  return (
-    isRecord(value) &&
-    (value.status === 'issue' || value.status === 'pull-request') &&
-    'scope' in value &&
-    !('diagnostics' in value)
-  )
 }

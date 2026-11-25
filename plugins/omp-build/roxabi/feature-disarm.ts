@@ -6,7 +6,6 @@ import { disarmReviewedBeforePush } from '../skills/feature/landing-foundation.j
 import { linkedPullRequests, type PullRequestList, parsePullRequestList } from './feature-disarm-discovery.ts'
 import { authenticateOwnPullRequests, type SelectedMandateAuthority } from './feature-disarm-ownership.ts'
 import { isRecord, type Scope } from './feature-engine.ts'
-import { classifyIssueReference } from './prepare-canonical-checkout.ts'
 
 export type ControlTarget =
   | { status: 'issue'; scope: Scope; issue: { number: number } }
@@ -183,59 +182,5 @@ export async function disarmKnownTarget(
       discovery,
       ...(incomplete ? { note: 'pull-request-list-incomplete' } : {}),
     },
-  }
-}
-
-async function selectedLocalRepository(gh: Gh, cwd: string, repository: string): Promise<boolean> {
-  try {
-    const repo: unknown = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
-    return isRecord(repo) && repo.nameWithOwner === repository
-  } catch {
-    return false
-  }
-}
-
-export async function disarmUnresolved(gh: Gh, cwd: string, reference: string): Promise<void> {
-  const classified = classifyIssueReference(reference)
-  if ('reason' in classified || !Number.isSafeInteger(classified.number) || classified.number <= 0) return
-  const number = classified.number
-  let repository: string | null = null
-  if (classified.repository !== null) {
-    if (!(await selectedLocalRepository(gh, cwd, classified.repository))) return
-    repository = classified.repository
-  }
-  let isPullRequest = false
-  try {
-    await gh(cwd, ['pr', 'view', String(number), '--json', 'number'])
-    isPullRequest = true
-  } catch {
-    // Not a pull request. Attempt linked PRs only; do not assume Epic.
-  }
-  if (isPullRequest) {
-    try {
-      await disarmReviewedBeforePush(cwd, number, { gh })
-    } catch {
-      // Attempted. Do not claim pause-confirmed or reinterpret a failed withdrawal as an issue.
-    }
-    return
-  }
-  try {
-    if (repository === null) {
-      const repo: unknown = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner']))
-      if (!isRecord(repo) || typeof repo.nameWithOwner !== 'string') return
-      repository = repo.nameWithOwner
-    }
-    await disarmKnownTarget(
-      gh,
-      cwd,
-      {
-        status: 'issue',
-        scope: { repository, target: `${repository}#${number}` },
-        issue: { number },
-      },
-      null,
-    )
-  } catch {
-    // Attempted. Do not claim pause-confirmed.
   }
 }

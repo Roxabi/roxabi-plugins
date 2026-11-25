@@ -7,7 +7,7 @@ import { resolveSpecEffective } from './spec-effective.ts'
 import type { SpecEffective } from './spec-effective-schema.ts'
 import { toDiagnostics } from './uw-diagnostics.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import type { MandateRecord, ReceiptRecord } from './workflow-control.ts'
+import type { MandateRecord } from './workflow-control.ts'
 import { type PlanBlockerRef, type PlanOutput, planOutputSchema, planReviewSchema } from './workflow-output-schema.ts'
 import type { PlanMacro, WorkflowEvidence } from './workflow-plan.ts'
 import {
@@ -18,16 +18,11 @@ import {
   type ReviewContext,
 } from './workflow-plan-review-selection.ts'
 import { PLAN_REVIEW_SPECIALISTS } from './workflow-receipt-schema.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
-export function planMacro(
-  evidence: WorkflowEvidence,
-  mandate: MandateRecord | null,
-  options?: { contextLeaf?: ReceiptRecord; assessmentReplay?: AssessmentReplayContext },
-): PlanMacro {
+export function planMacro(evidence: WorkflowEvidence, mandate: MandateRecord | null): PlanMacro {
   const empty = emptyMacro(mandate, null)
   if (mandate === null) return empty('blocked', [diagnostic('mandate-absent', 'plan macro has no mandate')])
-  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories, options?.assessmentReplay)
+  const accepted = resolveAcceptedSpec(mandate, evidence.causal.histories)
   if (!accepted.ok) return empty('blocked', accepted.evidence)
   const effective = resolveSpecEffective({
     mode: 'current',
@@ -37,14 +32,7 @@ export function planMacro(
   })
   if (!effective.ok) return empty('blocked', toDiagnostics(effective.diagnostics))
   const acceptedEmpty = emptyMacro(mandate, effective.value.own.version)
-  const reviewContext = prepareReview(
-    evidence,
-    mandate,
-    accepted.spec,
-    effective.value,
-    acceptedEmpty,
-    options?.contextLeaf,
-  )
+  const reviewContext = prepareReview(evidence, mandate, accepted.spec, effective.value, acceptedEmpty)
   if ('macro' in reviewContext) return reviewContext.macro
   return evaluateReview(reviewContext, acceptedEmpty)
 }

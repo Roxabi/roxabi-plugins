@@ -59,11 +59,20 @@ export function executePinCommand(args: string[], input: SimCommandInput): SimCo
   }
 
   function handleSharedGraphql(): SimCommandResult | undefined {
-    if (args[0] === 'api' && args[1] === 'graphql') {
-      const expression = args.find((arg) => arg.startsWith(`expression=${shared}:`))?.slice('expression='.length)
-      if (expression)
-        return success(JSON.stringify({ data: { repository: { object: { oid: git('rev-parse', expression) } } } }))
+    if (args[0] !== 'api' || args[1] !== 'graphql') return undefined
+    const expression = args.find((arg) => arg.startsWith(`expression=${shared}:`))?.slice('expression='.length)
+    if (!expression) return undefined
+    const query = args.find((arg) => arg.startsWith('query='))
+    const repository: Record<string, unknown> = {
+      object: { oid: git('--no-replace-objects', 'rev-parse', expression) },
     }
+    if (query?.includes('commit:object(oid:$commit)')) {
+      repository.commit =
+        args.includes(`commit=${shared}`) && git('--no-replace-objects', 'cat-file', '-t', shared) === 'commit'
+          ? { __typename: 'Commit', oid: shared }
+          : null
+    }
+    return success(JSON.stringify({ data: { repository } }))
   }
 
   function handleTargetControls(): SimCommandResult | undefined {

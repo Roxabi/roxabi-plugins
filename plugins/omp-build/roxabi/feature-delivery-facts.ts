@@ -7,6 +7,8 @@ import {
   readNativePullRequestFacts,
   readWorkflowBinding,
 } from '../dist/contracts.js'
+import { inheritObservedGitPins } from '../engine/historical-git-pins.ts'
+import { inheritObservedRecordPins } from '../engine/historical-record-pins.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { explicitParentHistories } from './feature-context.ts'
@@ -34,7 +36,10 @@ export function scopeNumber(scope: Scope): number {
 
 export function asHistory(value: unknown): DecodedHistory | null {
   const parsed = decodedHistorySchema.safeParse(value)
-  return parsed.success ? parsed.data : null
+  if (!parsed.success) return null
+  inheritObservedGitPins((value as DecodedHistory).source, parsed.data.source)
+  inheritObservedRecordPins((value as DecodedHistory).source, parsed.data.source)
+  return parsed.data
 }
 
 export function historyForScope(histories: readonly unknown[], scope: Scope): DecodedHistory | null {

@@ -6,12 +6,10 @@ import { classifyHistory } from '../history-classification.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
 import { projectRecord } from '../record-projection.ts'
-import type { Scope } from '../record-values.ts'
 import type { MandateRecord } from '../workflow-control.ts'
-import { requireLandingMandate } from '../workflow-landing-admission.ts'
 import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import { landingFixtures, nativeBody, nativeSnapshot } from './workflow-authority-native-fixture.ts'
-import { binding, history, must, PARENT, SCOPE } from './workflow-test-support.ts'
+import { history, must, PARENT, SCOPE } from './workflow-test-support.ts'
 
 function nativeChild(body: string) {
   const snapshot = nativeSnapshot(SCOPE, body)
@@ -267,48 +265,6 @@ describe('workflow authority behavior', () => {
       ok: false,
       diagnostics: [expect.objectContaining({ code: 'revoked' })],
     })
-    const pull: Scope = { repository: SCOPE.repository, target: 'acme/app#99' }
-    const pullHistory = history([binding(boundChild, pull)], pull)
-    const code = 'b'.repeat(40)
-    const landingCausal = await observeFixtureNativeWorld({
-      root: SCOPE,
-      nodes,
-      histories: [childHistory, parentHistory, pullHistory],
-      pullRequests: [
-        {
-          scope: pull,
-          branch: 'feature/bounded',
-          base: 'main',
-          head: code,
-          baseTip: code,
-          state: 'OPEN',
-          mergeCommit: null,
-          author: 'operator',
-        },
-      ],
-      commits: [],
-      comparisons: [],
-    })
-    expect(
-      requireLandingMandate({
-        histories: landingCausal.histories,
-        authorityHistories: [childHistory, pullHistory, parentHistory],
-        catalogues: landingCausal.catalogues,
-        observation: landingCausal.observation,
-        uwGraph: landingCausal.observation.graph,
-        native: { branch: 'feature/bounded', base: 'main', pullRequest: pull, linkedIssueScopes: [SCOPE] },
-        parentScopes: [PARENT],
-        localInhibit: null,
-        current: {
-          productVersion: boundChild.payload.config.productVersion,
-          configVersion: boundChild.payload.config.version,
-          configDigest: boundChild.payload.config.digest,
-          supportedConfigVersions: [boundChild.payload.config.version],
-          proposedSpec: { ok: true, snapshot: nativeSnapshot(SCOPE, nativeBody) },
-          currentChildren: { ok: true, value: [] },
-        },
-      }),
-    ).toMatchObject({ ok: false })
   })
   test('permits Spec control through a mismatched parent commitment while delivery refuses the mismatch', async () => {
     const child = featureMandate()

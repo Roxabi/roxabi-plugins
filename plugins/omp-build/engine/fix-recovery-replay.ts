@@ -9,7 +9,7 @@ import { inspectProspectiveControls } from './fix-recovery-prospective-controls.
 import type { OpenedRef, RecoveryRef } from './fix-recovery-schema.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
-import { recordIntegrity } from './record-integrity.ts'
+import { nativeInstant, recordIntegrity } from './record-integrity.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Scope } from './record-values.ts'
 import type { Result } from './result.ts'
@@ -251,7 +251,15 @@ export function replayCloseInternal(
   const reconstructed = fixRecoveryProposalFromControl(record)
   if (!reconstructed.ok) return reconstructed
   const proposal = reconstructed.value
-  const facts = inspectRecoveryHistoricalFacts(proposal, input.histories)
+  // The cut can bind a pin-only reference only if its exact native parts predate this publication.
+  let publicationStartedAt = Infinity
+  for (const part of publication.value.parts) {
+    const created = nativeInstant(part.createdAt)
+    if (created === null) return fail('Recovery control has no native publication time')
+    publicationStartedAt = Math.min(publicationStartedAt, created)
+  }
+  if (!Number.isFinite(publicationStartedAt)) return fail('Recovery control has no native publication time')
+  const facts = inspectRecoveryHistoricalFacts(proposal, input.histories, publicationStartedAt)
   if (!facts.ok) return facts
   const lineage = unclosedLineage(facts.value.histories, proposal.uw, nextSeen)
   if (!matchesLineage(lineage, proposal))

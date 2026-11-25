@@ -7,9 +7,8 @@ import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { actionInputDigest } from '../action-input.ts'
 import type { DecodedHistory } from '../history-schema.ts'
 import { buildRecord, parseRecord } from '../record-construction.ts'
-import { resolveSpecIdentityLedger } from '../uw-identity.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
-import { resolveOwnSpecAuthority, selectApplicableMandate } from '../workflow-mandate-admission.ts'
+import { selectApplicableMandate } from '../workflow-mandate-admission.ts'
 import {
   type AssessmentState,
   acceptedAssessmentState,
@@ -114,7 +113,7 @@ describe('workflow Spec assessment behavior', () => {
     }
   })
 
-  test('allows only an authenticated current assessment replay without weakening other starts', async () => {
+  test('refuses historical assessment authority when its START has no confirmed RESULT', () => {
     const mandated = nativeMandate()
     const initial = mandateAssessmentState(mandated)
     const proposed = {
@@ -125,144 +124,11 @@ describe('workflow Spec assessment behavior', () => {
       coverage: initial.coverage,
     }
     const assessment = assessFixture(mandated, 'replay', initial, proposed, 'editorial', [history([mandated])])
-    const start = assessment.start
-    if (start.kind !== 'action-receipt' || start.payload.action !== 'assess-spec' || start.payload.phase !== 'start')
-      throw new Error('expected assessment start')
-    const context = { uw: SCOPE, actionId: start.payload.actionId, fingerprint: start.payload.inputs.fingerprint }
-    const issue = history([mandated, start])
-    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({ ok: false, reason: 'incomplete' })
-    expect(resolveAcceptedSpec(mandated, [issue], context)).toMatchObject({ ok: true })
-    const resolved = resolveAcceptedSpec(mandated, [issue], context)
-    if (!resolved.ok) throw new Error('expected authenticated replay')
-    const ledger = { uw: SCOPE, history: issue, histories: [issue], accepted: resolved.spec }
-    expect(resolveSpecIdentityLedger(ledger)).toMatchObject({ ok: false })
-    expect(resolveSpecIdentityLedger({ ...ledger, assessmentReplay: context })).toMatchObject({ ok: true })
-    expect(resolveSpecIdentityLedger({ ...ledger, assessmentReplay: { ...context, actionId: 'other' } })).toMatchObject(
-      { ok: false },
-    )
-    const historical = must(parseRecord({ ...mandated, recordId: 'historical-mandate', operationId: 'historical-op' }))
-    const foreignStart = {
-      ...start,
-      recordId: 'foreign-start',
-      operationId: 'foreign-op',
-      payload: { ...start.payload, mandate: { ...start.payload.mandate, recordId: historical.recordId } },
-    }
-    const combined = history([mandated, historical, start, foreignStart])
-    const foreignParts = new Set(
-      combined.operations.find((entry) => entry.recordId === foreignStart.recordId)?.parts.map((part) => part.nativeId),
-    )
-    const withForeign = decodeHistory({
-      ...combined.source,
-      comments: combined.source.comments.map((comment) =>
-        foreignParts.has(comment.nativeId) ? { ...comment, author: 'stranger' } : comment,
-      ),
-    })
-    expect(
-      resolveSpecIdentityLedger({
-        uw: SCOPE,
-        history: withForeign,
-        histories: [withForeign],
-        accepted: resolved.spec,
-        assessmentReplay: context,
-      }),
-    ).toMatchObject({ ok: true })
-    const causal = await observeFixtureNativeWorld({
-      root: SCOPE,
-      nodes: [
-        {
-          scope: SCOPE,
-          title: 'Bounded workflow',
-          body: nativeInitialBody,
-          updatedAt: '2026-10-21T00:00:00Z',
-          labels: ['size:S'],
-          parent: null,
-          children: [],
-          blockers: [],
-          state: 'OPEN',
-          stateReason: null,
-        },
-      ],
-      histories: [issue],
-      pullRequests: [],
-      commits: [],
-      comparisons: [],
-    })
-    expect(resolveOwnSpecAuthority(issue, [], causal)).toMatchObject({ ok: false })
-    expect(resolveOwnSpecAuthority(issue, [], causal, new Set(), context)).toMatchObject({ ok: true })
-    expect(resolveAcceptedSpec(mandated, [issue], { ...context, actionId: 'other' })).toMatchObject({ ok: false })
-    expect(resolveAcceptedSpec(mandated, [issue], { ...context, fingerprint: '0'.repeat(64) })).toMatchObject({
+    const issue = history([mandated, assessment.start])
+    expect(resolveAcceptedSpec(mandated, [issue])).toMatchObject({
       ok: false,
+      evidence: [{ code: 'action-uncertain', message: 'Spec assessment start has no confirmed result' }],
     })
-
-    const duplicate = must(parseRecord({ ...start, recordId: 'duplicate-start', operationId: 'duplicate-start-op' }))
-    expect(resolveAcceptedSpec(mandated, [history([mandated, start, duplicate])], context)).toMatchObject({ ok: false })
-    const other = assessFixture(mandated, 'another-pending', initial, proposed, 'editorial', [history([mandated])])
-    expect(resolveAcceptedSpec(mandated, [history([mandated, start, other.start])], context)).toMatchObject({
-      ok: false,
-    })
-    const conflicting = must(
-      buildRecord({
-        ...assessment.result,
-        payload: {
-          ...assessment.result.payload,
-          start: { ...assessment.result.payload.start, recordId: 'other-start' },
-        },
-      }),
-    )
-    expect(resolveAcceptedSpec(mandated, [history([mandated, start, conflicting])], context)).toMatchObject({
-      ok: false,
-    })
-
-    const operation = issue.operations.find((entry) => entry.recordId === start.recordId)
-    if (operation === undefined) throw new Error('missing start operation')
-    const altered = (changes: Partial<typeof operation>) => ({
-      ...issue,
-      operations: issue.operations.map((entry) => (entry === operation ? { ...entry, ...changes } : entry)),
-    })
-    expect(resolveAcceptedSpec(mandated, [altered({ authority: 'authority' })], context)).toMatchObject({ ok: false })
-    expect(resolveAcceptedSpec(mandated, [altered({ authority: 'foreign' })], context)).toMatchObject({ ok: false })
-    expect(
-      resolveAcceptedSpec(
-        mandated,
-        [
-          altered({
-            parts: operation.parts.map((part) => ({ ...part, author: 'other' })),
-          }),
-        ],
-        context,
-      ),
-    ).toMatchObject({ ok: false })
-    expect(resolveAcceptedSpec(mandated, [altered({ parts: [] })], context)).toMatchObject({ ok: false })
-    expect(
-      resolveAcceptedSpec(
-        mandated,
-        [
-          altered({
-            parts: operation.parts.map((part) => ({ ...part, nativeId: null })),
-          }),
-        ],
-        context,
-      ),
-    ).toMatchObject({ ok: false })
-    expect(
-      resolveAcceptedSpec(
-        mandated,
-        [
-          altered({
-            parts: operation.parts.map((part) => ({ ...part, updatedAt: '2025-01-01T00:00:01Z' })),
-          }),
-        ],
-        context,
-      ),
-    ).toMatchObject({ ok: false })
-    const invalidInputs = { ...start.payload.inputs, fingerprint: '0'.repeat(64) }
-    const invalidStart = { ...start, payload: { ...start.payload, inputs: invalidInputs } }
-    expect(
-      resolveAcceptedSpec(mandated, [history([mandated, invalidStart])], {
-        ...context,
-        fingerprint: invalidInputs.fingerprint,
-      }),
-    ).toMatchObject({ ok: false })
   })
 
   test('does not advance authority for an editorial assessment of a tier change', () => {

@@ -5,6 +5,7 @@ import {
   createGhIssueWritePorts,
   createIssueWriter,
   githubScope,
+  observeHistoricalPins,
   prepareSpecAllocation,
   readLandingFacts,
   readUwCompletionObservation,
@@ -18,7 +19,6 @@ import { defaultGh } from './feature-engine.ts'
 import { withRoxabiGitHubPolicy } from './github-policy.ts'
 import { loadReviewClassCatalogues } from './review-class-catalogues.ts'
 import { createUwAbandon } from './uw-abandon.ts'
-import type { TrustedHostPluginPin } from './uw-action-contract.ts'
 import { createCauseAdjudication } from './uw-cause-adjudication.ts'
 import { createCauseAdjustment } from './uw-cause-adjustment.ts'
 import { createCauseCreation } from './uw-cause-creation.ts'
@@ -26,7 +26,7 @@ import { guardedCauseWriter } from './uw-cause-guard.ts'
 import type { CreatedUwReadPort, OperatorPort, UwOperations } from './uw-contract.ts'
 import { createFramingPublicationPorts } from './uw-framing-ports.ts'
 import { createIdentityPublisher } from './uw-identity-publication.ts'
-import { createProductionActionPorts, createProductionDeliveryPorts } from './uw-input-readers.ts'
+import { createProductionDeliveryPorts } from './uw-input-readers.ts'
 import { createInstalledMaterialOperations } from './uw-installed-material-operations.ts'
 import { rootObservation } from './uw-installed-observation.ts'
 import { listInstalledReports } from './uw-installed-reports.ts'
@@ -41,8 +41,6 @@ export type InstalledUwOperationsOptions = {
   gh?: Gh
   /** Test-only expected publisher assertion; production derives it from the authenticated viewer. */
   readAuthor?: string
-  pluginPin?: TrustedHostPluginPin
-  artifactsDir?: string | null
 }
 
 function scopeOf(issue: IssueRef): Scope {
@@ -77,16 +75,9 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
   const issuePorts = guardParentInsertions(rawIssuePorts, guardParent)
   const writer = createIssueWriter(issuePorts)
   const publishIdentity = createIdentityPublisher(github, reader, createdReader)
-  const actionOptions = {
-    cwd: input.cwd,
-    gh,
-    readAuthor: authenticatedAuthor,
-    pluginPin: input.pluginPin,
-    artifactsDir: input.artifactsDir,
-  }
   const acceptMaterial = createInstalledMaterialOperations({ operator: input.operator, reader, github })
   return createUwOperations({
-    abandon: createUwAbandon({ operator: input.operator, reader, github }),
+    abandon: createUwAbandon({ operator: input.operator, github }),
     closeLinked: createLinkedClosure({
       github,
       readLanding: (pullRequest) =>
@@ -101,13 +92,21 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
       operator: input.operator,
       writer,
       github,
-      readObservation: (uw, seeds) =>
-        readUwCompletionObservation(
+      readObservation: async (uw, seeds, references) => {
+        const observation = await readUwCompletionObservation(
           uw,
           github,
           (histories) => loadReviewClassCatalogues({ histories, cwd: input.cwd, gh }),
           seeds,
-        ),
+        )
+        if (observation.status === 'complete' && references?.some((ref) => ref.source === 'git-file')) {
+          const home = observation.histories.find(
+            (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
+          )
+          if (home !== undefined) await observeHistoricalPins(home, github, { references, includeHistory: false })
+        }
+        return observation
+      },
     }),
     listReports: (uw) => listInstalledReports(uw, github),
     guardParent,
@@ -136,7 +135,6 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
     framingPublication: createFramingPublicationPorts(github, createdReader),
     acceptMaterial,
     scopeOf,
-    actions: createProductionActionPorts(actionOptions),
-    delivery: createProductionDeliveryPorts(actionOptions),
+    delivery: createProductionDeliveryPorts({ cwd: input.cwd, gh, readAuthor: authenticatedAuthor }),
   })
 }

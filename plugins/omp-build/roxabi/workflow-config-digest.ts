@@ -33,9 +33,12 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
-/** Digest of the complete serialized effective configuration pin. */
-export function configPinDigest(effective: ConfigPin): string {
-  return createHash('sha256').update(canonicalJson(effective)).digest('hex')
+/** Digest of the effective configuration; recorded producer versions are provenance, not config. */
+export function configPinDigest({ productVersion: _producer, graph, ...effective }: ConfigPin): string {
+  const { productVersion: _graphProducer, ...graphConfig } = graph
+  return createHash('sha256')
+    .update(canonicalJson({ ...effective, graph: graphConfig }))
+    .digest('hex')
 }
 
 /** Digest of the shipped edge table. Product version is not part of the digest. */

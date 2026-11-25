@@ -150,17 +150,16 @@ describe('GitHub authorization adapter', () => {
       operationId: 'manual',
     })
     expect((await auth.readAuthorization(f)).allowed).toBe(true)
-    const native = await auth.captureAuthorization(f)
+    const dependabot = await auth.captureAuthorization(f)
     f.state.base = 'd'.repeat(40)
     await expect(
       auth.issueAuthorization({
         ...f,
-        snapshot: native,
-        lane: 'reviewed',
-        source: 'native',
-        evidence: 'native',
-        operationId: 'native',
-        requireBaseSha: true,
+        snapshot: dependabot,
+        lane: 'dependabot',
+        source: 'dependabot',
+        evidence: 'ci',
+        operationId: 'dependabot',
       }),
     ).rejects.toThrow()
     expect(f.state.posts).toBe(1)

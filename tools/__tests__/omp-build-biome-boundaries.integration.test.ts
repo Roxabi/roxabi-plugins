@@ -167,7 +167,7 @@ describe('C5 Biome command boundaries', () => {
     )
     const cases = write(
       root,
-      'plugins/omp-build/scripts/review-gate-mandate.cases.ts',
+      'plugins/omp-build/runtime.cases.ts',
       '[1].forEach(async () => { await Promise.resolve() })\n',
     )
     const fixtureData = write(

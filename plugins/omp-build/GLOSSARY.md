@@ -38,15 +38,15 @@ Leaf UW delivery under a live mandate. `/feature` prepares authority and the wor
 _Avoid_: build, /build, /dev, /R-dev, omp-wt
 
 **Mandate**:
-The operator's accepted authority to deliver or correct a defined scope under a specified configuration. A correction-only mandate does not authorize landing.
+The operator's accepted authority to deliver or correct a defined scope, independent of the installed plugin release. A correction-only mandate does not authorize landing.
 _Avoid_: a session goal, a review verdict, a permission inferred from missing data
 
 **Pause**:
-Temporary suspension of an otherwise valid Mandate, confirmed only after the applicable landing arms are cleared. Resumption does not clear a review-bound or safety stop.
-_Avoid_: abandonment, a spent bound, stopping the local process
+A stop of the running Feature for the supplied reference, with no change to its Mandate or to unrelated work. A later `/feature` invocation can continue under that Mandate if it is still live.
+_Avoid_: abandonment, durable suspension, PR disarm
 
 **Abandonment**:
-Explicit revocation of a Mandate, not successful completion and not removal of incoming dependencies. A successor, if one exists, retains its antecedents and does not erase their stops.
+Explicit revocation of one exact Mandate, not successful completion and not removal of incoming dependencies. A successor, if one exists, retains its antecedents and does not erase their stops.
 _Avoid_: pause, automatic renewal, resetting a bound
 
 **Successor**:
@@ -54,8 +54,8 @@ A mandate that names an abandoned or revoked antecedent on the same issue. An op
 _Avoid_: automatic renewal, a second issue, a second pull request, `/feature <reference>`
 
 **Operator control**:
-A confirmed record that pauses, resumes, abandons, names a successor, or records an explicit material-Spec decision. A local process stop is not this record.
-_Avoid_: a session goal, an unconfirmed inhibit
+A confirmed record of a durable decision, such as revoking a Mandate, naming a successor or deciding a material Spec change. Historical pause and resume controls remain readable but have no effect on current delivery.
+_Avoid_: a session goal, a session stop
 
 **Review interruption**:
 A historical record that ends an interrupted initial review inventory without a verdict. It preserves the original root and inputs.
@@ -70,11 +70,11 @@ A historical review attempt linked to a Replacement grant and the interrupted ro
 _Avoid_: treating it as a first attempt, treating a genuine Request changes as a third recovery
 
 **Action receipt**:
-A confirmed START or RESULT record for a historical action. Plan and implementation receipts remain evidence, not a cursor for composed delivery.
+A confirmed START or RESULT record. Composed continuation does not replay historical attempts; receipts that establish the current Accepted Spec still apply.
 _Avoid_: a review record, a transcript, a local cache
 
 **Workflow binding**:
-The confirmed link on a pull request to one mandate, branch, and base. It adds no permission.
+The confirmed link from a pull request to one mandate. A new binding must use the mandate's exact branch and base; a legacy binding takes those coordinates from its confirmed pull request claim. It adds no permission.
 _Avoid_: a closing keyword, a branch name, a body parse
 
 **Additional requirements**:
@@ -173,16 +173,12 @@ _Avoid_: the UW itself, proof of delivery from native closure
 An immutable record retaining an untreated cause, finding or rule error on its UW of origin with its reason and code version. It is readable for that UW and its descendants. Promotion requires operator confirmation and fresh creation admission; it is suspended under an active parent.
 _Avoid_: an automatically created follow-up issue, global search without an index, a satisfied criterion
 
-**Instantané**:
-A read-only dossier of pinned inputs for one action, providing its UW data, references and an index of obligations and files. It exposes the action's exact assessment or CI-attribution operands when applicable, and relevant pinned repository instructions and glossaries. Its local byte integrity is distinct from the durable identity of the action's inputs.
-_Avoid_: a dev-core snapshot, a mutable cache, an independent operand authority, the durable review fingerprint
-
 **Manifeste d'entrées**:
-The durable, portable identities and versions of the inputs actually supplied to an action, including its code, effective Spec, delivery data, pinned references and applicable exact assessment or CI-attribution operands. Its canonical digest identifies those inputs independently of the local Instantané and excludes the action's own outputs.
-_Avoid_: the local dossier's byte digest, a PR description, a list that silently omits supplied context
+The identities and versions of inputs cited by a historical action, including its code, effective Spec, delivery data and pinned references. Its canonical digest identifies the inputs, not the action's outputs.
+_Avoid_: a PR description, an action's output, a list that silently omits supplied context
 
 **Contexte élargi**:
-Additional pinned inputs supplied to a newly prepared action after necessary information was reported missing. They do not change accepted obligations or grant execution or publication authority.
+Additional pinned inputs recorded for a historical action after necessary information was reported missing. They do not change accepted obligations or grant execution or publication authority.
 _Avoid_: silently modified inputs, a renewed mandate, a satisfied criterion
 
 **Données de livraison**:
@@ -196,11 +192,6 @@ _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local
 **UW event**:
 A historical `epic-event` record on a parent or child UW. `goal-stop`, `epic-review`, `post-merge` and `goal-report` remain readable; `epic-fix` is diagnostic only. None restarts parent delivery.
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
-
-**Legacy hosted admission**:
-The structured check used by the separate trusted CI auto-merge gate. It requires authentic approval of the current head, an unspent native review bound, admissible CI, unchanged inputs and applicable UW authority. It is not composed Feature's merge lock.
-
-_Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
 
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
@@ -325,7 +316,7 @@ The historical canonical `review` payload, read by record identity. It names the
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The SHA-256 on a historical canonical review, or null. Prefix `omp-build:review-input/4` covers the observed code and semantic inputs, not the review outputs. A null input is not approval. Admission reconstructs the input and requires equality; the digest checks inputs, not authorship.
+The SHA-256 on a historical canonical review, or null. The `omp-build:review-input/4` binding covers the observed code and semantic inputs, not the review outputs. Admission validates the embedded input manifest and requires its canonical fingerprint to match the recorded digest; it does not reconstruct the inputs from current state. A null input is not approval, and the digest binds inputs, not authorship.
 
 Missing or older input formats refuse with `incompatible-format`; they are not migrated, re-reviewed, or exempted.
 

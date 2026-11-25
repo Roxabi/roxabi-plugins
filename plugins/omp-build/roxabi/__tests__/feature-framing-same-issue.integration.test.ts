@@ -13,19 +13,26 @@ afterEach(() => {
   dispose()
 })
 
-function assertSourceDisplay(mode: 'accept' | 'decline' | 'stale', display: string[], target: string) {
-  if (mode === 'stale') return
-  const shown = display.join('\n').replace(/\s+/g, '')
-  for (const fact of [
-    target,
-    'Export requests',
-    'Keep export',
-    'Retry export',
-    'Remove obsolete format',
-    'Record export outcome',
-  ])
+function assertSourceDisplay(
+  mode: 'accept' | 'decline' | 'stale',
+  summary: string[],
+  details: string[],
+  target: string,
+) {
+  if (mode === 'stale') {
+    expect(summary).toEqual([])
+    expect(details).toEqual([])
+    return
+  }
+  const shown = summary.join('\n').replace(/\s+/g, '')
+  const audit = details.join('\n').replace(/\s+/g, '')
+  for (const fact of [target, 'Export requests', 'Keep export', 'Retry failed exports once', 'Record export outcome'])
     expect(shown).toContain(fact.replace(/\s+/g, ''))
-  for (const action of ['Conservé', 'Reformulé', 'Retiré', 'Ajouté']) expect(shown).toContain(action)
+  for (const fact of ['Retry export', 'Remove obsolete format', 'Conservé', 'Reformulé', 'Retiré', 'Ajouté']) {
+    const text = fact.replace(/\s+/g, '')
+    expect(shown).not.toContain(text)
+    expect(audit).toContain(text)
+  }
 }
 
 async function conversion(mode: 'accept' | 'decline' | 'stale') {
@@ -181,6 +188,7 @@ async function conversion(mode: 'accept' | 'decline' | 'stale') {
   }
   const beforeCommit = boundary.native.writes.length
   const display: string[] = []
+  const details: string[] = []
   const context = w.ctx()
   const capturing = {
     ...context,
@@ -192,12 +200,13 @@ async function conversion(mode: 'accept' | 'decline' | 'stale') {
           return mode === 'decline' ? 'refuse' : 'confirm'
         },
         (text) => display.push(text),
+        (text) => details.push(text),
       ),
     },
   }
   w.runtime.idle = true
   await w.controller.act(capturing)
-  assertSourceDisplay(mode, display, root.target)
+  assertSourceDisplay(mode, display, details, root.target)
   if (mode !== 'accept') {
     expect(boundary.native.writes.slice(beforeCommit)).toEqual([])
     expect(boundary.native.count('create')).toBe(1)

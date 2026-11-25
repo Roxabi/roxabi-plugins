@@ -3,6 +3,7 @@ import type { DecodedHistory, OperationRead } from '../engine/history-schema.ts'
 import { parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { ObservedComment } from '../engine/review-schema.ts'
+import { observeFixtureCatalogue } from './action-input-fixtures.ts'
 import { NATIVE_AUTHOR, TEST_SCOPE } from './record-builders.ts'
 
 /** Seed immutable history bytes without authorizing a new publication. */
@@ -42,7 +43,7 @@ export function operation(record: CanonicalRecord, overrides: Partial<OperationR
 }
 
 export function history(records: CanonicalRecord[], overrides: Partial<DecodedHistory> = {}): DecodedHistory {
-  return {
+  return observeFixtureCatalogue({
     source: {
       scope: TEST_SCOPE,
       expectedAuthor: NATIVE_AUTHOR,
@@ -54,5 +55,5 @@ export function history(records: CanonicalRecord[], overrides: Partial<DecodedHi
     operations: records.map((record) => operation(record)),
     diagnostics: [],
     ...overrides,
-  }
+  })
 }

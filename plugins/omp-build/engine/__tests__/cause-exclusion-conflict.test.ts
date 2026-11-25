@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -214,6 +214,7 @@ function assess(
       }),
     ],
   }
+  observeFixtureCatalogue(source)
   return must(
     assessCauseDispositions({
       context,

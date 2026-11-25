@@ -9,22 +9,15 @@ import type { SpecEffective } from '../../../engine/spec-effective-schema.ts'
 import { resolveAcceptedSpec } from '../../../engine/workflow-accepted-spec.ts'
 import type { MandateRecord } from '../../../engine/workflow-control.ts'
 import type { PlanOutput } from '../../../engine/workflow-output-schema.ts'
-import { pinAcceptedSources } from '../../../roxabi/uw-action-observe.ts'
 import { roxabiWorkflowFixtures } from '../../roxabi-presets.ts'
+import { pinAcceptedSources } from '../../workflow-record-pins.ts'
 
 const WORKFLOW_FIXTURES = roxabiWorkflowFixtures()
 
 export const SCOPE: Scope = { repository: 'acme/widgets', target: 'acme/widgets#42' }
-export const EPIC: Scope = { repository: 'acme/widgets', target: 'acme/widgets#1' }
-export const PR: Scope = { repository: 'acme/widgets', target: 'acme/widgets#20' }
 export const HEAD = '1111111111111111111111111111111111111111'
 export const BRANCH = 'feat/42-save'
 export const BODY = '## Acceptance\n- [ ] Save keeps the selected region'
-
-function fixtureConfig() {
-  const mandate = WORKFLOW_FIXTURES.featureMandate(SCOPE, { body: BODY })
-  return { config: mandate.payload.config }
-}
 
 export function blank(scope: Scope = SCOPE): DecodedHistory {
   return decodeHistory({
@@ -35,16 +28,6 @@ export function blank(scope: Scope = SCOPE): DecodedHistory {
     comments: [],
     diagnostics: [],
   })
-}
-
-export function landingConfigFacts(mandate: MandateRecord | null) {
-  const config = mandate?.payload.config ?? fixtureConfig().config
-  return {
-    productVersion: config.productVersion,
-    configVersion: config.version,
-    configDigest: config.digest,
-    supportedConfigVersions: [config.version],
-  }
 }
 
 export function shippedMandate(): MandateRecord {

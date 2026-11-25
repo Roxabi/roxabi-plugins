@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.21.20 (unreleased)
+
+- Retire `/uw action` before request, file or pin reads and remove local dossiers, generic action-input replay and captured-work inventory production (#1046 C4). Keep `/uw evidence`, `/uw verdicts`, and historical assessment, review, correction and cause reads.
+- Require the tooling pin to match the installed `package.json` and prescribed procedure files exactly for `/feature` framing. A prior-release pin refuses new framing even when procedure bytes match; releases do not move the pin automatically. Composed implementation, review and correction still use the Accepted Spec and live PR evidence without the tooling pin (#1046 C5).
+
+## 0.21.19 (unreleased)
+
+- `/feature pause <reference>` stops only the matching running Feature and makes no remote writes. Continue with `/feature <reference>` under the same live mandate; remove the separate `resume` and `resolve-interruption` commands. Composed continuation no longer replays historical attempts; their records remain readable (#1046 C2).
+- `/feature abandon` publishes and reads back exact mandate revocation without depending on the Accepted Spec or PR disarm. Revoked authority cannot push or land, and abandonment leaves no session hold on a later mandate (#1046 C3).
+
+## 0.21.18 (unreleased)
+
+- Keep existing Feature mandates valid across omp-build upgrades, including resume, push and composed landing (#1046 C1). Remove the release allowlist and the retired landing admission path; preserve exact delivery locks and historical binding reads.
+
+## 0.21.17 (unreleased)
+
+- Move hosted merge gating out of omp-build (#1046 C7): the `reviewed` label only arms GitHub native auto-merge on a PR into `main` after a live base, head and check read; GitHub merges once the ruleset requires `ci` and App-issued `review` on the head. An already-mergeable PR is refused with the pinned merge command. Keep the Dependabot lane and fix its commit-author check: a jq syntax error (`"dependabot[bot"]`) refused every Dependabot PR since `e9ff6166`.
+- Issue manual Kit grants on the current reviewed head regardless of native omp-build history. Kit still rechecks CI before merging.
+- Recognize 0.21.17 under the existing bounded PR-binding policy.
+
+## 0.21.16 (unreleased)
+
+- Show `Ctrl+Alt+U` when a framing proposal is ready and display the `/move` command and attestation steps when publication is complete but delivery is waiting for the worktree.
+- Lead framing confirmation with publication effects and final criteria; keep identity history, normalization, and the exact proposal in `Détails`.
+- Recognize 0.21.16 under the existing bounded PR-binding policy.
+
 ## 0.21.15 (unreleased)
 
 - Remove the native batch runtime (#1037): `omp/review-runtime/`, the `omp_build_execute_native_batch` tool, the 18 generated `R-review-*`/`R-workflow-*` profiles and their generator, the UW native launches, and the transport tracking left inert by 0.21.14. The session chooses its agents; `agents/` ships the 7 authored ones. Model tools left: `omp_build_framing_submit`, `omp_build_prepare_checkout`.

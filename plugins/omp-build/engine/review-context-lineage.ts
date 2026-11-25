@@ -1,6 +1,8 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
+import { sameInputRef } from './action-input-refs.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { diagnostic, equalScope } from './record-diagnostics.ts'
+import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { Diagnostic } from './record-values.ts'
 import { accounted, negativeFor, same } from './review-context-authentication.ts'
@@ -16,26 +18,22 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
   const fresh = successor.payload.inputSnapshot
   const { expandedContext: before, ...oldManifest } = old.manifest
   const { expandedContext: after, ...newManifest } = fresh.manifest
+  const negativeRef = { kind: negative.kind, recordId: negative.recordId, scope: negative }
   const ref = after.filter(
     (item) =>
       item.source === 'record' &&
-      item.record.kind === 'contribution' &&
-      item.record.recordId === negative.recordId &&
-      equalScope(item.record.scope, negative) &&
+      sameRef(item.record, negativeRef) &&
       item.selector === '/payload' &&
       item.digest === canonicalValueDigest(negative.payload),
   )
-  const oldRefs = new Set(before.map(canonicalValueDigest))
-  const additions = after.filter((item) => !oldRefs.has(canonicalValueDigest(item)))
-  const priorSources = new Set(
-    [
-      ...before,
-      ...old.manifest.acceptedSources,
-      ...old.manifest.deliveryData,
-      ...old.manifest.repositoryReferences,
-      ...old.stageSources,
-    ].map(canonicalValueDigest),
-  )
+  const additions = after.filter((item) => !before.some((prior) => sameInputRef(prior, item)))
+  const priorSources = [
+    ...old.manifest.acceptedSources,
+    ...old.manifest.deliveryData,
+    ...old.manifest.repositoryReferences,
+    ...old.manifest.plugin.files,
+    ...old.stageSources,
+  ]
   const slots = (value: Root['payload']) => value.slots.map(({ action: _action, ...slot }) => slot)
   return (
     root.recordId !== successor.recordId &&
@@ -48,24 +46,33 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
     same(slots(root.payload), slots(successor.payload)) &&
     same(oldManifest, newManifest) &&
     same(old.stageSources, fresh.stageSources) &&
-    validateActionInputs(fresh).ok &&
     old.fingerprint !== fresh.fingerprint &&
     ref.length === 1 &&
-    additions.some((item) => same(item, ref[0])) &&
-    before.every((item) => after.some((candidate) => same(item, candidate))) &&
-    additions.some((item) => !same(item, ref[0]) && !priorSources.has(canonicalValueDigest(item)))
+    ref.some((lineage) => additions.some((item) => sameInputRef(lineage, item))) &&
+    before.every((item) => after.some((candidate) => sameInputRef(item, candidate))) &&
+    additions.some(
+      (item) =>
+        (item.source !== 'record' || !sameRef(item.record, negativeRef)) &&
+        !priorSources.some((prior) => sameInputRef(prior, item)),
+    )
   )
 }
 
 /** Direct edges require the intervening roots to cite their own authenticated negatives. */
-export function directReviewContextSuccessors(
+function directReviewContextSuccessors(
   history: DecodedHistory,
   roots: readonly Root[],
   contributions: readonly Contribution[],
   root: Root,
   negative: Contribution,
+  histories: readonly DecodedHistory[] = [history],
 ): Root[] {
-  const authenticated = roots.filter((candidate) => accounted(history, candidate))
+  const authenticated = roots.filter(
+    (candidate) =>
+      isInitialPullRequestReviewInventory(candidate.payload) &&
+      accounted(history, candidate) &&
+      authenticateHistoricalActionInputs(candidate.payload.inputSnapshot, histories).ok,
+  )
   const edges = (from: Root): Root[] => {
     const negatives = contributions.filter((entry) => negativeFor(history, from, entry))
     return authenticated.filter((candidate) => negatives.some((entry) => successorOf(from, candidate, entry)))
@@ -87,6 +94,7 @@ export function directReviewContextSuccessors(
 export function reviewContextLineage(
   history: DecodedHistory,
   records: ReadonlyMap<string, CanonicalRecord>,
+  histories: readonly DecodedHistory[] = [history],
 ): {
   superseded: Set<string>
   diagnostics: Diagnostic[]
@@ -116,7 +124,7 @@ export function reviewContextLineage(
       continue
     }
     const successors = negatives.flatMap((entry) =>
-      directReviewContextSuccessors(history, roots, contributions, root, entry),
+      directReviewContextSuccessors(history, roots, contributions, root, entry, histories),
     )
     const finals = [...records.values()].filter(
       (record) => record.kind === 'review' && record.payload.inventoryIds.includes(root.recordId),

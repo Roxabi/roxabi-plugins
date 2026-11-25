@@ -4,14 +4,13 @@ import type { DecodedHistory } from '../history-schema.ts'
 import { parseRecord } from '../record-construction.ts'
 import type { Scope } from '../record-values.ts'
 import { resolveBoundWork } from '../workflow-bound-work-resolution.ts'
-import { requireLandingMandate } from '../workflow-landing-admission.ts'
-import { unliftedPause } from '../workflow-pause.ts'
+import { controlsOf } from '../workflow-control.ts'
+import { resolveOwnSpecAuthority, selectRevocableMandate } from '../workflow-mandate-admission.ts'
 import { binding, history, must, PARENT, pauseControls, SCOPE } from './workflow-test-support.ts'
 import {
   childCommitment,
   featureMandate,
   landingFixtures,
-  landingInput,
   nativeBody,
   nativeCausal,
   parentNodes,
@@ -20,7 +19,7 @@ import {
 } from './workflow-transition-native-fixture.ts'
 
 describe('workflow transition pause behavior', () => {
-  test('refuses unconfirmed own pauses and preserves successor pause controls', async () => {
+  test('keeps legacy own pauses readable without blocking bound work', async () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
     const feature = featureMandate()
     const native = { branch: 'feature/bounded', base: 'main' }
@@ -33,8 +32,6 @@ describe('workflow transition pause behavior', () => {
         native,
         causal: await nativeCausal(histories, [rootNode]),
       })
-    const landing = async (histories: DecodedHistory[]) =>
-      requireLandingMandate(await landingInput(feature, histories, pr, [], [rootNode]))
     const ownFirstPause = pauseControls(feature, 'feature-first-pause')
     const ownResumed = [
       history([feature, ownFirstPause.requested, ownFirstPause.confirmed, ownFirstPause.resumed]),
@@ -44,7 +41,6 @@ describe('workflow transition pause behavior', () => {
       status: 'applicable',
       mandate: { recordId: feature.recordId },
     })
-    expect(await landing(ownResumed)).toMatchObject({ ok: true, recordId: feature.recordId })
     const ownSecondPause = pauseControls(feature, 'feature-second-pause')
     const ownPending = [
       history([
@@ -56,17 +52,11 @@ describe('workflow transition pause behavior', () => {
       ]),
       history([binding(feature, pr)], pr),
     ]
-    expect(await bound(ownPending, 'review')).toMatchObject({
-      status: 'refused',
-      reason: 'unconfirmed',
-      evidence: [expect.objectContaining({ code: 'pause-unconfirmed' })],
-    })
-    expect(await bound(ownPending, 'correction')).toMatchObject({ status: 'refused', reason: 'unconfirmed' })
-    expect(await landing(ownPending)).toMatchObject({
-      ok: false,
-      reason: 'unconfirmed',
-      evidence: [expect.objectContaining({ code: 'pause-unconfirmed' })],
-    })
+    for (const use of ['review', 'correction'] as const)
+      expect(await bound(ownPending, use)).toMatchObject({
+        status: 'applicable',
+        mandate: { recordId: feature.recordId },
+      })
     const ownConfirmedHistory = history([
       feature,
       ownFirstPause.requested,
@@ -76,9 +66,11 @@ describe('workflow transition pause behavior', () => {
       ownSecondPause.confirmed,
     ])
     const ownConfirmed = [ownConfirmedHistory, history([binding(feature, pr)], pr)]
-    expect(await bound(ownConfirmed, 'review')).toMatchObject({ status: 'refused', reason: 'paused' })
-    expect(await landing(ownConfirmed)).toMatchObject({ ok: false, reason: 'paused' })
-    expect(unliftedPause(ownConfirmedHistory, feature)?.recordId).toBe(ownSecondPause.confirmed.recordId)
+    expect(await bound(ownConfirmed, 'review')).toMatchObject({ status: 'applicable' })
+    expect(controlsOf(ownConfirmedHistory)).toContainEqual(ownSecondPause.confirmed)
+    const controlCausal = await nativeCausal(ownConfirmed, [rootNode])
+    expect(resolveOwnSpecAuthority(ownConfirmedHistory, [], controlCausal).ok).toBe(true)
+    expect(selectRevocableMandate(ownConfirmedHistory)).toMatchObject({ status: 'applicable', mandate: feature })
     const antecedent = featureMandate()
     const antecedentPause = pauseControls(antecedent, 'antecedent-pause')
     const successor = must(
@@ -143,7 +135,8 @@ describe('workflow transition pause behavior', () => {
       successorPause.requested,
       successorPause.confirmed,
     ])
-    expect(unliftedPause(successorHistory, successor)?.recordId).toBe(successorPause.confirmed.recordId)
+    expect(controlsOf(successorHistory)).toContainEqual(successorPause.confirmed)
+    expect(selectRevocableMandate(successorHistory)).toMatchObject({ status: 'applicable', mandate: successor })
     const standaloneHistory = history([], pr)
     expect(
       resolveBoundWork({
@@ -157,7 +150,7 @@ describe('workflow transition pause behavior', () => {
     ).toEqual({ status: 'standalone', binding: 'absent' })
   })
 
-  test('keeps parent pause cycles active for a child with a current accepted grant', async () => {
+  test('does not inherit legacy parent pause cycles for a child with a current accepted grant', async () => {
     const pr: Scope = { repository: 'acme/app', target: 'acme/app#99' }
     const childGrant = childCommitment
     const parent = landingFixtures.epicMandate(PARENT, [childGrant], {
@@ -200,10 +193,7 @@ describe('workflow transition pause behavior', () => {
           causal: await nativeCausal(pendingHistories, parentNodes),
           native: { branch: 'feature/bounded', base: 'main' },
         }),
-      ).toMatchObject({ status: 'refused' })
-    expect(requireLandingMandate(await landingInput(child, pendingHistories, pr, [PARENT], parentNodes))).toMatchObject(
-      { ok: false },
-    )
+      ).toMatchObject({ status: 'applicable' })
     const wrongChildResume = must(
       parseRecord({
         version: 1,
@@ -236,9 +226,6 @@ describe('workflow transition pause behavior', () => {
         causal: await nativeCausal(pausedHistories, parentNodes),
         native: { branch: 'feature/bounded', base: 'main' },
       }),
-    ).toMatchObject({ status: 'refused' })
-    expect(requireLandingMandate(await landingInput(child, pausedHistories, pr, [PARENT], parentNodes))).toMatchObject({
-      ok: false,
-    })
+    ).toMatchObject({ status: 'applicable' })
   })
 })

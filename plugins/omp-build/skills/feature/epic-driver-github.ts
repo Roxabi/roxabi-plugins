@@ -1,5 +1,5 @@
 import type { NativeEpicPullRequest } from '../../adapters/github-native/epic-children.ts'
-import { type DecodedHistory, decodeHistory, githubScope, readGitHubHistory } from '../../dist/contracts.js'
+import { type DecodedHistory, githubScope, readDecodedGitHubHistory } from '../../dist/contracts.js'
 import { mandateParentHistories } from '../../roxabi/feature-context.ts'
 import { loadContracts } from '../../roxabi/feature-engine.ts'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
@@ -39,9 +39,7 @@ export function adapterOptions(repo: string) {
 }
 
 export async function issueHistory(repo: string, repository: string, issue: number): Promise<DecodedHistory> {
-  return decodeHistory(
-    await readGitHubHistory(githubScope(repository, issue), { ...adapterOptions(repo), gh: ghHistory }),
-  )
+  return readDecodedGitHubHistory(githubScope(repository, issue), { ...adapterOptions(repo), gh: ghHistory })
 }
 
 export async function parentMandateHistories(repo: string, history: DecodedHistory): Promise<DecodedHistory[]> {

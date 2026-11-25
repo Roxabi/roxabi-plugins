@@ -17,7 +17,6 @@ import { nativeFeatureSpec } from '../testing/feature-review-fixture.ts'
 import { roxabiWorkflowFixtures } from '../testing/roxabi-presets.ts'
 import { git, readSim, sandbox, writeSim } from '../testing/sandbox/sandbox-repository.ts'
 import type { Box } from '../testing/sandbox/sandbox-types.ts'
-import { legacyFixtures } from './__tests__/uw-successor-selection-support.ts'
 
 const CONTROL = path.resolve(import.meta.dirname, './feature-containment-abandon-fixture.ts')
 const BUN = execFileSync('which', ['bun'], { encoding: 'utf8' }).trim()
@@ -69,7 +68,7 @@ function abandonFixtureChild(
   return JSON.parse(run.stdout) as DecodedHistory
 }
 
-function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy = false): { box: Box; cwd: string } {
+function fixture(owner: 'selected' | 'foreign', historicalEpic: boolean): { box: Box; cwd: string } {
   const rootSpec = nativeFeatureSpec(ROOT, 'deliver the epic')
   const childSpec = nativeFeatureSpec(CHILD, 'deliver the child')
   const foreignSpec = nativeFeatureSpec(FOREIGN, 'deliver unrelated work')
@@ -100,9 +99,7 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy =
     { scope: CHILD, snapshot: childSpec.ownSpec.snapshot, specVersion: childSpec.ownSpec.version, tier: 'S' as const },
   ]
   const parentTemplate = fixtures.epicMandate(ROOT, children, rootOptions)
-  const root = legacy
-    ? legacyFixtures.epicMandate(ROOT, children, rootOptions)
-    : fixtures.featureMandate(ROOT, rootOptions)
+  const root = fixtures.featureMandate(ROOT, rootOptions)
   const child = fixtures.featureMandate(CHILD, {
     body: childSpec.body,
     ownSpec: childSpec.ownSpec,
@@ -115,36 +112,33 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy =
   const rootRecords: CanonicalRecord[] = [root]
   let initialRootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator')
   let childHistory = fixtures.historyFrom([child], 'operator', 'operator', [initialRootHistory])
-  let parentState = mandateAssessmentState(root)
-  if (!legacy) {
-    if (parentTemplate.payload.coverage === null) throw new Error('missing parent coverage')
-    const proposed = {
-      ...proposedAssessmentState(parentState, { body: rootSpec.body, children }),
-      snapshot: parentState.snapshot,
-      coverage: parentTemplate.payload.coverage,
-    }
-    const assessment = assessFixture(
-      root,
-      'root-accept-parent',
-      parentState,
-      proposed,
-      'material',
-      [initialRootHistory, childHistory],
-      undefined,
-      undefined,
-      codeRange,
-    )
-    const control = acceptMaterialFixture(root, 'accept-root-parent', assessment)
-    rootRecords.push(assessment.start, assessment.result, control)
-    parentState = acceptedMaterialState(assessment, control)
-    initialRootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator', [childHistory])
-    const accepted = resolveAcceptedSpec(root, [initialRootHistory, childHistory])
-    if (!accepted.ok) throw new Error(`parent acceptance refused: ${accepted.reason}`)
-    expect(root.payload.role).toBe('feature')
-    expect(effectiveMandateRole(root.payload.role, accepted.spec)).toBe('epic')
-    childHistory = fixtures.historyFrom([child], 'operator', 'operator', [initialRootHistory])
+  const featureState = mandateAssessmentState(root)
+  if (parentTemplate.payload.coverage === null) throw new Error('missing parent coverage')
+  const proposedParent = {
+    ...proposedAssessmentState(featureState, { body: rootSpec.body, children }),
+    snapshot: featureState.snapshot,
+    coverage: parentTemplate.payload.coverage,
   }
-  if (historicalEpic)
+  const acceptedParent = assessFixture(
+    root,
+    'root-accept-parent',
+    featureState,
+    proposedParent,
+    'material',
+    [initialRootHistory, childHistory],
+    undefined,
+    undefined,
+    codeRange,
+  )
+  const acceptedParentControl = acceptMaterialFixture(root, 'accept-root-parent', acceptedParent)
+  rootRecords.push(acceptedParent.start, acceptedParent.result, acceptedParentControl)
+  initialRootHistory = fixtures.historyFrom(rootRecords, 'operator', 'operator', [childHistory])
+  const acceptedParentSpec = resolveAcceptedSpec(root, [initialRootHistory, childHistory])
+  if (!acceptedParentSpec.ok) throw new Error(`parent acceptance refused: ${acceptedParentSpec.reason}`)
+  expect(root.payload.role).toBe('feature')
+  expect(effectiveMandateRole(root.payload.role, acceptedParentSpec.spec)).toBe('epic')
+  childHistory = fixtures.historyFrom([child], 'operator', 'operator', [initialRootHistory])
+  if (historicalEpic) {
     childHistory = abandonFixtureChild(
       box,
       cwd,
@@ -155,8 +149,7 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy =
       initialRootHistory,
       childHistory,
     )
-  if (historicalEpic) {
-    const initial = parentState
+    const initial = acceptedMaterialState(acceptedParent, acceptedParentControl)
     const proposed = proposedAssessmentState(initial, { body: rootSpec.body, children: [] })
     const assessment = assessFixture(
       root,
@@ -239,134 +232,83 @@ function fixture(owner: 'selected' | 'foreign', historicalEpic = false, legacy =
   return { box, cwd }
 }
 
-function control(box: Box, cwd: string, action: 'pause' | 'abandon', confirmedAbandon = false) {
-  const home = path.join(box.root, `home-${action}`)
+function abandonRoot(box: Box, cwd: string) {
+  const home = path.join(box.root, 'home-abandon')
   mkdirSync(home, { recursive: true })
-  const args = confirmedAbandon ? [CONTROL, cwd, home, 'root'] : [CONTROL, cwd, home, action]
+  const args = [CONTROL, cwd, home, 'root']
   const run = spawnSync(BUN, args, {
     cwd,
     env: { ...box.env, HOME: home },
     encoding: 'utf8',
   })
   if (run.status !== 0) throw new Error(`${run.stderr}\n${run.stdout}`)
-  return JSON.parse(run.stdout)
+  return JSON.parse(run.stdout) as { result: unknown; records?: CanonicalRecord[] }
 }
 
-describe('Epic own-lane containment through public controls', () => {
-  it.each<'pause' | 'abandon'>(['pause', 'abandon'])(
-    '%s does not disarm a foreign bound PR merely linked to the Epic',
-    (action) => {
-      const { box, cwd } = fixture('foreign')
-      const result = control(box, cwd, action)
-      const state = readSim(box)
-      expect(state.prs['7']).toMatchObject({ labels: ['reviewed'], autoMerge: { enabledAt: '2026-01-01T00:00:00Z' } })
-      expect(state.calls.filter((args) => args[0] === 'pr' && (args[1] === 'merge' || args[1] === 'edit'))).toEqual([])
-      expect(result).toMatchObject({ kind: action === 'pause' ? 'paused' : 'abandoned', confirmed: false })
-    },
-  )
+function nativeWrites(calls: string[][]) {
+  return calls.filter((args) => {
+    if (args[0] === 'pr') return !['view', 'list', 'status', 'diff', 'checks'].includes(args[1])
+    if (args[0] === 'issue') return !['view', 'list', 'status'].includes(args[1])
+    if (args[0] !== 'api') return false
+    const method = args.indexOf('--method')
+    if (args.includes('graphql')) return args.some((arg) => /^query=\s*mutation\b/.test(arg))
+    return method !== -1 && args[method + 1] !== 'GET'
+  })
+}
 
-  it.each<'pause' | 'abandon'>(['pause', 'abandon'])(
-    '%s does not disarm a foreign bound PR after the Epic becomes a Feature',
-    (action) => {
-      const { box, cwd } = fixture('foreign', true)
-      const result = control(box, cwd, action)
-      const state = readSim(box)
-      expect(state.prs['7']).toMatchObject({
-        state: 'OPEN',
-        headRefName: BRANCH,
-        labels: ['reviewed'],
-        autoMerge: { enabledAt: '2026-01-01T00:00:00Z' },
-      })
-      expect(state.calls.filter((args) => args[0] === 'pr' && (args[1] === 'merge' || args[1] === 'edit'))).toEqual([])
-      expect(result).toMatchObject({ kind: action === 'pause' ? 'paused' : 'abandoned', confirmed: false })
-    },
-  )
-
+describe('Exact abandonment without PR mutations', () => {
   it.each(
-    (['pause', 'abandon'] as const).flatMap((action) =>
-      [false, true].map((historicalEpic) => ({ action, historicalEpic })),
+    (['selected', 'foreign'] as const).flatMap((owner) =>
+      [false, true].map((historicalEpic) => ({ owner, historicalEpic })),
     ),
-  )(
-    '$action disarms an own PR after accepted-parent transition (returned to leaf: $historicalEpic)',
-    ({ action, historicalEpic }) => {
-      const { box, cwd } = fixture('selected', historicalEpic)
-      const result = control(box, cwd, action, action === 'abandon')
-      const state = readSim(box)
-      expect(result, JSON.stringify(result)).toMatchObject({
-        kind: action === 'pause' ? 'paused' : 'abandoned',
-        confirmed: true,
-      })
-      expect(state.prs['7']).toMatchObject({ labels: [], autoMerge: null })
-      expect(state.calls).toEqual(
-        expect.arrayContaining([
-          expect.arrayContaining(['pr', 'merge', '7', '--disable-auto']),
-          expect.arrayContaining(['pr', 'edit', '7', '--remove-label', 'reviewed']),
-        ]),
-      )
-    },
-  )
-
-  it.each(
-    (['pause', 'abandon'] as const).flatMap((action) =>
-      (['42', '43'] as const).flatMap((home) =>
-        (['legacy', 'copy'] as const).map((claim) => ({ action, home, claim })),
-      ),
-    ),
-  )('$action disarms own PR despite foreign $claim mandate on home $home', ({ action, home, claim }) => {
-    const { box, cwd } = fixture('selected')
-    writeSim(box, (state) => {
-      const issue = state.issues[home]
-      if (!issue) throw new Error('missing issue fixture')
-      const bodies =
-        claim === 'legacy'
-          ? ['<!-- omp-build:mandate -->']
-          : issue.comments.filter((entry) => entry.body.includes('kind=mandate ')).map((entry) => entry.body)
-      if (bodies.length === 0) throw new Error('missing mandate copy fixture')
-      issue.comments.push(...bodies.map((body) => ({ author: 'intruder', body })))
+  )('abandons the root with a $owner bound PR (returned to leaf: $historicalEpic)', ({ owner, historicalEpic }) => {
+    const { box, cwd } = fixture(owner, historicalEpic)
+    const before = readSim(box)
+    const { result, records } = abandonRoot(box, cwd)
+    expect(result).toEqual({ kind: 'abandoned', confirmed: true })
+    expect(records).toHaveLength(1)
+    const record = records?.[0]
+    if (record === undefined) throw new Error('Expected the authenticated abandonment record')
+    expect(record).toMatchObject({
+      ...ROOT,
+      kind: 'operator-control',
+      recordId: expect.stringMatching(/^abandon:/),
+      operationId: record.recordId,
     })
-    const result = control(box, cwd, action, action === 'abandon')
-    const state = readSim(box)
-    expect(result).toMatchObject({ kind: action === 'pause' ? 'paused' : 'abandoned', confirmed: true })
-    expect(state.prs['7']).toMatchObject({ labels: [], autoMerge: null })
-    expect(state.calls).toEqual(
-      expect.arrayContaining([
-        expect.arrayContaining(['pr', 'merge', '7', '--disable-auto']),
-        expect.arrayContaining(['pr', 'edit', '7', '--remove-label', 'reviewed']),
-      ]),
-    )
+    expect(record.payload).toEqual({
+      control: 'abandon',
+      controlId: record.recordId,
+      predecessor: null,
+      mandate: { scope: ROOT, recordId: 'root-mandate', kind: 'mandate' },
+    })
+    const after = readSim(box)
+    expect(after.prs['7']?.state).toBe(before.prs['7']?.state)
+    const writes = nativeWrites(after.calls.slice(before.calls.length))
+    expect(writes.length).toBeGreaterThan(0)
+    for (const write of writes) {
+      expect(write[0]).toBe('api')
+      expect(write).toContain('repos/acme/app/issues/42/comments')
+      expect(write[write.indexOf('--method') + 1]).toBe('POST')
+    }
   })
 
-  it.each(['pause', 'abandon'] as const)('%s refuses an edited home without publishing or disarming', (action) => {
-    const { box, cwd } = fixture('selected')
+  it('refuses an edited mandate without writing a record or mutating the PR', () => {
+    const { box, cwd } = fixture('selected', false)
     writeSim(box, (state) => {
       const comment = state.issues['42']?.comments.find((entry) => entry.body.includes('kind=mandate '))
       if (!comment) throw new Error('missing root mandate')
       comment.createdAt = '2026-01-01T00:00:00Z'
       comment.updatedAt = '2026-01-01T00:00:01Z'
     })
-    const before = readSim(box).issues['42']?.comments.map(({ author, body }) => ({ author, body }))
-    const result = control(box, cwd, action)
-    const state = readSim(box)
-    expect(result).toMatchObject({ kind: 'blocked', reason: `${action}-uncertain` })
-    expect(state.issues['42']?.comments.map(({ author, body }) => ({ author, body }))).toEqual(before)
-    expect(
-      state.calls.filter((args) => args[0] === 'api' && args.includes('--method') && args.includes('POST')),
-    ).toEqual([])
-    expect(state.prs['7']).toMatchObject({ labels: ['reviewed'], autoMerge: { enabledAt: '2026-01-01T00:00:00Z' } })
-    expect(state.calls.filter((args) => args[0] === 'pr' && (args[1] === 'merge' || args[1] === 'edit'))).toEqual([])
-  })
-
-  it('refuses pause on an uncovered legacy mandate without publication or false confirmation', () => {
-    const { box, cwd } = fixture('selected', false, true)
-    const before = readSim(box).issues['42']?.comments.map(({ author, body }) => ({ author, body }))
-    const result = control(box, cwd, 'pause')
-    const state = readSim(box)
-    expect(result).toMatchObject({ kind: 'blocked', reason: 'pause-uncertain' })
-    expect(state.issues['42']?.comments.map(({ author, body }) => ({ author, body }))).toEqual(before)
-    expect(
-      state.calls.filter((args) => args[0] === 'api' && args.includes('--method') && args.includes('POST')),
-    ).toEqual([])
-    expect(state.prs['7']).toMatchObject({ labels: ['reviewed'], autoMerge: { enabledAt: '2026-01-01T00:00:00Z' } })
-    expect(state.calls.filter((args) => args[0] === 'pr' && (args[1] === 'merge' || args[1] === 'edit'))).toEqual([])
+    const before = readSim(box)
+    const { result } = abandonRoot(box, cwd)
+    expect(result).toMatchObject({
+      kind: 'abandoned',
+      confirmed: false,
+      failure: { status: 'refused' },
+    })
+    const after = readSim(box)
+    expect(after.prs['7']?.state).toBe(before.prs['7']?.state)
+    expect(nativeWrites(after.calls.slice(before.calls.length))).toEqual([])
   })
 })

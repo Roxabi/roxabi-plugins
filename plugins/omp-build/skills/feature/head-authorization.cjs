@@ -71,7 +71,7 @@ async function publish(args, record, before, kind) {
     matches[0].body !== body ||
     after.receipt?.id !== matches[0].id ||
     after.receipt.body !== body ||
-    !sameScope(after.scope, before.scope, record.lane === 'dependabot' || args.requireBaseSha === true) ||
+    !sameScope(after.scope, before.scope, record.lane === 'dependabot') ||
     (kind === 'grant' ? !after.allowed : after.reason !== 'withdrawn')
   )
     throw new Error('authorization write not confirmed', { cause: postError })
@@ -88,10 +88,7 @@ async function issueAuthorization(args) {
   const { snapshot, lane, source, evidence, operationId } = args
   if (!snapshot?.scope) throw new Error('missing authorization snapshot')
   const before = await inspect({ ...args, repo: args.repo || snapshot.repo, prNumber: snapshot.scope.pullRequest })
-  if (
-    !sameScope(before.scope, snapshot.scope, lane === 'dependabot' || args.requireBaseSha === true) ||
-    before.previous !== snapshot.previous
-  )
+  if (!sameScope(before.scope, snapshot.scope, lane === 'dependabot') || before.previous !== snapshot.previous)
     throw new Error('authorization snapshot moved')
   const s = snapshot.scope
   const record = {

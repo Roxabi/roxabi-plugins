@@ -9,7 +9,6 @@ import type { BoundWork, ConfigIdentity, MandateUse } from './workflow-binding.t
 import { workflowCausalDiagnostics } from './workflow-chantier.ts'
 import { historyFor, type MandateRecord, mandateScope, workflowOperationProblem } from './workflow-control.ts'
 import { selectApplicableMandate } from './workflow-mandate-admission.ts'
-import { outstandingPauseInAuthority } from './workflow-pause.ts'
 import type { WorkflowCausalContext } from './workflow-plan.ts'
 import { selectWorkflowBinding } from './workflow-pr-binding.ts'
 import type { AssessSpecExact } from './workflow-receipt-schema.ts'
@@ -146,8 +145,6 @@ function applicableBoundWork(
 }
 
 function authorizedBoundWork(input: BoundWorkInput, mandate: MandateRecord): BoundWork {
-  const pause = outstandingPauseInAuthority(mandate, input.histories)
-  if (pause !== null) return { status: 'refused', reason: 'unconfirmed', evidence: [pause] }
   const permissions = {
     landing: mandate.payload.permissions.landing && mandate.payload.role !== 'fix-only',
     correct: mandate.payload.permissions.correct,

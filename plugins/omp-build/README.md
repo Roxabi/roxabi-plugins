@@ -67,12 +67,12 @@ The thin `/feature` handler resolves the issue, manages framing and operator con
 
 | Stage | Session action |
 |---|---|
-| Resume from facts | Compare local, remote and PR tips with the selected base. Match PRs across states by repository, branch and base; confirm the canonical binding. Preserve dirty files and existing commits. A fresh checkout recovers only published work. |
+| Continue from facts | Compare local, remote and PR tips with the selected base. Match PRs across states by repository, branch and base; confirm the canonical binding. Preserve dirty files and existing commits. A fresh checkout recovers only published work. |
 | Plan and implement | Map each accepted criterion and invariant to code and a targeted check. Implement what is missing, verify the exact committed tip, then use `push` and `open-pr` from the [trusted delivery CLI](#trusted-feature-delivery-cli). |
 | Review and correct | Follow the installed `/dev-review` and `/dev-fix` instructions without nested slash commands. Review every new head independently. Stop after two automatic correction rounds per invocation, or earlier if scope conflicts or progress stalls. |
 | Land and finish | Observe the exact head, base and required checks. `land` makes one head-pinned merge attempt under the base ruleset. An already merged bound PR goes straight to `finish`, which closes the UW through `closeLinked` with its delivery proof. |
 
-Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit pause. Stop on ambiguous, divergent, closed-unmerged or uncertain delivery until the facts are reconciled. [Parent delivery is suspended](#parent-uw-delivery).
+Re-running `/feature <reference>` re-observes Git and GitHub and can continue under the same live mandate after a session stop. Stop on ambiguous, divergent, closed-unmerged or uncertain delivery until the facts are reconciled. [Parent delivery is suspended](#parent-uw-delivery).
 
 ### Controls
 
@@ -81,36 +81,36 @@ Re-running `/feature` re-observes Git and GitHub. It does not lift an explicit p
 | Command | Boundary |
 |---|---|
 | `/feature <reference>` | Publishes or reuses the applicable leaf mandate, then hands off to the composition instructions. Re-entry re-observes Git and GitHub. |
-| `/feature resume <reference>` | Checks the runtime version and effective configuration before resuming an ordinary confirmed pause. The mandate's pinned review requirements remain in force. A review-bound or safety stop is not a pause. |
-| `/feature pause <reference>` | Inhibits local continuation and publishes the control. Confirmed only after observed disarm. |
-| `/feature abandon <reference>` | Revokes the selected mandate, including when that mandate has its own confirmed pause. No automatic renewal. |
+| `/feature pause <reference>` | Stops only the running Feature for that reference. If no Feature matches, nothing changes. No remote write, PR disarm or mandate change. |
+| `/feature abandon <reference>` | Publishes and reads back the exact mandate's `operator-control: abandon` revocation, even if its Accepted Spec is unreadable or missing. It does not disarm PRs or renew the mandate. |
 | `/feature new <reference>` | Explicit successor over the authenticated own abandoned mandate tip. It names the antecedent, publishes `select-successor` and preserves a compatible existing PR. Historical framing is not current authority, ancestor revocation is not own abandonment, and `/feature <reference>` never renews a mandate. `new init` is this control, not init. |
 | `/feature material-decision <reference>` | Opens the genuine operator-confirmation route for the exact authenticated material or unknown assessment. An `accept`/`reject` argv suffix is not authority and is refused. `/uw accept-material` uses the same acceptance chain. |
-| `/feature resolve-interruption <reference> [--start <recordId>]` | Always refuses: the current plugin cannot prove non-dispatch of a historical START. |
 | `/feature init` | Preview of the invoking checkout; not framing or mandate preparation. |
 
-Historical START and resolution records remain readable. To restart an eligible leaf, run `/feature abandon <reference>` and wait for confirmed abandonment before running `/feature new <reference>`.
+Historical pause, resume, START, RESULT and interruption records remain readable. Composed delivery does not replay them to decide whether the current mandate can continue. Receipts that establish the current Accepted Spec, such as a valid editorial assessment, still apply. Recover in place with `/feature <reference>`, not by replacing a live mandate.
 
 Explicit leaf succession retains compatibility checks for accepted obligations and ordered inherited references. Parent delivery and parent succession via `/feature` are suspended.
 
 An existing PR is not automatically replaced:
 - Complete own-UW PR facts are collected even when ordinary terminal-state observation omits that scope. Their commitments must survive bootstrap unchanged. Closed, ambiguous, mismatched or unproved bindings stop before publication. Compatible open or merged requests retain their identity; native facts and authenticated binding parts are rechecked before later writes. Publication is sequential, not atomic: a later refusal may retain the new Mandate or selection control, without rollback or automatic replay.
 
-Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. Existing resume and successor controls retain their checkout guards. There is no `/wt`.
+Initial free text and eligible unframed issues enter assisted framing before checkout. The human presses `ctrl+alt+u` to open the staged proposal, not to approve it. `Confirmer` alone authorizes it; `Refuser` discards it, while Escape or `Plus tard` closes without a decision and leaves that exact proposal available to the same shortcut in the same live session and location. After a completed framing, when a move is needed, the human runs `/move <path>`, observes its success and presses `ctrl+alt+u` from the fresh destination to attest it. The same UW continues without retyping the command; checkout preparation is not relocation or a Mandate. The model's read-only `omp_build_framing_submit` tool cannot confirm or attest. There is no `/wt`.
 
-The confirmation starts on `Plus tard`. Tab/Left/Right selects an action, Enter activates it; C confirms, R refuses and Escape defers. Up/Down/PageUp/PageDown scroll the summary; D toggles the captured JSON, digest and detail reference. Supplied values are quoted with visible line-break and bidirectional-control escapes, without changing the prepared payload. Wrapped continuation rows retain a `| ` marker even when their origin has scrolled away.
+The editor shows the next action while a framing proposal is ready or the worktree move is pending. The framing confirmation lists the destination and publication effects first, then the final Spec. `Détails` (D) opens the framing audit trail and the exact captured proposal, digest and reference.
 
-Select, resume and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
+The confirmation starts on `Plus tard`. Tab/Left/Right selects an action, Enter activates it; C confirms, R refuses and Escape defers. Up/Down/PageUp/PageDown scroll the current view. Supplied values are quoted with visible line-break and bidirectional-control escapes, without changing the prepared payload. Wrapped continuation rows retain a `| ` marker even when their origin has scrolled away.
 
-During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `resume`, `material-decision`, `resolve-interruption` and `init` are parsed as controls, not framed as free text.
+Select and new retain the `session-cwd` checkout guard and may stop with `principal-dispatch-refused`; move the session with `/move <path>` as directed.
 
-A local interruption is not a mandate pause and does not roll back a write already started. Use `/feature pause` or `/feature abandon` to record an operator stop.
+During intake and framing the read-only gate covers the root extension instance and refuses new task spawns; it does not gate subagents or background jobs started earlier. Hiding a generic confirmation during `/feature` intake is not classification: that gate remains until the decision allows classification or the command is replaced/revoked. The held proposal remains available through `ctrl+alt+u`. USER-attributed entries are not authenticated against other extensions; final approval still requires human confirmation. First words `new`, `pause`, `abandon`, `material-decision` and `init` are parsed as controls, not framed as free text.
+
+Use `/feature abandon <reference>` to revoke the exact mandate. Revocation stops effects that re-read the mandate afterward. A push, PR operation or merge already past its last mandate read can still complete. Revocation does not disarm [existing auto-merge or Kit grants](#existing-arms-and-disarm).
 
 Interactive `/feature` and `/uw` confirmations belong to their root command. The session becoming idle leaves a confirmation open; abort, switch, shutdown or command replacement invalidates it. Escape or `Plus tard` keeps the exact proposal pending. `ctrl+alt+u` reopens it in the same live session and location; it does not approve it. A command that was not deferred this way still requires explicit re-entry.
 
 A valid command receives an immediate UI acknowledgment before ports and long remote reads, plus persistent phase status. The shortcut explains preparation, a queued or already-open confirmation, a reopened proposal, an action already applying, or the absence of a confirmation here. It does not prepare or confirm again. A stopped capability cannot roll back an action already started: its feedback is replaced with that warning and retained until the action settles, without vetoing a genuine live successor framing owner. Only its own status is removed; cleanup does not reannounce another command. A predecessor's delayed stop signal cannot revoke its successor.
 
-Neither the shortcut, the default action, nor closing the dialog approves. omp-build 0.21.9 is a manual source change: it is not an activation, tooling pin, installed-cache upgrade or permission to continue a suspended witness.
+Neither the shortcut, the default action, nor closing the dialog approves.
 
 Workflow history reads revalidate comment pages with GitHub (`If-None-Match`). A `304` confirms the retained in-memory page and does not charge the primary rate limit; a failed request never returns that copy. Unavailable observations retain their refusal diagnostics rather than being treated as empty history.
 
@@ -134,7 +134,7 @@ Three parts, one plugin, no second runtime, no database, and no mandatory local 
 
 | Part | Owns | Does not own |
 |---|---|---|
-| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories and landing-mandate admission | Semantic judgement, GitHub calls, merge |
+| Engine (`engine/`) | Canonical records, reference/conservation checks, bounded traversal from confirmed histories | Semantic judgement, GitHub calls, merge |
 | Roxabi (`roxabi/`) | Feature admission, mandate and worktree preparation, UW operations | A project-defined graph or an admission override |
 | GitHub adapter (`adapters/`) | Complete comment history, confirmed publication, scope reads | Finding classification, landing permission |
 
@@ -167,7 +167,7 @@ A `review-interruption` is a neutral terminal for the initial inventory, not a v
 
 Historical `fix-owner` and `fix-request` records show ownership and intent, not completed execution. Confirmed `fix-recovery` records preserve neutral closure or transfer of an unstarted request and its unchanged decision. Replay keeps retired fragments from reopening the recorded attempt; unrelated corruption still blocks. Composed correction does not resume these attempts.
 
-### Criterion delivery and action inputs
+### Criterion delivery and historical action inputs
 
 For composed `/feature`, the session maps accepted criteria and invariants to code and targeted checks, verifies the committed diff, and commissions independent review of the open PR head.
 
@@ -184,39 +184,13 @@ Historical action records bind the full scoped mandate reference, not the accept
 
 Review judges truth, applicability, actual code linkage and demonstrated bug restoration. Each examined test needs independent support for its exact after-run version assertion and, when recorded, its before-run assertion; observations need explicit support for their candidate-version relationship. Matching Git endpoints, a printed SHA or an exit-zero result alone never establish execution linkage. Missing, unknown or unsupported linkage cannot satisfy a criterion. Mechanical policy authenticates the exact evidence and review subjects, enforces coverage and resolves references independently of finding count and tier; it does not establish the semantic truth of the reviewer's judgment. An exclusion must identify the exact accepted version and excluded additional work; it cannot waive an accepted criterion, introduced regression, security defect or invariant violation.
 
-#### Portable manifest versus local integrity
+#### Historical input manifests
 
-The durable manifest identifies the effective Spec, selected delivery data, code head/base, applicable configuration and the exact repository, installed-plugin and expanded-context references supplied. Pinned file digests describe Git-object bytes. Installed plugin files must match their immutable source pin; a package version, cache directory or consumer HEAD does not establish that provenance. Missing pin, mismatched bytes or unreadable required references refuse rather than falling back.
+Historical action records retain the identities of their effective Spec, selected delivery data, code head/base and pinned references. Readers authenticate the cited records and source bytes against those identities. The canonical input fingerprint excludes the action's outputs; it is not a record selector.
 
-Set-valued manifest references use identity-stable canonical ordering: equal identities retain their input order, including conflicting digests, while duplicate/conflicting references still refuse validation. Identity keys are computed once per entry within each nontrivial sort. This same-call computation does not cache source observations or change fingerprints, receipt validation or fresh authorization/readback cuts.
+For `assess-spec` and `attribute-ci`, the retained manifest binds the exact operands. Assessment binds the accepted and proposed Specs, their tiers, children, identity references and mechanical delta. CI attribution binds the candidate, PR scope and exact failed-check evidence. Descriptive raw-source edit timestamps are outside the canonical operand identity. Historical review and correction manifests retain the prior cause lineage as delivery data, not criterion evidence.
 
-For `assess-spec` and `attribute-ci`, the manifest also carries purpose-tagged exact operands. Assessment binds the authenticated accepted own Spec and the observed proposal, including their snapshots, tiers, children, identity references and mechanical delta. CI attribution binds the candidate, PR scope and observed native failed-check identities, names, conclusions and evidence digest; status evidence does not imply diagnostic logs. The request supplies an expected observation, not acceptance authority: preparation reconstructs and checks it against current sources. Missing or inconsistent operands refuse. Their canonical identity excludes descriptive raw-source edit timestamps, while retaining the substantive comparison and evidence.
-
-The Instantané projects those manifest operands into `action/exact-inputs.json`, indexed as accepted and proposed states or CI failures. That file is local material, not a second authority; the prepared operands bind the action receipt and are reconstructed on replay.
-
-Remote catalogue batching requires the configured reader to support GitHub's [GraphQL Blob content fields](https://docs.github.com/en/graphql/reference/git#blob) and REST Git-object reads. Text bytes must match the declared size and pinned Git blob SHA before the existing per-reference SHA-256 checks. Binary, indeterminate-encoding and known-truncated blobs use the pinned remote REST blob reader; malformed data or integrity mismatches refuse. After obtaining every file, the batch makes its final remote source read with REST `GET repos/{repository}/git/commits/{pinnedCommit}` and requires the exact commit SHA before releasing any bytes.
-
-That final read preserves GitHub's documented repository Contents-read permission floor for [App](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps#repository-permissions-for-contents) and [fine-grained PAT](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens#repository-permissions-for-contents) readers; it does not prove an explicit grant for public resources or identical endpoint-specific enterprise/proxy policy. Additional GraphQL query requirements can refuse even when a REST request would succeed. Preparation, confirmation, replay and hosted admission retain separate fresh cuts, with required blockers re-evaluated at transitions. Unreadable, incomplete or prohibited private cross-repository data refuses without a local fallback; no atomic GitHub transaction or zero-race guarantee is claimed.
-
-Within one selected-record read or replay, references to the same issue or PR share one complete history observation. Each reference still undergoes its own selector, authentication and digest checks. The observation is discarded after the call.
-
-Review admission reconstructs the currently eligible inputs from complete authenticated histories, not just the old manifest's listed records. A new eligible evidence receipt at the same HEAD changes the inputs or produces an explicit ambiguity. The review's own outputs stay outside its normative fingerprint; its authenticated stage annex supplies the records later stages actually need. Prose-only PR edits do not change that fingerprint.
-
-Historical review and correction manifests pin the prior disposition and adjudication lineage as `cause-state` delivery data, not criterion evidence. The review's own dispositions are outputs, not its inputs.
-
-Reconstructing a historical review requires its exact authenticated `review-attempt` reference and persisted input fingerprint. The reference selects the initial outputs; the fingerprint checks input equality, not record identity. A later adjudication changes the applicable cause lineage.
-
-Historical recall inventories retain each task's exact prepared action. A replacement is identified by its confirmed linked root, not an equal fingerprint or the interrupted inventory.
-
-The read-only snapshot indexes criterion and invariant IDs, titles, versions and paths. It includes the pinned diff, records, repository instructions, touched-area glossaries and verified plugin references.
-
-Repository reference discovery uses actual changed paths and paths from the selected authenticated plan to find ancestor instructions and glossaries, including cited glossaries. Planning pins those references at the base; review pins them at the candidate. A planned path need not exist yet and does not create a future code blob: candidate HEAD blobs are collected only for actual changed files. For a first plan without selected paths, discovery inventories tracked `AGENTS.md`, `CLAUDE.md` and `GLOSSARY.md` files at the pinned base and follows their glossary citations. An unreadable required inventory or citation refuses rather than silently reducing context; working-tree bytes are not a substitute.
-
-Historical review manifests pin changed files at candidate HEAD and the context-generation helpers. Local chunk boundaries and context windows are distinct from the common review fingerprint.
-
-Snapshot integrity covers actual paths, entry types and bytes, independently of the portable input digest. A changed, added, removed or symlinked entry invalidates the snapshot.
-
-A historical `missing-context` result binds to its action and inputs; it is not a satisfied criterion, approval or report. To prepare expanded inputs for inspection, `/uw action` accepts `expandedContext` with the authenticated result's `/payload` and genuinely additional pinned references. This produces a distinct fingerprint without dispatching work, renewing authority or resetting a limit.
+A historical `missing-context` result remains evidence of that action and its inputs, not a satisfied criterion, approval or report.
 
 #### Communication and publication authority
 
@@ -228,7 +202,7 @@ The fixed action footer offers `C Confirmer`, `R Refuser` and `Esc Plus tard`. T
 
 The same dialog confirms abandon, reopen, proposal write or creation, material acceptance, cause adjudication and causal-dependency adjustment. Each summary asks a direct question, then names the target and the effects the current writer actually performs. Supplied text stays quoted. Captured JSON, digests and the detail reference stay under `D Détails`.
 
-Read-only `/uw evidence` and `/uw verdicts` results use a compact successful record count, including zero; the full arrays remain in the consultable detail.
+Read-only `/uw evidence` and `/uw verdicts` results use a compact successful record count, including zero. The consultable verdict detail includes the authenticated rows and any diagnostics; the summary lists their codes.
 
 Generated feature and promotion bodies do not request issue closure; their neutral issue references are not approved bindings. No prose-driven auto-close job replaces calculated termination. A person can still write a keyword that GitHub acts on at the default branch; that native state remains an observation, not proof of UW completion.
 
@@ -291,11 +265,11 @@ Accepted retirements are issue-lifetime facts replayed from authenticated histor
 Current child commitments also remain observable when their historical parent grant becomes inactive, but only with authenticated historical provenance. Reading these facts does not renew the grant or restore the child's delivery authority.
 
 Assisted framing retains source obligations with explicit kept/reworded/new/removed accounting. One genuine operator confirmation covers the entire aggregate, including members, relationships and coverage. Existing issues are converted in place. Incomplete aggregates stay held; partial or uncertain effects are reported without retry or rollback. Framing and identity allocation do not accept a Spec or authorize delivery.
-If a framing aggregate is held, delivery, landing and continuation transitions are refused, including after a concurrently published first Mandate; pause, abandon and stop remain available. The hosted gate adopts this only after the tooling pin advances.
+If a framing aggregate is held, delivery, landing and continuation transitions are refused, including after a concurrently published first Mandate; the session can still stop and the exact Mandate can still be revoked.
 
 Before first acceptance, a framed member's title, Spec body, tier label and recorded edges are pinned: `/uw` proposal writes refuse it with `framing-result-pinned`, and a manual GitHub edit holds it as `framing-result-drift`, with no release in this version.
 
-Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore a paused or inactive Mandate or bypass the Parent engagement guard.
+Relation-endpoint checks read an ordinary issue's complete native graph and own history without fetching unrelated descendant delivery sources. Framing-bound endpoints retain strict aggregate closure and pre-acceptance currentness; verified past acceptance does not restore an inactive Mandate or bypass the Parent engagement guard.
 
 The three installed framing procedures are pinned and byte-checked; a mismatch stops continuation. Context projection and typed forms are procedural controls, not proof of provider receipt or human reasoning. Real host and provider behavior requires separate qualification.
 `/feature new` refuses an abandoned or revoked UW with a nonconformant body as `successor-spec-nonconformant`, with parser diagnostics and no write, checkout or bootstrap. omp-build has no in-place conversion for an inactive UW: `/uw write` is refused while its mandate is abandoned or revoked, and framing does not admit it. Start the work again as a new UW with `/feature <text>`. A body that already parses as conformant with confirmed identities follows the existing successor path; ordinary continuation cannot renew an inactive mandate. Nonconformant initial selections enter confirmed framing.
@@ -307,7 +281,7 @@ A UW is framed by a unique native tier, at least one valid criterion and no open
 
 Manual native closure never completes a managed UW without its authenticated delivery proof. The reader reports `native-closure-unproven`; the operator must reopen it or record abandonment. Confirmed reopening writes and reads back `OPEN` / `REOPENED`, but does not manufacture missing criterion, review, merge or parent-integration evidence.
 
-Advancing transitions and final admission recheck blockers and authority. Pause, abandonment and proposal repair remain available. Pre-read and readback detect conflicts but are not atomic. A foreign copy cannot impersonate a selected authenticated record; a new append can still change the observed history.
+Advancing transitions and final admission recheck blockers and authority. Session stop, exact abandonment and proposal repair remain available. Pre-read and readback detect conflicts but are not atomic. A foreign copy cannot impersonate a selected authenticated record; a new append can still change the observed history.
 An authenticated assessment of a mechanically material change still requires the existing operator decision when its classification says `editorial`; the label cannot override the canonical delta.
 
 ### UW operator command
@@ -326,7 +300,6 @@ The command accepts explicit repository coordinates and JSON files. `<ref>` is `
 | `/uw propose <ref> --proposal-file FILE` | Preview a proposal without mutation. |
 | `/uw write <ref> --proposal-file FILE` | Confirm and write a proposal. |
 | `/uw create <repo> --proposal-file FILE` | Confirm and create a UW. |
-| `/uw action FILE` | Prepare an action manifest and local snapshot, or replay supplied reviewed inputs. |
 | `/uw accept-material <ref>` | Confirm an exact authenticated material assessment. |
 | `/uw reopen <ref>` | Reopen through the UW operation. |
 | `/uw abandon <ref>` | Abandon through the UW operation. |
@@ -343,7 +316,7 @@ omp-build automated issue body, label, relation and state writes go through UW o
 
 GitHub publication follows the [public-safe content instructions](skills/feature/SKILL.md#public-safe-publication). Semantic review is procedural; existing-tool secret scanning is best-effort, not an automatic publication gate or proof of complete coverage. These source instructions do not establish installation or activation.
 
-`evidence` and `verdicts` read applicable delivery declarations and authenticated criterion verdicts, including the approved bound PR's review history; they do not publish. `action` accepts a JSON object containing `request: UwActionRequest`: it resolves the durable inputs and creates a local read-only snapshot without a GitHub write. Adding `reviewed: ActionInputs` instead replays the stored inputs against current durable sources. The request's code coordinates and references must be readable and match their pinned identities. The installed-plugin pin comes from trusted host composition, never the request file or argv; a missing or mismatched pin refuses.
+`evidence` and `verdicts` read applicable delivery declarations and authenticated criterion verdicts, including the approved bound PR's review history; they do not publish. `/uw action` stops with `uw-action-retired` without reading a request or tooling pin.
 
 Historical review inputs bind the selected initial root to exact PR history or, for a parent final review, to UW history and the exact base-to-head range. Complete history, fingerprint and subject checks still apply.
 
@@ -364,17 +337,17 @@ An explicit `adjustCauseDependency` proposal can withdraw or replace that causal
 
 Historical pending causes retain the accepted Spec that produced them. Adjudication reconstructs that origin from the complete authenticated Spec chain; current native acceptance, the exact live pending head and genuine operator confirmation remain mandatory. Immutable successor replay cannot authorize a new operation.
 
-Covered and new-policy delivery discovery searches each distinct relevant repository and mandate head branch across open, closed and merged PRs, reading every page without filtering by base. Branches locate candidates; canonical authenticated bindings establish association. A retargeted PR stays visible and is refused. Incomplete pages, ambiguous bindings or unreadable required history refuse rather than producing an apparently complete empty result.
+Covered and current-format delivery discovery searches each distinct relevant repository and mandate head branch across open, closed and merged PRs, reading every page without filtering by base. Branches locate candidates; canonical authenticated bindings establish association. A retargeted PR stays visible and is refused. Incomplete pages, ambiguous bindings or unreadable required history refuse rather than producing an apparently complete empty result.
 
-For new-policy bindings, publication and selection require a non-null mandate branch and matching mandate, binding and native PR branch and base. Historical off-branch and branchless facts remain subject to their original rules; they are not erased or made landable by this policy.
+New bindings require a non-null mandate branch and exact agreement among the mandate, binding and native PR on branch and base. Historical off-branch and branchless facts are still read under their writer's format; those records do not gain permission to land.
 
-The first succession of an uncovered legacy history retains both exhaustive repository-wide observations and examines every old mandate in the UW home, not just the selected lineage. An off-lineage, orphaned or competing mandate refuses coverage rather than being ignored or treated as covered. The transition can therefore remain expensive. A genuine successful new-policy successor control can bound a fully observed, rediscoverable old prefix; an incomplete prefix or an old mandate added after that boundary refuses explicitly. Ordinary reads do not silently launch a global fallback scan, and a version or cache alone does not prove historical absence.
+The first succession of an uncovered legacy history retains both exhaustive repository-wide observations and examines every old mandate in the UW home, not just the selected lineage. An off-lineage, orphaned or competing mandate refuses coverage rather than being ignored or treated as covered. The transition can therefore remain expensive. A confirmed current-format successor control can bound a fully observed, rediscoverable old prefix; an incomplete prefix or an old mandate added after that boundary refuses explicitly. Ordinary reads do not silently launch a global fallback scan, and a version or cache alone does not prove historical absence.
 
-Foreign claims do not veto UW **home-history coverage**. This does not relax the existing candidate PR binding guards: a foreign-only binding claim on a branch-matching candidate, including a fork PR or an unbound same-repository PR, can still refuse the delivery observation. A refused pause does not mean the own PR was disarmed. If necessary, an operator may independently verify the own PR and manually disable auto-merge and remove `reviewed` as containment only; this is not workflow authority or recovery.
+Foreign claims do not veto UW **home-history coverage**. This does not relax the existing candidate PR binding guards: a foreign-only binding claim on a branch-matching candidate, including a fork PR or an unbound same-repository PR, can still refuse the delivery observation.
 
-Pause, abandon and control-disarm require complete ordinary authority and retain their existing PR ownership checks. An uncovered legacy history refuses instead of confirming containment; the one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous current-policy home history, or an unknown policy; it does not justify ignoring history or automatically migrating it.
+The one-time historical succession path remains subject to its existing terminal-antecedent and complete-observation preconditions. The `legacy-coverage-incomplete` diagnostic can also indicate missing, damaged, partial or ambiguous UW home history; it does not justify ignoring history or automatically migrating it.
 
-Release policy: every new product version remains unknown to binding discovery until deliberately recognized in `engine/workflow-binding-policy.ts`. Versions 0.19.0 through 0.19.3, 0.20.0 through 0.20.1 and 0.21.0 through 0.21.15 retain the bounded semantics of 0.18.8 through 0.18.11; other versions remain unknown. Rebuild the distributed contracts after changing this policy. A version bump neither migrates records nor activates tooling.
+An installed omp-build upgrade neither invalidates nor renews an existing mandate. Release bumps need no binding allowlist edit. Branch, base, accepted scope, permissions and revocation still constrain delivery.
 
 A create input has this shape; coordinates and content here are fictional:
 
@@ -423,7 +396,7 @@ Parent `/feature` delivery is suspended until slice 6 of [#1031](https://github.
 
 Historical `epic-event` records remain readable: `goal-stop` is a UW stop; `goal-report` records a shared-state stop or report; `epic-review` and `post-merge` retain integration evidence. An `epic-drop` report is a stop; `epic-fix` is diagnostic only.
 
-Parent pause and abandonment still contain armed descendant PRs. Containment checks applicable own and accepted child PRs against authenticated bindings; issue links and branches are discovery hints. Incomplete discovery cannot confirm disarm.
+Revoking a parent Mandate does not write separate revocations for its descendants or disarm their PRs. Existing parent-authority and accepted-child checks still apply.
 
 Feature init imports the emitted `migrate-labels.ts` and `init.ts`, and binds the checkout with `defaultInitDeps(repository, checkout)`. It does not relabel existing issues; standalone issue-triage retains its own init behavior. The resolver is `triage-runtime.ts`; a missing emit stays `issue-triage-unavailable` or `IssueTriageMissing`. `skill://issue-triage` remains the separate optional advisory skill, not the action runtime. The generated `dist/issue-triage/` slice ships with omp-build.
 
@@ -476,7 +449,7 @@ login (`gh api user`). The count and the latest review come from that history. A
 refusal is not an empty history. Nothing writes accounting. A legacy marker is not a
 review and does not reset the bound.
 
-A spent native bound still stops legacy hosted structured admission. It is not the composed correction counter and never grants authority to replace or merge the PR.
+A spent native bound remains visible to historical readers. It is not the composed correction counter and is not a hosted merge gate.
 
 #### Trusted Feature delivery CLI
 
@@ -535,8 +508,9 @@ Do not invoke the CLI with naked `bun` from a target repository: its configurati
 can change startup or module resolution before the CLI runs.
 
 Manual issuance requires the exact reviewed lowercase 40-hex head and an opaque
-evidence reference; it does not parse a review report or bypass native ownership,
-spent-bound or refusal guards.
+evidence reference. It refuses a head other than the current PR head and treats
+PRs with native omp-build history like other Kit PRs. It does not replay that
+history or evaluate CI; the Kit gate rechecks CI before merge.
 It uses the current authenticated `gh` operator and reads the repository Actions
 variables through the API; exporting local environment variables is not a substitute.
 
@@ -552,86 +526,50 @@ authority for one head never authorizes another.
 
 #### Existing arms and disarm
 
-The surviving `workflow-gate.js` reads native PR state and, where configured, Kit authorization. Pause and abandon use its disarm checks: disable auto-merge and remove `reviewed` when present, withdraw applicable authorization, and confirm the result by readback. An unreadable or still-armed PR is not a confirmed disarm. This code does not arm a new merge.
+Feature pause and abandonment do not withdraw separate Kit grants, disable GitHub auto-merge or remove `reviewed`. If needed, the operator can verify the PR and clear those arms separately; doing so does not grant or restore Feature authority.
 
 Standalone `/ci-watch` observes the existing merge state using `workflow-readiness.js`: committed base `landing.mode`, otherwise `merge-on-green` if that workflow exists on the base, otherwise `native`. It does not advance Feature or restore an arm.
 
-#### Legacy hosted structured admission
-
-| Condition | Admission requirement |
-|---|---|
-| Current review and bound | The latest review approves the current head and the review bound is unspent. |
-| CI | Red or unreadable CI refuses. The hosted native auto-merge workflow may arm on pending CI only for an otherwise admissible approved head; GitHub still requires checks before merging. |
-| Normative inputs | The accepted configuration and effective Spec with its full version vector, current eligible delivery data, code head/base and pinned repository/plugin/context references reconstruct the approved `/4` manifest digest without the local dossier. PR prose and the review's own outputs are excluded. |
-| UW admission | The fresh complete native graph, parsed own proposal, confirmed identity history, accepted ancestor/child versions, tier, coverage and calculated blocker states satisfy the shared UW admission rules at this invocation. |
-| Authentic outputs | The expected automation author published every record that establishes the selected review's verdict and findings: its review, inventories, decision, synthesis and finding contributions, and their bound inputs; it also published the workflow binding and mandate chain. Every selected part has readable native `createdAt` and `updatedAt` values, and no part was edited. |
-
-Legacy landing reads `omp-build-mandate/4`, `omp-build-spec-assessment/3`, historical `omp-build-action-receipt/2` and `omp-build:review-input/4`. Incompatible formats and obsolete fields refuse; no migration, automatic renewal or cross-format recovery is implied. An active 0.17.x mandate with the removed grouped-fix action refuses `unsupported-graph`: pause or abandon it under 0.17.x before upgrading. A genuinely abandoned or revoked, conformant UW can still be eligible for `/feature new`. An older incompatible mandate or history held by an unconfirmed native normalization receipt cannot be repaired by pause or succession; start a new UW.
+#### Historical structured review proof
 
 For historical structured review proof, every behavioural criterion requires an admissible, code-bound test or observation. Missing or unverified criterion verdicts cannot approve the head, even with zero findings. The reader checks structure, references, versions and the verdict rule; it does not judge the truth of the observations.
 
-The repository's separate `.github/workflows/auto-merge.yml` invokes pinned `plugins/omp-build/scripts/review-gate.ts` for the legacy `reviewed` wakeup. After admission it can enable GitHub auto-merge with `--match-head-commit`. A label alone is not admission. Kit merge-on-green instead uses the scoped authorization protocol above. Neither is part of composed delivery, nor makes GitHub reads and merge atomic.
-
-When an admitted PR merges during landing observation, the base ref has advanced to the merge commit. Review-input revalidation uses the captured pre-merge base only when the native merge commit's two parents match that base and the admitted head; other input and authority checks remain fresh. A different or unreadable merge ancestry does not grant this exception.
-
-Freshness is per transition and per admission invocation, not a time-to-live. A newly observed blocker stops the next transition rather than interrupting the current action. Final hosted admission reconstructs current manifested inputs, then rereads required blockers, applicability and PR coordinates at its last admission seam. This is not an atomic transaction with later GitHub mutations.
-
-The hosted reader needs readable metadata, issue/PR comments and histories, Git/Contents objects and CI checks/statuses for every required repository, including the pinned plugin repository and inter-repository dependencies or evidence. The existing App-token declaration for this repository does not establish access to another private repository. A missing installation right, incomplete page/part or unreadable required source refuses with the missing repository/reference named; local success or a local dossier is not a fallback. Arming/writing permissions are separate from these read requirements.
-
-A canonical record can span multiple PR comments (`part=i/n`); readers accept only a complete record. The header carries the payload and the Markdown is projection. Native authorship and native timestamps establish what the gate read, not a signature or a lasting pin. GitHub reads, review publication, and arming are separate operations, so a change after the last read can remain undetected while an observer retains an arm.
-
-Record authorship under `OMP_BUILD_AUTOMATION_LOGIN` does not separate author and reviewer when that login also owns the PR. Composed Feature instead delegates independent review in the session and relies on the GitHub ruleset.
-
-The same trusted author is used for review records, workflow mandates, and bindings. Any future author separation must preserve durable CI-stop records and keep review reads separate from workflow-authority reads.
-
 GitHub viewer identity is fixed for one OMP process. `gh auth switch` requires a new session; the viewer memo includes `GH_HOST`, `GH_CONFIG_DIR`, `GH_TOKEN`, and `GITHUB_TOKEN` but does not observe an in-place account switch.
 
-The bound guards against agent mistakes, not against an agent that bypasses it:
-records by other accounts are ignored, and the bound does not detect edits or
-deletions of the account's comments; landing admission separately refuses an
-edited selected review, mandate or binding record. Every posted review counts, with or without a fix
-before it. Older accounting comments and the `## Review Fixes Applied` receipt
-decide nothing.
+#### Repository auto-merge
 
-The trusted auto-merge checkout (`.github/workflows/auto-merge.yml`) reads canonical records only from tooling pinned by repository variable `OMP_BUILD_TOOLING_SHA` (40 lowercase hex). It derives the expected author from `--automation-login` for records, the landing mandate and its binding/parent chain, and the selected review. The gate never calls `gh api user`, which installation tokens cannot use. A missing or non-hex pin refuses. There is no fallback to the candidate checkout, workflow SHA, moving branch, candidate code, or a dependency install; the pin's committed `dist/contracts.js` is the reader.
+This repository's separate `.github/workflows/auto-merge.yml` arms GitHub native
+auto-merge with a merge commit when the `reviewed` label is added to a PR into the
+default branch. The App token arms on the event head (`expectedHeadOid`) after a
+live read confirms the base and head and finds no failed check on that head (the
+latest run of each check, outside this workflow). It never merges: GitHub merges
+once the `PR_Main` ruleset (`ci` and App-issued `review` on that head) holds, and
+a PR that is already mergeable is refused with the pinned `gh pr merge` command to
+run instead. The workflow uses `pull_request_target`, checks out no code and does not read omp-build
+records. A head or base change disarms and drops `reviewed` with the job token;
+failed arming also uses job-token cleanup. Dependabot can arm only for semver-minor or semver-patch
+updates whose every commit author is `dependabot[bot]`. This lane is separate from
+Kit merge-on-green and from composed Feature delivery.
 
-The workflow uses `pull_request_target` so GitHub selects its arming logic from the base repository's default branch, not the PR merge ref. The candidate is an isolated, credential-free data checkout. Bun runs only from the pinned tooling directory, with ambient Bun/Node preloads cleared; candidate scripts, configuration, and dependencies are never executed. A trigger change takes effect only after it reaches the default branch; a local shell smoke does not prove hosted trigger selection.
+#### Shared tooling pin
 
-Every failed or skipped labeled-path admission has a final job-token cleanup, including App-token mint failure. It independently attempts native auto-merge disable and `reviewed` removal, then reads both back; failed writes or a remaining arm are errors. Cleanup never depends on the App token used by the reader. Dependabot is eligible only for semver-minor or semver-patch updates whose every commit author is `dependabot[bot]`.
-
-Admission requires a mandate's `productVersion` to equal the version of the pinned tooling; otherwise it refuses with `config-drift`. The repository variable is the only record of the current pin:
+`OMP_BUILD_TOOLING_SHA` authenticates new `/feature` framing. The pinned source commit must contain the exact installed `package.json` and prescribed grilling, domain-modeling and codebase-design procedure files. A pin for a prior release refuses new framing on the upgraded installation even when all three procedure files are unchanged. Ordinary UW reads, delivery under an existing Mandate, and Auto Merge do not require this pin. Read the shared framing pin with:
 
 ```sh
 gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
 ```
 
-#### Tooling-pin update
-
-After every merged omp-build version bump, set the variable to the full `main` SHA that carries that distribution, then update and restart the installed plugin. Until the pin moves, the hosted gate reads with the previous version and refuses mandates published by the new one.
-
-#### Isolated session tooling pin
-
-When a separately installed distribution intentionally differs from the shared source pin, set the target GitHub repository's `OMP_BUILD_TOOLING_SHA` to the full lowercase 40-character source commit and run `/tooling-pin activate` in the root TUI. Review the source, installed version, package digest and target clone, then explicitly confirm. The candidate must be on the installed source repository's default-branch ancestry and match the installed package bytes. An older matching installation may qualify. A matching or unreadable shared pin, child session or headless invocation cannot activate it.
-
-`/tooling-pin status` reports the current pin. Approval lives only in this extension instance and confirming root session, scoped to the current GitHub repository and clone, including linked worktrees. A same-session `/move` retains it; a session switch, branch or tree selection, shutdown or reload requires fresh confirmation. Clearing conversation context does not itself revoke activation if the session and agent identities remain unchanged; a changed identity makes it unusable. The root and clone checks still apply. Invalidation does not replace a pin already captured by a surviving admitted operation; its existing origin, stop and control guards still apply. Activation creates no UW or workflow authority, changes no shared pin or installation, and does not alter the hosted gate.
-
-A product-version bump changes the effective workflow config digest. Complete or genuinely abandon active mandates before an incompatible activation. If the current reader cannot authenticate abandonment, retain the blocker and request an explicit owner recovery decision; a source fix or manual merge grants no cutover exception. After applicable activation prerequisites, a genuinely abandoned, conformant current-format UW can use `/feature new #N` for a fresh same-UW successor with current checks and a new config pin, not continuation of the old authority.
+To repair a shared framing pin, use a full `main` commit SHA whose package metadata and prescribed procedure files match the installation byte for byte. Updating this variable requires operator authorization.
 
 ```sh
 gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
-omp plugin marketplace update roxabi-marketplace
-omp plugin upgrade omp-build@roxabi-marketplace
 ```
 
-### Legacy hosted activation prerequisites
+#### Isolated session tooling pin
 
-- **W1 — event policy:** configured in policy `8844` to allow `pull_request_target` and `push` for `.github/workflows/auto-merge.yml`.
-- **W2 — secret visibility (deferred, #892):** `ROXABI_CI_APP_PRIVATE_KEY` is an organization secret visible to all repositories, so a workflow on any branch of this repository can mint the `roxabi-ci` token. Deferred on 2026-10-25 under the single-operator decision. Only the operator or their agent pushes branches here, and forks and Dependabot receive no organization secrets. This workflow does not declare `environment:`. #892 lists the triggers to reopen and the change.
-- **W3 — App token permissions:** the `roxabi-ci` installation grants checks read, contents write, issues write, pull requests write, statuses read and workflows write (observed 2026-10-25). The minted token is scoped to this repository, as before, and narrowed to checks read, contents write, issues read, pull requests write, statuses read and workflows write. Contents write performs the native auto-merge; workflows write lets it merge a PR that changes `.github/workflows/`. An explicit parent scope in another repository stays unreadable and refuses.
+When a separately installed distribution intentionally differs from the shared source pin, set the target GitHub repository's `OMP_BUILD_TOOLING_SHA` to the full lowercase 40-character source commit and run `/tooling-pin activate` in the root TUI. Review the source, installed version, package metadata digest and target clone, then explicitly confirm. The candidate must be on the installed source repository's default-branch ancestry and match the installed `package.json` byte for byte. An older matching installation may qualify. A matching or unreadable shared pin, child session or headless invocation cannot activate it. New framing still checks all prescribed procedure files against the activated pin.
 
-The separately authorized T5 capability check passed in [run 40180871966](https://github.com/Roxabi/roxabi-plugins/actions/runs/40180871966). The gate reads with the App token (`GH_TOKEN: ${{ steps.app.outputs.token }}` in `.github/workflows/auto-merge.yml`), not the job `GITHUB_TOKEN`; job `issues: write` does not apply to that App token ([workflow permissions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions) cover the job token only). With the App token narrowed by W3, the run exercised reading issue bodies and comments, including the explicit parent scope [#720](https://github.com/Roxabi/roxabi-plugins/issues/720), PR coordinates and rollup, and the trusted gate's selected-base Git fetch through its process-local credential helper. The real reader ran and refused a PR without a record with `reviewed-head-mismatch`; the token then armed native auto-merge. The credential helper does not persist credentials. This historical capability run is not admission evidence for another PR and does not prove access to private repositories. Local transport smoke coverage likewise does not prove that access.
-
-This is not a new tamper control.
+`/tooling-pin status` reports the current pin. Approval lives only in this extension instance and confirming root session, scoped to the current GitHub repository and clone, including linked worktrees. A same-session `/move` retains it; a session switch, branch or tree selection, shutdown or reload requires fresh confirmation. Clearing conversation context does not itself revoke activation if the session and agent identities remain unchanged; a changed identity makes it unusable. The root and clone checks still apply. Invalidation does not replace a pin already captured by a surviving admitted operation; its existing origin, stop and control guards still apply. Activation creates no UW or workflow authority and changes no shared pin or installation.
 
 ## Guards
 
@@ -653,7 +591,7 @@ The guards and authored review agents are maintained locally. omp-build does not
 
 ## Worktree bootstrap
 
-`skills/feature/worktree-bootstrap.sh` is the bootstrap contract. `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs it in the foreground after worktree identity is valid and before the Feature handoff: before successor publication on `/feature new`, on the first mandate, and on select, resume or new in an already valid worktree. It refuses the principal. `omp-build-bootstrapped` and `omp-build-bootstrap.lock` are environment cache, not business records. `/feature init`, bare checkout preparation and session or agent start do not run it. Do not run it as a second process.
+`skills/feature/worktree-bootstrap.sh` is the bootstrap contract. `runWorktreeBootstrap` in `roxabi/workflow-checkout.ts` runs it in the foreground after worktree identity is valid and before the Feature handoff: before successor publication on `/feature new`, on the first mandate, and on select or new in an already valid worktree. It refuses the principal. `omp-build-bootstrapped` and `omp-build-bootstrap.lock` are environment cache, not business records. `/feature init`, bare checkout preparation and session or agent start do not run it. Do not run it as a second process.
 
 - The script holds a lock in the git dir, so repeated explicit calls wait for a running invocation and then no-op.
 - omp-build does not automatically copy or build a ccc or codegraph index and requires neither CLI. Project-configured `worktree.copy`, `worktree.seed` and setup still run normally.

@@ -1,12 +1,15 @@
 import { expect, test } from 'vitest'
 import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { encodeParts } from '../../adapters/github/history-encoder.ts'
-import { sourceRef } from '../../roxabi/uw-action-observe.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { criterionDispositionRecords } from '../../testing/criterion-dispositions.ts'
 import { criterionEpicReviewGraph } from '../../testing/criterion-range-approval.ts'
 import { nativeImplementationGit } from '../../testing/native-implementation-git.ts'
-import { produceParentIntegration } from '../../testing/parent-integration-producer.ts'
+import {
+  historicalIntegrationReviewInputs,
+  produceParentIntegration,
+} from '../../testing/parent-integration-producer.ts'
+import { sourceRef } from '../../testing/workflow-record-pins.ts'
 import { canonicalValueDigest } from '../action-input.ts'
 import { parseRecord } from '../record-construction.ts'
 import { validateFreshDecision } from '../review-fresh-decision.ts'
@@ -75,7 +78,6 @@ test.each([
           baseTrees: [checkout.p0, firstMerge, secondMerge].map(checkout.tree),
           mergeTrees: checkout.merges.map(checkout.tree),
           parentTree: checkout.tree(checkout.parentHead),
-          diff: checkout.diff(thirdMerge, checkout.parentHead),
         },
         parentCriteria,
         'planned',
@@ -158,7 +160,7 @@ test.each([
             selector: '/payload/structured/criteria/0',
             digest: canonicalValueDigest(declaration),
           }
-          async function prepareParentReviewInputs() {
+          function parentReviewInputs() {
             if (beforeReview.accepted.status !== 'accepted' || beforeReview.accepted.value.coverage === null)
               throw new Error('Expected accepted parent coverage')
             const coverage = beforeReview.accepted.value.coverage
@@ -169,17 +171,12 @@ test.each([
               digest: canonicalValueDigest(assignment),
             }))
             const childRefs = childProofSources(completions, beforeReview.observation.histories)
-            const preparedReview = await installed.prepareAction({
-              actionId: 'parent-integration-root',
-              purpose: 'review',
-              subject: integrated.payload.inputs.manifest.subject,
-              code: { ...code, referenceCommit: code.head },
-              stageSources: [],
-              expandedContext: [],
-            })
-            if (!preparedReview.ok)
-              throw new Error(`Fresh parent review preparation refused: ${JSON.stringify(preparedReview.diagnostics)}`)
-            const inputs = preparedReview.value.inputs
+            const inputs = historicalIntegrationReviewInputs(
+              beforeReview,
+              world.parent,
+              integrationRef,
+              integrationOutput,
+            )
             expect(inputs.manifest.deliveryData).toEqual(
               expect.arrayContaining([
                 { ...integration, role: 'integration' },
@@ -188,7 +185,7 @@ test.each([
             )
             return { inputs, coverage, metadata, childRefs }
           }
-          const { inputs, coverage, metadata, childRefs } = await prepareParentReviewInputs()
+          const { inputs, coverage, metadata, childRefs } = parentReviewInputs()
           const review = criterionEpicReviewGraph({
             mandate: world.parent,
             inputs,

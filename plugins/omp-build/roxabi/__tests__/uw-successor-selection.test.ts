@@ -151,9 +151,9 @@ test('a checkout changed during bootstrap refuses before successor publication',
   expect(subject.native.writes).toEqual([])
 })
 
-test('ordinary resume does not renew an abandoned mandate', async () => {
+test('ordinary selection does not renew an abandoned mandate', async () => {
   const subject = await abandonedLeaf()
-  const result = await selectFeatureMandate('resume', undefined, subject.authority, undefined, subject.reader)
+  const result = await selectFeatureMandate('select', undefined, subject.authority, undefined, subject.reader)
   expect(result).toMatchObject({
     authority: { selection: { status: 'refused', reason: 'abandoned' } },
     mandate: null,

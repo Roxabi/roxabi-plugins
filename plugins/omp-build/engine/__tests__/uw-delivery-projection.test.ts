@@ -1,13 +1,18 @@
 import { expect, test } from 'vitest'
-import { fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
+import { decodeHistory } from '../../adapters/github/history-codec.ts'
+import { executeDurableUwCommand } from '../../roxabi/uw-command-read.ts'
+import { fixtureReviewClassCatalogues, fixtureUwOperations } from '../../testing/action-input-fixtures.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
 import { observedUwWithoutPullRequests } from '../../testing/uw-completion-observation.ts'
 import { canonicalValueDigest } from '../action-input.ts'
+import type { DecodedHistory } from '../history-schema.ts'
 import { specDigest } from '../record-digests.ts'
+import type { CanonicalRecord } from '../record-schema.ts'
 import { specReportSchema } from '../record-values.ts'
 import { assessUwCompletion } from '../uw-completion.ts'
 import { projectUwDelivery } from '../uw-delivery-projection.ts'
 import { scopeKey } from '../uw-graph.ts'
+import { buildDeliveredLeaf } from './uw-delivered-leaf-fixture.ts'
 import { deliveredLeaf } from './uw-delivery-proof-fixture.ts'
 
 test('does not project criterion proof or completion for an accepted leaf without a PR', async () => {
@@ -106,4 +111,121 @@ test('read-only delivery inspection shows authentic Request changes without comp
   expect(projected.value.declarations[0]?.value.target.spec).toEqual(fixture.accepted.ref)
   expect(JSON.stringify(fixture.observation)).toBe(before)
   expect(projected.value.diagnostics.map((item) => item.code)).toContain('delivery-review-not-approved')
+})
+
+test.each([true, false])('projects a cited verdict only when its historical digest matches: %s', async (matches) => {
+  const fixture = await buildDeliveredLeaf('Request changes', 42, false, (row, { manifest }) => {
+    const [judgment] = row.examined
+    const [ref] = manifest.deliveryData
+    if (ref === undefined || judgment?.codeLink.method !== 'test')
+      throw new Error('Expected selected implementation declaration and its test judgment')
+    const reference = {
+      source: ref.source,
+      record: ref.record,
+      selector: ref.selector,
+      digest: matches ? ref.digest : '0'.repeat(64),
+    }
+    const codeLink = { ...judgment.codeLink, after: { ...judgment.codeLink.after, references: [reference] } }
+    return { ...row, examined: [{ ...judgment, codeLink }] }
+  })
+  const assessment = assessUwCompletion(fixture.observation)
+  const projected = projectUwDelivery(fixture.observation, assessment, fixture.uw)
+  if (!projected.ok) throw new Error('Expected read-only delivery projection')
+  expect(projected.value.declarations).toHaveLength(1)
+  expect(projected.value.diagnostics).toContainEqual(expect.objectContaining({ code: 'delivery-review-not-approved' }))
+  if (matches) {
+    expect(projected.value.verdicts).toMatchObject([{ value: { verdict: 'satisfied' } }])
+  } else {
+    expect(projected.value.verdicts).toEqual([])
+    expect(projected.value.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'mismatch',
+        message: expect.stringContaining('observation digest does not match'),
+      }),
+    )
+  }
+})
+
+test.each(['satisfied', 'unverified'] as const)(
+  'does not mistake an inconclusive examination for an authenticated satisfied verdict: %s',
+  async (verdict) => {
+    const fixture = await buildDeliveredLeaf('Request changes', 42, false, (row) => ({
+      ...row,
+      verdict,
+      examined: row.examined.map((item) => ({ ...item, truth: 'unknown' })),
+      reason: 'The test examination could not establish the criterion.',
+    }))
+    const assessment = assessUwCompletion(fixture.observation)
+    const projected = projectUwDelivery(fixture.observation, assessment, fixture.uw)
+    if (!projected.ok) throw new Error('Expected read-only delivery projection')
+    if (verdict === 'unverified') {
+      expect(projected.value.verdicts).toMatchObject([{ value: { verdict } }])
+    } else {
+      expect(projected.value.verdicts).toEqual([])
+      expect(projected.value.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'delivery-verdict-unauthenticated' }),
+      )
+    }
+  },
+)
+
+function withMissingProducerReference(record: CanonicalRecord): CanonicalRecord {
+  if (record.kind !== 'action-receipt' || record.payload.action !== 'implement' || record.payload.phase !== 'result')
+    return record
+  const output = record.payload.structured
+  if (output?.outcome !== 'implemented') throw new Error('Expected a published implementation')
+  const [declaration] = output.criteria
+  const evidence = declaration?.verification === 'evidence' ? declaration.evidence[0] : undefined
+  if (evidence?.method !== 'test' || !('format' in evidence) || declaration === undefined)
+    throw new Error('Expected captured test evidence')
+  const reference = {
+    source: 'git-file' as const,
+    repository: record.repository,
+    commit: evidence.after.versionClaim.code.commit,
+    path: 'docs/unobserved-producer-proof.md',
+    digest: '0'.repeat(64),
+  }
+  const after = { ...evidence.after, versionClaim: { ...evidence.after.versionClaim, references: [reference] } }
+  const criteria = [{ ...declaration, verification: 'evidence' as const, evidence: [{ ...evidence, after }] }]
+  return { ...record, payload: { ...record.payload, structured: { ...output, criteria } } }
+}
+
+function producerWithMissingReference(producer: { records: readonly CanonicalRecord[]; history: DecodedHistory }) {
+  const records = producer.records.map(withMissingProducerReference)
+  const rewritten = roxabiWorkflowFixtures().historyFrom(records, 'operator', 'operator')
+  // Preserve native Git observations while changing the producer's cited Git file.
+  const history = decodeHistory({ ...producer.history.source, comments: rewritten.source.comments })
+  return { records, history }
+}
+
+test.each([true, false])('only projects a satisfied verdict from authenticated producer proof: %s', async (valid) => {
+  const fixture = await buildDeliveredLeaf(
+    'Request changes',
+    42,
+    false,
+    undefined,
+    valid ? undefined : producerWithMissingReference,
+  )
+  const assessment = assessUwCompletion(fixture.observation)
+  const projected = projectUwDelivery(fixture.observation, assessment, fixture.uw)
+  if (!projected.ok) throw new Error('Expected read-only delivery projection')
+  const result = await executeDurableUwCommand(
+    { kind: 'verdicts', repository: fixture.uw.repository, number: 42 },
+    { ...fixtureUwOperations(), readDelivery: async () => projected },
+  )
+  const unknownProducer = expect.objectContaining({
+    code: 'unknown-reference',
+    message: expect.stringContaining('cites an unauthenticated pinned source'),
+  })
+  if (valid) {
+    expect(projected.value.declarations).toHaveLength(1)
+    expect(result.value).toMatchObject({ status: 'verdicts', verdicts: [{ value: { verdict: 'satisfied' } }] })
+    expect(projected.value.diagnostics).not.toContainEqual(unknownProducer)
+  } else {
+    expect(result.value).toMatchObject({
+      status: 'verdicts',
+      verdicts: [],
+      diagnostics: expect.arrayContaining([unknownProducer]),
+    })
+  }
 })

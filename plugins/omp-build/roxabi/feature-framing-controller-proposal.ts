@@ -17,7 +17,7 @@ type Obligation = ProposalForm['vocabulary'][number]['invariant']
 type Problem = { problem: UwDiagnostic }
 
 export function readOnlyUw(core: ControllerCore, lease: LeaseState, ctx: ExtensionContext): Promise<UwOperations> {
-  return core.host.uw({ ctx, operator: lease.readOnlyOperator, pluginPin: lease.pluginPin })
+  return core.host.uw({ ctx, operator: lease.readOnlyOperator })
 }
 
 /** One complete authenticated read of the selected issue and its source binding digest without materials. */

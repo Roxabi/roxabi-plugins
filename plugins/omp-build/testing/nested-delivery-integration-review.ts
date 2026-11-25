@@ -1,30 +1,18 @@
+import type { ActionInputs } from '../engine/action-input-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
-import { recordsOf } from '../engine/workflow-control.ts'
+import { type MandateRecord, recordsOf } from '../engine/workflow-control.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
 import { criterionDispositionRecords } from './criterion-dispositions.ts'
 import type { IntegrationContext } from './nested-delivery-integration.ts'
 import type { AdmittedIntegration } from './nested-delivery-integration-admission.ts'
 import { integrationReviewRecords } from './nested-delivery-integration-review-graph.ts'
 import type { integrationVerdict } from './nested-delivery-integration-verdict.ts'
+import { historicalIntegrationReviewInputs } from './parent-integration-producer.ts'
 import { epicReviewGraph } from './record-graphs.ts'
 
-async function prepareReview(context: IntegrationContext, scope: Scope, head: string, admitted: AdmittedIntegration) {
-  const prepared = await context.world.operations.prepareAction({
-    actionId: `nested-${scope.target}-root`,
-    purpose: 'review',
-    subject: admitted.integrated.payload.inputs.manifest.subject,
-    code: { ...admitted.code, referenceCommit: head },
-    stageSources: [],
-    expandedContext: [],
-  })
-  if (!prepared.ok) throw new Error(`Fresh nested review preparation refused: ${JSON.stringify(prepared.diagnostics)}`)
-  return prepared.value.inputs
-}
-
-type ReviewInputs = Awaited<ReturnType<typeof prepareReview>>
 type Graph = ReturnType<typeof epicReviewGraph>
 
-function reviewGraph(scope: Scope, head: string, inputs: ReviewInputs) {
+function reviewGraph(scope: Scope, head: string, inputs: ActionInputs) {
   return epicReviewGraph({
     scope,
     head,
@@ -52,7 +40,7 @@ function reviewPrefix(
 
 type Prefix = ReturnType<typeof reviewPrefix>
 
-function assessReview(admitted: AdmittedIntegration, inputs: ReviewInputs, state: Prefix) {
+function assessReview(admitted: AdmittedIntegration, inputs: ActionInputs, state: Prefix) {
   return criterionDispositionRecords(
     inputs,
     state.bound,
@@ -62,7 +50,7 @@ function assessReview(admitted: AdmittedIntegration, inputs: ReviewInputs, state
   )
 }
 
-function reviewDispositions(scope: Scope, admitted: AdmittedIntegration, inputs: ReviewInputs, state: Prefix) {
+function reviewDispositions(scope: Scope, admitted: AdmittedIntegration, inputs: ActionInputs, state: Prefix) {
   const assessed = assessReview(admitted, inputs, state)
   const dispositions = encodeCriterionRecords(
     assessed.dispositions,
@@ -95,10 +83,11 @@ export async function publishIntegrationReview(
   context: IntegrationContext,
   scope: Scope,
   head: string,
+  mandate: MandateRecord,
   admitted: AdmittedIntegration,
   row: ReturnType<typeof integrationVerdict>,
 ) {
-  const inputs = await prepareReview(context, scope, head, admitted)
+  const inputs = historicalIntegrationReviewInputs(admitted.after, mandate, admitted.ref, admitted.output)
   const graph = reviewGraph(scope, head, inputs)
   const state = reviewPrefix(scope, admitted, graph, row)
   const result = reviewDispositions(scope, admitted, inputs, state)

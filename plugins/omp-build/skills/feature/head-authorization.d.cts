@@ -42,7 +42,6 @@ export function issueAuthorization(
     source: string
     evidence: string
     operationId: string
-    requireBaseSha?: boolean
   },
 ): Promise<Receipt>
 export function withdrawAuthorization(

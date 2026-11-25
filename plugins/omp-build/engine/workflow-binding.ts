@@ -1,7 +1,6 @@
 import type { Diagnostic, Scope } from './record-values.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord } from './workflow-control.ts'
-import type { LandingRefusal } from './workflow-landing.ts'
 import type { MandateRefusal } from './workflow-mandate.ts'
 
 export type ConfigIdentity = {
@@ -26,4 +25,4 @@ export type BoundWork =
       drift: 'settled' | 'differs' | null
     }
   | { status: 'standalone'; binding: 'absent' }
-  | { status: 'refused'; reason: MandateRefusal | LandingRefusal; evidence: Diagnostic[] }
+  | { status: 'refused'; reason: MandateRefusal | 'fix-only' | 'material-spec'; evidence: Diagnostic[] }

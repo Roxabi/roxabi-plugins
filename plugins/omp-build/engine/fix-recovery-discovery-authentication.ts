@@ -6,7 +6,7 @@ import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { Diagnostic } from './record-values.ts'
 import { resolveSpecEffective, resolveSpecEffectiveAtGraph } from './spec-effective.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
-import { bindingMatchesMandate, bindingPolicy } from './workflow-binding-policy.ts'
+import { bindingMatchesMandate, usesLegacyBindingFormat } from './workflow-binding-format.ts'
 import {
   bindExternalRef,
   type MandateRecord,
@@ -14,7 +14,7 @@ import {
   workflowOperationProblem,
 } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
-import { outstandingPauseInAuthority, unliftedPause } from './workflow-pause.ts'
+import { isHistoricalContinuationControl } from './workflow-pause.ts'
 import { confirmedAccountedMandate } from './workflow-pr-binding.ts'
 import { resolveBindingChain } from './workflow-pr-binding-chain.ts'
 
@@ -27,7 +27,8 @@ function authenticateAnchors(pair: OwnerPair, home: DecodedHistory): Diagnostic 
     if (
       operation.authority === 'foreign' ||
       operation.record === null ||
-      (operation.record.kind !== 'mandate' && operation.record.kind !== 'operator-control')
+      (operation.record.kind !== 'mandate' && operation.record.kind !== 'operator-control') ||
+      isHistoricalContinuationControl(operation.record)
     )
       continue
     const record = operation.record
@@ -55,12 +56,11 @@ function authenticateBindingRecord(
   const boundMandate = bindExternalRef(binding.payload.mandate, mandateHome)
   const bindingMandate = confirmedAccountedMandate(mandateHome, binding.payload.mandate)
   if (!boundMandate.ok || bindingMandate === null) return refuse('Binding mandate is not authenticated')
-  const policy = bindingPolicy(bindingMandate)
   if (
-    policy === 'unknown' ||
-    (policy === 'bounded' && !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base))
+    !usesLegacyBindingFormat(bindingMandate) &&
+    !bindingMatchesMandate(bindingMandate, binding.payload.branch, binding.payload.base)
   )
-    return refuse('Recorded binding contradicts its mandate policy')
+    return refuse('Recorded binding branch or base differs from its mandate')
   return null
 }
 
@@ -132,30 +132,35 @@ function authenticateSpec(
   return null
 }
 
-function pauseHomeProblem(current: MandateRecord, histories: readonly DecodedHistory[]): Diagnostic | null {
+function mandateAuthorityProblem(current: MandateRecord, histories: readonly DecodedHistory[]): Diagnostic | null {
   const home = histories.find((history) => equalScope(history.source.scope, current))
   if (home === undefined || !home.source.complete || workflowOperationProblem(home) !== null)
-    return refuse('Mandate pause authority history is missing or incomplete')
+    return refuse('Mandate authority history is missing or incomplete')
   for (const operation of home.operations) {
-    if (operation.authority === 'foreign' || operation.record?.kind !== 'operator-control') continue
+    if (
+      operation.authority === 'foreign' ||
+      operation.record?.kind !== 'operator-control' ||
+      isHistoricalContinuationControl(operation.record)
+    )
+      continue
     if (
       !bindExternalRef(
         { kind: 'operator-control', scope: home.source.scope, recordId: operation.record.recordId },
         home,
       ).ok
     )
-      return refuse('Mandate pause control source is not authenticated')
+      return refuse('Mandate control source is not authenticated')
   }
-  return unliftedPause(home, current) !== null ? diagnostic('paused', `Mandate ${current.recordId} is paused`) : null
+  return null
 }
 
-function pauseParent(
+function authenticateParentMandate(
   parent: NonNullable<MandateRecord['payload']['parent']>,
   histories: readonly DecodedHistory[],
 ): { mandate: MandateRecord } | { problem: Diagnostic } {
   const parentHome = histories.find((history) => equalScope(history.source.scope, parent.scope))
   if (parentHome === undefined || !parentHome.source.complete || workflowOperationProblem(parentHome) !== null)
-    return { problem: refuse('Parent mandate pause authority history is missing or incomplete') }
+    return { problem: refuse('Parent mandate authority history is missing or incomplete') }
   const bound = bindExternalRef(parent, parentHome)
   const selected = selectedMandate(parentHome)
   if (
@@ -165,24 +170,22 @@ function pauseParent(
     selected.recordId !== parent.recordId ||
     canonicalValueDigest(bound.value) !== canonicalValueDigest(selected)
   )
-    return { problem: refuse('Parent mandate pause authority is not authenticated') }
+    return { problem: refuse('Parent mandate authority is not authenticated') }
   return { mandate: selected }
 }
 
-function authenticatePauseAuthority(mandate: MandateRecord, histories: readonly DecodedHistory[]): Diagnostic | null {
-  const outstanding = outstandingPauseInAuthority(mandate, histories)
-  if (outstanding !== null) return outstanding
+function authenticateMandateAuthority(mandate: MandateRecord, histories: readonly DecodedHistory[]): Diagnostic | null {
   const seen = new Set<string>()
   let current = mandate
   while (true) {
     const key = `${current.repository}\0${current.target}\0${current.recordId}`
     if (seen.has(key)) return refuse('Mandate parent chain cycles')
     seen.add(key)
-    const problem = pauseHomeProblem(current, histories)
+    const problem = mandateAuthorityProblem(current, histories)
     if (problem !== null) return problem
     const parent = current.payload.parent
     if (parent === null) return null
-    const result = pauseParent(parent, histories)
+    const result = authenticateParentMandate(parent, histories)
     if ('problem' in result) return result.problem
     current = result.mandate
   }
@@ -238,5 +241,5 @@ export function authenticateSourceBasis(
   if (bindingProblem !== null) return bindingProblem
   const specProblem = authenticateSpec(input, common, mandate, histories)
   if (specProblem !== null) return specProblem
-  return authenticatePauseAuthority(mandate, histories)
+  return authenticateMandateAuthority(mandate, histories)
 }

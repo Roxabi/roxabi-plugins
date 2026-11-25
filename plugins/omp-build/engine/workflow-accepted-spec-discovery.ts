@@ -1,10 +1,10 @@
 import { canonicalValueDigest } from './canonical-value.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { replayForMandate } from './uw-identity-replay.ts'
 import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpecChain } from './workflow-accepted-spec-chain.ts'
 import type { AcceptedOwnSpec, AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
 import {
+  abandoned,
   historyFor,
   type MandateRecord,
   mandateScope,
@@ -14,7 +14,7 @@ import {
 import type { SpecAssessment } from './workflow-output-schema.ts'
 import { confirmedAccountedMandate } from './workflow-pr-binding.ts'
 import { type AssessResultRecord, specChainFailure } from './workflow-spec-assessment.ts'
-import { type AssessmentReplayContext, confirmedAssessPairs } from './workflow-spec-authentication.ts'
+import { confirmedAssessPairs } from './workflow-spec-authentication.ts'
 
 type SpecChainFailure = Extract<AcceptedSpecResult, { ok: false }>
 type Obligation = { record: AssessResultRecord; assessment: SpecAssessment }
@@ -48,11 +48,7 @@ export function assessmentOwnRefs(record: AssessResultRecord): OwnSpecRef[] {
   ]
 }
 
-function structuralReplay(
-  mandate: MandateRecord,
-  histories: readonly DecodedHistory[],
-  replayContext?: AssessmentReplayContext,
-): StructuralReplay {
+function structuralReplay(mandate: MandateRecord, histories: readonly DecodedHistory[]): StructuralReplay {
   const scope = mandateScope(mandate)
   const home = historyFor(scope, histories)
   if (home === null || !home.source.complete) return specChainFailure('missing-history', 'Mandate history is missing')
@@ -73,9 +69,9 @@ function structuralReplay(
     confirmed.payload.ownSpec.uw.target !== scope.target
   )
     return specChainFailure('material-spec', 'Mandate own Spec does not belong to its mandate scope')
-  const pairs = confirmedAssessPairs(home, histories, mandateRef, replayContext)
+  const pairs = confirmedAssessPairs(home, histories, mandateRef, abandoned(home, confirmed))
   if (!pairs.ok) return pairs
-  return recordedReplay({ confirmed, home, histories, mandateRef, scope })
+  return recordedReplay({ confirmed, home, histories, mandateRef, scope, excludedResults: pairs.excludedResults })
 }
 
 function recordedReplay(
@@ -104,34 +100,26 @@ export class AcceptedSpecDiscovery {
   readonly chains = new Map<string, Chain>()
   readonly failures = new Map<string, SpecChainFailure>()
   readonly stopped = new Map<string, StoppedChain>()
-  private readonly queued = new Map<string, { mandate: MandateRecord; replayContext?: AssessmentReplayContext }>()
+  private readonly queued = new Map<string, MandateRecord>()
   private readonly scannedScopes = new Set<string>()
 
-  constructor(
-    private readonly histories: readonly DecodedHistory[],
-    private readonly replayContext?: AssessmentReplayContext,
-  ) {}
+  constructor(private readonly histories: readonly DecodedHistory[]) {}
 
   discover(mandate: MandateRecord, extra?: AssessResultRecord): void {
-    const home = historyFor(mandateScope(mandate), this.histories)
-    this.queue(
-      mandate,
-      home !== null && replayForMandate(home, mandate, this.replayContext) ? this.replayContext : undefined,
-    )
+    this.queue(mandate)
     if (extra !== undefined) for (const ref of assessmentOwnRefs(extra)) this.queueScope(ref)
     while (this.queued.size) {
       const first = this.queued.entries().next().value
       if (!first) break
-      const [id, item] = first
+      const [id, candidate] = first
       this.queued.delete(id)
-      this.discoverChain(id, item)
+      this.discoverChain(id, candidate)
     }
   }
 
-  private queue(record: MandateRecord, context?: AssessmentReplayContext): void {
+  private queue(record: MandateRecord): void {
     const id = acceptedMandateKey(record)
-    if (!this.queued.has(id) && !this.chains.has(id) && !this.failures.has(id))
-      this.queued.set(id, { mandate: record, replayContext: context })
+    if (!this.queued.has(id) && !this.chains.has(id) && !this.failures.has(id)) this.queued.set(id, record)
   }
 
   private queueScope(ref: OwnSpecRef): void {
@@ -139,13 +127,11 @@ export class AcceptedSpecDiscovery {
     if (this.scannedScopes.has(scope)) return
     this.scannedScopes.add(scope)
     const history = historyFor(ref.uw, this.histories)
-    if (history !== null)
-      for (const candidate of mandatesOf(history))
-        this.queue(candidate, replayForMandate(history, candidate, this.replayContext) ? this.replayContext : undefined)
+    if (history !== null) for (const candidate of mandatesOf(history)) this.queue(candidate)
   }
 
-  private discoverChain(id: string, item: { mandate: MandateRecord; replayContext?: AssessmentReplayContext }): void {
-    const result = structuralReplay(item.mandate, this.histories, item.replayContext)
+  private discoverChain(id: string, mandate: MandateRecord): void {
+    const result = structuralReplay(mandate, this.histories)
     if (!result.ok) {
       this.failures.set(id, result)
       if (result.stopped !== undefined) {

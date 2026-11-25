@@ -25,7 +25,7 @@ function contributionInputs(
   const scope = { repository: source.repository, target: source.target }
   const history = histories.find((item) => equalScope(item.source.scope, scope))
   if (!history) return unavailable()
-  const action = originalContributionAction(source, history)
+  const action = originalContributionAction(source, history, histories)
   if (!action.ok) return action
   const inputs = action.value
   if (
@@ -59,7 +59,12 @@ export function resolveAdjudicationSources(input: {
   const source = bindExternalRef(ref, history)
   if (!source.ok) return source
   if (source.value.kind === 'decision')
-    return resolveCauseActionInputs({ decision: source.value, history, context: input.context })
+    return resolveCauseActionInputs({
+      decision: source.value,
+      history,
+      context: input.context,
+      histories: input.histories,
+    })
   if (source.value.kind !== 'contribution' || subject.kind === 'cause') return unavailable()
   if (subject.kind === 'retained-finding') {
     const finding = source.value.payload.findings?.find((item) => item.id === subject.finding.id)

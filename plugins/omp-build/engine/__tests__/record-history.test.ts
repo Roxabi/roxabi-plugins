@@ -335,14 +335,18 @@ describe('history authority classification', () => {
       prefix: 'green-with-correction',
       verdict: 'Approve (clean)',
     })
-    const mixed = decodeHistory(correctionHistorySource([...green.comments, ...frameSet.comments]))
+    const mixed = decodeHistory({ ...green.history.source, comments: [...green.comments, ...frameSet.comments] })
     const request = correctionRequest(correction)
     const requestFreeComments = withoutRequestFrames(frameSet, request)
-    const withoutRequest = decodeHistory(correctionHistorySource([...green.comments, ...requestFreeComments]))
+    const withoutRequest = decodeHistory({
+      ...green.history.source,
+      comments: [...green.comments, ...requestFreeComments],
+    })
     const conflictingComments = conflictingRequestFrames(request, requestFreeComments)
-    const ambiguous = decodeHistory(
-      correctionHistorySource([...green.comments, ...frameSet.comments, ...conflictingComments]),
-    )
+    const ambiguous = decodeHistory({
+      ...green.history.source,
+      comments: [...green.comments, ...frameSet.comments, ...conflictingComments],
+    })
     expect(withoutRequest.operations.some((entry) => entry.recordId === request.recordId)).toBe(false)
     expect(ambiguous.operations.filter((entry) => entry.recordId === request.recordId).length).toBe(2)
 

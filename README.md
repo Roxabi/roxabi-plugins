@@ -24,22 +24,24 @@ GitHub drafts require semantic confidentiality review; existing-tool scanning is
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Autonomous GitHub triage CLI plus an importable complete-observation writer, guarded native close/reopen effects and κ tier calculator; labels and native relations, no Projects V2. |
-| [omp-build](plugins/omp-build/README.md) | OMP | `/feature` prepares a leaf mandate and worktree. The session implements, reviews and corrects; the guarded CLI publishes, binds, merges and closes with delivery proof. `/uw` manages Specs and reads historical records. Parent delivery is suspended until [#1031, slice 6](https://github.com/Roxabi/roxabi-plugins/issues/1031). [Distribution contract](plugins/omp-build/README.md#owned-distribution). |
+| [omp-build](plugins/omp-build/README.md) | OMP | `/feature` prepares a leaf mandate and worktree. The session implements, reviews and corrects; the guarded CLI publishes, binds, merges under GitHub's head checks and closes with delivery proof. `/uw` manages Specs and reads historical records. Parent delivery is suspended until [#1031, slice 6](https://github.com/Roxabi/roxabi-plugins/issues/1031). [Distribution contract](plugins/omp-build/README.md#owned-distribution). |
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
 Covered delivery discovery searches relevant mandate branches across all PR states; canonical bindings remain the association authority. New-policy bindings require the mandate's branch and base to match the PR. The first uncovered legacy succession retains two exhaustive observations; incomplete historical coverage refuses rather than silently scanning or assuming absence. See the [discovery contract](plugins/omp-build/README.md#storage-and-recovery).
 
-Pause, abandon and control-disarm require complete ordinary authority; uncovered legacy history refuses rather than confirming containment. The one-time historical succession path remains available under its existing preconditions.
+`/feature pause <reference>` stops only the matching Feature in the current session. Run `/feature <reference>` to continue from Git and GitHub. `/feature abandon <reference>` publishes revocation of the exact mandate; neither command changes PR merge settings.
 
-Initial `/feature` framing preserves the selected source and requires genuine aggregate confirmation. `ctrl+alt+u` opens a readable proposal with explicit confirm, refuse and defer actions; it does not approve. Escape or `Plus tard` keeps that exact proposal pending for the same shortcut in the same live session and location, including confirmations other than framing. Commands receive an immediate UI receipt before long reads; phase status and shortcut feedback distinguish preparation, pending decisions and started actions without adding model progress messages. omp-build 0.21.9 is a manual source change until an applicable activation decision; it does not move the tooling pin. If a move is needed, the operator performs `/move`, attests its observed success at the destination, and continues the same UW without retyping. Framing is not a Mandate; host and provider behavior requires separate qualification. See the [omp-build guide](plugins/omp-build/README.md).
+Initial `/feature` framing preserves the selected source and requires genuine aggregate confirmation. `ctrl+alt+u` opens a readable proposal with explicit confirm, refuse and defer actions; it does not approve. Escape or `Plus tard` keeps that exact proposal pending for the same shortcut in the same live session and location, including confirmations other than framing. Commands receive an immediate UI receipt before long reads; phase status and shortcut feedback distinguish preparation, pending decisions and started actions without adding model progress messages. If a move is needed, the operator performs `/move`, attests its observed success at the destination, and continues the same UW without retyping. Framing is not a Mandate; host and provider behavior requires separate qualification. See the [omp-build guide](plugins/omp-build/README.md).
 
-For an isolated installation, `/tooling-pin status` reports the current pin and `/tooling-pin activate` offers a root-operator confirmation of the target repository's `OMP_BUILD_TOOLING_SHA`. Approval is session- and clone-scoped, never a shared-pin update or workflow authorization; see the [activation procedure](plugins/omp-build/README.md#isolated-session-tooling-pin).
+Framing shows the next operator action above the editor. The confirmation leads with the publication effects and the final Spec; `Détails` keeps the audit trail available without repeating it in the summary.
 
-For merge-on-green repositories using the Kit gate, omp-build authorizes the reviewed
-head with a scoped protocol receipt; a `reviewed` label alone is not authority.
-See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards)
-for configuration and limits.
+New `/feature` framing requires a tooling pin that matches the installed package and procedure bytes. A prior-release pin can refuse framing after an upgrade; existing-mandate delivery does not use the pin. For an isolated installation, `/tooling-pin status` reports the current pin and `/tooling-pin activate` offers root-operator confirmation of the target repository's `OMP_BUILD_TOOLING_SHA`. Approval is session- and clone-scoped, never a shared-pin update or workflow authorization; see the [activation procedure](plugins/omp-build/README.md#isolated-session-tooling-pin).
+
+This repository's `reviewed` label arms GitHub native auto-merge; the `PR_Main`
+ruleset requires `ci` and App-issued `review` on the head. Kit merge-on-green is
+separate: the operator can issue a scoped grant for the reviewed head, with or
+without native omp-build history. See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards).
 
 ## Active external curation
 

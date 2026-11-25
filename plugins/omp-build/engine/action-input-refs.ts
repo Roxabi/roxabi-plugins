@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { sameRef } from './record-diagnostics.ts'
 import { externalRecordRefSchema, gitObjectIdSchema } from './record-references.ts'
 import { repoRelativePathSchema, sha256Schema } from './schema-primitives.ts'
 
@@ -18,3 +19,18 @@ export const pinnedFileRefSchema = z.strictObject({
   digest: sha256Schema,
 })
 export type PinnedFileRef = z.infer<typeof pinnedFileRefSchema>
+
+type InputRef = PinnedFileRef | RecordInputRef
+
+/** Match the selected content, not metadata from the manifest field holding the citation. */
+export function sameInputRef(left: InputRef, right: InputRef): boolean {
+  if (left.digest !== right.digest) return false
+  if (left.source === 'record')
+    return right.source === 'record' && sameRef(left.record, right.record) && left.selector === right.selector
+  return (
+    right.source === 'git-file' &&
+    left.repository === right.repository &&
+    left.commit === right.commit &&
+    left.path === right.path
+  )
+}

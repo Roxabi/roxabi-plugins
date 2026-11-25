@@ -171,7 +171,7 @@ function methodAdmits(
   return observationMethodAdmits(verdict, value, judgment)
 }
 function resolved(
-  input: CriterionReviewInput,
+  input: Pick<CriterionReviewInput, 'evidence'>,
   ref: CriterionReviewInput['evidence'][number]['ref'],
 ): CriterionEvidence | null {
   const match = input.evidence.find(
@@ -184,7 +184,7 @@ function resolved(
   return match?.value ?? null
 }
 
-function declared(input: CriterionReviewInput, value: CriterionEvidence): boolean {
+function declared(input: Pick<CriterionReviewInput, 'declarations'>, value: CriterionEvidence): boolean {
   return input.declarations.some(
     (declaration) =>
       declaration.verification === 'evidence' &&
@@ -194,7 +194,11 @@ function declared(input: CriterionReviewInput, value: CriterionEvidence): boolea
   )
 }
 
-function verdictChanges(input: CriterionReviewInput, verdict: CriterionVerdict, diagnostics: Diagnostic[]): boolean {
+export function criterionVerdictRequiresChanges(
+  input: Omit<CriterionReviewInput, 'verdicts'>,
+  verdict: CriterionVerdict,
+  diagnostics: Diagnostic[],
+): boolean {
   if (!owns(input.spec, verdict.target)) {
     diagnostics.push(named('malformed', `Verdict ${verdict.target.id} is not an accepted criterion`))
     return true
@@ -224,7 +228,7 @@ export function assessCriterionReview(input: CriterionReviewInput): CriterionRev
       diagnostics.push(named('malformed', `Criterion ${verdict.target.id} has more than one verdict`))
     }
     seen.add(verdict.target.id)
-    if (verdictChanges(input, verdict, diagnostics)) requiresChanges = true
+    if (criterionVerdictRequiresChanges(input, verdict, diagnostics)) requiresChanges = true
   }
   const orphanCriterionIds = input.spec.spec.criteria
     .map((item) => item.id)
