@@ -11,7 +11,7 @@
 
 ## 0.21.17 (unreleased)
 
-- Move hosted merge gating out of omp-build (#1046 C7): the `reviewed` label arms GitHub native auto-merge and the repository ruleset requires `ci` and App-issued `review` on the head. Keep the Dependabot lane and fix its commit-author check: a jq syntax error (`"dependabot[bot"]`) refused every Dependabot PR since `e9ff6166`.
+- Move hosted merge gating out of omp-build (#1046 C7): the `reviewed` label only arms GitHub native auto-merge on a PR into `main` after a live base, head and check read; GitHub merges once the ruleset requires `ci` and App-issued `review` on the head. An already-mergeable PR is refused with the pinned merge command. Keep the Dependabot lane and fix its commit-author check: a jq syntax error (`"dependabot[bot"]`) refused every Dependabot PR since `e9ff6166`.
 - Issue manual Kit grants on the current reviewed head regardless of native omp-build history. Kit still rechecks CI before merging.
 - Recognize 0.21.17 under the existing bounded PR-binding policy.
 
