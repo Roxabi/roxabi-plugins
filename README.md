@@ -24,7 +24,7 @@ GitHub drafts require semantic confidentiality review; existing-tool scanning is
 | Plugin | Host | Description |
 |--------|------|-------------|
 | [issue-triage](plugins/issue-triage/README.md) | Claude Code, OMP | Autonomous GitHub triage CLI plus an importable complete-observation writer, guarded native close/reopen effects and κ tier calculator; labels and native relations, no Projects V2. |
-| [omp-build](plugins/omp-build/README.md) | OMP | `/feature` prepares a leaf mandate and worktree. The session implements, reviews and corrects; the guarded CLI publishes, binds, merges and closes with delivery proof. `/uw` manages Specs and reads historical records. Parent delivery is suspended until [#1031, slice 6](https://github.com/Roxabi/roxabi-plugins/issues/1031). [Distribution contract](plugins/omp-build/README.md#owned-distribution). |
+| [omp-build](plugins/omp-build/README.md) | OMP | `/feature` prepares a leaf mandate and worktree. The session implements, reviews and corrects; the guarded CLI publishes, binds, merges under GitHub's head checks and closes with delivery proof. `/uw` manages Specs and reads historical records. Parent delivery is suspended until [#1031, slice 6](https://github.com/Roxabi/roxabi-plugins/issues/1031). [Distribution contract](plugins/omp-build/README.md#owned-distribution). |
 
 `issue-triage` is in both host catalogs. `omp-build` is OMP-only and appears only in [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
@@ -38,10 +38,10 @@ Framing shows the next operator action above the editor. The confirmation leads 
 
 For an isolated installation, `/tooling-pin status` reports the current pin and `/tooling-pin activate` offers a root-operator confirmation of the target repository's `OMP_BUILD_TOOLING_SHA`. Approval is session- and clone-scoped, never a shared-pin update or workflow authorization; see the [activation procedure](plugins/omp-build/README.md#isolated-session-tooling-pin).
 
-For merge-on-green repositories using the Kit gate, omp-build authorizes the reviewed
-head with a scoped protocol receipt; a `reviewed` label alone is not authority.
-See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards)
-for configuration and limits.
+This repository's `reviewed` label arms GitHub native auto-merge; the `PR_Main`
+ruleset requires `ci` and App-issued `review` on the head. Kit merge-on-green is
+separate: the operator can issue a scoped grant for the reviewed head, with or
+without native omp-build history. See [landing safeguards](plugins/omp-build/README.md#existing-review-and-landing-safeguards).
 
 ## Active external curation
 

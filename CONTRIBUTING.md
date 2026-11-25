@@ -76,8 +76,10 @@ docs(plugins): update voice-me README
   A new commit needs a new verdict. Updating the branch from `main` with a clean
   merge keeps it. Dependabot semver-minor and semver-patch updates get it without
   a verdict.
-- Add the `reviewed` label to enable auto-merge. There is no merge queue, so if
-  several PRs must land in a given order, add the label in that order.
+- Add the `reviewed` label to arm GitHub native auto-merge on the current head.
+  The ruleset still requires both checks. A head change disarms auto-merge and
+  removes the label. There is no merge queue; label dependent PRs only once they
+  are ready to land.
 
 ## Code style
 
