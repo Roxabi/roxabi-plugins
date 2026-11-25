@@ -1,6 +1,7 @@
 import {
   bindExternalRef,
   type GitHubOptions,
+  observeHistoricalPins,
   readCauseDispositionHeads,
   readCauseHistoryClosure,
   readComposedWorkflowHistory,
@@ -104,6 +105,8 @@ export async function readAdjudicationPending(
   )
   if (!closure.ok) failure(closure.diagnostics)
   const histories = closure.histories
+  if (references.some((ref) => ref.source === 'git-file'))
+    await observeHistoricalPins(home(histories, ref.scope), github, { references })
   const catalogues = await loadReviewClassCatalogues({ histories, cwd: github.cwd, gh: github.gh ?? defaultGh() })
   const rebound = bindExternalRef(ref, home(histories, ref.scope))
   if (!rebound.ok || JSON.stringify(rebound.value) !== JSON.stringify(disposition))

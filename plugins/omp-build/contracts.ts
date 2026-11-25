@@ -1,9 +1,9 @@
 export { createGhIssueWritePorts } from '../issue-triage/skills/shared/adapters/issue-writer.ts'
 export { calculateTier } from '../issue-triage/skills/shared/domain/complexity.ts'
 export { createIssueWriter } from '../issue-triage/skills/shared/domain/issue-write.ts'
+export { observeHistoricalPins, readDecodedGitHubHistory } from './adapters/github/historical-pins.ts'
 export { decodeHistory, projectRecoveryHistories } from './adapters/github/history-codec.ts'
 export { publishGitHubRecord } from './adapters/github/publish.ts'
-export { recordOperation } from './adapters/github/record-integrity.ts'
 export { githubScope, readGitHubHistory } from './adapters/github/transport.ts'
 export { type Gh, GitHubHistoryReadError, type GitHubOptions, gh, viewer } from './adapters/github/types.ts'
 export { readNativeIssueFacts } from './adapters/github-native/issue-facts.ts'
@@ -151,7 +151,6 @@ export {
   verdictSchema,
 } from './engine/record-values.ts'
 export { deliveryCoverage } from './engine/uw-delivery-coverage.ts'
-export { nativeIssueObservationFromNode } from './engine/uw-native-observation-schema.ts'
 export { checkAuthenticatedSpecCompatibility, resolveAcceptedSpec } from './engine/workflow-accepted-spec.ts'
 export type { AcceptedOwnSpec, AcceptedSpecResult, AcceptedSpecStep } from './engine/workflow-accepted-spec-types.ts'
 export {
@@ -165,7 +164,6 @@ export {
 export { capturedAssessmentSourcesMatch, capturedChildOwnSources } from './engine/workflow-assessment-child-sources.ts'
 export type { BoundWork, ConfigIdentity, MandateUse } from './engine/workflow-binding.ts'
 export { bindingMatchesMandate } from './engine/workflow-binding-format.ts'
-export { resolveBoundWork } from './engine/workflow-bound-work-resolution.ts'
 export { composeChantier } from './engine/workflow-chantier.ts'
 export {
   bindExternalRef,

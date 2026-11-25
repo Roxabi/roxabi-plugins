@@ -1,6 +1,7 @@
 import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { expandedGitPinsObserved } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
@@ -29,7 +30,12 @@ export function succeeds(history: DecodedHistory, old: ReceiptRecord, candidate:
     oldInputs = oldSlot.action.inputs
     newInputs = newSlot.action.inputs
   }
-  if (oldInputs.fingerprint === newInputs.fingerprint || !validateActionInputs(newInputs).ok) return false
+  if (
+    oldInputs.fingerprint === newInputs.fingerprint ||
+    !validateActionInputs(newInputs).ok ||
+    !expandedGitPinsObserved([history], newInputs)
+  )
+    return false
   if (
     canonicalValueDigest(old.payload.exactInputs) !== canonicalValueDigest(candidate.payload.exactInputs) ||
     canonicalValueDigest(old.payload.mandate) !== canonicalValueDigest(candidate.payload.mandate)

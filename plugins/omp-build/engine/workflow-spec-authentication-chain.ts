@@ -1,6 +1,7 @@
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { expandedGitPinsObserved } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { sameRef } from './record-diagnostics.ts'
+import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
@@ -32,12 +33,12 @@ function mismatchedStart(): SpecChainFailure {
 
 function authenticateStart(
   confirmed: AssessResultRecord,
-  histories: readonly DecodedHistory[],
+  home: DecodedHistory,
   mandateRef: ExternalRecordRef,
 ): SpecChainFailure | { ok: true } {
-  const startHistory = historyFor(confirmed.payload.start.scope, histories)
-  if (startHistory === null) return specChainFailure('incomplete', 'Spec assessment start is unresolved', 'unconfirmed')
-  const start = bindExternalRef(confirmed.payload.start, startHistory)
+  const startRef = confirmed.payload.start
+  if (!equalScope(startRef.scope, confirmed) || !equalScope(startRef.scope, mandateRef.scope)) return mismatchedStart()
+  const start = bindExternalRef(startRef, home)
   if (!start.ok) return specChainFailure('incomplete', 'Spec assessment start is unresolved', 'unconfirmed')
   if (start.value.kind !== 'action-receipt') return mismatchedStart()
   const startPayload = start.value.payload
@@ -48,6 +49,8 @@ function authenticateStart(
   if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
     return mismatchedStart()
   if (!validateActionInputs(confirmed.payload.inputs).ok) return mismatchedStart()
+  if (!expandedGitPinsObserved([home], confirmed.payload.inputs))
+    return specChainFailure('incomplete', 'Spec assessment cites unconfirmed expanded Git context', 'unconfirmed')
   const operands = confirmed.payload.inputs.manifest.operands
   if (operands?.action !== 'assess-spec' || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
     return mismatchedStart()
@@ -74,7 +77,7 @@ function authenticatedRecord(
   const confirmed = bound.value
   if (confirmed.payload.native.completion !== 'completed' || confirmed.payload.native.strict !== 'valid')
     return specChainFailure('incomplete', 'Spec assessment is not a confirmed native result', 'unconfirmed')
-  const start = authenticateStart(confirmed, histories, mandateRef)
+  const start = authenticateStart(confirmed, home, mandateRef)
   if (!start.ok) return start
   return { ok: true, record: confirmed }
 }

@@ -9,7 +9,7 @@ import { resolveSpecEffective } from '../../engine/spec-effective.ts'
 import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import { recordsOf } from '../../engine/workflow-control.ts'
 import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph, fixtureCauseGhResponse } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { roxabiRecordFixtures, roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
@@ -171,8 +171,8 @@ it('reads the final sister disposition after two authenticated sequential adjudi
     cwd: '/fixture',
     readAuthor: 'operator',
     gh: async (_cwd: string, args: string[]) => {
-      const catalogue = fixtureCatalogueGhResponse(args)
-      if (catalogue !== null) return catalogue
+      const pinned = fixtureCatalogueGhResponse(args) ?? fixtureCauseGhResponse(args)
+      if (pinned !== null) return pinned
       const match = /^repos\/acme\/app\/issues\/(\d+)\/comments\?per_page=100&page=(\d+)$/.exec(args[1] ?? '')
       if (args[0] !== 'api' || !match) throw new Error(`Unexpected GH read: ${JSON.stringify(args)}`)
       const history = histories.get(`acme/app#${match[1]}`)

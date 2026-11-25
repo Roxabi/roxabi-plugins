@@ -2,34 +2,118 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, it } from 'vitest'
+import type { ExtensionCommandContext } from '@oh-my-pi/pi-coding-agent'
+import { expect, it, vi } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
-import { admitFeature } from '../../omp/omp-feature-admission.ts'
-import { featureSpecDigest } from '../../roxabi/feature-spec-digest.ts'
-import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
+import * as pluginPin from '../../omp/host-plugin-pin.ts'
+import ompBuildExtension from '../../omp/index.ts'
+import { createExtensionApiStub } from '../../testing/extension-api-stub.ts'
 import { git, readSim, worktree, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
-import { branch, date, invoke, ref, repository, world } from './feature-cli.fixture.ts'
+import type { Box } from '../../testing/sandbox/sandbox-types.ts'
+import { branch, invoke, ref, repository, seedLandingChecks, world } from './feature-cli.fixture.ts'
 
 const app = 17
-const rules = [{ context: 'review', integration_id: app }, { context: 'ci' }]
 const verdictScript = fileURLToPath(new URL('../../../../scripts/review-verdict.sh', import.meta.url))
 
 type Comment = { id: number; updated_at: string; body: string }
+
+async function selectFeature(box: Box, cwd: string) {
+  type Command = (args: string, ctx: ExtensionCommandContext) => Promise<void>
+  const commands = new Map<string, Command>()
+  const messages: string[] = []
+  const terminal: string[] = []
+  const exec = vi.fn(async () => {
+    throw new Error('Ordinary delivery must not request host-side preparation')
+  })
+  const procedurePorts = vi.fn(() => {
+    throw new Error('Ordinary delivery must not open a framing procedure')
+  })
+  const host = createExtensionApiStub({
+    registerCommand: (name, command) => {
+      commands.set(name, command.handler)
+    },
+    sendUserMessage: async (message) => {
+      messages.push(String(message))
+    },
+    sendMessage: (message) => {
+      terminal.push(typeof message === 'string' ? message : String(message?.content ?? message))
+    },
+    exec,
+  })
+  const artifacts = join(box.root, 'session-artifacts')
+  const ctx = {
+    cwd,
+    hasUI: false,
+    agent: { kind: 'main', id: 'Main', depth: 0 },
+    sessionManager: {
+      getSessionId: () => 'feature-delivery',
+      getSessionFile: () => undefined,
+      getArtifactsDir: () => artifacts,
+      getCwd: () => cwd,
+    },
+    localProtocolOptions: { getArtifactsDir: () => artifacts },
+  } as unknown as ExtensionCommandContext
+  const resolvePin = vi.spyOn(pluginPin, 'hostPluginPin')
+  try {
+    // Exercise the installed native operations against the sandbox, not an injected workflow.
+    vi.stubEnv('PATH', box.env.PATH)
+    vi.stubEnv('GH_SIM_STATE', box.stateFile)
+    vi.stubEnv('HOME', box.env.HOME)
+    vi.stubEnv('GIT_CONFIG_NOSYSTEM', box.env.GIT_CONFIG_NOSYSTEM)
+    ompBuildExtension(host, { framing: { procedurePorts } })
+    const feature = commands.get('feature')
+    if (!feature) throw new Error('Expected the installed /feature command')
+    await feature(`${repository}#42`, ctx)
+    expect(resolvePin).not.toHaveBeenCalled()
+    expect(exec).not.toHaveBeenCalled()
+    expect(procedurePorts).not.toHaveBeenCalled()
+  } finally {
+    resolvePin.mockRestore()
+    vi.unstubAllEnvs()
+  }
+  expect(terminal).toEqual([])
+  expect(messages).toHaveLength(1)
+  return messages[0]?.split('\n## Feature context\n')[1] ?? ''
+}
 
 it.each(['approval', 'correction'] as const)('composes delivery after %s without an action dossier', async (flow) => {
   const f = world()
   const gitDir = git(f.box, f.cwd, ['rev-parse', '--absolute-git-dir'])
   const issueComments = readSim(f.box).issues['42']?.comments
-  const verdicts = new Map<string, string>()
+  const context = await selectFeature(f.box, f.cwd)
+  expect(context).toContain(
+    [
+      `repository: ${repository}`,
+      'issue: 42',
+      `mandate: ${f.mandate.recordId}`,
+      `branch: ${branch}`,
+      'base: main',
+      `worktree: ${f.cwd}`,
+      '',
+      '## Accepted Spec',
+    ].join('\n'),
+  )
+  const mandate = /^mandate: (.+)$/m.exec(context)?.[1]
+  const digest = /^spec: ([a-f0-9]{64})$/m.exec(context)?.[1]
+  if (!mandate || !digest) throw new Error('Expected mandate and Accepted Spec digest from /feature')
   const pr = '100'
   const comments = `repos/${repository}/issues/${pr}/comments`
   const gh: Gh = async (cwd, args) => {
-    const endpoint = args[1]
-    if (args[0] === 'api' && endpoint === `repos/${repository}/rules/branches/main`)
-      return JSON.stringify([{ type: 'required_status_checks', parameters: { required_status_checks: rules } }])
-    if (args[0] === 'api' && endpoint?.endsWith('/check-runs?check_name=review&per_page=100'))
-      return reviewChecks(endpoint)
-    if (args[0] === 'pr' && args[1] === 'merge') return merge(args)
+    // Bridge the REST endpoints not implemented by the shared GitHub simulator.
+    const head = args[1]?.match(/\/commits\/([0-9a-f]{40})\/check-runs\?check_name=review&per_page=100$/)?.[1]
+    if (args[0] === 'api' && head !== undefined) {
+      const checkRuns = (readSim(f.box).checks[head] ?? [])
+        .filter((check) => check.name === 'review')
+        .map((check) => ({
+          id: 7,
+          name: check.name,
+          status: check.status,
+          conclusion: check.conclusion,
+          app: { id: check.appId },
+          head_sha: head,
+        }))
+      return JSON.stringify({ total_count: checkRuns.length, check_runs: checkRuns })
+    }
     if (args[0] === 'api' && args[2] === 'PATCH' && args[3] === `repos/${repository}/issues/42`) {
       expect(args.slice(4)).toEqual(['--raw-field', 'state=closed', '--raw-field', 'state_reason=completed'])
       writeSim(f.box, (state) => Object.assign(state.issues['42'] ?? {}, { state: 'CLOSED', stateReason: 'COMPLETED' }))
@@ -37,63 +121,12 @@ it.each(['approval', 'correction'] as const)('composes delivery after %s without
     }
     return f.gh(cwd, args)
   }
-  function reviewChecks(endpoint: string): string {
-    const head = endpoint.match(/\/commits\/([0-9a-f]{40})\/check-runs\?check_name=review&per_page=100$/)?.[1]
-    if (head === undefined) throw new Error(`Unexpected check endpoint: ${endpoint}`)
-    const checkRuns = verdicts.has(head)
-      ? [{ id: 7, name: 'review', status: 'completed', conclusion: 'success', app: { id: app }, head_sha: head }]
-      : []
-    return JSON.stringify({ total_count: checkRuns.length, check_runs: checkRuns })
-  }
-  function merge(args: string[]): string {
-    const head = f.bare('rev-parse', ref)
-    expect(args).toEqual(['pr', 'merge', pr, '--repo', repository, '--merge', '--match-head-commit', head])
-    const ciPassed = readSim(f.box).checks[head]?.some(
-      (check) => check.name === 'ci' && check.status === 'completed' && check.conclusion === 'success',
-    )
-    if (!verdicts.has(head) || !ciPassed) throw new Error('required status check is pending')
-    git(f.box, f.box.principal, ['merge', '--no-ff', '-qm', 'Merge PR', head])
-    const merged = git(f.box, f.box.principal, ['rev-parse', 'HEAD'])
-    git(f.box, f.box.principal, ['push', '-q', 'origin', 'main'])
-    writeSim(f.box, (next) => {
-      const pull = next.prs[pr]
-      if (!pull) throw new Error('Expected a bound PR')
-      pull.state = 'MERGED'
-      pull.mergeCommit = { oid: merged, parents: [f.base, head] }
-    })
-    return ''
-  }
-  const uw = await createInstalledUwOperations({
-    cwd: f.cwd,
-    gh,
-    operator: {
-      async executeConfirmed() {
-        throw new Error('Composed delivery must not ask for new authority')
-      },
-    },
-  })
-  const admitted = await admitFeature({
-    cwd: f.cwd,
-    reference: `${repository}#42`,
-    control: 'select',
-    principal: false,
-    gh,
-    git: f.gitRunner,
-    uw,
-  })
-  expect(admitted, JSON.stringify(admitted)).toMatchObject({
-    kind: 'ready',
-    mandate: f.mandate.recordId,
-    branch,
-    base: 'main',
-  })
-  if (admitted.kind !== 'ready') throw new Error('Expected admitted feature context')
-  const digest = featureSpecDigest(admitted.acceptedSpec)
+  const delivery = (command: string, args: string[]) => invoke(f, command, args, { gh, mandate })
 
   // Exercise the real push and binding publication without seeding a PR or an action history.
   f.bare('update-ref', '-d', ref)
-  expect(await invoke(f, 'push', ['--tip', f.tip], { gh })).toMatchObject({ code: 0, status: 'pushed', head: f.tip })
-  expect(await invoke(f, 'open-pr', ['--tip', f.tip], { gh })).toMatchObject({ code: 0, status: 'created', pr: 100 })
+  expect(await delivery('push', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'pushed', head: f.tip })
+  expect(await delivery('open-pr', ['--tip', f.tip])).toMatchObject({ code: 0, status: 'created', pr: 100 })
   const bindingComments = readSim(f.box).prs[pr]?.comments.map(({ body }) => body)
   expect(bindingComments).toHaveLength(1)
 
@@ -134,7 +167,7 @@ it.each(['approval', 'correction'] as const)('composes delivery after %s without
       `fix: clarify the result\n\nReview-Id: ${finding.id}\nReview-Updated-At: ${finding.updated_at}`,
     ])
     head = git(f.box, f.cwd, ['rev-parse', 'HEAD'])
-    expect(await invoke(f, 'push', ['--from', f.tip, '--tip', head, '--pr', pr], { gh })).toMatchObject({
+    expect(await delivery('push', ['--from', f.tip, '--tip', head, '--pr', pr])).toMatchObject({
       code: 0,
       status: 'pushed',
       head,
@@ -147,8 +180,14 @@ it.each(['approval', 'correction'] as const)('composes delivery after %s without
   const approval = await review(head, 'approve', flow === 'correction' ? 'clarified result' : 'work')
   const evidence = `https://github.com/${repository}/pull/${pr}#issuecomment-${approval.id}`
   const verdict = await comment(`review-verdict v1 head=${head} approve evidence=${evidence}`)
+  const published: Comment[] = JSON.parse(await gh(f.cwd, ['api', comments]))
+  const persistedVerdict = published.at(-1)
+  expect(persistedVerdict).toMatchObject(verdict)
+  const persistedApproval = published.find(({ id }) => id === approval.id)
+  expect(persistedApproval).toMatchObject(approval)
+  if (!persistedVerdict || !persistedApproval) throw new Error('Expected published review and verdict')
   const verdictFile = join(f.box.root, 'verdict.txt')
-  writeFileSync(verdictFile, verdict.body)
+  writeFileSync(verdictFile, persistedVerdict.body)
   // Model the GitHub App check from the persisted comment using the real verdict parser.
   const reviewed = execFileSync('bash', [verdictScript, 'verdict', verdictFile, 'open', f.bare('rev-parse', ref)], {
     cwd: f.cwd,
@@ -156,21 +195,29 @@ it.each(['approval', 'correction'] as const)('composes delivery after %s without
     stdio: 'pipe',
   }).trim()
   expect(reviewed).toBe(evidence)
-  verdicts.set(head, reviewed)
-  writeSim(f.box, (state) => {
-    state.checks[head] = [
-      { name: 'ci', status: 'completed', conclusion: 'success', workflowName: 'ci', startedAt: date },
-    ]
-  })
-  const specInReview = approval.body.split('\n')[0]?.split(' spec ')[1] ?? ''
-  expect(await invoke(f, 'land', ['--pr', pr, '--head', head, '--spec', specInReview], { gh })).toMatchObject({
+  seedLandingChecks(f.box, 'main', head, app)
+  const specInReview = persistedApproval.body.split('\n')[0]?.split(' spec ')[1] ?? ''
+  const landed = await delivery('land', ['--pr', pr, '--head', head, '--spec', specInReview])
+  const mergeCommit = f.bare('rev-parse', 'main')
+  expect(landed).toMatchObject({
     code: 0,
     status: 'merged',
     head,
+    mergeCommit,
   })
-  expect(f.bare('rev-parse', 'main^2')).toBe(head)
-  expect(readSim(f.box).issues['42']?.state).toBe('OPEN')
-  expect(await invoke(f, 'finish', ['--pr', pr], { gh })).toMatchObject({ code: 0, status: 'finished', head })
+  expect(f.bare('show', '-s', '--format=%P', 'main')).toBe(`${f.base} ${head}`)
+  const merged = readSim(f.box)
+  expect(merged.prs[pr]).toMatchObject({
+    state: 'MERGED',
+    baseRefName: 'main',
+    headRefOid: head,
+    mergeCommit: { oid: mergeCommit, parents: [f.base, head] },
+  })
+  expect(merged.calls.filter(([command, sub]) => command === 'pr' && sub === 'merge')).toEqual([
+    ['pr', 'merge', pr, '--repo', repository, '--merge', '--match-head-commit', head],
+  ])
+  expect(merged.issues['42']?.state).toBe('OPEN')
+  expect(await delivery('finish', ['--pr', pr])).toMatchObject({ code: 0, status: 'finished', head })
 
   const final = readSim(f.box)
   expect(final.issues['42']).toMatchObject({ state: 'CLOSED', stateReason: 'COMPLETED', comments: issueComments })

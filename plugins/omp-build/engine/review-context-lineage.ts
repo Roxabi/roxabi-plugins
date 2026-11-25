@@ -1,4 +1,5 @@
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { expandedGitPinsObserved } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -9,7 +10,7 @@ import { isInitialPullRequestReviewInventory } from './review-schema.ts'
 type Root = Extract<CanonicalRecord, { kind: 'review-attempt' }>
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
 
-function successorOf(root: Root, successor: Root, negative: Contribution): boolean {
+function successorOf(history: DecodedHistory, root: Root, successor: Root, negative: Contribution): boolean {
   if (!isInitialPullRequestReviewInventory(root.payload) || !isInitialPullRequestReviewInventory(successor.payload))
     return false
   const old = root.payload.inputSnapshot
@@ -49,6 +50,7 @@ function successorOf(root: Root, successor: Root, negative: Contribution): boole
     same(oldManifest, newManifest) &&
     same(old.stageSources, fresh.stageSources) &&
     validateActionInputs(fresh).ok &&
+    expandedGitPinsObserved([history], fresh) &&
     old.fingerprint !== fresh.fingerprint &&
     ref.length === 1 &&
     additions.some((item) => same(item, ref[0])) &&
@@ -68,9 +70,9 @@ export function directReviewContextSuccessors(
   const authenticated = roots.filter((candidate) => accounted(history, candidate))
   const edges = (from: Root): Root[] => {
     const negatives = contributions.filter((entry) => negativeFor(history, from, entry))
-    return authenticated.filter((candidate) => negatives.some((entry) => successorOf(from, candidate, entry)))
+    return authenticated.filter((candidate) => negatives.some((entry) => successorOf(history, from, candidate, entry)))
   }
-  const candidates = authenticated.filter((candidate) => successorOf(root, candidate, negative))
+  const candidates = authenticated.filter((candidate) => successorOf(history, root, candidate, negative))
   const reaches = (from: Root, target: Root, seen: Set<string>): boolean => {
     if (seen.has(from.recordId)) return false
     seen.add(from.recordId)

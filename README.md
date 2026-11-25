@@ -36,7 +36,7 @@ Initial `/feature` framing preserves the selected source and requires genuine ag
 
 Framing shows the next operator action above the editor. The confirmation leads with the publication effects and the final Spec; `Détails` keeps the audit trail available without repeating it in the summary.
 
-The tooling pin authenticates `/feature` framing procedures; ordinary delivery and releases do not advance it. For an isolated installation, `/tooling-pin status` reports the current pin and `/tooling-pin activate` offers root-operator confirmation of the target repository's `OMP_BUILD_TOOLING_SHA`. Approval is session- and clone-scoped, never a shared-pin update or workflow authorization; see the [activation procedure](plugins/omp-build/README.md#isolated-session-tooling-pin).
+New `/feature` framing requires a tooling pin that matches the installed package and procedure bytes. A prior-release pin can refuse framing after an upgrade; existing-mandate delivery does not use the pin. For an isolated installation, `/tooling-pin status` reports the current pin and `/tooling-pin activate` offers root-operator confirmation of the target repository's `OMP_BUILD_TOOLING_SHA`. Approval is session- and clone-scoped, never a shared-pin update or workflow authorization; see the [activation procedure](plugins/omp-build/README.md#isolated-session-tooling-pin).
 
 This repository's `reviewed` label arms GitHub native auto-merge; the `PR_Main`
 ruleset requires `ci` and App-issued `review` on the head. Kit merge-on-green is

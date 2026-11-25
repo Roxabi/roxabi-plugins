@@ -316,7 +316,7 @@ The historical canonical `review` payload, read by record identity. It names the
 _Avoid_: `<!-- omp-build:code-review -->`, a line-2 head marker, scraping `## Code Review`, reading a SHA from projection prose
 
 **Review input binding**:
-The SHA-256 on a historical canonical review, or null. Prefix `omp-build:review-input/4` covers the observed code and semantic inputs, not the review outputs. A null input is not approval. Admission reconstructs the input and requires equality; the digest checks inputs, not authorship.
+The SHA-256 on a historical canonical review, or null. The `omp-build:review-input/4` binding covers the observed code and semantic inputs, not the review outputs. Admission validates the embedded input manifest and requires its canonical fingerprint to match the recorded digest; it does not reconstruct the inputs from current state. A null input is not approval, and the digest binds inputs, not authorship.
 
 Missing or older input formats refuse with `incompatible-format`; they are not migrated, re-reviewed, or exempted.
 

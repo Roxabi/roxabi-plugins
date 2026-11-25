@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { authenticatedReview } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, observeCauseFixtureEvidence } from '../../testing/cause-input-fixture.ts'
 import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
@@ -113,6 +113,7 @@ function assessClass(originalClass: string, downgrade = false, catalogue: 'valid
     ),
     graph.history.source.scope,
   )
+  observeCauseFixtureEvidence(source)
   return assessCauseDispositions({
     context,
     capture: synthesisActionCapture(decision, [source]),

@@ -157,25 +157,6 @@ export function workflowContextTerminal(
 
 type ContextResolution = 'clear' | 'missing' | 'uncertain' | 'ambiguous'
 
-/** Classify one exact retained negative; `clear` requires its unique authenticated positive lineage. */
-export function workflowContextResolution(
-  history: DecodedHistory,
-  negative: ReceiptRecord,
-  mandate: ReceiptRecord['payload']['mandate'],
-  excluded?: ReadonlySet<string>,
-): ContextResolution {
-  const receipts = recordsOf(history).filter(
-    (record): record is ReceiptRecord =>
-      record.kind === 'action-receipt' &&
-      record.payload.action === negative.payload.action &&
-      canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate) &&
-      !excludedReceipt(record, excluded),
-  )
-  const matches = receipts.filter((record) => record.recordId === negative.recordId)
-  if (matches.length !== 1 || canonicalValueDigest(matches[0]) !== canonicalValueDigest(negative)) return 'uncertain'
-  return resolveContextNegative(history, negative, receipts, new Set())
-}
-
 /** Identify the immediate authenticated successor, including a still-negative successor. */
 export function workflowContextDirectSuccessor(
   history: DecodedHistory,

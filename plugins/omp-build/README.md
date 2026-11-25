@@ -553,13 +553,13 @@ Kit merge-on-green and from composed Feature delivery.
 
 #### Shared tooling pin
 
-`OMP_BUILD_TOOLING_SHA` authenticates installed `/feature` framing procedures. Ordinary UW reads, delivery under an existing mandate, and Auto Merge do not depend on it. Read the shared framing pin with:
+`OMP_BUILD_TOOLING_SHA` authenticates new `/feature` framing. The pinned source commit must contain the exact installed `package.json` and prescribed grilling, domain-modeling and codebase-design procedure files. A pin for a prior release refuses new framing on the upgraded installation even when all three procedure files are unchanged. Ordinary UW reads, delivery under an existing Mandate, and Auto Merge do not require this pin. Read the shared framing pin with:
 
 ```sh
 gh variable get OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins
 ```
 
-Configure the shared pin only when intentionally changing the source trusted for shared `/feature` framing. After operator authorization, use a full `main` SHA that contains exactly the installed procedure bytes. A mismatched pin stops framing, not delivery under an existing mandate. A routine release bump or installation upgrade is not a pin update.
+The pin does not advance automatically on a release or installation upgrade. To enable shared framing on the new installation, update the pin explicitly after operator authorization. Use a full `main` commit SHA whose package metadata and prescribed procedure files match the installation byte for byte.
 
 ```sh
 gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN_SHA"
@@ -567,7 +567,7 @@ gh variable set OMP_BUILD_TOOLING_SHA --repo Roxabi/roxabi-plugins --body "$MAIN
 
 #### Isolated session tooling pin
 
-When a separately installed distribution intentionally differs from the shared source pin, set the target GitHub repository's `OMP_BUILD_TOOLING_SHA` to the full lowercase 40-character source commit and run `/tooling-pin activate` in the root TUI. Review the source, installed version, package digest and target clone, then explicitly confirm. The candidate must be on the installed source repository's default-branch ancestry and match the installed package bytes. An older matching installation may qualify. A matching or unreadable shared pin, child session or headless invocation cannot activate it.
+When a separately installed distribution intentionally differs from the shared source pin, set the target GitHub repository's `OMP_BUILD_TOOLING_SHA` to the full lowercase 40-character source commit and run `/tooling-pin activate` in the root TUI. Review the source, installed version, package metadata digest and target clone, then explicitly confirm. The candidate must be on the installed source repository's default-branch ancestry and match the installed `package.json` byte for byte. An older matching installation may qualify. A matching or unreadable shared pin, child session or headless invocation cannot activate it. New framing still checks all prescribed procedure files against the activated pin.
 
 `/tooling-pin status` reports the current pin. Approval lives only in this extension instance and confirming root session, scoped to the current GitHub repository and clone, including linked worktrees. A same-session `/move` retains it; a session switch, branch or tree selection, shutdown or reload requires fresh confirmation. Clearing conversation context does not itself revoke activation if the session and agent identities remain unchanged; a changed identity makes it unusable. The root and clone checks still apply. Invalidation does not replace a pin already captured by a surviving admitted operation; its existing origin, stop and control guards still apply. Activation creates no UW or workflow authority and changes no shared pin or installation.
 

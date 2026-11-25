@@ -10,8 +10,8 @@ import {
   type WorkflowBindingSelection,
 } from '../../engine/workflow-pr-binding.ts'
 import { refKey } from '../../engine/workflow-pr-binding-chain.ts'
-import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
-import { readGitHubHistory } from '../github/transport.ts'
+import { readDecodedGitHubHistory } from '../github/historical-pins.ts'
+import { projectRecoveryHistories } from '../github/history-codec.ts'
 import { diagnostic, type GitHubOptions } from '../github/types.ts'
 import { scopeNumber } from '../github-native/issue-facts.ts'
 import { readNativePullRequestFacts } from './native-facts.ts'
@@ -73,7 +73,7 @@ async function readBindingMandateHistories(
     const mandateScope = record.payload.mandate.scope
     if (historyFor(mandateScope, [prHistory, ...histories]) !== null) continue
 
-    const history = decodeHistory(await readGitHubHistory(mandateScope, options))
+    const history = await readDecodedGitHubHistory(mandateScope, options)
     if (!history.source.complete) {
       return {
         ok: false,
@@ -95,7 +95,7 @@ async function recoveryClosure(primary: DecodedHistory, options: GitHubOptions):
     )
     for (const scope of fixRecoveryDiscoveryScopes(records)) {
       if (histories.some((entry) => equalScope(entry.source.scope, scope))) continue
-      const next = decodeHistory(await readGitHubHistory(scope, options))
+      const next = await readDecodedGitHubHistory(scope, options)
       if (!next.source.complete)
         return {
           ok: false,
@@ -116,7 +116,7 @@ export async function resolveInitialWorkflowBinding(
 ): Promise<InitialBindingResolution> {
   const pr = scopeNumber(prScope)
   const pullRequest = await readNativePullRequestFacts(prScope.repository, pr, options)
-  let prHistory = decodeHistory(await readGitHubHistory(prScope, options))
+  let prHistory = await readDecodedGitHubHistory(prScope, options)
   if (!prHistory.source.complete) {
     return { ok: false, result: bindingRefusal('incomplete', [diagnostic('incomplete', 'PR history is incomplete')]) }
   }
@@ -174,7 +174,7 @@ export async function readParentMandateChain(
 
     let parentHistory = historyFor(parent.scope, [...knownHistories, ...parentHistories])
     if (parentHistory === null) {
-      parentHistory = decodeHistory(await readGitHubHistory(parent.scope, options))
+      parentHistory = await readDecodedGitHubHistory(parent.scope, options)
       if (!parentHistory.source.complete) {
         return {
           ok: false,

@@ -8,6 +8,7 @@ import { nativeComment } from '../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../adapters/github/types.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
+import { fixtureCauseGhResponse } from './cause-input-fixture.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
 import { multiSisterFixture } from './multi-sister-fixture.ts'
 import { type NativeIssue, sisterGraphTransport, sisterIssueTransport } from './multi-sister-graph-fixture.ts'
@@ -161,6 +162,8 @@ export async function installedMultiSisterFixture(
     linked: () => linked,
   })
   function deliveryRequest(args: string[], endpoint: string): string | null {
+    const citation = fixtureCauseGhResponse(args)
+    if (citation !== null) return citation
     const gitResponse = sisterNativeGitRequest(endpoint, options.workflow ? options.commits : undefined, delivery)
     if (gitResponse !== null) return gitResponse
     const declaredPull = sisterDeclaredPull(args, delivery?.pulls)

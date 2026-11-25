@@ -1,5 +1,6 @@
 import { validateActionInputs } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { expandedGitPinsObserved } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -61,6 +62,7 @@ function selectedInventory(decision: ReviewDecision, history: DecodedHistory): I
   if (selected === null || selected.payload.stage !== 'initial' || selected.payload.purpose !== 'review') return null
   const snapshot = selected.payload.inputSnapshot
   if (!validateActionInputs(snapshot).ok || selected.payload.actionInputDigest !== snapshot.fingerprint) return null
+  if (!expandedGitPinsObserved([history], snapshot)) return null
   if (!reviewSubjectBound(selected, selected.payload) || !equalScope(selected, history.source.scope)) return null
   if (selected.payload.candidateGitSHA !== snapshot.manifest.code.head) return null
   return selected

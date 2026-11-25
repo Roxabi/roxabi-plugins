@@ -6,6 +6,7 @@ import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import { createReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
 import { acceptedActionInputs } from './action-input-fixtures.ts'
+import { causeEvidence as evidence, observeCauseFixtureEvidence } from './cause-input-fixture.ts'
 import { encodeCriterionRecords } from './criterion-approval.ts'
 import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { must, sisterSpecWorld } from './multi-sister-spec-fixture.ts'
@@ -60,13 +61,6 @@ export function multiSisterFixture(
     label,
     inputs: seedInputs,
   })
-  const evidence = {
-    source: 'git-file' as const,
-    repository: uw.repository,
-    commit: '1'.repeat(40),
-    path: 'src/region.ts',
-    digest: 'a'.repeat(64),
-  }
   const catalogueBytes = readFileSync(new URL('../skills/dev-review/review-classes.yml', import.meta.url))
   const plugin = base.inputs.manifest.plugin
   const catalogueRef = {
@@ -192,6 +186,7 @@ export function multiSisterFixture(
     'automation',
     [own, ...inheritedHistories],
   ).history
+  observeCauseFixtureEvidence(source)
   const assessment = must(
     assessCauseDispositions({
       context,

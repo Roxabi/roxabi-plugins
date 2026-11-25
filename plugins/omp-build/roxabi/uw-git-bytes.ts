@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Gh } from '../adapters/github/types.ts'
-import { repoRelativePathSchema } from '../dist/contracts.js'
+import { repoRelativePathPattern } from '../engine/repository-path.ts'
 import type { Result } from '../engine/result.ts'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
 import { readGitHubBlob } from './uw-github-blobs.ts'
@@ -57,7 +57,7 @@ export async function readGitFileBytes(request: GitByteRequest): Promise<Result<
   if (
     !REPOSITORY.test(request.repository) ||
     !isGitSha(request.commit) ||
-    !repoRelativePathSchema.safeParse(request.path).success ||
+    !repoRelativePathPattern.test(request.path) ||
     !pathSegments(request.path)
   ) {
     return actionFailure('pinned-file-unreadable', 'Pinned file coordinates are incomplete')

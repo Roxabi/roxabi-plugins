@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
+import { recordGitPinBytes } from '../historical-git-pins.ts'
 import { buildRecord } from '../record-construction.ts'
 import { resolveAcceptedSpec } from '../workflow-accepted-spec.ts'
 import { workflowContextTerminal } from '../workflow-context-terminal.ts'
@@ -49,12 +51,13 @@ test('historical expanded assessment requires a linked completed successor after
     selector: '/payload',
     digest: canonicalValueDigest(negative.payload),
   }
+  const bytes = Buffer.from('Keep the selected region after reload.\n')
   const added = {
     source: 'git-file' as const,
     repository: SCOPE.repository,
     commit: 'b'.repeat(40),
     path: 'policy.txt',
-    digest: 'c'.repeat(64),
+    digest: createHash('sha256').update(bytes).digest('hex'),
   }
   const manifest = { ...prior.start.payload.inputs.manifest, expandedContext: [lineage, added] }
   const inputs = { ...prior.start.payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
@@ -69,6 +72,7 @@ test('historical expanded assessment requires a linked completed successor after
   if (start.kind !== 'action-receipt' || start.payload.action !== 'assess-spec' || start.payload.phase !== 'start')
     throw new Error('expected expanded assessment start')
   const issue = history([mandated, prior.start, negative, start])
+  recordGitPinBytes(issue, [added], bytes)
   const readBack = recordsOf(issue).find((record) => record.recordId === start.recordId)
   if (
     readBack?.kind !== 'action-receipt' ||
@@ -103,6 +107,7 @@ test('historical expanded assessment requires a linked completed successor after
     pause.resumed,
     successor,
   ])
+  recordGitPinBytes(pending, [added], bytes)
   expect(resolveAcceptedSpec(mandated, [pending])).toMatchObject({ ok: false })
   const positive = must(
     buildRecord({
@@ -118,6 +123,7 @@ test('historical expanded assessment requires a linked completed successor after
     }),
   )
   const completed = appendRecords(pending, [positive])
+  recordGitPinBytes(completed, [added], bytes)
   expect(resolveAcceptedSpec(mandated, [completed])).toMatchObject({ ok: true })
   expect(resolveAcceptedSpec(mandated, [history([mandated, negative])])).toMatchObject({ ok: false })
   const mismatched = must(

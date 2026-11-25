@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { observeHistoricalPins } from '../../adapters/github/historical-pins.ts'
 import {
   CHECKOUT_BASE,
   CHECKOUT_HEADS,
@@ -7,6 +8,7 @@ import {
   WORKTREE,
 } from '../../skills/feature/review-record-git-fixture.js'
 import { TOOLING_COMMIT } from '../../skills/feature/review-record-pin.js'
+import { fixtureGitBlobGhResponse } from '../../testing/action-input-fixtures.ts'
 import { causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
 import { historicalAcceptedInputs } from '../../testing/native-history-records.ts'
 import { produceNativeImplementation } from '../../testing/native-implementation-producer.ts'
@@ -68,6 +70,7 @@ export async function withSamePrNativeWorld<T>(
     path: 'first.txt',
     digest: createHash('sha256').update(bytes).digest('hex'),
   }
+  const gitBlobResponse = (args: readonly string[]) => fixtureGitBlobGhResponse(args, ref, bytes)
   const pull = {
     scope: seed.graph.history.source.scope,
     branch: 'feat/42-save',
@@ -95,6 +98,7 @@ export async function withSamePrNativeWorld<T>(
       author: 'operator',
       graph: causeFixtureGraph(seed.body),
       histories: [initialHistory, parentHistory],
+      gitBlobResponse,
     },
     async (world) => {
       let currentHead = CHECKOUT_BASE
@@ -244,6 +248,11 @@ export async function withSamePrNativeWorld<T>(
             record.payload.phase === 'start',
         )
         if (!start) throw new Error('Native readback lacks the implementation START')
+        await observeHistoricalPins(
+          produced.history,
+          { cwd: world.cwd, gh: world.gh, readAuthor: 'operator' },
+          { references: [ref] },
+        )
         return {
           records: [...planRecords, start, produced.receipt],
           reviewInputs: { ...inputs, manifest, fingerprint: actionInputDigest(manifest) },
@@ -259,6 +268,7 @@ export async function withSamePrNativeWorld<T>(
       const nativeResponse = (args: string[]) => {
         if (args[0] !== 'api') return null
         return (
+          gitBlobResponse(args) ??
           nativePullResponse(
             args,
             pull.scope.repository,

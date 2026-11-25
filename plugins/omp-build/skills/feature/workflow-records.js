@@ -1,7 +1,7 @@
 import {
-  decodeHistory,
   githubScope,
   projectRecoveryHistories,
+  readDecodedGitHubHistory,
   readGitHubHistory,
   selectedReviewOperations,
   summarizeReviews,
@@ -77,7 +77,7 @@ async function observedReviewRecords(cwd, pr, { gh: ghFn = gh, acceptedEvidenceP
 
 export async function readReviewHistory(cwd, pr, ghFn = gh) {
   const scope = await repositoryScope(cwd, pr, ghFn)
-  return decodeHistory(await readGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, gh: ghFn })))
+  return readDecodedGitHubHistory(scope, withRoxabiGitHubPolicy({ cwd, gh: ghFn }))
 }
 
 export async function readReviewRecords(cwd, pr, options) {

@@ -8,10 +8,12 @@ import {
   contentReading,
   evidenceDeclaration,
   evidenceRef,
+  observeFixtureContentReading,
   passingTest,
   satisfied,
   solo,
 } from './criterion-admission-fixture.ts'
+import { history } from './workflow-test-support.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 
@@ -62,7 +64,8 @@ function fixture() {
       },
     },
   } as unknown as Receipt
-  return { evidence, producer, data, native, receipt }
+  const histories = [observeFixtureContentReading(history([]))]
+  return { evidence, producer, data, native, receipt, histories }
 }
 
 describe('native observation authentication', () => {
@@ -77,9 +80,9 @@ describe('native observation authentication', () => {
   })
 
   test('binds the exact child, submission, evidence and pinned references', () => {
-    const { evidence, native, receipt } = fixture()
+    const { evidence, native, receipt, histories } = fixture()
     const authenticate = (candidate: Receipt, pins = evidence.references) =>
-      observationAuthenticationDiagnostics(evidence, [], pins, candidate)
+      observationAuthenticationDiagnostics(evidence, histories, pins, candidate)
     expect(authenticate(receipt)).toEqual([])
     const changed = (patch: Record<string, unknown>): Receipt =>
       ({
@@ -172,8 +175,8 @@ describe('native observation authentication', () => {
   })
 
   test('authenticated observation still requires an independent supporting verdict', () => {
-    const { evidence, receipt } = fixture()
-    expect(observationAuthenticationDiagnostics(evidence, [], evidence.references, receipt)).toEqual([])
+    const { evidence, receipt, histories } = fixture()
+    expect(observationAuthenticationDiagnostics(evidence, histories, evidence.references, receipt)).toEqual([])
     const supported = satisfied(evidence, { criterionKind: 'content' })
     const row = supported.examined[0]
     const input = {

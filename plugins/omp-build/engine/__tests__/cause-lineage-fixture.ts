@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
-import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import {
+  authenticatedReview,
+  causeFixtureGraph,
+  observeCauseFixtureEvidence,
+} from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -176,6 +180,8 @@ export function lineageFixture(
     const captured = recordsOf(source).find((record) => record.recordId === decision.recordId)
     if (captured?.kind !== 'decision') throw new Error('Expected captured A decision')
     decision = captured
+  } else {
+    observeCauseFixtureEvidence(source)
   }
   let own = capture?.authorityHistory ?? fixtures.historyFrom([mandate])
   const inputs = must(resolveCauseActionInputs({ decision, history: source, context }))

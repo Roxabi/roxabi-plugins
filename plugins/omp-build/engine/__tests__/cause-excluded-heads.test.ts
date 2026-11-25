@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
+import { causeEvidence as citation, observeCauseFixtureEvidence } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -57,13 +58,6 @@ function fixtureHolds(
     waits: projectUwWaits({ graph: nativeGraph, histories, catalogues }),
     dependencies: new Map(),
   })
-}
-const citation = {
-  source: 'git-file' as const,
-  repository: uw.repository,
-  commit: '1'.repeat(40),
-  path: 'src/region.ts',
-  digest: 'a'.repeat(64),
 }
 
 function mixedFixture(includeExclusion = true) {
@@ -173,6 +167,7 @@ function mixedFixture(includeExclusion = true) {
               : entry,
     ),
   }
+  observeCauseFixtureEvidence(source)
   let own = fixtures.historyFrom([mandate])
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   const assessment = must(

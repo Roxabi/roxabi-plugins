@@ -1,10 +1,10 @@
 import { canonicalValueDigest } from '../../engine/action-input.ts'
 import { fixRecoveryDiscoveryScopes } from '../../engine/fix-recovery-discovery.ts'
-import type { DecodedHistory, History } from '../../engine/history-schema.ts'
+import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Diagnostic, Scope } from '../../engine/record-values.ts'
-import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
-import { readGitHubHistory } from '../github/transport.ts'
+import { readDecodedGitHubHistory } from '../github/historical-pins.ts'
+import { projectRecoveryHistories } from '../github/history-codec.ts'
 import { diagnostic, GitHubHistoryReadError, type GitHubOptions } from '../github/types.ts'
 import type { ComposedWorkflowHistory } from './types.ts'
 
@@ -111,18 +111,21 @@ export function validateComposedWorkflowHistories(
   }
 }
 
-async function readSources(scopes: readonly Scope[], options: GitHubOptions): Promise<PromiseSettledResult<History>[]> {
-  const outcomes: PromiseSettledResult<History>[] = []
+async function readSources(
+  scopes: readonly Scope[],
+  options: GitHubOptions,
+): Promise<PromiseSettledResult<DecodedHistory>[]> {
+  const outcomes: PromiseSettledResult<DecodedHistory>[] = []
   for (let index = 0; index < scopes.length; index += 2) {
     const pair = scopes.slice(index, index + 2)
-    outcomes.push(...(await Promise.allSettled(pair.map((scope) => readGitHubHistory(scope, options)))))
+    outcomes.push(...(await Promise.allSettled(pair.map((scope) => readDecodedGitHubHistory(scope, options)))))
   }
   return outcomes
 }
 
 function collectReadOutcomes(
   scopes: readonly Scope[],
-  outcomes: PromiseSettledResult<History>[],
+  outcomes: PromiseSettledResult<DecodedHistory>[],
 ): { histories: DecodedHistory[]; failures: Diagnostic[]; unreadable: boolean } {
   const histories: DecodedHistory[] = []
   const failures: Diagnostic[] = []
@@ -139,8 +142,9 @@ function collectReadOutcomes(
       failures.push(diagnostic('incomplete', `Cannot read history for ${scope.repository} ${scope.target}`), ...detail)
       continue
     }
-    const source = outcome.value
-    histories.push(decodeHistory(source))
+    const history = outcome.value
+    const source = history.source
+    histories.push(history)
     if (!source.complete) {
       unreadable = true
       failures.push(

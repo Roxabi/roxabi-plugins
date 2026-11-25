@@ -2,6 +2,7 @@ import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './action-input.ts'
 import type { PinnedFileRef, RecordInputRef } from './action-input-schema.ts'
 import type { CriterionEvidence, ObservationRef } from './criterion-evidence-schema.ts'
+import { hasObservedGitPin } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerSourceDiagnostics } from './observation-input-authentication.ts'
 import { diagnostic } from './record-diagnostics.ts'
@@ -74,10 +75,6 @@ export function citedOperationIntegrity(history: DecodedHistory, recordId: strin
   return integrity === null ? null : diagnostic(integrity.reason, integrity.detail)
 }
 
-function pinKey(pin: PinnedFileRef): string {
-  return [pin.repository, pin.commit, pin.path, pin.digest].join('\0')
-}
-
 function pointer(value: unknown, selector: string): unknown {
   if (selector === '') return value
   let current = value
@@ -96,7 +93,14 @@ export function observationRefDiagnostics(
   pins: readonly PinnedFileRef[],
 ): Diagnostic[] {
   if (ref.source === 'git-file') {
-    if (!new Set(pins.map(pinKey)).has(pinKey(ref))) {
+    const selected = pins.some(
+      (pin) =>
+        pin.repository === ref.repository &&
+        pin.commit === ref.commit &&
+        pin.path === ref.path &&
+        pin.digest === ref.digest,
+    )
+    if (!selected || !hasObservedGitPin(histories, ref)) {
       return [diagnostic('unknown-reference', `Evidence ${evidenceId} cites an unauthenticated pinned source`)]
     }
     return []
@@ -230,20 +234,9 @@ export function observationAuthenticationDiagnostics(
       diagnostics.push(diagnostic('unconfirmed', `Evidence ${evidence.id} test runs are not in the host capture`))
     return diagnostics
   }
-  const knownPins = new Set(pins.map(pinKey))
   const refs = evidence.references
   diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, receipt.payload.inputs))
-  for (const ref of refs) {
-    if (ref.source === 'git-file') {
-      if (!knownPins.has(pinKey(ref))) {
-        diagnostics.push(
-          diagnostic('unknown-reference', `Evidence ${evidence.id} cites an unauthenticated pinned source`),
-        )
-      }
-      continue
-    }
-    diagnostics.push(...recordRefDiagnostics(evidence.id, ref, histories))
-  }
+  for (const ref of refs) diagnostics.push(...observationRefDiagnostics(evidence.id, ref, histories, pins))
   if (evidence.provenance.kind === 'operator') {
     diagnostics.push(...recordSourceDiagnostics(evidence.id, evidence.provenance.source, histories))
   }

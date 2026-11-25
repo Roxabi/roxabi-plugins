@@ -56,6 +56,7 @@ type NativeWorldSeed = NativeWorldFacts & {
   operator?: OperatorPort
   originUrl?: string
   epic?: NativeEpicFacts
+  gitBlobResponse?: (args: readonly string[]) => string | null
   cwd?: string
 }
 
@@ -96,6 +97,7 @@ export async function withNativeImplementationWorld<T>(
       repository,
       ...(input.originUrl === undefined ? {} : { originUrl: input.originUrl }),
       ...(input.epic === undefined ? {} : { epic: input.epic }),
+      ...(input.gitBlobResponse === undefined ? {} : { gitBlobResponse: input.gitBlobResponse }),
       ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       author: input.author,
       histories: input.histories,

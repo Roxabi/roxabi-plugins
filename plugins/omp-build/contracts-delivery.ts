@@ -11,9 +11,7 @@ export {
 export {
   actionInputDigest,
   canonicalActionInput,
-  canonicalActionOperands,
   canonicalValueDigest,
-  citesCurrentRootOutput,
   recordScopeIdentity,
   selectorAdmitted,
   validateActionInputs,
@@ -130,11 +128,7 @@ export {
   assessmentProposalOriginSchema,
   type CiExact,
 } from './engine/workflow-action-operands.ts'
-export {
-  workflowContextDirectSuccessor,
-  workflowContextResolution,
-  workflowContextTerminal,
-} from './engine/workflow-context-terminal.ts'
+export { workflowContextDirectSuccessor, workflowContextTerminal } from './engine/workflow-context-terminal.ts'
 export {
   abandoned,
   historyFor,

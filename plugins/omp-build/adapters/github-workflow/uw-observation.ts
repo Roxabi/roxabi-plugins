@@ -7,8 +7,8 @@ import type { UwCompletionObservation } from '../../engine/uw-completion-types.t
 import type { UwDiagnostic } from '../../engine/uw-diagnostics.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { projectUwWaits } from '../../engine/uw-waits.ts'
-import { decodeHistory, projectRecoveryHistories } from '../github/history-codec.ts'
-import { readGitHubHistory } from '../github/transport.ts'
+import { readDecodedGitHubHistory } from '../github/historical-pins.ts'
+import { projectRecoveryHistories } from '../github/history-codec.ts'
 import type { GitHubOptions } from '../github/types.ts'
 import { readUwGraph } from '../github-native/uw-graph-reader.ts'
 import { validateComposedWorkflowHistories } from './history.ts'
@@ -144,8 +144,7 @@ class UwObservationCollector {
 
   private async readHistory(scope: Scope): Promise<void> {
     try {
-      const source = await readGitHubHistory(scope, this.options)
-      const history = decodeHistory(source)
+      const history = await readDecodedGitHubHistory(scope, this.options)
       this.cut.addHistory(history)
       this.requireGraphs(framingMemberScopes(history))
     } catch (error) {

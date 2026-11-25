@@ -5,8 +5,7 @@ import type { Result } from '../../engine/result.ts'
 import type { UwDeliveryFacts } from '../../engine/uw-completion-types.ts'
 import { selectWorkflowBinding } from '../../engine/workflow-pr-binding.ts'
 import { selectWorkflowBindingClaims } from '../../engine/workflow-pr-binding-chain.ts'
-import { decodeHistory } from '../github/history-codec.ts'
-import { readGitHubHistory } from '../github/transport.ts'
+import { readDecodedGitHubHistory } from '../github/historical-pins.ts'
 import { type GitHubOptions, gh } from '../github/types.ts'
 import { readNativePullRequestFacts } from './native-facts.ts'
 import { pinnedReviewApp } from './review-rule.ts'
@@ -19,7 +18,7 @@ function actionFailure(code: string, message: string): Result<never> {
 
 async function decodeScope(scope: Scope, options: GitHubOptions): Promise<Result<DecodedHistory>> {
   try {
-    return { ok: true, value: decodeHistory(await readGitHubHistory(scope, options)) }
+    return { ok: true, value: await readDecodedGitHubHistory(scope, options) }
   } catch (error) {
     return actionFailure(
       'record-unreadable',

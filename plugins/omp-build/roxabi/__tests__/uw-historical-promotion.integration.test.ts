@@ -10,7 +10,12 @@ import {
   recordsOf,
   reviewClassCatalogueRef,
 } from '../../dist/contracts.js'
-import { causeFixtureGraph, causeOriginalHistory, sisterRecords } from '../../testing/cause-input-fixture.ts'
+import {
+  causeFixtureGraph,
+  causeOriginalHistory,
+  fixtureCauseGhResponse,
+  sisterRecords,
+} from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
@@ -245,6 +250,8 @@ it.each(['inactive', 'active', 'indeterminate', 'active-after-create'] as const)
     }
 
     const gh: Gh = async (_cwd, args) => {
+      const pinned = fixtureCauseGhResponse(args)
+      if (pinned !== null) return pinned
       const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
       if (args[0] === 'api' && args[1] === 'user') return 'automation'
       const commentMatch = /issues\/(\d+)\/comments/.exec(endpoint)
