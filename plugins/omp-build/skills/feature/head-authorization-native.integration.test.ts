@@ -80,7 +80,7 @@ function selectedIssueAuthority() {
   }
 }
 
-it('does not publish a manual grant when withdrawal crosses slow admission', async () => {
+it('does not publish a manual grant when withdrawal occurs after snapshot capture', async () => {
   const f = fixture()
   try {
     await expect(
@@ -88,9 +88,13 @@ it('does not publish a manual grant when withdrawal crosses slow admission', asy
         cwd: f.root,
         gh: f.gh,
         operationId: () => 'stale-manual',
-        readHistory: async () => {
-          await authorization.withdrawAuthorization({ ...f.args, operationId: 'concurrent-stop', reason: 'stop' })
-          return { source: { complete: true, diagnostics: [] }, diagnostics: [], operations: [] }
+        authorization: {
+          ...authorization,
+          captureAuthorization: async (args: Parameters<typeof authorization.captureAuthorization>[0]) => {
+            const snapshot = await authorization.captureAuthorization(args)
+            await authorization.withdrawAuthorization({ ...f.args, operationId: 'concurrent-stop', reason: 'stop' })
+            return snapshot
+          },
         },
       }),
     ).rejects.toThrow()
@@ -123,7 +127,6 @@ it('withdraws a manual grant accepted before an uncertain readback', async () =>
         cwd: f.root,
         gh,
         operationId: () => 'uncertain-manual',
-        readHistory: async () => ({ source: { complete: true, diagnostics: [] }, diagnostics: [], operations: [] }),
       }),
     ).rejects.toThrow()
     expect(accepted && failedReadback).toBe(true)

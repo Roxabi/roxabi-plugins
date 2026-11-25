@@ -197,11 +197,6 @@ _Avoid_: a positional HTML marker, a Markdown section a consumer parses, a local
 A historical `epic-event` record on a parent or child UW. `goal-stop`, `epic-review`, `post-merge` and `goal-report` remain readable; `epic-fix` is diagnostic only. None restarts parent delivery.
 _Avoid_: a /goal, a body marker, a `goal-stop` comment prefix, session memory
 
-**Legacy hosted admission**:
-The structured check used by the separate trusted CI auto-merge gate. It requires authentic approval of the current head, an unspent native review bound, admissible CI, unchanged inputs and applicable UW authority. It is not composed Feature's merge lock.
-
-_Avoid_: a green check alone, an earlier review, an unbound head, treating a digest as authentication
-
 **TDD**:
 Test-first implementation at the seams agreed with the operator, using the model-invoked `tdd` skill.
 _Avoid_: automatic tests for every change, a mandatory user slash
