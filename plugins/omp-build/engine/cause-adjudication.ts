@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
 import { resolveAdjudicationSources } from './cause-adjudication-sources.ts'
 import type { CauseAdjudicationProposal } from './cause-disposition-schema.ts'
 import { observationRefDiagnostics } from './delivery-observation-authentication.ts'
 import type { CauseContext } from './finding-target.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerSourceDiagnostics } from './observation-input-authentication.ts'
 import { diagnostic, equalScope, sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
@@ -154,6 +155,7 @@ export function validateCauseAdjudication(input: AdjudicationInput): Diagnostic[
 export function resolveCauseActionInputs(input: {
   decision: Extract<CanonicalRecord, { kind: 'decision' }>
   history: DecodedHistory
+  histories?: readonly DecodedHistory[]
   context: CauseContext
 }): Result<ActionInputs[]> {
   const scope = { repository: input.decision.repository, target: input.decision.target }
@@ -201,7 +203,18 @@ export function resolveCauseActionInputs(input: {
       ok: false,
       diagnostics: [diagnostic('cause-source-unconfirmed', 'Synthesis inventory is not authenticated')],
     }
-  const inventory = inventoryResult.value
+  const inputs = synthesisInputs(source, inventoryResult.value, input.context)
+  if (!inputs.ok) return inputs
+  const authenticated = authenticateHistoricalActionInputs(inputs.value, input.histories ?? [input.history])
+  if (!authenticated.ok) return authenticated
+  return { ok: true, value: [authenticated.value] }
+}
+
+function synthesisInputs(
+  source: Extract<CanonicalRecord, { kind: 'contribution' }>,
+  inventory: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
+  context: CauseContext,
+): Result<ActionInputs> {
   const slots = inventory.payload.slots.filter(
     (slot) =>
       slot.slotId === source.payload.host.slotId &&
@@ -230,10 +243,9 @@ export function resolveCauseActionInputs(input: {
     inputs.manifest.code.head !== inventory.payload.candidateGitSHA ||
     (source.payload.host.action &&
       canonicalValueDigest(source.payload.host.action) !== canonicalValueDigest(slot.action)) ||
-    !validateActionInputs(inputs).ok ||
     inputs.manifest.spec.kind !== 'accepted' ||
-    !sameOwnSpecRef(inputs.manifest.spec.effective.own, input.context.effective.own) ||
-    canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(input.context.effective)
+    !sameOwnSpecRef(inputs.manifest.spec.effective.own, context.effective.own) ||
+    canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(context.effective)
   )
     return {
       ok: false,
@@ -241,5 +253,5 @@ export function resolveCauseActionInputs(input: {
         diagnostic('cause-context-unbound', 'Authenticated synthesis action does not select the exact accepted Spec'),
       ],
     }
-  return { ok: true, value: [inputs] }
+  return { ok: true, value: inputs }
 }

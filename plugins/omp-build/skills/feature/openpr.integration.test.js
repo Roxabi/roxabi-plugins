@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { decodeHistory } from '../../dist/contracts.js'
-import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { fixtureCatalogueGhResponse, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
 import { AUTHOR, HEADS, historyPage, PR, REPOSITORY, reviewHistory } from './review-record-fixture.js'
 import { readReviewRecords, reviewRecords } from './workflow-records.js'
 
 describe('canonical review records', () => {
   it('derives the approval from the confirmed decision, not a rendered verdict', () => {
-    const summary = reviewRecords(reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)' }]), {
+    const history = observeFixtureCatalogue(reviewHistory([{ head: HEADS[0], verdict: 'Approve (clean)' }]))
+    const summary = reviewRecords(history, {
       catalogues: fixtureHostReviewClassCatalogues(),
     })
     expect(summary.ok).toBe(true)

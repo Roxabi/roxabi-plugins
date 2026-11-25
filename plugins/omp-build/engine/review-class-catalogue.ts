@@ -70,6 +70,7 @@ export function createReviewClassCatalogues(reads: readonly ReviewCatalogueRead[
   return new CatalogueTable(values)
 }
 
+/** Selects the file to read; this does not authenticate the historical action that cited it. */
 export function reviewClassCatalogueRef(inputs: ActionInputs): Result<PinnedFileRef> {
   const valid = validateActionInputs(inputs)
   if (!valid.ok) return valid

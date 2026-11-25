@@ -153,7 +153,7 @@ function summarizeAuthorityReviews(
   externalHistories: readonly DecodedHistory[],
   deliveryHistory: DecodedHistory,
 ): Result<ReviewSummary> {
-  const identity = analyzeReviewIdentity(history, recordMap(history))
+  const identity = analyzeReviewIdentity(history, recordMap(history), [deliveryHistory, ...externalHistories])
   const reviews = identity.reviews
   const knownReviews = identity.knownReviews
   const preservedSpent =

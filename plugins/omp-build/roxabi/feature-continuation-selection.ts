@@ -158,7 +158,7 @@ async function prepareSelectionSession(
   const { authority, mandate } = selected
   const checked = await verifySelectedCheckout(selected)
   if (checked !== null) return checked
-  const requested = control === 'select' || control === 'resume' || control === 'new'
+  const requested = control === 'select' || control === 'new'
   if (
     !requested ||
     (state.selection.status === 'refused' && state.selection.reason === 'missing' && control === 'select')

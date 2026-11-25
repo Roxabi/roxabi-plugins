@@ -108,10 +108,17 @@ export function sisterGraphTransport(context: {
     const expression = args.find((arg) => arg.startsWith('expression='))?.slice('expression='.length)
     const owner = args.find((arg) => arg.startsWith('owner='))?.slice('owner='.length)
     const name = args.find((arg) => arg.startsWith('name='))?.slice('name='.length)
-    const matches =
-      `${owner}/${name}` === context.catalogueRef.repository &&
-      expression === `${context.catalogueRef.commit}:${context.catalogueRef.path}`
-    return JSON.stringify({ data: { repository: { object: matches ? { oid: blobOid } : null } } })
+    const matchingCommit =
+      `${owner}/${name}` === context.catalogueRef.repository && args.includes(`commit=${context.catalogueRef.commit}`)
+    const matches = matchingCommit && expression === `${context.catalogueRef.commit}:${context.catalogueRef.path}`
+    return JSON.stringify({
+      data: {
+        repository: {
+          commit: matchingCommit ? { __typename: 'Commit', oid: context.catalogueRef.commit } : null,
+          object: matches ? { oid: blobOid } : null,
+        },
+      },
+    })
   }
   function graphRequest(args: string[]): string {
     const query = args.find((arg) => arg.startsWith('query=')) ?? ''

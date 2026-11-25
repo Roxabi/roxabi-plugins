@@ -4,19 +4,27 @@ import { join } from 'node:path'
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { REMOVE_BLOCKED_BY_MUTATION } from '../../../issue-triage/skills/shared/queries.ts'
 import type { Gh } from '../../adapters/github/types.ts'
+import type { PinnedFileRef } from '../../engine/action-input-refs.ts'
 import { scopeKey } from '../../engine/uw-graph.ts'
 import { bindExternalRef, recordsOf } from '../../engine/workflow-control.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
+import { fixtureGitBlobGhResponse } from '../../testing/action-input-fixtures.ts'
 import { installedMultiSisterFixture } from '../../testing/multi-sister-installed-fixture.ts'
 import { operatorDialogUi, operatorRootContext } from '../../testing/operator-dialog-ui.ts'
 import type { UwOperations } from '../uw-contract.ts'
 import { createInstalledUwOperations } from '../uw-installed-operations.ts'
 
 /** Execute inside one isolated declared transport; returned values contain no live resources. */
-export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | 'lost-delta' = 'confirm') {
+export async function runCauseAdjustmentScenario(
+  mode: 'confirm' | 'decline' | 'lost-delta' = 'confirm',
+  citation?: { ref: PinnedFileRef; bytes: Buffer; unavailable?: boolean; requestOnly?: boolean },
+) {
   const artifacts = mkdtempSync(join(tmpdir(), 'omp-cause-adjustment-'))
   try {
-    const world = await installedMultiSisterFixture(1, { artifactsDir: artifacts })
+    const references = citation === undefined ? [] : [citation.ref]
+    const world = await installedMultiSisterFixture(1, {
+      repositoryFiles: citation === undefined || citation.requestOnly ? [] : [citation],
+    })
     const created = await world.operations.createSister(world.request(0))
     if (created.status !== 'created' || created.receipt.kind !== 'debt-receipt')
       throw new Error(`Could not establish the causal sister: ${JSON.stringify(created)}`)
@@ -32,12 +40,25 @@ export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | '
     if (!issue?.blockers.includes(43)) throw new Error('Created native blocker missing')
     const journal: { kind: string; args: string[] }[] = []
     const confirmations: { title: string; detail: string }[] = []
+    let citedBlobReads = 0
+    let citedBlobReadsAtConfirmation: number | null = null
     const recordPublication = (args: string[]) => {
       if (args[0] !== 'api' || args[1] !== '--method') return
       if (args[2] === 'PATCH') journal.push({ kind: 'patch', args: [...args] })
       if (args[2] === 'POST' && args[3]?.endsWith('/comments')) journal.push({ kind: 'publish', args: [...args] })
     }
+    const readCitedBlob = (args: string[]) => {
+      if (citation === undefined) return undefined
+      const pin = fixtureGitBlobGhResponse(args, citation.ref, citation.bytes)
+      if (pin && args[1] !== 'graphql') {
+        citedBlobReads += 1
+        if (citation.unavailable) throw new Error('Pinned dependency migration note unavailable')
+      }
+      return pin
+    }
     const gh: Gh = async (cwd, args) => {
+      const pin = readCitedBlob(args)
+      if (pin) return pin
       if (args[1] === 'graphql' && args[3] === `query=${REMOVE_BLOCKED_BY_MUTATION}`) {
         if (args[5] !== 'issueId=node-42' || args[7] !== 'blockingId=node-43')
           throw new Error('Unexpected dependency mutation')
@@ -54,7 +75,10 @@ export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | '
       mode: 'tui',
       ui: operatorDialogUi(
         async () => (mode === 'decline' ? 'refuse' : 'confirm'),
-        (detail) => confirmations.push({ title: 'Confirm UW proposal', detail }),
+        (detail) => {
+          citedBlobReadsAtConfirmation = citedBlobReads
+          confirmations.push({ title: 'Confirm UW proposal', detail })
+        },
       ),
     } as unknown as ExtensionContext)
     const operations = await createInstalledUwOperations({ cwd: '/fixture', gh, readAuthor: 'automation', operator })
@@ -75,6 +99,7 @@ export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | '
       }
     }
     const before = await snapshot()
+    const citedBlobReadsBeforeRequest = citedBlobReads
     const result = await operations.adjustCauseDependency({
       origin,
       disposition,
@@ -83,7 +108,7 @@ export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | '
       change: { kind: 'withdraw' },
       nativeEffect: { kind: 'update-blockers', remove: [sister], add: [] },
       reason: 'The operator withdrew this causal dependency',
-      references: [],
+      references,
     })
     const after = await snapshot()
     let control = null
@@ -117,6 +142,8 @@ export async function runCauseAdjustmentScenario(mode: 'confirm' | 'decline' | '
       result: result.status === 'adjusted' ? { status: result.status, control: result.control } : result,
       canonicalControl: control,
       confirmations,
+      citedBlobReadsBeforeRequest,
+      citedBlobReadsAtConfirmation,
       journal,
     })
   } finally {

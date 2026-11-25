@@ -26,6 +26,8 @@ import {
   FINDING_TARGET_FORMAT,
   findingTargetSchema,
 } from '../finding-target-schema.ts'
+import { recordGitPinBytes } from '../historical-git-pins.ts'
+import type { DecodedHistory } from '../history-schema.ts'
 import { type ExternalRecordRef, externalRecordRefSchema } from '../record-references.ts'
 import { type SpecEffective, specEffectiveSchema } from '../spec-effective-schema.ts'
 import type { OwnSpecRef } from '../uw-spec-schema.ts'
@@ -165,8 +167,15 @@ export function restoredByTest(beforeExit: number, beforeText: string): Criterio
   })
 }
 
+const readingFinding = 'docs/region.md states that reload keeps the selected region'
+const readingPin = pin('docs/region.md', readingFinding)
+
+export function observeFixtureContentReading(history: DecodedHistory) {
+  recordGitPinBytes(history, [readingPin], Buffer.from(readingFinding))
+  return history
+}
+
 export function contentReading(): CriterionEvidence {
-  const finding = 'docs/region.md states that reload keeps the selected region'
   return criterionEvidenceSchema.parse({
     format: CRITERION_EVIDENCE_FORMAT,
     id: 'evidence-reading',
@@ -174,8 +183,8 @@ export function contentReading(): CriterionEvidence {
     code: candidate,
     provenance: provenance(['tool-read-region']),
     method: 'content-reading',
-    references: [pin('docs/region.md', finding)],
-    finding,
+    references: [readingPin],
+    finding: readingFinding,
   })
 }
 

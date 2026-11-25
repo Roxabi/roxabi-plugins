@@ -11,7 +11,7 @@ import {
   resolveCauseActionInputs,
 } from '../../dist/contracts.js'
 import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph, fixtureCauseGhResponse } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { fixtureHostReviewClassCatalogues } from '../../testing/host-catalogue-fixture.ts'
@@ -33,8 +33,8 @@ it.each([false, true])(
     ])
     const reads: number[] = []
     const gh: Gh = async (_cwd, args) => {
-      const catalogue = fixtureCatalogueGhResponse(args)
-      if (catalogue !== null) return catalogue
+      const pinned = fixtureCatalogueGhResponse(args) ?? fixtureCauseGhResponse(args)
+      if (pinned !== null) return pinned
       if (args[0] === 'api' && args[1] === 'user') return 'automation'
       if (args[1] === 'graphql') return subtreeGraph(args)
       const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
@@ -185,8 +185,8 @@ it('lists the final report but not its superseded authenticated pending predeces
   ).history
   const bodies = completed.source.comments.map((comment) => comment.body)
   const gh: Gh = async (_cwd, args) => {
-    const catalogue = fixtureCatalogueGhResponse(args)
-    if (catalogue !== null) return catalogue
+    const pinned = fixtureCatalogueGhResponse(args) ?? fixtureCauseGhResponse(args)
+    if (pinned !== null) return pinned
     if (args[0] === 'api' && args[1] === 'user') return 'automation'
     if (args[1] === 'graphql') {
       const number = Number(args.find((arg) => arg.startsWith('number='))?.slice(7))

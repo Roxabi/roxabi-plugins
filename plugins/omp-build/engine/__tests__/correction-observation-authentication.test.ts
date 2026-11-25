@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
 import { shippedMandate } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { actionInputDigest } from '../action-input.ts'
 import type { PinnedFileRef } from '../action-input-schema.ts'
@@ -12,10 +12,12 @@ import {
   contentReading,
   evidenceDeclaration,
   evidenceRef,
+  observeFixtureContentReading,
   passingTest,
   satisfied,
   solo,
 } from './criterion-admission-fixture.ts'
+import { history } from './workflow-test-support.ts'
 
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
 
@@ -95,21 +97,28 @@ function fixture(method: 'test' | 'content-reading') {
       structured: data,
     },
   } as unknown as Contribution
-  return { evidence, refs, contribution, native, inputs, data, submission }
+  const observed = observeFixtureCatalogue(history([]))
+  const histories = [method === 'content-reading' ? observeFixtureContentReading(observed) : observed]
+  return { evidence, refs, contribution, native, inputs, data, submission, histories }
 }
 
 describe('correction evidence authentication', () => {
   test('authenticates genuine submitted observation and captured test run', () => {
     for (const method of ['content-reading', 'test'] as const) {
-      const { evidence, refs, contribution } = fixture(method)
-      expect(correctionObservationAuthenticationDiagnostics(evidence, [], refs, contribution)).toEqual([])
+      const { evidence, refs, contribution, histories } = fixture(method)
+      expect(correctionObservationAuthenticationDiagnostics(evidence, histories, refs, contribution)).toEqual([])
     }
   })
 
   test('rejects wrong child, altered submission, missing producer reference and spoofed run', () => {
     const observation = fixture('content-reading')
     const check = (contribution: Contribution) =>
-      correctionObservationAuthenticationDiagnostics(observation.evidence, [], observation.refs, contribution)
+      correctionObservationAuthenticationDiagnostics(
+        observation.evidence,
+        observation.histories,
+        observation.refs,
+        contribution,
+      )
     expect(
       check({
         ...observation.contribution,
@@ -145,8 +154,8 @@ describe('correction evidence authentication', () => {
   })
 
   test('authenticated observation does not replace an independent verdict', () => {
-    const { evidence, refs, contribution } = fixture('content-reading')
-    expect(correctionObservationAuthenticationDiagnostics(evidence, [], refs, contribution)).toEqual([])
+    const { evidence, refs, contribution, histories } = fixture('content-reading')
+    expect(correctionObservationAuthenticationDiagnostics(evidence, histories, refs, contribution)).toEqual([])
     const supported = satisfied(evidence, { criterionKind: 'content' })
     const input = {
       spec: solo,

@@ -9,13 +9,16 @@ import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import type { CanonicalRecord } from '../engine/record-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { recordsOf } from '../engine/workflow-control.ts'
-import { fixtureReviewClassCatalogues } from './action-input-fixtures.ts'
+import { fixtureReviewClassCatalogues, observeFixtureCatalogue } from './action-input-fixtures.ts'
+import { causeEvidence, observeCauseFixtureEvidence } from './cause-git-fixture.ts'
 import { causeFixtureMandate, causeFixtureSnapshot, causeFixtureScope as uw } from './cause-input-specification.ts'
 import { synthesisActionCapture } from './criterion-dispositions.ts'
 import { submission } from './record-builders.ts'
 import { acceptedPullRequestReviewGraph } from './record-graphs.ts'
 import { operation as observedOperation } from './record-history.ts'
 import { roxabiWorkflowFixtures } from './roxabi-presets.ts'
+
+export { causeEvidence, fixtureCauseGhResponse, observeCauseFixtureEvidence } from './cause-git-fixture.ts'
 
 const sister: Scope = { repository: 'acme/app', target: 'acme/app#43' }
 const foreign: Scope = { repository: 'acme/app', target: 'acme/app#44' }
@@ -46,13 +49,7 @@ export function causeFixtureGraph(body = causeFixtureSnapshot.raw.body) {
     ],
   }
 }
-const evidence = {
-  source: 'git-file' as const,
-  repository: uw.repository,
-  commit: '1'.repeat(40),
-  path: 'src/region.ts',
-  digest: 'a'.repeat(64),
-}
+
 function must<T>(result: { ok: true; value: T } | { ok: false; diagnostics: readonly { code: string }[] }): T {
   if (!result.ok) throw new Error(result.diagnostics.map((item) => item.code).join(','))
   return result.value
@@ -90,7 +87,7 @@ export function authenticatedReview(sisterDisposition = false) {
   const binding = fixtures.workflowBinding(foreign, mandate, 'feat/42-save', 'main')
   if (binding.kind !== 'workflow-binding') throw new Error('Expected PR binding')
   const base = acceptedPullRequestReviewGraph({ mandate, binding, prefix: 'admission-source', label: 'issue' })
-  const manifest = { ...base.inputs.manifest, repositoryReferences: [evidence] }
+  const manifest = { ...base.inputs.manifest, repositoryReferences: [causeEvidence] }
   const inputs = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }
   if (inputs.manifest.spec.kind !== 'accepted') throw new Error('Expected accepted Spec inputs')
   const generated = acceptedPullRequestReviewGraph({
@@ -102,7 +99,11 @@ export function authenticatedReview(sisterDisposition = false) {
   })
   const decision = must(parseRecord(generated.decision))
   if (decision.kind !== 'decision') throw new Error('Expected review decision')
-  const graph = { ...generated, decision, history: framedHistory(foreign, recordsOf(generated.history)) }
+  const graph = {
+    ...generated,
+    decision,
+    history: observeFixtureCatalogue(observeCauseFixtureEvidence(framedHistory(foreign, recordsOf(generated.history)))),
+  }
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   if (!sisterDisposition) return { graph, context }
   const cause = graph.decision.payload.judgment.causes[0]
@@ -111,7 +112,7 @@ export function authenticatedReview(sisterDisposition = false) {
     state: 'supported' as const,
     value,
     reason: 'The selected source supports this judgment',
-    references: [evidence],
+    references: [causeEvidence],
   })
   const judgment = {
     ...graph.decision.payload.judgment,
@@ -150,7 +151,11 @@ export function authenticatedReview(sisterDisposition = false) {
     }),
   }
   return {
-    graph: { ...graph, decision: changedDecision, history: framedHistory(foreign, recordsOf(updatedHistory)) },
+    graph: {
+      ...graph,
+      decision: changedDecision,
+      history: observeFixtureCatalogue(observeCauseFixtureEvidence(framedHistory(foreign, recordsOf(updatedHistory)))),
+    },
     context,
   }
 }

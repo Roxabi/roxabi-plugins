@@ -150,7 +150,7 @@ async function verifiedContinuation(
 ): Promise<ContinueFeatureInput | null> {
   let verified: { continuation: ContinueFeatureInput } | ContinueFeatureResult
   try {
-    const uw = await core.host.uw({ ctx, operator, pluginPin: ticket.pluginPin })
+    const uw = await core.host.uw({ ctx, operator })
     const read = await uw.readUw(ticket.preparation.root)
     verified = await verifyFramedFeatureDestination({
       ticket: ticket.preparation,

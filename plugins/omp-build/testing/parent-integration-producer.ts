@@ -1,17 +1,19 @@
 import type { Gh } from '../adapters/github/types.ts'
-import { canonicalValueDigest } from '../engine/action-input.ts'
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
+import type { ActionInputs } from '../engine/action-input-schema.ts'
 import { completeCriterionDeclarations } from '../engine/criterion-declaration-completion.ts'
 import { integrationReceiptEligible } from '../engine/delivery-observation-authentication.ts'
 import { criterionTargetSchema } from '../engine/finding-target-schema.ts'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
 import { scopeKey } from '../engine/uw-graph.ts'
-import { integrationOutputSchema } from '../engine/uw-integration-schema.ts'
+import { type IntegrationOutput, integrationOutputSchema } from '../engine/uw-integration-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import { bindExternalRef, historyFor, workflowOperationProblem } from '../engine/workflow-control.ts'
-import type { UwOperations } from '../roxabi/uw-contract.ts'
+import type { UwOperations, UwRead } from '../roxabi/uw-contract.ts'
 import type { GitRunner } from '../roxabi/workflow-checkout.ts'
 import { historicalCommandCapture } from './native-action-capture.ts'
-import { appendNativeReceipt, openHistoricalDelivery } from './native-history-records.ts'
+import { appendNativeReceipt, historicalAcceptedInputs, openHistoricalDelivery } from './native-history-records.ts'
 import type { DeclaredCheckout } from './native-implementation-world.ts'
 
 type World = {
@@ -24,6 +26,39 @@ type World = {
   checkout(facts: DeclaredCheckout): void
 }
 type Checkout = { cwd: string; checkout(commit: string): void; tree(commit: string): string }
+
+/** Bind a historical integration review to the exact result and its criterion declarations. */
+export function historicalIntegrationReviewInputs(
+  read: UwRead,
+  mandate: MandateRecord,
+  record: ExternalRecordRef,
+  output: IntegrationOutput,
+): ActionInputs {
+  const inputs = historicalAcceptedInputs(read, mandate, 'review', {
+    ...output.code,
+    referenceCommit: output.code.head,
+  })
+  const manifest = {
+    ...inputs.manifest,
+    deliveryData: [
+      {
+        source: 'record' as const,
+        role: 'integration' as const,
+        record,
+        selector: '/payload/structured/code',
+        digest: canonicalValueDigest(output.code),
+      },
+      ...output.criteria.map((criterion, index) => ({
+        source: 'record' as const,
+        role: 'implementation' as const,
+        record,
+        selector: `/payload/structured/criteria/${index}`,
+        digest: canonicalValueDigest(criterion),
+      })),
+    ],
+  }
+  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+}
 
 /** Seed and read back historical parent integration against the declared Git observation. */
 export async function produceParentIntegration(
@@ -77,6 +112,7 @@ export async function produceParentIntegration(
     mandate,
     read: initial,
     action: 'integrate',
+    childProofs: completions.flatMap((child) => child.sources),
     code: {
       repository: scope.repository,
       base: facts.initial.baseTip,

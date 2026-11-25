@@ -1,9 +1,9 @@
 ---
 name: feature
 disable-model-invocation: true
-argument-hint: '[#N | <subject> | init | pause #N | abandon #N | resume #N | new #N | material-decision #N | resolve-interruption #N [--start <recordId>]]'
+argument-hint: '[#N | <subject> | init | pause #N | abandon #N | new #N | material-decision #N]'
 description: Deliver a leaf UW through implementation, independent review, correction and protected merge.
-version: 0.1.20
+version: 0.1.22
 ---
 
 # Feature
@@ -12,7 +12,7 @@ Start only with the installed command's appended `## Feature context`, `## Accep
 
 Before planning or implementing, read the repository's default branch with `gh repo view <owner>/<repo> --json defaultBranchRef --jq '.defaultBranchRef.name'`. If unavailable or different from `base` in `## Feature context`, stop and report why: composed delivery and its required review verdict target only the default branch.
 
-## Resume from facts
+## Continue from facts
 
 Compare local, remote and PR tips against the selected base. Look for matching PRs (including closed ones) by repository, branch and base, never by title. A PR number in context is a hint; the CLI confirms bindings.
 
@@ -37,7 +37,7 @@ A current review is the latest review evidence comment by a writer (see [../dev-
 ## Review and correct
 
 1. Read installed [../dev-review/SKILL.md](../dev-review/SKILL.md) relative to the feature skill directory. Follow its composed mode with the bound issue, repository, PR, exact head/base and `## Accepted Spec`. Await separate read-only reviewers and confirm the published review. Do not invoke a nested slash command.
-2. For a completed current review with blockers or red CI, read installed [../dev-fix/SKILL.md](../dev-fix/SKILL.md) and follow its composed mode. Review each changed head again. Stop on conflicting scope, no progress, or after **two automatic correction rounds** in this invocation. Report what remains for the operator to rerun.
+2. For a completed current review with blockers or red CI, follow the composed mode in installed [../dev-fix/SKILL.md](../dev-fix/SKILL.md). Use the authorized review comment and checks on that head to scope the correction. Review each changed head again. Stop on conflicting scope, no progress, or after **two automatic correction rounds** in this invocation. Report what remains for the operator to rerun.
 
 ## Land and finish
 
@@ -68,13 +68,11 @@ Stop on inactive authority, material/coverage hold, ambiguous or divergent refs,
 
 | Command | Boundary |
 |---|---|
-| `/feature <reference>` | Selects or establishes a leaf mandate. Repeating it re-observes work, not an explicit pause. Parent delivery is suspended. |
-| `/feature pause <reference>` | Inhibits continuation. Report confirmed only after source confirmation and disarm. |
-| `/feature resume <reference>` | Explicitly lifts an eligible confirmed pause. |
-| `/feature abandon <reference>` | Revokes the mandate; no automatic renewal. |
+| `/feature <reference>` | Selects or establishes a leaf mandate. Repeating it continues under a live mandate from current Git and GitHub facts. Parent delivery is suspended. |
+| `/feature pause <reference>` | Stops only the matching Feature in this session. If none matches, nothing changes. No remote write or mandate change. |
+| `/feature abandon <reference>` | Publishes and reads back exact mandate revocation, with no PR disarm or automatic renewal. |
 | `/feature new <reference>` | Selects a successor over an intact abandoned or revoked mandate and conformant Spec. |
 | `/feature material-decision <reference>` | Requires genuine operator confirmation of the exact pending Spec proposal. |
-| `/feature resolve-interruption <reference> [--start <recordId>]` | Always refuses. Historical records remain readable. For an eligible leaf, run `/feature abandon <reference>`, then `/feature new <reference>` after confirmed abandonment. |
 | `/feature init` | Previews the invoking checkout. Apply requires the preview digest and the operator's own reply. |
 
 For framing, `Ctrl+Alt+U` opens the staged proposal for review; only `Confirmer` authorizes publication. If a move is required, the operator runs the displayed `/move <path>`, observes success, then presses `Ctrl+Alt+U` in the destination to attest it. A model tool cannot confirm or attest.

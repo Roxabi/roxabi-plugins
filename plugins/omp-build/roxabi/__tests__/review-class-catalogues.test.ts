@@ -15,17 +15,17 @@ const pin = input.manifest.plugin.files[0]
 if (pin === undefined) throw new Error('fixture catalogue pin missing')
 
 function transport(options: { missing?: boolean; corrupt?: boolean } = {}): Gh {
+  function graphql(args: string[]): string {
+    const [owner, name] = pin.repository.split('/')
+    const matchesRepository = args.includes(`owner=${owner}`) && args.includes(`name=${name}`)
+    const commit =
+      matchesRepository && args.includes(`commit=${pin.commit}`) ? { __typename: 'Commit', oid: pin.commit } : null
+    const object =
+      !options.missing && matchesRepository && args.includes(`expression=${pin.commit}:${pin.path}`) ? { oid } : null
+    return JSON.stringify({ data: { repository: { commit, object } } })
+  }
   return async (_cwd, args) => {
-    if (args[1] === 'graphql') {
-      const expression = args.find((arg) => arg.startsWith('expression='))?.slice(11)
-      const owner = args.find((arg) => arg.startsWith('owner='))?.slice(6)
-      const name = args.find((arg) => arg.startsWith('name='))?.slice(5)
-      const object =
-        !options.missing && `${owner}/${name}` === pin.repository && expression === `${pin.commit}:${pin.path}`
-          ? { oid }
-          : null
-      return JSON.stringify({ data: { repository: { object } } })
-    }
+    if (args[1] === 'graphql') return graphql(args)
     if (args.includes(`repos/${pin.repository}/git/blobs/${oid}`)) {
       const content = options.corrupt ? Buffer.from('wrong') : bytes
       return JSON.stringify({ sha: oid, encoding: 'base64', size: content.length, content: content.toString('base64') })

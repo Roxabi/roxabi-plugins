@@ -1,7 +1,7 @@
 import { canonicalValueDigest, FRAMING_PROCEDURE_FILES } from '../dist/contracts.js'
 import type { FramingProcedureManifest, FramingStage } from '../engine/framing-context-schema.ts'
 import type { Result } from '../engine/result.ts'
-import type { PinnedFileRef, PluginPinPort } from './uw-action-contract.ts'
+import type { PinnedFileRef, PluginPinPort } from './plugin-pin-contract.ts'
 import { actionFailure, sha256Bytes } from './uw-action-result.ts'
 
 type ProcedurePorts = {

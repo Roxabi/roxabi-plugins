@@ -23,8 +23,6 @@ const requiredContractNames = [
   'readIssueParentAssociation',
   'githubScope',
   'composeChantier',
-  'planMacro',
-  'planDigest',
   'failedCheckEvidenceDigest',
   'resolveAcceptedSpec',
   'bindExternalRef',

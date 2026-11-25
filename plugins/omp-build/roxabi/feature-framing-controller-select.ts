@@ -1,7 +1,6 @@
 import { sameScope } from '../dist/contracts.js'
 import type { FramingForm } from '../engine/framing-form-schema.ts'
 import type { Scope } from '../engine/record-values.ts'
-import { resolveFramingReference } from './feature-continuation-admission.ts'
 import { loadContracts } from './feature-engine.ts'
 import type { FramingSubmissionResult } from './feature-framing-contract.ts'
 import { recheck, refused, reopen, type SubmitActual, stale } from './feature-framing-controller-form-gate.ts'
@@ -18,6 +17,7 @@ import {
 import { readOnlyUw } from './feature-framing-controller-proposal.ts'
 import { nodeOf, observationOf } from './feature-framing-controller-slots.ts'
 import { framingReferenceInText, framingUserEntry } from './feature-framing-source.ts'
+import { resolveFramingReference } from './feature-native-target.ts'
 
 type SelectForm = Extract<FramingForm, { kind: 'select-existing' }>
 type ReferenceText = { text: string; selected: BoundSelection['selection']['text'] }

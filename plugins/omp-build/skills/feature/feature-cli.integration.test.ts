@@ -185,26 +185,28 @@ it('refuses to publish a leaf whose mandate base is not the default branch', asy
   expect(readSim(f.box).prs).toEqual({})
 })
 
-it.each(['paused', 'abandoned', 'revoked', 'not-applicable'] as const)(
-  'does not write under a %s mandate',
-  async (reason) => {
-    const f = world()
-    f.bare('update-ref', '-d', ref)
-    if (reason === 'paused') {
-      const request = fixtures.pauseRequested(f.mandate)
-      seedAuthority(f.box, [f.mandate, request, fixtures.pauseConfirmed(f.mandate, request)])
-    }
-    if (reason === 'abandoned') seedAuthority(f.box, [f.mandate, abandonment(f)])
-    if (reason === 'revoked') revoke(f)
-    const mandate = reason === 'not-applicable' ? 'not-current' : f.mandate.recordId
-    expect(await invoke(f, 'push', ['--tip', f.tip], { mandate })).toMatchObject({
-      code: 1,
-      status: 'refused',
-      reason: `exact-mandate-${reason === 'revoked' ? 'not-applicable' : reason}`,
-    })
-    expect(f.bare('for-each-ref', '--format=%(objectname)', ref)).toBe('')
-  },
-)
+it.each(['abandoned', 'revoked', 'not-applicable'] as const)('does not write under a %s mandate', async (reason) => {
+  const f = world()
+  f.bare('update-ref', '-d', ref)
+  if (reason === 'abandoned') seedAuthority(f.box, [f.mandate, abandonment(f)])
+  if (reason === 'revoked') revoke(f)
+  const mandate = reason === 'not-applicable' ? 'not-current' : f.mandate.recordId
+  expect(await invoke(f, 'push', ['--tip', f.tip], { mandate })).toMatchObject({
+    code: 1,
+    status: 'refused',
+    reason: `exact-mandate-${reason === 'revoked' ? 'not-applicable' : reason}`,
+  })
+  expect(f.bare('for-each-ref', '--format=%(objectname)', ref)).toBe('')
+})
+
+it('pushes under the current mandate despite historical pause records', async () => {
+  const f = world()
+  f.bare('update-ref', '-d', ref)
+  const request = fixtures.pauseRequested(f.mandate)
+  seedAuthority(f.box, [f.mandate, request, fixtures.pauseConfirmed(f.mandate, request)])
+  expect(await invoke(f, 'push', ['--tip', f.tip])).toMatchObject({ code: 0 })
+  expect(f.bare('rev-parse', ref)).toBe(f.tip)
+})
 
 it('requires the bound PR and its current head for a correction push', async () => {
   const f = world(true)
@@ -424,6 +426,24 @@ it('refuses an exact merge when the named mandate is superseded before the write
     status: 'refused',
   })
   expect(readSim(f.box).calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
+})
+
+it.each(['review', 'ci'])('will not land a changed head with only the prior head’s %s', async (stale) => {
+  const f = world(true)
+  git(f.box, f.cwd, ['commit', '-qm', 'fix: new head', '--allow-empty'])
+  const head = git(f.box, f.cwd, ['rev-parse', 'HEAD'])
+  git(f.box, f.cwd, ['push', '-q', 'origin', `HEAD:${ref}`])
+  seedLandingChecks(f.box, 'main', f.tip, app)
+  seedLandingChecks(f.box, 'main', head, app)
+  writeSim(f.box, (state) => {
+    state.checks[head] = state.checks[head]?.filter((check) => check.name !== stale) ?? []
+  })
+  const land = (candidate: string) =>
+    invoke(f, 'land', ['--pr', String(pr), '--head', candidate, '--spec', acceptedDigest(f)])
+  expect(await land(f.tip)).toMatchObject({ code: 1, reason: 'pr-head-mismatch' })
+  expect(await land(head)).toMatchObject({ code: 1, status: 'waiting', reason: 'merge-refused' })
+  expect(readSim(f.box).prs[String(pr)]?.state).toBe('OPEN')
+  expect(f.bare('rev-parse', 'main')).toBe(f.base)
 })
 
 it('rejects a mid-run Spec amendment until the digest is refreshed and requires exact-head review proof to close', async () => {

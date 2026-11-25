@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import * as engine from '../contracts.ts'
-import { resolveFramingReference } from './feature-continuation-admission.ts'
+import { resolveFramingReference } from './feature-native-target.ts'
 
 it('resolves a native issue on its actual scope and refuses a PR without reading its binding', async () => {
   const calls: string[][] = []

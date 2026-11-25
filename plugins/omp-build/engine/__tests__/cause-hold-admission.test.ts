@@ -5,6 +5,7 @@ import {
   authenticatedReview,
   causeFixtureGraph,
   causeOriginalHistory,
+  causeEvidence as evidence,
   sisterRecords,
 } from '../../testing/cause-input-fixture.ts'
 import { causeFixtureMandate } from '../../testing/cause-input-specification.ts'
@@ -49,13 +50,6 @@ const identities: SpecIdentityLedger = {
   nextInvariant: '1',
   allocations: new Map([['C1', identityAllocation]]),
   retired: new Map(),
-}
-const evidence = {
-  source: 'git-file' as const,
-  repository: uw.repository,
-  commit: '1'.repeat(40),
-  path: 'src/region.ts',
-  digest: 'a'.repeat(64),
 }
 
 function disposition(id: string, _outcome: 'pending') {

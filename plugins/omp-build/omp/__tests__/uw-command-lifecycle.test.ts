@@ -15,6 +15,19 @@ import { reportResult } from '../omp-uw-result.ts'
 
 const target = { repository: 'acme/widgets', target: 'acme/widgets#42' }
 
+it.each(['action', 'action /missing/request.json', 'action --request-file /missing/request.json'])(
+  'explicitly retires /uw %s',
+  async (args) => {
+    expect(parseUwCommand(args)).toEqual({ kind: 'invalid', reason: 'uw-action-retired' })
+    const subject = heldCommandFixture(async () => {
+      throw new Error('Retired command must not execute')
+    })
+    await subject.start(args)
+    expect(subject.messages).toEqual(['uw-stopped: uw-action-retired'])
+    expect(subject.calls()).toBe(0)
+  },
+)
+
 it('accepts only an explicit issue scope for subtree reports', () => {
   expect(parseUwCommand('reports acme/widgets#42')).toEqual({ kind: 'reports', repository: 'acme/widgets', number: 42 })
   expect(parseUwCommand('reports')).toMatchObject({ kind: 'invalid' })
@@ -129,9 +142,10 @@ function heldCommandFixture(action: () => Promise<UwOperationResult>) {
     context,
     dialog,
     messages,
-    start() {
+    calls: () => calls,
+    start(args = 'accept-material acme/widgets#42') {
       if (command === undefined) throw new Error('uw-command-missing')
-      return command.handler('accept-material acme/widgets#42', context)
+      return command.handler(args, context)
     },
     async newSession() {
       location.sessionId = 'next-session'
@@ -239,12 +253,6 @@ function lifecycleFixture() {
         })
         return result.status === 'confirmed' ? result.value : { status: 'refused', diagnostics: result.diagnostics }
       },
-      prepareAction: async () => {
-        throw new Error('unexpected-prepare-action')
-      },
-      replayActionInputs: async () => {
-        throw new Error('unexpected-replay')
-      },
       readDelivery: async () => {
         throw new Error('unexpected-delivery')
       },
@@ -300,8 +308,13 @@ describe('registered /uw command root lifecycle', () => {
   })
 
   it.each(['evidence', 'verdicts'] as const)(
-    'reports a successful empty %s result and retains the consultable array',
+    'reports a successful empty %s result and retains its consultable detail',
     async (kind) => {
+      const message =
+        kind === 'evidence'
+          ? 'Correction delivery fix-1 lacks its authenticated lineage pins'
+          : 'Evidence C1 observation digest does not match'
+      const diagnostics = [{ code: 'mismatch', message }]
       let command: Command | undefined
       const messages: string[] = []
       const pi = createExtensionApiStub({
@@ -317,7 +330,7 @@ describe('registered /uw command root lifecycle', () => {
         ...fixtureUwOperations(),
         readDelivery: async (uw) => ({
           ok: true,
-          value: { uw, effective: { ok: false, diagnostics: [] }, declarations: [], verdicts: [], diagnostics: [] },
+          value: { uw, effective: { ok: false, diagnostics: [] }, declarations: [], verdicts: [], diagnostics },
         }),
       }))
       if (command === undefined) throw new Error('uw-command-missing')
@@ -329,9 +342,14 @@ describe('registered /uw command root lifecycle', () => {
       const summary = (messages[0] ?? '').split(' detail=')[0]
       expect(summary).not.toContain('malformed-result')
       expect(summary).toMatch(/\b0\b/)
+      expect(summary).toContain('diagnostics=mismatch')
       const detail = /detail=([^ ]+)/.exec(messages[0] ?? '')?.[1]
       expect(detail).toBeDefined()
-      expect(JSON.parse(readFileSync(detail as string, 'utf8'))).toEqual([])
+      expect(JSON.parse(readFileSync(detail as string, 'utf8'))).toEqual(
+        kind === 'evidence'
+          ? { status: 'evidence', uw: target, declarations: [], diagnostics }
+          : { status: 'verdicts', uw: target, verdicts: [], diagnostics },
+      )
     },
   )
 

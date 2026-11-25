@@ -2,7 +2,6 @@ import type { Diagnostic } from './record-values.ts'
 import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import type { MandateRecord } from './workflow-control.ts'
 import type { MandatePayload } from './workflow-mandate-schema.ts'
-import type { PauseBinding } from './workflow-pause.ts'
 
 export function effectiveMandateRole(
   storedRole: MandatePayload['role'],
@@ -13,7 +12,6 @@ export function effectiveMandateRole(
 
 export type MandateRefusal =
   | 'missing'
-  | 'paused'
   | 'abandoned'
   | 'revoked'
   | 'unsupported'
@@ -30,5 +28,4 @@ export type MandateRefusal =
 
 export type MandateSelection =
   | { status: 'applicable'; mandate: MandateRecord }
-  | { status: 'refused'; reason: 'paused'; evidence: Diagnostic[]; pause: PauseBinding }
-  | { status: 'refused'; reason: Exclude<MandateRefusal, 'paused'>; evidence: Diagnostic[] }
+  | { status: 'refused'; reason: MandateRefusal; evidence: Diagnostic[] }

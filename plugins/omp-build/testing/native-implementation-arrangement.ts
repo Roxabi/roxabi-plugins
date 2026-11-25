@@ -90,11 +90,9 @@ export async function arrangeNativeImplementation(
   return withWorld(
     {
       ...input,
-      plugin: planStart.payload.inputs.manifest.plugin,
       pullRequests: input.pullRequestsBefore,
       anchor: input.scope,
       checkout: initial,
-      diffs: [],
     },
     async (world) => {
       const before = await world.operations.readUw(input.scope)

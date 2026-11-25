@@ -1,5 +1,6 @@
 import { missingContextOutputSchema } from './action-context.ts'
-import { canonicalValueDigest } from './action-input.ts'
+import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
 import { equalScope } from './record-diagnostics.ts'
@@ -37,6 +38,7 @@ export function accounted(history: DecodedHistory, record: CanonicalRecord): boo
   )
 }
 
+/** Missing context is observable even when the referenced context cannot confer authority. */
 export function negativeFor(history: DecodedHistory, root: Root, entry: Contribution): boolean {
   if (root.payload.purpose !== 'review' || !accounted(history, root) || !accounted(history, entry)) return false
   const payload = entry.payload
@@ -47,6 +49,7 @@ export function negativeFor(history: DecodedHistory, root: Root, entry: Contribu
     slot !== undefined &&
     binding !== undefined &&
     matchesContributionSlot(entry, slot, root.recordId) &&
+    validateActionInputs(binding.inputs).ok &&
     binding.inputs.fingerprint === root.payload.actionInputDigest &&
     binding.inputs.manifest.code.head === root.payload.candidateGitSHA &&
     (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) &&
@@ -62,6 +65,7 @@ export function resolvedOutputValid(
   slot: Slot,
   rootId: string,
   snapshot: NonNullable<Slot['action']>['inputs'],
+  histories: readonly DecodedHistory[],
 ): boolean {
   const binding = slot.action
   return (
@@ -71,6 +75,7 @@ export function resolvedOutputValid(
     next.payload.native?.completion === 'completed' &&
     next.payload.native.strict === 'valid' &&
     producerOutputValid(slot.output, next.payload.structured) &&
-    next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured))
+    next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured)) &&
+    authenticateHistoricalActionInputs(snapshot, histories).ok
   )
 }

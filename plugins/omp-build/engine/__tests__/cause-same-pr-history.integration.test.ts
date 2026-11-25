@@ -12,7 +12,7 @@ it.each(['editorial', 'material'] as const)(
   async (kind) =>
     withSamePrNativeWorld(async ({ native }) => {
       const state = await scenario(kind, 1, native)
-      const freshInputs = await state.reviewInputs('fresh-B-review', state.context)
+      const freshInputs = await state.reviewInputs(state.context)
       const source = state.source()
       const own = state.own()
       const head = freshInputs.manifest.code.head
@@ -87,7 +87,7 @@ it.each(['editorial', 'material'] as const)(
         throw new Error(`Expected authenticated A review HEAD: ${JSON.stringify(previous)}`)
       const head = heads[2]
       if (head === undefined) throw new Error('Expected advanced candidate HEAD')
-      const freshInputs = await state.reviewInputs('advanced-B-review', state.context, head)
+      const freshInputs = await state.reviewInputs(state.context, head)
       const accepted = resolveAcceptedSpec(state.initial.mandate, [state.own(), source])
       if (!accepted.ok) throw new Error(`Expected accepted Spec B: ${JSON.stringify(accepted)}`)
       const facts = { ...reviewFacts(head), ...source.source.scope, input: freshInputs.fingerprint }
@@ -123,7 +123,7 @@ it.each(['editorial', 'material'] as const)(
     withSamePrNativeWorld(async ({ native }) => {
       const state = await scenario(kind, 3, native)
       const source = state.source()
-      const freshInputs = await state.reviewInputs('fresh-B-review', state.context)
+      const freshInputs = await state.reviewInputs(state.context)
       const head = freshInputs.manifest.code.head
       const facts = { ...reviewFacts(head), ...source.source.scope, input: freshInputs.fingerprint }
       const result = deriveReviewState(source, facts, state.initial.catalogues, [state.own()])

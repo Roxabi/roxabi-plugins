@@ -14,7 +14,7 @@ import { resolveAcceptedSpec } from '../../engine/workflow-accepted-spec.ts'
 import { recordsOf } from '../../engine/workflow-control.ts'
 import { createOperatorConfirmation } from '../../omp/omp-operator-confirmation.ts'
 import { fixtureCatalogueGhResponse, fixtureReviewClassCatalogues } from '../../testing/action-input-fixtures.ts'
-import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { authenticatedReview, causeFixtureGraph, fixtureCauseGhResponse } from '../../testing/cause-input-fixture.ts'
 import { encodeCriterionRecords } from '../../testing/criterion-approval.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { operatorDialogUi, operatorRootContext } from '../../testing/operator-dialog-ui.ts'
@@ -117,8 +117,8 @@ export async function historicalWorld(confirm: boolean, beforeConfirmation?: () 
     writeAuthor: 'operator',
     writerLogin: 'operator',
     gh: async (_cwd: string, args: string[]) => {
-      const catalogue = fixtureCatalogueGhResponse(args)
-      if (catalogue !== null) return catalogue
+      const pinned = fixtureCatalogueGhResponse(args) ?? fixtureCauseGhResponse(args)
+      if (pinned !== null) return pinned
       const endpoint = args.find((arg) => arg.startsWith('repos/acme/app/issues/')) ?? ''
       const match = /^repos\/acme\/app\/issues\/(\d+)\/comments(?:\?per_page=100&page=(\d+))?$/.exec(endpoint)
       if (args[0] !== 'api' || !match) throw new Error(`Unexpected GH request: ${JSON.stringify(args)}`)

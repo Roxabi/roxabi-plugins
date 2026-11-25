@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Gh } from '../adapters/github/types.ts'
 import type { Result } from '../engine/result.ts'
-import { BLOB_QUERY, catalogueQuery } from '../host/preparation-graphql.cjs'
+import { BLOB_QUERY } from '../host/preparation-graphql.cjs'
 import { actionFailure, isGitSha } from './uw-action-result.ts'
 import type { GitByteRequest } from './uw-git-bytes.ts'
 
@@ -22,7 +22,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function blobOid(parsed: unknown, alias = 'object'): string | 'absent' | 'unreadable' {
+function blobOid(parsed: unknown, expectedCommit: string): string | 'absent' | 'invalid-commit' | 'unreadable' {
   if (
     !record(parsed) ||
     !('data' in parsed) ||
@@ -32,9 +32,11 @@ function blobOid(parsed: unknown, alias = 'object'): string | 'absent' | 'unread
   const data = parsed.data
   if (!record(data) || !('repository' in data)) return 'unreadable'
   const repository = data.repository
-  if (!record(repository) || !(alias in repository)) return 'unreadable'
-  if (repository[alias] === null) return 'absent'
-  const object = repository[alias]
+  if (!record(repository) || !('commit' in repository) || !('object' in repository)) return 'unreadable'
+  const commit = repository.commit
+  if (!record(commit) || commit.__typename !== 'Commit' || commit.oid !== expectedCommit) return 'invalid-commit'
+  if (repository.object === null) return 'absent'
+  const object = repository.object
   if (!record(object) || !('oid' in object) || typeof object.oid !== 'string' || !isGitSha(object.oid)) return 'absent'
   return object.oid
 }
@@ -72,7 +74,7 @@ function jsonBody(raw: string, missing: string, label: string): Result<unknown> 
   }
 }
 
-/** Commit:path blob oid, then that Git blob. Not the Contents API: it follows symlinks. */
+/** Authenticate the commit and its path's blob OID together, then verify the raw Git blob. */
 export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Uint8Array>> {
   const missing = `${request.repository}@${request.commit}:${request.path}`
   const slash = request.repository.indexOf('/')
@@ -89,6 +91,8 @@ export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Ui
       '-f',
       `name=${request.repository.slice(slash + 1)}`,
       '-f',
+      `commit=${request.commit}`,
+      '-f',
       `expression=${request.commit}:${request.path}`,
     ],
     missing,
@@ -96,9 +100,11 @@ export async function readGitHubBlob(request: GitByteRequest): Promise<Result<Ui
   if (!located.ok) return located
   const lookup = jsonBody(located.value, missing, 'blob lookup')
   if (!lookup.ok) return lookup
-  const oid = blobOid(lookup.value)
+  const oid = blobOid(lookup.value, request.commit)
   if (oid === 'unreadable')
     return actionFailure('pinned-file-unreadable', `Cross-repository Git object is unreadable: ${missing}`)
+  if (oid === 'invalid-commit')
+    return actionFailure('pinned-file-incomplete', `Pinned object is not the requested Git commit: ${missing}`)
   if (oid === 'absent') return actionFailure('pinned-file-incomplete', `Pinned path is not a Git blob: ${missing}`)
   return fetchGitHubBlob(request, oid)
 }
@@ -128,128 +134,4 @@ async function fetchGitHubBlob(request: GitByteRequest, oid: string): Promise<Re
   if (bytes === null || gitBlobSha(bytes) !== oid)
     return actionFailure('pinned-file-incomplete', `Pinned blob sha does not match decoded bytes: ${missing}`)
   return { ok: true, value: bytes }
-}
-
-type CatalogueBlob = { oid: string; bytes: Uint8Array | null }
-type BlobMetadata = { byteSize: number; isBinary: boolean | null; isTruncated: boolean; text: string | null }
-
-function blobMetadata(value: unknown): value is BlobMetadata {
-  return (
-    record(value) &&
-    typeof value.byteSize === 'number' &&
-    Number.isSafeInteger(value.byteSize) &&
-    value.byteSize >= 0 &&
-    (value.isBinary === null || typeof value.isBinary === 'boolean') &&
-    typeof value.isTruncated === 'boolean' &&
-    (value.text === null || typeof value.text === 'string')
-  )
-}
-
-function catalogueBlob(lookup: unknown, alias: string, request: GitByteRequest): Result<CatalogueBlob> {
-  const oid = blobOid(lookup, alias)
-  const path = `${request.repository}@${request.commit}:${request.path}`
-  if (oid === 'unreadable')
-    return actionFailure('pinned-file-unreadable', `Cross-repository Git object is unreadable: ${path}`)
-  if (oid === 'absent') return actionFailure('pinned-file-incomplete', `Pinned path is not a Git blob: ${path}`)
-  const data = record(lookup) ? lookup.data : null
-  const repository = record(data) ? data.repository : null
-  const object = record(repository) ? repository[alias] : null
-  if (!blobMetadata(object))
-    return actionFailure('pinned-file-incomplete', `Pinned blob metadata is incomplete: ${path}`)
-  if (object.isBinary !== false || object.isTruncated) return { ok: true, value: { oid, bytes: null } }
-  if (typeof object.text !== 'string')
-    return actionFailure('pinned-file-incomplete', `Pinned blob text is incomplete: ${path}`)
-  const bytes = Buffer.from(object.text, 'utf8')
-  if (bytes.toString('utf8') !== object.text || bytes.byteLength !== object.byteSize || gitBlobSha(bytes) !== oid)
-    return actionFailure('pinned-file-incomplete', `Pinned blob sha does not match decoded bytes: ${path}`)
-  return { ok: true, value: { oid, bytes } }
-}
-
-async function lookupCatalogue(requests: readonly GitByteRequest[]): Promise<Result<readonly CatalogueBlob[]>> {
-  const first = requests[0]
-  const query = catalogueQuery(requests.length)
-  const slash = first.repository.indexOf('/')
-  const missing = `${first.repository}@${first.commit}`
-  const located = await ghText(
-    first.gh,
-    first.cwd,
-    [
-      'api',
-      'graphql',
-      '-f',
-      `query=${query}`,
-      '-f',
-      `owner=${first.repository.slice(0, slash)}`,
-      '-f',
-      `name=${first.repository.slice(slash + 1)}`,
-      ...requests.flatMap((request, index) => ['-f', `e${index}=${request.commit}:${request.path}`]),
-    ],
-    missing,
-  )
-  if (!located.ok) return located
-  const lookup = jsonBody(located.value, missing, 'blob lookup')
-  if (!lookup.ok) return lookup
-  if (record(lookup.value) && Array.isArray(lookup.value.errors) && lookup.value.errors.length > 0)
-    return actionFailure(
-      'pinned-file-unreadable',
-      `GitHub blob lookup failed for ${missing}: ${JSON.stringify(lookup.value.errors)}`,
-    )
-  const blobs: CatalogueBlob[] = []
-  for (const [index, request] of requests.entries()) {
-    const blob = catalogueBlob(lookup.value, `f${index}`, request)
-    if (!blob.ok) return blob
-    blobs.push(blob.value)
-  }
-  return { ok: true, value: blobs }
-}
-
-async function materializeCatalogue(
-  requests: readonly GitByteRequest[],
-  blobs: readonly CatalogueBlob[],
-): Promise<Result<readonly Uint8Array[]>> {
-  const bytes: Uint8Array[] = []
-  for (const [index, request] of requests.entries()) {
-    const blob = blobs[index]
-    if (blob.bytes !== null) {
-      bytes.push(blob.bytes)
-      continue
-    }
-    const raw = await fetchGitHubBlob(request, blob.oid)
-    if (!raw.ok) return raw
-    bytes.push(raw.value)
-  }
-  return { ok: true, value: bytes }
-}
-
-async function commitBarrier(first: GitByteRequest): Promise<Result<true>> {
-  const missing = `${first.repository}@${first.commit}`
-  const barrier = await ghText(
-    first.gh,
-    first.cwd,
-    [
-      'api',
-      '--method',
-      'GET',
-      `repos/${first.repository}/git/commits/${first.commit}`,
-      '-H',
-      'Accept: application/vnd.github+json',
-    ],
-    missing,
-  )
-  if (!barrier.ok) return barrier
-  const commit = jsonBody(barrier.value, missing, 'commit response')
-  if (!commit.ok) return commit
-  if (!record(commit.value) || commit.value.sha !== first.commit)
-    return actionFailure('pinned-file-incomplete', `Pinned commit sha does not match: ${missing}`)
-  return { ok: true, value: true }
-}
-
-export async function readGitHubBlobs(requests: readonly GitByteRequest[]): Promise<Result<readonly Uint8Array[]>> {
-  const lookup = await lookupCatalogue(requests)
-  if (!lookup.ok) return lookup
-  const bytes = await materializeCatalogue(requests, lookup.value)
-  if (!bytes.ok) return bytes
-  const barrier = await commitBarrier(requests[0])
-  if (!barrier.ok) return barrier
-  return bytes
 }

@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { encodeRecord } from '../adapters/github/history-codec.ts'
 import type { Gh } from '../adapters/github/types.ts'
+import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
+import type { ActionInputManifest, ActionInputs, RecordInputRef } from '../engine/action-input-schema.ts'
 import { buildRecord } from '../engine/record-construction.ts'
+import type { ExternalRecordRef } from '../engine/record-references.ts'
 import type { Scope } from '../engine/record-values.ts'
+import { resolveSpecEffective } from '../engine/spec-effective.ts'
 import { historyFor, type MandateRecord } from '../engine/workflow-control.ts'
 import { planMacro } from '../engine/workflow-plan-macro.ts'
 import { ACTION_RECEIPT_FORMAT, type ActionReceiptPayload } from '../engine/workflow-receipt-schema.ts'
-import type { PreparedUwAction, UwActionRequest } from '../roxabi/uw-action-contract.ts'
-import { integrationProofInputs } from '../roxabi/uw-action-stage-closure.ts'
 import type { UwOperations, UwRead } from '../roxabi/uw-contract.ts'
+import { acceptedActionInputs } from './action-input-fixtures.ts'
+import { pinAcceptedSources } from './workflow-record-pins.ts'
 
 export type HistoryWorld = { cwd: string; gh: Gh; operations: UwOperations }
 
@@ -64,53 +68,72 @@ export function historicalPlan(read: UwRead, scope: Scope, mandate: MandateRecor
   )
 }
 
-export async function prepareHistoricalAction(
-  world: HistoryWorld,
-  scope: Scope,
-  input: Omit<UwActionRequest, 'subject' | 'expandedContext' | 'stageSources'> &
-    Partial<Pick<UwActionRequest, 'stageSources'>>,
-): Promise<PreparedUwAction> {
-  const prepared = await world.operations.prepareAction({
-    stageSources: [],
-    expandedContext: [],
-    ...input,
-    subject: { kind: 'uw', uw: scope, pullRequest: null, binding: null },
+export function historicalAcceptedInputs(
+  read: UwRead,
+  mandate: MandateRecord,
+  purpose: ActionInputManifest['purpose'],
+  code: ActionInputManifest['code'],
+  operands?: ActionInputManifest['operands'],
+): ActionInputs {
+  if (read.accepted.status !== 'accepted' || read.observation.status !== 'complete')
+    throw new Error(`Historical ${purpose} fixture has no accepted Spec: ${read.uw.target}`)
+  const accepted = read.accepted.value
+  const effective = resolveSpecEffective({
+    mode: 'current',
+    own: accepted.ref,
+    histories: read.observation.histories,
+    graph: read.observation.graph,
   })
-  if (!prepared.ok)
-    throw new Error(`Historical ${input.purpose} inputs unavailable: ${JSON.stringify(prepared.diagnostics)}`)
-  return prepared.value
+  if (!effective.ok) throw new Error(`Historical ${purpose} effective Spec unavailable: ${JSON.stringify(effective)}`)
+  const inputs = acceptedActionInputs(mandate, purpose, effective.value, code)
+  const pins = pinAcceptedSources(read.observation.histories, [
+    ...accepted.sourceRefs,
+    ...[accepted.ref, ...accepted.inheritedOwnSpecRefs].map((item) => item.sourceAccepted),
+  ])
+  if (!pins.ok) throw new Error(`Historical ${purpose} source pins unavailable: ${JSON.stringify(pins)}`)
+  const manifest = {
+    ...inputs.manifest,
+    acceptedSources: pins.value,
+    ...(operands === undefined ? {} : { operands }),
+  }
+  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
 }
 
-export async function openHistoricalDelivery(input: {
-  world: HistoryWorld
-  scope: Scope
-  mandate: MandateRecord
-  read: UwRead
-  action: 'implement' | 'integrate'
-  code: UwActionRequest['code']
-}) {
+export async function openHistoricalDelivery(
+  input: {
+    world: HistoryWorld
+    scope: Scope
+    mandate: MandateRecord
+    read: UwRead
+    code: ActionInputManifest['code']
+  } & ({ action: 'implement' } | { action: 'integrate'; childProofs: readonly ExternalRecordRef[] }),
+) {
   const { world, scope, mandate, read, action, code } = input
   const plan = historicalPlan(read, scope, mandate)
   const planActionId = plan.amendmentActionId ?? plan.draftActionId
   if (plan.phase !== 'eligible' || planActionId === null) throw new Error(`${action} fixture needs an eligible plan`)
   const actionId = randomUUID()
   const exactInputs = { mandateId: mandate.recordId, planActionId }
-  const closure = action === 'integrate' ? integrationProofInputs(read) : null
-  if (closure !== null && !closure.ok)
-    throw new Error(`Integration proof is unavailable: ${JSON.stringify(closure.diagnostics)}`)
-  const prepared = await prepareHistoricalAction(world, scope, {
-    actionId,
-    purpose: action,
+  const inputs = historicalAcceptedInputs(
+    read,
+    mandate,
+    action,
     code,
-    ...(closure === null
-      ? {}
-      : { operands: { action: 'integrate', exactInputs }, stageSources: closure.value.stageSources }),
-  })
+    action === 'integrate' ? { action, exactInputs } : undefined,
+  )
+  let stageSources: RecordInputRef[] = []
+  if (input.action === 'integrate') {
+    const stage = pinAcceptedSources(read.histories, input.childProofs)
+    if (!stage.ok) throw new Error(`Historical integration child pins unavailable: ${JSON.stringify(stage)}`)
+    const parentPins = new Set(inputs.manifest.acceptedSources.map(canonicalValueDigest))
+    stageSources = stage.value.filter((pin) => !parentPins.has(canonicalValueDigest(pin)))
+    if (stageSources.length === 0) throw new Error('Historical integration lacks child proof')
+  }
   const authority = {
     action,
     actionId,
     mandate: { scope, kind: 'mandate' as const, recordId: mandate.recordId },
-    inputs: prepared.inputs,
+    inputs: { ...inputs, stageSources },
     exactInputs,
   }
   const start = await appendNativeReceipt(world, scope, { ...authority, phase: 'start' })

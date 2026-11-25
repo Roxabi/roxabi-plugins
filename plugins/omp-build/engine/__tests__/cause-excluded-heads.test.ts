@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
 import { rawSource } from '../../adapters/github-native/uw-spec.ts'
-import { causeActionData } from '../../roxabi/uw-action-cause-data.ts'
-import type { UwActionRequest } from '../../roxabi/uw-action-contract.ts'
+import { observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
+import { causeEvidence as citation, observeCauseFixtureEvidence } from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -59,13 +59,6 @@ function fixtureHolds(
     waits: projectUwWaits({ graph: nativeGraph, histories, catalogues }),
     dependencies: new Map(),
   })
-}
-const citation = {
-  source: 'git-file' as const,
-  repository: uw.repository,
-  commit: '1'.repeat(40),
-  path: 'src/region.ts',
-  digest: 'a'.repeat(64),
 }
 
 function mixedFixture(includeExclusion = true) {
@@ -175,6 +168,8 @@ function mixedFixture(includeExclusion = true) {
               : entry,
     ),
   }
+  observeCauseFixtureEvidence(source)
+  observeFixtureCatalogue(source)
   let own = fixtures.historyFrom([mandate])
   const context = { original: uw, effective: inputs.manifest.spec.effective }
   const assessment = must(
@@ -255,15 +250,7 @@ function mixedFixture(includeExclusion = true) {
   )
   if (head.kind !== 'cause-disposition') throw new Error('Expected report')
   own = appendAccountedRecords(own, [head])
-  const request: UwActionRequest = {
-    actionId: 'fresh-review',
-    purpose: 'review',
-    subject: inputs.manifest.subject,
-    code: inputs.manifest.code,
-    stageSources: [],
-    expandedContext: [],
-  }
-  return { own, source, pending, head, adjudication, request, catalogues }
+  return { own, source, pending, head, adjudication, catalogues }
 }
 
 it('consumes the authenticated excluded-only report after rejecting the actionable member', () => {
@@ -276,9 +263,6 @@ it('consumes the authenticated excluded-only report after rejecting the actionab
   const heads = must(readCauseDispositionHeads({ uw, histories, catalogues: fixture.catalogues }))
   expect(heads.map((head) => head.recordId)).toEqual([fixture.head.recordId])
   expect(fixtureHolds(histories, fixture.catalogues)).toEqual([])
-  expect(
-    must(causeActionData(fixture.request, histories, [], fixture.catalogues)).map((pin) => pin.record.recordId),
-  ).toEqual(expect.arrayContaining([fixture.pending.recordId, fixture.adjudication.recordId, fixture.head.recordId]))
   const reports = must(readCauseReports({ root: uw, subtree: [uw], histories: [fixture.own] }))
   expect(reports.reports.map((report) => report.ref.recordId)).toEqual([fixture.head.recordId])
 })
@@ -303,7 +287,6 @@ it('refuses a forged report that clears a surviving actionable finding and missi
   const histories = [own, fixture.source]
   expect(readCauseDispositionHeads({ uw, histories, catalogues: fixture.catalogues }).ok).toBe(false)
   expect(fixtureHolds(histories, fixture.catalogues).length).toBeGreaterThan(0)
-  expect(causeActionData(fixture.request, histories, [], fixture.catalogues).ok).toBe(false)
   // Retained ledger display does not establish that the initial outcome was semantically valid.
   expect(
     must(readCauseReports({ root: uw, subtree: [uw], histories: [own] })).reports.map((report) => report.ref.recordId),
@@ -325,7 +308,6 @@ it('refuses omitted confirmation and competing successor instead of clearing a h
     const histories = [own, fixture.source]
     expect(readCauseDispositionHeads({ uw, histories, catalogues: fixture.catalogues }).ok).toBe(false)
     expect(fixtureHolds(histories, fixture.catalogues).length).toBeGreaterThan(0)
-    expect(causeActionData(fixture.request, histories, [], fixture.catalogues).ok).toBe(false)
     expect(readCauseReports({ root: uw, subtree: [uw], histories: [own] }).ok).toBe(false)
   }
 })

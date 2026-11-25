@@ -33,14 +33,7 @@ import type { SpecDraft, SpecRawSource, UwTier } from '../engine/uw-spec.ts'
 import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
 import type { PreparedMaterialAcceptance } from '../engine/workflow-spec-assessment.ts'
-import type {
-  ActionInputs,
-  CorrectionRootRef,
-  PreparedToolingPinActivation,
-  PreparedUwAction,
-  SelectedReview,
-  UwActionRequest,
-} from './uw-action-contract.ts'
+import type { PreparedToolingPinActivation } from './plugin-pin-contract.ts'
 import type { CauseAdjustmentResult } from './uw-cause-adjustment.ts'
 import type { UwDeliveryRead } from './uw-delivery-read.ts'
 import type { FramingOperations, PreparedFramingProposal } from './uw-framing-contract.ts'
@@ -106,9 +99,7 @@ export type PreparedUwAbandon = {
     operationId: string
     uw: Scope
     mandate: ExternalRecordRef & { kind: 'mandate' }
-    accepted: OwnSpecRef
-    historyDigest: string
-    nativeDigest: string
+    mandateDigest: string
   }
   digest: string
 }
@@ -212,16 +203,5 @@ export interface UwOperations extends UwReadPort {
   reopen(uw: Scope): Promise<UwOperationResult>
   abandon(uw: Scope, expectedMandate?: ExternalRecordRef & { kind: 'mandate' }): Promise<UwOperationResult>
   acceptMaterial(uw: Scope): Promise<UwOperationResult>
-  prepareAction(
-    input: UwActionRequest,
-    review?: SelectedReview,
-    correctionRoot?: CorrectionRootRef,
-  ): Promise<Result<PreparedUwAction>>
-  replayActionInputs(input: {
-    reviewed: ActionInputs
-    request: UwActionRequest
-    reviewedRoot?: SelectedReview['root']
-    correctionRoot?: CorrectionRootRef
-  }): Promise<Result<ActionInputs>>
   readDelivery(uw: Scope): Promise<UwResult<UwDeliveryRead>>
 }

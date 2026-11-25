@@ -2,12 +2,12 @@ import { type DecodedHistory, resolveAcceptedSpec, selectApplicableMandate } fro
 import type { MandateRecord } from '../../engine/workflow-control.ts'
 import type { WorkflowCausalContext } from '../../engine/workflow-plan.ts'
 import { readFreshUwCausalContext } from '../../roxabi/fix-uw-histories.ts'
-import { confirmedEpicMandate, evidenceText, localInhibit } from './epic-driver-authority'
+import { confirmedEpicMandate, evidenceText } from './epic-driver-authority'
 import { discoverAcceptedChildPrs, discoverOwnPrs } from './epic-driver-containment'
 import { adapterOptions, issueHistory, parentMandateHistories, repoName } from './epic-driver-github'
 import { Assisted, Refused } from './epic-driver-runtime'
 
-export type EpicControlState = 'active' | 'paused' | 'abandoned' | 'revoked'
+export type EpicControlState = 'active' | 'abandoned' | 'revoked'
 
 /** Authenticated epic mandate for control only. Not a continuation or branch-switch grant. */
 export type EpicControlTarget = {
@@ -54,16 +54,7 @@ function selectedControlTarget(
   epic: number,
 ): { mandate: MandateRecord; control: EpicControlState } {
   const selected = selectApplicableMandate(history, external, causal)
-  if (selected.status === 'applicable') {
-    const inhibit = localInhibit(history, selected.mandate.recordId)
-    const control = inhibit === 'abandon' ? 'abandoned' : inhibit === 'pause' ? 'paused' : 'active'
-    return { mandate: selected.mandate, control }
-  }
-  if (selected.reason === 'paused') {
-    const mandate = mandateWithId(history, selected.pause.mandate.recordId)
-    if (mandate === null) throw new Refused(`epic #${epic} paused mandate record is not intact`)
-    return { mandate, control: 'paused' }
-  }
+  if (selected.status === 'applicable') return { mandate: selected.mandate, control: 'active' }
   if (selected.reason === 'abandoned' || selected.reason === 'revoked') {
     const mandate = namedTerminalMandate(history, selected.reason)
     if (mandate === null) throw new Refused(`epic #${epic} ${selected.reason} mandate record is not intact`)
@@ -74,9 +65,8 @@ function selectedControlTarget(
 }
 
 /**
- * The intact normal mandate, including when continuation is paused, abandoned,
- * or revoked. It reads the authenticated accepted child projection but does not
- * authorize a delivery step or a branch switch.
+ * The intact normal mandate, including when abandoned or revoked. It reads
+ * the authenticated child projection but does not authorize delivery or branch switching.
  */
 export async function readEpicControlTarget(repo: string, epic: number): Promise<EpicControlTarget> {
   const { full } = repoName(repo)

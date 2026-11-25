@@ -61,7 +61,7 @@ async function integrate(context: IntegrationContext, args: IntegrationArgs) {
   const produced = await produceParentIntegration(request, context.git, integrationCheckout(context, base, head))
   const admitted = admittedIntegration(produced, scope)
   const row = integrationVerdict(context, scope, mandate, admitted)
-  const review = await publishIntegrationReview(context, scope, head, admitted, row)
+  const review = await publishIntegrationReview(context, scope, head, mandate, admitted, row)
   return integrationOutcome(admitted, review)
 }
 

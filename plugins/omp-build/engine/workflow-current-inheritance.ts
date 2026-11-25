@@ -7,14 +7,12 @@ import type { OwnSpecRef } from './uw-spec-schema.ts'
 import { resolveAcceptedSpec } from './workflow-accepted-spec.ts'
 import { historyFor } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
-import type { AssessmentReplayContext } from './workflow-spec-authentication.ts'
 
 /** Capture current authenticated ancestors without requiring the child's outdated own commitment to match. */
 export function resolveCurrentInheritedOwnSpecRefs(
   uw: Scope,
   graph: UwGraphObservation,
   histories: readonly DecodedHistory[],
-  assessmentReplay?: AssessmentReplayContext,
 ): UwResult<OwnSpecRef[]> {
   const invalid = (message: string): UwResult<OwnSpecRef[]> => ({
     ok: false,
@@ -45,7 +43,7 @@ export function resolveCurrentInheritedOwnSpecRefs(
     const mandate = selectedMandate(history)
     if (!('kind' in mandate) || mandate.kind !== 'mandate')
       return invalid('A native ancestor has no uniquely active mandate')
-    const accepted = resolveAcceptedSpec(mandate, histories, assessmentReplay)
+    const accepted = resolveAcceptedSpec(mandate, histories)
     if (!accepted.ok) return invalid('A native ancestor accepted Spec cannot be authenticated')
     ancestors.push({ ref: accepted.spec.ref, inherited: accepted.spec.inheritedOwnSpecRefs })
     parent = native.parent

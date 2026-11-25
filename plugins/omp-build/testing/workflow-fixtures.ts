@@ -8,6 +8,7 @@ import type { RecordProjectionConfig } from '../engine/result.ts'
 import type { OwnSpecRef } from '../engine/uw-spec-schema.ts'
 import type { MandateRecord } from '../engine/workflow-control.ts'
 import type { ParentCoverage } from '../engine/workflow-mandate-schema.ts'
+import { observeFixtureCatalogue } from './action-input-fixtures.ts'
 import {
   type ApprovedChild,
   createWorkflowSpecFixtures,
@@ -210,21 +211,23 @@ export function createWorkflowFixtures(context: WorkflowFixtureContext) {
     const first = completeRecords[0]
     if (first === undefined) throw new Error('a history needs at least one record')
     const bodies = framedBodies(completeRecords, author, externalHistories)
-    return decodeHistory({
-      scope: { repository: first.repository, target: first.target },
-      expectedAuthor,
-      stopAuthor: null,
-      complete: true,
-      comments: bodies.map((body, index) => ({
-        locator: `${first.target}:comment:${index + 1}`,
-        nativeId: String(index + 1),
-        body,
-        author,
-        createdAt: context.editedAt,
-        updatedAt: context.editedAt,
-      })),
-      diagnostics: [],
-    })
+    return observeFixtureCatalogue(
+      decodeHistory({
+        scope: { repository: first.repository, target: first.target },
+        expectedAuthor,
+        stopAuthor: null,
+        complete: true,
+        comments: bodies.map((body, index) => ({
+          locator: `${first.target}:comment:${index + 1}`,
+          nativeId: String(index + 1),
+          body,
+          author,
+          createdAt: context.editedAt,
+          updatedAt: context.editedAt,
+        })),
+        diagnostics: [],
+      }),
+    )
   }
   const linkedLandingAuthority = (input: {
     repository: string

@@ -10,8 +10,8 @@ import {
   type FramingSourceRequest,
 } from '../roxabi/feature-framing-contract.ts'
 import { createFeatureFramingController } from '../roxabi/feature-framing-controller.ts'
-import type { TrustedHostPluginPin } from '../roxabi/uw-action-contract.ts'
-import { createProductionInputPorts } from '../roxabi/uw-input-readers.ts'
+import type { TrustedHostPluginPin } from '../roxabi/plugin-pin-contract.ts'
+import { createFramingProcedurePorts } from '../roxabi/uw-input-readers.ts'
 import { defaultGit } from '../roxabi/workflow-checkout.ts'
 import { resolveFeatureUw } from './host-uw-operations.ts'
 import type { OmpBuildExtensionApi } from './omp-controller.ts'
@@ -79,9 +79,7 @@ export function installFeatureFramingRuntime(
   const gh = options.framing?.gh ?? defaultGh()
   const git = options.framing?.git ?? defaultGit()
   const procedurePorts: FeatureFramingControllerHost['procedurePorts'] =
-    options.framing?.procedurePorts ??
-    (({ cwd, pluginPin }) =>
-      createProductionInputPorts({ cwd, gh, git, ...(pluginPin === undefined ? {} : { pluginPin }) }))
+    options.framing?.procedurePorts ?? (({ cwd, pluginPin }) => createFramingProcedurePorts({ cwd, gh, pluginPin }))
   const controller: FramingController = createFeatureFramingController({
     owner: {
       extensionInstanceId: featureOperationInstanceId(pi),
@@ -98,7 +96,7 @@ export function installFeatureFramingRuntime(
     },
     procedurePorts,
     operator: (ctx) => createOperatorConfirmation(ctx, { escape: 'defer' }),
-    uw: ({ ctx, operator, pluginPin }) => resolveFeatureUw(ctx, operator, options.uwOperations, pluginPin),
+    uw: ({ ctx, operator }) => resolveFeatureUw(ctx, operator, options.uwOperations),
     gh,
     git,
     continueFeature,

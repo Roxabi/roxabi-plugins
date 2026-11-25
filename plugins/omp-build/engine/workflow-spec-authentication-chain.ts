@@ -1,10 +1,10 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { authenticateHistoricalReceiptStart } from './historical-receipt-pair.ts'
 import type { DecodedHistory } from './history-schema.ts'
-import { sameRef } from './record-diagnostics.ts'
+import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import type { AcceptedSpecResult } from './workflow-accepted-spec-types.ts'
-import { bindExternalRef, historyFor } from './workflow-control.ts'
+import { historyFor } from './workflow-control.ts'
 import {
   type AssessResultRecord,
   isAssessResult,
@@ -30,52 +30,24 @@ function mismatchedStart(): SpecChainFailure {
   return specChainFailure('incomplete', 'Spec assessment start does not match its result', 'unconfirmed')
 }
 
-function authenticateStart(
-  confirmed: AssessResultRecord,
-  histories: readonly DecodedHistory[],
-  mandateRef: ExternalRecordRef,
-): SpecChainFailure | { ok: true } {
-  const startHistory = historyFor(confirmed.payload.start.scope, histories)
-  if (startHistory === null) return specChainFailure('incomplete', 'Spec assessment start is unresolved', 'unconfirmed')
-  const start = bindExternalRef(confirmed.payload.start, startHistory)
-  if (!start.ok) return specChainFailure('incomplete', 'Spec assessment start is unresolved', 'unconfirmed')
-  if (start.value.kind !== 'action-receipt') return mismatchedStart()
-  const startPayload = start.value.payload
-  if (startPayload.action !== 'assess-spec' || startPayload.phase !== 'start') return mismatchedStart()
-  if (startPayload.actionId !== confirmed.payload.actionId) return mismatchedStart()
-  if (!sameRef(startPayload.mandate, mandateRef)) return mismatchedStart()
-  if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs)) return mismatchedStart()
-  if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
+function authenticatedRecord(assessed: AssessResultRecord, histories: readonly DecodedHistory[]): Authentication {
+  const home = historyFor(assessed, histories)
+  if (home === null) return specChainFailure('missing-history', 'Spec assessment history is missing')
+  if (assessed.payload.native.completion !== 'completed' || assessed.payload.native.strict !== 'valid')
+    return specChainFailure('incomplete', 'Spec assessment is not a confirmed native result', 'unconfirmed')
+  const paired = authenticateHistoricalReceiptStart(home, assessed, histories)
+  if (!paired.ok) {
+    if (paired.stage === 'start')
+      return specChainFailure('incomplete', 'Spec assessment start is unresolved', 'unconfirmed')
+    if (paired.stage === 'result' || paired.stage === 'manifest')
+      return boundFailure(paired.diagnostics.length > 1 ? paired.diagnostics.slice(1) : paired.diagnostics)
     return mismatchedStart()
-  if (!validateActionInputs(confirmed.payload.inputs).ok) return mismatchedStart()
+  }
+  const confirmed = paired.value.result
+  if (!isAssessResult(confirmed)) return specChainFailure('incomplete', 'Spec assessment is not a result')
   const operands = confirmed.payload.inputs.manifest.operands
   if (operands?.action !== 'assess-spec' || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
     return mismatchedStart()
-  return { ok: true }
-}
-
-function authenticatedRecord(
-  assessed: AssessResultRecord,
-  histories: readonly DecodedHistory[],
-  mandateRef: ExternalRecordRef,
-): Authentication {
-  const home = historyFor({ repository: assessed.repository, target: assessed.target }, histories)
-  if (home === null) return specChainFailure('missing-history', 'Spec assessment history is missing')
-  const bound = bindExternalRef(
-    {
-      scope: { repository: assessed.repository, target: assessed.target },
-      recordId: assessed.recordId,
-      kind: assessed.kind,
-    },
-    home,
-  )
-  if (!bound.ok) return boundFailure(bound.diagnostics)
-  if (!isAssessResult(bound.value)) return specChainFailure('incomplete', 'Spec assessment is not a result')
-  const confirmed = bound.value
-  if (confirmed.payload.native.completion !== 'completed' || confirmed.payload.native.strict !== 'valid')
-    return specChainFailure('incomplete', 'Spec assessment is not a confirmed native result', 'unconfirmed')
-  const start = authenticateStart(confirmed, histories, mandateRef)
-  if (!start.ok) return start
   return { ok: true, record: confirmed }
 }
 
@@ -88,5 +60,6 @@ export function authenticatedAssessResult(
   const assessed = record
   if (!sameRef(assessed.payload.mandate, mandateRef))
     return specChainFailure('ambiguous', 'Spec assessment names a different mandate')
-  return authenticatedRecord(assessed, histories, mandateRef)
+  if (!equalScope(assessed, mandateRef.scope)) return mismatchedStart()
+  return authenticatedRecord(assessed, histories)
 }

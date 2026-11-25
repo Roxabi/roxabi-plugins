@@ -14,6 +14,7 @@ type NativeTransportInput = {
   repository: string
   originUrl?: string
   epic?: NativeEpicFacts
+  gitBlobResponse?: (args: readonly string[]) => string | null
   author: string
   histories: NativeWorldFacts['histories']
   authorization?: NativeWorldFacts['authorization']
@@ -168,6 +169,7 @@ export function createNativeImplementationTransport(input: NativeTransportInput)
     const responders = [
       () => authorizationResponse(cwd, args),
       () => fixtureCatalogueGhResponse(args) ?? undefined,
+      () => input.gitBlobResponse?.(args) ?? undefined,
       () => identityResponse(args),
       () => pullIssueResponse(args),
       () => nativeEpicResponse(args, repository, graph, pulls, commits, input.epic),

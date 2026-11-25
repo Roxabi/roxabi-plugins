@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 import { parseIssueSpecBody, rawSource, renderIssueSpecBody } from '../../adapters/github-native/uw-spec.ts'
-import { authenticatedReview, causeFixtureGraph } from '../../testing/cause-input-fixture.ts'
+import { observeFixtureCatalogue } from '../../testing/action-input-fixtures.ts'
+import {
+  authenticatedReview,
+  causeFixtureGraph,
+  observeCauseFixtureEvidence,
+} from '../../testing/cause-input-fixture.ts'
 import { synthesisActionCapture } from '../../testing/criterion-dispositions.ts'
 import { submission } from '../../testing/record-builders.ts'
 import { acceptedPullRequestReviewGraph } from '../../testing/record-graphs.ts'
@@ -176,16 +181,19 @@ export function lineageFixture(
     const captured = recordsOf(source).find((record) => record.recordId === decision.recordId)
     if (captured?.kind !== 'decision') throw new Error('Expected captured A decision')
     decision = captured
+  } else {
+    observeCauseFixtureEvidence(source)
+    observeFixtureCatalogue(source)
   }
   let own = capture?.authorityHistory ?? fixtures.historyFrom([mandate])
-  const inputs = must(resolveCauseActionInputs({ decision, history: source, context }))
+  const inputs = must(resolveCauseActionInputs({ decision, history: source, histories: [own, source], context }))
   const citation = inputs.flatMap((input) => input.manifest.repositoryReferences)[0]
   if (!citation) throw new Error('Expected pinned evidence')
   const assess = (adjudications: Extract<CanonicalRecord, { kind: 'cause-operation' }>[]) =>
     must(
       assessCauseDispositions({
         context,
-        capture: synthesisActionCapture(decision, [source]),
+        capture: synthesisActionCapture(decision, [own, source]),
         graph: causeFixtureGraph(body),
         source: { kind: 'decision', decision },
         histories: [own, source],

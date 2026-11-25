@@ -4,7 +4,7 @@ import { FRAMING_PROCEDURE_FILES } from '../engine/framing-context-schema.ts'
 import { projectFramingContext } from '../omp/omp-feature-framing-context.ts'
 import { createFramingEffectGuard } from './feature-framing-effect-guard.ts'
 import { framingProcedureText, loadFramingProcedures, verifyFramingProcedures } from './feature-framing-procedures.ts'
-import type { PinnedFileRef } from './uw-action-contract.ts'
+import type { PinnedFileRef } from './plugin-pin-contract.ts'
 
 const pin = {
   name: 'omp-build' as const,
